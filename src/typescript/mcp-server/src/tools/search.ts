@@ -14,6 +14,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { SERVER_VERSION as MCP_SERVER_VERSION } from '../server-types.js';
 
 // Re-export all types so existing imports from './search.js' continue to work
 export type {
@@ -150,16 +151,15 @@ export class SearchTool {
     query: string,
     limit: number,
     scope: import('./search-types.js').SearchScope,
-    projectId: string | undefined
+    projectId: string | undefined,
+    eventId: string
   ): Promise<{
-    eventId: string;
     searchStartMs: number;
     currentProjectId: string | undefined;
     basePoints: string[] | undefined;
     basePointsDegraded: boolean;
     basePointsActiveCount: number | undefined;
   }> {
-    const eventId = randomUUID();
     const searchStartMs = Date.now();
     const resolution = await resolveProjectContext(
       projectId,
@@ -176,7 +176,6 @@ export class SearchTool {
       tag: options.tag,
     });
     return {
-      eventId,
       searchStartMs,
       currentProjectId: resolution.currentProjectId,
       basePoints: resolution.basePoints,
@@ -189,13 +188,35 @@ export class SearchTool {
     // Single shaping pass at the outer boundary keeps the budget-cap
     // logic in one place and applies to every exit (exact, fallback,
     // and normal pipeline) without sprinkling it through helpers.
-    const response = await this.executeSearch(options);
-    return shapeHitPayloads(response, options);
+    // The eventId is generated here so the post-shape token-economy
+    // update can attribute metrics to the same search_events row that
+    // the inner pipeline already wrote/updated. Spec:
+    // docs/specs/20-token-economy-instrumentation.md
+    const eventId = randomUUID();
+    const response = await this.executeSearch(options, eventId);
+    const { response: shaped, metrics } = shapeHitPayloads(response, options);
+    this._stateManager.updateSearchEventEconomy(eventId, {
+      bytesIn: metrics.bytesInShaped,
+      bytesOut: metrics.bytesOutShaped,
+      hitsTruncated: metrics.hitsTruncated,
+      shapeMode: metrics.mode,
+      toolVersion: MCP_SERVER_VERSION,
+    });
+    return shaped;
   }
 
-  private async executeSearch(options: SearchOptions): Promise<SearchResponse> {
+  private async executeSearch(
+    options: SearchOptions,
+    eventId: string
+  ): Promise<SearchResponse> {
     if (options.exact) {
-      return searchExact(this.daemonClient, this._stateManager, this.projectDetector, options);
+      return searchExact(
+        this.daemonClient,
+        this._stateManager,
+        this.projectDetector,
+        options,
+        eventId
+      );
     }
     const mode = options.mode ?? 'hybrid';
     const limit = options.limit ?? DEFAULT_LIMIT;
@@ -206,13 +227,19 @@ export class SearchTool {
       options.includeLibraries ?? false
     );
     const {
-      eventId,
       searchStartMs,
       currentProjectId,
       basePoints,
       basePointsDegraded,
       basePointsActiveCount,
-    } = await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
+    } = await this.resolveContextAndLog(
+      options,
+      options.query,
+      limit,
+      scope,
+      options.projectId,
+      eventId
+    );
     const embeddings = await this.prepareEmbeddings(
       options,
       options.query,

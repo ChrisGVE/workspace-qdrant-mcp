@@ -216,6 +216,13 @@ export class SqliteStateManager {
     searchEventQueries.updateSearchEvent(this.daemonClient, eventId, update);
   }
 
+  updateSearchEventEconomy(
+    eventId: string,
+    update: searchEventQueries.SearchEventEconomyInput
+  ): void {
+    searchEventQueries.updateSearchEventEconomy(this.daemonClient, eventId, update);
+  }
+
   // ── Tag/basket queries (delegated) ────────────────────────────────────
 
   getMatchingTags(query: string, collection: string, tenantId?: string) {

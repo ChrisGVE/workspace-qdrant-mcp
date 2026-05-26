@@ -32,6 +32,18 @@ export interface SearchEventUpdate {
 }
 
 /**
+ * Token-economy metrics from the post-execution shaping pass.
+ * Spec: docs/specs/20-token-economy-instrumentation.md
+ */
+export interface SearchEventEconomyInput {
+  bytesIn: number;
+  bytesOut: number;
+  hitsTruncated: number;
+  shapeMode: 'truncate' | 'summary' | 'none';
+  toolVersion?: string | undefined;
+}
+
+/**
  * Log a search event via daemon gRPC.
  *
  * Called at the start of a search to create the initial record.
@@ -114,6 +126,42 @@ export function updateSearchEvent(
     // Instrumentation must never break search, but log for diagnostics
     console.warn(
       'updateSearchEvent instrumentation failed:',
+      err instanceof Error ? err.message : err
+    );
+  });
+}
+
+/**
+ * Record token-economy metrics for a previously logged search event.
+ * Fire-and-forget: errors are swallowed so instrumentation never blocks
+ * the search response.
+ */
+export function updateSearchEventEconomy(
+  daemonClient: DaemonClient | null,
+  eventId: string,
+  update: SearchEventEconomyInput
+): void {
+  if (!daemonClient) return;
+
+  const request: {
+    event_id: string;
+    bytes_in: number;
+    bytes_out: number;
+    hits_truncated: number;
+    shape_mode: 'truncate' | 'summary' | 'none';
+    tool_version?: string;
+  } = {
+    event_id: eventId,
+    bytes_in: update.bytesIn,
+    bytes_out: update.bytesOut,
+    hits_truncated: update.hitsTruncated,
+    shape_mode: update.shapeMode,
+  };
+  if (update.toolVersion !== undefined) request.tool_version = update.toolVersion;
+
+  daemonClient.updateSearchEventEconomy(request).catch((err: unknown) => {
+    console.warn(
+      'updateSearchEventEconomy instrumentation failed:',
       err instanceof Error ? err.message : err
     );
   });

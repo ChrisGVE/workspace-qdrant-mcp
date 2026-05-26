@@ -14,6 +14,10 @@
  *  - `summary: true`: drop text bodies entirely; keep only id/score/
  *    collection/title and structural metadata. Intended for "which doc
  *    do I want?" discovery before a follow-up retrieve() call.
+ *
+ * The function also emits a {@link ShapingMetrics} sidecar so callers can
+ * record token-economy stats per spec
+ * `docs/specs/20-token-economy-instrumentation.md`.
  */
 
 import { FIELD_CONTENT } from '../common/native-bridge.js';
@@ -22,6 +26,7 @@ import type {
   SearchOptions,
   SearchResponse,
   SearchResult,
+  ShapingMetrics,
 } from './search-types.js';
 import { DEFAULT_MAX_BYTES_PER_HIT } from './search-types.js';
 
@@ -93,19 +98,53 @@ function shapeAsTruncated(r: SearchResult, cap: number): SearchResult {
   return out;
 }
 
+function hitShapedBytes(r: SearchResult): number {
+  return (r.content?.length ?? 0) + (r.parent_context?.unit_text?.length ?? 0);
+}
+
+function emptyMetrics(mode: ShapingMetrics['mode']): ShapingMetrics {
+  return { bytesInShaped: 0, bytesOutShaped: 0, hitsTruncated: 0, mode };
+}
+
 /**
  * Apply per-hit payload shaping to a search response based on the
- * caller's options. Returns a new SearchResponse — does not mutate
- * the input.
+ * caller's options. Returns a new SearchResponse (input is not mutated)
+ * along with shaping metrics for instrumentation.
  */
 export function shapeHitPayloads(
   response: SearchResponse,
   options: SearchOptions
-): SearchResponse {
+): { response: SearchResponse; metrics: ShapingMetrics } {
   if (options.summary) {
-    return { ...response, results: response.results.map(shapeAsSummary) };
+    const metrics = emptyMetrics('summary');
+    const results = response.results.map((r) => {
+      metrics.bytesInShaped += hitShapedBytes(r);
+      return shapeAsSummary(r);
+    });
+    // bytesOutShaped stays 0 — summary mode drops bodies entirely.
+    return { response: { ...response, results }, metrics };
   }
   const cap = options.maxBytesPerHit ?? DEFAULT_MAX_BYTES_PER_HIT;
-  if (cap <= 0) return response;
-  return { ...response, results: response.results.map((r) => shapeAsTruncated(r, cap)) };
+  if (cap <= 0) {
+    const metrics = emptyMetrics('none');
+    for (const r of response.results) {
+      const bytes = hitShapedBytes(r);
+      metrics.bytesInShaped += bytes;
+      metrics.bytesOutShaped += bytes;
+    }
+    return { response, metrics };
+  }
+  const metrics = emptyMetrics('truncate');
+  const results = response.results.map((r) => {
+    const beforeContent = r.content?.length ?? 0;
+    const beforeParent = r.parent_context?.unit_text?.length ?? 0;
+    metrics.bytesInShaped += beforeContent + beforeParent;
+    if (beforeContent > cap || beforeParent > cap) {
+      metrics.hitsTruncated += 1;
+    }
+    const shaped = shapeAsTruncated(r, cap);
+    metrics.bytesOutShaped += hitShapedBytes(shaped);
+    return shaped;
+  });
+  return { response: { ...response, results }, metrics };
 }

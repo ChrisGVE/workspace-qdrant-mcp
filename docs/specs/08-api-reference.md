@@ -108,6 +108,11 @@ Each hit ships its `content` (and `parent_context.unit_text` when context expans
 
 The cap also strips duplicate text from `metadata` (the Qdrant payload duplicates `content` into both `result.content` and the per-collection content field), so the shipped payload stays close to the requested cap.
 
+The shaping pass is also the instrumentation point for the **token economy
+metric** — `bytes_in` / `bytes_out` / `hits_truncated` are captured here and
+written to `search_events`. See
+[20-token-economy-instrumentation.md](20-token-economy-instrumentation.md).
+
 #### retrieve
 
 Direct document access for chunk-by-chunk retrieval.

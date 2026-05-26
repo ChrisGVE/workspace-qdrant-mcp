@@ -232,6 +232,18 @@ pub struct UpdateSearchEventData {
     pub outcome: Option<String>,
 }
 
+/// Data for UpdateSearchEventEconomy — token-economy metrics from the
+/// MCP search shaping pass (spec docs/specs/20-token-economy-instrumentation.md).
+#[derive(Debug)]
+pub struct UpdateSearchEventEconomyData {
+    pub event_id: String,
+    pub bytes_in: i64,
+    pub bytes_out: i64,
+    pub hits_truncated: i32,
+    pub shape_mode: String,
+    pub tool_version: Option<String>,
+}
+
 /// Data for UpsertRuleMirror
 #[derive(Debug)]
 pub struct UpsertRuleMirrorData {
@@ -396,6 +408,10 @@ pub enum WriteCommand {
     },
     UpdateSearchEvent {
         data: UpdateSearchEventData,
+        tx: oneshot::Sender<WriteResult<()>>,
+    },
+    UpdateSearchEventEconomy {
+        data: UpdateSearchEventEconomyData,
         tx: oneshot::Sender<WriteResult<()>>,
     },
     UpsertRuleMirror {

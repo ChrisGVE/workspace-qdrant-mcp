@@ -58,6 +58,7 @@ export type {
   EnqueueItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
+  UpdateSearchEventEconomyRequest,
   UpsertRuleMirrorRequest,
   DeleteRuleMirrorRequest,
   UpsertScratchpadMirrorRequest,
