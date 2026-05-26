@@ -47,6 +47,7 @@ import { determineCollections } from './search-filters.js';
 import { retrieveParent, collectionExists } from './search-qdrant.js';
 import { searchExact } from './search-exact.js';
 import { expandSparseWithTags } from './search-expansion.js';
+import { shapeHitPayloads } from './search-shaping.js';
 import {
   resolveProjectContext,
   logSearchEventPre,
@@ -185,6 +186,14 @@ export class SearchTool {
   }
 
   async search(options: SearchOptions): Promise<SearchResponse> {
+    // Single shaping pass at the outer boundary keeps the budget-cap
+    // logic in one place and applies to every exit (exact, fallback,
+    // and normal pipeline) without sprinkling it through helpers.
+    const response = await this.executeSearch(options);
+    return shapeHitPayloads(response, options);
+  }
+
+  private async executeSearch(options: SearchOptions): Promise<SearchResponse> {
     if (options.exact) {
       return searchExact(this.daemonClient, this._stateManager, this.projectDetector, options);
     }

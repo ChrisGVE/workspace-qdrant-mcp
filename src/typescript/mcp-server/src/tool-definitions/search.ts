@@ -95,6 +95,16 @@ export const searchToolDefinition = {
         description:
           'Include code relationship graph context (callers/callees) for matched symbols (default: false)',
       },
+      maxBytesPerHit: {
+        type: 'number',
+        description:
+          'Per-hit text cap in characters (default: 1500). Hits with content longer than this are truncated with a marker pointing to retrieve() for the full chunk body. Set to 0 to disable truncation.',
+      },
+      summary: {
+        type: 'boolean',
+        description:
+          'When true, drop chunk text bodies and return only metadata (id, score, collection, title, path/symbol). Use for pure discovery before a follow-up retrieve() call. Default: false.',
+      },
     },
     required: ['query'],
   },

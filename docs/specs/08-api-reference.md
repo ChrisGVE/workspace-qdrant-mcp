@@ -45,6 +45,9 @@ search({
     // Structural filters
     component?: string,               // Filter by project component (e.g., "daemon", "daemon.core"). Supports prefix matching.
     pathGlob?: string,                // File path glob filter (e.g., "**/*.rs", "src/**/*.ts")
+    // Payload shaping (per-hit budget control)
+    maxBytesPerHit?: number,          // Per-hit text cap in chars (default: 1500). Set to 0 to disable.
+    summary?: boolean,                // Drop chunk bodies, return only metadata (default: false)
 )
 ```
 
@@ -94,6 +97,16 @@ search({ query: "auth", collection: "projects", scope: "other", project_id: "abc
 ```
 
 **project_id handling:** The MCP server FETCHES `project_id` from the daemon's state database (not calculated locally). This prevents drift between MCP and daemon. The fetch happens on first search operation to allow time for daemon to register the watch folder.
+
+**Payload shaping (`maxBytesPerHit`, `summary`):**
+
+Each hit ships its `content` (and `parent_context.unit_text` when context expansion is on) as inline text. Without a cap, a broad 10-hit response can exceed an MCP client's per-tool-result token budget, forcing the client to offload the response to disk and breaking the agent's flow. The server applies a per-hit cap at the outer boundary of `search` so callers don't have to think about budgets:
+
+- Default behavior (`maxBytesPerHit: 1500`): hits longer than the cap are truncated with a marker: `... [truncated at 1500 chars; full chunk via retrieve(documentId="<id>", collection="<col>")]`. The agent can call `retrieve` to fetch the full body.
+- `maxBytesPerHit: 0` — disable truncation entirely (caller takes responsibility for the budget).
+- `summary: true` — drop chunk bodies entirely; keep only `id`, `score`, `collection`, `title`, and structural metadata (path, symbol, line range, tags). Intended for "which doc do I want?" discovery before a follow-up `retrieve`. A 10-hit summary response typically fits under 5k chars.
+
+The cap also strips duplicate text from `metadata` (the Qdrant payload duplicates `content` into both `result.content` and the per-collection content field), so the shipped payload stays close to the requested cap.
 
 #### retrieve
 
