@@ -32,6 +32,11 @@ pub async fn batch_add_branch_to_unchanged_files(
     new_branch: &str,
     changed_paths: &HashSet<String>,
 ) -> Result<u64, String> {
+    // Hold per-tenant lock across the full read-modify-write to prevent
+    // concurrent branch updates from clobbering each other.
+    let lock = branch_ctx.branch_locks.get(tenant_id);
+    let _guard = lock.lock().await;
+
     let candidates =
         fetch_unchanged_candidates(pool, watch_folder_id, old_branch, new_branch, changed_paths)
             .await?;
@@ -46,8 +51,6 @@ pub async fn batch_add_branch_to_unchanged_files(
     add_branch_to_tracked_files_batch(pool, &candidates, new_branch).await?;
 
     // 2. Batch update Qdrant points' branches[] payload
-    let lock = branch_ctx.branch_locks.get(tenant_id);
-    let _guard = lock.lock().await;
     update_qdrant_branches_batch(branch_ctx, &candidates, new_branch).await;
 
     // 3. Insert file_metadata rows for the new branch in search.db

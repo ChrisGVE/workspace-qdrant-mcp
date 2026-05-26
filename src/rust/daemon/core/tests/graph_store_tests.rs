@@ -50,7 +50,7 @@ async fn test_pipeline_extract_store_query_rust() {
     store.insert_edges(&result.edges).await.unwrap();
 
     // Verify store has the data
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert!(stats.total_nodes > 0, "store should have nodes");
     assert!(stats.total_edges > 0, "store should have edges");
 
@@ -97,7 +97,7 @@ async fn test_pipeline_extract_store_query_typescript() {
     store.upsert_nodes(&result.nodes).await.unwrap();
     store.insert_edges(&result.edges).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert!(stats.total_nodes > 0);
     assert!(stats.total_edges > 0);
 }
@@ -122,7 +122,7 @@ async fn test_cross_file_graph_queries() {
     ingest_file_chunks(&store, &build_rust_main_chunks(), TENANT, "src/main.rs").await;
 
     // Stats should reflect both files
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert!(
         stats.total_nodes >= 6,
         "expected at least 6 nodes across 2 files, got {}",
@@ -137,7 +137,7 @@ async fn test_cross_file_graph_queries() {
     // Verify we can query related nodes from main's function
     let main_node = GraphNode::new(TENANT, "src/main.rs", "main", NodeType::Function);
     let related = store
-        .query_related(TENANT, &main_node.node_id, 1, None)
+        .query_related(TENANT, &main_node.node_id, 1, None, None)
         .await
         .unwrap();
 
@@ -169,7 +169,7 @@ async fn test_impact_analysis_end_to_end() {
 
     // Impact analysis on "process" -- who calls it?
     let report = store
-        .impact_analysis(TENANT, "process", Some("src/processor.rs"))
+        .impact_analysis(TENANT, "process", Some("src/processor.rs"), None)
         .await
         .unwrap();
 
@@ -194,7 +194,7 @@ async fn test_impact_analysis_isolated_symbol() {
 
     // "validate" is called by "process" within the same file
     let report = store
-        .impact_analysis(TENANT, "validate", Some("src/processor.rs"))
+        .impact_analysis(TENANT, "validate", Some("src/processor.rs"), None)
         .await
         .unwrap();
 
@@ -228,13 +228,13 @@ async fn test_factory_lifecycle() {
     let node = GraphNode::new(TENANT, "lib.rs", "Config", NodeType::Struct);
     store.upsert_nodes(&[node.clone()]).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1);
 
     // Drop and reopen -- should work without re-migration
     drop(store);
     let store2 = create_factory_store(dir.path()).await;
-    let stats2 = store2.stats(Some(TENANT)).await.unwrap();
+    let stats2 = store2.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(stats2.total_nodes, 1, "data should persist across reopen");
 }
 
@@ -253,7 +253,7 @@ async fn test_reingest_file_atomic() {
     )
     .await;
 
-    let stats_v1 = store.stats(Some(TENANT)).await.unwrap();
+    let stats_v1 = store.stats(Some(TENANT), None).await.unwrap();
     let edges_v1 = stats_v1.total_edges;
 
     // Re-ingest with modified chunks (removed calls from process)
@@ -274,7 +274,7 @@ async fn test_reingest_file_atomic() {
         .await
         .unwrap();
 
-    let stats_v2 = store.stats(Some(TENANT)).await.unwrap();
+    let stats_v2 = store.stats(Some(TENANT), None).await.unwrap();
     assert!(
         stats_v2.total_edges <= edges_v1,
         "re-ingestion should not increase edges when calls were removed: v1={}, v2={}",
@@ -311,9 +311,9 @@ async fn test_tenant_isolation() {
     )
     .await;
 
-    let stats_a = store.stats(Some(tenant_a)).await.unwrap();
-    let stats_b = store.stats(Some(tenant_b)).await.unwrap();
-    let stats_all = store.stats(None).await.unwrap();
+    let stats_a = store.stats(Some(tenant_a), None).await.unwrap();
+    let stats_b = store.stats(Some(tenant_b), None).await.unwrap();
+    let stats_all = store.stats(None, None).await.unwrap();
 
     assert_eq!(
         stats_a.total_nodes, stats_b.total_nodes,
@@ -328,8 +328,8 @@ async fn test_tenant_isolation() {
     // Deleting tenant A should not affect tenant B
     store.delete_tenant(tenant_a).await.unwrap();
 
-    let stats_a_after = store.stats(Some(tenant_a)).await.unwrap();
-    let stats_b_after = store.stats(Some(tenant_b)).await.unwrap();
+    let stats_a_after = store.stats(Some(tenant_a), None).await.unwrap();
+    let stats_b_after = store.stats(Some(tenant_b), None).await.unwrap();
 
     assert_eq!(stats_a_after.total_nodes, 0, "tenant A should be empty");
     assert_eq!(
@@ -356,7 +356,7 @@ async fn test_prune_orphans_after_reingest() {
     )
     .await;
 
-    let stats_before = store.stats(Some(TENANT)).await.unwrap();
+    let stats_before = store.stats(Some(TENANT), None).await.unwrap();
 
     // Re-ingest with no calls (all stubs become orphans)
     let mut empty_chunks = build_rust_file_chunks();
@@ -371,7 +371,7 @@ async fn test_prune_orphans_after_reingest() {
 
     let pruned = store.prune_orphans(TENANT).await.unwrap();
 
-    let stats_after = store.stats(Some(TENANT)).await.unwrap();
+    let stats_after = store.stats(Some(TENANT), None).await.unwrap();
     assert!(
         stats_after.total_nodes <= stats_before.total_nodes,
         "pruning should not increase node count"
@@ -412,7 +412,7 @@ async fn test_query_related_edge_type_filter() {
 
     // Filter to CALLS only
     let calls_only = store
-        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::Calls]))
+        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::Calls]), None)
         .await
         .unwrap();
     assert_eq!(
@@ -424,7 +424,7 @@ async fn test_query_related_edge_type_filter() {
 
     // Filter to USES_TYPE only
     let types_only = store
-        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::UsesType]))
+        .query_related(TENANT, &a.node_id, 1, Some(&[EdgeType::UsesType]), None)
         .await
         .unwrap();
     assert_eq!(
@@ -436,7 +436,7 @@ async fn test_query_related_edge_type_filter() {
 
     // No filter -- should get both
     let all = store
-        .query_related(TENANT, &a.node_id, 1, None)
+        .query_related(TENANT, &a.node_id, 1, None, None)
         .await
         .unwrap();
     assert_eq!(all.len(), 2, "no filter should return all relationships");

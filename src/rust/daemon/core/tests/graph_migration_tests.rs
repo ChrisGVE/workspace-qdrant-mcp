@@ -32,7 +32,7 @@ async fn test_migration_sqlite_to_sqlite() {
     .await;
     ingest_file_chunks(&store_src, &build_rust_main_chunks(), TENANT, "src/main.rs").await;
 
-    let src_stats = store_src.stats(Some(TENANT)).await.unwrap();
+    let src_stats = store_src.stats(Some(TENANT), None).await.unwrap();
     assert!(src_stats.total_nodes > 0);
     assert!(src_stats.total_edges > 0);
 
@@ -62,7 +62,7 @@ async fn test_migration_sqlite_to_sqlite() {
 
     // Validate target matches source
     drop(guard_tgt);
-    let tgt_stats = store_tgt.stats(Some(TENANT)).await.unwrap();
+    let tgt_stats = store_tgt.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(tgt_stats.total_nodes, src_stats.total_nodes);
     assert_eq!(tgt_stats.total_edges, src_stats.total_edges);
 }
@@ -81,7 +81,7 @@ async fn test_migration_preserves_types() {
     )
     .await;
 
-    let src_stats = store_src.stats(Some(TENANT)).await.unwrap();
+    let src_stats = store_src.stats(Some(TENANT), None).await.unwrap();
 
     // Export
     let guard_src = store_src.read().await.unwrap();
@@ -99,7 +99,7 @@ async fn test_migration_preserves_types() {
 
     // Node type distribution should match
     drop(guard_tgt);
-    let tgt_stats = store_tgt.stats(Some(TENANT)).await.unwrap();
+    let tgt_stats = store_tgt.stats(Some(TENANT), None).await.unwrap();
     assert_eq!(
         tgt_stats.nodes_by_type, src_stats.nodes_by_type,
         "node type distribution should be preserved after migration"
@@ -170,9 +170,9 @@ async fn test_shared_store_concurrent_readers() {
     let mut handles = Vec::new();
     for _ in 0..20 {
         let s = store.clone();
-        handles.push(tokio::spawn(
-            async move { s.stats(Some(TENANT)).await.unwrap() },
-        ));
+        handles.push(tokio::spawn(async move {
+            s.stats(Some(TENANT), None).await.unwrap()
+        }));
     }
 
     let mut results = Vec::new();
@@ -204,14 +204,14 @@ async fn test_shared_store_write_then_read_consistency() {
     )
     .await;
 
-    let stats_before = store.stats(Some(TENANT)).await.unwrap();
+    let stats_before = store.stats(Some(TENANT), None).await.unwrap();
 
     // Add a second file
     let ts_result = extractor::extract_edges(&build_typescript_chunks(), TENANT, "src/App.tsx");
     store.upsert_nodes(&ts_result.nodes).await.unwrap();
     store.insert_edges(&ts_result.edges).await.unwrap();
 
-    let stats_after = store.stats(Some(TENANT)).await.unwrap();
+    let stats_after = store.stats(Some(TENANT), None).await.unwrap();
 
     assert!(
         stats_after.total_nodes > stats_before.total_nodes,

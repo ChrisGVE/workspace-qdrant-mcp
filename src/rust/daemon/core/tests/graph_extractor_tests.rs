@@ -44,7 +44,8 @@ async fn test_extract_from_text_chunks() {
         metadata: meta_fn,
     };
 
-    let result = extractor::extract_edges_from_text_chunks(&[text_chunk], TENANT, "src/calc.rs", None);
+    let result =
+        extractor::extract_edges_from_text_chunks(&[text_chunk], TENANT, "src/calc.rs", None);
 
     // Should produce function node
     let fn_nodes: Vec<_> = result
@@ -86,7 +87,7 @@ async fn test_extract_from_text_chunks() {
     store.upsert_nodes(&result.nodes).await.unwrap();
     store.insert_edges(&result.edges).await.unwrap();
 
-    let stats = store.stats(Some(TENANT)).await.unwrap();
+    let stats = store.stats(Some(TENANT), None).await.unwrap();
     assert!(stats.total_nodes > 0);
     assert!(stats.total_edges > 0);
 }

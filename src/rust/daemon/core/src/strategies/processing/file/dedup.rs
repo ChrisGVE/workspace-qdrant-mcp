@@ -97,7 +97,7 @@ async fn handle_dedup_branch_add(
     branch: &str,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,
-    watch_folder_id: &str,
+    _watch_folder_id: &str,
     relative_path: &str,
     abs_file_path: &str,
 ) -> UnifiedProcessorResult<()> {
@@ -128,21 +128,7 @@ async fn handle_dedup_branch_add(
                 ))
             })?;
 
-    // 4. Also create a tracked_files row for this branch so that
-    //    `lookup_tracked_file(pool, wfid, path, Some(branch))` finds it
-    //    in future update/delete operations. We clone the existing row's
-    //    metadata.
-    create_branch_tracked_file(
-        pool,
-        existing,
-        branch,
-        watch_folder_id,
-        relative_path,
-        &item.collection,
-    )
-    .await?;
-
-    // 5. Update Qdrant: set the branches payload on all points for this file.
+    // 4. Update Qdrant: set the branches payload on all points for this file.
     if let Some(ref base_point) = existing.base_point {
         let new_branches: Vec<String> = serde_json::from_str(&updated_branches).unwrap_or_default();
         update_qdrant_branches(ctx, base_point, &item.collection, &new_branches).await;
@@ -176,65 +162,6 @@ async fn handle_dedup_branch_add(
         "Content-hash dedup complete: added branch '{}' to file_id={} ({})",
         branch, existing.file_id, relative_path
     );
-
-    Ok(())
-}
-
-/// Create a new `tracked_files` row for the dedup branch.
-///
-/// This ensures that future `lookup_tracked_file(pool, wfid, path, Some(branch))`
-/// calls find the file and can handle updates/deletes correctly.
-#[allow(clippy::too_many_arguments)]
-async fn create_branch_tracked_file(
-    pool: &SqlitePool,
-    existing: &TrackedFile,
-    branch: &str,
-    watch_folder_id: &str,
-    relative_path: &str,
-    collection: &str,
-) -> UnifiedProcessorResult<()> {
-    // Check if a row already exists for this branch (idempotency).
-    let already_exists = tracked_files_schema::lookup_tracked_file(
-        pool,
-        watch_folder_id,
-        relative_path,
-        Some(branch),
-    )
-    .await
-    .map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!("dedup: branch row lookup failed: {}", e))
-    })?;
-
-    if already_exists.is_some() {
-        return Ok(());
-    }
-
-    tracked_files_schema::insert_tracked_file(
-        pool,
-        watch_folder_id,
-        relative_path,
-        Some(branch),
-        existing.file_type.as_deref(),
-        existing.language.as_deref(),
-        &existing.file_mtime,
-        &existing.file_hash,
-        existing.chunk_count,
-        existing.chunking_method.as_deref(),
-        existing.lsp_status,
-        existing.treesitter_status,
-        Some(collection),
-        existing.extension.as_deref(),
-        existing.is_test,
-        existing.base_point.as_deref(),
-        existing.component.as_deref(),
-    )
-    .await
-    .map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!(
-            "dedup: failed to insert branch tracked_file row: {}",
-            e
-        ))
-    })?;
 
     Ok(())
 }
@@ -280,8 +207,6 @@ async fn mark_dedup_done(ctx: &ProcessingContext, item: &UnifiedQueueItem) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_branch_already_present_detection() {
         let branches_json = r#"["main","feature/auth"]"#;

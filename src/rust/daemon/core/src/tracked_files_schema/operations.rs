@@ -103,12 +103,11 @@ pub async fn lookup_watch_folder(
     Ok(row.map(|r| (r.get("watch_id"), r.get("path"))))
 }
 
-/// Look up a tracked file by (watch_folder_id, relative_path, primary_branch).
+/// Look up a tracked file by (watch_folder_id, relative_path, branch).
 ///
-/// `relative_path` here is the validated relative-path string (the
-/// post-v37 column). Callers pass a `&str` because the value typically
-/// comes from another DB row or a queue payload that already validated it
-/// upstream.
+/// First checks `primary_branch` for an exact match. If not found, checks
+/// `branches` JSON array membership — this handles content-hash deduped
+/// files that share a single row across multiple branches.
 pub async fn lookup_tracked_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
@@ -117,7 +116,7 @@ pub async fn lookup_tracked_file(
 ) -> Result<Option<TrackedFile>, sqlx::Error> {
     let row = match branch {
         Some(b) => {
-            sqlx::query(
+            let r = sqlx::query(
                 "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
                         file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
@@ -132,7 +131,28 @@ pub async fn lookup_tracked_file(
             .bind(relative_path)
             .bind(b)
             .fetch_optional(pool)
-            .await?
+            .await?;
+            if r.is_some() {
+                r
+            } else {
+                sqlx::query(
+                    "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
+                            file_type, language,
+                            file_mtime, file_hash, chunk_count, chunking_method,
+                            lsp_status, treesitter_status, last_error,
+                            needs_reconcile, reconcile_reason, extension, is_test,
+                            collection, base_point, incremental,
+                            component, routing_reason, created_at, updated_at
+                     FROM tracked_files
+                     WHERE watch_folder_id = ?1 AND relative_path = ?2
+                       AND EXISTS (SELECT 1 FROM json_each(branches) WHERE json_each.value = ?3)",
+                )
+                .bind(watch_folder_id)
+                .bind(relative_path)
+                .bind(b)
+                .fetch_optional(pool)
+                .await?
+            }
         }
         None => {
             sqlx::query(
