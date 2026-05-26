@@ -18,6 +18,9 @@ export const RRF_K = 60;
 // Default search parameters
 export const DEFAULT_LIMIT = 10;
 export const DEFAULT_SCORE_THRESHOLD = 0.3;
+/** Per-hit text cap (in chars). Default 1500 keeps a 10-hit response well
+ *  under typical MCP client per-tool-result token budgets (~25k chars). */
+export const DEFAULT_MAX_BYTES_PER_HIT = 1500;
 
 // Tag expansion defaults
 export const DEFAULT_EXPANSION_WEIGHT = 0.5;
@@ -53,6 +56,14 @@ export interface SearchOptions {
   contextLines?: number;
   /** When true, fetch 1-hop graph context for code symbol results */
   includeGraphContext?: boolean;
+  /** Per-hit text cap (in chars). Content longer than this is truncated
+   *  with a marker pointing to retrieve() for the full chunk. Defaults
+   *  to {@link DEFAULT_MAX_BYTES_PER_HIT}. Set to 0 to disable truncation. */
+  maxBytesPerHit?: number;
+  /** When true, drop chunk text bodies entirely and return only
+   *  metadata (id, score, collection, title, path/symbol). Intended for
+   *  pure discovery before a follow-up retrieve(). Default: false. */
+  summary?: boolean;
 }
 
 export interface ParentContext {

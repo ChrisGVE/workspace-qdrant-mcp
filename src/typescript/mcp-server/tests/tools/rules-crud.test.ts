@@ -233,11 +233,12 @@ describe('RulesTool', () => {
   });
 
   describe('update action', () => {
-    it('should update an existing rule via daemon', async () => {
+    it('should resolve label to UUID via scroll, then ingestText with that UUID', async () => {
       const options: RuleOptions = {
         action: 'update',
         label: 'existing-rule-id',
         content: 'Updated rule content',
+        scope: 'global',
       };
 
       const result = await rulesTool.execute(options);
@@ -245,9 +246,51 @@ describe('RulesTool', () => {
       expect(result.success).toBe(true);
       expect(result.action).toBe('update');
       expect(result.label).toBe('existing-rule-id');
+      expect(result.fallback_mode).toBeUndefined();
+      // Critical: ingestText must receive the Qdrant point UUID resolved
+      // via scroll, NOT the label. The daemon validates document_id as
+      // a UUID and rejects labels with INVALID_ARGUMENT — this is the
+      // bug this whole code path exists to prevent.
+      expect(mockDaemonClient.ingestText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          document_id: 'rule-1', // first point.id from the mocked scroll
+        })
+      );
     });
 
-    it('should fallback to queue when daemon fails', async () => {
+    it('should return not found (without calling ingestText) when label does not exist', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            scroll: vi.fn().mockResolvedValue({ points: [] }),
+            search: vi.fn().mockResolvedValue([]),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const newTool = new RulesTool(
+        { qdrantUrl: 'http://localhost:6333' },
+        mockDaemonClient,
+        mockStateManager,
+        mockProjectDetector
+      );
+
+      const result = await newTool.execute({
+        action: 'update',
+        label: 'no-such-rule',
+        content: 'whatever',
+        scope: 'global',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.action).toBe('update');
+      expect(result.message).toContain('No rule with label');
+      expect(result.message).toContain('"no-such-rule"');
+      // ingestText must NOT be called when label resolution found nothing.
+      expect(mockDaemonClient.ingestText).not.toHaveBeenCalled();
+    });
+
+    it('should fallback to queue when daemon ingestText fails after label resolution', async () => {
       vi.mocked(mockDaemonClient.ingestText).mockRejectedValue(
         Object.assign(new Error('connect ECONNREFUSED'), { code: 'UNAVAILABLE' })
       );
@@ -256,12 +299,44 @@ describe('RulesTool', () => {
         action: 'update',
         label: 'existing-rule-id',
         content: 'Updated content',
+        scope: 'global',
       };
 
       const result = await rulesTool.execute(options);
 
       expect(result.success).toBe(true);
       expect(result.fallback_mode).toBe('unified_queue');
+    });
+
+    it('should fallback to queue when the scroll lookup itself fails with connectivity error', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            scroll: vi.fn().mockRejectedValue(
+              Object.assign(new Error('connect ECONNREFUSED'), { code: 'UNAVAILABLE' })
+            ),
+            search: vi.fn().mockResolvedValue([]),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const newTool = new RulesTool(
+        { qdrantUrl: 'http://localhost:6333' },
+        mockDaemonClient,
+        mockStateManager,
+        mockProjectDetector
+      );
+
+      const result = await newTool.execute({
+        action: 'update',
+        label: 'existing-rule-id',
+        content: 'Updated content',
+        scope: 'global',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.fallback_mode).toBe('unified_queue');
+      expect(mockDaemonClient.ingestText).not.toHaveBeenCalled();
     });
 
     it('should reject missing label', async () => {
