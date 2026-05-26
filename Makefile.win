@@ -93,7 +93,7 @@ FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -Q
 .PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps stack-up stack-down stack-restart stack-status stack-logs mcp-rebuild memexd-recreate health-quick first-time redeploy build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-uninstall index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
 
 help:
-	@Write-Host "════════════════════════════════════════════════════════════"
+	@Write-Host "============================================================"
 	@Write-Host "Stack lifecycle (use estes para o dia-a-dia):"
 	@Write-Host "  first-time          - SETUP DO ZERO: build TS + docker up + hooks + health"
 	@Write-Host "  redeploy            - APOS MERGE / git pull: build + recreate mcp+memexd + hooks"
@@ -105,7 +105,7 @@ help:
 	@Write-Host "  mcp-rebuild         - rebuild MCP image apos mudancas em src/typescript/"
 	@Write-Host "  memexd-recreate     - recreate memexd (apos mudar env do daemon)"
 	@Write-Host "  health-quick        - curl /admin/api/health"
-	@Write-Host "════════════════════════════════════════════════════════════"
+	@Write-Host "============================================================"
 	@Write-Host "Targets principais (legacy / build-only daemon local):"
 	@Write-Host "  up                  - compila tudo, sobe Qdrant/daemon padrao e aplica config MCP"
 	@Write-Host "  up-fastembed        - compila tudo, sobe Qdrant/daemon com FastEmbed e aplica config MCP"
@@ -124,8 +124,8 @@ help:
 	@Write-Host "  smoke               - valida fluxo minimo wqm/Qdrant/daemon"
 	@Write-Host "  smoke-full          - smoke + tenant validate + incremental-check + health"
 	@Write-Host "  semantic-smoke      - roda os smokes de busca semantica em biblioteca e projeto"
-	@Write-Host "  semantic-search-library-smoke - força uma busca semantica na collection libraries"
-	@Write-Host "  semantic-search-project-smoke - registra projeto temporario e força busca semantica"
+	@Write-Host "  semantic-search-library-smoke - forca uma busca semantica na collection libraries"
+	@Write-Host "  semantic-search-project-smoke - registra projeto temporario e forca busca semantica"
 	@Write-Host ""
 	@Write-Host "Confiabilidade / observabilidade:"
 	@Write-Host "  health              - snapshot unico de saude em JSONL + resumo humano"
@@ -315,12 +315,11 @@ index-init:
 	.\scripts\windows\indexed-projects-registry.ps1 -RegistryPath "$(INDEX_REGISTRY)" -Action init -Mutate true
 
 index-hooks-install:
-	@Write-Host "Installing POSIX git hooks (sh + curl → MCP HTTP)..."
-	@if (-not (Get-Command sh -ErrorAction SilentlyContinue)) { Write-Host "ERROR: 'sh' not on PATH. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; exit 1 }
-	sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
+	@Write-Host "Installing POSIX git hooks (sh + curl -> MCP HTTP)..."
+	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
 
 index-hooks-uninstall:
-	sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
+	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
 
 index-hooks-status:
 	.\scripts\windows\indexed-projects-hooks.ps1 -Action status -RepoDir "$(REPO)"
@@ -420,12 +419,12 @@ compose-down:
 compose-ps:
 	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" ps }
 
-# ────────────────────────────────────────────────────────────────────────────
-# Stack lifecycle — high-level orchestration over docker-compose.
+# ----------------------------------------------------------------------------
+# Stack lifecycle - high-level orchestration over docker-compose.
 #
 # Quick reference:
 #   first-time      Fresh clone / never set up before
-#   redeploy        After `git pull` or merging fork/fixes — rebuild + restart
+#   redeploy        After `git pull` or merging fork/fixes - rebuild + restart
 #   stack-up        Start the docker stack (no rebuild)
 #   stack-down      Stop everything
 #   stack-restart   Stop then start
@@ -434,7 +433,7 @@ compose-ps:
 #   mcp-rebuild     Rebuild MCP image after src/typescript/mcp-server/ changes
 #   memexd-recreate Recreate memexd container (env changes in docker-compose.yml)
 #   health-quick    curl /admin/api/health and pretty-print
-# ────────────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------
 
 MCP_HTTP_PORT ?= 6335
 MCP_HEALTH_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/api/health
@@ -477,7 +476,7 @@ health-quick:
 	@$$token = (Get-Content "$(COMPOSE_ENV_FILE)" -ErrorAction SilentlyContinue | Select-String "^MCP_HTTP_TOKEN=" | ForEach-Object { $$_.ToString().Split("=",2)[1] } | Select-Object -First 1); $$headers = @{}; if ($$token) { $$headers["Authorization"] = "Bearer $$token" }; try { $$resp = Invoke-RestMethod -Uri "$(MCP_HEALTH_URL)" -TimeoutSec 5 -Headers $$headers; $$resp | ConvertTo-Json -Depth 10 } catch { Write-Host "health check failed: $$($$_.Exception.Message)" -ForegroundColor Red; exit 1 }
 
 first-time:
-	@Write-Host "═══ First-time setup ═══"
+	@Write-Host "=== First-time setup ==="
 	@Write-Host "Step 1/4: npm install + build MCP server"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) build-ts
 	@Write-Host "Step 2/4: build + start docker stack"
@@ -488,10 +487,10 @@ first-time:
 	@Start-Sleep -Seconds 8
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) stack-status
 	@Write-Host ""
-	@Write-Host "═══ Done. Open http://localhost:$(MCP_HTTP_PORT)/admin/ ═══"
+	@Write-Host "=== Done. Open http://localhost:$(MCP_HTTP_PORT)/admin/ ==="
 
 redeploy: build-ts
-	@Write-Host "═══ Redeploy after code changes ═══"
+	@Write-Host "=== Redeploy after code changes ==="
 	@Write-Host "Step 1/4: rebuild MCP image"
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp
 	@Write-Host "Step 2/4: recreate mcp + memexd (env may have changed)"
@@ -502,7 +501,7 @@ redeploy: build-ts
 	@Start-Sleep -Seconds 6
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) stack-status
 	@Write-Host ""
-	@Write-Host "═══ Redeploy complete ═══"
+	@Write-Host "=== Redeploy complete ==="
 
 build-ts:
 	Set-Location "$(REPO)\src\typescript\mcp-server"; npm install; npm run build

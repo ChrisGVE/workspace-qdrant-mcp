@@ -143,6 +143,26 @@ fi
 }
 chmod +x "$WQM_SCRIPT" 2>/dev/null || true  # bind-mounted hosts may refuse chmod
 
+# Refuse to install if WQM_SCRIPT lives under a container-only mount root
+# (`/run/desktop/...` from Docker Desktop's WSL2 host bridge, or `/mnt/wsl/...`).
+# Git hooks execute wherever `git` is invoked (the host shell, not a container),
+# so a wrapper that points at a container-only path silently no-ops on the
+# host. The wrapper itself runs (it's just a shell script) but the `exec` to
+# WQM_SCRIPT fails with "command not found" and `|| true` swallows the error.
+# Override with WQM_INSTALL_FORCE_CONTAINER_PATHS=1 if you really know.
+case "$WQM_SCRIPT" in
+  /run/desktop/*|/mnt/wsl/*)
+    if [ -z "${WQM_INSTALL_FORCE_CONTAINER_PATHS:-}" ]; then
+      printf 'ERROR: install.sh appears to be running inside a container or WSL bridge.\n' >&2
+      printf '       WQM_SCRIPT resolved to: %s\n' "$WQM_SCRIPT" >&2
+      printf '       which is not visible to git hooks running on the host.\n' >&2
+      printf '       Re-run from the host shell (Git Bash on Windows, native sh on macOS/Linux).\n' >&2
+      printf '       Override with WQM_INSTALL_FORCE_CONTAINER_PATHS=1 if you really know what you are doing.\n' >&2
+      exit 1
+    fi
+    ;;
+esac
+
 # ── Generate each hook script ─────────────────────────────────────────────────
 write_hook() {
   _hook_name="$1"
