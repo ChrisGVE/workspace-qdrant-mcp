@@ -7,9 +7,12 @@
  * so the admin code never opens its own DB handle.
  */
 
+import { spawn } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename } from 'node:path';
+import { basename, join, resolve as resolvePath } from 'node:path';
 
+import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import { logError, logInfo } from '../utils/logger.js';
@@ -26,6 +29,7 @@ import {
 export interface AdminDeps {
   daemonClient: DaemonClient;
   stateManager: SqliteStateManager;
+  authConfig: AuthConfig;
 }
 
 interface RouteHandler {
@@ -238,6 +242,198 @@ const handleDeregister: RouteHandler = async (req, res, { daemonClient }) => {
   }
 };
 
+// ── /api/health — aggregate health snapshot for the dashboard ───────────────
+
+/**
+ * Find the workspace-qdrant repo root visible to this process.
+ *
+ * On dockerized deployments WQM_PROJECT_ROOT points at the bind-mounted
+ * *dev root* (parent directory holding several repos) rather than at the
+ * workspace-qdrant checkout itself, so we (a) descend into immediate
+ * children looking for `scripts/git-hooks/install.sh`, then (b) walk up
+ * from cwd as a fallback for host-native invocations.
+ */
+function resolveRepoRoot(): string | null {
+  const projectRoot = process.env['WQM_PROJECT_ROOT'];
+  if (projectRoot && existsSync(projectRoot)) {
+    const abs = resolvePath(projectRoot);
+    // Direct: WQM_PROJECT_ROOT *is* the repo root.
+    if (existsSync(join(abs, 'scripts', 'git-hooks', 'install.sh'))) return abs;
+    // One level down: WQM_PROJECT_ROOT is the dev root, find the checkout.
+    try {
+      for (const entry of readdirSync(abs, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const candidate = join(abs, entry.name);
+        if (existsSync(join(candidate, 'scripts', 'git-hooks', 'install.sh'))) return candidate;
+      }
+    } catch {
+      // ignore — permissions or transient FS errors
+    }
+  }
+  // Host-native fallback: walk up from cwd.
+  let cur = resolvePath(process.cwd());
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(join(cur, 'scripts', 'git-hooks', 'install.sh'))) return cur;
+    const parent = resolvePath(cur, '..');
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return null;
+}
+
+interface HooksHealth {
+  ok: boolean;
+  kind: 'posix' | 'powershell' | 'mixed' | 'none';
+  path: string | null;
+  installed: string[];
+  legacyArtifacts: string[];
+}
+
+function probeHooks(repoRoot: string | null): HooksHealth {
+  if (!repoRoot) return { ok: false, kind: 'none', path: null, installed: [], legacyArtifacts: [] };
+  const hooksDir = join(repoRoot, '.wqm-fork', 'git-hooks');
+  if (!existsSync(hooksDir)) {
+    return { ok: false, kind: 'none', path: hooksDir, installed: [], legacyArtifacts: [] };
+  }
+  const HOOK_NAMES = ['post-checkout', 'post-commit', 'post-merge', 'post-rewrite', 'post-worktree-add'];
+  const installed: string[] = [];
+  let sawPosix = false;
+  let sawPs = false;
+  for (const name of HOOK_NAMES) {
+    const file = join(hooksDir, name);
+    if (!existsSync(file)) continue;
+    installed.push(name);
+    try {
+      const content = readFileSync(file, 'utf8');
+      if (content.includes('# WQM_SYNC_BRANCH_HOOK')) sawPosix = true;
+      else if (content.includes('wqm-git-hook.ps1') || content.includes('powershell.exe')) sawPs = true;
+    } catch {
+      // ignore read errors
+    }
+  }
+  const legacyArtifacts: string[] = [];
+  if (existsSync(join(hooksDir, 'wqm-git-hook.ps1'))) legacyArtifacts.push('wqm-git-hook.ps1');
+  const backupPattern = /^git-hooks\.backup-/;
+  try {
+    for (const entry of readdirSync(join(repoRoot, '.wqm-fork'))) {
+      if (backupPattern.test(entry)) legacyArtifacts.push(entry);
+    }
+  } catch {
+    // ignore
+  }
+  let kind: HooksHealth['kind'] = 'none';
+  if (sawPosix && sawPs) kind = 'mixed';
+  else if (sawPosix) kind = 'posix';
+  else if (sawPs) kind = 'powershell';
+  return {
+    ok: kind === 'posix' && installed.length === HOOK_NAMES.length,
+    kind,
+    path: hooksDir,
+    installed,
+    legacyArtifacts,
+  };
+}
+
+const handleHealth: RouteHandler = async (_req, res, { daemonClient }) => {
+  const repoRoot = resolveRepoRoot();
+  const hooks = probeHooks(repoRoot);
+
+  let daemon: unknown = { ok: false, reason: 'unknown' };
+  try {
+    const status = await daemonClient.getStatus();
+    daemon = {
+      ok: true,
+      activeProjects: (status.active_projects ?? []).length,
+      totalDocuments: status.total_documents ?? 0,
+      totalCollections: status.total_collections ?? 0,
+      uptimeSince: status.uptime_since ?? null,
+    };
+  } catch (error) {
+    daemon = { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+
+  let qdrant: unknown = { ok: false };
+  try {
+    const url = process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+    const probe = await fetch(`${url.replace(/\/$/, '')}/collections`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    qdrant = { ok: probe.ok, statusCode: probe.status, endpoint: `${url}/collections` };
+  } catch (error) {
+    qdrant = { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+
+  const mcp = {
+    version: process.env['npm_package_version'] ?? null,
+    repoRoot,
+    mode: process.env['MCP_SERVER_MODE'] ?? null,
+    pid: process.pid,
+    uptimeSeconds: Math.round(process.uptime()),
+  };
+
+  writeJson(res, 200, { hooks, daemon, qdrant, mcp });
+};
+
+// ── /api/hooks/install — re-install the POSIX git hooks ─────────────────────
+
+/**
+ * Run `scripts/git-hooks/install.sh --force` against the configured repo.
+ * Returns stdout/stderr/exit code so the UI can show what happened. The
+ * server doesn't reach out to the host directly — it shells out from
+ * wherever the MCP process happens to be running. On dockerized
+ * deployments that means the install.sh visible at WQM_PROJECT_ROOT
+ * inside the container, which is the same file the host edits (bind
+ * mount, same path on both sides).
+ */
+const handleInstallHooks: RouteHandler = async (req, res) => {
+  const repoRoot = resolveRepoRoot();
+  if (!repoRoot) {
+    writeError(res, 500, 'repo root not found', {
+      hint: 'Set WQM_PROJECT_ROOT to the repo root or run from inside the checkout.',
+    });
+    return;
+  }
+  const script = join(repoRoot, 'scripts', 'git-hooks', 'install.sh');
+  if (!existsSync(script)) {
+    writeError(res, 500, 'install.sh not found', { script });
+    return;
+  }
+  const body = (await readJsonBody(req)) as Partial<{ force: boolean }>;
+  const useForce = body.force !== false;
+
+  const args = [
+    script,
+    '--repo',
+    repoRoot,
+    '--hooks-dir',
+    join(repoRoot, '.wqm-fork', 'git-hooks'),
+  ];
+  if (useForce) args.push('--force');
+
+  await new Promise<void>((resolveOp) => {
+    const child = spawn('sh', args, { cwd: repoRoot, env: process.env });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (err) => {
+      logError('admin hooks install spawn failed', err, { script });
+      writeError(res, 500, 'spawn failed', err.message);
+      resolveOp();
+    });
+    child.on('close', (code) => {
+      const ok = code === 0;
+      logInfo('admin hooks install finished', { code, force: useForce });
+      writeJson(res, ok ? 200 : 500, { ok, exitCode: code, stdout, stderr, force: useForce });
+      resolveOp();
+    });
+  });
+};
+
 // ── /api/settings — read + write the JSON settings file ─────────────────────
 
 const handleGetSettings: RouteHandler = async (_req, res) => {
@@ -265,9 +461,11 @@ type Route = { method: string; path: string; handler: RouteHandler };
 
 const ROUTES: ReadonlyArray<Route> = [
   { method: 'GET', path: '/admin/api/snapshot', handler: handleSnapshot },
+  { method: 'GET', path: '/admin/api/health', handler: handleHealth },
   { method: 'POST', path: '/admin/api/projects/scan', handler: handleScan },
   { method: 'POST', path: '/admin/api/projects/register', handler: handleRegister },
   { method: 'POST', path: '/admin/api/projects/deregister', handler: handleDeregister },
+  { method: 'POST', path: '/admin/api/hooks/install', handler: handleInstallHooks },
   { method: 'GET', path: '/admin/api/settings', handler: handleGetSettings },
   { method: 'PUT', path: '/admin/api/settings', handler: handlePutSettings },
 ];

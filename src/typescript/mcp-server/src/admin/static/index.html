@@ -58,6 +58,32 @@
         </div>
       </section>
 
+      <!-- Host integrations health -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Host integrations</h2>
+          <button type="button" id="reinstallHooksBtn" class="secondary">Reinstall git hooks</button>
+        </div>
+        <div class="grid grid-3">
+          <div>
+            <div class="stat-label">Git hooks</div>
+            <div id="healthHooks" class="stat-value small">—</div>
+            <div id="healthHooksDetail" class="dim small">—</div>
+          </div>
+          <div>
+            <div class="stat-label">Qdrant</div>
+            <div id="healthQdrant" class="stat-value small">—</div>
+            <div id="healthQdrantDetail" class="dim small">—</div>
+          </div>
+          <div>
+            <div class="stat-label">MCP server</div>
+            <div id="healthMcp" class="stat-value small">—</div>
+            <div id="healthMcpDetail" class="dim small">—</div>
+          </div>
+        </div>
+        <pre id="hooksInstallLog" class="debug" hidden></pre>
+      </section>
+
       <!-- Settings -->
       <section class="card">
         <h2>Discovery settings</h2>

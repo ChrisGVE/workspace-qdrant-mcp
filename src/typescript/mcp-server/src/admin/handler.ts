@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, resolve as resolvePath } from 'node:path';
 
+import { isLoopbackRequest } from '../auth-middleware.js';
 import { logError } from '../utils/logger.js';
 
 import { dispatchAdminApi, type AdminDeps } from './routes.js';
@@ -115,6 +116,28 @@ export async function handleAdminRequest(
   deps: AdminDeps
 ): Promise<boolean> {
   if (!urlPath.startsWith('/admin')) return false;
+
+  // `/admin/init` — bootstrap endpoint for the browser SPA. Returns the
+  // server's bearer token when (and only when) the request originated from
+  // a loopback peer. The SPA fetches this on load and pre-fills its
+  // sessionStorage so the operator doesn't have to paste the token
+  // manually for local use. Remote requests get 403, never the token.
+  if (urlPath === '/admin/init' && req.method === 'GET') {
+    if (!isLoopbackRequest(req)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'admin init available only from loopback' }));
+      return true;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        token: deps.authConfig.token,
+        trustLocalhost: deps.authConfig.trustLocalhost,
+        loopback: true,
+      })
+    );
+    return true;
+  }
 
   // REST API first; if the path doesn't match a registered route, fall
   // through to the static handler. This lets the SPA itself live at

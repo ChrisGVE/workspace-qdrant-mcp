@@ -216,6 +216,7 @@ export class WorkspaceQdrantMcpServer {
           {
             daemonClient: this.components.daemonClient,
             stateManager: this.components.stateManager,
+            authConfig: this.authConfig,
           }
         );
         logInfo('MCP server started', {

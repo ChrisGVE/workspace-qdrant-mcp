@@ -23,6 +23,14 @@ const els = {
   statQueueDetail: document.getElementById('statQueueDetail'),
   statDocs: document.getElementById('statDocs'),
   statDocsDetail: document.getElementById('statDocsDetail'),
+  healthHooks: document.getElementById('healthHooks'),
+  healthHooksDetail: document.getElementById('healthHooksDetail'),
+  healthQdrant: document.getElementById('healthQdrant'),
+  healthQdrantDetail: document.getElementById('healthQdrantDetail'),
+  healthMcp: document.getElementById('healthMcp'),
+  healthMcpDetail: document.getElementById('healthMcpDetail'),
+  reinstallHooksBtn: document.getElementById('reinstallHooksBtn'),
+  hooksInstallLog: document.getElementById('hooksInstallLog'),
   settingsForm: document.getElementById('settingsForm'),
   devRootInput: document.getElementById('devRootInput'),
   scanDepthInput: document.getElementById('scanDepthInput'),
@@ -220,6 +228,55 @@ async function refresh() {
       logout(e.message);
     }
   }
+  // Host integrations health — refreshed on the same cadence but tolerant
+  // of failures (the snapshot can still succeed even if /health hiccups).
+  try {
+    const health = await api('/admin/api/health');
+    renderHostHealth(health);
+  } catch {
+    // Leave previous values in place; the snapshot path already drives
+    // the "connecting…" pill so we don't double-flag.
+  }
+}
+
+function renderHostHealth(h) {
+  if (!h) return;
+  const hooks = h.hooks || {};
+  if (hooks.kind === 'posix' && hooks.ok) {
+    els.healthHooks.innerHTML = pill('POSIX · OK', 'ok');
+  } else if (hooks.kind === 'powershell') {
+    els.healthHooks.innerHTML = pill('PowerShell (legacy)', 'warn');
+  } else if (hooks.kind === 'mixed') {
+    els.healthHooks.innerHTML = pill('Mixed PS+POSIX', 'warn');
+  } else if (hooks.kind === 'posix' && !hooks.ok) {
+    els.healthHooks.innerHTML = pill('POSIX · incomplete', 'warn');
+  } else {
+    els.healthHooks.innerHTML = pill('not installed', 'err');
+  }
+  const installedTxt = (hooks.installed || []).length + ' installed';
+  const legacyTxt = (hooks.legacyArtifacts || []).length
+    ? ` · ${(hooks.legacyArtifacts || []).length} legacy artifact(s)`
+    : '';
+  els.healthHooksDetail.textContent = `${installedTxt}${legacyTxt}`;
+
+  const qdrant = h.qdrant || {};
+  els.healthQdrant.innerHTML = qdrant.ok
+    ? pill('reachable', 'ok')
+    : pill('offline', 'err');
+  els.healthQdrantDetail.textContent = qdrant.endpoint || qdrant.reason || '—';
+
+  const mcp = h.mcp || {};
+  els.healthMcp.innerHTML = pill(mcp.version || 'running', 'ok');
+  const uptime = mcp.uptimeSeconds ? `${formatUptime(mcp.uptimeSeconds)} uptime` : '—';
+  els.healthMcpDetail.textContent = `${mcp.mode || 'http'} · pid ${mcp.pid} · ${uptime}`;
+}
+
+function formatUptime(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h${mins % 60}m`;
 }
 
 function startPolling() {
@@ -291,6 +348,37 @@ els.settingsForm.addEventListener('submit', async (e) => {
   }
 });
 
+els.reinstallHooksBtn.addEventListener('click', async () => {
+  els.reinstallHooksBtn.disabled = true;
+  const originalLabel = els.reinstallHooksBtn.textContent;
+  els.reinstallHooksBtn.textContent = 'Installing…';
+  els.hooksInstallLog.hidden = true;
+  try {
+    const result = await api('/admin/api/hooks/install', {
+      method: 'POST',
+      body: { force: true },
+    });
+    const lines = [
+      `exitCode: ${result.exitCode}`,
+      result.stdout ? `--- stdout ---\n${result.stdout}` : '',
+      result.stderr ? `--- stderr ---\n${result.stderr}` : '',
+    ].filter(Boolean);
+    els.hooksInstallLog.textContent = lines.join('\n');
+    els.hooksInstallLog.hidden = false;
+    if (result.ok) {
+      toast('Hooks reinstalled');
+    } else {
+      toast(`Install failed (exit ${result.exitCode})`, 'error');
+    }
+    refresh();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    els.reinstallHooksBtn.disabled = false;
+    els.reinstallHooksBtn.textContent = originalLabel;
+  }
+});
+
 els.scanBtn.addEventListener('click', async () => {
   els.scanBtn.disabled = true;
   els.scanBtn.textContent = 'Scanning…';
@@ -344,13 +432,51 @@ document.addEventListener('click', async (e) => {
 
 // ── Boot ───────────────────────────────────────────────────────────
 
-if (token) {
-  showApp();
-  startPolling();
-} else {
-  showLogin();
+/**
+ * Try to bootstrap the auth token from `/admin/init`. The server returns
+ * the configured MCP_HTTP_TOKEN ONLY when the request comes from a
+ * loopback peer (127.0.0.1 / ::1). Anywhere else it 403s and we fall
+ * back to the manual login prompt.
+ *
+ * When the server runs with `MCP_HTTP_TRUST_LOCALHOST=1`, the bearer
+ * check is also bypassed for loopback clients, so we can skip straight
+ * to the app even if the init endpoint hadn't existed.
+ */
+async function tryAutoInit() {
+  try {
+    const resp = await fetch('/admin/init', { method: 'GET' });
+    if (!resp.ok) return false;
+    const data = await resp.json().catch(() => null);
+    if (!data) return false;
+    if (typeof data.token === 'string' && data.token.length > 0) {
+      token = data.token;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      return true;
+    }
+    if (data.trustLocalhost === true) {
+      // Token may legitimately be empty in trust-localhost setups; the
+      // server will accept the requests without an Authorization header.
+      token = '';
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
+(async () => {
+  if (!token) {
+    const ok = await tryAutoInit();
+    if (!ok) {
+      showLogin();
+      return;
+    }
+  }
+  showApp();
+  startPolling();
+})();
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && token) refresh();
+  if (document.visibilityState === 'visible' && token !== undefined) refresh();
 });
