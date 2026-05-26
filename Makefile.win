@@ -316,10 +316,7 @@ index-init:
 
 index-hooks-install:
 	@Write-Host "Installing POSIX git hooks (sh + curl → MCP HTTP)..."
-	@if (-not (Get-Command sh -ErrorAction SilentlyContinue)) { \
-		Write-Host "ERROR: 'sh' not on PATH. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; \
-		exit 1; \
-	}
+	@if (-not (Get-Command sh -ErrorAction SilentlyContinue)) { Write-Host "ERROR: 'sh' not on PATH. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; exit 1 }
 	sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
 
 index-hooks-uninstall:
