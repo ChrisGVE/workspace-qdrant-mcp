@@ -39,7 +39,11 @@ function mapProjectRow(row: WatchFolderRow): RegisteredProject {
     remote_hash: row.remote_hash ?? undefined,
     disambiguation_path: row.disambiguation_path ?? undefined,
     container_folder: containerFolder,
-    is_active: row.is_active === 1,
+    // `watch_folders.is_active` is a session counter (incremented by
+    // RegisterProject, decremented by DeprioritizeProject), not a boolean.
+    // `> 0` matches the semantics callers want from this flag: "the
+    // project has at least one live session".
+    is_active: row.is_active > 0,
     created_at: row.created_at,
     last_seen_at: row.updated_at ?? undefined,
     last_activity_at: row.last_activity_at ?? undefined,
@@ -152,6 +156,36 @@ export function listActiveProjects(
         `${PROJECT_SELECT_FIELDS}
         WHERE is_active = 1 AND collection = ?
         ORDER BY last_activity_at DESC`
+      )
+      .all(COLLECTION_PROJECTS) as WatchFolderRow[];
+
+    return { data: projects.map(mapProjectRow), status: 'ok' };
+  } catch (error) {
+    return handleTableNotFound<RegisteredProject[]>(error, [], 'watch_folders');
+  }
+}
+
+/**
+ * List every registered project regardless of activity state.
+ *
+ * Distinct from `listActiveProjects` which filters on `is_active = 1`.
+ * `is_active` is actually a session counter (incremented by
+ * `RegisterProject`, decremented by `DeprioritizeProject`), so projects
+ * with 2+ overlapping sessions or any currently-deactivated state would
+ * be hidden by the strict-equality filter. The admin UI needs the full
+ * inventory to render status pills correctly.
+ */
+export function listAllProjects(
+  db: DatabaseType | null,
+): DegradedQueryResult<RegisteredProject[]> {
+  if (!db) return noDatabaseResult([]);
+
+  try {
+    const projects = db
+      .prepare(
+        `${PROJECT_SELECT_FIELDS}
+        WHERE collection = ?
+        ORDER BY is_active DESC, last_activity_at DESC NULLS LAST, path ASC`
       )
       .all(COLLECTION_PROJECTS) as WatchFolderRow[];
 

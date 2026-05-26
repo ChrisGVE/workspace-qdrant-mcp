@@ -64,6 +64,8 @@ export class WorkspaceQdrantMcpServer {
     projectPath: null,
     watchPath: null,
     isWorktree: false,
+    currentBranch: null,
+    lastBranchRefreshAt: 0,
     heartbeatInterval: null,
     daemonConnected: false,
     cleaned: false,
@@ -149,6 +151,8 @@ export class WorkspaceQdrantMcpServer {
       projectPath: null,
       watchPath: null,
       isWorktree: false,
+      currentBranch: null,
+      lastBranchRefreshAt: 0,
       heartbeatInterval: null,
       daemonConnected: false,
       cleaned: false,
@@ -204,7 +208,15 @@ export class WorkspaceQdrantMcpServer {
         this.httpHandle = await startMcpHttpServer(
           () => this.createHttpSessionServer(),
           this.httpOptions,
-          this.authConfig
+          this.authConfig,
+          // Admin UI deps. Mounting only on the http transport (stdio
+          // doesn't expose HTTP routes). Reuses the same daemonClient
+          // and stateManager that the MCP tools already use, so admin
+          // CRUD and the agent observe identical state.
+          {
+            daemonClient: this.components.daemonClient,
+            stateManager: this.components.stateManager,
+          }
         );
         logInfo('MCP server started', {
           mode: 'http',

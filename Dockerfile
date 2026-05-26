@@ -66,8 +66,12 @@ RUN cd src/typescript/mcp-server && npm prune --omit=dev
 # ---- Runtime ---------------------------------------------------------------
 FROM node:${NODE_VERSION}-slim
 
+# `git` is required at runtime so the MCP server can detect the current
+# branch / worktree state of mounted project roots. `getGitState` shells
+# out to `git` (see src/typescript/mcp-server/src/utils/git-utils.ts).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

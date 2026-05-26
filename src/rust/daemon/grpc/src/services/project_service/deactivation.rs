@@ -50,9 +50,12 @@ impl ProjectServiceImpl {
     ) -> Result<DeprioritizeProjectResponse, Status> {
         info!("Deprioritizing project (tenant-wide): {}", project_id);
 
+        // Second arg is an ignored legacy `_branch` parameter (see
+        // priority_manager::unregister_session); pass a stable label so
+        // it can't be mistaken for a real git ref.
         match self
             .priority_manager
-            .unregister_session(project_id, "main")
+            .unregister_session(project_id, "session")
             .await
         {
             Ok(active_flag) => {

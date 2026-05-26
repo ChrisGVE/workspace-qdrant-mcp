@@ -56,14 +56,20 @@ impl CanonicalPath {
     /// gRPC request fields, configuration values. Applies all nine
     /// normalization rules from spec §3.1.
     ///
+    /// Accepted absolute forms:
+    ///
+    /// - POSIX: `/foo/bar/baz`
+    /// - Windows drive: `C:/foo/bar/baz` (backslashes accepted on input
+    ///   and normalized to forward slashes)
+    ///
     /// # Errors
     ///
     /// Returns [`PathError::RelativeInput`] if the path is not absolute
-    /// (after `~` expansion), [`PathError::ContainsParentDir`] if any `..`
-    /// segment is present, [`PathError::NonUtf8`] for non-UTF-8 segments,
-    /// [`PathError::EmptyPath`] for empty input, or
-    /// [`PathError::InvalidNormalization`] for embedded NUL bytes and
-    /// Windows-style prefixes.
+    /// (after `~` expansion and separator normalization),
+    /// [`PathError::ContainsParentDir`] if any `..` segment is present,
+    /// [`PathError::NonUtf8`] for non-UTF-8 segments, [`PathError::EmptyPath`]
+    /// for empty input, or [`PathError::InvalidNormalization`] for embedded
+    /// NUL bytes.
     ///
     /// # Examples
     ///

@@ -34,6 +34,7 @@ import { recordHttpRequest } from './telemetry/metrics.js';
 import { logInfo, logError } from './utils/logger.js';
 import type { AuthConfig } from './auth-middleware.js';
 import { createAuthMiddleware } from './auth-middleware.js';
+import { handleAdminRequest, type AdminDeps } from './admin/handler.js';
 
 /**
  * Running HTTP-mode transport plus the Node listener that fronts it. Held by
@@ -81,13 +82,22 @@ async function createBoundHttpServer(
 export async function startMcpHttpServer(
   createMcpServer: () => Promise<McpServer>,
   options: HttpTransportOptions,
-  authConfig: AuthConfig
+  authConfig: AuthConfig,
+  adminDeps?: AdminDeps
 ): Promise<McpHttpServerHandle> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
   const authMiddleware = createAuthMiddleware(authConfig);
   const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
-    void handleRequest(req, res, transports, createMcpServer, options.path, authMiddleware);
+    void handleRequest(
+      req,
+      res,
+      transports,
+      createMcpServer,
+      options.path,
+      authMiddleware,
+      adminDeps
+    );
   };
 
   const { httpServer, tlsEnabled } = await createBoundHttpServer(options, requestHandler);
@@ -172,7 +182,8 @@ async function handleRequest(
   transports: Map<string, StreamableHTTPServerTransport>,
   createMcpServer: () => Promise<McpServer>,
   mcpPath: string,
-  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
+  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean },
+  adminDeps?: AdminDeps
 ): Promise<void> {
   instrumentHttpResponse(req, res);
 
@@ -182,10 +193,32 @@ async function handleRequest(
     return;
   }
 
+  const urlPath = (req.url ?? '').split('?')[0] ?? '';
+
+  // Admin UI static assets (HTML/JS/CSS) are served WITHOUT the Bearer
+  // auth middleware. Browsers cannot inject the `Authorization` header
+  // when the user just opens the page — auth runs inside the SPA itself
+  // (see `admin/static/app.js`: prompt for token, store in
+  // sessionStorage, attach to every `/admin/api/*` fetch).
+  //
+  // `/admin/api/*` keeps full auth because it's where the actual data
+  // lives. The static handler refuses anything outside the static root
+  // so this can't be used to bypass auth for arbitrary URLs.
+  if (adminDeps && urlPath.startsWith('/admin') && !urlPath.startsWith('/admin/api/')) {
+    const handled = await handleAdminRequest(req, res, urlPath, adminDeps);
+    if (handled) return;
+  }
+
   const decision = authMiddleware(req, res);
   if (!decision.authorized) return;
 
-  const urlPath = (req.url ?? '').split('?')[0];
+  // Admin REST under /admin/api/*. Authenticated; same Bearer token as
+  // the MCP transport.
+  if (adminDeps && urlPath.startsWith('/admin/api/')) {
+    const handled = await handleAdminRequest(req, res, urlPath, adminDeps);
+    if (handled) return;
+  }
+
   if (urlPath !== mcpPath) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');

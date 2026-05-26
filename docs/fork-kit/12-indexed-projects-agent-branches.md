@@ -62,6 +62,37 @@ Esse comando instala hooks locais em `.wqm-fork/git-hooks/` e passa a sincroniza
 O resultado continua indo para o mesmo registry compartilhado em `.wqm-fork/indexed-projects.json`.
 Os hooks permanecem no host, dentro do próprio repositório, sem depender de `docker compose` para esse fluxo local.
 
+### Variante POSIX (Linux/macOS/Git Bash) com MCP HTTP
+
+Para deployments onde o daemon e o MCP rodam no container Docker — e
+você quer hooks no host sem depender do PowerShell — use o companheiro
+POSIX:
+
+```sh
+# Da raiz do checkout do workspace-qdrant-mcp:
+export MCP_HTTP_TOKEN="<mesmo token que está em docker/.env>"
+scripts/git-hooks/install.sh --repo /caminho/do/projeto
+```
+
+Diferenças do fluxo PowerShell:
+
+| Aspecto | PowerShell (`indexed-projects-hooks.ps1`) | POSIX (`scripts/git-hooks/install.sh`) |
+|---------|-------------------------------------------|----------------------------------------|
+| Onde a lógica roda | Host (PowerShell) | Container (MCP server) via HTTP |
+| Escreve em | `.wqm-fork/indexed-projects.json` | `watch_folders` (SQLite do daemon) |
+| Action MCP | nenhuma (chama `wqm` direto) | `workspace_index sync_current_branch` |
+| Daemon target | Host local | `wqm-memexd` containerizado |
+| Dependência | PowerShell + `wqm` no host | `sh`, `git`, `curl` no host |
+
+Os dois podem coexistir — escrevem em stores diferentes. Use o
+PowerShell se você consome `workspace_index list_projects`/`status_all`
+para a UI do `.wqm-fork/indexed-projects.json`; use o POSIX se você
+quer registro automático no daemon mesmo quando o agente que dispara
+o `git` roda em terminal POSIX (WSL, devcontainer, máquina Linux).
+
+Detalhes operacionais (instalação, uninstall, troubleshooting) em
+[`scripts/git-hooks/README.md`](../../scripts/git-hooks/README.md).
+
 ## Higienização do registry
 
 O registry também pode ser limpo com:

@@ -34,6 +34,7 @@ export const workspaceIndexToolDefinition = {
           'register_wqm',
           'register_all_wqm',
           'cleanup_orphans',
+          'sync_current_branch',
         ],
         description: 'Workspace index action to execute.',
       },
@@ -93,7 +94,31 @@ export const workspaceIndexToolDefinition = {
       repoDir: {
         type: 'string',
         description:
-          'Optional absolute path to the workspace-qdrant-mcp repo. Defaults to WQM_REPO_DIR or process.cwd().',
+          'For PowerShell-backed actions: path to the workspace-qdrant-mcp repo (defaults to WQM_REPO_DIR or process.cwd()). For sync_current_branch: absolute path to the target repo whose branch is being synced (required).',
+      },
+      currentBranch: {
+        type: 'string',
+        description:
+          'For sync_current_branch: current branch name reported by `git rev-parse --abbrev-ref HEAD`.',
+      },
+      commitHash: {
+        type: 'string',
+        description: 'For sync_current_branch: HEAD commit SHA reported by `git rev-parse HEAD`.',
+      },
+      isWorktree: {
+        type: 'boolean',
+        description:
+          'For sync_current_branch: true when .git in the target repo is a file (linked worktree). The hook detects this by `test -f $REPO/.git`.',
+      },
+      gitRemote: {
+        type: 'string',
+        description:
+          'For sync_current_branch: remote.origin.url from `git config --get remote.origin.url`, used by the daemon for tenant_id calculation.',
+      },
+      hookName: {
+        type: 'string',
+        description:
+          'For sync_current_branch: name of the git hook that fired (post-checkout, post-commit, etc.). Recorded for observability only.',
       },
       allowMutation: {
         type: 'boolean',

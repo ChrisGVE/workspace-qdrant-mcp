@@ -202,6 +202,10 @@ export class SqliteStateManager {
     return projectQueries.listActiveProjects(this.db);
   }
 
+  listAllProjects() {
+    return projectQueries.listAllProjects(this.db);
+  }
+
   // ── Search event instrumentation (delegated) ──────────────────────────
 
   logSearchEvent(event: searchEventQueries.SearchEventInput): void {

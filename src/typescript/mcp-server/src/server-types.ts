@@ -19,6 +19,19 @@ export interface SessionState {
   /** Canonical watch path returned by daemon (may differ from projectPath due to symlink resolution) */
   watchPath: string | null;
   isWorktree: boolean;
+  /**
+   * Current git branch for `projectPath`, refreshed lazily by the tool
+   * dispatcher (see `ensureProjectFresh`). `null` when the project is not
+   * a git repo or git is unavailable. Tools that accept a `branch` filter
+   * (search, grep) use this as the default when the caller omits it.
+   */
+  currentBranch: string | null;
+  /**
+   * Unix-ms timestamp of the most recent successful git state refresh.
+   * Used by `ensureProjectFresh` to throttle re-detection — see
+   * `BRANCH_FRESHNESS_MS` in `session-lifecycle.ts`.
+   */
+  lastBranchRefreshAt: number;
   heartbeatInterval: ReturnType<typeof setInterval> | null;
   daemonConnected: boolean;
   /**

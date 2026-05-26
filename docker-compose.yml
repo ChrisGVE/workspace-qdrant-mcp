@@ -129,6 +129,22 @@ services:
     volumes:
       # Persistent MCP state; logs are written under logs/ inside this volume.
       - ${WQM_STATE_DIR:-./state}/mcp:/home/node/.local/share/workspace-qdrant
+      # Mirror WQM_DEV_ROOT so the MCP server can shell out to `git` and read
+      # the same project tree the daemon watches. Identical path on host and
+      # container preserves the path-transparency invariant (spec 16).
+      - ${WQM_DEV_ROOT}:${WQM_DEV_ROOT}
+      # Shared view into the daemon's state directory. The admin UI
+      # (and any other read-only consumer in the MCP server) needs the
+      # *same* SQLite file the daemon writes — otherwise project lists
+      # and queue stats return empty even when the daemon has data.
+      #
+      # NOTE: mounted read-write at the filesystem layer because SQLite
+      # WAL mode requires the writer-created `-shm` file to be openable
+      # (even readers touch shared-memory mapping). The TypeScript
+      # client opens the handle with `{ readonly: true }` which still
+      # honors ADR-003's "daemon is the sole SQLite writer" invariant
+      # at the SQL layer.
+      - ${WQM_STATE_DIR:-./state}/memexd:/var/lib/wqm/memexd
     environment:
       MCP_SERVER_MODE: http
       MCP_HTTP_HOST: 0.0.0.0
@@ -144,6 +160,21 @@ services:
       WQM_DAEMON_ENDPOINT: memexd:50051
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       WQM_LOG_DIR: /home/node/.local/share/workspace-qdrant/logs
+      # Point the MCP's read-only SQLite handle at the same memexd.db
+      # the daemon writes. Mounted read-only above; the MCP must NOT
+      # write to it (ADR-003: daemon owns the SQLite schema).
+      WQM_DATABASE_PATH: /var/lib/wqm/memexd/memexd.db
+      # Force `detectProjectForSession` to start from the bind-mounted dev
+      # root instead of the container's own cwd (`/app/src/...`), which
+      # otherwise gets registered as a spurious project. See spec 19 §7.4.
+      WQM_PROJECT_ROOT: ${WQM_DEV_ROOT}
+      # Trust the bind-mounted repo: git's "dubious ownership" check
+      # otherwise rejects every command because the bind mount preserves
+      # host uids that don't match the container's `node` user.
+      # Inline GIT_CONFIG_* avoids needing a global gitconfig file.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: "*"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     networks:
       - workspace-network

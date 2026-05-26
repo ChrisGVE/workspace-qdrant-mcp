@@ -1,14 +1,19 @@
 /**
  * workspace_index MCP tool implementation.
  *
- * The registry/worktree logic lives in the Windows PowerShell helper scripts
- * shipped by the fork kit. This TypeScript layer validates the double opt-in
- * for mutating actions, runs the bridge script, and returns JSON.
+ * Most actions delegate to the PowerShell registry helper (host-only). The
+ * `sync_current_branch` action is implemented natively in TypeScript so it can
+ * run inside the dockerized MCP container — it receives git state from a host
+ * hook (which has access to the local git CLI) and forwards a RegisterProject
+ * gRPC call to the daemon.
  */
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
+
+import type { DaemonClient } from './../clients/daemon-client.js';
+import { getGitState } from './../utils/git-utils.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -146,6 +151,99 @@ function buildScriptArgs(args: JsonObject, repoDir: string): string[] {
   return scriptArgs;
 }
 
+/**
+ * sync_current_branch — TypeScript-native handler.
+ *
+ * Forwards a RegisterProject gRPC call to the daemon with
+ * `register_if_new: true` so a fresh branch or worktree becomes searchable
+ * without manual wqm commands.
+ *
+ * Git state can come from two sources:
+ *  - **Hook-provided fields** (`currentBranch`, `commitHash`, `worktreePath`,
+ *    `isWorktree`, `gitRemote`) — authoritative; populated by the host-side
+ *    hook that has direct access to the local `git` CLI.
+ *  - **Local detection via `getGitState(repoDir)`** — fallback when the MCP
+ *    server can see the path on its own filesystem. This works when the
+ *    container has `git` and the same path string resolves to the same repo
+ *    (e.g. dockerized MCP with `${WQM_DEV_ROOT}:${WQM_DEV_ROOT}` bind mount).
+ *
+ * Hook values always win; local detection only fills in the gaps. The daemon
+ * does its own worktree detection and tenant_id calculation — we just deliver
+ * the path and (optionally) the remote URL.
+ */
+async function handleSyncCurrentBranch(
+  args: JsonObject,
+  daemonClient: DaemonClient
+): Promise<unknown> {
+  const repoDir = stringArg(args, 'repoDir');
+  if (!repoDir) {
+    return {
+      success: false,
+      action: 'sync_current_branch',
+      error: 'repoDir is required (absolute path to the target repo)',
+    };
+  }
+
+  const hookBranch = stringArg(args, 'currentBranch', ['branch', 'branchName']);
+  const hookCommit = stringArg(args, 'commitHash', ['commit_hash', 'commit']);
+  const hookWorktreePath = stringArg(args, 'worktreePath', ['worktree']);
+  const hookIsWorktreeRaw = boolArg(args, 'isWorktree', ['is_worktree']);
+  const hookRemote = stringArg(args, 'gitRemote', ['git_remote']);
+  const hookName = stringArg(args, 'hookName', ['hook_name']) ?? 'manual';
+  const projectName =
+    stringArg(args, 'projectName', ['name']) ?? (basename(repoDir) || 'unknown');
+
+  // Best-effort local detection. Returns null when the MCP server can't see
+  // the path (e.g. container without bind mount). Hook values still apply.
+  const localState = getGitState(repoDir);
+
+  const branch = hookBranch ?? localState?.branch ?? null;
+  const commitHash = hookCommit ?? localState?.commit ?? null;
+  const gitRemote = hookRemote ?? localState?.remoteUrl ?? undefined;
+  const isWorktree =
+    hookIsWorktreeRaw === 'true' || hookIsWorktreeRaw === '1' || hookIsWorktreeRaw === 'yes'
+      ? true
+      : localState?.isWorktree ?? false;
+  const worktreePath = hookWorktreePath ?? localState?.worktreePath ?? null;
+
+  const watchPath = isWorktree && worktreePath ? worktreePath : repoDir;
+
+  try {
+    const response = await daemonClient.registerProject({
+      path: watchPath,
+      project_id: '',
+      name: projectName,
+      register_if_new: true,
+      priority: 'high',
+      ...(gitRemote ? { git_remote: gitRemote } : {}),
+    });
+
+    return {
+      success: true,
+      action: 'sync_current_branch',
+      hook: hookName,
+      repo_dir: repoDir,
+      watch_path: response.watch_path ?? watchPath,
+      project_id: response.project_id,
+      newly_registered: response.newly_registered,
+      created: response.created,
+      is_active: response.is_active,
+      is_worktree: response.is_worktree ?? isWorktree,
+      branch: branch ?? null,
+      commit_hash: commitHash ?? null,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      action: 'sync_current_branch',
+      hook: hookName,
+      repo_dir: repoDir,
+      error: errorMessage,
+    };
+  }
+}
+
 function parseOutput(stdout: string, stderr: string): unknown {
   const trimmed = stdout.trim();
   if (trimmed.length === 0) {
@@ -159,9 +257,26 @@ function parseOutput(stdout: string, stderr: string): unknown {
 }
 
 export async function handleWorkspaceIndex(
-  rawArgs: Record<string, unknown> | undefined
+  rawArgs: Record<string, unknown> | undefined,
+  daemonClient?: DaemonClient
 ): Promise<unknown> {
   const args = rawArgs ?? {};
+
+  // Native-TS action: runs inside the dockerized MCP container without
+  // requiring PowerShell or git on the container. Reaches the daemon over
+  // gRPC, identical path used by session-start registration.
+  const action = stringArg(args, 'action');
+  if (action === 'sync_current_branch') {
+    if (!daemonClient) {
+      throw new Error(
+        'sync_current_branch requires a connected daemon client (gRPC unavailable)'
+      );
+    }
+    return handleSyncCurrentBranch(args, daemonClient);
+  }
+
+  // PowerShell-backed actions: require the workspace-qdrant-mcp checkout to
+  // be on the same filesystem (host deployment only).
   const repoDir = resolveRepoDir(args);
   const bridgePath = resolve(repoDir, 'scripts', 'windows', 'workspace-index-mcp.ps1');
   if (!existsSync(bridgePath)) {

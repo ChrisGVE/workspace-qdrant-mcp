@@ -11,7 +11,7 @@ import type { RegisterProjectResponse } from './clients/grpc-types.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
-import { findGitRoot } from './utils/git-utils.js';
+import { findGitRoot, getCurrentBranch, isWorktree } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
 import { recordDaemonFallback } from './telemetry/metrics.js';
@@ -23,14 +23,57 @@ import type { SessionState } from './server-types.js';
  * then start heartbeat.
  * Mutates sessionState in place.
  */
+/**
+ * Paths that must NEVER be auto-registered as a project, even if they
+ * survive the project-marker walk. These are common defaults that processes
+ * inherit when launched by GUIs, services, or installers and they would
+ * pollute the daemon's watch list with system directories.
+ */
+const SUSPICIOUS_CWD_PATTERNS: ReadonlyArray<RegExp> = [
+  /^[A-Za-z]:[\\/]+WINDOWS([\\/]|$)/i, // C:\WINDOWS\..., C:/Windows/...
+  /^[A-Za-z]:[\\/]+Program Files([\\/]|$)/i,
+  /^[A-Za-z]:[\\/]+ProgramData([\\/]|$)/i,
+  /^[A-Za-z]:[\\/]*$/i, // bare drive root: C:\, C:/, D:\, ...
+  /^\/$/, // POSIX root
+  /^\/(usr|bin|sbin|etc|var|tmp|root|System|Library)([\\/]|$)/i,
+];
+
+function isSuspiciousCwd(path: string): boolean {
+  return SUSPICIOUS_CWD_PATTERNS.some((re) => re.test(path));
+}
+
 /** Detect and assign project info to session state. */
 async function detectProjectForSession(
   sessionState: SessionState,
   projectDetector: ProjectDetector
 ): Promise<void> {
+  // Allow explicit override for service-style launches (GUI, launchd, systemd).
+  const envOverride = process.env['WQM_PROJECT_ROOT'];
   const cwd = process.cwd();
-  const projectRoot = projectDetector.findProjectRoot(cwd) ?? cwd;
-  const projectInfo = await projectDetector.getProjectInfo(projectRoot, false);
+  const startPath = envOverride ?? cwd;
+
+  // If the search base itself is a system directory, do not even attempt
+  // to walk up — anything we'd find is wrong. This avoids the
+  // `C:\WINDOWS\system32` → `C:\` failure mode (Bug 3 in audit).
+  if (!envOverride && isSuspiciousCwd(cwd)) {
+    logDebug('Skipping project detection: cwd is a system directory', { cwd });
+    return;
+  }
+
+  const foundRoot = projectDetector.findProjectRoot(startPath);
+  if (!foundRoot) {
+    logDebug('No project marker found; not registering', { startPath });
+    return;
+  }
+  if (isSuspiciousCwd(foundRoot)) {
+    logDebug('Found project root is suspicious; refusing to register', {
+      startPath,
+      foundRoot,
+    });
+    return;
+  }
+
+  const projectInfo = await projectDetector.getProjectInfo(foundRoot, false);
   if (projectInfo) {
     sessionState.projectPath = projectInfo.projectPath;
     sessionState.projectId = projectInfo.projectId;
@@ -39,9 +82,50 @@ async function detectProjectForSession(
       project_id: projectInfo.projectId,
     });
   } else {
-    sessionState.projectPath = projectRoot;
-    logDebug('Project root detected but not registered', { projectRoot, cwd });
+    sessionState.projectPath = foundRoot;
+    logDebug('Project root detected but not registered', { projectRoot: foundRoot, cwd });
   }
+
+  // Capture initial git state. Best-effort: silently skip if git is
+  // unavailable or path is not a repo. Refreshed lazily by
+  // `ensureProjectFresh` on every tool call.
+  if (sessionState.projectPath) {
+    refreshGitState(sessionState);
+  }
+}
+
+/**
+ * Time-to-live for cached git state. After this many milliseconds since the
+ * last refresh, the next tool call will re-read `branch` and `isWorktree`
+ * from `git`. Short enough that branch switches show up quickly; long enough
+ * that a burst of tool calls doesn't cost a `git` invocation each.
+ */
+const BRANCH_FRESHNESS_MS = 5_000;
+
+function refreshGitState(sessionState: SessionState): void {
+  if (!sessionState.projectPath) return;
+  try {
+    const branch = getCurrentBranch(sessionState.projectPath);
+    if (branch !== null) sessionState.currentBranch = branch;
+    sessionState.isWorktree = isWorktree(sessionState.projectPath);
+    sessionState.lastBranchRefreshAt = Date.now();
+  } catch {
+    // Silent: best-effort enrichment.
+  }
+}
+
+/**
+ * Refresh the cached git state (branch + worktree flag) if it has aged out.
+ *
+ * Called by the tool dispatcher before each tool call so search/grep that
+ * depend on the current branch see fresh values without re-detecting on
+ * every call. Cheap when within TTL — single `Date.now()` comparison.
+ */
+export function ensureProjectFresh(sessionState: SessionState): void {
+  if (!sessionState.projectPath) return;
+  const age = Date.now() - sessionState.lastBranchRefreshAt;
+  if (age < BRANCH_FRESHNESS_MS) return;
+  refreshGitState(sessionState);
 }
 
 export async function initializeSession(

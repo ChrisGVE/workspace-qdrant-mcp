@@ -245,3 +245,97 @@ Bugs filed:
 - **#69** — BranchLifecycleDetector misclassifies atomic rename as Created+Deleted. **Fixed** in the same session by reordering `scan_for_changes` (delete → new → expire). The audit test now asserts a single `Renamed` event.
 
 Gaps captured as follow-up tasks (see §§1.6, 2.4, 3.4, 4.2, 4.3).
+
+---
+
+## 7. Follow-up audit (MCP/host-side, 2026-05)
+
+A second audit, focused on the MCP-server and host-script layers (the
+original scope was the Rust daemon), surfaced seven additional issues.
+All seven are now resolved.
+
+### 7.1 MCP TS — `isGitRepository` rejects linked worktrees
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `src/typescript/mcp-server/src/utils/git-utils.ts:11` required
+  `.git` to be a directory via `statSync(...).isDirectory()`. Linked worktrees
+  store `.git` as a regular file (`gitdir: ...`) and were rejected, so any
+  agent operating inside a worktree saw the MCP report "not a repo".
+- **Fix**: switched to `existsSync` to accept both forms.
+
+### 7.2 MCP TS — `getGitRemoteUrl` cannot follow worktrees
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `git-utils.ts:45` opened `<repo>/.git/config` directly, which
+  does not exist in a linked worktree (the `.git` file points to the parent
+  repo's git dir). Always returned `null` for worktrees, which propagated to
+  the daemon's `tenant_id` calculation and produced `local_*` IDs for what
+  should have been git-tracked projects.
+- **Fix**: shell out to `git -C <repo> config --get remote.origin.url` so the
+  gitdir indirection resolves automatically.
+
+### 7.3 MCP TS — `Rust CanonicalPath` rejects Windows drive paths
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `src/rust/common/src/paths/normalize.rs:56` rejected any input
+  not starting with `/`, including `C:/Users/...` and `C:\Users\...`. Every
+  Windows-host MCP call was returning `INVALID_ARGUMENT: path must be
+  absolute`. The TS mirror in `src/typescript/mcp-server/src/common/paths.ts`
+  had the same defect.
+- **Fix**: `normalize_path` now recognises a Windows drive prefix
+  (`[A-Za-z]:/`), normalises backslashes to forward slashes, and emits the
+  canonical form `C:/foo/bar`. Same change applied in TS. Cross-language
+  fixtures in `tests/path-fixtures/cases.json` lock the behavior.
+
+### 7.4 MCP TS — session start auto-registers system directories
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `session-lifecycle.ts:32` used `findProjectRoot(cwd) ?? cwd`.
+  When the MCP server was spawned by a GUI or service with `cwd` set to
+  `C:\WINDOWS\system32` / `/` / `/usr`, the walk-up found no marker and the
+  cwd itself ended up registered as a project.
+- **Fix**: added a curated `SUSPICIOUS_CWD_PATTERNS` list. Detection refuses to
+  walk up from a suspicious cwd and refuses to register a discovered root
+  that is itself suspicious. `WQM_PROJECT_ROOT` env var provides an explicit
+  override for service-style launches.
+
+### 7.5 daemon — `register_if_new=true` skips worktree auto-register
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `services/project_service/registration.rs` only ran
+  `try_worktree_auto_register` on the `!register_if_new` branch and only when
+  `!project_exists(project_id)`. A worktree registered via the MCP fallback
+  (`register_if_new=true`) was enqueued as a brand-new tenant; a worktree
+  registered when its main repo was already known reactivated the main
+  watch_folder without creating a worktree-specific row.
+- **Fix**: `determine_registration_action` now calls `try_worktree_auto_register`
+  unconditionally before classifying the request. The function itself is
+  idempotent — checks both that the main repo is registered and that the
+  worktree path is not already in `watch_folders` — so calling it on the
+  existing-project branch is safe.
+
+### 7.6 MCP TS — branch/worktree never re-detected after session start
+
+- **Status**: **bug** — fixed.
+- **Evidence**: `SessionState` had no `currentBranch` field; the dispatcher
+  only sent a heartbeat per tool call. Switching branches mid-session left
+  the MCP returning results from the original branch (or no branch filter at
+  all, depending on tool).
+- **Fix**: added `currentBranch` and `lastBranchRefreshAt` to `SessionState`.
+  `ensureProjectFresh()` in the dispatcher re-reads via `getCurrentBranch` and
+  `isWorktree` with a 5-second TTL. `search` and `grep` tool builders now
+  accept a `defaults.branch` and substitute `sessionState.currentBranch` when
+  the caller omits `branch`. Agents that want cross-branch search pass
+  `branch: "*"` explicitly.
+
+### 7.7 daemon — confusing `register_session(..., "main")` parameter
+
+- **Status**: cosmetic — fixed.
+- **Evidence**: `priority_manager::register_session` and `unregister_session`
+  take a second `_branch: &str` argument that has been ignored for several
+  versions (underscore prefix). Call sites passed the literal `"main"`,
+  which read as "this routine touches the main branch" — which it does not.
+- **Fix**: renamed the unused parameter to `_session_tag` and updated the
+  two production call sites (`registration.rs`, `deactivation.rs`) to pass
+  `"session"`. Test fixtures keep the legacy `"main"` value; behavior is
+  unchanged because the parameter is never read.
