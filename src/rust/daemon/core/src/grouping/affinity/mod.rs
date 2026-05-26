@@ -10,6 +10,7 @@ mod computation;
 /// (see `tagging::tier2`).
 mod config;
 mod grouper;
+pub mod incremental;
 mod schema_sql;
 mod storage;
 pub mod tag_affinity;
