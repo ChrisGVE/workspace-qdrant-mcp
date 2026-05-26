@@ -98,6 +98,12 @@ services:
       WQM_EMBEDDING_MODEL_CACHE_DIR: /home/memexd/.workspace-qdrant/models
       HF_HOME: /home/memexd/.workspace-qdrant/models
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Trust bind-mounted host repos. Same pattern as wqm-mcp — git CLI under
+      # a different uid would otherwise reject the worktree as 'dubious
+      # ownership', leaving the daemon unable to detect branches.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: "*"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
       interval: 30s

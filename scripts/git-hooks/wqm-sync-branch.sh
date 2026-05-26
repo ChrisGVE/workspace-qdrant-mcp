@@ -49,6 +49,30 @@ else
   WORKTREE_PATH=""
 fi
 
+# Translate host paths to container-visible paths when the daemon runs in
+# Docker. Requires both WQM_HOST_DEV_ROOT (path as seen by this hook on the
+# host) and WQM_DEV_ROOT (path as bind-mounted inside the container) to be
+# set; otherwise the original path is passed through unchanged.
+_translate_to_container() {
+  _p="$1"
+  if [ -z "${WQM_HOST_DEV_ROOT:-}" ] || [ -z "${WQM_DEV_ROOT:-}" ]; then
+    printf '%s' "$_p"
+    return 0
+  fi
+  case "$_p" in
+    "$WQM_HOST_DEV_ROOT"|"$WQM_HOST_DEV_ROOT"/*)
+      printf '%s%s' "$WQM_DEV_ROOT" "${_p#"$WQM_HOST_DEV_ROOT"}"
+      return 0
+      ;;
+  esac
+  printf '%s' "$_p"
+}
+
+REPO_ROOT="$(_translate_to_container "$REPO_ROOT")"
+if [ -n "$WORKTREE_PATH" ]; then
+  WORKTREE_PATH="$(_translate_to_container "$WORKTREE_PATH")"
+fi
+
 PROJECT_NAME="$(wqm_path_basename "$REPO_ROOT")"
 
 REPO_ROOT_E="$(wqm_path_json_escape "$REPO_ROOT")"

@@ -35,6 +35,9 @@ HOOKS_DIR=""
 MCP_URL="${WQM_MCP_URL:-http://localhost:6335/mcp}"
 TOKEN="${MCP_HTTP_TOKEN:-}"
 LOG_FILE=""
+HOST_DEV_ROOT="${WQM_HOST_DEV_ROOT:-}"
+CONTAINER_DEV_ROOT="${WQM_DEV_ROOT:-}"
+ENV_FILE=""
 UNINSTALL=0
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
@@ -46,6 +49,9 @@ while [ $# -gt 0 ]; do
     --token)       TOKEN="$2"; shift 2 ;;
     --log)         LOG_FILE="$2"; shift 2 ;;
     --wqm-script)  WQM_SCRIPT="$2"; shift 2 ;;
+    --host-dev-root)      HOST_DEV_ROOT="$2"; shift 2 ;;
+    --container-dev-root) CONTAINER_DEV_ROOT="$2"; shift 2 ;;
+    --env-file)    ENV_FILE="$2"; shift 2 ;;
     --uninstall)   UNINSTALL=1; shift ;;
     -h|--help)
       sed -n '2,30p' "$0"
@@ -83,6 +89,33 @@ fi
 # ── Default log path ──────────────────────────────────────────────────────────
 if [ -z "$LOG_FILE" ]; then
   LOG_FILE="$REPO/.wqm-fork/logs/git-hooks.jsonl"
+fi
+
+# ── Auto-source docker/.env for missing values ────────────────────────────────
+# When the daemon runs in Docker, the hook needs the container path so it can
+# translate host paths before calling RegisterProject. We pick up WQM_DEV_ROOT,
+# WQM_HOST_DEV_ROOT, and MCP_HTTP_TOKEN from docker/.env if not already set.
+if [ -z "$ENV_FILE" ] && [ -f "$REPO/docker/.env" ]; then
+  ENV_FILE="$REPO/docker/.env"
+fi
+if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      ''|'#'*) continue ;;
+    esac
+    _key="${_line%%=*}"
+    _val="${_line#*=}"
+    # Strip surrounding single/double quotes.
+    case "$_val" in
+      \"*\") _val="${_val#\"}"; _val="${_val%\"}" ;;
+      \'*\') _val="${_val#\'}"; _val="${_val%\'}" ;;
+    esac
+    case "$_key" in
+      WQM_DEV_ROOT)      [ -z "$CONTAINER_DEV_ROOT" ] && CONTAINER_DEV_ROOT="$_val" ;;
+      WQM_HOST_DEV_ROOT) [ -z "$HOST_DEV_ROOT" ] && HOST_DEV_ROOT="$_val" ;;
+      MCP_HTTP_TOKEN)    [ -z "$TOKEN" ] && TOKEN="$_val" ;;
+    esac
+  done < "$ENV_FILE"
 fi
 
 HOOK_LIST="post-checkout post-commit post-merge post-rewrite post-worktree-add"
@@ -130,6 +163,8 @@ WQM_HOOK_NAME="$_hook_name" \\
 WQM_MCP_URL="$MCP_URL" \\
 WQM_MCP_TOKEN="$TOKEN" \\
 WQM_HOOK_LOG="$LOG_FILE" \\
+WQM_HOST_DEV_ROOT="$HOST_DEV_ROOT" \\
+WQM_DEV_ROOT="$CONTAINER_DEV_ROOT" \\
 "$WQM_SCRIPT" "$_hook_name" >/dev/null 2>&1 || true
 exit 0
 EOF
@@ -148,8 +183,16 @@ done
 printf '\nHooks installed in: %s\n' "$HOOKS_DIR"
 printf 'MCP endpoint     : %s\n' "$MCP_URL"
 printf 'Log file         : %s\n' "$LOG_FILE"
+if [ -n "$HOST_DEV_ROOT" ] && [ -n "$CONTAINER_DEV_ROOT" ]; then
+  printf 'Path translation : %s -> %s\n' "$HOST_DEV_ROOT" "$CONTAINER_DEV_ROOT"
+fi
 if [ -z "$TOKEN" ]; then
   printf '\nWarning: MCP_HTTP_TOKEN is empty. Hooks will hit the MCP endpoint\n'
   printf '         unauthenticated and the request will be rejected.\n'
   printf '         Pass --token <value> or export MCP_HTTP_TOKEN before re-running.\n'
+fi
+if [ -n "$CONTAINER_DEV_ROOT" ] && [ -z "$HOST_DEV_ROOT" ]; then
+  printf '\nWarning: WQM_DEV_ROOT is set but WQM_HOST_DEV_ROOT is empty. Path\n'
+  printf '         translation is disabled, so host paths will be sent as-is.\n'
+  printf '         The daemon will reject them if it cannot see the host path.\n'
 fi
