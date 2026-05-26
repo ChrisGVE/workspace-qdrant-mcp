@@ -65,6 +65,11 @@ impl EmbeddingGenerator {
         self.dense_provider.output_dim()
     }
 
+    /// Label identifying the dense embedding model (e.g. "fastembed/all-MiniLM-L6-v2").
+    pub fn provider_label(&self) -> &str {
+        self.dense_provider.provider_label()
+    }
+
     /// Issue a single probe call against the dense provider.
     pub async fn probe_provider(&self) -> Result<(), EmbeddingError> {
         self.dense_provider.probe().await

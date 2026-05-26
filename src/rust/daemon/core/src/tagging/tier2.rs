@@ -81,7 +81,7 @@ impl Tier2Tagger {
     ) -> Result<Self, EmbeddingError> {
         let terms: Vec<String> = entries.iter().map(|e| e.term.clone()).collect();
         let results = embedding_generator
-            .generate_embeddings_batch(&terms, "all-MiniLM-L6-v2")
+            .generate_embeddings_batch(&terms, embedding_generator.provider_label())
             .await?;
         let embeddings: Vec<Vec<f32>> = results.into_iter().map(|r| r.dense.vector).collect();
 
@@ -105,8 +105,9 @@ impl Tier2Tagger {
         config: Tier2Config,
     ) -> Result<Self, EmbeddingError> {
         let taxonomy_hash = compute_taxonomy_hash(taxonomy_yaml);
+        let model_name = embedding_generator.provider_label();
 
-        match load_cached_embeddings(pool, &taxonomy_hash, entries).await {
+        match load_cached_embeddings(pool, &taxonomy_hash, model_name, entries).await {
             CacheLookup::Hit {
                 entries,
                 embeddings,
@@ -128,13 +129,13 @@ impl Tier2Tagger {
                 );
                 let terms: Vec<String> = entries.iter().map(|e| e.term.clone()).collect();
                 let results = embedding_generator
-                    .generate_embeddings_batch(&terms, "all-MiniLM-L6-v2")
+                    .generate_embeddings_batch(&terms, model_name)
                     .await?;
                 let embeddings: Vec<Vec<f32>> =
                     results.into_iter().map(|r| r.dense.vector).collect();
 
-                // Persist to cache (best-effort, non-fatal if it fails)
-                save_cached_embeddings(pool, &taxonomy_hash, &entries, &embeddings).await;
+                save_cached_embeddings(pool, &taxonomy_hash, model_name, &entries, &embeddings)
+                    .await;
 
                 Ok(Self {
                     entries,
@@ -503,11 +504,9 @@ mod tests {
             .await
             .unwrap();
 
-        // Create the taxonomy_cache table manually (simulating migration v39)
-        sqlx::query(crate::schema_version::v39::CREATE_TAXONOMY_CACHE_SQL)
-            .execute(&pool)
-            .await
-            .unwrap();
+        // Run full migrations to get taxonomy_cache with model_name column
+        let manager = crate::schema_version::SchemaManager::new(pool.clone());
+        manager.run_migrations().await.unwrap();
 
         let yaml = r#"
 categories:
@@ -517,18 +516,22 @@ categories:
 "#;
         let entries = crate::tagging::taxonomy::load_taxonomy(yaml).unwrap();
         let hash = crate::tagging::taxonomy_cache::compute_taxonomy_hash(yaml);
+        let model = "all-MiniLM-L6-v2";
 
-        // Simulate a cache miss: manually populate with known embeddings
         let mock_embs = vec![vec![1.0f32, 0.0, 0.0], vec![0.0, 1.0, 0.0]];
 
-        // Manually save to cache
-        crate::tagging::taxonomy_cache::save_cached_embeddings(&pool, &hash, &entries, &mock_embs)
-            .await;
+        crate::tagging::taxonomy_cache::save_cached_embeddings(
+            &pool, &hash, model, &entries, &mock_embs,
+        )
+        .await;
 
-        // Now load should hit
-        let lookup =
-            crate::tagging::taxonomy_cache::load_cached_embeddings(&pool, &hash, entries.clone())
-                .await;
+        let lookup = crate::tagging::taxonomy_cache::load_cached_embeddings(
+            &pool,
+            &hash,
+            model,
+            entries.clone(),
+        )
+        .await;
         assert!(matches!(lookup, CacheLookup::Hit { .. }));
 
         if let CacheLookup::Hit {

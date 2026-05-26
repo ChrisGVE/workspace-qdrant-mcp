@@ -57,6 +57,7 @@ pub enum CacheLookup {
 pub async fn load_cached_embeddings(
     pool: &SqlitePool,
     taxonomy_hash: &str,
+    model_name: &str,
     entries: Vec<TaxonomyEntry>,
 ) -> CacheLookup {
     // Check if taxonomy_cache table exists (might not yet if migration hasn't run)
@@ -79,18 +80,20 @@ pub async fn load_cached_embeddings(
     }
 
     // Count cached rows for this taxonomy hash
-    let cached_count: i64 =
-        match sqlx::query_scalar("SELECT COUNT(*) FROM taxonomy_cache WHERE taxonomy_hash = ?1")
-            .bind(taxonomy_hash)
-            .fetch_one(pool)
-            .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("taxonomy_cache count query failed: {e}");
-                return CacheLookup::Miss { entries };
-            }
-        };
+    let cached_count: i64 = match sqlx::query_scalar(
+        "SELECT COUNT(*) FROM taxonomy_cache WHERE taxonomy_hash = ?1 AND model_name = ?2",
+    )
+    .bind(taxonomy_hash)
+    .bind(model_name)
+    .fetch_one(pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("taxonomy_cache count query failed: {e}");
+            return CacheLookup::Miss { entries };
+        }
+    };
 
     if cached_count as usize != entries.len() {
         debug!(
@@ -105,9 +108,10 @@ pub async fn load_cached_embeddings(
     // deterministic mapping. We match by term_label against entries.
     let rows: Vec<(String, String, Vec<u8>)> = match sqlx::query_as(
         "SELECT term_label, category, embedding FROM taxonomy_cache \
-         WHERE taxonomy_hash = ?1 ORDER BY term_label",
+         WHERE taxonomy_hash = ?1 AND model_name = ?2 ORDER BY term_label",
     )
     .bind(taxonomy_hash)
+    .bind(model_name)
     .fetch_all(pool)
     .await
     {
@@ -163,6 +167,7 @@ pub async fn load_cached_embeddings(
 pub async fn save_cached_embeddings(
     pool: &SqlitePool,
     taxonomy_hash: &str,
+    model_name: &str,
     entries: &[TaxonomyEntry],
     embeddings: &[Vec<f32>],
 ) {
@@ -195,11 +200,13 @@ pub async fn save_cached_embeddings(
         }
     };
 
-    // Delete stale entries (different taxonomy hash)
-    if let Err(e) = sqlx::query("DELETE FROM taxonomy_cache WHERE taxonomy_hash != ?1")
-        .bind(taxonomy_hash)
-        .execute(&mut *tx)
-        .await
+    // Delete stale entries (different taxonomy hash or model)
+    if let Err(e) =
+        sqlx::query("DELETE FROM taxonomy_cache WHERE taxonomy_hash != ?1 OR model_name != ?2")
+            .bind(taxonomy_hash)
+            .bind(model_name)
+            .execute(&mut *tx)
+            .await
     {
         warn!("taxonomy_cache stale deletion failed: {e}");
         let _ = tx.rollback().await;
@@ -211,13 +218,14 @@ pub async fn save_cached_embeddings(
         let emb_bytes = embedding_to_bytes(embedding);
         if let Err(e) = sqlx::query(
             "INSERT OR REPLACE INTO taxonomy_cache \
-             (taxonomy_hash, term_label, category, embedding) \
-             VALUES (?1, ?2, ?3, ?4)",
+             (taxonomy_hash, term_label, category, embedding, model_name) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
         )
         .bind(taxonomy_hash)
         .bind(&entry.term)
         .bind(&entry.category)
         .bind(&emb_bytes)
+        .bind(model_name)
         .execute(&mut *tx)
         .await
         {
@@ -305,13 +313,15 @@ mod tests {
         assert!(recovered.is_empty());
     }
 
+    const TEST_MODEL: &str = "all-MiniLM-L6-v2";
+
     #[tokio::test]
     async fn test_cache_miss_on_empty_table() {
         let pool = setup_pool().await;
         let entries = sample_entries();
         let hash = "test_hash_001";
 
-        let result = load_cached_embeddings(&pool, hash, entries.clone()).await;
+        let result = load_cached_embeddings(&pool, hash, TEST_MODEL, entries.clone()).await;
         assert!(matches!(result, CacheLookup::Miss { .. }));
     }
 
@@ -322,11 +332,9 @@ mod tests {
         let embeddings = sample_embeddings();
         let hash = "test_hash_002";
 
-        // Save
-        save_cached_embeddings(&pool, hash, &entries, &embeddings).await;
+        save_cached_embeddings(&pool, hash, TEST_MODEL, &entries, &embeddings).await;
 
-        // Load
-        let result = load_cached_embeddings(&pool, hash, entries.clone()).await;
+        let result = load_cached_embeddings(&pool, hash, TEST_MODEL, entries.clone()).await;
         match result {
             CacheLookup::Hit {
                 entries: loaded_entries,
@@ -334,7 +342,6 @@ mod tests {
             } => {
                 assert_eq!(loaded_entries.len(), 2);
                 assert_eq!(loaded_embeddings.len(), 2);
-                // Verify embedding values roundtrip
                 for (orig, loaded) in embeddings.iter().zip(loaded_embeddings.iter()) {
                     assert_eq!(orig, loaded);
                 }
@@ -349,17 +356,13 @@ mod tests {
         let entries = sample_entries();
         let embeddings = sample_embeddings();
 
-        // Save with hash A
-        save_cached_embeddings(&pool, "hash_A", &entries, &embeddings).await;
+        save_cached_embeddings(&pool, "hash_A", TEST_MODEL, &entries, &embeddings).await;
 
-        // Lookup with hash B -- should be a miss
-        let result = load_cached_embeddings(&pool, "hash_B", entries.clone()).await;
+        let result = load_cached_embeddings(&pool, "hash_B", TEST_MODEL, entries.clone()).await;
         assert!(matches!(result, CacheLookup::Miss { .. }));
 
-        // Save with hash B -- should purge hash A rows
-        save_cached_embeddings(&pool, "hash_B", &entries, &embeddings).await;
+        save_cached_embeddings(&pool, "hash_B", TEST_MODEL, &entries, &embeddings).await;
 
-        // Verify hash A rows are gone
         let count_a: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM taxonomy_cache WHERE taxonomy_hash = 'hash_A'",
         )
@@ -368,8 +371,7 @@ mod tests {
         .unwrap();
         assert_eq!(count_a, 0, "Stale hash_A entries should be purged");
 
-        // Verify hash B rows exist
-        let result = load_cached_embeddings(&pool, "hash_B", entries.clone()).await;
+        let result = load_cached_embeddings(&pool, "hash_B", TEST_MODEL, entries.clone()).await;
         assert!(matches!(result, CacheLookup::Hit { .. }));
     }
 
@@ -380,16 +382,36 @@ mod tests {
         let embeddings = sample_embeddings();
         let hash = "test_hash_partial";
 
-        // Save only 2 entries
-        save_cached_embeddings(&pool, hash, &entries, &embeddings).await;
+        save_cached_embeddings(&pool, hash, TEST_MODEL, &entries, &embeddings).await;
 
-        // Lookup with 3 entries -- should be a miss (count mismatch)
         let mut extended_entries = entries.clone();
         extended_entries.push(TaxonomyEntry {
             term: "extra term".into(),
             category: "extra".into(),
         });
-        let result = load_cached_embeddings(&pool, hash, extended_entries).await;
+        let result = load_cached_embeddings(&pool, hash, TEST_MODEL, extended_entries).await;
         assert!(matches!(result, CacheLookup::Miss { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_cache_miss_on_model_change() {
+        let pool = setup_pool().await;
+        let entries = sample_entries();
+        let embeddings = sample_embeddings();
+        let hash = "test_hash_model";
+
+        save_cached_embeddings(&pool, hash, "model-a", &entries, &embeddings).await;
+
+        let result = load_cached_embeddings(&pool, hash, "model-b", entries.clone()).await;
+        assert!(
+            matches!(result, CacheLookup::Miss { .. }),
+            "Different model_name should cause cache miss"
+        );
+
+        let result = load_cached_embeddings(&pool, hash, "model-a", entries.clone()).await;
+        assert!(
+            matches!(result, CacheLookup::Hit { .. }),
+            "Same model_name should cache hit"
+        );
     }
 }
