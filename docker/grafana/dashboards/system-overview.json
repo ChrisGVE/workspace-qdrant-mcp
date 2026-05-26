@@ -948,102 +948,160 @@
     {
       "id": 10,
       "title": "Indexed Projects",
-      "description": "Live indexed project inventory from memexd's SQLite state, including path, status flags, document counts, point counts and scan/activity timestamps.",
+      "description": "Per-project inventory joined from memexd_indexed_project_* gauges. Documents = SQLite tracked_files count; Points = Qdrant chunk count; Chunks/Doc = Points/Documents (rough chunk density). Status pills reflect watch_folders flags; Last Activity is when the daemon last touched this project (heartbeat / file event / ingest).",
       "type": "table",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 40 },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "displayMode": "auto",
-            "filterable": true
-          },
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5000 },
-              { "color": "red", "value": 20000 }
-            ]
-          }
+          "custom": { "align": "auto", "filterable": true, "inspect": true },
+          "unit": "short"
         },
         "overrides": [
           {
+            "matcher": { "id": "byName", "options": "Project" },
+            "properties": [
+              { "id": "custom.width", "value": 220 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Path" },
+            "properties": [
+              { "id": "custom.width", "value": 380 },
+              { "id": "custom.cellOptions", "value": { "type": "auto", "wrapText": false } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Tenant" },
+            "properties": [
+              { "id": "custom.width", "value": 160 },
+              { "id": "custom.cellOptions", "value": { "type": "auto", "wrapText": false } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Documents" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "transparent", "value": null },
+                    { "color": "blue", "value": 1 },
+                    { "color": "yellow", "value": 10000 },
+                    { "color": "red", "value": 100000 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Points" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "transparent", "value": null },
+                    { "color": "blue", "value": 1 },
+                    { "color": "yellow", "value": 50000 },
+                    { "color": "red", "value": 500000 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Chunks/Doc" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 100 }
+            ]
+          },
+          {
             "matcher": { "id": "byName", "options": "Last Scan" },
-            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+            "properties": [
+              { "id": "unit", "value": "dateTimeFromNow" },
+              { "id": "custom.width", "value": 130 }
+            ]
           },
           {
             "matcher": { "id": "byName", "options": "Last Activity" },
-            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+            "properties": [
+              { "id": "unit", "value": "dateTimeFromNow" },
+              { "id": "custom.width", "value": 130 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Active" },
+            "properties": [
+              { "id": "custom.width", "value": 80 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "✓ active", "color": "green" } } },
+                { "type": "value", "options": { "false": { "text": "idle",      "color": "transparent" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Worktree" },
+            "properties": [
+              { "id": "custom.width", "value": 90 },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "↪ worktree", "color": "orange" } } },
+                { "type": "value", "options": { "false": { "text": "", "color": "transparent" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Git" },
+            "properties": [
+              { "id": "custom.width", "value": 70 },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "git",  "color": "text" } } },
+                { "type": "value", "options": { "false": { "text": "—", "color": "text-secondary" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "State" },
+            "properties": [
+              { "id": "custom.width", "value": 90 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "archived": { "text": "archived", "color": "dark-gray" } } },
+                { "type": "value", "options": { "paused":   { "text": "paused",   "color": "yellow" } } },
+                { "type": "value", "options": { "disabled": { "text": "disabled", "color": "red" } } },
+                { "type": "value", "options": { "running":  { "text": "running",  "color": "green" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "watch_id" },
+            "properties": [
+              { "id": "custom.hidden", "value": true }
+            ]
           }
         ]
       },
       "options": {
         "showHeader": true,
-        "sortBy": [
-          { "displayName": "Documents", "desc": true }
-        ],
+        "sortBy": [{ "displayName": "Last Activity", "desc": true }],
         "footer": { "show": false }
       },
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "watch_id",
-            "mode": "outerTabular"
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "Metric": true,
-              "__name__": true,
-              "job": true,
-              "instance": true,
-              "watch_id": true
-            },
-            "renameByName": {
-              "Value": "Documents",
-              "Value #A": "Documents",
-              "Value #B": "Points",
-              "Value #C": "Last Scan",
-              "Value #D": "Last Activity",
-              "tenant_id": "Project ID",
-              "path": "Path",
-              "enabled": "Enabled",
-              "is_active": "Active",
-              "is_paused": "Paused",
-              "is_archived": "Archived",
-              "is_worktree": "Worktree",
-              "is_git_tracked": "Git Tracked"
-            },
-            "indexByName": {
-              "Project ID": 0,
-              "Path": 1,
-              "Documents": 2,
-              "Points": 3,
-              "Last Scan": 4,
-              "Last Activity": 5,
-              "Enabled": 6,
-              "Active": 7,
-              "Paused": 8,
-              "Archived": 9,
-              "Worktree": 10,
-              "Git Tracked": 11
-            }
-          }
-        }
-      ],
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived, is_worktree, is_git_tracked) (memexd_indexed_project_tracked_files)",
-          "legendFormat": "{{tenant_id}}",
+          "expr": "label_replace(max by (watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived, is_worktree, is_git_tracked) (memexd_indexed_project_tracked_files), \"name\", \"$1\", \"path\", \".*/([^/]+)/?$\")",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -1051,7 +1109,6 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "max by (watch_id) (memexd_indexed_project_points)",
-          "legendFormat": "{{watch_id}}",
           "refId": "B",
           "instant": true,
           "format": "table"
@@ -1059,7 +1116,6 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "1000 * max by (watch_id) (memexd_indexed_project_last_scan_seconds)",
-          "legendFormat": "{{watch_id}}",
           "refId": "C",
           "instant": true,
           "format": "table"
@@ -1067,10 +1123,69 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "1000 * max by (watch_id) (memexd_indexed_project_last_activity_seconds)",
-          "legendFormat": "{{watch_id}}",
           "refId": "D",
           "instant": true,
           "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (watch_id) (memexd_indexed_project_points) / clamp_min(max by (watch_id) (memexd_indexed_project_tracked_files), 1)",
+          "refId": "E",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "watch_id", "mode": "outer" } },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "State",
+            "mode": "reduceRow",
+            "reduce": { "reducer": "allValues" },
+            "replaceFields": false
+          },
+          "disabled": true
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true, "Time 5": true,
+              "Metric": true, "__name__": true, "job": true, "instance": true,
+              "enabled": true, "is_paused": true, "is_archived": true
+            },
+            "renameByName": {
+              "name": "Project",
+              "path": "Path",
+              "tenant_id": "Tenant",
+              "is_active": "Active",
+              "is_worktree": "Worktree",
+              "is_git_tracked": "Git",
+              "Value #A": "tracked_dup",
+              "Value #B": "Points",
+              "Value #C": "Last Scan",
+              "Value #D": "Last Activity",
+              "Value #E": "Chunks/Doc"
+            },
+            "indexByName": {
+              "Project": 0,
+              "Tenant": 1,
+              "Path": 2,
+              "Active": 3,
+              "Worktree": 4,
+              "Git": 5,
+              "Documents": 6,
+              "Points": 7,
+              "Chunks/Doc": 8,
+              "Last Scan": 9,
+              "Last Activity": 10
+            }
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": { "regex": "^tracked_dup$", "renamePattern": "Documents" }
         }
       ]
     }
