@@ -207,6 +207,20 @@ impl<S: GraphStore> SharedGraphStore<S> {
             .await
     }
 
+    /// Traverse graph crossing tenant boundaries.
+    pub async fn query_cross_boundary(
+        &self,
+        source_tenant: &str,
+        source_node_id: &str,
+        edge_types: &[EdgeType],
+        max_hops: u32,
+    ) -> GraphDbResult<Vec<TraversalNode>> {
+        let guard = self.acquire_read("query_cross_boundary").await?;
+        guard
+            .query_cross_boundary(source_tenant, source_node_id, edge_types, max_hops)
+            .await
+    }
+
     // ── Write operations (exclusive lock) ────────────────────────────
 
     /// Upsert a batch of nodes (exclusive lock).
@@ -673,7 +687,9 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..5 {
             let s = store.clone();
-            handles.push(tokio::spawn(async move { s.stats(Some(T), None).await.unwrap() }));
+            handles.push(tokio::spawn(async move {
+                s.stats(Some(T), None).await.unwrap()
+            }));
         }
 
         for handle in handles {

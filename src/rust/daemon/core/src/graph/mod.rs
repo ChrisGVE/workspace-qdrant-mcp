@@ -520,6 +520,19 @@ pub trait GraphStore: Send + Sync {
         branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>>;
 
+    /// Traverse graph crossing tenant boundaries via concept/narrative edges.
+    ///
+    /// Starts from `source_node_id` in `source_tenant`, then follows edges
+    /// regardless of target node tenant_id. Callers should clamp `max_hops`
+    /// to 1..=10 before calling.
+    async fn query_cross_boundary(
+        &self,
+        source_tenant: &str,
+        source_node_id: &str,
+        edge_types: &[EdgeType],
+        max_hops: u32,
+    ) -> GraphDbResult<Vec<TraversalNode>>;
+
     /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new
     /// edges — all within a single transaction. On error the database remains
     /// unchanged (all-or-nothing).

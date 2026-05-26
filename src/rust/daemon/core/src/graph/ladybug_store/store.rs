@@ -137,6 +137,26 @@ impl LadybugGraphStore {
             "CREATE REL TABLE IF NOT EXISTS IMPLEMENTS(FROM GraphNode TO GraphNode, \
              weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
              metadata_json STRING)",
+            // Narrative layer
+            "CREATE REL TABLE IF NOT EXISTS EXPLAINS(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
+            "CREATE REL TABLE IF NOT EXISTS DESCRIBES(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
+            "CREATE REL TABLE IF NOT EXISTS REFERENCES_DOC(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
+            "CREATE REL TABLE IF NOT EXISTS ELABORATES(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
+            // Concept layer
+            "CREATE REL TABLE IF NOT EXISTS COVERS_TOPIC(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
+            "CREATE REL TABLE IF NOT EXISTS IMPLEMENTS_CONCEPT(FROM GraphNode TO GraphNode, \
+             weight DOUBLE, source_file STRING, edge_id STRING, tenant_id STRING, \
+             metadata_json STRING)",
         ];
 
         for ddl in &ddl_statements {
@@ -663,5 +683,15 @@ impl GraphStore for LadybugGraphStore {
         }
 
         Ok(0)
+    }
+
+    async fn query_cross_boundary(
+        &self,
+        _source_tenant: &str,
+        _source_node_id: &str,
+        _edge_types: &[EdgeType],
+        _max_hops: u32,
+    ) -> GraphDbResult<Vec<TraversalNode>> {
+        Ok(Vec::new())
     }
 }

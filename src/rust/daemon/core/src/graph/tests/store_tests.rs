@@ -324,3 +324,74 @@ async fn test_reingest_file_idempotent() {
     assert_eq!(stats.total_edges, 1);
     assert_eq!(stats.total_nodes, 2);
 }
+
+#[tokio::test]
+async fn test_query_cross_boundary_basic() {
+    let store = test_store().await;
+
+    let concept = GraphNode::new(TENANT, "", "machine_learning", NodeType::ConceptNode);
+    let func = GraphNode::new(TENANT, "ml.rs", "train", NodeType::Function);
+    let doc = GraphNode::new(
+        "other_tenant",
+        "guide.md",
+        "ML Guide",
+        NodeType::DocumentSection,
+    );
+
+    store
+        .upsert_nodes(&[concept.clone(), func.clone(), doc.clone()])
+        .await
+        .unwrap();
+
+    let e1 = GraphEdge::new(
+        TENANT,
+        &func.node_id,
+        &concept.node_id,
+        EdgeType::ImplementsConcept,
+        "ml.rs",
+    );
+    let e2 = GraphEdge::new(
+        "other_tenant",
+        &concept.node_id,
+        &doc.node_id,
+        EdgeType::CoversTopic,
+        "guide.md",
+    );
+    store.insert_edges(&[e1, e2]).await.unwrap();
+
+    let results = store
+        .query_cross_boundary(
+            TENANT,
+            &func.node_id,
+            &[EdgeType::ImplementsConcept, EdgeType::CoversTopic],
+            3,
+        )
+        .await
+        .unwrap();
+
+    assert!(!results.is_empty(), "Should find cross-boundary nodes");
+    assert!(
+        results.iter().any(|r| r.symbol_name == "machine_learning"),
+        "Should reach concept node"
+    );
+}
+
+#[tokio::test]
+async fn test_query_cross_boundary_empty_edge_types() {
+    let store = test_store().await;
+    let results = store
+        .query_cross_boundary(TENANT, "nonexistent", &[], 3)
+        .await
+        .unwrap();
+    assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn test_query_cross_boundary_zero_hops() {
+    let store = test_store().await;
+    let results = store
+        .query_cross_boundary(TENANT, "any", &[EdgeType::CoversTopic], 0)
+        .await
+        .unwrap();
+    assert!(results.is_empty());
+}

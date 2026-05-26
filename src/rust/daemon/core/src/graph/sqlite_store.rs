@@ -596,6 +596,70 @@ impl GraphStore for SqliteGraphStore {
         );
         Ok(())
     }
+
+    async fn query_cross_boundary(
+        &self,
+        _source_tenant: &str,
+        source_node_id: &str,
+        edge_types: &[EdgeType],
+        max_hops: u32,
+    ) -> GraphDbResult<Vec<TraversalNode>> {
+        if edge_types.is_empty() || max_hops == 0 {
+            return Ok(Vec::new());
+        }
+
+        let type_placeholders: Vec<String> = edge_types
+            .iter()
+            .map(|et| format!("'{}'", et.as_str()))
+            .collect();
+        let type_list = type_placeholders.join(",");
+
+        let sql = format!(
+            "WITH RECURSIVE traverse(node_id, depth, path) AS (
+                SELECT ?1, 0, ?1
+                UNION ALL
+                SELECT e.target_node_id, t.depth + 1,
+                       t.path || ' -> ' || e.target_node_id
+                FROM traverse t
+                JOIN graph_edges e ON e.source_node_id = t.node_id
+                WHERE t.depth < ?2
+                  AND e.edge_type IN ({type_list})
+                  AND INSTR(t.path, e.target_node_id) = 0
+            )
+            SELECT n.node_id, n.symbol_name, n.symbol_type, n.file_path,
+                   COALESCE(e.edge_type, '') as edge_type,
+                   t.depth, t.path
+            FROM traverse t
+            JOIN graph_nodes n ON n.node_id = t.node_id
+            LEFT JOIN graph_edges e ON e.target_node_id = t.node_id
+                AND e.edge_type IN ({type_list})
+            WHERE t.depth > 0
+            ORDER BY t.depth, n.symbol_name"
+        );
+
+        let rows: Vec<(String, String, String, String, String, i64, String)> = sqlx::query_as(&sql)
+            .bind(source_node_id)
+            .bind(max_hops as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let results = rows
+            .into_iter()
+            .map(
+                |(node_id, name, stype, fpath, etype, depth, path)| TraversalNode {
+                    node_id,
+                    symbol_name: name,
+                    symbol_type: stype,
+                    file_path: fpath,
+                    edge_type: etype,
+                    depth: depth as u32,
+                    path,
+                },
+            )
+            .collect();
+
+        Ok(results)
+    }
 }
 
 impl SqliteGraphStore {
