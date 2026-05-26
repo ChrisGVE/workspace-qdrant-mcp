@@ -24,6 +24,7 @@
  */
 
 import { timingSafeEqual, createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { recordHttpAuthFailure, recordHttpRateLimited } from './telemetry/metrics.js';
@@ -52,6 +53,63 @@ export interface AuthConfig {
    * other origins are blocked by the same-origin policy.
    */
   corsOrigins: string[];
+  /**
+   * When `true`, requests originating from `127.0.0.1` / `::1` skip the
+   * bearer-token check. Useful for local dev/admin UI where pasting a token
+   * on every session is friction with little security gain (the listener is
+   * already on localhost). Default `false` — opt-in via
+   * `MCP_HTTP_TRUST_LOCALHOST=1`.
+   */
+  trustLocalhost: boolean;
+}
+
+/** Loopback addresses that count as "local" for trust-localhost mode. */
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/**
+ * True when this process is running inside a Docker container. Detected via
+ * the cgroup or the conventional /.dockerenv marker. Cached after first call.
+ */
+let _inDocker: boolean | undefined;
+function runningInDocker(): boolean {
+  if (_inDocker !== undefined) return _inDocker;
+  try {
+    _inDocker = existsSync('/.dockerenv');
+  } catch {
+    _inDocker = false;
+  }
+  return _inDocker;
+}
+
+/**
+ * True when the peer address is in an RFC1918 private range. Used inside
+ * Docker containers to treat the bridge gateway as "local equivalent" —
+ * a request published from the host via Docker port-forwarding lands on
+ * the container with a 172.x.x.x peer, not 127.0.0.1.
+ */
+function isPrivateAddress(peer: string): boolean {
+  if (/^10\./.test(peer)) return true;
+  if (/^192\.168\./.test(peer)) return true;
+  const m = /^172\.(\d+)\./.exec(peer);
+  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+  return false;
+}
+
+/**
+ * True when the request's socket peer is on a loopback interface. When the
+ * process runs inside Docker, RFC1918 private peers are also accepted —
+ * a `curl http://localhost:PORT` from the host enters the container with
+ * the bridge gateway IP, not 127.0.0.1, and the trust-localhost guarantee
+ * still applies (the listener is reachable only via the host's loopback
+ * interface in that deployment).
+ */
+export function isLoopbackRequest(req: IncomingMessage): boolean {
+  const raw = req.socket.remoteAddress ?? '';
+  // Strip the IPv4-mapped-IPv6 prefix that Node uses on dual-stack sockets.
+  const peer = raw.replace(/^::ffff:/, '');
+  if (LOOPBACK_ADDRESSES.has(peer)) return true;
+  if (runningInDocker() && isPrivateAddress(peer)) return true;
+  return false;
 }
 
 /**
@@ -87,7 +145,10 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
-  return { token, rateLimitPerMin, corsOrigins };
+  const trustLocalhostRaw = (env['MCP_HTTP_TRUST_LOCALHOST'] ?? '').trim().toLowerCase();
+  const trustLocalhost = trustLocalhostRaw === '1' || trustLocalhostRaw === 'true' || trustLocalhostRaw === 'yes';
+
+  return { token, rateLimitPerMin, corsOrigins, trustLocalhost };
 }
 
 /**
@@ -111,6 +172,7 @@ export function requireAuth(config: AuthConfig): void {
     tokenDigest: tokenDigest(config.token),
     rateLimitPerMin: config.rateLimitPerMin,
     corsOrigins: config.corsOrigins.length > 0 ? config.corsOrigins : 'disabled',
+    trustLocalhost: config.trustLocalhost,
   });
 }
 
@@ -198,6 +260,15 @@ export function createAuthMiddleware(
       logDebug('HTTP rate limit exceeded', { clientIp });
       recordHttpRateLimited();
       return { authorized: false };
+    }
+
+    // trust-localhost: skip bearer check for loopback peers when enabled.
+    // Useful for local admin UI where pasting the token on every session is
+    // friction without meaningful security gain (the port is bound to a
+    // loopback interface; same-machine processes can already see it).
+    if (config.trustLocalhost && isLoopbackRequest(req)) {
+      logDebug('HTTP auth bypassed: trust-localhost', { clientIp });
+      return { authorized: true };
     }
 
     const bearerDecision = checkBearer(req, res, config.token, clientIp);
