@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for graph.db.
-pub const GRAPH_SCHEMA_VERSION: i32 = 2;
+pub const GRAPH_SCHEMA_VERSION: i32 = 3;
 
 /// Default graph database filename.
 pub const GRAPH_DB_FILENAME: &str = "graph.db";
@@ -169,6 +169,7 @@ impl GraphDbManager {
         match version {
             1 => self.migrate_v1().await,
             2 => self.migrate_v2().await,
+            3 => self.migrate_v3().await,
             _ => Err(GraphDbError::Migration(format!(
                 "Unknown graph migration version: {}",
                 version
@@ -277,6 +278,37 @@ impl GraphDbManager {
         sqlx::query("CREATE INDEX idx_edges_branch ON graph_edges(tenant_id, branch)")
             .execute(&mut *tx)
             .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Migration v3: composite indexes for cross-boundary and type-filtered queries.
+    async fn migrate_v3(&self) -> GraphDbResult<()> {
+        info!("Graph migration v3: adding composite indexes for narrative/concept traversal");
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_edges_type_source \
+             ON graph_edges(edge_type, source_node_id)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_edges_type_target \
+             ON graph_edges(edge_type, target_node_id)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_type_tenant \
+             ON graph_nodes(symbol_type, tenant_id)",
+        )
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
         Ok(())

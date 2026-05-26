@@ -91,6 +91,18 @@ async fn setup_pool() -> SqlitePool {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("CREATE INDEX idx_edges_type_source ON graph_edges(edge_type, source_node_id)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE INDEX idx_edges_type_target ON graph_edges(edge_type, target_node_id)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE INDEX idx_nodes_type_tenant ON graph_nodes(symbol_type, tenant_id)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     pool
 }
