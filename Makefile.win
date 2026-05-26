@@ -90,10 +90,23 @@ FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(Q
 FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
 FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -QdrantUrl "$(FASTEMBED_QDRANT_URL)" -GrpcPort $(FASTEMBED_GRPC_PORT) -ControlPort $(FASTEMBED_CONTROL_PORT) -MetricsPort $(FASTEMBED_METRICS_PORT) -LogLevel "$(FASTEMBED_LOG_LEVEL)"
 
-.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-uninstall index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps stack-up stack-down stack-restart stack-status stack-logs mcp-rebuild memexd-recreate health-quick first-time redeploy build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-uninstall index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
 
 help:
-	@Write-Host "Targets principais:"
+	@Write-Host "════════════════════════════════════════════════════════════"
+	@Write-Host "Stack lifecycle (use estes para o dia-a-dia):"
+	@Write-Host "  first-time          - SETUP DO ZERO: build TS + docker up + hooks + health"
+	@Write-Host "  redeploy            - APOS MERGE / git pull: build + recreate mcp+memexd + hooks"
+	@Write-Host "  stack-up            - start docker stack (sem rebuild)"
+	@Write-Host "  stack-down          - stop docker stack"
+	@Write-Host "  stack-restart       - down + up"
+	@Write-Host "  stack-status        - ps + ping admin/qdrant/daemon"
+	@Write-Host "  stack-logs          - tail logs do mcp e memexd"
+	@Write-Host "  mcp-rebuild         - rebuild MCP image apos mudancas em src/typescript/"
+	@Write-Host "  memexd-recreate     - recreate memexd (apos mudar env do daemon)"
+	@Write-Host "  health-quick        - curl /admin/api/health"
+	@Write-Host "════════════════════════════════════════════════════════════"
+	@Write-Host "Targets principais (legacy / build-only daemon local):"
 	@Write-Host "  up                  - compila tudo, sobe Qdrant/daemon padrao e aplica config MCP"
 	@Write-Host "  up-fastembed        - compila tudo, sobe Qdrant/daemon com FastEmbed e aplica config MCP"
 	@Write-Host "  compose-up          - sobe docker-compose.yml da raiz com build local do MCP"
@@ -409,6 +422,90 @@ compose-down:
 
 compose-ps:
 	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" ps }
+
+# ────────────────────────────────────────────────────────────────────────────
+# Stack lifecycle — high-level orchestration over docker-compose.
+#
+# Quick reference:
+#   first-time      Fresh clone / never set up before
+#   redeploy        After `git pull` or merging fork/fixes — rebuild + restart
+#   stack-up        Start the docker stack (no rebuild)
+#   stack-down      Stop everything
+#   stack-restart   Stop then start
+#   stack-status    docker ps + ping admin/qdrant/daemon
+#   stack-logs      Tail mcp + memexd logs
+#   mcp-rebuild     Rebuild MCP image after src/typescript/mcp-server/ changes
+#   memexd-recreate Recreate memexd container (env changes in docker-compose.yml)
+#   health-quick    curl /admin/api/health and pretty-print
+# ────────────────────────────────────────────────────────────────────────────
+
+MCP_HTTP_PORT ?= 6335
+MCP_HEALTH_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/api/health
+MCP_INIT_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/init
+
+stack-up:
+	@Write-Host "Starting docker stack..."
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d
+	@Write-Host "Stack started. Run 'make -f Makefile.win stack-status' to verify."
+
+stack-down:
+	@Write-Host "Stopping docker stack..."
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" down
+
+stack-restart: stack-down stack-up
+
+stack-status:
+	@Write-Host "=== docker compose ps ==="
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps
+	@Write-Host ""
+	@Write-Host "=== endpoints ==="
+	@try { $$resp = Invoke-WebRequest -Uri "$(MCP_INIT_URL)" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host "/admin/init     [$$($$resp.StatusCode)] ok" } catch { Write-Host "/admin/init     [fail] $$($$_.Exception.Message)" }
+	@try { $$resp = Invoke-WebRequest -Uri "http://localhost:6333/collections" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host "qdrant          [$$($$resp.StatusCode)] ok" } catch { Write-Host "qdrant          [fail] $$($$_.Exception.Message)" }
+	@try { $$client = New-Object System.Net.Sockets.TcpClient; $$iar = $$client.BeginConnect("localhost", 50051, $$null, $$null); $$ok = $$iar.AsyncWaitHandle.WaitOne(2000, $$false); if ($$ok) { $$client.EndConnect($$iar); Write-Host "memexd gRPC     [ok] localhost:50051" } else { Write-Host "memexd gRPC     [timeout]" }; $$client.Close() } catch { Write-Host "memexd gRPC     [fail] $$($$_.Exception.Message)" }
+
+stack-logs:
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" logs --tail 50 mcp memexd
+
+mcp-rebuild: build-ts
+	@Write-Host "Rebuilding MCP image..."
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp
+	@Write-Host "Recreating MCP container..."
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d mcp
+
+memexd-recreate:
+	@Write-Host "Recreating memexd container (picks up env changes)..."
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate memexd
+
+health-quick:
+	@$$token = (Get-Content "$(COMPOSE_ENV_FILE)" -ErrorAction SilentlyContinue | Select-String "^MCP_HTTP_TOKEN=" | ForEach-Object { $$_.ToString().Split("=",2)[1] } | Select-Object -First 1); $$headers = @{}; if ($$token) { $$headers["Authorization"] = "Bearer $$token" }; try { $$resp = Invoke-RestMethod -Uri "$(MCP_HEALTH_URL)" -TimeoutSec 5 -Headers $$headers; $$resp | ConvertTo-Json -Depth 10 } catch { Write-Host "health check failed: $$($$_.Exception.Message)" -ForegroundColor Red; exit 1 }
+
+first-time:
+	@Write-Host "═══ First-time setup ═══"
+	@Write-Host "Step 1/4: npm install + build MCP server"
+	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) build-ts
+	@Write-Host "Step 2/4: build + start docker stack"
+	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build } else { Write-Host "ERROR: docker/.env not found. Copy docker/.env.example first." -ForegroundColor Red; exit 1 }
+	@Write-Host "Step 3/4: install POSIX git hooks"
+	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
+	@Write-Host "Step 4/4: health check"
+	@Start-Sleep -Seconds 8
+	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) stack-status
+	@Write-Host ""
+	@Write-Host "═══ Done. Open http://localhost:$(MCP_HTTP_PORT)/admin/ ═══"
+
+redeploy: build-ts
+	@Write-Host "═══ Redeploy after code changes ═══"
+	@Write-Host "Step 1/4: rebuild MCP image"
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp
+	@Write-Host "Step 2/4: recreate mcp + memexd (env may have changed)"
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate mcp memexd
+	@Write-Host "Step 3/4: reinstall git hooks (idempotent)"
+	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
+	@Write-Host "Step 4/4: health check"
+	@Start-Sleep -Seconds 6
+	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) stack-status
+	@Write-Host ""
+	@Write-Host "═══ Redeploy complete ═══"
 
 build-ts:
 	Set-Location "$(REPO)\src\typescript\mcp-server"; npm install; npm run build
