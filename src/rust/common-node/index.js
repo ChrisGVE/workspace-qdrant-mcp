@@ -157,6 +157,7 @@ module.exports.fieldProjectId = nativeBinding.fieldProjectId;
 module.exports.fieldLibraryName = nativeBinding.fieldLibraryName;
 module.exports.fieldBasePoint = nativeBinding.fieldBasePoint;
 module.exports.fieldBranch = nativeBinding.fieldBranch;
+module.exports.fieldBranches = nativeBinding.fieldBranches;
 module.exports.fieldFileType = nativeBinding.fieldFileType;
 module.exports.fieldFilePath = nativeBinding.fieldFilePath;
 module.exports.fieldConceptTags = nativeBinding.fieldConceptTags;

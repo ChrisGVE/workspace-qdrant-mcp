@@ -90,7 +90,7 @@ describe('buildFilter — component filter', () => {
     expect(componentCondition).toBeDefined();
 
     // Branch condition present
-    const branchCondition = must.find((c) => (c as Record<string, unknown>).key === 'branch');
+    const branchCondition = must.find((c) => (c as Record<string, unknown>).key === 'branches');
     expect(branchCondition).toBeDefined();
   });
 });
