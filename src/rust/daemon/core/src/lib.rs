@@ -39,6 +39,7 @@ pub mod library_hierarchy;
 pub mod log_pruner;
 pub mod metadata_enrichment;
 pub mod monitoring;
+pub mod narrative;
 pub mod ocr;
 pub mod patterns;
 pub mod priority_manager;
