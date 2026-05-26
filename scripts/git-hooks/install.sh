@@ -39,6 +39,7 @@ HOST_DEV_ROOT="${WQM_HOST_DEV_ROOT:-}"
 CONTAINER_DEV_ROOT="${WQM_DEV_ROOT:-}"
 ENV_FILE=""
 UNINSTALL=0
+FORCE=0
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
@@ -52,6 +53,7 @@ while [ $# -gt 0 ]; do
     --host-dev-root)      HOST_DEV_ROOT="$2"; shift 2 ;;
     --container-dev-root) CONTAINER_DEV_ROOT="$2"; shift 2 ;;
     --env-file)    ENV_FILE="$2"; shift 2 ;;
+    --force)       FORCE=1; shift ;;
     --uninstall)   UNINSTALL=1; shift ;;
     -h|--help)
       sed -n '2,30p' "$0"
@@ -174,11 +176,21 @@ EOF
 
 for h in $HOOK_LIST; do
   if [ -f "$HOOKS_DIR/$h" ] && ! grep -q "$MARKER" "$HOOKS_DIR/$h" 2>/dev/null; then
-    printf 'skipped (existing non-wqm hook): %s\n' "$HOOKS_DIR/$h" >&2
-    continue
+    if [ "$FORCE" = "1" ]; then
+      printf 'overwriting non-wqm hook (--force): %s\n' "$HOOKS_DIR/$h" >&2
+    else
+      printf 'skipped (existing non-wqm hook, use --force to overwrite): %s\n' "$HOOKS_DIR/$h" >&2
+      continue
+    fi
   fi
   write_hook "$h"
 done
+
+# Clean up companion PS-era artifacts when forcing a switch to POSIX hooks.
+if [ "$FORCE" = "1" ] && [ -f "$HOOKS_DIR/wqm-git-hook.ps1" ]; then
+  rm -f "$HOOKS_DIR/wqm-git-hook.ps1"
+  printf 'removed stale PS hook companion: %s\n' "$HOOKS_DIR/wqm-git-hook.ps1" >&2
+fi
 
 printf '\nHooks installed in: %s\n' "$HOOKS_DIR"
 printf 'MCP endpoint     : %s\n' "$MCP_URL"
