@@ -64,11 +64,37 @@ function Resolve-AbsolutePath([string]$BaseDir, [string]$PathValue) {
 function Safe-BranchSlug([string]$Name) { return ($Name -replace '[^A-Za-z0-9._-]+','-').Trim('-') }
 function Ensure-Dir([string]$PathValue) { if (-not (Test-Path -LiteralPath $PathValue)) { New-Item -ItemType Directory -Path $PathValue -Force | Out-Null } }
 function Resolve-GitPath {
+  # 1. PATH lookup — fastest when available.
   $cmd = Get-Command git -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($cmd) {
     if ($cmd.Source) { return $cmd.Source }
     if ($cmd.Path) { return $cmd.Path }
   }
+
+  # 2. Explicit override via env var. Useful when the host has git installed
+  #    in a non-standard location.
+  if ($env:WQM_GIT_PATH -and (Test-Path -LiteralPath $env:WQM_GIT_PATH)) {
+    return $env:WQM_GIT_PATH
+  }
+
+  # 3. Known Windows install locations. The MCP server may be spawned by
+  #    Claude Desktop with an empty PATH (cwd at C:\WINDOWS\system32), in
+  #    which case Get-Command finds nothing. Probe the standard install
+  #    paths so the bridge still works.
+  $candidates = @(
+    "$env:ProgramFiles\Git\cmd\git.exe",
+    "$env:ProgramFiles\Git\bin\git.exe",
+    "${env:ProgramFiles(x86)}\Git\cmd\git.exe",
+    "${env:ProgramFiles(x86)}\Git\bin\git.exe",
+    "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe",
+    "$env:LOCALAPPDATA\Programs\Git\bin\git.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+      return $candidate
+    }
+  }
+
   return "git"
 }
 function Resolve-CommandOnPath([string]$CommandName) {
@@ -215,8 +241,49 @@ function Invoke-Git([string]$Repo, [string[]]$CommandArgs) {
   if ($LASTEXITCODE -ne 0) { throw "git -C $Repo $($CommandArgs -join ' ') falhou com codigo $LASTEXITCODE" }
 }
 function Invoke-GitText([string]$Repo, [string[]]$CommandArgs) {
-  $out = & $GitPath -C $Repo @CommandArgs 2>$null
-  [pscustomobject]@{ code = $LASTEXITCODE; ok = ($LASTEXITCODE -eq 0); output = (@($out) -join "`n") }
+  # Optional diagnostic log: set WQM_BRIDGE_DEBUG_LOG=<path> to capture every
+  # git invocation made by the bridge. Silent when unset.
+  $dbg = $env:WQM_BRIDGE_DEBUG_LOG
+  function _write_dbg([string]$msg) {
+    if ($dbg) {
+      $tsLine = "{0} {1}" -f ((Get-Date).ToString("o")), $msg
+      Add-Content -LiteralPath $dbg -Value $tsLine -ErrorAction SilentlyContinue
+    }
+  }
+
+  if (-not $GitPath -or $GitPath -eq "git") {
+    return [pscustomobject]@{ code = -1; ok = $false; output = ""; error = "git executable not found (GitPath=$GitPath)" }
+  }
+  if (-not (Test-Path -LiteralPath $GitPath)) {
+    return [pscustomobject]@{ code = -1; ok = $false; output = ""; error = "git executable missing at: $GitPath" }
+  }
+  _write_dbg "Invoke-GitText repo=$Repo args=$($CommandArgs -join ' ') GitPath=$GitPath"
+  # The `& $GitPath ...` call operator silently fails to spawn in some
+  # subprocess contexts (observed: PS spawned by node-spawned PS via Claude
+  # Desktop on Windows — $LASTEXITCODE ends up unset and no output captured).
+  # Use System.Diagnostics.Process directly to bypass the call-operator path.
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $GitPath
+    $psi.Arguments = "-C `"$Repo`" $(($CommandArgs | ForEach-Object { '"' + $_ + '"' }) -join ' ')"
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdOut = $proc.StandardOutput.ReadToEnd()
+    $stdErr = $proc.StandardError.ReadToEnd()
+    if (-not $proc.WaitForExit(15000)) { $proc.Kill(); throw "git timed out (15s)" }
+    $exitCode = $proc.ExitCode
+    _write_dbg "  -> exit=$exitCode stdout=[$($stdOut.Substring(0, [Math]::Min(100, $stdOut.Length)))] stderr=[$stdErr]"
+    [pscustomobject]@{ code = $exitCode; ok = ($exitCode -eq 0); output = $stdOut; error = $stdErr }
+  } catch {
+    _write_dbg "  -> threw: $($_.Exception.Message)"
+    [pscustomobject]@{ code = -1; ok = $false; output = ""; error = $_.Exception.Message }
+  }
 }
 function Assert-Clean([string]$Repo) {
   $s = & $GitPath -C $Repo status --porcelain
@@ -633,18 +700,25 @@ function Invoke-WqmProjectRegister([string]$PathValue, [string]$ProjectName, [st
     project_id = $projectId
   }
 }
-function Test-TcpEndpoint([string]$Endpoint) {
+function Test-TcpEndpoint($Endpoint) {
+  # $Host is a PowerShell automatic read-only variable; use $endpointHost.
+  # $Endpoint is intentionally untyped so JSON-deserialized PSObject members
+  # cast cleanly without "Argument types do not match" at the call site.
+  if (-not $Endpoint) {
+    return [pscustomobject]@{ ok = $false; host = ""; port = 0; error = "endpoint not configured" }
+  }
+  $Endpoint = [string]$Endpoint
   $clean = $Endpoint -replace '^https?://',''
   $parts = $clean.Split(':')
-  $host = $parts[0]
+  $endpointHost = $parts[0]
   $port = if ($parts.Length -gt 1) { [int]$parts[1] } else { 50051 }
   $client = New-Object System.Net.Sockets.TcpClient
   try {
-    $iar = $client.BeginConnect($host, $port, $null, $null)
+    $iar = $client.BeginConnect($endpointHost, $port, $null, $null)
     $ok = $iar.AsyncWaitHandle.WaitOne(2000, $false)
     if ($ok) { $client.EndConnect($iar) }
-    [pscustomobject]@{ ok = [bool]$ok; host = $host; port = $port }
-  } catch { [pscustomobject]@{ ok = $false; host = $host; port = $port; error = $_.Exception.Message } }
+    [pscustomobject]@{ ok = [bool]$ok; host = $endpointHost; port = $port }
+  } catch { [pscustomobject]@{ ok = $false; host = $endpointHost; port = $port; error = $_.Exception.Message } }
   finally { try { $client.Close() } catch {} }
 }
 function Test-Qdrant([string]$Url) {
@@ -654,45 +728,89 @@ function Test-Qdrant([string]$Url) {
     [pscustomobject]@{ ok = ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300); statusCode = $resp.StatusCode; endpoint = $uri }
   } catch { [pscustomobject]@{ ok = $false; endpoint = ($Url.TrimEnd('/') + '/collections'); error = $_.Exception.Message } }
 }
-function Invoke-Captured([string]$File, [string[]]$CommandArgs, [string]$Cwd, [int]$TimeoutSeconds = 20) {
-  $outFile = [System.IO.Path]::GetTempFileName()
-  $errFile = [System.IO.Path]::GetTempFileName()
-  $previousConsoleEncoding = [Console]::OutputEncoding
-  $previousOutputEncoding = $OutputEncoding
-  $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
-  try {
-    [Console]::OutputEncoding = $utf8Encoding
-    $OutputEncoding = $utf8Encoding
-    $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
-    $resolvedFile = $File
-    if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
-      $resolvedCandidate = Resolve-CommandOnPath $resolvedFile
-      if ($resolvedCandidate) {
-        $resolvedFile = $resolvedCandidate
-      }
-    }
-    Push-Location $Cwd
-    try {
-      if ($sanitizedArgs.Count -gt 0) {
-        & $resolvedFile @sanitizedArgs 1> $outFile 2> $errFile
-      } else {
-        & $resolvedFile 1> $outFile 2> $errFile
-      }
-      $exitCode = $LASTEXITCODE
-    } finally {
-      Pop-Location
-    }
+function Sanitize-CommandOutput([string]$Text) {
+  # Some Rust CLIs (notably wqm.exe) print box-drawing/ANSI escapes that are
+  # encoded under a different console code page than .NET's UTF-8 reader.
+  # The decode produces U+FFFD replacement chars and stray control bytes,
+  # which then break JSON serialization downstream. Strip both classes and
+  # ANSI CSI escape sequences so the captured stdout/stderr stays valid JSON.
+  if (-not $Text) { return $Text }
+  # ANSI CSI: ESC [ ... letter
+  $clean = [regex]::Replace($Text, "`e\[[0-9;?]*[A-Za-z]", "")
+  # Drop control chars except \t \n \r, and replacement char (U+FFFD).
+  $sb = New-Object System.Text.StringBuilder
+  foreach ($ch in $clean.ToCharArray()) {
+    $code = [int][char]$ch
+    # Tab (9) breaks JSON spec inside a string literal (must be 	), and
+    # PowerShell 5.1's ConvertTo-Json does not always escape it. Replace with
+    # a space — the rendered CLI output (already aligned with spaces in most
+    # places) stays readable.
+    if ($code -eq 9) { [void]$sb.Append(' '); continue }
+    # Preserve LF and CR.
+    if ($code -eq 10 -or $code -eq 13) { [void]$sb.Append($ch); continue }
+    # Drop other control chars and the Unicode replacement char.
+    if ($code -lt 32 -or $code -eq 0xFFFD) { continue }
+    # Strip non-ASCII. PowerShell 5.1's ConvertTo-Json silently mangles some
+    # high-codepoint chars (e.g. box-drawing glyphs come out as literal 0x09
+    # tab bytes downstream, breaking JSON parse). The Rust CLIs use these
+    # glyphs only for decoration — losing them keeps the message readable.
+    if ($code -gt 126) { [void]$sb.Append('?'); continue }
+    [void]$sb.Append($ch)
+  }
+  $sb.ToString()
+}
 
-    if ($exitCode -eq $null) {
-      $exitCode = -1
+function Invoke-Captured($File, [string[]]$CommandArgs, [string]$Cwd, [int]$TimeoutSeconds = 20) {
+  # $File is intentionally untyped: Resolve-WqmPath returns $null when the
+  # wqm CLI isn't installed, and the strict [string] binder would refuse the
+  # call with "Argument types do not match" before our guard could run.
+  if (-not $File) {
+    return [pscustomobject]@{
+      ok = $false
+      exitCode = -1
+      stdout = ""
+      stderr = "executable not found (Resolve-WqmPath returned null)"
     }
-    [pscustomobject]@{ ok=($exitCode -eq 0); exitCode=$exitCode; file=$resolvedFile; stdout=(Get-Content -Raw $outFile -ErrorAction SilentlyContinue); stderr=(Get-Content -Raw $errFile -ErrorAction SilentlyContinue) }
+  }
+  $sanitizedArgs = @($CommandArgs | Where-Object { $_ -ne $null -and $_ -ne '' })
+  $resolvedFile = $File
+  if ($resolvedFile -and -not [System.IO.Path]::IsPathRooted($resolvedFile)) {
+    $resolvedCandidate = Resolve-CommandOnPath $resolvedFile
+    if ($resolvedCandidate) {
+      $resolvedFile = $resolvedCandidate
+    }
+  }
+  if (-not (Test-Path -LiteralPath $resolvedFile)) {
+    return [pscustomobject]@{ ok = $false; exitCode = -1; file = $resolvedFile; stdout = ""; stderr = "executable missing at: $resolvedFile" }
+  }
+
+  # Use System.Diagnostics.Process directly. The `& $resolvedFile` call
+  # operator silently no-ops in some sub-process contexts (PS spawned by
+  # node-spawned PS via Claude Desktop on Windows) leaving $LASTEXITCODE
+  # unset and no output captured. Calling Process.Start is reliable.
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $resolvedFile
+    $psi.Arguments = ($sanitizedArgs | ForEach-Object { '"' + ($_ -replace '"','\"') + '"' }) -join ' '
+    $psi.WorkingDirectory = $Cwd
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdOut = $proc.StandardOutput.ReadToEnd()
+    $stdErr = $proc.StandardError.ReadToEnd()
+    if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
+      $proc.Kill()
+      return [pscustomobject]@{ ok = $false; exitCode = -1; file = $resolvedFile; stdout = (Sanitize-CommandOutput $stdOut); stderr = "timed out after ${TimeoutSeconds}s" }
+    }
+    $exitCode = $proc.ExitCode
+    [pscustomobject]@{ ok = ($exitCode -eq 0); exitCode = $exitCode; file = $resolvedFile; stdout = (Sanitize-CommandOutput $stdOut); stderr = (Sanitize-CommandOutput $stdErr) }
   } catch {
-    [pscustomobject]@{ ok=$false; exitCode=-1; file=$resolvedFile; stderr=$_.Exception.Message; stdout="" }
-  } finally {
-    [Console]::OutputEncoding = $previousConsoleEncoding
-    $OutputEncoding = $previousOutputEncoding
-    Remove-Item $outFile,$errFile -ErrorAction SilentlyContinue
+    [pscustomobject]@{ ok = $false; exitCode = -1; file = $resolvedFile; stdout = ""; stderr = $_.Exception.Message }
   }
 }
 
@@ -734,7 +852,9 @@ function Get-GitSnapshot([string]$Repo, [string]$Base = "") {
       if ($parts.Count -ge 2) { $behind = [int]$parts[0]; $ahead = [int]$parts[1] }
     }
   }
-  [pscustomobject]@{ ok=($status.ok); currentBranch=$branch; head=$head; clean=($dirty.Count -eq 0); dirtyCount=$dirty.Count; statusPreview=($statusPreview -join "`n"); ahead=$ahead; behind=$behind; base=$Base }
+  $snap = [ordered]@{ ok=($status.ok); currentBranch=$branch; head=$head; clean=($dirty.Count -eq 0); dirtyCount=$dirty.Count; statusPreview=($statusPreview -join "`n"); ahead=$ahead; behind=$behind; base=$Base }
+  if (-not $status.ok -and $status.error) { $snap.error = $status.error }
+  [pscustomobject]$snap
 }
 function New-Observation($Project) {
   $branches = New-Object System.Collections.Generic.List[object]
@@ -743,16 +863,48 @@ function New-Observation($Project) {
     $git = if (Test-Path -LiteralPath $path) { Get-GitSnapshot $path $b.baseBranch } else { [pscustomobject]@{ ok=$false; error='path missing' } }
     $branches.Add([pscustomobject]@{ name=$b.name; kind=$b.kind; status=$b.status; path=$path; baseBranch=$b.baseBranch; returnBranch=$b.returnBranch; git=$git; lastIndexedCommit=$b.lastIndexedCommit; watchEnabled=$b.watchEnabled })
   }
-  [ordered]@{
-    timestamp = UtcNow
-    project = $Project.name
-    root = $Project.root
-    qdrant = Test-Qdrant $Project.qdrantUrl
-    daemonTcp = Test-TcpEndpoint $Project.daemonEndpoint
-    wqmHealth = Invoke-Captured $WqmPath @('status','health') $Project.root 20
-    queue = Invoke-Captured $WqmPath @('queue','stats') $Project.root 20
-    branches = @($branches)
+  # When the wqm CLI is not on the host (e.g. dockerized daemon-only setup),
+  # WqmPath is $null. Compute wqmHealth/queue upfront so the [ordered] literal
+  # never has to be mutated after creation — appending keys to OrderedDictionary
+  # via member access has caused "Argument types do not match" here.
+  if ($WqmPath) {
+    $wqmHealth = Invoke-Captured $WqmPath @('status','health') $Project.root 20
+    $queueStats = Invoke-Captured $WqmPath @('queue','stats') $Project.root 20
+  } else {
+    $wqmHealth = [pscustomobject]@{ ok = $false; exitCode = -1; stdout = ""; stderr = "wqm CLI not installed on host" }
+    $queueStats = $wqmHealth
   }
+  try {
+    $qdrant = Test-Qdrant $Project.qdrantUrl
+  } catch {
+    $qdrant = [pscustomobject]@{ ok = $false; error = "Test-Qdrant threw: $($_.Exception.Message)" }
+  }
+  try {
+    $daemonTcp = Test-TcpEndpoint $Project.daemonEndpoint
+  } catch {
+    $daemonTcp = [pscustomobject]@{ ok = $false; error = "Test-TcpEndpoint threw: $($_.Exception.Message)" }
+  }
+  $obs = New-Object System.Collections.Specialized.OrderedDictionary
+  $obs.Add("timestamp", (UtcNow))
+  $obs.Add("project", $Project.name)
+  $obs.Add("root", $Project.root)
+  $obs.Add("qdrant", $qdrant)
+  $obs.Add("daemonTcp", $daemonTcp)
+  $obs.Add("wqmHealth", $wqmHealth)
+  $obs.Add("queue", $queueStats)
+  # Diagnostic: surface any element that breaks the .Add() type binding
+  # (we hit "Argument types do not match" here when a branch entry contains
+  # a PSObject member with an awkward backing type). Convert to an explicit
+  # object[] first and fall back to a per-item array build if needed.
+  try {
+    $branchesArray = [object[]]@($branches.ToArray())
+    $obs.Add("branches", $branchesArray)
+  } catch {
+    $rebuilt = New-Object System.Collections.ArrayList
+    foreach ($entry in $branches) { [void]$rebuilt.Add($entry) }
+    $obs.Add("branches", $rebuilt.ToArray())
+  }
+  $obs
 }
 function Save-Observation($Obs) {
   Ensure-Dir $LogDir
