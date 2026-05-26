@@ -11,6 +11,7 @@ import type { RegisterProjectResponse } from './clients/grpc-types.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
+import { getEffectiveCwd } from './utils/request-context.js';
 import { findGitRoot, getCurrentBranch, isWorktree } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
@@ -49,7 +50,7 @@ async function detectProjectForSession(
 ): Promise<void> {
   // Allow explicit override for service-style launches (GUI, launchd, systemd).
   const envOverride = process.env['WQM_PROJECT_ROOT'];
-  const cwd = process.cwd();
+  const cwd = getEffectiveCwd();
   const startPath = envOverride ?? cwd;
 
   // If the search base itself is a system directory, do not even attempt

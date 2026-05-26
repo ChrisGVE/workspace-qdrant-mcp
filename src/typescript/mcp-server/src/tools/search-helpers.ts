@@ -13,6 +13,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import type {
   SearchMode,
   SearchScope,
@@ -63,7 +64,7 @@ export async function resolveProjectContext(
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
   if (!currentProjectId && scope === 'project') {
-    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
     currentProjectId = projectInfo?.projectId;
   }
 
@@ -81,7 +82,7 @@ export async function resolveProjectContext(
         // Instead of dropping instance isolation entirely, narrow to
         // the single base point matching the caller's working directory.
         // Tenant filter still applies for project-level scoping.
-        const cwd = process.cwd();
+        const cwd = getEffectiveCwd();
         const primaryPoint = points.find(bp => cwd.startsWith(bp));
         if (primaryPoint) {
           basePoints = [primaryPoint];

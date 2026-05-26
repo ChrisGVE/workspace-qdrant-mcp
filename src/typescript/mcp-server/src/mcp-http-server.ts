@@ -35,6 +35,18 @@ import { logInfo, logError } from './utils/logger.js';
 import type { AuthConfig } from './auth-middleware.js';
 import { createAuthMiddleware } from './auth-middleware.js';
 import { handleAdminRequest, type AdminDeps } from './admin/handler.js';
+import { runWithRequestContext, type RequestContext } from './utils/request-context.js';
+
+/** HTTP header carrying the host-side working directory of the MCP client.
+ *  Lower-case form because Node normalizes incoming header names. */
+const HOST_CWD_HEADER = 'x-mcp-host-cwd';
+
+/** Extract the per-request context (currently just the host CWD) from headers. */
+function buildRequestContext(req: IncomingMessage): RequestContext {
+  const raw = req.headers[HOST_CWD_HEADER];
+  const hostCwd = Array.isArray(raw) ? raw[0] : raw;
+  return hostCwd && hostCwd.length > 0 ? { hostCwd } : {};
+}
 
 /**
  * Running HTTP-mode transport plus the Node listener that fronts it. Held by
@@ -89,15 +101,18 @@ export async function startMcpHttpServer(
 
   const authMiddleware = createAuthMiddleware(authConfig);
   const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
-    void handleRequest(
-      req,
-      res,
-      transports,
-      createMcpServer,
-      options.path,
-      authMiddleware,
-      adminDeps
-    );
+    const ctx = buildRequestContext(req);
+    runWithRequestContext(ctx, () => {
+      void handleRequest(
+        req,
+        res,
+        transports,
+        createMcpServer,
+        options.path,
+        authMiddleware,
+        adminDeps
+      );
+    });
   };
 
   const { httpServer, tlsEnabled } = await createBoundHttpServer(options, requestHandler);

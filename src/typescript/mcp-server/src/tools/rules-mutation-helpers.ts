@@ -6,6 +6,7 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import { randomUUID } from 'node:crypto';
 import { utcNow } from '../utils/timestamps.js';
 import {
@@ -121,7 +122,7 @@ export async function resolveProjectScopeId(
 ): Promise<{ resolvedProjectId: string | undefined; error?: RuleResponse }> {
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
     resolvedProjectId = projectInfo?.projectId;
   }
   if (scope === 'project' && !resolvedProjectId) {

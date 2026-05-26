@@ -9,6 +9,7 @@ import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import { getEffectiveCwd } from './request-context.js';
 
 // Project signature files/directories
 const PROJECT_MARKERS = [
@@ -188,7 +189,7 @@ export class ProjectDetector {
    * @returns ProjectInfo or null
    */
   async getCurrentProject(
-    cwd: string = process.cwd(),
+    cwd: string = getEffectiveCwd(),
     waitForRegistration = false
   ): Promise<ProjectInfo | null> {
     // Pass cwd directly — the database query uses longest-prefix matching
@@ -202,7 +203,7 @@ export class ProjectDetector {
    * Convenience method that returns just the project_id.
    */
   async getCurrentProjectId(
-    cwd: string = process.cwd(),
+    cwd: string = getEffectiveCwd(),
     waitForRegistration = false
   ): Promise<string | null> {
     const info = await this.getCurrentProject(cwd, waitForRegistration);

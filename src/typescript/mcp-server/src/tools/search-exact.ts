@@ -5,6 +5,7 @@
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
 
@@ -27,7 +28,7 @@ async function resolveExactSearchTenant(
 ): Promise<ExactSearchTenantResolution> {
   if (options.scope === 'all') return { kind: 'unscoped' };
   if (options.projectId) return { kind: 'tenant', tenantId: options.projectId };
-  const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+  const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
   if (projectInfo?.projectId) {
     return { kind: 'tenant', tenantId: projectInfo.projectId };
   }

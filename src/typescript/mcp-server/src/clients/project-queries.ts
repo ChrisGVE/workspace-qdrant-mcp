@@ -82,14 +82,20 @@ function queryProjectByPath(
   db: DatabaseType,
   projectPath: string,
 ): WatchFolderRow | undefined {
+  // Normalize separators on both sides so Windows host paths (with `\`) match
+  // DB-stored paths regardless of which form the daemon persisted them in.
+  const normalized = projectPath.replace(/\\/g, '/');
   return db
     .prepare(
       `${PROJECT_SELECT_FIELDS}
-      WHERE collection = ? AND (? = path OR ? LIKE path || '/' || '%')
+      WHERE collection = ? AND (
+        ? = replace(path, '\\', '/')
+        OR ? LIKE replace(path, '\\', '/') || '/%'
+      )
       ORDER BY length(path) DESC
       LIMIT 1`
     )
-    .get(COLLECTION_PROJECTS, projectPath, projectPath) as WatchFolderRow | undefined;
+    .get(COLLECTION_PROJECTS, normalized, normalized) as WatchFolderRow | undefined;
 }
 
 function queryProjectById(
