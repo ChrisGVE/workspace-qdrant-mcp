@@ -100,13 +100,15 @@ export class WorkspaceQdrantMcpServer {
       {
         capabilities: { tools: {} },
         instructions: [
-          "This server provides access to the user's indexed codebase and knowledge libraries.",
-          "ALWAYS use the `search` tool before answering questions about the user's code, project structure, or library documentation.",
-          'Use the `rules` tool to check for behavioral preferences before starting work.',
-          'Use `retrieve` to access specific documents when you know the document ID.',
-          'Use `list` to browse project file/folder structure — start with format "summary" to get an overview.',
-          'Use `workspace_index` for indexed-project and agent-branch coordination; prefer read-only actions first, and for Codex context pass projectId, branch, worktree, and action-specific fields inside payload when helpful.',
-          'Collections: projects (indexed code), libraries (reference docs), rules (behavioral rules).',
+          "This server exposes the user's indexed codebase, libraries, behavioral rules, scratchpad, and project/branch registry.",
+          'Start of session: call `rules` with action="list" to load behavioral preferences before any non-trivial work.',
+          'Discovery — call `search` FIRST for any question about this codebase, project structure, or library docs; do not answer from training data. Defaults: scope="project", limit=10. Widen to scope="all" or includeLibraries=true only after a project-scoped query returns nothing useful. Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
+          'Exact lookups — use `grep` for regex / exact substring across the project (faster and cheaper than `search` with exact=true for known strings). Use `list` (start with format="summary") to understand layout before drilling in. Use `retrieve` when you already know the document ID/metadata — do not re-search.',
+          'Writes — `store` writes to `scratchpad` (notes, snippets) or `libraries` (only when the user explicitly asks). The server does NOT write project code to the `projects` collection — that is daemon-owned via file watching. To register/activate a project, use `store` with type="project".',
+          'Embeddings — `embedding` is a low-level helper; prefer `search` unless you specifically need a raw vector.',
+          'Branches & worktrees — project registration is automatic on session start; the server tracks the current branch via heartbeat. Use `workspace_index` for observability (read-only actions: list_projects, project_status, status_all, list_branches, agent_branch_status, observe_*, incremental_check*). `search` defaults to the current branch; pass `branch="<name>"` or `branch="*"` to widen explicitly — do not widen silently. When working on an agent/feature branch (especially in a parallel worktree), register it via `start_agent_branch` with `branchName`, `purpose`, `createdBy`, and `useWorktree=true` if applicable; close out with `finish_agent_branch` (merged) or `abandon_agent_branch` (discarded). Mutating actions require DOUBLE opt-in (allowMutation:true AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1) and explicit user confirmation, because they affect persistent shared state. `sync_current_branch` is for git hooks only — agents must not call it. Multi-clone: tenant_ids are stable per clone; if results come from the wrong clone, pass `projectId` explicitly.',
+          'Collections: projects (indexed code, daemon-written), libraries (reference docs), rules (behavioral rules), scratchpad (ad-hoc notes).',
+          'Budget: default to scope="project" with small limits; escalate only when needed.',
         ].join(' '),
       }
     );
