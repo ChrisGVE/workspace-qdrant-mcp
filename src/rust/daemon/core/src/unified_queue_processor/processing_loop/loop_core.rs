@@ -484,7 +484,7 @@ impl UnifiedQueueProcessor {
             warn!(
                 "Process RSS {}MB exceeds {}MB limit, pausing processing for 10s",
                 rss,
-                Self::DEFAULT_MAX_RSS_MB
+                Self::max_rss_mb()
             );
             tokio::time::sleep(Duration::from_secs(10)).await;
         } else {
