@@ -71,6 +71,12 @@ fn test_edge_type_round_trip() {
         EdgeType::UsesType,
         EdgeType::Extends,
         EdgeType::Implements,
+        EdgeType::Explains,
+        EdgeType::Describes,
+        EdgeType::ReferencesDoc,
+        EdgeType::Elaborates,
+        EdgeType::CoversTopic,
+        EdgeType::ImplementsConcept,
     ] {
         let s = et.as_str();
         let parsed = EdgeType::from_str(s).unwrap();
@@ -95,9 +101,41 @@ fn test_node_type_round_trip() {
         NodeType::Constant,
         NodeType::TypeAlias,
         NodeType::Macro,
+        NodeType::DocumentSection,
+        NodeType::CodeComment,
+        NodeType::Docstring,
+        NodeType::LibrarySection,
+        NodeType::ConceptNode,
     ] {
         let s = nt.as_str();
         let parsed = NodeType::from_str(s).unwrap();
         assert_eq!(parsed, nt);
     }
+}
+
+#[test]
+fn test_references_doc_screaming_snake() {
+    assert_eq!(EdgeType::ReferencesDoc.as_str(), "REFERENCES_DOC");
+    assert_eq!(
+        EdgeType::from_str("REFERENCES_DOC"),
+        Some(EdgeType::ReferencesDoc)
+    );
+}
+
+#[test]
+fn test_narrative_edge_types_strings() {
+    assert_eq!(EdgeType::Explains.as_str(), "EXPLAINS");
+    assert_eq!(EdgeType::Describes.as_str(), "DESCRIBES");
+    assert_eq!(EdgeType::Elaborates.as_str(), "ELABORATES");
+    assert_eq!(EdgeType::CoversTopic.as_str(), "COVERS_TOPIC");
+    assert_eq!(EdgeType::ImplementsConcept.as_str(), "IMPLEMENTS_CONCEPT");
+}
+
+#[test]
+fn test_narrative_node_types_strings() {
+    assert_eq!(NodeType::DocumentSection.as_str(), "document_section");
+    assert_eq!(NodeType::CodeComment.as_str(), "code_comment");
+    assert_eq!(NodeType::Docstring.as_str(), "docstring");
+    assert_eq!(NodeType::LibrarySection.as_str(), "library_section");
+    assert_eq!(NodeType::ConceptNode.as_str(), "concept_node");
 }

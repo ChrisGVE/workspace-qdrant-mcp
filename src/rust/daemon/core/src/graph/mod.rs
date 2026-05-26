@@ -46,6 +46,7 @@ const DEFAULT_BRANCHES_JSON: &str = r#"["main"]"#;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeType {
+    // Structural layer (code entities)
     File,
     Function,
     AsyncFunction,
@@ -60,6 +61,13 @@ pub enum NodeType {
     Constant,
     TypeAlias,
     Macro,
+    // Narrative layer (human-authored documentation)
+    DocumentSection,
+    CodeComment,
+    Docstring,
+    LibrarySection,
+    // Concept layer (cross-boundary bridging)
+    ConceptNode,
 }
 
 impl NodeType {
@@ -79,6 +87,11 @@ impl NodeType {
             NodeType::Constant => "constant",
             NodeType::TypeAlias => "type_alias",
             NodeType::Macro => "macro",
+            NodeType::DocumentSection => "document_section",
+            NodeType::CodeComment => "code_comment",
+            NodeType::Docstring => "docstring",
+            NodeType::LibrarySection => "library_section",
+            NodeType::ConceptNode => "concept_node",
         }
     }
 
@@ -98,6 +111,11 @@ impl NodeType {
             "constant" => Some(NodeType::Constant),
             "type_alias" => Some(NodeType::TypeAlias),
             "macro" => Some(NodeType::Macro),
+            "document_section" => Some(NodeType::DocumentSection),
+            "code_comment" => Some(NodeType::CodeComment),
+            "docstring" => Some(NodeType::Docstring),
+            "library_section" => Some(NodeType::LibrarySection),
+            "concept_node" => Some(NodeType::ConceptNode),
             _ => None,
         }
     }
@@ -113,6 +131,7 @@ impl std::fmt::Display for NodeType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EdgeType {
+    // Structural layer
     /// Function/method call relationship.
     Calls,
     /// Parent-child containment (class contains method, impl contains fn).
@@ -125,6 +144,20 @@ pub enum EdgeType {
     Extends,
     /// Trait/interface implementation.
     Implements,
+    // Narrative layer
+    /// Docstring/comment explains a code symbol (via Aho-Corasick matching).
+    Explains,
+    /// Narrative node describes a concept or entity.
+    Describes,
+    /// Markdown/doc cross-reference to another document or code symbol.
+    ReferencesDoc,
+    /// Back-link from concept node to a more detailed narrative node.
+    Elaborates,
+    // Concept layer
+    /// Narrative or code node covers a taxonomy concept (cosine similarity).
+    CoversTopic,
+    /// Code symbol implements a concept (structural ↔ concept bridge).
+    ImplementsConcept,
 }
 
 impl EdgeType {
@@ -136,6 +169,12 @@ impl EdgeType {
             EdgeType::UsesType => "USES_TYPE",
             EdgeType::Extends => "EXTENDS",
             EdgeType::Implements => "IMPLEMENTS",
+            EdgeType::Explains => "EXPLAINS",
+            EdgeType::Describes => "DESCRIBES",
+            EdgeType::ReferencesDoc => "REFERENCES_DOC",
+            EdgeType::Elaborates => "ELABORATES",
+            EdgeType::CoversTopic => "COVERS_TOPIC",
+            EdgeType::ImplementsConcept => "IMPLEMENTS_CONCEPT",
         }
     }
 
@@ -147,6 +186,12 @@ impl EdgeType {
             "USES_TYPE" => Some(EdgeType::UsesType),
             "EXTENDS" => Some(EdgeType::Extends),
             "IMPLEMENTS" => Some(EdgeType::Implements),
+            "EXPLAINS" => Some(EdgeType::Explains),
+            "DESCRIBES" => Some(EdgeType::Describes),
+            "REFERENCES_DOC" => Some(EdgeType::ReferencesDoc),
+            "ELABORATES" => Some(EdgeType::Elaborates),
+            "COVERS_TOPIC" => Some(EdgeType::CoversTopic),
+            "IMPLEMENTS_CONCEPT" => Some(EdgeType::ImplementsConcept),
             _ => None,
         }
     }
