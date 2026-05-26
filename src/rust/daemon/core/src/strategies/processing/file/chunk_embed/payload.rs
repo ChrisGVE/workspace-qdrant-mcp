@@ -129,13 +129,20 @@ fn inject_library_hierarchy(
     );
 
     match library_hierarchy::extract_library_path(lib_ctx.library_root, file_path) {
-        Some((lib_path, _document_name)) => {
+        Some((lib_path, document_name)) => {
             payload.insert(field::LIBRARY_PATH.to_string(), serde_json::json!(lib_path));
+            payload.insert(
+                "document_name".to_string(),
+                serde_json::json!(document_name),
+            );
         }
         None => {
-            // File not under library root (shouldn't happen in normal flow);
-            // store empty library_path for consistency.
             payload.insert(field::LIBRARY_PATH.to_string(), serde_json::json!(""));
+            let doc_name = file_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            payload.insert("document_name".to_string(), serde_json::json!(doc_name));
         }
     }
 }
