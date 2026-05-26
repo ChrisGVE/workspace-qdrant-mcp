@@ -15,6 +15,7 @@ function createMockStateManager(options?: {
   return {
     logSearchEvent: vi.fn(),
     updateSearchEvent: vi.fn(),
+    updateSearchEventEconomy: vi.fn(),
     getMatchingTags: vi.fn().mockReturnValue(
       tags.map((t) => ({ tagId: t.tag_id, tag: t.tag, score: t.score })),
     ),

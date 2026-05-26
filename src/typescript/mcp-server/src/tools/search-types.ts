@@ -108,6 +108,28 @@ export interface SearchResponse {
   status_reason?: string;
 }
 
+/**
+ * Token-economy metrics emitted by `shapeHitPayloads`.
+ *
+ * Spec: docs/specs/20-token-economy-instrumentation.md §3.1
+ *
+ * `bytes_in_shaped` and `bytes_out_shaped` cover only the fields that the
+ * shaping pass can see and rewrite — `result.content` and
+ * `parent_context.unit_text`. The eventual full `bytes_in` recorded in
+ * `search_events` is built on top of these by adding a per-hit file-size
+ * probe (out of scope for this initial wiring).
+ */
+export interface ShapingMetrics {
+  /** Sum of bytes in `result.content` + `parent_context.unit_text` BEFORE shaping. */
+  bytesInShaped: number;
+  /** Sum of bytes in `result.content` + `parent_context.unit_text` AFTER shaping. */
+  bytesOutShaped: number;
+  /** Number of hits whose body was truncated (0 in summary mode). */
+  hitsTruncated: number;
+  /** Which shaping mode produced the response. */
+  mode: 'truncate' | 'summary' | 'none';
+}
+
 export interface SearchToolConfig {
   qdrantUrl: string;
   qdrantApiKey?: string;

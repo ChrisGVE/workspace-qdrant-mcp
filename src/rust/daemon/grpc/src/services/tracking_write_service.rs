@@ -5,14 +5,15 @@
 
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::write_actor::{
-    DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData, UpdateSearchEventData,
-    UpsertRuleMirrorData, UpsertScratchpadMirrorData, WriteActorHandle,
+    DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData,
+    UpdateSearchEventData, UpdateSearchEventEconomyData, UpsertRuleMirrorData,
+    UpsertScratchpadMirrorData, WriteActorHandle,
 };
 
 use crate::proto::{
     tracking_write_service_server::TrackingWriteService, DeleteRuleMirrorRequest,
-    DeleteScratchpadMirrorRequest, LogSearchEventRequest, UpdateSearchEventRequest,
-    UpsertRuleMirrorRequest, UpsertScratchpadMirrorRequest,
+    DeleteScratchpadMirrorRequest, LogSearchEventRequest, UpdateSearchEventEconomyRequest,
+    UpdateSearchEventRequest, UpsertRuleMirrorRequest, UpsertScratchpadMirrorRequest,
 };
 
 pub struct TrackingWriteServiceImpl {
@@ -75,6 +76,31 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
             .await
         {
             tracing::warn!("update_search_event failed (fire-and-forget): {}", e);
+        }
+        Ok(Response::new(()))
+    }
+
+    async fn update_search_event_economy(
+        &self,
+        request: Request<UpdateSearchEventEconomyRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+        if let Err(e) = self
+            .write_actor
+            .update_search_event_economy(UpdateSearchEventEconomyData {
+                event_id: req.event_id,
+                bytes_in: req.bytes_in,
+                bytes_out: req.bytes_out,
+                hits_truncated: req.hits_truncated,
+                shape_mode: req.shape_mode,
+                tool_version: req.tool_version,
+            })
+            .await
+        {
+            tracing::warn!(
+                "update_search_event_economy failed (fire-and-forget): {}",
+                e
+            );
         }
         Ok(Response::new(()))
     }

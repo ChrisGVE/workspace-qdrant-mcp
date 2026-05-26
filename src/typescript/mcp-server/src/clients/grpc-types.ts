@@ -70,6 +70,7 @@ export {
   // TrackingWriteService
   type LogSearchEventRequest,
   type UpdateSearchEventRequest,
+  type UpdateSearchEventEconomyRequest,
   type UpsertRuleMirrorRequest,
   type DeleteRuleMirrorRequest,
   type UpsertScratchpadMirrorRequest,

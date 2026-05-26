@@ -69,6 +69,7 @@ function createMockStateManager(): SqliteStateManager {
     listProjects: vi.fn().mockResolvedValue([]),
     logSearchEvent: vi.fn(),
     updateSearchEvent: vi.fn(),
+    updateSearchEventEconomy: vi.fn(),
     getMatchingTags: vi.fn().mockReturnValue([]),
     getKeywordBasketsForTags: vi.fn().mockReturnValue([]),
     listTags: vi.fn().mockReturnValue([]),

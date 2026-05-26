@@ -17,6 +17,7 @@ function makeStateManager(): SqliteStateManager {
   return {
     logSearchEvent: vi.fn(),
     updateSearchEvent: vi.fn(),
+    updateSearchEventEconomy: vi.fn(),
   } as unknown as SqliteStateManager;
 }
 
