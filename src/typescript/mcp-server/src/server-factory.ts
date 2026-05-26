@@ -63,10 +63,18 @@ function createTools(
 export function buildServerComponents(config: ServerConfig): ServerComponents {
   // DaemonClient is constructed eagerly but connection is lazy (on first RPC call).
   // All consumers handle null/unavailable daemon gracefully via fire-and-forget patterns.
+  // gRPC timeout must cover the slowest daemon RPC. `register_project` is the
+  // current bottleneck: it eagerly spawns per-language LSP servers and
+  // pyright's `initialize` handshake regularly takes ~10s before timing out
+  // (and the daemon retries other languages serially), so the whole call
+  // routinely lands in the 20-30s range. Five seconds is well below the floor
+  // and produces empty `response=` lines in the hook log. Override with
+  // `WQM_DAEMON_TIMEOUT_MS` when tuning for a faster (or slower) daemon.
+  const daemonTimeoutMs = Number(process.env['WQM_DAEMON_TIMEOUT_MS'] ?? '30000');
   const daemonClient = new DaemonClient({
     host: config.daemon.grpcHost,
     port: config.daemon.grpcPort,
-    timeoutMs: 5000,
+    timeoutMs: Number.isFinite(daemonTimeoutMs) && daemonTimeoutMs > 0 ? daemonTimeoutMs : 30000,
   });
   console.error(`[wqm] daemon gRPC endpoint: ${config.daemon.grpcHost}:${config.daemon.grpcPort}`);
   const stateManager = new SqliteStateManager({

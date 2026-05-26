@@ -13,9 +13,14 @@
 # Environment overrides:
 #   WQM_MCP_URL       MCP HTTP endpoint   default: http://localhost:6335/mcp
 #   WQM_MCP_TOKEN     Bearer token        default: $MCP_HTTP_TOKEN
-#   WQM_HOOK_TIMEOUT  curl --max-time (s) default: 5
+#   WQM_HOOK_TIMEOUT  curl --max-time (s) default: 35
 #   WQM_HOOK_LOG      Append log path     default: unset (silent)
 #   WQM_HOOK_NAME     Override hook label default: $1 if passed, else "manual"
+#
+# The default 35s timeout covers `register_project` calls that trigger LSP
+# server startup on the daemon side (pyright's `initialize` regularly takes
+# ~10s before timing out, with other languages queued behind it). Drop this
+# only when targeting a daemon configured to skip eager LSP startup.
 
 set -u
 # No -e: we silently swallow errors so git operations never break.
@@ -26,7 +31,7 @@ _SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 MCP_URL="${WQM_MCP_URL:-http://localhost:6335/mcp}"
 MCP_TOKEN="${WQM_MCP_TOKEN:-${MCP_HTTP_TOKEN:-}}"
-TIMEOUT="${WQM_HOOK_TIMEOUT:-5}"
+TIMEOUT="${WQM_HOOK_TIMEOUT:-35}"
 LOG_FILE="${WQM_HOOK_LOG:-}"
 HOOK_NAME="${WQM_HOOK_NAME:-${1:-manual}}"
 
