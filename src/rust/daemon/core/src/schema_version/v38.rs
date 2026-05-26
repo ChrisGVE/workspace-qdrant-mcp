@@ -63,7 +63,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Run all prior migrations so tracked_files exists
+        // Clear v35 fail-point in case a concurrent test left it set
+        crate::schema_version::v35::INJECT_FAILURE_AFTER_WATCH_FOLDERS
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
         let manager = SchemaManager::new(pool.clone());
         manager.run_migrations().await.unwrap();
         pool
