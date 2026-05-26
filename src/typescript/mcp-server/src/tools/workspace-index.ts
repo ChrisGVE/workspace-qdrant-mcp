@@ -10,7 +10,8 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { DaemonClient } from './../clients/daemon-client.js';
 import { getGitState } from './../utils/git-utils.js';
@@ -101,9 +102,37 @@ function assertMutationAllowed(action: string, args: JsonObject): void {
   }
 }
 
+let autoDetectedRepoDir: string | null | undefined;
+
+function autoDetectRepoDir(): string | undefined {
+  if (autoDetectedRepoDir !== undefined) {
+    return autoDetectedRepoDir ?? undefined;
+  }
+  try {
+    let cur = dirname(fileURLToPath(import.meta.url));
+    for (let i = 0; i < 8; i++) {
+      const marker = resolve(cur, 'scripts', 'windows', 'workspace-index-mcp.ps1');
+      if (existsSync(marker)) {
+        autoDetectedRepoDir = cur;
+        return cur;
+      }
+      const parent = dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+  } catch {
+    // import.meta.url unavailable (CJS bundle) — fall through.
+  }
+  autoDetectedRepoDir = null;
+  return undefined;
+}
+
 function resolveRepoDir(args: JsonObject): string {
   return resolve(
-    stringArg(args, 'repoDir') ?? process.env['WQM_REPO_DIR'] ?? process.cwd()
+    stringArg(args, 'repoDir') ??
+      process.env['WQM_REPO_DIR'] ??
+      autoDetectRepoDir() ??
+      process.cwd()
   );
 }
 
