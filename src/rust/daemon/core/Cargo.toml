@@ -2,7 +2,7 @@
 name = "workspace-qdrant-core"
 version = "0.1.3"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 # Shared configuration (paths, YAML defaults, env expansion)

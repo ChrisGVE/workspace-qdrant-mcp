@@ -4,7 +4,7 @@ version = "0.1.3"
 edition = "2021"
 description = "High-performance companion for workspace-qdrant-mcp"
 authors = ["Chris Van Eerden"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 keywords = ["cli", "qdrant", "mcp", "vector-database"]
 

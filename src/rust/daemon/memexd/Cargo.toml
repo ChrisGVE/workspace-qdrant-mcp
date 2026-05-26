@@ -4,7 +4,7 @@ version = "0.1.3"
 edition = "2021"
 description = "Memory eXchange Daemon - Document processing and embedding generation service"
 authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
-license = "MIT"
+license = "Apache-2.0"
 
 [lib]
 name = "memexd"

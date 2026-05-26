@@ -4,7 +4,7 @@ version = "0.1.3"
 edition = "2021"
 authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
 description = "Shared test utilities for workspace-qdrant-mcp Rust workspace"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]

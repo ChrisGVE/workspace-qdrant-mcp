@@ -4,7 +4,7 @@ version = "0.1.3"
 edition = "2021"
 description = "Node.js native addon exposing wqm-common functions via napi-rs"
 authors = ["Chris Van Eerden"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 
 [lib]
