@@ -100,6 +100,9 @@ fn query_concepts(
         String::new()
     };
 
+    let tenant_edge_param_idx = params.len() + 1;
+    params.push(Box::new(tenant_id.to_string()));
+
     let sql = format!(
         "SELECT n.symbol_name AS concept,
                 COUNT(DISTINCT CASE WHEN e.edge_type = 'IMPLEMENTS_CONCEPT' \
@@ -108,6 +111,7 @@ fn query_concepts(
                     THEN e.source_node_id END) AS covers_count
          FROM graph_nodes n
          LEFT JOIN graph_edges e ON e.target_node_id = n.node_id
+              AND e.tenant_id = ?{tenant_edge_param_idx}
          WHERE {}
          GROUP BY n.node_id, n.symbol_name
          ORDER BY (implements_count + covers_count) DESC
