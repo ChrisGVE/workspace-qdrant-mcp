@@ -143,12 +143,27 @@ fi
 }
 chmod +x "$WQM_SCRIPT" 2>/dev/null || true  # bind-mounted hosts may refuse chmod
 
-# Refuse to install if WQM_SCRIPT lives under a container-only mount root
-# (`/run/desktop/...` from Docker Desktop's WSL2 host bridge, or `/mnt/wsl/...`).
-# Git hooks execute wherever `git` is invoked (the host shell, not a container),
-# so a wrapper that points at a container-only path silently no-ops on the
-# host. The wrapper itself runs (it's just a shell script) but the `exec` to
-# WQM_SCRIPT fails with "command not found" and `|| true` swallows the error.
+# When install.sh runs inside a container but the hooks must execute on the
+# host (the common case for the dockerized MCP), translate WQM_SCRIPT from
+# its container-visible path into the host-visible path before embedding it
+# in the generated hook scripts. Requires both --host-dev-root (path the
+# host shell sees) and --container-dev-root (path bind-mounted inside the
+# container) — without them we cannot safely rewrite the prefix.
+if [ -n "$HOST_DEV_ROOT" ] && [ -n "$CONTAINER_DEV_ROOT" ]; then
+  case "$WQM_SCRIPT" in
+    "$CONTAINER_DEV_ROOT"|"$CONTAINER_DEV_ROOT"/*)
+      WQM_SCRIPT="$HOST_DEV_ROOT${WQM_SCRIPT#"$CONTAINER_DEV_ROOT"}"
+      ;;
+  esac
+fi
+
+# Refuse to install if WQM_SCRIPT still lives under a container-only mount
+# root (`/run/desktop/...` from Docker Desktop's WSL2 host bridge, or
+# `/mnt/wsl/...`). Git hooks execute wherever `git` is invoked (the host
+# shell, not a container), so a wrapper that points at a container-only
+# path silently no-ops on the host. The wrapper itself runs (it's just a
+# shell script) but the `exec` to WQM_SCRIPT fails with "command not
+# found" and `|| true` swallows the error.
 # Override with WQM_INSTALL_FORCE_CONTAINER_PATHS=1 if you really know.
 case "$WQM_SCRIPT" in
   /run/desktop/*|/mnt/wsl/*)
@@ -156,7 +171,16 @@ case "$WQM_SCRIPT" in
       printf 'ERROR: install.sh appears to be running inside a container or WSL bridge.\n' >&2
       printf '       WQM_SCRIPT resolved to: %s\n' "$WQM_SCRIPT" >&2
       printf '       which is not visible to git hooks running on the host.\n' >&2
-      printf '       Re-run from the host shell (Git Bash on Windows, native sh on macOS/Linux).\n' >&2
+      if [ -z "$HOST_DEV_ROOT" ] || [ -z "$CONTAINER_DEV_ROOT" ]; then
+        printf '\n' >&2
+        printf '       Fix: set WQM_HOST_DEV_ROOT (host path) and WQM_DEV_ROOT\n' >&2
+        printf '       (container path) in your .env, then restart the MCP container.\n' >&2
+        printf '       Or pass --host-dev-root <path> --container-dev-root <path>.\n' >&2
+        printf '       Or re-run from the host shell (Git Bash on Windows, native sh on macOS/Linux).\n' >&2
+      else
+        printf '       host-dev-root=%s container-dev-root=%s did not match WQM_SCRIPT prefix.\n' \
+          "$HOST_DEV_ROOT" "$CONTAINER_DEV_ROOT" >&2
+      fi
       printf '       Override with WQM_INSTALL_FORCE_CONTAINER_PATHS=1 if you really know what you are doing.\n' >&2
       exit 1
     fi

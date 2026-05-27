@@ -408,6 +408,15 @@ const handleInstallHooks: RouteHandler = async (req, res) => {
     '--hooks-dir',
     join(repoRoot, '.wqm-fork', 'git-hooks'),
   ];
+  // When the MCP runs in a container, install.sh sees its own path under the
+  // bind mount (e.g. `/run/desktop/...`), but the generated hooks must embed
+  // a path the host shell can execute. Forwarding the dev-root pair lets
+  // install.sh translate the prefix before writing the hooks.
+  const hostDevRoot = process.env['WQM_HOST_DEV_ROOT'];
+  const containerDevRoot = process.env['WQM_DEV_ROOT'];
+  if (hostDevRoot && containerDevRoot) {
+    args.push('--host-dev-root', hostDevRoot, '--container-dev-root', containerDevRoot);
+  }
   if (useForce) args.push('--force');
 
   await new Promise<void>((resolveOp) => {
