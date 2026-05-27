@@ -15,6 +15,7 @@ import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import { getEffectiveCwd } from '../utils/request-context.js';
 import type {
+  IndexingProgress,
   SearchMode,
   SearchScope,
   SearchOptions,
@@ -32,11 +33,89 @@ import {
   fallbackSearch,
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
+import { logDebug } from '../utils/logger.js';
 
 /** Maximum active base_points we still attach as a Qdrant filter. Above
  * this the filter clause would blow past server-side limits; we instead
  * surface a degradation flag so the caller reports it explicitly. */
 const BASE_POINTS_FILTER_CAP = 500;
+
+/** Cache TTL for the per-search indexing-progress probe. Short enough that
+ *  long-running indexing operations show drain progress within a few hits;
+ *  long enough that a burst of searches doesn't fan out to gRPC each time. */
+const INDEXING_PROGRESS_CACHE_TTL_MS = 1500;
+
+interface IndexingProgressCacheEntry {
+  value: IndexingProgress | null;
+  fetchedAt: number;
+}
+
+/** Module-level cache keyed by tenant_id. The MCP server is long-lived;
+ *  cache survives across tool invocations. Never grows unbounded — one
+ *  entry per active project, and projects are O(few). */
+const indexingProgressCache = new Map<string, IndexingProgressCacheEntry>();
+
+/**
+ * Fetch indexing progress for `projectId`, with a short in-memory cache.
+ *
+ * Returns `null` when the daemon call fails or the project is unknown —
+ * callers should treat that as "no signal" and omit the `indexing` block
+ * rather than guess. When the queue is fully drained, the daemon reports
+ * `pending = in_progress = failed = 0` and we still return the block so
+ * callers can render "100% indexed" without an ambiguous absence.
+ */
+export async function fetchIndexingProgress(
+  daemonClient: DaemonClient,
+  projectId: string
+): Promise<IndexingProgress | null> {
+  const now = Date.now();
+  const cached = indexingProgressCache.get(projectId);
+  if (cached && now - cached.fetchedAt < INDEXING_PROGRESS_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  try {
+    const status = await daemonClient.getProjectStatus({ project_id: projectId });
+    if (!status.found) {
+      indexingProgressCache.set(projectId, { value: null, fetchedAt: now });
+      return null;
+    }
+    const value: IndexingProgress = {
+      pending: status.pending_count ?? 0,
+      in_progress: status.in_progress_count ?? 0,
+      failed: status.failed_count ?? 0,
+      done: status.done_count ?? 0,
+      total: status.total_count ?? 0,
+      percent: status.percent_complete ?? 100,
+    };
+    // ETA is optional — only attach when the daemon actually provided
+    // one. Skipping it preserves the "warming up" semantic for callers.
+    if (typeof status.eta_seconds === 'number') {
+      value.eta_seconds = status.eta_seconds;
+    }
+    indexingProgressCache.set(projectId, { value, fetchedAt: now });
+    return value;
+  } catch (err) {
+    logDebug('Indexing progress probe failed; omitting block', {
+      project_id: projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    indexingProgressCache.set(projectId, { value: null, fetchedAt: now });
+    return null;
+  }
+}
+
+/** Attach the indexing block to a SearchResponse when scope=project and we
+ *  have a tenant. No-op otherwise. Safe to call on every exit path. */
+export async function attachIndexingProgress(
+  response: SearchResponse,
+  daemonClient: DaemonClient,
+  scope: SearchScope,
+  projectId: string | undefined
+): Promise<void> {
+  if (scope !== 'project' || !projectId) return;
+  const progress = await fetchIndexingProgress(daemonClient, projectId);
+  if (progress) response.indexing = progress;
+}
 
 /** Resolution outcome for project-scoped search context.
  *
@@ -256,6 +335,9 @@ export interface FinalizeResultsParams {
   collectionsToSearch: string[];
   status: 'ok' | 'uncertain';
   statusReason: string | undefined;
+  /** Resolved tenant_id for the current search. Drives the optional
+   *  per-response `indexing` block when scope === 'project'. */
+  currentProjectId: string | undefined;
 }
 
 /** Record search telemetry and build the final SearchResponse. */
@@ -301,5 +383,12 @@ export async function finalizeResults(
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
   if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);
 
-  return recordAndBuildResponse(stateManager, finalResults, params, params.searchStartMs);
+  const response = recordAndBuildResponse(stateManager, finalResults, params, params.searchStartMs);
+  await attachIndexingProgress(
+    response,
+    daemonClient,
+    params.scope,
+    params.currentProjectId ?? params.options.projectId
+  );
+  return response;
 }

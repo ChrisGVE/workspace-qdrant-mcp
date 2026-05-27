@@ -196,6 +196,66 @@ function renderCandidates() {
   `).join('');
 }
 
+/** Render an ETA in seconds as a coarse human-readable string ("3s",
+ *  "12m", "2h 14m"). The daemon's rate-window resolution is 5 minutes,
+ *  so any extra precision would be theatre. */
+function formatEta(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s) || s < 0) return 'unknown';
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+}
+
+/**
+ * Render the indexing-progress cell for one registered project.
+ * Returns a small HTML snippet showing a progress bar + counts + ETA.
+ * When the daemon couldn't report (`indexing == null`), shows a dim "—".
+ */
+function renderIndexingCell(indexing) {
+  if (!indexing) return '<span class="dim small">—</span>';
+  const pct = Math.max(0, Math.min(100, Number(indexing.percent ?? 0)));
+  const inFlight = (indexing.pending ?? 0) + (indexing.in_progress ?? 0);
+  const failed = indexing.failed ?? 0;
+  const done = indexing.done ?? 0;
+  const total = indexing.total ?? 0;
+  // Three states: idle (queue drained), active (in-flight > 0), failed-some.
+  let state = 'idle';
+  if (inFlight > 0) state = 'active';
+  else if (failed > 0) state = 'warn';
+  const labelMain =
+    inFlight > 0
+      ? `${inFlight} in flight · ${done}/${total}`
+      : `${done} indexed`;
+  const labelFailed = failed > 0 ? ` · <span class="warn">${failed} failed</span>` : '';
+  // ETA only renders when the queue is still draining — once idle the
+  // value is uninformative ("0s") and noisy. "Warming up" reflects the
+  // daemon's cold-start window.
+  let etaLine = '';
+  if (inFlight > 0) {
+    const etaText =
+      typeof indexing.eta_seconds === 'number'
+        ? `ETA ~${formatEta(indexing.eta_seconds)}`
+        : 'ETA — warming up';
+    etaLine = `<div class="indexing-eta dim small">${escapeHtml(etaText)}</div>`;
+  }
+  return `
+    <div class="indexing-cell">
+      <div class="indexing-bar indexing-bar-${state}" role="progressbar"
+           aria-valuenow="${pct.toFixed(1)}" aria-valuemin="0" aria-valuemax="100">
+        <div class="indexing-bar-fill" style="width:${pct.toFixed(1)}%"></div>
+      </div>
+      <div class="indexing-meta dim small">
+        ${escapeHtml(labelMain)}${labelFailed} · ${pct.toFixed(1)}%
+      </div>
+      ${etaLine}
+    </div>
+  `;
+}
+
 function renderRegistered(snap) {
   const registered = snap.projects?.registered || [];
   lastRegisteredPaths = new Set(registered.map((r) => r.path));
@@ -212,6 +272,7 @@ function renderRegistered(snap) {
       <td><span class="path">${escapeHtml(r.path)}</span></td>
       <td><code>${escapeHtml(r.tenantId)}</code></td>
       <td>${r.isActive ? pill('active', 'ok') : pill('idle', 'muted')}</td>
+      <td>${renderIndexingCell(r.indexing)}</td>
       <td class="dim">${escapeHtml(fmtTime(r.lastActivityAt))}</td>
       <td>
         <button class="danger small"

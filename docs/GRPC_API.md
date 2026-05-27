@@ -343,20 +343,47 @@ print(f"Remaining sessions: {response.remaining_sessions}")
 
 #### GetProjectStatus
 
-Get current status of a specific project.
+Get current status of a specific project, including indexing-progress
+counts. Drives the `indexing` block on MCP `search` responses, the
+`workspace_index` action `indexing_status`, and the Admin UI's
+"Registered projects" progress column.
 
 ```protobuf
 rpc GetProjectStatus(GetProjectStatusRequest) returns (GetProjectStatusResponse);
 ```
 
-**Response:**
+**Response (registration metadata):**
 - `found`: Whether project exists
 - `project_id`, `project_name`, `project_root`
 - `priority`: "high", "normal", "low"
-- `active_sessions`: Current session count
+- `is_active`: Activity flag (whether the project counts toward worker priority)
 - `last_active`: Last heartbeat/activity timestamp
 - `registered_at`: Registration timestamp
 - `git_remote`: Git remote URL (if available)
+- `is_worktree`: True if registered as a worktree
+- `main_worktree_path`: Path to the main working tree (when `is_worktree`)
+
+**Response (indexing progress):**
+- `pending_count`: `unified_queue` rows with `status='pending'` for this tenant
+- `in_progress_count`: `unified_queue` rows with `status='in_progress'`
+- `failed_count`: `unified_queue` rows with `status='failed'`
+- `done_count`: `tracked_files` rows for this tenant (durable across queue cleanup)
+- `total_count`: `pending + in_progress + failed + done`
+- `percent_complete`: `done_count / total_count * 100`; `100.0` when `total_count == 0`
+- `eta_seconds` (optional): estimated seconds to drain
+  `(pending + in_progress)`. Absent when the daemon can't estimate —
+  either fewer than 60s of recent indexing activity (cold-start) or
+  zero throughput with pending > 0.
+
+The four queue counters come from a single grouped `SELECT … CASE WHEN`
+on `unified_queue WHERE tenant_id = ?`, so the handler costs one extra
+round-trip vs. the legacy response. The `done_count` query is a
+`tracked_files JOIN watch_folders` filtered by `tenant_id`. The ETA is
+computed from a 5-minute rolling window over `tracked_files.updated_at`
+in the shared `workspace_qdrant_core::indexing_progress` module, then
+capped at 24h. On any DB error the indexing fields fall back to zero
+and `eta_seconds` is omitted — the registration metadata is still
+returned.
 
 #### ListProjects
 

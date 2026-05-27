@@ -82,6 +82,20 @@ export interface GetProjectStatusResponse {
   last_active?: { seconds: number; nanos: number };
   registered_at?: { seconds: number; nanos: number };
   git_remote?: string;
+  is_worktree?: boolean;
+  main_worktree_path?: string;
+  // Indexing-progress block (filled by daemon's project_service).
+  pending_count?: number;
+  in_progress_count?: number;
+  failed_count?: number;
+  done_count?: number;
+  total_count?: number;
+  percent_complete?: number;
+  // Optional ETA in seconds. Absent when the daemon doesn't have enough
+  // recent activity data (cold-start) or when the rate is zero with
+  // pending > 0 — callers must render "warming up" / "unknown" instead
+  // of fabricating a value.
+  eta_seconds?: number;
 }
 
 export interface ListProjectsRequest {

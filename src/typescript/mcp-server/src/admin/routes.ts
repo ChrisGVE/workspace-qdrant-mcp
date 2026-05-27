@@ -113,16 +113,26 @@ const handleSnapshot: RouteHandler = async (_req, res, { daemonClient, stateMana
   // and is the only process that can read it through bind mounts on
   // Docker Desktop. gRPC avoids the SQLITE_CANTOPEN failures we'd hit
   // pointing better-sqlite3 at a 9P-mounted state.db.
-  let registered: Array<{
+  interface RegisteredProject {
     tenantId: string;
     path: string;
     remoteUrl: string;
     isActive: boolean;
     lastActivityAt: string | null;
-  }> = [];
+    indexing: {
+      pending: number;
+      in_progress: number;
+      failed: number;
+      done: number;
+      total: number;
+      percent: number;
+      eta_seconds?: number;
+    } | null;
+  }
+  let registered: RegisteredProject[] = [];
   try {
     const listResp = await daemonClient.listProjects({});
-    registered = (listResp.projects ?? []).map((p) => ({
+    const base: RegisteredProject[] = (listResp.projects ?? []).map((p) => ({
       tenantId: p.project_id,
       path: p.project_root,
       remoteUrl: '',
@@ -130,7 +140,31 @@ const handleSnapshot: RouteHandler = async (_req, res, { daemonClient, stateMana
       lastActivityAt: p.last_active
         ? new Date(p.last_active.seconds * 1000).toISOString()
         : null,
+      indexing: null,
     }));
+
+    // Enrich each project with per-tenant indexing progress, in parallel.
+    // Falls back to `null` on per-project error so the dashboard can render
+    // the row without the progress bar instead of blanking the whole page.
+    const progressResults = await Promise.allSettled(
+      base.map((proj) => daemonClient.getProjectStatus({ project_id: proj.tenantId }))
+    );
+    progressResults.forEach((result, idx) => {
+      const proj = base[idx];
+      if (!proj || result.status !== 'fulfilled' || !result.value.found) return;
+      const s = result.value;
+      const indexing: NonNullable<RegisteredProject['indexing']> = {
+        pending: s.pending_count ?? 0,
+        in_progress: s.in_progress_count ?? 0,
+        failed: s.failed_count ?? 0,
+        done: s.done_count ?? 0,
+        total: s.total_count ?? 0,
+        percent: s.percent_complete ?? 100,
+      };
+      if (typeof s.eta_seconds === 'number') indexing.eta_seconds = s.eta_seconds;
+      proj.indexing = indexing;
+    });
+    registered = base;
   } catch {
     // Daemon offline / not yet started — leave the list empty.
     registered = [];

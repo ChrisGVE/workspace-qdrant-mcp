@@ -294,6 +294,117 @@ async function handleSyncCurrentBranch(
   }
 }
 
+/** Render an ETA in seconds as a coarse human-readable string ("3s", "12m",
+ *  "2h 14m"). Kept intentionally crude — exact precision is meaningless
+ *  for an estimate built from a 5-minute rate window. */
+function formatEtaSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'unknown';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+}
+
+/**
+ * `indexing_status` action — report per-project indexing progress without
+ * shelling out to wqm. Reads the daemon's `GetProjectStatus` (which fills
+ * pending/in_progress/failed/done/total/percent_complete).
+ *
+ * Args:
+ *   - `projectId` (optional): explicit tenant. If missing, the daemon's
+ *     `ListProjects` is consulted and we pick the first active project.
+ *     This keeps the action useful in the dockerized MCP container where
+ *     cwd-based detection isn't available.
+ */
+async function handleIndexingStatus(
+  args: JsonObject,
+  daemonClient: DaemonClient
+): Promise<unknown> {
+  let projectId = stringArg(args, 'projectId');
+
+  if (!projectId) {
+    try {
+      const projects = await daemonClient.listProjects({ active_only: true });
+      const first = projects.projects[0];
+      if (first) projectId = first.project_id;
+    } catch (err) {
+      return {
+        success: false,
+        action: 'indexing_status',
+        error: `Failed to enumerate active projects: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  if (!projectId) {
+    return {
+      success: false,
+      action: 'indexing_status',
+      error:
+        'No projectId provided and no active project found. Pass `projectId` explicitly or register a project first.',
+    };
+  }
+
+  try {
+    const status = await daemonClient.getProjectStatus({ project_id: projectId });
+    if (!status.found) {
+      return {
+        success: false,
+        action: 'indexing_status',
+        project_id: projectId,
+        error: 'Project not registered with daemon',
+      };
+    }
+    const pending = status.pending_count ?? 0;
+    const inProgress = status.in_progress_count ?? 0;
+    const failed = status.failed_count ?? 0;
+    const done = status.done_count ?? 0;
+    const total = status.total_count ?? 0;
+    const percent = status.percent_complete ?? 100;
+    const inFlight = pending + inProgress;
+    const eta = typeof status.eta_seconds === 'number' ? status.eta_seconds : undefined;
+    const etaSummary =
+      eta === undefined
+        ? 'ETA unknown (warming up)'
+        : `ETA ~${formatEtaSeconds(eta)}`;
+    const summary =
+      inFlight === 0
+        ? `Indexing complete (${done} files indexed; ${failed} failed)`
+        : `Indexing in progress: ${inFlight} files in flight, ${done}/${total} done (${percent.toFixed(1)}%) · ${etaSummary}`;
+
+    const indexing: {
+      pending: number;
+      in_progress: number;
+      failed: number;
+      done: number;
+      total: number;
+      percent: number;
+      eta_seconds?: number;
+    } = { pending, in_progress: inProgress, failed, done, total, percent };
+    if (eta !== undefined) indexing.eta_seconds = eta;
+
+    return {
+      success: true,
+      action: 'indexing_status',
+      project_id: projectId,
+      project_name: status.project_name,
+      project_root: status.project_root,
+      is_active: status.is_active,
+      indexing,
+      summary,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      action: 'indexing_status',
+      project_id: projectId,
+      error: `Failed to fetch project status: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 function parseOutput(stdout: string, stderr: string): unknown {
   const trimmed = stdout.trim();
   if (trimmed.length === 0) {
@@ -454,6 +565,15 @@ export async function handleWorkspaceIndex(
       );
     }
     return handleSyncCurrentBranch(args, daemonClient);
+  }
+
+  if (action === 'indexing_status') {
+    if (!daemonClient) {
+      throw new Error(
+        'indexing_status requires a connected daemon client (gRPC unavailable)'
+      );
+    }
+    return handleIndexingStatus(args, daemonClient);
   }
 
   // TS-native registry actions (Phases 1 + 2 ports from

@@ -473,6 +473,21 @@ message GetProjectStatusResponse {
     optional string git_remote = 9;
     bool is_worktree = 10;                        // True if this is a worktree watch root
     optional string main_worktree_path = 11;      // [canonical] Path to the main working tree (if worktree)
+    // Indexing progress (per-tenant counts). `done_count` is sourced from
+    // `tracked_files` (durable across queue cleanup); the in-flight counters
+    // come from `unified_queue`. `percent_complete` is 100.0 when total == 0.
+    int64 pending_count = 12;                     // unified_queue rows in 'pending'
+    int64 in_progress_count = 13;                 // unified_queue rows in 'in_progress'
+    int64 failed_count = 14;                      // unified_queue rows in 'failed'
+    int64 done_count = 15;                        // tracked_files rows for this tenant
+    int64 total_count = 16;                       // pending + in_progress + failed + done
+    double percent_complete = 17;                 // done / total * 100; 100.0 when total == 0
+    // Estimated seconds until in-flight queue drains, derived from the rate
+    // at which `tracked_files.updated_at` advances over a rolling window.
+    // Unset (= 0 sentinel + has_eta_seconds=false) during cold-start
+    // (< 60s of data) or when the rate is 0 with pending > 0 — callers
+    // must render "warming up" / "unknown" instead of fabricating a value.
+    optional int64 eta_seconds = 18;
 }
 
 // ListProjects Request/Response

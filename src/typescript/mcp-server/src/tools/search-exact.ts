@@ -8,6 +8,7 @@ import type { ProjectDetector } from '../utils/project-detector.js';
 import { getEffectiveCwd } from '../utils/request-context.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
+import { attachIndexingProgress } from './search-helpers.js';
 
 /**
  * Resolution outcome for exact-search tenant scoping.
@@ -181,7 +182,7 @@ async function executeAndLogSearch(
       resultCount: results.length,
       latencyMs: Date.now() - startTime,
     });
-    return {
+    const successResponse: SearchResponse = {
       results,
       total: response.total_matches,
       query: options.query,
@@ -189,8 +190,17 @@ async function executeAndLogSearch(
       scope: options.scope ?? 'project',
       collections_searched: [PROJECTS_COLLECTION],
     };
+    await attachIndexingProgress(
+      successResponse,
+      daemonClient,
+      successResponse.scope,
+      tenantId
+    );
+    return successResponse;
   } catch (error) {
     stateManager.updateSearchEvent(eventId, { resultCount: 0, latencyMs: Date.now() - startTime });
+    // Don't attach indexing on the error path: the daemon just failed
+    // a different RPC, so the cached probe is unlikely to be fresh.
     return {
       results: [],
       total: 0,

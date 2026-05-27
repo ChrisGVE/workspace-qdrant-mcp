@@ -15,6 +15,8 @@ import type {
   RegisterProjectResponse,
   DeprioritizeProjectRequest,
   DeprioritizeProjectResponse,
+  GetProjectStatusRequest,
+  GetProjectStatusResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   ListProjectsRequest,
@@ -126,6 +128,26 @@ export class DaemonClientSystem extends DaemonClientBase {
         'heartbeat',
         request,
         this.getMethodTimeout('heartbeat')
+      )
+    );
+  }
+
+  /**
+   * Fetch project status — registration metadata plus per-project indexing
+   * counts (pending / in_progress / failed / done / total / percent_complete).
+   *
+   * Drives the `indexing` block on `SearchResponse` and the `indexing_status`
+   * action on the `workspace_index` MCP tool. Cheap call (two COUNT queries
+   * on indexed tables), but `search-helpers` caches the result with a short
+   * TTL anyway since it can fire on every tool invocation.
+   */
+  async getProjectStatus(request: GetProjectStatusRequest): Promise<GetProjectStatusResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'getProjectStatus',
+        request,
+        this.getMethodTimeout('getProjectStatus')
       )
     );
   }

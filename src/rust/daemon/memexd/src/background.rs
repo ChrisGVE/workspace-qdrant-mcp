@@ -146,6 +146,9 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
         let known_pairs: std::sync::Arc<
             tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
         > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+        let known_tenant_pairs: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
+        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
         loop {
             interval.tick().await;
             match manager.get_unified_queue_depth_by_type_status().await {
@@ -166,6 +169,47 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
                     guard.extend(seen);
                 }
                 Err(e) => debug!("queue depth refresh failed: {}", e),
+            }
+            // Per-tenant indexing-progress gauge (Grafana / MCP indexing block).
+            match manager.get_unified_queue_depth_by_tenant_status().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    // Accumulate (pending + in_progress) per tenant for ETA.
+                    let mut in_flight_by_tenant: std::collections::HashMap<String, i64> =
+                        std::collections::HashMap::new();
+                    for (tenant_id, status, count) in rows {
+                        METRICS.set_unified_queue_depth_by_tenant(&tenant_id, &status, count);
+                        if status == "pending" || status == "in_progress" {
+                            *in_flight_by_tenant.entry(tenant_id.clone()).or_insert(0) += count;
+                        }
+                        seen.insert((tenant_id, status));
+                    }
+                    let mut guard = known_tenant_pairs.lock().await;
+                    for pair in guard.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_unified_queue_depth_by_tenant(&pair.0, &pair.1, 0);
+                        }
+                    }
+                    guard.extend(seen);
+                    drop(guard);
+
+                    // Per-tenant ETA gauge: query the rate from
+                    // tracked_files for every tenant we just observed.
+                    // Tenants that drained (in-flight == 0) get ETA = 0
+                    // so the Grafana panel shows "done" instead of stale.
+                    use workspace_qdrant_core::indexing_progress::{
+                        estimate_eta_seconds, eta_for_gauge, rate_files_per_sec,
+                    };
+                    for (tenant_id, in_flight) in in_flight_by_tenant {
+                        let rate = rate_files_per_sec(&pool, &tenant_id).await;
+                        // Split in_flight back into a (pending, in_progress)
+                        // pair only for the API shape — the sum is what
+                        // matters for ETA, so pass it all as `pending`.
+                        let eta = estimate_eta_seconds(in_flight, 0, rate);
+                        METRICS.set_indexing_eta_seconds(&tenant_id, eta_for_gauge(eta));
+                    }
+                }
+                Err(e) => debug!("per-tenant queue depth refresh failed: {}", e),
             }
             match manager.get_unified_queue_stats().await {
                 Ok(stats) => METRICS.set_unified_queue_stale_items(stats.stale_leases),

@@ -24,6 +24,8 @@ export type {
   RegisterProjectResponse,
   DeprioritizeProjectRequest,
   DeprioritizeProjectResponse,
+  GetProjectStatusRequest,
+  GetProjectStatusResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   IngestTextRequest,

@@ -73,6 +73,47 @@ queue_depth_current{status="pending"}
 sum(queue_depth_current{status=~"pending|in_progress"})
 ```
 
+#### `memexd_unified_queue_depth_by_tenant`
+**Type:** Gauge
+**Labels:** `tenant_id`, `status` (`pending`, `in_progress`, `failed` — `done` is excluded because those rows are deleted by `cleanup_completed_unified_items`)
+**Description:** Per-tenant unified-queue depth. Drives the Grafana
+"Indexing progress (per tenant)" panel set and gives operators a way to
+spot a single project that's lagging behind the others. Refreshed every
+10 s by the queue-depth exporter, alongside the global
+`memexd_unified_queue_depth`.
+
+```promql
+# Total still-pending items across all tenants
+sum(memexd_unified_queue_depth_by_tenant{status=~"pending|in_progress"})
+
+# Top 10 tenants by pending depth
+topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status="pending"}))
+
+# Alert when one tenant has more than 5 000 pending for >10 min
+max by (tenant_id) (memexd_unified_queue_depth_by_tenant{status="pending"}) > 5000
+```
+
+#### `memexd_indexing_eta_seconds_by_tenant`
+**Type:** Gauge
+**Labels:** `tenant_id`
+**Description:** Estimated seconds until each tenant's queue is fully
+drained. Derived from the rate at which `tracked_files.updated_at`
+advances over a 5-minute window, capped at 24 h. Set to `-1` when the
+daemon can't estimate (cold-start, zero throughput with pending > 0,
+or queue already drained) — Prometheus has no native null. Filter the
+sentinel out in PromQL with `>= 0`.
+
+```promql
+# Only series with a real estimate
+memexd_indexing_eta_seconds_by_tenant >= 0
+
+# Tenants in "warming up" state right now
+count(memexd_indexing_eta_seconds_by_tenant == -1)
+
+# Alert when one tenant's ETA exceeds 1h for >10 minutes
+max by (tenant_id) (memexd_indexing_eta_seconds_by_tenant >= 0) > 3600
+```
+
 #### `queue_age_oldest_pending_seconds`
 **Type:** Gauge
 **Labels:** None

@@ -369,3 +369,29 @@ pub(super) fn create_unified_queue_metrics() -> (
         unified_queue_retries_total,
     )
 }
+
+/// Per-tenant indexing-progress gauge: `unified_queue` rows grouped by
+/// `(tenant_id, status)` (status in pending / in_progress / failed).
+///
+/// Kept separate from `unified_queue_depth` to avoid label-cardinality
+/// blow-up on the global gauge. Refreshed every 10s by the exporter.
+pub(super) fn create_per_tenant_indexing_metric() -> IntGaugeVec {
+    int_gauge_vec(
+        "unified_queue_depth_by_tenant",
+        "Current unified queue depth per tenant_id and status (excludes done)",
+        &["tenant_id", "status"],
+    )
+}
+
+/// Per-tenant ETA (seconds) derived from the rate at which
+/// `tracked_files.updated_at` advances over a 5-minute window. Set to
+/// `-1` when the daemon can't estimate (cold-start, rate==0, queue
+/// drained) — Prometheus has no native null, and a sentinel lets PromQL
+/// filter via `>= 0`.
+pub(super) fn create_per_tenant_eta_metric() -> IntGaugeVec {
+    int_gauge_vec(
+        "indexing_eta_seconds_by_tenant",
+        "Estimated seconds to drain the queue per tenant; -1 = unknown / warming up",
+        &["tenant_id"],
+    )
+}

@@ -470,6 +470,16 @@ message GetProjectStatusResponse {
     optional string git_remote = 9;
     bool is_worktree = 10;                        // True if this is a worktree watch root
     optional string main_worktree_path = 11;      // Path to the main working tree (if worktree)
+    // Indexing progress (per-tenant counts). See daemon-side proto for details.
+    int64 pending_count = 12;
+    int64 in_progress_count = 13;
+    int64 failed_count = 14;
+    int64 done_count = 15;
+    int64 total_count = 16;
+    double percent_complete = 17;
+    // Estimated seconds until in-flight queue drains. Unset when the
+    // rate is unknown (cold-start or zero throughput with pending > 0).
+    optional int64 eta_seconds = 18;
 }
 
 // ListProjects Request/Response

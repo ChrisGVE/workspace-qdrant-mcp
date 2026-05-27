@@ -353,6 +353,7 @@ export class SearchTool {
       collectionsToSearch,
       status,
       statusReason,
+      currentProjectId,
     });
   }
 

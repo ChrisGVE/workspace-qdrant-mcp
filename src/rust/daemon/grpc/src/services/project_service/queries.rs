@@ -3,8 +3,11 @@
 //! Handles read-only project operations: status lookup, listing, and heartbeat.
 
 use chrono::Utc;
+use sqlx::SqlitePool;
 use tonic::Status;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
+use workspace_qdrant_core::indexing_progress::{estimate_eta_seconds, rate_files_per_sec};
+use workspace_qdrant_core::queue_operations::QueueManager;
 
 use crate::proto::{
     GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse,
@@ -17,6 +20,96 @@ use super::ProjectServiceImpl;
 
 /// Default heartbeat timeout in seconds
 const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
+
+/// Per-tenant indexing-progress counts attached to `GetProjectStatusResponse`.
+///
+/// `pending`, `in_progress`, `failed` come from `unified_queue` (in-flight),
+/// while `done` is the durable count from `tracked_files`. The queue rows
+/// for completed work are deleted after retention, so we cannot derive
+/// `done` from the queue alone.
+///
+/// `eta_seconds` is `Some` only when we have at least
+/// [`MIN_RATE_WINDOW_SECONDS`] of recent indexing activity AND a positive
+/// rate — callers must render "warming up" / "unknown" when it's `None`.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct IndexingProgress {
+    pub pending: i64,
+    pub in_progress: i64,
+    pub failed: i64,
+    pub done: i64,
+    pub eta_seconds: Option<i64>,
+}
+
+impl IndexingProgress {
+    fn total(&self) -> i64 {
+        self.pending + self.in_progress + self.failed + self.done
+    }
+
+    fn percent_complete(&self) -> f64 {
+        let total = self.total();
+        if total == 0 {
+            100.0
+        } else {
+            (self.done as f64) / (total as f64) * 100.0
+        }
+    }
+}
+
+/// Fetch per-tenant indexing progress. Returns zeros on any DB error so the
+/// caller can still return the rest of the project status; the gRPC contract
+/// has the indexing block as best-effort enrichment.
+pub(crate) async fn fetch_indexing_progress(
+    pool: &SqlitePool,
+    tenant_id: &str,
+) -> IndexingProgress {
+    let manager = QueueManager::new(pool.clone());
+    let (pending, in_progress, failed) = match manager.get_in_flight_counts_by_tenant(tenant_id).await
+    {
+        Ok(counts) => counts,
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Failed to fetch in-flight queue counts for indexing progress"
+            );
+            (0, 0, 0)
+        }
+    };
+
+    let done: i64 = match sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM tracked_files tf
+        JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+        WHERE wf.tenant_id = ?1
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await
+    {
+        Ok(count) => count,
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Failed to count tracked_files for indexing progress"
+            );
+            0
+        }
+    };
+
+    let rate = rate_files_per_sec(pool, tenant_id).await;
+    let eta_seconds = estimate_eta_seconds(pending, in_progress, rate);
+
+    IndexingProgress {
+        pending,
+        in_progress,
+        failed,
+        done,
+        eta_seconds,
+    }
+}
 
 impl ProjectServiceImpl {
     /// Execute the get_project_status business logic
@@ -52,7 +145,16 @@ impl ProjectServiceImpl {
             })?;
 
         if let Some(row) = row {
-            Self::build_project_status_response(row)
+            let mut response = Self::build_project_status_response(row)?;
+            let progress = fetch_indexing_progress(&self.db_pool, &req.project_id).await;
+            response.pending_count = progress.pending;
+            response.in_progress_count = progress.in_progress;
+            response.failed_count = progress.failed;
+            response.done_count = progress.done;
+            response.total_count = progress.total();
+            response.percent_complete = progress.percent_complete();
+            response.eta_seconds = progress.eta_seconds;
+            Ok(response)
         } else {
             Ok(GetProjectStatusResponse {
                 found: false,
@@ -66,11 +168,19 @@ impl ProjectServiceImpl {
                 git_remote: None,
                 is_worktree: false,
                 main_worktree_path: None,
+                pending_count: 0,
+                in_progress_count: 0,
+                failed_count: 0,
+                done_count: 0,
+                total_count: 0,
+                percent_complete: 0.0,
+                eta_seconds: None,
             })
         }
     }
 
-    /// Build a status response from a database row
+    /// Build a status response from a database row. Indexing-progress fields
+    /// are left at zero here; the caller fills them via `fetch_indexing_progress`.
     fn build_project_status_response(
         row: sqlx::sqlite::SqliteRow,
     ) -> Result<GetProjectStatusResponse, Status> {
@@ -124,6 +234,13 @@ impl ProjectServiceImpl {
                 .map_err(|e| Status::internal(format!("Failed to get git_remote_url: {e}")))?,
             is_worktree: is_worktree_int != 0,
             main_worktree_path,
+            pending_count: 0,
+            in_progress_count: 0,
+            failed_count: 0,
+            done_count: 0,
+            total_count: 0,
+            percent_complete: 0.0,
+            eta_seconds: None,
         })
     }
 
