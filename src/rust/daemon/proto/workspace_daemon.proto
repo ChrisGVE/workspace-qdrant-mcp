@@ -77,6 +77,9 @@ service SystemService {
 
     // Embedding provider status: configured provider, model, dim, probe state
     rpc GetEmbeddingProviderStatus(google.protobuf.Empty) returns (GetEmbeddingProviderStatusResponse);
+
+    // List dead letter queue entries with optional filtering
+    rpc ListDlq(ListDlqRequest) returns (ListDlqResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -901,6 +904,12 @@ service QueueWriteService {
 
     // Delete pending/failed queue items by collection(s)
     rpc CleanQueueByCollection(CleanQueueByCollectionRequest) returns (CleanQueueResponse);
+
+    // Replay a DLQ item back into the queue (force=true overrides permanent_data guard)
+    rpc ReplayDlqItem(ReplayDlqItemRequest) returns (ReplayDlqItemResponse);
+
+    // Purge expired DLQ entries by retention policy
+    rpc PurgeDlq(PurgeDlqRequest) returns (PurgeDlqResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -1085,6 +1094,64 @@ message RemoveItemResponse {
 message CleanQueueByCollectionRequest {
     repeated string collections = 1;                  // Collection names to clean
     repeated string statuses = 2;                     // Statuses to clean (default: pending, failed)
+}
+
+// ReplayDlqItem Request
+message ReplayDlqItemRequest {
+    string dlq_id = 1;                                // DLQ entry to replay
+    bool force = 2;                                   // Override permanent_data guard
+}
+
+// ReplayDlqItem Response
+message ReplayDlqItemResponse {
+    bool success = 1;                                 // Whether replay succeeded
+    string new_queue_id = 2;                          // New queue item ID
+    string error = 3;                                 // Error message if failed
+}
+
+// PurgeDlq Request
+message PurgeDlqRequest {
+    int32 retention_days = 1;                         // Purge entries older than N days
+    string tenant_id = 2;                             // Optional: filter by tenant
+    string category = 3;                              // Optional: filter by error category
+}
+
+// PurgeDlq Response
+message PurgeDlqResponse {
+    int32 rows_deleted = 1;                           // Number of DLQ entries purged
+    bool has_more = 2;                                // True if more entries match criteria
+}
+
+// ListDlq Request
+message ListDlqRequest {
+    string tenant_id = 1;                             // Optional: filter by tenant
+    string category = 2;                              // Optional: filter by error category
+    int32 limit = 3;                                  // Max entries to return (default: 50)
+    int32 offset = 4;                                 // Pagination offset
+}
+
+// ListDlq Response
+message ListDlqResponse {
+    repeated DlqEntry entries = 1;                    // DLQ entries
+    int32 total = 2;                                  // Total matching entries
+}
+
+// DlqEntry - single dead letter queue item
+message DlqEntry {
+    string dlq_id = 1;                                // DLQ entry ID
+    string original_queue_id = 2;                     // Original queue item ID
+    string item_type = 3;                             // Item type (doc, file, etc.)
+    string op = 4;                                    // Operation (add, update, etc.)
+    string tenant_id = 5;                             // Tenant ID
+    string collection = 6;                            // Collection name
+    string branch = 7;                                // Branch
+    string file_path = 8;                             // File path
+    string error_category = 9;                        // Error category
+    string error_message = 10;                        // Error message
+    int32 retry_count = 11;                           // Retries before DLQ
+    int32 resurrection_count = 12;                    // Resurrections before DLQ
+    string final_failure_at = 13;                     // When final failure occurred
+    string moved_to_dlq_at = 14;                      // When moved to DLQ
 }
 
 // =============================================================================

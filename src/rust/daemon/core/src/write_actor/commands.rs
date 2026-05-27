@@ -340,6 +340,17 @@ pub enum WriteCommand {
         tx: oneshot::Sender<WriteResult<u32>>,
     },
 
+    // DLQ operations
+    ReplayDlqItem {
+        dlq_id: String,
+        force: bool,
+        tx: oneshot::Sender<WriteResult<String>>,
+    },
+    PurgeDlq {
+        retention_days: u32,
+        tx: oneshot::Sender<WriteResult<(i64, bool)>>,
+    },
+
     // WatchWriteService
     PauseWatchers {
         tx: oneshot::Sender<WriteResult<u32>>,

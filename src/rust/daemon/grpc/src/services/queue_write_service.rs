@@ -11,7 +11,8 @@ use workspace_qdrant_core::write_actor::{
 use crate::proto::{
     queue_write_service_server::QueueWriteService, CancelItemsRequest, CancelItemsResponse,
     CleanQueueByCollectionRequest, CleanQueueRequest, CleanQueueResponse, EnqueueItemRequest,
-    EnqueueItemResponse, RemoveItemRequest, RemoveItemResponse, RetryAllResponse, RetryItemRequest,
+    EnqueueItemResponse, PurgeDlqRequest, PurgeDlqResponse, RemoveItemRequest, RemoveItemResponse,
+    ReplayDlqItemRequest, ReplayDlqItemResponse, RetryAllResponse, RetryItemRequest,
     RetryItemResponse,
 };
 
@@ -177,5 +178,47 @@ impl QueueWriteService for QueueWriteServiceImpl {
             .map_err(to_status)?;
 
         Ok(Response::new(CleanQueueResponse { deleted_count }))
+    }
+
+    async fn replay_dlq_item(
+        &self,
+        request: Request<ReplayDlqItemRequest>,
+    ) -> Result<Response<ReplayDlqItemResponse>, Status> {
+        let req = request.into_inner();
+        match self
+            .write_actor
+            .replay_dlq_item(req.dlq_id, req.force)
+            .await
+        {
+            Ok(new_queue_id) => Ok(Response::new(ReplayDlqItemResponse {
+                success: true,
+                new_queue_id,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Response::new(ReplayDlqItemResponse {
+                success: false,
+                new_queue_id: String::new(),
+                error: e,
+            })),
+        }
+    }
+
+    async fn purge_dlq(
+        &self,
+        request: Request<PurgeDlqRequest>,
+    ) -> Result<Response<PurgeDlqResponse>, Status> {
+        let req = request.into_inner();
+        let retention_days = if req.retention_days > 0 {
+            req.retention_days as u32
+        } else {
+            30
+        };
+        match self.write_actor.purge_dlq(retention_days).await {
+            Ok((deleted, has_more)) => Ok(Response::new(PurgeDlqResponse {
+                rows_deleted: deleted as i32,
+                has_more,
+            })),
+            Err(e) => Err(Status::internal(e)),
+        }
     }
 }

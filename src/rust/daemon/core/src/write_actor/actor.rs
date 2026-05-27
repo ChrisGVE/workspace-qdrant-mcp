@@ -67,6 +67,12 @@ impl WriteActor {
             WriteCommand::CleanQueueByCollection { data, tx } => {
                 dispatch!(self, exec_clean_queue_by_collection(data), tx)
             }
+            WriteCommand::ReplayDlqItem { dlq_id, force, tx } => {
+                dispatch!(self, exec_replay_dlq_item(dlq_id, force), tx)
+            }
+            WriteCommand::PurgeDlq { retention_days, tx } => {
+                dispatch!(self, exec_purge_dlq(retention_days), tx)
+            }
             WriteCommand::PauseWatchers { tx } => dispatch!(self, exec_pause_watchers(), tx),
             WriteCommand::ResumeWatchers { tx } => dispatch!(self, exec_resume_watchers(), tx),
             WriteCommand::EnableWatch { data, tx } => dispatch!(self, exec_enable_watch(data), tx),
@@ -171,6 +177,18 @@ impl WriteActorHandle {
         data: CleanQueueByCollectionData,
     ) -> WriteResult<u32> {
         self.send(|tx| WriteCommand::CleanQueueByCollection { data, tx })
+            .await
+    }
+
+    // ── DLQ operations ────────────────────────────────────────────
+
+    pub async fn replay_dlq_item(&self, dlq_id: String, force: bool) -> WriteResult<String> {
+        self.send(|tx| WriteCommand::ReplayDlqItem { dlq_id, force, tx })
+            .await
+    }
+
+    pub async fn purge_dlq(&self, retention_days: u32) -> WriteResult<(i64, bool)> {
+        self.send(|tx| WriteCommand::PurgeDlq { retention_days, tx })
             .await
     }
 

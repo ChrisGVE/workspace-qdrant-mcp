@@ -6,6 +6,7 @@
 mod advanced;
 mod dequeue;
 mod destination;
+pub mod dlq;
 mod enqueue;
 mod legacy;
 mod query;

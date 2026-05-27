@@ -400,6 +400,24 @@ impl WriteActor {
 
         Ok(result.rows_affected() as u32)
     }
+
+    pub(super) async fn exec_replay_dlq_item(
+        &self,
+        dlq_id: String,
+        force: bool,
+    ) -> WriteResult<String> {
+        let qm = crate::queue_operations::QueueManager::new(self.pool.clone());
+        qm.replay_from_dlq(&dlq_id, force)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub(super) async fn exec_purge_dlq(&self, retention_days: u32) -> WriteResult<(i64, bool)> {
+        let qm = crate::queue_operations::QueueManager::new(self.pool.clone());
+        qm.purge_dlq(retention_days, 500)
+            .await
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Extract `file_path` from a JSON payload, but only for file items.

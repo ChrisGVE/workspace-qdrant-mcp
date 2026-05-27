@@ -12,10 +12,11 @@ use tracing::{debug, error, info, warn};
 use wqm_common::timestamps;
 
 use crate::proto::{
-    system_service_server::SystemService, ComponentHealth, GetEmbeddingProviderStatusResponse,
-    HealthResponse, Metric, MetricsResponse, QueueStatsResponse, QueueType, RebuildIndexRequest,
-    RebuildIndexResponse, RefreshSignalRequest, ServerState, ServerStatusNotification,
-    ServiceStatus, SystemMetrics, SystemStatusResponse,
+    system_service_server::SystemService, ComponentHealth, DlqEntry as ProtoDlqEntry,
+    GetEmbeddingProviderStatusResponse, HealthResponse, ListDlqRequest, ListDlqResponse, Metric,
+    MetricsResponse, QueueStatsResponse, QueueType, RebuildIndexRequest, RebuildIndexResponse,
+    RefreshSignalRequest, ServerState, ServerStatusNotification, ServiceStatus, SystemMetrics,
+    SystemStatusResponse,
 };
 
 use super::rebuild;
@@ -506,6 +507,59 @@ impl SystemService for SystemServiceImpl {
             base_url: settings.base_url.clone(),
             probe_status,
             probe_message,
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "SystemService.list_dlq"))]
+    async fn list_dlq(
+        &self,
+        request: Request<ListDlqRequest>,
+    ) -> Result<Response<ListDlqResponse>, Status> {
+        let req = request.into_inner();
+        let tenant = if req.tenant_id.is_empty() {
+            None
+        } else {
+            Some(req.tenant_id.as_str())
+        };
+        let category = if req.category.is_empty() {
+            None
+        } else {
+            Some(req.category.as_str())
+        };
+        let limit = if req.limit > 0 { req.limit } else { 50 };
+
+        let pool = self.db_pool.as_ref().ok_or_else(|| {
+            Status::failed_precondition("ListDlq not available: db_pool not wired")
+        })?;
+        let qm = workspace_qdrant_core::queue_operations::QueueManager::new(pool.clone());
+        let (entries, total) = qm
+            .list_dlq(tenant, category, limit, req.offset)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let proto_entries = entries
+            .into_iter()
+            .map(|e| ProtoDlqEntry {
+                dlq_id: e.dlq_id,
+                original_queue_id: e.original_queue_id,
+                item_type: e.item_type.unwrap_or_default(),
+                op: e.op.unwrap_or_default(),
+                tenant_id: e.tenant_id.unwrap_or_default(),
+                collection: e.collection.unwrap_or_default(),
+                branch: e.branch.unwrap_or_default(),
+                file_path: e.file_path.unwrap_or_default(),
+                error_category: e.error_category,
+                error_message: e.error_message,
+                retry_count: e.retry_count,
+                resurrection_count: e.resurrection_count,
+                final_failure_at: e.final_failure_at,
+                moved_to_dlq_at: e.moved_to_dlq_at,
+            })
+            .collect();
+
+        Ok(Response::new(ListDlqResponse {
+            entries: proto_entries,
+            total: total as i32,
         }))
     }
 }
