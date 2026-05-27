@@ -69,17 +69,38 @@ pub(crate) async fn execute_narrative_query(
 
     let narr_filter = narrative_type_filter();
 
-    // Step 4: Recursive CTE traversing from seeds through edges,
-    //         collecting metadata_json for depth/concept info.
+    // Step 4: Build a seed-set table and a bidirectional recursive CTE.
+    //         Narrative edges point narrative_node → code_symbol and
+    //         file → concept_node, so a symbol/concept seed must follow
+    //         incoming edges to find narrators. We exclude seeds from
+    //         results and from recursive expansion to prevent cycles.
+    let seed_values: Vec<String> = (0..seed_ids.len())
+        .map(|i| format!("SELECT ?{} AS id", i + 1))
+        .collect();
+    let seed_cte = seed_values.join(" UNION ALL ");
+
     let sql = format!(
-        "WITH RECURSIVE narrative_traverse AS (
+        "WITH seed_set AS ({seed_cte}),
+        narrative_traverse AS (
             SELECT e.target_node_id AS node_id,
                    e.edge_type,
                    e.metadata_json,
                    1 AS depth,
                    e.source_node_id || ' -> ' || e.target_node_id AS path
             FROM graph_edges e
-            WHERE e.source_node_id IN ({seed_in})
+            WHERE e.source_node_id IN (SELECT id FROM seed_set)
+              AND e.target_node_id NOT IN (SELECT id FROM seed_set)
+              AND e.tenant_id = ?{tenant_slot}
+              {edge_type_clause}
+            UNION ALL
+            SELECT e.source_node_id AS node_id,
+                   e.edge_type,
+                   e.metadata_json,
+                   1 AS depth,
+                   e.target_node_id || ' <- ' || e.source_node_id AS path
+            FROM graph_edges e
+            WHERE e.target_node_id IN (SELECT id FROM seed_set)
+              AND e.source_node_id NOT IN (SELECT id FROM seed_set)
               AND e.tenant_id = ?{tenant_slot}
               {edge_type_clause}
             UNION ALL
@@ -91,6 +112,19 @@ pub(crate) async fn execute_narrative_query(
             FROM graph_edges e
             INNER JOIN narrative_traverse nt ON e.source_node_id = nt.node_id
             WHERE nt.depth < ?{depth_slot}
+              AND e.target_node_id NOT IN (SELECT id FROM seed_set)
+              AND e.tenant_id = ?{tenant_slot}
+              {edge_type_clause}
+            UNION ALL
+            SELECT e.source_node_id,
+                   e.edge_type,
+                   e.metadata_json,
+                   nt.depth + 1,
+                   nt.path || ' <- ' || e.source_node_id
+            FROM graph_edges e
+            INNER JOIN narrative_traverse nt ON e.target_node_id = nt.node_id
+            WHERE nt.depth < ?{depth_slot}
+              AND e.source_node_id NOT IN (SELECT id FROM seed_set)
               AND e.tenant_id = ?{tenant_slot}
               {edge_type_clause}
         )

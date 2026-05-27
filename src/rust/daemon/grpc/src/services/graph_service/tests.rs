@@ -680,10 +680,53 @@ mod narrative_query {
     }
 
     #[tokio::test]
-    async fn finds_narrative_nodes_via_concept() {
+    async fn finds_narrative_nodes_via_concept_incoming_edges() {
         let (service, _tmp) = test_graph_service().await;
 
-        // Seed graph: concept_node -> COVERS_TOPIC -> document_section
+        // Real data direction: document_section --COVERS_TOPIC--> concept_node
+        // Query by concept should find doc via incoming edge traversal.
+        let concept = GraphNode::new("", "global", "error_handling", NodeType::ConceptNode);
+        let doc = GraphNode::new(
+            "t1",
+            "docs/errors.md",
+            "Error Handling Guide",
+            NodeType::DocumentSection,
+        );
+        let guard = service.graph_store.read().await.unwrap();
+        guard
+            .upsert_nodes(&[concept.clone(), doc.clone()])
+            .await
+            .unwrap();
+
+        let edge = GraphEdge::new(
+            "t1",
+            &doc.node_id,
+            &concept.node_id,
+            EdgeType::CoversTopic,
+            "docs/errors.md",
+        );
+        guard.insert_edges(&[edge]).await.unwrap();
+        drop(guard);
+
+        let req = make_request(
+            "t1",
+            Some(QueryTarget::ConceptName("error_handling".into())),
+            vec![],
+            2,
+            50,
+        );
+        let resp = service.narrative_query(req).await.unwrap().into_inner();
+        assert_eq!(resp.total_found, 1);
+        assert_eq!(resp.nodes[0].symbol_name, "Error Handling Guide");
+        assert_eq!(resp.nodes[0].symbol_type, "document_section");
+        assert_eq!(resp.nodes[0].edge_type, "COVERS_TOPIC");
+    }
+
+    #[tokio::test]
+    async fn finds_narrative_nodes_via_concept_outgoing_edges() {
+        let (service, _tmp) = test_graph_service().await;
+
+        // Outgoing direction: concept_node --COVERS_TOPIC--> document_section
         let concept = GraphNode::new("", "global", "error_handling", NodeType::ConceptNode);
         let doc = GraphNode::new(
             "t1",
