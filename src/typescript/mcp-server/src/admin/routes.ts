@@ -16,6 +16,7 @@ import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import mcpPublicConfig from '../constants/mcp-public-config.json' with { type: 'json' };
+import { DEFAULT_HTTP_PORT } from '../server-types.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 import { scanForGitProjects, type ProjectCandidate } from './discovery.js';
@@ -516,7 +517,7 @@ const handlePutSettings: RouteHandler = async (req, res) => {
 // ── /api/config/clients — generate client config snippets ───────────────────
 
 const handleGetClientConfigs: RouteHandler = async (_req, res) => {
-  const port = process.env['MCP_HTTP_PORT'] ?? '6335';
+  const port = process.env['MCP_HTTP_PORT'] ?? String(DEFAULT_HTTP_PORT);
   const token = process.env['MCP_HTTP_TOKEN'] ?? '';
   const mcpUrl = `http://localhost:${port}/mcp`;
 

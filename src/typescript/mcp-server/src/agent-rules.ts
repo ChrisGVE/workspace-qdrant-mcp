@@ -8,6 +8,7 @@ import { DaemonClient } from './clients/daemon-client.js';
 import { ProjectDetector } from './utils/project-detector.js';
 import { RulesTool, type Rule } from './tools/rules.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
+import { DEFAULT_CONFIG } from './types/generated-defaults.js';
 
 export type { Rule };
 
@@ -27,7 +28,7 @@ function buildRulesTool(config: ReturnType<typeof loadConfig>): RulesTool {
   stateManager.initialize();
   const projectDetector = new ProjectDetector();
   const rulesToolConfig = {
-    qdrantUrl: config.qdrant?.url ?? 'http://localhost:6333',
+    qdrantUrl: config.qdrant?.url ?? DEFAULT_CONFIG.qdrant.url,
     qdrantTimeout: 5000,
   } as { qdrantUrl: string; qdrantApiKey?: string; qdrantTimeout?: number };
   if (config.qdrant?.apiKey) rulesToolConfig.qdrantApiKey = config.qdrant.apiKey;

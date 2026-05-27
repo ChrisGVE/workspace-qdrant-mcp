@@ -21,13 +21,16 @@ import type {
   TrackingWriteServiceClient,
   HealthCheckResponse,
 } from '../grpc-types.js';
+import { DEFAULT_CONFIG } from '../../types/generated-defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const PROTO_PATH = join(__dirname, '..', '..', 'proto', 'workspace_daemon.proto');
-const DEFAULT_HOST = 'localhost';
-const DEFAULT_PORT = 50051;
+// Daemon host/port defaults come from assets/default_configuration.yaml via
+// generated-defaults.ts — do not declare local copies (drift risk).
+const DEFAULT_HOST = DEFAULT_CONFIG.daemon.grpcHost;
+const DEFAULT_PORT = DEFAULT_CONFIG.daemon.grpcPort;
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 100;

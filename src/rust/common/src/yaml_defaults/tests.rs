@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::{DEFAULT_GRPC_PORT, DEFAULT_QDRANT_URL};
 
 #[test]
 fn test_default_yaml_parses() {
@@ -9,6 +10,30 @@ fn test_default_yaml_parses() {
     assert_eq!(config.performance.chunk_size, 1000);
     assert_eq!(config.performance.max_concurrent_tasks, 4);
     assert!(config.performance.enable_preemption);
+}
+
+/// Cross-source drift guard: the YAML-bundled defaults and the
+/// `wqm_common::constants` consts must agree. If someone updates the YAML
+/// without updating the const (or vice versa), this fails before drift can
+/// silently affect runtime behavior.
+///
+/// Mirrors the TypeScript-side guard in
+/// `src/typescript/mcp-server/tests/admin/port-drift.test.ts`.
+#[test]
+fn test_constants_match_default_yaml() {
+    let config = &*DEFAULT_YAML_CONFIG;
+    assert_eq!(
+        config.grpc.port, DEFAULT_GRPC_PORT,
+        "YAML grpc.port ({}) drifted from constants::DEFAULT_GRPC_PORT ({}); \
+         update both — they are the single source of truth across daemon, CLI, and MCP server.",
+        config.grpc.port, DEFAULT_GRPC_PORT
+    );
+    assert_eq!(
+        config.qdrant.url, DEFAULT_QDRANT_URL,
+        "YAML qdrant.url ({}) drifted from constants::DEFAULT_QDRANT_URL ({}); \
+         update both.",
+        config.qdrant.url, DEFAULT_QDRANT_URL
+    );
 }
 
 #[test]

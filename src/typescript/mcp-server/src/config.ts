@@ -96,7 +96,9 @@ function mergeConfigs(base: ServerConfig, override: Partial<ServerConfig>): Serv
  *   - "host"               (host only, port defaults to 50051)
  */
 export function parseGrpcEndpoint(endpoint: string): { host: string; port: number } {
-  const DEFAULT_PORT = 50051;
+  // Port fallback comes from generated YAML-sourced defaults — do not
+  // hardcode (drift risk, see config-drift.test.ts).
+  const DEFAULT_PORT = DEFAULT_CONFIG.daemon.grpcPort;
   // Strip http:// or https:// scheme if present.
   const withoutScheme = endpoint.replace(/^https?:\/\//, '');
   const colonIndex = withoutScheme.lastIndexOf(':');

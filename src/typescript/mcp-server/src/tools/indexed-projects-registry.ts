@@ -32,6 +32,7 @@ import {
   resolveWqmPath,
   saveObservation,
 } from './indexed-projects-observations.js';
+import { DEFAULT_CONFIG } from './../types/generated-defaults.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -187,8 +188,9 @@ function normalizeProject(p: RegistryProject): RegistryProject {
   return {
     ...p,
     root: toAbs(p.root),
-    qdrantUrl: p.qdrantUrl ?? 'http://localhost:6333',
-    daemonEndpoint: p.daemonEndpoint ?? 'localhost:50051',
+    qdrantUrl: p.qdrantUrl ?? DEFAULT_CONFIG.qdrant.url,
+    daemonEndpoint:
+      p.daemonEndpoint ?? `${DEFAULT_CONFIG.daemon.grpcHost}:${DEFAULT_CONFIG.daemon.grpcPort}`,
     defaultBranch: p.defaultBranch ?? 'main',
     tenantStrategy: p.tenantStrategy ?? 'project',
     enabled: p.enabled ?? true,
