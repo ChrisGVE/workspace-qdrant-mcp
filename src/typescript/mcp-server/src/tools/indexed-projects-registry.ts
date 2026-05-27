@@ -24,6 +24,14 @@ import {
   isGitRepository,
   isWorktree,
 } from './../utils/git-utils.js';
+import {
+  getGitSnapshot,
+  invokeCaptured,
+  invokeOptionalWatchCapture,
+  newObservation,
+  resolveWqmPath,
+  saveObservation,
+} from './indexed-projects-observations.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -382,11 +390,152 @@ export function runAgentBranchStatus(args: BranchArgs): unknown {
   const project = findProject(registry, args);
   const branch = findBranch(project, args.branchName);
   if (!branch) throw new Error(`Branch nao registrada: ${args.branchName}`);
+  // Match PS shape: include the live git snapshot from the branch's working
+  // tree. `path` may be a worktree separate from project.root, so we snapshot
+  // that path directly. When the path no longer exists, surface ok=false with
+  // a structured error instead of throwing — the registry entry is still
+  // useful to the LLM in that case.
+  const branchPath = toAbs(branch.path);
+  const git = existsSync(branchPath)
+    ? getGitSnapshot(branchPath, branch.baseBranch ?? '')
+    : { ok: false, error: 'path missing' };
   return {
     success: true,
     project: project.name,
     branch,
+    git,
   };
+}
+
+// ── Read-action handlers (Phase 2 port: observation/status surface) ──────
+
+export async function runProjectStatus(args: ProjectArgs): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const observation = await newObservation(project, wqmPath);
+  return {
+    success: true,
+    project: project.name,
+    root: project.root,
+    branches: project.branches ?? [],
+    observation,
+  };
+}
+
+export async function runStatusAll(args: BaseArgs): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const observations = await Promise.all(enabled.map((p) => newObservation(p, wqmPath)));
+  return {
+    success: true,
+    count: observations.length,
+    projects: observations,
+  };
+}
+
+export async function runObserveProject(args: ProjectArgs): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const observation = await newObservation(project, wqmPath);
+  const savedTo = saveObservation(args.registryPath, observation);
+  return {
+    success: true,
+    action: 'observe_project',
+    observation,
+    savedTo,
+  };
+}
+
+export async function runObserveAll(args: BaseArgs): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const observations = await Promise.all(
+    enabled.map(async (p) => {
+      const obs = await newObservation(p, wqmPath);
+      saveObservation(args.registryPath, obs);
+      return obs;
+    })
+  );
+  return {
+    success: true,
+    action: 'observe_all',
+    count: observations.length,
+    observations,
+  };
+}
+
+interface IncrementalBranchResult {
+  project?: string;
+  branch: string;
+  path: string;
+  projectStatus?: ReturnType<typeof invokeCaptured>;
+  projectCheck: ReturnType<typeof invokeCaptured>;
+  watchList?: ReturnType<typeof invokeOptionalWatchCapture>;
+  queue: ReturnType<typeof invokeCaptured>;
+}
+
+function checkBranchesForProject(
+  project: RegistryProject,
+  wqmPath: string | null,
+  includeProjectStatusAndWatch: boolean
+): IncrementalBranchResult[] {
+  const results: IncrementalBranchResult[] = [];
+  for (const b of project.branches ?? []) {
+    const path = toAbs(b.path ?? project.root);
+    const r: IncrementalBranchResult = {
+      project: project.name,
+      branch: b.name,
+      path,
+      projectCheck: invokeCaptured(wqmPath, ['project', 'check', path, '--json'], path, 60),
+      queue: invokeCaptured(wqmPath, ['queue', 'stats'], path, 20),
+    };
+    if (includeProjectStatusAndWatch) {
+      r.projectStatus = invokeCaptured(wqmPath, ['project', 'status', path], path, 20);
+      r.watchList = invokeOptionalWatchCapture(wqmPath, ['watch', 'list', '--json'], path, 20);
+    }
+    results.push(r);
+  }
+  return results;
+}
+
+export function runIncrementalCheck(args: ProjectArgs): unknown {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const results = checkBranchesForProject(project, wqmPath, /* includeStatusAndWatch */ true);
+  // PS strips the redundant `project` field on the per-project variant.
+  const stripped = results.map(({ project: _omit, ...rest }) => rest);
+  return {
+    success: true,
+    action: 'incremental_check',
+    project: project.name,
+    results: stripped,
+  };
+}
+
+export function runIncrementalCheckAll(args: BaseArgs): unknown {
+  const registry = readRegistry(args.registryPath);
+  const wqmPath = resolveWqmPath(dirname(args.registryPath));
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const all: IncrementalBranchResult[] = [];
+  for (const project of enabled) {
+    all.push(...checkBranchesForProject(project, wqmPath, /* includeStatusAndWatch */ false));
+  }
+  return {
+    success: true,
+    action: 'incremental_check_all',
+    results: all,
+  };
+}
+
+// Re-export normalizeProject for the read-action handlers above. (The
+// internal `normalizeProject` declared earlier is module-private.)
+function normalizeProjectExport(p: RegistryProject): RegistryProject {
+  return normalizeProject(p);
 }
 
 export function runStartAgentBranch(args: StartAgentBranchArgs): unknown {

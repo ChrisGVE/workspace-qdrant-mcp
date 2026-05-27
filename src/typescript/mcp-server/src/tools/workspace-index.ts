@@ -20,10 +20,16 @@ import {
   runAbandonAgentBranch,
   runAgentBranchStatus,
   runFinishAgentBranch,
+  runIncrementalCheck,
+  runIncrementalCheckAll,
   runInit,
   runListBranches,
   runListProjects,
+  runObserveAll,
+  runObserveProject,
+  runProjectStatus,
   runStartAgentBranch,
+  runStatusAll,
   type AbandonAgentBranchArgs,
   type BaseArgs,
   type BranchArgs,
@@ -317,6 +323,15 @@ const TS_NATIVE_ACTIONS = new Set([
   'start_agent_branch',
   'finish_agent_branch',
   'abandon_agent_branch',
+  // Phase 2: observation/status surface — runs in the dockerized MCP
+  // container without PowerShell. wqm/git absence is handled gracefully
+  // (stub probe results) rather than failing the call.
+  'project_status',
+  'status_all',
+  'observe_project',
+  'observe_all',
+  'incremental_check',
+  'incremental_check_all',
 ]);
 
 function projectSelectorFromArgs(args: JsonObject): {
@@ -361,7 +376,11 @@ function buildStartAgentBranchArgs(
   };
 }
 
-function dispatchTsAction(action: string, args: JsonObject, repoDir: string): unknown {
+function dispatchTsAction(
+  action: string,
+  args: JsonObject,
+  repoDir: string
+): unknown | Promise<unknown> {
   const registryPath = stringArg(args, 'registryPath') ?? defaultRegistryPath(repoDir);
   const base: BaseArgs = { registryPath };
   const projectSel = projectSelectorFromArgs(args);
@@ -400,6 +419,19 @@ function dispatchTsAction(action: string, args: JsonObject, repoDir: string): un
       const arg: AbandonAgentBranchArgs = { ...projectArgs, branchName, removeWorktree };
       return runAbandonAgentBranch(arg);
     }
+    // ── Phase 2: observation/status surface ─────────────────────────────
+    case 'project_status':
+      return runProjectStatus(projectArgs);
+    case 'status_all':
+      return runStatusAll(base);
+    case 'observe_project':
+      return runObserveProject(projectArgs);
+    case 'observe_all':
+      return runObserveAll(base);
+    case 'incremental_check':
+      return runIncrementalCheck(projectArgs);
+    case 'incremental_check_all':
+      return runIncrementalCheckAll(base);
     default:
       throw new Error(`TS-native handler missing for action: ${action}`);
   }
@@ -424,9 +456,11 @@ export async function handleWorkspaceIndex(
     return handleSyncCurrentBranch(args, daemonClient);
   }
 
-  // TS-native registry actions (Phase 1 port from indexed-projects-registry.ps1).
-  // These run inside the container; they only need a writable
-  // .wqm-fork/indexed-projects.json on disk and a `git` CLI in PATH.
+  // TS-native registry actions (Phases 1 + 2 ports from
+  // indexed-projects-registry.ps1). These run inside the container; they
+  // only need a writable .wqm-fork/indexed-projects.json on disk and a
+  // `git` CLI in PATH. The wqm CLI is optional — when missing, probe
+  // results carry a structured "not installed" stub instead of failing.
   if (action && TS_NATIVE_ACTIONS.has(action)) {
     assertMutationAllowed(action, args);
     const repoDir = resolveRepoDir(args);
