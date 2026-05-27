@@ -123,7 +123,10 @@ async function main(): Promise<void> {
       console.log(`Session ID: ${sessionState.sessionId}`);
       console.log(`Project: ${sessionState.projectPath ?? 'none'}`);
       console.log(`Project ID: ${sessionState.projectId ?? 'none'}`);
-      console.log(`Daemon connected: ${sessionState.daemonConnected}`);
+      // Daemon connection state is dynamic and not yet established at this
+      // point in startup — exposing it here would always print "false". The
+      // live status is available via the `:9092/metrics` endpoint and the
+      // health-monitor utility used by MCP tools.
     }
   } catch (error) {
     console.error('Failed to start MCP server:', error);

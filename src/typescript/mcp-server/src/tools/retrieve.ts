@@ -19,7 +19,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { QdrantClient } from '@qdrant/js-client-rest';
+import type { QdrantClient } from '@qdrant/js-client-rest';
+import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import { getEffectiveCwd } from '../utils/request-context.js';
@@ -126,12 +127,11 @@ export class RetrieveTool {
     projectDetector: ProjectDetector,
     daemonClient?: DaemonClient
   ) {
-    const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
+    this.qdrantClient = getQdrantClient({
       url: config.qdrantUrl,
+      apiKey: config.qdrantApiKey,
       timeout: config.qdrantTimeout ?? 5000,
-    };
-    if (config.qdrantApiKey) clientConfig.apiKey = config.qdrantApiKey;
-    this.qdrantClient = new QdrantClient(clientConfig);
+    });
     this.projectDetector = projectDetector;
     this.daemonClient = daemonClient ?? null;
   }

@@ -10,7 +10,8 @@
  * - uncertain: One or both services are unavailable
  */
 
-import { QdrantClient } from '@qdrant/js-client-rest';
+import type { QdrantClient } from '@qdrant/js-client-rest';
+import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import { ServiceStatus } from '../clients/grpc-types.js';
 
@@ -66,14 +67,11 @@ export class HealthMonitor {
     this.daemonClient = daemonClient;
     this.checkIntervalMs = config.checkIntervalMs ?? 30000; // Default 30 seconds
 
-    const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
+    this.qdrantClient = getQdrantClient({
       url: config.qdrantUrl,
+      apiKey: config.qdrantApiKey,
       timeout: config.qdrantTimeout ?? 5000,
-    };
-    if (config.qdrantApiKey) {
-      clientConfig.apiKey = config.qdrantApiKey;
-    }
-    this.qdrantClient = new QdrantClient(clientConfig);
+    });
 
     // Initialize as healthy (will be updated on first check)
     this.state = {
