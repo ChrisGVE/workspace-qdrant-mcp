@@ -14,6 +14,7 @@
 //! Each strategy is tracked independently for staleness. A strategy only
 //! reruns if its cooldown has expired since its last successful run.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sqlx::SqlitePool;
@@ -129,12 +130,22 @@ impl GroupingScheduler {
     /// Run all stale grouping strategies in the correct order.
     ///
     /// Phase 1 strategies (dependency, workspace, git_org) run first since
-    /// they produce input data. Phase 2 (affinity, tag_affinity) runs after
-    /// because they derive from phase 1 outputs.
+    /// they produce input data. Phase 1.5 (bootstrap) seeds aggregate
+    /// embeddings for projects missing them. Phase 2 (affinity, tag_affinity)
+    /// runs after because they derive from phase 1 outputs.
     ///
     /// Only strategies whose cooldown has expired are rerun. Failures in
     /// one strategy do not block others.
     pub async fn run_stale(&mut self, pool: &SqlitePool) -> GroupingResult {
+        self.run_stale_with_storage(pool, None).await
+    }
+
+    /// Run all stale strategies with optional Qdrant access for bootstrap.
+    pub async fn run_stale_with_storage(
+        &mut self,
+        pool: &SqlitePool,
+        storage_client: Option<&Arc<crate::storage::StorageClient>>,
+    ) -> GroupingResult {
         let mut result = GroupingResult {
             dependency_groups: None,
             workspace_groups: None,
@@ -150,6 +161,18 @@ impl GroupingScheduler {
         run_dependency(&mut self.dependency, pool, &mut result).await;
         run_workspace(&mut self.workspace, pool, &mut result).await;
         run_git_org(&mut self.git_org, pool, &mut result).await;
+
+        // -- Phase 1.5: bootstrap aggregate embeddings for new projects --
+        if let Some(sc) = storage_client {
+            let boot = super::affinity::bootstrap_missing_embeddings(pool, sc).await;
+            if boot.bootstrapped > 0 {
+                info!(
+                    bootstrapped = boot.bootstrapped,
+                    empty = boot.empty,
+                    "Bootstrap seeded aggregate embeddings"
+                );
+            }
+        }
 
         // -- Phase 2: derived strategies (depend on phase 1 data) --
 

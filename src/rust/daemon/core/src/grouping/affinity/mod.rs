@@ -1,3 +1,4 @@
+pub mod bootstrap;
 mod computation;
 /// Automated project affinity grouping via embeddings.
 ///
@@ -24,6 +25,9 @@ pub use storage::{
     delete_project_embedding, load_affinity_label, load_all_project_embeddings,
     load_project_embedding, store_project_embedding,
 };
+
+// Re-export bootstrap public API.
+pub use bootstrap::{bootstrap_missing_embeddings, BootstrapResult};
 
 // Re-export tag affinity public API.
 pub use tag_affinity::{

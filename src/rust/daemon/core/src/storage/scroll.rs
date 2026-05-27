@@ -158,6 +158,91 @@ impl StorageClient {
         Ok(file_paths)
     }
 
+    /// Scroll dense vectors for a tenant, returning up to `limit` vectors.
+    ///
+    /// Fetches the named `"dense"` vector from the `projects` collection
+    /// (or any collection) filtered by `tenant_id`. Paginates internally
+    /// using the Qdrant scroll cursor. Returns the extracted `Vec<f32>`
+    /// dense vectors.
+    pub async fn scroll_dense_vectors_by_tenant(
+        &self,
+        collection_name: &str,
+        tenant_id: &str,
+        limit: usize,
+    ) -> Result<Vec<Vec<f32>>, StorageError> {
+        debug!(
+            tenant_id,
+            collection_name, limit, "Scrolling dense vectors for bootstrap"
+        );
+
+        let mut vectors = Vec::new();
+        let mut offset: Option<qdrant_client::qdrant::PointId> = None;
+        let batch_size = limit.min(500) as u32;
+
+        let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
+        let dense_selector = VectorsSelector {
+            names: vec!["dense".to_string()],
+        };
+
+        loop {
+            if vectors.len() >= limit {
+                break;
+            }
+
+            let filter_clone = filter.clone();
+            let current_offset = offset.clone();
+            let selector = dense_selector.clone();
+
+            let response = self
+                .retry_operation(|| {
+                    let f = filter_clone.clone();
+                    let o = current_offset.clone();
+                    let s = selector.clone();
+                    async move {
+                        let mut builder = ScrollPointsBuilder::new(collection_name)
+                            .filter(f)
+                            .limit(batch_size)
+                            .with_payload(false)
+                            .with_vectors(s);
+
+                        if let Some(offset_id) = o {
+                            builder = builder.offset(offset_id);
+                        }
+
+                        self.client.scroll(builder).await.map_err(|e| {
+                            StorageError::Search(format!(
+                                "Scroll dense vectors for tenant failed: {}",
+                                e
+                            ))
+                        })
+                    }
+                })
+                .await?;
+
+            for point in &response.result {
+                if vectors.len() >= limit {
+                    break;
+                }
+                if let Some(dense) = extract_dense_vector(point) {
+                    vectors.push(dense);
+                }
+            }
+
+            match response.next_page_offset {
+                Some(next_offset) => offset = Some(next_offset),
+                None => break,
+            }
+        }
+
+        debug!(
+            tenant_id,
+            count = vectors.len(),
+            "Scrolled dense vectors for bootstrap"
+        );
+
+        Ok(vectors)
+    }
+
     /// Scroll through one page of points, returning `SparsePointData` items.
     ///
     /// Used by `wqm admin rebalance-idf` to read sparse vectors for IDF
@@ -248,6 +333,25 @@ impl StorageClient {
 
         Ok(response.result)
     }
+}
+
+/// Extract the dense vector from a retrieved point's named vectors.
+fn extract_dense_vector(point: &qdrant_client::qdrant::RetrievedPoint) -> Option<Vec<f32>> {
+    use qdrant_client::qdrant::{vector_output, vectors_output};
+
+    point
+        .vectors
+        .as_ref()
+        .and_then(|vout| match &vout.vectors_options {
+            Some(vectors_output::VectorsOptions::Vectors(named)) => {
+                let dense_out = named.vectors.get("dense")?;
+                match &dense_out.vector {
+                    Some(vector_output::Vector::Dense(dv)) => Some(dv.data.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
 }
 
 /// Convert a single `RetrievedPoint` into a `SparsePointData`.

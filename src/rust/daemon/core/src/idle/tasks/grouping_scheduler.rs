@@ -62,7 +62,10 @@ impl MaintenanceTask for GroupingSchedulerTask {
             return MaintenanceResult::Done;
         }
 
-        let result = self.scheduler.run_stale(ctx.pool).await;
+        let result = self
+            .scheduler
+            .run_stale_with_storage(ctx.pool, Some(ctx.storage_client))
+            .await;
 
         if result.failed_strategies.is_empty() {
             if result.total_groups() > 0 {
