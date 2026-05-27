@@ -56,6 +56,7 @@ import { seedDefaultRule } from './rule-seeder.js';
 export class WorkspaceQdrantMcpServer {
   private readonly server: Server;
   private readonly components: ServerComponents;
+  private readonly config: ServerConfig;
 
   private sessionState: SessionState = {
     sessionId: '',
@@ -63,6 +64,8 @@ export class WorkspaceQdrantMcpServer {
     projectPath: null,
     watchPath: null,
     isWorktree: false,
+    currentBranch: null,
+    lastBranchRefreshAt: 0,
     heartbeatInterval: null,
     daemonConnected: false,
     cleaned: false,
@@ -75,6 +78,7 @@ export class WorkspaceQdrantMcpServer {
   private isInitialized = false;
 
   constructor(options: ServerOptions) {
+    this.config = options.config;
     this.mode = resolveMode(options);
     this.httpOptions = {
       host: options.http?.host ?? DEFAULT_HTTP_HOST,
@@ -85,48 +89,98 @@ export class WorkspaceQdrantMcpServer {
     this.authConfig = options.auth ?? loadAuthConfig();
     this.components = buildServerComponents(options.config);
 
-    this.server = new Server(
+    this.server = this.createMcpServer();
+
+    this.setupHandlers(this.server, this.components, this.sessionState);
+  }
+
+  private createMcpServer(): Server {
+    return new Server(
       { name: SERVER_NAME, version: SERVER_VERSION },
       {
         capabilities: { tools: {} },
         instructions: [
-          "This server provides access to the user's indexed codebase and knowledge libraries.",
-          "ALWAYS use the `search` tool before answering questions about the user's code, project structure, or library documentation.",
-          'Use the `rules` tool to check for behavioral preferences before starting work.',
-          'Use `retrieve` to access specific documents when you know the document ID.',
-          'Use `list` to browse project file/folder structure — start with format "summary" to get an overview.',
-          'Collections: projects (indexed code), libraries (reference docs), rules (behavioral rules).',
+          "This server exposes the user's indexed codebase, libraries, behavioral rules, scratchpad, and project/branch registry.",
+          'Start of session: call `rules` with action="list" to load behavioral preferences before any non-trivial work.',
+          'Discovery — call `search` FIRST for any question about this codebase, project structure, or library docs; do not answer from training data. Defaults: scope="project", limit=10. Widen to scope="all" or includeLibraries=true only after a project-scoped query returns nothing useful. Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
+          'Exact lookups — use `grep` for regex / exact substring across the project (faster and cheaper than `search` with exact=true for known strings). Use `list` (start with format="summary") to understand layout before drilling in. Use `retrieve` when you already know the document ID/metadata — do not re-search.',
+          'Writes — `store` writes to `scratchpad` (notes, snippets) or `libraries` (only when the user explicitly asks). The server does NOT write project code to the `projects` collection — that is daemon-owned via file watching. To register/activate a project, use `store` with type="project".',
+          'Embeddings — `embedding` is a low-level helper; prefer `search` unless you specifically need a raw vector.',
+          'Branches & worktrees — project registration is automatic on session start; the server tracks the current branch via heartbeat. Use `workspace_index` for observability (read-only actions: list_projects, project_status, status_all, list_branches, agent_branch_status, observe_*, incremental_check*). `search` defaults to the current branch; pass `branch="<name>"` or `branch="*"` to widen explicitly — do not widen silently. When working on an agent/feature branch (especially in a parallel worktree), register it via `start_agent_branch` with `branchName`, `purpose`, `createdBy`, and `useWorktree=true` if applicable; close out with `finish_agent_branch` (merged) or `abandon_agent_branch` (discarded). Mutating actions require DOUBLE opt-in (allowMutation:true AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1) and explicit user confirmation, because they affect persistent shared state. `sync_current_branch` is for git hooks only — agents must not call it. Multi-clone: tenant_ids are stable per clone; if results come from the wrong clone, pass `projectId` explicitly.',
+          'Collections: projects (indexed code, daemon-written), libraries (reference docs), rules (behavioral rules), scratchpad (ad-hoc notes).',
+          'Budget: default to scope="project" with small limits; escalate only when needed.',
         ].join(' '),
       }
     );
-
-    this.setupHandlers();
   }
 
-  private setupHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  private setupHandlers(
+    server: Server,
+    components: ServerComponents,
+    sessionState: SessionState
+  ): void {
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: getToolDefinitions(),
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      return this.handleToolCall(request.params.name, request.params.arguments);
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      return this.handleToolCall(request.params.name, request.params.arguments, components, sessionState);
     });
 
-    this.server.onerror = (error): void => {
+    server.onerror = (error): void => {
       logError('MCP server error', error);
     };
 
-    this.server.onclose = (): void => {
+    server.onclose = (): void => {
       logInfo('MCP server closed');
-      this.cleanupSession();
+      void this.cleanupSession(sessionState, components);
     };
   }
 
   private async handleToolCall(
     toolName: string,
-    args: Record<string, unknown> | undefined
+    args: Record<string, unknown> | undefined,
+    components: ServerComponents,
+    sessionState: SessionState
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
-    return dispatchToolCall(toolName, args, this.components, this.sessionState);
+    return dispatchToolCall(toolName, args, components, sessionState);
+  }
+
+  private createSessionState(): SessionState {
+    return {
+      sessionId: '',
+      projectId: null,
+      projectPath: null,
+      watchPath: null,
+      isWorktree: false,
+      currentBranch: null,
+      lastBranchRefreshAt: 0,
+      heartbeatInterval: null,
+      daemonConnected: false,
+      cleaned: false,
+    };
+  }
+
+  private async createHttpSessionServer(): Promise<Server> {
+    const sessionState = this.createSessionState();
+    const components = buildServerComponents(this.config);
+    const { stateManager, daemonClient, projectDetector, healthMonitor } = components;
+    const initResult = stateManager.initialize();
+    if (initResult.status === 'degraded') {
+      logInfo('State manager degraded', { reason: initResult.reason });
+    }
+    await initializeSession(sessionState, daemonClient, projectDetector, () =>
+      startHeartbeat(sessionState, () => sendHeartbeat(sessionState, daemonClient))
+    );
+
+    healthMonitor.start();
+    logDebug('Health monitoring started');
+    await seedDefaultRule(components.rulesTool);
+    recordSessionStart();
+
+    const server = this.createMcpServer();
+    this.setupHandlers(server, components, sessionState);
+    return server;
   }
 
   async start(): Promise<void> {
@@ -137,10 +191,6 @@ export class WorkspaceQdrantMcpServer {
         logInfo('State manager degraded', { reason: initResult.reason });
       }
 
-      await initializeSession(this.sessionState, daemonClient, projectDetector, () =>
-        startHeartbeat(this.sessionState, () => sendHeartbeat(this.sessionState, daemonClient))
-      );
-
       healthMonitor.start();
       logDebug('Health monitoring started');
 
@@ -148,12 +198,29 @@ export class WorkspaceQdrantMcpServer {
       await this.seedDefaultRule();
 
       if (this.mode === 'stdio') {
+        await initializeSession(this.sessionState, daemonClient, projectDetector, () =>
+          startHeartbeat(this.sessionState, () => sendHeartbeat(this.sessionState, daemonClient))
+        );
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
         logInfo('MCP server started', { mode: 'stdio' });
+        recordSessionStart();
       } else if (this.mode === 'http') {
         requireAuth(this.authConfig);
-        this.httpHandle = await startMcpHttpServer(this.server, this.httpOptions, this.authConfig);
+        this.httpHandle = await startMcpHttpServer(
+          () => this.createHttpSessionServer(),
+          this.httpOptions,
+          this.authConfig,
+          // Admin UI deps. Mounting only on the http transport (stdio
+          // doesn't expose HTTP routes). Reuses the same daemonClient
+          // and stateManager that the MCP tools already use, so admin
+          // CRUD and the agent observe identical state.
+          {
+            daemonClient: this.components.daemonClient,
+            stateManager: this.components.stateManager,
+            authConfig: this.authConfig,
+          }
+        );
         logInfo('MCP server started', {
           mode: 'http',
           host: this.httpOptions.host,
@@ -165,7 +232,6 @@ export class WorkspaceQdrantMcpServer {
       }
 
       this.isInitialized = true;
-      recordSessionStart();
     } catch (error) {
       logError('Failed to start MCP server', error);
       throw error;
@@ -174,7 +240,9 @@ export class WorkspaceQdrantMcpServer {
 
   async stop(): Promise<void> {
     logInfo('Stopping MCP server');
-    await this.cleanupSession();
+    if (this.mode !== 'http') {
+      await this.cleanupSession(this.sessionState, this.components);
+    }
     if (this.httpHandle) {
       await stopMcpHttpServer(this.httpHandle);
       this.httpHandle = null;
@@ -195,12 +263,15 @@ export class WorkspaceQdrantMcpServer {
    * double-decrement of the `wqm_mcp_session_count` metric when both the
    * `onclose` handler and `stop()` fire for the same session.
    */
-  private async cleanupSession(): Promise<void> {
-    if (this.sessionState.cleaned) return;
-    this.sessionState.cleaned = true;
+  private async cleanupSession(
+    sessionState: SessionState,
+    components: ServerComponents
+  ): Promise<void> {
+    if (sessionState.cleaned) return;
+    sessionState.cleaned = true;
 
-    const { daemonClient, stateManager, healthMonitor } = this.components;
-    await cleanup(this.sessionState, daemonClient, stateManager, healthMonitor);
+    const { daemonClient, stateManager, healthMonitor } = components;
+    await cleanup(sessionState, daemonClient, stateManager, healthMonitor);
     recordSessionEnd();
   }
 

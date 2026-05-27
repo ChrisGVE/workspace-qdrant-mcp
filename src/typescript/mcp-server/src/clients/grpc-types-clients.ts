@@ -43,6 +43,7 @@ import type {
   EnqueueItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
+  UpdateSearchEventEconomyRequest,
   UpsertRuleMirrorRequest,
   DeleteRuleMirrorRequest,
 } from './grpc-types-messages.js';
@@ -186,6 +187,10 @@ export interface TrackingWriteServiceClient {
   ): void;
   updateSearchEvent(
     request: UpdateSearchEventRequest,
+    callback: (error: Error | null, response: Record<string, never>) => void
+  ): void;
+  updateSearchEventEconomy(
+    request: UpdateSearchEventEconomyRequest,
     callback: (error: Error | null, response: Record<string, never>) => void
   ): void;
   upsertRuleMirror(

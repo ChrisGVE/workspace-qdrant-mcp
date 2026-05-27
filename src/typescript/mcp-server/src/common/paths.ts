@@ -186,8 +186,31 @@ export class PathError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
+ * If `s` starts with a Windows drive prefix like `C:/`, returns the drive
+ * portion (`"C:"`) plus the index of the character AFTER the trailing slash.
+ * Otherwise returns `null`. `s` is assumed to already use forward slashes.
+ *
+ * Mirrors `windows_drive_prefix_len` in `wqm-common::paths::normalize`.
+ */
+function parseWindowsDrivePrefix(s: string): { drive: string; restStart: number } | null {
+  if (s.length < 3) return null;
+  const c0 = s.charCodeAt(0);
+  const isAlpha =
+    (c0 >= 0x41 && c0 <= 0x5a) || (c0 >= 0x61 && c0 <= 0x7a); // A-Z or a-z
+  if (!isAlpha) return null;
+  if (s.charCodeAt(1) !== 0x3a) return null; // ':'
+  if (s.charCodeAt(2) !== 0x2f) return null; // '/'
+  return { drive: s.slice(0, 2), restStart: 3 };
+}
+
+/**
  * Apply the nine normalization rules from spec §3.1 and return the canonical
  * string form.
+ *
+ * Accepted absolute forms:
+ *   - POSIX: `/foo/bar/baz`
+ *   - Windows drive: `C:/foo/bar/baz` (backslashes are accepted on input
+ *     and normalized to forward slashes before the absolute check)
  *
  * Pure string operation — no filesystem access, no symlink resolution.
  *
@@ -214,14 +237,26 @@ function normalizePath(input: string): string {
     expanded = input;
   }
 
-  // Rule 1: must be absolute after tilde expansion.
-  if (!expanded.startsWith('/')) {
+  // Normalize Windows separators so the canonical form uses forward slashes
+  // regardless of input source.
+  const asPosix = expanded.replace(/\\/g, '/');
+
+  // Rule 1: must be absolute after tilde expansion and separator normalization.
+  // Accept POSIX (`/...`) and Windows drive (`C:/...`).
+  const drivePrefix = parseWindowsDrivePrefix(asPosix);
+  let prefix = '';
+  let rest: string;
+  if (drivePrefix !== null) {
+    prefix = drivePrefix.drive;
+    rest = asPosix.slice(drivePrefix.restStart);
+  } else if (asPosix.startsWith('/')) {
+    rest = asPosix.slice(1);
+  } else {
     throw new PathError('relative', `path must be absolute, got: ${JSON.stringify(input)}`);
   }
 
   // Split on '/' and process each segment.
-  // input = '/a//b/./c' → segments = ['', 'a', '', 'b', '.', 'c']
-  const rawSegments = expanded.split('/');
+  const rawSegments = rest.split('/');
   const parts: string[] = [];
 
   for (const seg of rawSegments) {
@@ -250,11 +285,13 @@ function normalizePath(input: string): string {
     parts.push(seg);
   }
 
-  // Reconstruct with leading '/'.
-  const result = '/' + parts.join('/');
-
-  // An absolute path that reduces to just '/' is valid (root itself).
-  return result;
+  // Reconstruct. Bare root paths (`/` or `C:/`) are not produced — the loop
+  // above strips empty segments and we treat zero non-root segments as the
+  // root itself.
+  if (prefix === '') {
+    return '/' + parts.join('/');
+  }
+  return `${prefix}/${parts.join('/')}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -202,6 +202,10 @@ export class SqliteStateManager {
     return projectQueries.listActiveProjects(this.db);
   }
 
+  listAllProjects() {
+    return projectQueries.listAllProjects(this.db);
+  }
+
   // ── Search event instrumentation (delegated) ──────────────────────────
 
   logSearchEvent(event: searchEventQueries.SearchEventInput): void {
@@ -210,6 +214,13 @@ export class SqliteStateManager {
 
   updateSearchEvent(eventId: string, update: searchEventQueries.SearchEventUpdate): void {
     searchEventQueries.updateSearchEvent(this.daemonClient, eventId, update);
+  }
+
+  updateSearchEventEconomy(
+    eventId: string,
+    update: searchEventQueries.SearchEventEconomyInput
+  ): void {
+    searchEventQueries.updateSearchEventEconomy(this.daemonClient, eventId, update);
   }
 
   // ── Tag/basket queries (delegated) ────────────────────────────────────

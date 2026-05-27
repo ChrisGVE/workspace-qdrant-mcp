@@ -27,19 +27,33 @@ import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import type { HttpTlsOptions, HttpTransportOptions } from './server-types.js';
 import { recordHttpRequest } from './telemetry/metrics.js';
 import { logInfo, logError } from './utils/logger.js';
 import type { AuthConfig } from './auth-middleware.js';
 import { createAuthMiddleware } from './auth-middleware.js';
+import { handleAdminRequest, type AdminDeps } from './admin/handler.js';
+import { runWithRequestContext, type RequestContext } from './utils/request-context.js';
+
+/** HTTP header carrying the host-side working directory of the MCP client.
+ *  Lower-case form because Node normalizes incoming header names. */
+const HOST_CWD_HEADER = 'x-mcp-host-cwd';
+
+/** Extract the per-request context (currently just the host CWD) from headers. */
+function buildRequestContext(req: IncomingMessage): RequestContext {
+  const raw = req.headers[HOST_CWD_HEADER];
+  const hostCwd = Array.isArray(raw) ? raw[0] : raw;
+  return hostCwd && hostCwd.length > 0 ? { hostCwd } : {};
+}
 
 /**
  * Running HTTP-mode transport plus the Node listener that fronts it. Held by
  * `WorkspaceQdrantMcpServer` so `stop()` can tear both down in order.
  */
 export interface McpHttpServerHandle {
-  transport: StreamableHTTPServerTransport;
+  transports: Map<string, StreamableHTTPServerTransport>;
   httpServer: NodeHttpServer;
   host: string;
   port: number;
@@ -78,22 +92,27 @@ async function createBoundHttpServer(
 }
 
 export async function startMcpHttpServer(
-  mcpServer: McpServer,
+  createMcpServer: () => Promise<McpServer>,
   options: HttpTransportOptions,
-  authConfig: AuthConfig
+  authConfig: AuthConfig,
+  adminDeps?: AdminDeps
 ): Promise<McpHttpServerHandle> {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: (): string => randomUUID(),
-  });
-
-  // Cast through Transport: StreamableHTTPServerTransport's optional-property
-  // signatures do not line up with `exactOptionalPropertyTypes` inference
-  // against the base interface, but the runtime contract is satisfied.
-  await mcpServer.connect(transport as unknown as Transport);
+  const transports = new Map<string, StreamableHTTPServerTransport>();
 
   const authMiddleware = createAuthMiddleware(authConfig);
   const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
-    void handleRequest(req, res, transport, options.path, authMiddleware);
+    const ctx = buildRequestContext(req);
+    runWithRequestContext(ctx, () => {
+      void handleRequest(
+        req,
+        res,
+        transports,
+        createMcpServer,
+        options.path,
+        authMiddleware,
+        adminDeps
+      );
+    });
   };
 
   const { httpServer, tlsEnabled } = await createBoundHttpServer(options, requestHandler);
@@ -106,7 +125,7 @@ export async function startMcpHttpServer(
   });
 
   return {
-    transport,
+    transports,
     httpServer,
     host: options.host,
     port: options.port,
@@ -149,7 +168,8 @@ export async function stopMcpHttpServer(handle: McpHttpServerHandle): Promise<vo
     // `close` only waits for idle connections — force-close active SSE streams.
     handle.httpServer.closeAllConnections?.();
   });
-  await handle.transport.close();
+  await Promise.all(Array.from(handle.transports.values(), (transport) => transport.close()));
+  handle.transports.clear();
   logInfo('MCP HTTP transport stopped');
 }
 
@@ -157,10 +177,11 @@ export async function stopMcpHttpServer(handle: McpHttpServerHandle): Promise<vo
 async function dispatchToTransport(
   req: IncomingMessage,
   res: ServerResponse,
-  transport: StreamableHTTPServerTransport
+  transport: StreamableHTTPServerTransport,
+  parsedBody?: unknown
 ): Promise<void> {
   try {
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, parsedBody);
   } catch (error) {
     logError('MCP HTTP transport error', error);
     if (!res.headersSent) {
@@ -173,9 +194,11 @@ async function dispatchToTransport(
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  transport: StreamableHTTPServerTransport,
+  transports: Map<string, StreamableHTTPServerTransport>,
+  createMcpServer: () => Promise<McpServer>,
   mcpPath: string,
-  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean }
+  authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean },
+  adminDeps?: AdminDeps
 ): Promise<void> {
   instrumentHttpResponse(req, res);
 
@@ -185,17 +208,117 @@ async function handleRequest(
     return;
   }
 
+  const urlPath = (req.url ?? '').split('?')[0] ?? '';
+
+  // Admin UI static assets (HTML/JS/CSS) are served WITHOUT the Bearer
+  // auth middleware. Browsers cannot inject the `Authorization` header
+  // when the user just opens the page — auth runs inside the SPA itself
+  // (see `admin/static/app.js`: prompt for token, store in
+  // sessionStorage, attach to every `/admin/api/*` fetch).
+  //
+  // `/admin/api/*` keeps full auth because it's where the actual data
+  // lives. The static handler refuses anything outside the static root
+  // so this can't be used to bypass auth for arbitrary URLs.
+  if (adminDeps && urlPath.startsWith('/admin') && !urlPath.startsWith('/admin/api/')) {
+    const handled = await handleAdminRequest(req, res, urlPath, adminDeps);
+    if (handled) return;
+  }
+
   const decision = authMiddleware(req, res);
   if (!decision.authorized) return;
 
-  const urlPath = (req.url ?? '').split('?')[0];
+  // Admin REST under /admin/api/*. Authenticated; same Bearer token as
+  // the MCP transport.
+  if (adminDeps && urlPath.startsWith('/admin/api/')) {
+    const handled = await handleAdminRequest(req, res, urlPath, adminDeps);
+    if (handled) return;
+  }
+
   if (urlPath !== mcpPath) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
     return;
   }
 
-  await dispatchToTransport(req, res, transport);
+  const sessionId = getSessionId(req);
+  const existingTransport = sessionId ? transports.get(sessionId) : undefined;
+  if (existingTransport) {
+    await dispatchToTransport(req, res, existingTransport);
+    return;
+  }
+
+  if (sessionId) {
+    writeJsonRpcError(res, 404, -32001, 'Session not found');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    writeJsonRpcError(res, 400, -32000, 'Bad Request: No valid session ID provided');
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const messages = Array.isArray(body) ? body : [body];
+  if (!messages.some(isInitializeRequest)) {
+    writeJsonRpcError(res, 400, -32000, 'Bad Request: No valid session ID provided');
+    return;
+  }
+
+  let transport!: StreamableHTTPServerTransport;
+  transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: (): string => randomUUID(),
+    onsessioninitialized: (newSessionId: string): void => {
+      transports.set(newSessionId, transport);
+      logInfo('MCP HTTP session initialized', { sessionId: newSessionId });
+    },
+  });
+
+  const mcpServer = await createMcpServer();
+  transport.onclose = (): void => {
+    const closedSessionId = transport.sessionId;
+    if (closedSessionId) {
+      transports.delete(closedSessionId);
+      logInfo('MCP HTTP session closed', { sessionId: closedSessionId });
+    }
+    void mcpServer.close();
+  };
+
+  // Cast through Transport: StreamableHTTPServerTransport's optional-property
+  // signatures do not line up with `exactOptionalPropertyTypes` inference
+  // against the base interface, but the runtime contract is satisfied.
+  await mcpServer.connect(transport as unknown as Transport);
+  await dispatchToTransport(req, res, transport, body);
+}
+
+function getSessionId(req: IncomingMessage): string | undefined {
+  const raw = req.headers['mcp-session-id'];
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw ? JSON.parse(raw) : undefined;
+}
+
+function writeJsonRpcError(
+  res: ServerResponse,
+  httpStatus: number,
+  code: number,
+  message: string
+): void {
+  res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      error: { code, message },
+      id: null,
+    })
+  );
 }
 
 /**

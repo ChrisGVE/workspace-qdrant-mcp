@@ -42,6 +42,51 @@ impl WatchManager {
         }
     }
 
+    /// Resolve a watch path to the local filesystem view used by this process.
+    ///
+    /// The daemon stores canonical paths in SQLite, but Docker Desktop on
+    /// Windows can expose the same bind mount under `/run/desktop/mnt/host/...`
+    /// instead of `/mnt/...`. Keep the canonical path when it already exists,
+    /// otherwise try the common Docker Desktop aliases before falling back to
+    /// the raw value so logs still show the stored DB path.
+    pub(crate) fn resolve_local_watch_path(raw_path: &str) -> PathBuf {
+        let primary = PathBuf::from(raw_path);
+        if primary.exists() {
+            return primary;
+        }
+
+        for alias in Self::watch_path_aliases(raw_path) {
+            if alias.exists() {
+                debug!(
+                    "Resolved watch path {} to existing container path {}",
+                    raw_path,
+                    alias.display()
+                );
+                return alias;
+            }
+        }
+
+        primary
+    }
+
+    /// Generate Docker Desktop alias candidates for a raw watch path.
+    pub(crate) fn watch_path_aliases(raw_path: &str) -> Vec<PathBuf> {
+        let mut aliases = Vec::new();
+
+        if let Some(rest) = raw_path.strip_prefix("/mnt/") {
+            aliases.push(PathBuf::from(format!("/run/desktop/mnt/host/{rest}")));
+            aliases.push(PathBuf::from(format!("/host_mnt/{rest}")));
+        } else if let Some(rest) = raw_path.strip_prefix("/host_mnt/") {
+            aliases.push(PathBuf::from(format!("/mnt/{rest}")));
+            aliases.push(PathBuf::from(format!("/run/desktop/mnt/host/{rest}")));
+        } else if let Some(rest) = raw_path.strip_prefix("/run/desktop/mnt/host/") {
+            aliases.push(PathBuf::from(format!("/mnt/{rest}")));
+            aliases.push(PathBuf::from(format!("/host_mnt/{rest}")));
+        }
+
+        aliases
+    }
+
     /// Take the git event receiver (can only be called once).
     pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git::GitEvent>> {
         let mut rx_lock = self.git_event_rx.lock().await;
@@ -97,7 +142,7 @@ impl WatchManager {
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(&path),
+                path: Self::resolve_local_watch_path(&path),
                 tenant_id,
                 collection,
                 patterns: vec!["*".to_string()],
@@ -124,7 +169,7 @@ impl WatchManager {
     pub(super) async fn start_git_watcher(&self, watch_id: &str, project_path: &str) {
         use crate::git::GitWatcher;
 
-        let project_root = PathBuf::from(project_path);
+        let project_root = Self::resolve_local_watch_path(project_path);
         match GitWatcher::new(
             watch_id.to_string(),
             project_root,
@@ -179,7 +224,7 @@ impl WatchManager {
 
             let config = WatchConfig {
                 id: id.clone(),
-                path: PathBuf::from(path),
+                path: Self::resolve_local_watch_path(&path),
                 tenant_id: tenant_id.clone(),
                 collection,
                 patterns: vec!["*".to_string()],
@@ -298,5 +343,20 @@ impl WatchManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn docker_desktop_aliases_include_common_windows_paths() {
+        let aliases = WatchManager::watch_path_aliases("/mnt/c/Users/alber/dev");
+        assert_eq!(
+            aliases[0],
+            PathBuf::from("/run/desktop/mnt/host/c/Users/alber/dev")
+        );
+        assert_eq!(aliases[1], PathBuf::from("/host_mnt/c/Users/alber/dev"));
     }
 }

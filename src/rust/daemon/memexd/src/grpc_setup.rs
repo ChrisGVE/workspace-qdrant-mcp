@@ -3,6 +3,7 @@
 //! Constructs the `GrpcServer` with all its optional dependencies (database pool,
 //! pause flag, search DB, graph store, LSP manager, etc.) and spawns it.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
@@ -66,9 +67,7 @@ pub fn spawn_grpc_server(
     embedding_settings: Arc<workspace_qdrant_core::config::EmbeddingSettings>,
 ) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     let grpc_port = args.grpc_port;
-    let grpc_addr = format!("127.0.0.1:{}", grpc_port)
-        .parse()
-        .map_err(|e| format!("Invalid gRPC address: {}", e))?;
+    let grpc_addr = grpc_bind_addr(grpc_port);
     let grpc_config = GrpcServerConfig::new(grpc_addr);
 
     let grpc_lexicon_manager = Arc::new(workspace_qdrant_core::LexiconManager::new(
@@ -76,7 +75,7 @@ pub fn spawn_grpc_server(
         workspace_qdrant_core::EmbeddingConfig::default().bm25_k1,
     ));
 
-    info!("Starting gRPC server on port {}", grpc_port);
+    info!("Starting gRPC server on 0.0.0.0:{}", grpc_port);
     let handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
             .with_database_pool(grpc_db_pool)
@@ -103,9 +102,26 @@ pub fn spawn_grpc_server(
         }
     });
     info!(
-        "gRPC server started on 127.0.0.1:{} with ProjectService enabled",
+        "gRPC server started on 0.0.0.0:{} with ProjectService enabled",
         grpc_port
     );
 
     Ok(handle)
+}
+
+fn grpc_bind_addr(grpc_port: u16) -> SocketAddr {
+    SocketAddr::from(([0, 0, 0, 0], grpc_port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grpc_bind_addr_uses_all_interfaces() {
+        assert_eq!(
+            grpc_bind_addr(50051),
+            SocketAddr::from(([0, 0, 0, 0], 50051))
+        );
+    }
 }

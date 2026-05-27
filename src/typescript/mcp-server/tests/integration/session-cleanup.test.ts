@@ -63,6 +63,7 @@ vi.mock('../../src/clients/daemon-client.js', () => ({
     getMetrics: vi.fn().mockResolvedValue({}),
     logSearchEvent: vi.fn().mockResolvedValue({}),
     updateSearchEvent: vi.fn().mockResolvedValue({}),
+    updateSearchEventEconomy: vi.fn().mockResolvedValue({}),
     getConnectionState: vi.fn().mockReturnValue('connected'),
   })),
 }));

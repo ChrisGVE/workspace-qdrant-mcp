@@ -5,6 +5,7 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import type { RuleOptions, RuleResponse, Rule, RuleScope } from './rules-types.js';
 import { RULES_COLLECTION } from './rules-types.js';
 import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
@@ -110,7 +111,7 @@ export async function listRules(
 
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
     resolvedProjectId = projectInfo?.projectId;
   }
 

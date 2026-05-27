@@ -1,0 +1,122 @@
+{
+  "$schema": "./cases.schema.json",
+  "description": "Cross-language path normalization fixtures. Loaded by Rust, TS, and PowerShell runners; each implementation must produce the same result for every case. Add cases here when you fix a divergence or discover a new edge.",
+  "version": 1,
+  "normalize": [
+    {
+      "name": "posix_basic",
+      "input": "/Users/chris",
+      "expected": "/Users/chris"
+    },
+    {
+      "name": "posix_dot_segments_removed",
+      "input": "/Users/./chris/./dev",
+      "expected": "/Users/chris/dev"
+    },
+    {
+      "name": "posix_duplicate_slashes_collapsed",
+      "input": "/Users//chris///dev",
+      "expected": "/Users/chris/dev"
+    },
+    {
+      "name": "posix_case_preserved",
+      "input": "/Users/Chris/DevTools",
+      "expected": "/Users/Chris/DevTools"
+    },
+    {
+      "name": "posix_mnt_style",
+      "input": "/mnt/c/Users/chris/dev",
+      "expected": "/mnt/c/Users/chris/dev"
+    },
+    {
+      "name": "windows_drive_forward_slash",
+      "input": "C:/Users/chris/dev",
+      "expected": "C:/Users/chris/dev"
+    },
+    {
+      "name": "windows_drive_backslash",
+      "input": "C:\\Users\\chris\\dev",
+      "expected": "C:/Users/chris/dev"
+    },
+    {
+      "name": "windows_drive_mixed_separators",
+      "input": "C:\\Users/chris\\dev",
+      "expected": "C:/Users/chris/dev"
+    },
+    {
+      "name": "windows_drive_lowercase_preserved",
+      "input": "d:/Projects/foo",
+      "expected": "d:/Projects/foo"
+    },
+    {
+      "name": "windows_drive_dot_segments_removed",
+      "input": "C:/Users/./chris/./dev",
+      "expected": "C:/Users/chris/dev"
+    },
+    {
+      "name": "windows_drive_duplicate_slashes_collapsed",
+      "input": "C://Users//chris///dev",
+      "expected": "C:/Users/chris/dev"
+    }
+  ],
+  "normalize_errors": [
+    {
+      "name": "empty_input",
+      "input": "",
+      "expectedKind": "empty"
+    },
+    {
+      "name": "relative_input",
+      "input": "relative/path",
+      "expectedKind": "relative"
+    },
+    {
+      "name": "relative_dot_prefix",
+      "input": "./relative",
+      "expectedKind": "relative"
+    },
+    {
+      "name": "invalid_drive_letter_treated_as_relative",
+      "input": "1:/Users/chris",
+      "expectedKind": "relative"
+    },
+    {
+      "name": "parent_dir_rejected_posix",
+      "input": "/Users/chris/../other",
+      "expectedKind": "dot-dot"
+    },
+    {
+      "name": "parent_dir_rejected_windows",
+      "input": "C:/Users/chris/../other",
+      "expectedKind": "dot-dot"
+    },
+    {
+      "name": "parent_dir_at_root",
+      "input": "/..",
+      "expectedKind": "dot-dot"
+    }
+  ],
+  "comment_nul": "Embedded-NUL rejection is asserted by each implementation in its own test suite (Rust: paths/tests.rs, TS: TBD, PS: TBD). NUL bytes cannot be carried in this JSON file.",
+  "is_windows_absolute": [
+    { "input": "C:/Users", "expected": true },
+    { "input": "C:\\Users", "expected": true },
+    { "input": "z:/foo", "expected": true },
+    { "input": "/Users/chris", "expected": false },
+    { "input": "relative/path", "expected": false },
+    { "input": "1:/foo", "expected": false }
+  ],
+  "is_absolute": [
+    { "input": "/Users/chris", "expected": true },
+    { "input": "C:/Users", "expected": true },
+    { "input": "C:\\Users", "expected": true },
+    { "input": "relative", "expected": false },
+    { "input": "./rel", "expected": false },
+    { "input": "", "expected": false }
+  ],
+  "normalize_slashes": [
+    { "input": "C:\\foo\\bar", "expected": "C:/foo/bar" },
+    { "input": "C:\\foo/bar", "expected": "C:/foo/bar" },
+    { "input": "/already/posix", "expected": "/already/posix" },
+    { "input": "no\\separators\\here", "expected": "no/separators/here" }
+  ]
+}

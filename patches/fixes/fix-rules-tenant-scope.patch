@@ -1,0 +1,307 @@
+From 04b5006921ff059e7b5568d3221615d8e1d31332 Mon Sep 17 00:00:00 2001
+From: fork-maintainer <you@example.com>
+Date: Sat, 23 May 2026 00:00:00 +0000
+Subject: [PATCH] fix(mcp/rules): scope rule mutations by tenant
+
+Labels are not globally unique. Project A and project B may both have a
+rule with the same label. This patch makes add duplicate detection,
+update, and remove honor the active project tenant instead of silently
+falling back to the global tenant.
+
+It fixes these cases:
+- project-scoped duplicate detection searches only current project plus global
+- project-scoped update sends the resolved tenant_id to the daemon
+- project-scoped remove queues delete with the resolved tenant_id
+- global update/remove still use the global tenant explicitly
+---
+ src/typescript/mcp-server/src/tools/rules-mutation-helpers.ts | 49 ++++++++++++++++--------
+ src/typescript/mcp-server/src/tools/rules-mutations.ts        | 48 ++++++++++++++++++++++--
+ src/typescript/mcp-server/src/tools/rules.ts                  | 63 ++++++++++++++++++++++++++++---
+ 3 files changed, 130 insertions(+), 30 deletions(-)
+
+diff --git a/src/typescript/mcp-server/src/tools/rules-mutation-helpers.ts b/src/typescript/mcp-server/src/tools/rules-mutation-helpers.ts
+--- a/src/typescript/mcp-server/src/tools/rules-mutation-helpers.ts
++++ b/src/typescript/mcp-server/src/tools/rules-mutation-helpers.ts
+@@ -124,6 +124,9 @@ export async function resolveProjectScopeId(
+     resolvedProjectId = projectInfo?.projectId;
+   }
+   if (scope === 'project' && !resolvedProjectId) {
++    // Caller decides which action label to report; the spread on the
++    // returned response can override `action` (see updateRule /
++    // removeRule). Default to 'add' for backward compat with addRule.
+     return {
+       resolvedProjectId: undefined,
+       error: {
+@@ -216,11 +219,14 @@ export async function persistAddRule(
+ 
+ function buildUpdateMetadata(
+   label: string,
++  scope: RuleScope,
++  resolvedProjectId: string | undefined,
+   title: string | undefined,
+   tags: string[] | undefined,
+   priority: number | undefined
+ ): Record<string, string> {
+-  const m: Record<string, string> = { label };
++  const m: Record<string, string> = { label, scope };
++  if (resolvedProjectId) m[FIELD_PROJECT_ID] = resolvedProjectId;
+   if (title) m[FIELD_TITLE] = title;
+   if (tags && tags.length > 0) m['tags'] = tags.join(',');
+   if (priority !== undefined) m['priority'] = String(priority);
+@@ -230,11 +236,19 @@ function buildUpdateMetadata(
+ function buildUpdateQueueOp(
+   label: string,
+   content: string,
++  scope: RuleScope,
++  resolvedProjectId: string | undefined,
+   title: string | undefined,
+   tags: string[] | undefined,
+   priority: number | undefined
+ ): Parameters<typeof queueRuleOperation>[1] {
+-  const op: Parameters<typeof queueRuleOperation>[1] = { action: 'update', label, content };
++  const op: Parameters<typeof queueRuleOperation>[1] = {
++    action: 'update',
++    label,
++    content,
++    scope,
++  };
++  if (resolvedProjectId) op.projectId = resolvedProjectId;
+   if (title) op.title = title;
+   if (tags) op.tags = tags;
+   if (priority !== undefined) op.priority = priority;
+@@ -246,21 +260,27 @@ export async function persistUpdateRule(
+   stateManager: SqliteStateManager,
+   label: string,
+   content: string,
++  scope: RuleScope,
++  resolvedProjectId: string | undefined,
+   title: string | undefined,
+   tags: string[] | undefined,
+   priority: number | undefined
+ ): Promise<RuleResponse> {
+-  const metadata = buildUpdateMetadata(label, title, tags, priority);
++  // F-015: pass the resolved project tenant (or TENANT_GLOBAL for
++  // global rules) so the daemon's (label, tenant_id) match targets
++  // the correct rule.
++  const tenantId = resolvedProjectId ?? TENANT_GLOBAL;
++  const metadata = buildUpdateMetadata(label, scope, resolvedProjectId, title, tags, priority);
+   try {
+     const response = await daemonClient.ingestText({
+       content,
+       collection_basename: RULES_BASENAME,
+-      tenant_id: TENANT_GLOBAL,
++      tenant_id: tenantId,
+       document_id: label,
+       metadata,
+     });
+     if (response.success) {
+-      upsertMirror(stateManager, label, content, null, null);
++      upsertMirror(stateManager, label, content, scope, resolvedProjectId ?? null);
+       return { success: true, action: 'update', label, message: 'Rule updated successfully' };
+     }
+   } catch (err: unknown) {
+@@ -269,9 +289,9 @@ export async function persistUpdateRule(
+ 
+   const queueResult = await queueRuleOperation(
+     stateManager,
+-    buildUpdateQueueOp(label, content, title, tags, priority)
++    buildUpdateQueueOp(label, content, scope, resolvedProjectId, title, tags, priority)
+   );
+-  upsertMirror(stateManager, label, content, null, null);
++  upsertMirror(stateManager, label, content, scope, resolvedProjectId ?? null);
+   return {
+     success: true,
+     action: 'update',
+diff --git a/src/typescript/mcp-server/src/tools/rules-mutations.ts b/src/typescript/mcp-server/src/tools/rules-mutations.ts
+--- a/src/typescript/mcp-server/src/tools/rules-mutations.ts
++++ b/src/typescript/mcp-server/src/tools/rules-mutations.ts
+@@ -58,9 +58,10 @@ export async function addRule(
+ export async function updateRule(
+   daemonClient: DaemonClient,
+   stateManager: SqliteStateManager,
++  projectDetector: ProjectDetector,
+   options: RuleOptions
+ ): Promise<RuleResponse> {
+-  const { label, content, title, tags, priority } = options;
++  const { label, content, title, tags, priority, scope = 'project', projectId } = options;
+ 
+   if (!label) {
+     return { success: false, action: 'update', message: 'Label is required for updating' };
+@@ -69,19 +70,55 @@ export async function updateRule(
+     return { success: false, action: 'update', message: 'Content is required for updating a rule' };
+   }
+ 
+-  return persistUpdateRule(daemonClient, stateManager, label, content, title, tags, priority);
++  // Project-scope updates must carry the project tenant_id so the
++  // daemon's (label, tenant_id) match targets the right rule. Pre-fix
++  // code hardcoded TENANT_GLOBAL.
++  const { resolvedProjectId, error } = await resolveProjectScopeId(
++    scope,
++    projectId,
++    projectDetector
++  );
++  if (error) return { ...error, action: 'update' };
++
++  return persistUpdateRule(
++    daemonClient,
++    stateManager,
++    label,
++    content,
++    scope,
++    resolvedProjectId,
++    title,
++    tags,
++    priority
++  );
+ }
+ 
+ export async function removeRule(
+   stateManager: SqliteStateManager,
++  projectDetector: ProjectDetector,
+   options: RuleOptions
+ ): Promise<RuleResponse> {
+-  const { label } = options;
++  const { label, scope = 'project', projectId } = options;
+   if (!label) {
+     return { success: false, action: 'remove', message: 'Label is required for removal' };
+   }
+ 
+-  const queueResult = await queueRuleOperation(stateManager, { action: 'remove', label });
++  // Same-label rules can exist in two projects. Resolve the project
++  // tenant and pass it through so the daemon scopes delete by
++  // (label, tenant_id), not label alone.
++  const { resolvedProjectId, error } = await resolveProjectScopeId(
++    scope,
++    projectId,
++    projectDetector
++  );
++  if (error) return { ...error, action: 'remove' };
++
++  const queueResult = await queueRuleOperation(stateManager, {
++    action: 'remove',
++    label,
++    scope,
++    ...(resolvedProjectId !== undefined ? { projectId: resolvedProjectId } : {}),
++  });
+   stateManager.deleteRulesMirror(label);
+ 
+   return {
+diff --git a/src/typescript/mcp-server/src/tools/rules.ts b/src/typescript/mcp-server/src/tools/rules.ts
+--- a/src/typescript/mcp-server/src/tools/rules.ts
++++ b/src/typescript/mcp-server/src/tools/rules.ts
+@@ -24,9 +24,10 @@ export type {
+ import type { RuleOptions, RuleResponse, RuleToolConfig, Rule, RuleScope } from './rules-types.js';
+ import { RULES_COLLECTION } from './rules-types.js';
+ import { TENANT_GLOBAL } from '../constants/tenants.js';
+-import { FIELD_CONTENT } from '../common/native-bridge.js';
++import { FIELD_CONTENT, FIELD_PROJECT_ID } from '../common/native-bridge.js';
+ import { addRule, updateRule, removeRule } from './rules-mutations.js';
+ import { listRules } from './rules-list.js';
++import { resolveProjectScopeId } from './rules-mutation-helpers.js';
+ 
+ const DEFAULT_DUPLICATION_THRESHOLD = 0.7;
+ 
+@@ -63,9 +64,21 @@ export class RulesTool {
+   async execute(options: RuleOptions): Promise<RuleResponse> {
+     switch (options.action) {
+       case 'add': {
+-        // Check for similar rules before inserting
++        // Check for similar rules before inserting. Scope duplicate
++        // detection by (scope, tenant_id) so the same label/content in
++        // another project does not block this project's add.
+         if (options.content?.trim()) {
+-          const duplicates = await this.findSimilarRules(options.content);
++          const dupScope: RuleScope = options.scope ?? 'project';
++          const { resolvedProjectId } = await resolveProjectScopeId(
++            dupScope,
++            options.projectId,
++            this.projectDetector
++          );
++          const duplicates = await this.findSimilarRules(
++            options.content,
++            dupScope,
++            resolvedProjectId
++          );
+           if (duplicates.length > 0) {
+             return {
+               success: false,
+@@ -78,9 +92,9 @@ export class RulesTool {
+         return addRule(this.daemonClient, this.stateManager, this.projectDetector, options);
+       }
+       case 'update':
+-        return updateRule(this.daemonClient, this.stateManager, options);
++        return updateRule(this.daemonClient, this.stateManager, this.projectDetector, options);
+       case 'remove':
+-        return removeRule(this.stateManager, options);
++        return removeRule(this.stateManager, this.projectDetector, options);
+       case 'list':
+         return listRules(this.qdrantClient, this.stateManager, this.projectDetector, options);
+       default:
+@@ -95,18 +109,36 @@ export class RulesTool {
+   /**
+    * Find existing rules similar to the given content using embedding similarity.
+    * Returns rules with cosine similarity >= duplicationThreshold.
++   *
++   * Results are scoped by (scope, tenant_id): project-scope add checks
++   * the current project plus global rules; global-scope add checks only
++   * global rules.
+    */
+-  private async findSimilarRules(content: string): Promise<Array<Rule & { similarity: number }>> {
++  private async findSimilarRules(
++    content: string,
++    scope: RuleScope,
++    projectId: string | undefined
++  ): Promise<Array<Rule & { similarity: number }>> {
+     try {
+       const embedResponse = await this.daemonClient.embedText({ text: content });
+       if (!embedResponse.embedding?.length) return [];
+ 
+-      const searchResult = await this.qdrantClient.search(RULES_COLLECTION, {
++      const searchRequest: {
++        vector: number[];
++        limit: number;
++        score_threshold: number;
++        with_payload: boolean;
++        filter?: Record<string, unknown>;
++      } = {
+         vector: embedResponse.embedding,
+         limit: 5,
+         score_threshold: this.duplicationThreshold,
+         with_payload: true,
+-      });
++      };
++      const filter = buildDuplicateScopeFilter(scope, projectId);
++      if (filter) searchRequest.filter = filter;
++
++      const searchResult = await this.qdrantClient.search(RULES_COLLECTION, searchRequest);
+ 
+       return searchResult
+         .filter((point) => point.score >= this.duplicationThreshold)
+@@ -124,3 +158,27 @@ export class RulesTool {
+     }
+   }
+ }
++
++/** Build a Qdrant filter that restricts duplicate detection to
++ *  the active rule scope. Project-scope: match the current project_id
++ *  or any global rule. Global-scope: only match global rules. */
++function buildDuplicateScopeFilter(
++  scope: RuleScope,
++  projectId: string | undefined
++): Record<string, unknown> | null {
++  if (scope === 'project') {
++    if (!projectId) return null;
++    return {
++      must: [
++        {
++          should: [
++            { key: FIELD_PROJECT_ID, match: { value: projectId } },
++            { key: 'scope', match: { value: 'global' } },
++          ],
++        },
++      ],
++    };
++  }
++
++  return { must: [{ key: 'scope', match: { value: 'global' } }] };
++}

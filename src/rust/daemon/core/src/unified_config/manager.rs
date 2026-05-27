@@ -102,8 +102,12 @@ impl UnifiedConfigManager {
                     (path, fmt)
                 }
                 None => {
-                    info!("No configuration file found, using defaults");
-                    return Ok(DaemonConfig::default());
+                    info!("No configuration file found, using defaults with env overrides");
+                    let defaults = DaemonConfig::default();
+                    let with_env = apply_env_overrides(defaults)?;
+                    let expanded = expand_config_paths(with_env);
+                    validate_config(&expanded)?;
+                    return Ok(expanded);
                 }
             }
         };

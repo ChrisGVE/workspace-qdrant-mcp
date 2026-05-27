@@ -868,6 +868,10 @@ service TrackingWriteService {
     // Update a search event with post-search results
     rpc UpdateSearchEvent(UpdateSearchEventRequest) returns (google.protobuf.Empty);
 
+    // Update a search event with token-economy metrics from the
+    // post-execution shaping pass (spec docs/specs/20-token-economy-instrumentation.md).
+    rpc UpdateSearchEventEconomy(UpdateSearchEventEconomyRequest) returns (google.protobuf.Empty);
+
     // Upsert a rule into the rules_mirror table
     rpc UpsertRuleMirror(UpsertRuleMirrorRequest) returns (google.protobuf.Empty);
 
@@ -1112,6 +1116,17 @@ message UpdateSearchEventRequest {
     int64 latency_ms = 3;
     optional string top_result_refs = 4;
     optional string outcome = 5;
+}
+
+// UpdateSearchEventEconomy Request — token-economy metrics emitted by
+// the MCP search shaping pass (spec docs/specs/20-token-economy-instrumentation.md).
+message UpdateSearchEventEconomyRequest {
+    string event_id = 1;                              // Event UUID to update
+    int64 bytes_in = 2;                               // Sum of bytes BEFORE shaping
+    int64 bytes_out = 3;                              // Sum of bytes AFTER shaping
+    int32 hits_truncated = 4;                         // Hits whose body was truncated
+    string shape_mode = 5;                            // "truncate" | "summary" | "none"
+    optional string tool_version = 6;                 // MCP server version
 }
 
 // UpsertRuleMirror Request

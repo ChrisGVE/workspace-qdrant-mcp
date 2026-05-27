@@ -10,14 +10,13 @@
 //! 2. `validate_watch_folders` - Deactivates watch folders whose paths no longer
 //!    exist on disk.
 
-use std::path::Path;
-
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, info, warn};
 
 use crate::lifecycle::WatchFolderLifecycle;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
+use crate::watching_queue::WatchManager;
 use wqm_common::paths::RelativePath;
 
 /// Statistics returned by `clean_stale_state`.
@@ -262,8 +261,9 @@ async fn enqueue_delete_for_missing_tracked_files(
         let tenant_id: String = row.get("tenant_id");
         let collection: String = row.get("collection");
         let branch: String = row.get("branch");
+        let resolved_watch_path = WatchManager::resolve_local_watch_path(&watch_path);
 
-        let abs_path = Path::new(&watch_path).join(&relative_path);
+        let abs_path = resolved_watch_path.join(&relative_path);
         if abs_path.exists() {
             continue;
         }
@@ -366,8 +366,9 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
         let watch_path: String = row.get("watch_path");
         let tenant_id: String = row.get("tenant_id");
         let collection: String = row.get("collection");
+        let resolved_watch_path = WatchManager::resolve_local_watch_path(&watch_path);
 
-        let abs_path = Path::new(&watch_path).join(&relative_path);
+        let abs_path = resolved_watch_path.join(&relative_path);
         if abs_path.exists() {
             continue;
         }
@@ -483,8 +484,9 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
         let path: String = row.get("path");
         let is_active: bool = row.get("is_active");
         let _enabled: bool = row.get("enabled");
+        let resolved_path = WatchManager::resolve_local_watch_path(&path);
 
-        if !Path::new(&path).exists() {
+        if !resolved_path.exists() {
             warn!(
                 "Watch folder path no longer exists, deactivating: watch_id={}, path={}",
                 watch_id, path
@@ -538,14 +540,20 @@ pub async fn reconcile_all_ignore_rules(
 
     let mut totals = ignore_sync::ReconcileStats::default();
     for (tenant_id, project_root) in &rows {
-        let root = std::path::Path::new(project_root);
+        let root = WatchManager::resolve_local_watch_path(project_root);
         if !root.is_dir() {
             debug!("[ignore_sync] Skipping {tenant_id} — path not a directory");
             continue;
         }
 
-        match ignore_sync::reconcile_ignore_rules(root, tenant_id, "projects", pool, queue_manager)
-            .await
+        match ignore_sync::reconcile_ignore_rules(
+            root.as_path(),
+            tenant_id,
+            "projects",
+            pool,
+            queue_manager,
+        )
+        .await
         {
             Ok(stats) => {
                 totals.stale_deleted += stats.stale_deleted;

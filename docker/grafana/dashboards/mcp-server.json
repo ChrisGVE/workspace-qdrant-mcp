@@ -5,7 +5,7 @@
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
-  "description": "MCP tool behaviour: invocation rates, durations, session count, daemon fallbacks and cache hit ratios.",
+  "description": "MCP tool behaviour: invocation rates, durations, session count, daemon fallbacks, cache hit ratios and recent tool-call logs.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -341,6 +341,30 @@
           "instant": true
         }
       ]
+    },
+    {
+      "id": 9,
+      "title": "Recent MCP Tool Calls",
+      "description": "Structured JSONL tool-call logs shipped to Loki from mcp-server.jsonl via Promtail.",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "showControls": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{job=\"mcp-logs\", container=\"wqm-mcp\"} | json | msg=\"Tool called\"",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -351,6 +375,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "WQM — MCP Server",
-  "uid": "wqm-claude-mcp",
+  "uid": "wqm-mcp-server",
   "version": 1
 }

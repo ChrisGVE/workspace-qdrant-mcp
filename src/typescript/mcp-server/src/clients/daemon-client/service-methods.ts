@@ -19,6 +19,7 @@ import type {
   EnqueueItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
+  UpdateSearchEventEconomyRequest,
   UpsertRuleMirrorRequest,
   DeleteRuleMirrorRequest,
   UpsertScratchpadMirrorRequest,
@@ -137,6 +138,17 @@ export class DaemonClientService extends DaemonClientSystem {
         'updateSearchEvent',
         request,
         this.getMethodTimeout('updateSearchEvent')
+      )
+    );
+  }
+
+  async updateSearchEventEconomy(request: UpdateSearchEventEconomyRequest): Promise<void> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.trackingWriteClient,
+        'updateSearchEventEconomy',
+        request,
+        this.getMethodTimeout('updateSearchEventEconomy')
       )
     );
   }

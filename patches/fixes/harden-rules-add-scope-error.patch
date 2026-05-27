@@ -1,0 +1,26 @@
+diff --git a/src/typescript/mcp-server/src/tools/rules.ts b/src/typescript/mcp-server/src/tools/rules.ts
+--- a/src/typescript/mcp-server/src/tools/rules.ts
++++ b/src/typescript/mcp-server/src/tools/rules.ts
+@@ -72,12 +72,18 @@ export class RulesTool {
+         // / similar content in another project does not block this
+         // project's add.
+         if (options.content?.trim()) {
+           const dupScope: RuleScope = options.scope ?? 'project';
+-          const { resolvedProjectId } = await resolveProjectScopeId(
++          const { resolvedProjectId, error: scopeError } = await resolveProjectScopeId(
+             dupScope,
+             options.projectId,
+             this.projectDetector
+           );
++
++          // Tenant hardening: do not run a broad duplicate search when a
++          // project-scoped rule cannot resolve a project tenant. Returning
++          // the explicit scope error here prevents misleading duplicate
++          // errors and, more importantly, prevents accidental global fallback.
++          if (scopeError) return scopeError;
++
+           const duplicates = await this.findSimilarRules(
+             options.content,
+             dupScope,
+             resolvedProjectId
+           );

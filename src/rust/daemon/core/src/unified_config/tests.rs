@@ -112,6 +112,55 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
+    fn test_load_config_applies_embedding_env_overrides_without_config_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_dir = tmp.path().join("empty-config-dir");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+
+        let prev_path = std::env::var("WQM_CONFIG_PATH").ok();
+        let prev_dir = std::env::var("WQM_CONFIG_DIR").ok();
+        let prev_provider = std::env::var("WQM_EMBEDDING_PROVIDER").ok();
+        let prev_cache_dir = std::env::var("WQM_EMBEDDING_MODEL_CACHE_DIR").ok();
+
+        std::env::set_var("WQM_CONFIG_PATH", tmp.path().join("missing-config.yaml"));
+        std::env::set_var("WQM_CONFIG_DIR", &config_dir);
+
+        let cache_dir = tmp.path().join("fastembed-cache");
+        std::env::set_var("WQM_EMBEDDING_PROVIDER", "fastembed");
+        std::env::set_var("WQM_EMBEDDING_MODEL_CACHE_DIR", &cache_dir);
+
+        let manager = UnifiedConfigManager::new(None::<PathBuf>);
+        let loaded = manager
+            .load_config(None)
+            .expect("load_config should apply env overrides even without a config file");
+
+        assert_eq!(loaded.embedding.provider, "fastembed");
+        assert_eq!(
+            loaded.embedding.model_cache_dir.unwrap(),
+            cache_dir,
+            "embedding model cache dir must come from env overrides"
+        );
+
+        match prev_path {
+            Some(val) => std::env::set_var("WQM_CONFIG_PATH", val),
+            None => std::env::remove_var("WQM_CONFIG_PATH"),
+        }
+        match prev_dir {
+            Some(val) => std::env::set_var("WQM_CONFIG_DIR", val),
+            None => std::env::remove_var("WQM_CONFIG_DIR"),
+        }
+        match prev_provider {
+            Some(val) => std::env::set_var("WQM_EMBEDDING_PROVIDER", val),
+            None => std::env::remove_var("WQM_EMBEDDING_PROVIDER"),
+        }
+        match prev_cache_dir {
+            Some(val) => std::env::set_var("WQM_EMBEDDING_MODEL_CACHE_DIR", val),
+            None => std::env::remove_var("WQM_EMBEDDING_MODEL_CACHE_DIR"),
+        }
+    }
+
+    #[test]
     fn test_config_validation() {
         let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
 
@@ -198,6 +247,42 @@ mod tests {
         );
 
         std::env::remove_var("WQM_TEST_DIR");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_load_config_applies_embedding_env_overrides() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = tmp.path().join("config.yaml");
+
+        let cfg = DaemonConfig::default();
+        std::fs::write(
+            &cfg_path,
+            serde_yaml_ng::to_string(&cfg).expect("serialise"),
+        )
+        .expect("write");
+
+        let cache_dir = tmp.path().join("fastembed-cache");
+        std::env::set_var("WQM_EMBEDDING_PROVIDER", "fastembed");
+        std::env::set_var("WQM_EMBEDDING_MODEL_CACHE_DIR", &cache_dir);
+        std::env::set_var("WQM_EMBEDDING_CACHE_MAX_ENTRIES", "42");
+
+        let manager = UnifiedConfigManager::new(None::<PathBuf>);
+        let loaded = manager
+            .load_config(Some(&cfg_path))
+            .expect("load_config should apply embedding env overrides");
+
+        assert_eq!(loaded.embedding.provider, "fastembed");
+        assert_eq!(loaded.embedding.cache_max_entries, 42);
+        assert_eq!(
+            loaded.embedding.model_cache_dir.unwrap(),
+            cache_dir,
+            "embedding model cache dir must come from env overrides"
+        );
+
+        std::env::remove_var("WQM_EMBEDDING_PROVIDER");
+        std::env::remove_var("WQM_EMBEDDING_MODEL_CACHE_DIR");
+        std::env::remove_var("WQM_EMBEDDING_CACHE_MAX_ENTRIES");
     }
 
     // ── T3.17 / T3.19 / T3.20 — mount-map end-to-end through load_config ─

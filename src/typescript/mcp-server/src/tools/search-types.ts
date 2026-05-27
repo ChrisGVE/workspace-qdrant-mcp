@@ -18,6 +18,9 @@ export const RRF_K = 60;
 // Default search parameters
 export const DEFAULT_LIMIT = 10;
 export const DEFAULT_SCORE_THRESHOLD = 0.3;
+/** Per-hit text cap (in chars). Default 1500 keeps a 10-hit response well
+ *  under typical MCP client per-tool-result token budgets (~25k chars). */
+export const DEFAULT_MAX_BYTES_PER_HIT = 1500;
 
 // Tag expansion defaults
 export const DEFAULT_EXPANSION_WEIGHT = 0.5;
@@ -53,6 +56,14 @@ export interface SearchOptions {
   contextLines?: number;
   /** When true, fetch 1-hop graph context for code symbol results */
   includeGraphContext?: boolean;
+  /** Per-hit text cap (in chars). Content longer than this is truncated
+   *  with a marker pointing to retrieve() for the full chunk. Defaults
+   *  to {@link DEFAULT_MAX_BYTES_PER_HIT}. Set to 0 to disable truncation. */
+  maxBytesPerHit?: number;
+  /** When true, drop chunk text bodies entirely and return only
+   *  metadata (id, score, collection, title, path/symbol). Intended for
+   *  pure discovery before a follow-up retrieve(). Default: false. */
+  summary?: boolean;
 }
 
 export interface ParentContext {
@@ -95,6 +106,28 @@ export interface SearchResponse {
   collections_searched: string[];
   status?: 'ok' | 'uncertain';
   status_reason?: string;
+}
+
+/**
+ * Token-economy metrics emitted by `shapeHitPayloads`.
+ *
+ * Spec: docs/specs/20-token-economy-instrumentation.md §3.1
+ *
+ * `bytes_in_shaped` and `bytes_out_shaped` cover only the fields that the
+ * shaping pass can see and rewrite — `result.content` and
+ * `parent_context.unit_text`. The eventual full `bytes_in` recorded in
+ * `search_events` is built on top of these by adding a per-hit file-size
+ * probe (out of scope for this initial wiring).
+ */
+export interface ShapingMetrics {
+  /** Sum of bytes in `result.content` + `parent_context.unit_text` BEFORE shaping. */
+  bytesInShaped: number;
+  /** Sum of bytes in `result.content` + `parent_context.unit_text` AFTER shaping. */
+  bytesOutShaped: number;
+  /** Number of hits whose body was truncated (0 in summary mode). */
+  hitsTruncated: number;
+  /** Which shaping mode produced the response. */
+  mode: 'truncate' | 'summary' | 'none';
 }
 
 export interface SearchToolConfig {

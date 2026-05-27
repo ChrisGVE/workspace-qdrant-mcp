@@ -639,7 +639,7 @@ daemon_client.ingest_text(
 
 **Problem:** Build fails with "no Cargo.toml found" when using old build path
 
-**Cause:** Phase 1 unified the daemon workspace. Old build path `src/rust/daemon/core` is deprecated.
+**Cause:** Phase 1 unified the daemon workspace. The old build path `src/rust/daemon/core` is no longer used.
 
 **Diagnosis:**
 ```bash
@@ -655,7 +655,7 @@ pwd
 
 **Update build commands:**
 ```bash
-# ❌ OLD (deprecated)
+# ❌ OLD
 cd src/rust/daemon/core && cargo build
 
 # ✅ NEW (correct workspace root)
@@ -1233,7 +1233,7 @@ search(query="auth")  # Uses current git branch
 ```bash
 # branch="*" means search ALL branches
 # This is useful for finding code that was deleted from current branch
-wqm search "deprecated function" --branch "*"
+ wqm search "old function" --branch "*"
 ```
 
 ### Diagnostic Commands for Multi-Tenant Issues
@@ -1785,6 +1785,25 @@ export FASTEMBED_MODEL="sentence-transformers/all-MiniLM-L6-v2"
 # Clear cache and retry
 rm -rf ~/.cache/fastembed/
 # Model will auto-download on next use
+```
+
+### "Embedding dimension mismatch"
+
+**Cause:** The active embedding provider and the persisted Qdrant
+collections do not agree on vector dimension. In this fork, `fastembed`
+uses 384-dim vectors.
+
+**Solution:**
+```bash
+# Stop memexd if it is still restarting
+docker stop wqm-memexd
+
+# Preferred: rebuild the existing collections at the active dimension
+wqm admin reembed --confirm
+
+# Alternative: delete the stale collections and let the daemon recreate them
+# projects, libraries, rules, scratchpad, images
+docker compose up -d --build
 ```
 
 ### "Circuit breaker open"

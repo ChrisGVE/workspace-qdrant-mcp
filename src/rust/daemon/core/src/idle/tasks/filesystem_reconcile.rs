@@ -66,7 +66,7 @@ impl MaintenanceTask for FilesystemReconcileTask {
             "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection,
                     wf.tenant_id, wf.path AS watch_path
              FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
              ORDER BY tf.file_id
              LIMIT ?1 OFFSET ?2",
         )

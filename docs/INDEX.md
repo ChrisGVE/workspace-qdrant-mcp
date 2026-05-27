@@ -18,6 +18,7 @@
 | [MCP Tools](reference/mcp-tools.md) | Tool parameters, schemas, and example calls |
 | [LLM Integration](reference/mcp-best-practices.md) | Best practices for Claude and other AI assistants |
 | [Architecture](reference/architecture.md) | Component overview and data flow |
+| [Admin UI](ADMIN_UI.md) | Browser dashboard at `/admin/` — project discovery, real-time index info, CRUD over watch folders |
 
 ## Specifications
 
@@ -52,6 +53,12 @@ Technical specifications for developers and contributors.
 | [ADR-001](adr/ADR-001-canonical-collection-architecture.md) | Canonical collection names |
 | [ADR-002](adr/ADR-002-daemon-only-write-policy.md) | Daemon-only Qdrant writes |
 | [ADR-003](adr/ADR-003-daemon-owns-sqlite.md) | Daemon owns SQLite |
+
+## Plans
+
+| Document | Description |
+|----------|-------------|
+| [Search Quality Next Steps](plans/2026-05-25-search-quality-next-steps.md) | Configurable roadmap for embedding profiles, rerank, diversity, GPU, and benchmarking |
 
 ## Reading Paths
 

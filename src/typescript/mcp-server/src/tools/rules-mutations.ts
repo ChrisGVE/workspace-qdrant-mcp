@@ -3,6 +3,7 @@
  * Uses daemon gRPC with unified_queue fallback.
  */
 
+import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
@@ -57,6 +58,7 @@ export async function addRule(
 
 export async function updateRule(
   daemonClient: DaemonClient,
+  qdrantClient: QdrantClient,
   stateManager: SqliteStateManager,
   projectDetector: ProjectDetector,
   options: RuleOptions
@@ -82,6 +84,7 @@ export async function updateRule(
 
   return persistUpdateRule(
     daemonClient,
+    qdrantClient,
     stateManager,
     label,
     content,

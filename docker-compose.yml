@@ -1,0 +1,405 @@
+# workspace-qdrant-mcp unified compose stack.
+#
+# One command starts the complete local stack from the repository root:
+#   docker compose up -d --build
+#
+# Optional profiles:
+#   --profile tls         -> Caddy reverse proxy for MCP over HTTPS
+#   --profile embeddings  -> Local text-embeddings-inference service
+#
+# FastEmbed defaults:
+#   memexd starts with WQM_EMBEDDING_PROVIDER=fastembed and keeps its
+#   model cache in ./.fastembed_cache so local runs do not need an API key.
+#
+# Required environment variables:
+#   MCP_HTTP_TOKEN   -> Bearer token for the MCP HTTP endpoint
+#   WQM_DEV_ROOT     -> Absolute host path for the projects you want indexed
+
+name: workspace-qdrant-mcp
+
+# ── YAML anchors ─────────────────────────────────────────────────────────────
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-watchtower-off: &watchtower-off
+  com.centurylinklabs.watchtower.enable: "false"
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ───────────────────────────────────────────────
+  # Qdrant - vector database
+  # ───────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION:-latest}
+    container_name: wqm-qdrant
+    <<: *restart
+    logging: *default-logging
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - ${WQM_STATE_DIR:-./state}/qdrant/storage:/qdrant/storage
+      - ${WQM_STATE_DIR:-./state}/qdrant/snapshots:/qdrant/snapshots
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # memexd - Rust daemon
+  # ───────────────────────────────────────────────
+  memexd:
+    # Build from this checkout so the daemon always matches the branch we are
+    # testing instead of a stale published image.
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.memexd
+    image: workspace-qdrant-mcp-memexd:local
+    container_name: wqm-memexd
+    <<: *restart
+    logging: *default-logging
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    ports:
+      - "${MEMEXD_GRPC_PORT:-50051}:50051"
+      - "${MEMEXD_METRICS_PORT:-9091}:9091"
+    volumes:
+      # Persistent daemon state (SQLite, queues, rules cache).
+      - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.workspace-qdrant
+      # Optional runtime config override. Defaults to a local state file.
+      - ${WQM_CONFIG_FILE:-./state/memexd/config.yaml}:/etc/wqm/config.yaml:ro
+      - ${WQM_OVERRIDE_FILE:-./state/memexd/docker-compose-wqm.override.yaml}:/etc/docker-compose-wqm.override.yaml:ro
+      # FastEmbed model cache in the legacy workspace-qdrant layout.
+      - ${WQM_FASTEMBED_CACHE_DIR:-./.fastembed_cache}:/home/memexd/.workspace-qdrant/models
+      # Keep recorded paths identical between host and container.
+      - ${WQM_DEV_ROOT:?Set WQM_DEV_ROOT in .env to your dev root absolute path}:${WQM_DEV_ROOT}
+    environment:
+      QDRANT_URL: http://qdrant:6334
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
+      WQM_EMBEDDING_PROVIDER: ${WQM_EMBEDDING_PROVIDER:-fastembed}
+      # Process-RSS safety valve (queue processor pauses when exceeded).
+      # Default 2048 is too tight for FastEmbed + heap + mmap on this stack;
+      # 4096 gives headroom without disabling the leak guard entirely.
+      WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
+      WQM_DATABASE_PATH: /home/memexd/.workspace-qdrant/memexd.db
+      WQM_EMBEDDING_MODEL_CACHE_DIR: /home/memexd/.workspace-qdrant/models
+      HF_HOME: /home/memexd/.workspace-qdrant/models
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Trust bind-mounted host repos. Same pattern as wqm-mcp — git CLI under
+      # a different uid would otherwise reject the worktree as 'dubious
+      # ownership', leaving the daemon unable to detect branches.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: "*"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # MCP - TypeScript server (Streamable HTTP)
+  # ───────────────────────────────────────────────
+  mcp:
+    image: ${MCP_IMAGE:-workspace-qdrant-mcp:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wqm-mcp
+    <<: *restart
+    logging: *default-logging
+    depends_on:
+      memexd:
+        condition: service_healthy
+    ports:
+      - "${MCP_HTTP_PORT:-6335}:6335"
+      - "${MCP_METRICS_PORT:-9092}:9092"
+    volumes:
+      # Persistent MCP state; logs are written under logs/ inside this volume.
+      - ${WQM_STATE_DIR:-./state}/mcp:/home/node/.local/share/workspace-qdrant
+      # Mirror WQM_DEV_ROOT so the MCP server can shell out to `git` and read
+      # the same project tree the daemon watches. Identical path on host and
+      # container preserves the path-transparency invariant (spec 16).
+      - ${WQM_DEV_ROOT}:${WQM_DEV_ROOT}
+      # Shared view into the daemon's state directory. The admin UI
+      # (and any other read-only consumer in the MCP server) needs the
+      # *same* SQLite file the daemon writes — otherwise project lists
+      # and queue stats return empty even when the daemon has data.
+      #
+      # NOTE: mounted read-write at the filesystem layer because SQLite
+      # WAL mode requires the writer-created `-shm` file to be openable
+      # (even readers touch shared-memory mapping). The TypeScript
+      # client opens the handle with `{ readonly: true }` which still
+      # honors ADR-003's "daemon is the sole SQLite writer" invariant
+      # at the SQL layer.
+      - ${WQM_STATE_DIR:-./state}/memexd:/var/lib/wqm/memexd
+    environment:
+      MCP_SERVER_MODE: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: ${MCP_HTTP_PORT:-6335}
+      MCP_HTTP_PATH: ${MCP_HTTP_PATH:-/mcp}
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:?Set MCP_HTTP_TOKEN in .env and generate it with `openssl rand -hex 32`}
+      MCP_METRICS_HOST: 0.0.0.0
+      MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN:?Set MCP_HTTP_TOKEN in .env and reuse it for /metrics}
+      MCP_HTTP_RATE_LIMIT: ${MCP_HTTP_RATE_LIMIT:-100}
+      MCP_HTTP_CORS_ORIGINS: ${MCP_HTTP_CORS_ORIGINS:-}
+      # Skip bearer check for loopback peers (also covers Docker bridge
+      # gateway 172.16-31.x, so curl from the host works without the token).
+      # Listener is already on a loopback-published port; this only relaxes
+      # auth for same-machine traffic.
+      MCP_HTTP_TRUST_LOCALHOST: ${MCP_HTTP_TRUST_LOCALHOST:-1}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      WQM_DAEMON_ENDPOINT: memexd:50051
+      WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
+      WQM_LOG_DIR: /home/node/.local/share/workspace-qdrant/logs
+      # Point the MCP's read-only SQLite handle at the same memexd.db
+      # the daemon writes. Mounted read-only above; the MCP must NOT
+      # write to it (ADR-003: daemon owns the SQLite schema).
+      WQM_DATABASE_PATH: /var/lib/wqm/memexd/memexd.db
+      # Force `detectProjectForSession` to start from the bind-mounted dev
+      # root instead of the container's own cwd (`/app/src/...`), which
+      # otherwise gets registered as a spurious project. See spec 19 §7.4.
+      WQM_PROJECT_ROOT: ${WQM_DEV_ROOT}
+      # Point workspace_index actions at the bind-mounted repo so the registry
+      # JSON (`.wqm-fork/indexed-projects.json`) is reached without relying on
+      # the auto-detect that walks up from /app/. This is the path *inside*
+      # the container — identical to the host path because of the bind mount.
+      WQM_REPO_DIR: ${WQM_DEV_ROOT}/workspace-qdrant-mcp
+      # Path translation pair so the TS-native workspace_index module can
+      # convert host-style paths (`C:\\Users\\...`) stored in the registry
+      # JSON into the bind-mount path visible inside the container. The hook
+      # writer (host) and the MCP reader (container) thus stay schema-compatible.
+      WQM_HOST_DEV_ROOT: ${WQM_HOST_DEV_ROOT:-}
+      WQM_DEV_ROOT: ${WQM_DEV_ROOT}
+      # Trust the bind-mounted repo: git's "dubious ownership" check
+      # otherwise rejects every command because the bind mount preserves
+      # host uids that don't match the container's `node` user.
+      # Inline GIT_CONFIG_* avoids needing a global gitconfig file.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "safe.directory"
+      GIT_CONFIG_VALUE_0: "*"
+      # Double opt-in for mutating workspace_index actions (start_agent_branch,
+      # finish_agent_branch, register_*, cleanup_orphans). Set to "1" only in
+      # trusted local/dev environments — never in shared deployments.
+      WQM_INDEX_MANAGER_ALLOW_MUTATION: ${WQM_INDEX_MANAGER_ALLOW_MUTATION:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Prometheus - metrics collection
+  # ───────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: wqm-prometheus
+    <<: *restart
+    logging: *default-logging
+    entrypoint: ["/bin/sh", "/etc/prometheus/run-prometheus.sh"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./docker/prometheus/run-prometheus.sh:/etc/prometheus/run-prometheus.sh:ro
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    environment:
+      MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN:?Set MCP_HTTP_TOKEN in .env and reuse it for /metrics}
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Grafana - dashboards and log exploration
+  # ───────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: wqm-grafana
+    <<: *restart
+    logging: *default-logging
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # OpenTelemetry Collector - OTLP -> Prometheus pipeline
+  # ───────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector:0.113.0
+    container_name: wqm-otel-collector
+    <<: *restart
+    logging: *default-logging
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./docker/otel/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+    expose:
+      - "8888"
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Loki - log storage
+  # ───────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: wqm-loki
+    <<: *restart
+    user: "0"
+    logging: *default-logging
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./docker/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/tmp/loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Promtail - log shipper
+  # ───────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: wqm-promtail
+    <<: *restart
+    logging: *default-logging
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      # Docker socket for container log scraping.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker JSON log files for the container_sd path relabeling.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # MCP JSONL logs shared from the mcp volume.
+      - ${WQM_STATE_DIR:-./state}/mcp/logs:/var/log/mcp:ro
+    depends_on:
+      - loki
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Caddy - TLS reverse proxy for MCP HTTP
+  # ───────────────────────────────────────────────
+  caddy:
+    image: caddy:2
+    container_name: wqm-caddy
+    <<: *restart
+    depends_on:
+      mcp:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ${WQM_STATE_DIR:-./state}/caddy/data:/data
+      - ${WQM_STATE_DIR:-./state}/caddy/config:/config
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      MCP_PUBLIC_HOSTNAME: ${MCP_PUBLIC_HOSTNAME:-}
+      MCP_TLS_EMAIL: ${MCP_TLS_EMAIL:-}
+    networks:
+      - workspace-network
+    profiles:
+      - tls
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Optional local text-embeddings-inference service
+  # ───────────────────────────────────────────────
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    container_name: wqm-embeddings
+    <<: *restart
+    command:
+      - --model-id
+      - nomic-ai/nomic-embed-text-v1.5
+      - --hostname
+      - 0.0.0.0
+      - --port
+      - "80"
+    environment:
+      RUST_LOG: info
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1/health || curl -fsS http://127.0.0.1/embed -H 'Content-Type: application/json' -d '{\"inputs\":\"health check\"}' >/dev/null",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    ports:
+      - "18080:80"
+    volumes:
+      - hf_tei_data:/data
+    profiles:
+      - embeddings
+
+# ── Networks ─────────────────────────────────────────────────────────────────
+
+networks:
+  workspace-network:
+    driver: bridge
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  hf_tei_data:

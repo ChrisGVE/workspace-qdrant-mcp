@@ -1,7 +1,8 @@
-# Docker reference-stack integration tests
+# Docker unified-stack integration tests
 
-End-to-end tests for `docker/compose/reference.yml`. Each script brings up
-the full stack (Qdrant + memexd + MCP HTTP server), probes a specific
+End-to-end tests for the root `docker-compose.yml`. Each script brings up
+the stack (Qdrant + memexd + MCP HTTP server, plus observability),
+probes a specific
 invariant, and tears everything down again — even on failure. Scripts are
 idempotent and use a unique compose project name, so several can run in
 parallel on the same host.

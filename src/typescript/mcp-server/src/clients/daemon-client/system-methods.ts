@@ -17,6 +17,8 @@ import type {
   DeprioritizeProjectResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  ListProjectsRequest,
+  ListProjectsResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
@@ -38,10 +40,13 @@ export class DaemonClientSystem extends DaemonClientBase {
               reject(err);
               return;
             }
-            this.systemClient!.health({}, (error, response) => {
-              if (error) reject(error);
-              else resolve(response);
-            });
+            grpcUnaryWithTimeout<{}, HealthCheckResponse>(
+              this.systemClient,
+              'health',
+              {},
+              this.timeoutMs,
+              'health'
+            ).then(resolve, reject);
           });
         })
     );
@@ -121,6 +126,27 @@ export class DaemonClientSystem extends DaemonClientBase {
         'heartbeat',
         request,
         this.getMethodTimeout('heartbeat')
+      )
+    );
+  }
+
+  /**
+   * List registered projects via the daemon's `ListProjects` RPC.
+   *
+   * Prefer this over `SqliteStateManager.listAllProjects()` when the MCP
+   * server runs in a different container/host from the daemon — the
+   * daemon owns the SQLite file and reading it through a bind-mount on
+   * Docker Desktop fails with `SQLITE_CANTOPEN` because the 9P fs does
+   * not implement the shared-memory locks SQLite needs to coordinate
+   * with the writer.
+   */
+  async listProjects(request: ListProjectsRequest = {}): Promise<ListProjectsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'listProjects',
+        request,
+        this.getMethodTimeout('listProjects')
       )
     );
   }

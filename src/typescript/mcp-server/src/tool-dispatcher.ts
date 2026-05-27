@@ -1,5 +1,5 @@
 /**
- * Tool dispatcher — executes a named MCP tool and returns its result.
+ * Tool dispatcher ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â executes a named MCP tool and returns its result.
  *
  * Extracted from WorkspaceQdrantMcpServer.handleToolCall to keep server.ts
  * within the 300-line file-size limit.
@@ -18,7 +18,8 @@ import {
 } from './tool-builders/index.js';
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import { handleEmbedding } from './tools/embedding.js';
-import { registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
+import { handleWorkspaceIndex } from './tools/workspace-index.js';
+import { ensureProjectFresh, registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
 import { withToolMetrics } from './telemetry/metrics.js';
 
 export type ToolResult = {
@@ -26,7 +27,7 @@ export type ToolResult = {
   isError?: boolean;
 };
 
-const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
+const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding', 'workspace_index'] as const;
 
 /** Dispatch the 'store' tool subtypes. */
 async function dispatchStore(
@@ -60,7 +61,9 @@ async function routeTool(
     components;
   switch (toolName) {
     case 'search': {
-      const searchResult = await searchTool.search(buildSearchOptions(args));
+      const searchResult = await searchTool.search(
+        buildSearchOptions(args, { branch: sessionState.currentBranch })
+      );
       return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
     }
     case 'retrieve':
@@ -70,11 +73,13 @@ async function routeTool(
     case 'store':
       return dispatchStore(args, components, sessionState);
     case 'grep':
-      return grepTool.grep(buildGrepOptions(args));
+      return grepTool.grep(buildGrepOptions(args, { branch: sessionState.currentBranch }));
     case 'list':
       return listTool.list(buildListOptions(args));
     case 'embedding':
       return handleEmbedding(args, daemonClient);
+    case 'workspace_index':
+      return handleWorkspaceIndex(args, daemonClient);
     default:
       throw new Error(`Unexpected tool: ${toolName}`);
   }
@@ -89,6 +94,11 @@ export async function dispatchToolCall(
   const startTime = Date.now();
 
   sendHeartbeat(sessionState, components.daemonClient);
+
+  // Refresh cached git state (branch + worktree flag) if stale. Cheap inside
+  // the TTL window; ~3ms `git` invocation outside it. Search/grep read
+  // `sessionState.currentBranch` as default when the caller omits `branch`.
+  ensureProjectFresh(sessionState);
 
   if (!KNOWN_TOOLS.includes(toolName as (typeof KNOWN_TOOLS)[number])) {
     logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });

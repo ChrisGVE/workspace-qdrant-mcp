@@ -371,6 +371,7 @@ async fn case_7_cross_store_consistency() {
 ///   (the symlink name, NOT the resolved target) because spec §3.1 rule 7
 ///   says "do NOT resolve symbolic links".
 /// - `tracked_files.relative_path` is a pure relative path.
+#[cfg(unix)]
 #[tokio::test]
 async fn case_8a_symlink_to_file() {
     let pool = setup_pool().await;
@@ -448,6 +449,7 @@ async fn case_8a_symlink_to_file() {
 /// - `watch_folders.path` stores the symlink path exactly as provided by
 ///   the user (per spec §3.1 rule 7: no symlink resolution).
 /// - Relative paths inside the symlinked root are stored normally.
+#[cfg(unix)]
 #[tokio::test]
 async fn case_8b_symlink_to_dir() {
     let pool = setup_pool().await;

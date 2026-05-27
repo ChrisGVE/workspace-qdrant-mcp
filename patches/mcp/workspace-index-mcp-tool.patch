@@ -1,0 +1,327 @@
+diff --git a/src/typescript/mcp-server/src/tool-definitions/index.ts b/src/typescript/mcp-server/src/tool-definitions/index.ts
+index c6bfecc8..c1b0a001 100644
+--- a/src/typescript/mcp-server/src/tool-definitions/index.ts
++++ b/src/typescript/mcp-server/src/tool-definitions/index.ts
+@@ -12,6 +12,7 @@ export { storeToolDefinition } from './store.js';
+ export { grepToolDefinition } from './grep.js';
+ export { listToolDefinition } from './list.js';
+ export { embeddingToolDefinition } from './embedding.js';
++export { workspaceIndexToolDefinition } from './workspace-index.js';
+ 
+ import { searchToolDefinition } from './search.js';
+ import { retrieveToolDefinition } from './retrieve.js';
+@@ -20,6 +21,7 @@ import { storeToolDefinition } from './store.js';
+ import { grepToolDefinition } from './grep.js';
+ import { listToolDefinition } from './list.js';
+ import { embeddingToolDefinition } from './embedding.js';
++import { workspaceIndexToolDefinition } from './workspace-index.js';
+ 
+ /**
+  * Returns the full list of tool definitions for the ListTools MCP response
+@@ -33,5 +35,6 @@ export function getToolDefinitions() {
+     grepToolDefinition,
+     listToolDefinition,
+     embeddingToolDefinition,
++    workspaceIndexToolDefinition,
+   ];
+ }
+diff --git a/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts b/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts
+new file mode 100644
+index 00000000..f6b9d1a1
+--- /dev/null
++++ b/src/typescript/mcp-server/src/tool-definitions/workspace-index.ts
+@@ -0,0 +1,106 @@
++/**
++ * MCP tool schema definition for the 'workspace_index' tool.
++ *
++ * This tool is intentionally conservative. Read-only actions are allowed by
++ * default. Mutating actions require both:
++ * - WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the MCP server environment
++ * - allowMutation: true in the tool call
++ */
++
++export const workspaceIndexToolDefinition = {
++  name: 'workspace_index',
++  description:
++    'Manage and observe indexed projects, agent branches, and worktrees for workspace-qdrant. Read-only by default; mutations require explicit double opt-in.',
++  inputSchema: {
++    type: 'object' as const,
++    properties: {
++      action: {
++        type: 'string',
++        enum: [
++          'init',
++          'list_projects',
++          'project_status',
++          'status_all',
++          'list_branches',
++          'agent_branch_status',
++          'observe_project',
++          'observe_all',
++          'incremental_check',
++          'incremental_check_all',
++          'add_project',
++          'start_agent_branch',
++          'finish_agent_branch',
++          'abandon_agent_branch',
++          'register_wqm',
++          'register_all_wqm',
++        ],
++        description: 'Workspace index action to execute.',
++      },
++      projectName: {
++        type: 'string',
++        description: 'Logical project name in .wqm-fork/indexed-projects.json.',
++      },
++      projectPath: {
++        type: 'string',
++        description: 'Absolute path to a project root when adding/registering a project.',
++      },
++      branchName: {
++        type: 'string',
++        description: 'Agent branch name, for example agent/auth-retry-20260523.',
++      },
++      baseBranch: {
++        type: 'string',
++        description: 'Base branch for an agent branch. Defaults to main in the PowerShell helper.',
++      },
++      useWorktree: {
++        type: 'boolean',
++        description: 'Create/use a parallel git worktree for the agent branch.',
++      },
++      purpose: {
++        type: 'string',
++        description: 'Human-readable purpose for an agent branch.',
++      },
++      repoDir: {
++        type: 'string',
++        description:
++          'Optional absolute path to the workspace-qdrant-mcp repo. Defaults to WQM_REPO_DIR or process.cwd().',
++      },
++      allowMutation: {
++        type: 'boolean',
++        description:
++          'Required for mutating actions, in addition to WQM_INDEX_MANAGER_ALLOW_MUTATION=1.',
++      },
++    },
++    required: ['action'],
++  },
++};
+diff --git a/src/typescript/mcp-server/src/tool-dispatcher.ts b/src/typescript/mcp-server/src/tool-dispatcher.ts
+index e17c0a40..ea7f7c2b 100644
+--- a/src/typescript/mcp-server/src/tool-dispatcher.ts
++++ b/src/typescript/mcp-server/src/tool-dispatcher.ts
+@@ -20,6 +20,7 @@ import {
+ } from './tool-builders/index.js';
+ import { storeUrl, storeScratchpad } from './store-handlers.js';
+ import { handleEmbedding } from './tools/embedding.js';
++import { handleWorkspaceIndex } from './tools/workspace-index.js';
+ import { registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
+ import { withToolMetrics } from './telemetry/metrics.js';
+ 
+@@ -28,7 +29,16 @@ export type ToolResult = {
+   isError?: boolean;
+ };
+ 
+-const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
++const KNOWN_TOOLS = [
++  'search',
++  'retrieve',
++  'rules',
++  'store',
++  'grep',
++  'list',
++  'embedding',
++  'workspace_index',
++] as const;
+ 
+ /** Dispatch the 'store' tool subtypes. */
+ async function dispatchStore(
+@@ -80,6 +90,8 @@ async function routeTool(
+       return listTool.list(buildListOptions(args));
+     case 'embedding':
+       return handleEmbedding(args, daemonClient);
++    case 'workspace_index':
++      return handleWorkspaceIndex(args);
+     default:
+       throw new Error(`Unexpected tool: ${toolName}`);
+   }
+diff --git a/src/typescript/mcp-server/src/tools/workspace-index.ts b/src/typescript/mcp-server/src/tools/workspace-index.ts
+new file mode 100644
+index 00000000..d1b0137c
+--- /dev/null
++++ b/src/typescript/mcp-server/src/tools/workspace-index.ts
+@@ -0,0 +1,162 @@
++/**
++ * workspace_index MCP tool implementation.
++ *
++ * The actual registry/worktree logic lives in the Windows PowerShell helper
++ * scripts shipped by the fork kit. This TypeScript layer only:
++ * - validates the double opt-in required for mutating actions;
++ * - finds the repo-local PowerShell bridge;
++ * - executes it and returns structured JSON to the MCP client.
++ */
++
++import { spawn } from 'node:child_process';
++import { existsSync } from 'node:fs';
++import { resolve } from 'node:path';
++
++const MUTATING_ACTIONS = new Set([
++  'init',
++  'add_project',
++  'start_agent_branch',
++  'finish_agent_branch',
++  'abandon_agent_branch',
++  'register_wqm',
++  'register_all_wqm',
++]);
++
++type JsonObject = Record<string, unknown>;
++
++function asObject(value: Record<string, unknown> | undefined): JsonObject {
++  return value ?? {};
++}
++
++function stringArg(args: JsonObject, key: string): string | undefined {
++  const value = args[key];
++  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
++}
++
++function isMutation(action: string): boolean {
++  return MUTATING_ACTIONS.has(action);
++}
++
++function assertMutationAllowed(action: string, args: JsonObject): void {
++  if (!isMutation(action)) return;
++
++  const envAllowed = process.env['WQM_INDEX_MANAGER_ALLOW_MUTATION'] === '1';
++  const callAllowed = args['allowMutation'] === true;
++  if (!envAllowed || !callAllowed) {
++    throw new Error(
++      `workspace_index action '${action}' is mutating and requires both ` +
++        'WQM_INDEX_MANAGER_ALLOW_MUTATION=1 and allowMutation=true.'
++    );
++  }
++}
++
++function resolveRepoDir(args: JsonObject): string {
++  return (
++    stringArg(args, 'repoDir') ??
++    process.env['WQM_REPO_DIR'] ??
++    process.cwd()
++  );
++}
++
++function resolveBridgeScript(repoDir: string): string {
++  return resolve(repoDir, 'scripts', 'windows', 'workspace-index-mcp.ps1');
++}
++
++function resolvePowerShellCommand(): string {
++  return process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
++}
++
++function parseToolOutput(stdout: string, stderr: string): unknown {
++  const trimmed = stdout.trim();
++  if (trimmed.length === 0) {
++    return {
++      success: true,
++      message: 'workspace_index command completed with no stdout.',
++      stderr: stderr.trim() || undefined,
++    };
++  }
++
++  try {
++    return JSON.parse(trimmed);
++  } catch {
++    return {
++      success: true,
++      raw: trimmed,
++      stderr: stderr.trim() || undefined,
++    };
++  }
++}
++
++function runPowerShellBridge(
++  scriptPath: string,
++  repoDir: string,
++  payload: JsonObject
++): Promise<unknown> {
++  const command = resolvePowerShellCommand();
++  const inputJson = JSON.stringify(payload);
++
++  const childArgs = [
++    '-NoProfile',
++    '-ExecutionPolicy',
++    'Bypass',
++    '-File',
++    scriptPath,
++    '-RepoDir',
++    repoDir,
++    '-InputJson',
++    inputJson,
++  ];
++
++  return new Promise((resolvePromise, reject) => {
++    const child = spawn(command, childArgs, {
++      cwd: repoDir,
++      windowsHide: true,
++      env: {
++        ...process.env,
++        WQM_WORKSPACE_INDEX_ARGS_JSON: inputJson,
++      },
++    });
++
++    let stdout = '';
++    let stderr = '';
++
++    child.stdout.setEncoding('utf8');
++    child.stderr.setEncoding('utf8');
++
++    child.stdout.on('data', (chunk: string) => {
++      stdout += chunk;
++    });
++    child.stderr.on('data', (chunk: string) => {
++      stderr += chunk;
++    });
++
++    child.on('error', (error) => {
++      reject(error);
++    });
++
++    child.on('close', (code) => {
++      if (code !== 0) {
++        reject(
++          new Error(
++            `workspace_index PowerShell bridge failed with code ${code}. ` +
++              `stderr: ${stderr.trim() || '(empty)'}`
++          )
++        );
++        return;
++      }
++      resolvePromise(parseToolOutput(stdout, stderr));
++    });
++  });
++}
++
++export async function handleWorkspaceIndex(
++  rawArgs: Record<string, unknown> | undefined
++): Promise<unknown> {
++  const args = asObject(rawArgs);
++  const action = stringArg(args, 'action');
++  if (!action) {
++    throw new Error('workspace_index requires an action.');
++  }
++
++  assertMutationAllowed(action, args);
++
++  const repoDir = resolveRepoDir(args);
++  const scriptPath = resolveBridgeScript(repoDir);
++  if (!existsSync(scriptPath)) {
++    throw new Error(
++      `workspace_index bridge script not found at ${scriptPath}. ` +
++        'Apply the fork kit overlay before enabling this MCP tool.'
++    );
++  }
++
++  return runPowerShellBridge(scriptPath, repoDir, { ...args, action, repoDir });
++}

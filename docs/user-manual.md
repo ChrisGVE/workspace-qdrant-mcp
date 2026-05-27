@@ -525,7 +525,7 @@ The `workspace-qdrant` MCP server provides codebase-aware search, library retrie
 
 ### Project Registration
 
-At session start, check whether the current project is registered with workspace-qdrant. If not registered, ask the user before registering.
+At session start, workspace-qdrant registers the current project or worktree automatically if it is not known yet. Use manual registration only when you want to pre-register a repo before the first session or manage it explicitly from the CLI.
 
 ### Codebase Intelligence
 

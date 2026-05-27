@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The workspace-qdrant MCP server exposes seven tools to AI assistants. All tools communicate with the `memexd` daemon over gRPC.
+The workspace-qdrant MCP server exposes eight tools to AI assistants. All tools communicate with the `memexd` daemon over gRPC.
 
 ## Tool Index
 
@@ -13,6 +13,7 @@ The workspace-qdrant MCP server exposes seven tools to AI assistants. All tools 
 | [`grep`](#grep) | Exact substring or regex search using FTS5 |
 | [`list`](#list) | List project files and folder structure |
 | [`embedding`](#embedding) | Generate vector embeddings for text |
+| [`workspace_index`](#workspace_index) | Manage indexed-project registry + branch sync (host hooks) |
 
 ---
 
@@ -511,6 +512,96 @@ List only configuration files:
 - `tree` format: returns a formatted directory tree string.
 - `summary` format: returns counts of files per directory and language breakdown.
 - `flat` format: returns an array of relative file path strings.
+
+---
+
+## workspace_index
+
+Observe and manage the local registry of indexed projects and the
+agent-created branches that live under them. Read-only by default;
+mutating actions require explicit double opt-in (env
+`WQM_INDEX_MANAGER_ALLOW_MUTATION=1` + `allowMutation: true` argument).
+
+Most actions delegate to a PowerShell registry helper (host-only). The
+`sync_current_branch` action is implemented natively in TypeScript so
+it works inside a containerized MCP server without `git` or PowerShell
+on the host where the MCP is running.
+
+### Actions
+
+**Read-only** (no special opt-in):
+
+- `list_projects`, `project_status`, `status_all`
+- `list_branches`, `agent_branch_status`
+- `observe_project`, `observe_all`
+- `incremental_check`, `incremental_check_all`
+
+**Mutating** (require both env + argument opt-in):
+
+- `init`, `add_project`
+- `start_agent_branch`, `finish_agent_branch`, `abandon_agent_branch`
+- `register_wqm`, `register_all_wqm`
+- `cleanup_orphans`
+- `sync_current_branch` — *TypeScript-native, no PowerShell*
+
+### `sync_current_branch`
+
+Forward a `RegisterProject` gRPC call to the daemon with
+`register_if_new=true`. Intended for git hooks: the host script
+detects the current branch/commit/worktree state and POSTs it; the
+MCP server delivers it to the daemon and the daemon decides whether
+to create a new watch folder, auto-register a worktree under the main
+repo's tenant_id, or reactivate an existing entry.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | yes | `"sync_current_branch"` |
+| `repoDir` | string | yes | Absolute path to the target git repo |
+| `currentBranch` | string | no | Output of `git rev-parse --abbrev-ref HEAD` |
+| `commitHash` | string | no | Output of `git rev-parse HEAD` |
+| `worktreePath` | string | no | Path of the linked worktree (when `isWorktree=true`) |
+| `isWorktree` | boolean | no | `true` when `.git` in `repoDir` is a file |
+| `gitRemote` | string | no | `remote.origin.url` |
+| `projectName` | string | no | Display name; defaults to `basename(repoDir)` |
+| `hookName` | string | no | Label recorded for observability (e.g. `post-checkout`) |
+
+The handler is best-effort: any missing field is filled in by calling
+`getGitState(repoDir)` when the MCP server can see the path on its
+own filesystem. Hook values always win when both are present.
+
+### Example
+
+```json
+{
+  "tool": "workspace_index",
+  "action": "sync_current_branch",
+  "repoDir": "/Users/me/dev/my-project",
+  "currentBranch": "feature/auth",
+  "commitHash": "3abd11df3abc",
+  "isWorktree": false,
+  "gitRemote": "https://github.com/me/my-project.git",
+  "hookName": "post-checkout"
+}
+```
+
+Response (truncated):
+
+```json
+{
+  "success": true,
+  "action": "sync_current_branch",
+  "project_id": "367157a01d98",
+  "newly_registered": true,
+  "is_active": true,
+  "is_worktree": false,
+  "watch_path": "/Users/me/dev/my-project"
+}
+```
+
+For the host-side hook script that drives this action, see
+[scripts/git-hooks/README.md](../../scripts/git-hooks/README.md). For
+the browser dashboard that exercises every other `workspace_index`
+action interactively, see [Admin UI](../ADMIN_UI.md).
 
 ---
 

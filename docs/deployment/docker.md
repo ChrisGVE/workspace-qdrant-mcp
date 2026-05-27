@@ -2,8 +2,16 @@
 
 This guide covers running `workspace-qdrant-mcp` as a multi-container
 Docker stack. Start here if you want a single-host deployment reachable
-from any MCP-speaking client; use the compose files shipped in
-`docker/compose/` rather than rolling your own.
+from any MCP-speaking client; the canonical entrypoint is the root
+`docker-compose.yml`, which builds `memexd` and the MCP server locally
+from this checkout when you pass `--build`. Optional profiles enable TLS
+and local embeddings.
+Additional compose files live under `docker/compose/` for specific
+overlays and examples.
+
+All compose files in this repo build images locally from this checkout.
+Use `--build` whenever you run them so TypeScript and Rust changes make
+it into the container image.
 
 For a one-page quickstart jump to
 [`docker/compose/README.md`](../../docker/compose/README.md). This
@@ -19,9 +27,8 @@ the stack work and what to touch when things go wrong.
 | Disk space | ~10 GB | Rust binaries + Qdrant snapshots add up quickly. |
 | Host OS | macOS, Linux, Windows (WSL2) | Linux is strongly recommended for production — see [File watching caveats](#file-watching-caveats). |
 
-Public FQDN optional. Only required when you enable the TLS overlay
-(`reference.tls.yml`) and want Let's Encrypt certificates. Local-only
-deployments can skip it.
+Public FQDN optional. Only required when you enable the `tls` profile
+and want Let's Encrypt certificates. Local-only deployments can skip it.
 
 ## First-run flow
 
@@ -54,7 +61,7 @@ deployments can skip it.
 
    The compose file refuses to start if `MCP_HTTP_TOKEN` or
    `WQM_DEV_ROOT` is missing. The full variable list is documented in
-   the header comment of `docker/compose/reference.yml`.
+   the header comment of `docker-compose.yml`.
 
 3. *(Optional)* Copy the example daemon config if you want to override
    any built-in defaults:
@@ -71,7 +78,7 @@ deployments can skip it.
    ```bash
    docker compose \
      --env-file docker/.env \
-     -f docker/compose/reference.yml up -d
+     up -d --build
    ```
 
 5. **Verify services come up healthy.**
@@ -79,7 +86,7 @@ deployments can skip it.
    ```bash
    docker compose \
      --env-file docker/.env \
-     -f docker/compose/reference.yml ps
+     ps
 
    # Qdrant liveness (unauthenticated).
    curl -fsS http://127.0.0.1:6333/readyz
@@ -106,13 +113,20 @@ deployments can skip it.
    MCP configuration at `http://127.0.0.1:6335/mcp` (or the TLS URL if
    you ran the overlay) with a `Bearer <MCP_HTTP_TOKEN>` header.
 
+7. **(Optional) open the admin UI.** The MCP container also serves a
+   browser dashboard at `http://127.0.0.1:6335/admin/`. Paste your
+   `MCP_HTTP_TOKEN` to log in. From there you can configure a parent
+   directory, scan it for git repositories, and register them with
+   the daemon — useful for setups with many sibling repos that you
+   don't want to add via `wqm` one-by-one. See [Admin UI](../ADMIN_UI.md).
+
 ## Configuration
 
 ### `docker/.env`
 
-Everything in the reference stack is parameterised via environment
-variables. The header comment in `docker/compose/reference.yml` lists
-every variable with its default and purpose. The two it enforces:
+Everything in the unified stack is parameterised via environment
+variables. The header comment in `docker-compose.yml` lists every
+variable with its default and purpose. The two it enforces:
 
 - `MCP_HTTP_TOKEN` — bearer secret. Generate with `openssl rand -hex 32`.
   Minimum 16 characters. Rotation = edit `.env`, then
@@ -147,6 +161,29 @@ indexed (e.g. `/Users/you/dev`). Every project under it is reachable
 by the daemon at the same absolute path. Without this, activation from
 the host fails silently.
 
+### Embedding provider and collection dimension
+
+The root compose stack defaults `memexd` to
+`WQM_EMBEDDING_PROVIDER=fastembed`. In this fork, FastEmbed is pinned to
+the 384-dim `AllMiniLM-L6-v2` checkpoint.
+
+If you are reusing an older Qdrant state that was created with a
+different embedding dimension, startup will fail fast with an embedding
+dimension mismatch. To recover, either:
+
+- run `wqm admin reembed --confirm` to rebuild the existing collections
+  at the active dimension, or
+- delete the stale collections (`projects`, `libraries`, `rules`,
+  `scratchpad`, `images`) and let the daemon recreate them on the next
+  start.
+
+If you are starting from a fresh `WQM_STATE_DIR`, no extra action is
+needed.
+
+For clarity, this is the containerized `memexd` in the Docker stack.
+The host-local FastEmbed helper used by the Windows scripts is a
+separate optional path and stays on `55151`; do not mix the two.
+
 ## Networking
 
 | Port | Service | Exposed by |
@@ -155,7 +192,7 @@ the host fails silently.
 | 6334 | qdrant | Qdrant gRPC |
 | 50051 | memexd | memexd gRPC (`wqm` CLI) |
 | 9091 | memexd | memexd Prometheus metrics + `/health` |
-| 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`) |
+| 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`); admin dashboard under `/admin/` (same port, Bearer-authed REST under `/admin/api/*`) |
 | 9092 | mcp | MCP Prometheus metrics |
 | 80, 443 | caddy (TLS overlay only) | Reverse proxy to MCP |
 
@@ -164,14 +201,14 @@ External clients only reach the published ports on the host.
 
 ### TLS via Caddy
 
-Add the TLS overlay to terminate HTTPS with automatic Let's Encrypt
+Enable the `tls` profile to terminate HTTPS with automatic Let's Encrypt
 certificates:
 
 ```bash
 docker compose \
   --env-file docker/.env \
-  -f docker/compose/reference.yml \
-  -f docker/compose/reference.tls.yml up -d
+  --profile tls \
+  up -d --build
 ```
 
 Required in `.env`:
@@ -211,13 +248,13 @@ Certificate rotation requires a container restart.
 | `${WQM_STATE_DIR}/qdrant/storage` | Qdrant | Bind-mount (host directory) |
 | `${WQM_STATE_DIR}/qdrant/snapshots` | Qdrant | Bind-mount |
 | `${WQM_STATE_DIR}/memexd` | memexd | Bind-mount (SQLite, queue, rules cache) |
+| `${WQM_STATE_DIR}/memexd/cache/workspace-qdrant` | memexd | Bind-mount (tree-sitter grammars, LSP, OCR cache) |
 | `${WQM_STATE_DIR}/caddy/data` | caddy (TLS) | Bind-mount (ACME state, certs) |
-| `wqm-grammars` | memexd | Named volume (tree-sitter grammars) |
-| `wqm-lsp-cache` | memexd | Named volume (LSP caches) |
 
-**Backup strategy.** The three bind-mounted directories contain all
-durable state; named volumes are regenerable caches. A cold backup
-is just:
+**Backup strategy.** The bind-mounted directories contain all durable
+state. The cache under `${WQM_STATE_DIR}/memexd/cache/workspace-qdrant`
+is regenerable, so you can omit it if you want a smaller archive. A
+cold backup is just:
 
 ```bash
 docker compose down
@@ -225,8 +262,8 @@ tar czf wqm-backup-$(date +%F).tgz "${WQM_STATE_DIR}"
 docker compose up -d
 ```
 
-For hot backup of Qdrant, use its snapshot API
-(`POST /snapshots`) and copy out of `${WQM_STATE_DIR}/qdrant/snapshots`.
+For hot backup of Qdrant, use its snapshot API (`POST /snapshots`) and
+copy out of `${WQM_STATE_DIR}/qdrant/snapshots`.
 
 ## Security
 
@@ -264,9 +301,9 @@ For hot backup of Qdrant, use its snapshot API
 Log locations:
 
 ```bash
-docker compose --env-file docker/.env -f docker/compose/reference.yml logs -f memexd
-docker compose --env-file docker/.env -f docker/compose/reference.yml logs -f mcp
-docker compose --env-file docker/.env -f docker/compose/reference.yml logs -f qdrant
+  docker compose --env-file docker/.env logs -f memexd
+  docker compose --env-file docker/.env logs -f mcp
+  docker compose --env-file docker/.env logs -f qdrant
 ```
 
 ## Teardown
@@ -274,13 +311,13 @@ docker compose --env-file docker/.env -f docker/compose/reference.yml logs -f qd
 Stop the stack but keep all state:
 
 ```bash
-docker compose --env-file docker/.env -f docker/compose/reference.yml down
+docker compose --env-file docker/.env down
 ```
 
 Stop + delete named volumes (grammar cache, LSP cache):
 
 ```bash
-docker compose --env-file docker/.env -f docker/compose/reference.yml down -v
+docker compose --env-file docker/.env down -v
 ```
 
 The bind-mounted state under `${WQM_STATE_DIR}` is never deleted by

@@ -1,21 +1,32 @@
 # Compose deployments
 
-The files in this directory are ready-to-run Docker Compose stacks for
-different deployment shapes. Pick the one that matches how you want to run
-the system.
+The canonical one-file entrypoint lives at the repository root as
+`docker-compose.yml`. The files in `docker/compose/` are reference
+overlays and examples; they are useful for tests and special setups,
+but they are not the primary way we start the stack.
 
-| File | Purpose |
+All compose files in this repo build images locally from this checkout.
+Use `--build` with `docker compose up` so TypeScript and Rust changes
+are included in the container image.
+
+| File | Status |
 |------|---------|
-| `reference.yml` | Self-contained three-service stack (Qdrant + memexd + MCP over HTTP). Start here for a new deployment. |
-| `reference.tls.yml` | Overlay for `reference.yml` — adds a Caddy reverse proxy with automatic Let's Encrypt TLS. Requires a public FQDN. |
-| `minimal.yml` | Host-local stack that reaches a Qdrant running on the Docker host via `host.docker.internal`. Useful when Qdrant is already installed outside Docker. |
-| `standalone-memexd.yml` | memexd only. Run this alongside an existing Qdrant + MCP. |
-| `standalone-mcp.yml` | MCP server only. Run this alongside existing memexd + Qdrant. |
-| `qdrant.yml` | Qdrant only. |
-| `full-stack.yml` | Chris-specific: attaches memexd + MCP to the author's local `main-docker` observability stack. Not intended as a general template. |
-| `observability.yml` | Prometheus + Grafana + OTLP collector overlay for local debugging. |
+| `reference.yml` | Reference stack for Qdrant, memexd, MCP, Prometheus, Grafana, Loki, and Promtail. |
+| `reference.tls.yml` | TLS overlay for `reference.yml`. |
+| `minimal.yml` | Legacy minimal stack for host-local Qdrant. |
+| `standalone-memexd.yml` | Single-service memexd example. |
+| `standalone-mcp.yml` | Single-service MCP example. |
+| `qdrant.yml` | Qdrant-only example. |
+| `full-stack.yml` | Legacy main-docker-specific overlay. |
+| `observability.yml` | Observability overlay for local Prometheus/Grafana/OTel. |
 
-## Quickstart (reference stack)
+## Quickstart
+
+Prefer the root `docker-compose.yml` for day-to-day use:
+
+```bash
+docker compose --env-file docker/.env up -d --build
+```
 
 1. **Clone + prep state directory.**
 
@@ -62,12 +73,12 @@ the system.
    Point `WQM_CONFIG_FILE` at that host path. Leave it unset to run with the
    built-in defaults.
 
-4. **Launch.**
+4. **Launch the canonical stack.**
 
    ```bash
    docker compose \
      --env-file docker/.env \
-     -f docker/compose/reference.yml up -d
+     up -d --build
    ```
 
 5. **Verify.**
@@ -75,7 +86,7 @@ the system.
    ```bash
    docker compose \
      --env-file docker/.env \
-     -f docker/compose/reference.yml ps
+     ps
 
    # Probe the MCP HTTP endpoint (bearer auth required on /mcp; /healthz is open).
    curl http://127.0.0.1:6335/healthz
@@ -83,15 +94,18 @@ the system.
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
         http://127.0.0.1:6335/mcp
+
+   curl -H "Authorization: Bearer $MCP_HTTP_TOKEN" \
+        http://127.0.0.1:9092/metrics | head
    ```
 
 ## Add local observability (Prometheus + Grafana + OTLP)
 
 Compose in `observability.yml` to attach a self-hosted Prometheus +
-Grafana + OpenTelemetry Collector to any of the primary stacks. The
-overlay joins `workspace-network`, so Prometheus reaches the memexd
-(`:9091`) and MCP (`:9092`) metrics endpoints by service DNS without
-publishing extra host ports.
+Grafana + OpenTelemetry Collector to the canonical stack. The overlay
+joins `workspace-network`, so Prometheus reaches the memexd (`:9091`)
+and MCP (`:9092`) metrics endpoints by service DNS without publishing
+extra host ports.
 
 Extra `.env` values (all optional):
 
@@ -108,17 +122,19 @@ Launch:
 ```bash
 docker compose \
   --env-file docker/.env \
-  -f docker/compose/reference.yml \
-  -f docker/compose/observability.yml up -d
+  -f docker-compose.yml \
+  -f docker/compose/observability.yml up -d --build
 ```
 
 Prometheus scrape targets live in `docker/prometheus/prometheus.yml`
 (already wired to `memexd`, `mcp`, `qdrant`, `otel-collector`).
+The MCP scrape reuses `MCP_HTTP_TOKEN`; the Prometheus container writes it
+to an in-memory secret file before launching.
 Grafana picks up `docker/grafana/provisioning/` on first boot.
 
-Already running `main-docker`? Use `full-stack.yml` instead — it
-attaches memexd + mcp to the main-docker observability stack and
-omits Prometheus/Grafana here.
+Already running `main-docker`? Use `full-stack.yml` instead only if you
+need that legacy integration path — it attaches memexd + mcp to the
+main-docker observability stack and omits Prometheus/Grafana here.
 
 ## Add Let's Encrypt TLS
 
@@ -136,7 +152,7 @@ The FQDN must resolve to the host running compose. Open TCP 80 + 443
 docker compose \
   --env-file docker/.env \
   -f docker/compose/reference.yml \
-  -f docker/compose/reference.tls.yml up -d
+  -f docker/compose/reference.tls.yml up -d --build
 ```
 
 Caddy takes over ports 80 and 443; the MCP server no longer exposes 6335 to

@@ -2,6 +2,11 @@
 
 The system tracks search behavior to measure the effectiveness of the workspace-qdrant MCP search against traditional tools (rg, grep) and identify opportunities for improvement.
 
+> See [20-token-economy-instrumentation.md](20-token-economy-instrumentation.md)
+> for the token-economy extension built on this schema (`bytes_in`/`bytes_out`,
+> `savings_ratio`, `followup_rate`, `escalation_rate`, and the
+> `wqm admin token-savings` CLI).
+
 ### Architecture
 
 **Data Collection:**

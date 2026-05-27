@@ -8,12 +8,28 @@ use crate::unified_queue_processor::UnifiedQueueProcessor;
 impl UnifiedQueueProcessor {
     /// Default maximum RSS in megabytes before pausing processing.
     /// Acts as a safety valve against memory leaks in the processing pipeline.
+    /// Overridable at runtime via the `WQM_MAX_RSS_MB` env var.
     pub(super) const DEFAULT_MAX_RSS_MB: u64 = 2048; // 2 GB
+
+    /// Effective max RSS limit in MB. Reads `WQM_MAX_RSS_MB` once at first
+    /// call and caches the result, falling back to `DEFAULT_MAX_RSS_MB`.
+    /// Values <= 0 or unparseable are ignored.
+    pub(super) fn max_rss_mb() -> u64 {
+        use std::sync::OnceLock;
+        static CACHED: OnceLock<u64> = OnceLock::new();
+        *CACHED.get_or_init(|| {
+            std::env::var("WQM_MAX_RSS_MB")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|&v| v > 0)
+                .unwrap_or(Self::DEFAULT_MAX_RSS_MB)
+        })
+    }
 
     /// Check if the daemon should pause processing due to memory constraints.
     ///
     /// Two independent checks:
-    /// 1. **Process RSS** — pauses if this process exceeds `DEFAULT_MAX_RSS_MB`.
+    /// 1. **Process RSS** — pauses if this process exceeds `max_rss_mb()`.
     ///    This is the primary safety valve on macOS where OS-level pressure
     ///    reporting is delayed by the memory compressor.
     /// 2. **System memory pressure** — pauses if OS reports low available memory.
@@ -36,7 +52,7 @@ impl UnifiedQueueProcessor {
     /// Check if this process's current RSS exceeds the safety limit.
     pub(super) fn check_process_rss() -> bool {
         let rss_mb = Self::current_rss_mb();
-        rss_mb > Self::DEFAULT_MAX_RSS_MB
+        rss_mb > Self::max_rss_mb()
     }
 
     /// Get the current RSS of this process in megabytes.

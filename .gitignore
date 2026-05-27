@@ -18,6 +18,13 @@ dev-debug.log
 
 # Database files
 *.db
+.wqm-fork/indexed-projects.json
+.wqm-fork/logs/
+.wqm-fork/observability/
+.wqm-fork/reports/
+.wqm-fork/metrics/
+.wqm-fork/snapshots/
+.wqm-fork/git-hooks/
 
 # Profiling
 *.profraw
@@ -90,6 +97,7 @@ transcripts/
 .wqm/cache/
 *_cache.json
 .fastembed_cache/
+state/
 .ruff_cache/
 .mypy_cache/
 .uv-cache/
@@ -138,3 +146,9 @@ large_code.sh
 
 # Git cleanup artifacts
 affected_commits.txt
+
+
+# Added by cargo
+
+/target
+/.cargo-target-test

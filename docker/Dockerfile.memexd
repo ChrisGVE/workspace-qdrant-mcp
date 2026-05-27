@@ -18,7 +18,7 @@ ARG BUILDKIT_INLINE_CACHE=1
 
 # Bundled LSP binary versions. Pinned so image builds are reproducible; bump
 # these in a PR and the image is rebuilt with the new toolchain.
-ARG RUST_ANALYZER_VERSION=2026-04-14
+ARG RUST_ANALYZER_VERSION=2026-05-18
 ARG GOPLS_VERSION=0.19.1
 
 # ─────────────────────────────────────────────
@@ -207,7 +207,7 @@ RUN set -eux; \
 # against the pinned version. The golang base image handles cross-compilation
 # via GOOS/GOARCH automatically when invoked via buildx.
 # ─────────────────────────────────────────────
-FROM golang:1.23-${DEBIAN_CODENAME} AS gopls-build
+FROM golang:1.24-${DEBIAN_CODENAME} AS gopls-build
 
 ARG GOPLS_VERSION
 
@@ -228,6 +228,8 @@ ARG UID=1000
 # Runtime dependencies:
 #   curl  — used by the HEALTHCHECK instruction below
 #   ca-certificates — needed for any TLS connections the daemon makes at runtime
+#   bash           — entrypoint script uses a bash shebang and bash-only
+#                    options (`set -o pipefail` / arrays).
 #   nodejs / npm   — host for the npm-distributed LSPs (pyright,
 #                    typescript-language-server). Pulled from the Debian
 #                    archive so the arch selection is automatic.
@@ -242,6 +244,7 @@ ARG UID=1000
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        bash \
         nodejs \
         npm \
         git \
@@ -256,6 +259,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /home/memexd/.cache \
         /home/memexd/.local/state \
     && chown -R memexd:memexd /home/memexd
+
+# libgit2 (used via the `git2` crate) runs its own ownership check on every
+# Repository::open; unlike the git CLI it ignores GIT_CONFIG_* env vars and
+# only reads gitconfig files. Without this, every bind-mounted host repo
+# (uid 0 inside the container, opened by uid 1000 `memexd`) is rejected,
+# and the watcher floods the log with "Not a Git repository, defaulting to
+# 'main'" warnings. A global `[safe] directory = *` is the libgit2-honored
+# equivalent of the CLI's GIT_CONFIG_VALUE_0 trick already set in compose.
+RUN printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig \
+    && chmod 0644 /etc/gitconfig
 
 # Install npm-based LSPs globally so the daemon can spawn them by name.
 # `--omit=dev` keeps the installed tree focused on runtime artefacts.
@@ -287,7 +300,8 @@ COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
 # by root (mode 755), preventing the unprivileged memexd user from
 # tampering with the entrypoint at runtime.
 COPY docker/memexd-entrypoint.sh /usr/local/bin/memexd-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/memexd-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/memexd-entrypoint.sh \
+    && chmod 0755 /usr/local/bin/memexd-entrypoint.sh
 
 USER memexd
 ENV HOME=/home/memexd

@@ -95,6 +95,12 @@ docker run -d --name qdrant -p 6333:6333 -p 6334:6334 `
   -v qdrant_storage:/qdrant/storage qdrant/qdrant
 ```
 
+If you want the repeatable helper path, use:
+
+```powershell
+make -f Makefile.win qdrant-up-grpc
+```
+
 ### Option B: Qdrant Cloud
 
 Create a free cluster at [cloud.qdrant.io](https://cloud.qdrant.io/) and set the connection:
@@ -165,6 +171,42 @@ wqm admin health
 ```
 
 Expected output: `healthy` with Qdrant version and collection information.
+
+### Padrão Docker do fork
+
+Se você quer seguir o caminho padrão recomendado neste fork, suba o stack Docker e gere as configs padrão:
+
+```powershell
+make -f Makefile.win compose-up
+make -f Makefile.win apply-config
+```
+
+Isso mantém o Claude Desktop apontando para o daemon em `http://localhost:50051` e o Codex apontando para o MCP HTTP do stack Docker em `http://localhost:6335/mcp`. O atalho local abaixo é opcional.
+Antes de abrir o Codex, garanta que `MCP_HTTP_TOKEN` esteja disponível no ambiente do processo com o mesmo valor usado em `docker/.env`.
+Para evitar export manual, use `make -f Makefile.win codex-open` ou `.\scripts\windows\start-codex.ps1`; o launcher lê `docker\.env` e exporta `MCP_HTTP_TOKEN` antes de iniciar o Codex.
+
+### FastEmbed + gRPC quick path (opcional)
+
+If you want the local FastEmbed flow without editing config files, the Windows helper target does the full setup:
+
+```powershell
+make -f Makefile.win service-stabilize-fastembed
+```
+
+That target:
+
+- publishes Qdrant on both 6333 and 6334;
+- starts `memexd` on gRPC port 55151;
+- sets `WQM_EMBEDDING_PROVIDER=fastembed`;
+- points `WQM_EMBEDDING_MODEL_CACHE_DIR` and `HF_HOME` at `.fastembed_cache`.
+
+For a manual launch, set the same env vars and run `memexd` with `--grpc-port 55151 --control-port 7798 --metrics-port 9091 --foreground`.
+
+To write the matching Claude Desktop and Codex entries for this repo, run:
+
+```powershell
+make -f Makefile.win apply-config-fastembed
+```
 
 ---
 

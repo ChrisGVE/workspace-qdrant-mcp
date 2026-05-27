@@ -1,0 +1,13 @@
+# BEGIN workspace-qdrant-fork-kit
+[mcp_servers.workspace-qdrant]
+command = "node"
+args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"]
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+required = true
+enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules"]
+
+[mcp_servers.workspace-qdrant.env]
+QDRANT_URL = "http://localhost:6333"
+WQM_DAEMON_ENDPOINT = "http://localhost:55151"
+# END workspace-qdrant-fork-kit

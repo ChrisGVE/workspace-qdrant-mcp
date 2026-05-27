@@ -198,4 +198,78 @@ describe('Session lifecycle with connected daemon', () => {
       process.chdir(originalCwd);
     }
   });
+
+  it('should auto-register an unknown project on session start', async () => {
+    const { DaemonClient } = await import('../src/clients/daemon-client.js');
+    const mockInstance = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      isConnected: vi.fn().mockReturnValue(true),
+      registerProject: vi
+        .fn()
+        .mockResolvedValueOnce({
+          created: false,
+          project_id: 'fresh-project-id',
+          priority: 'none',
+          is_active: false,
+          newly_registered: false,
+        })
+        .mockResolvedValueOnce({
+          created: true,
+          project_id: 'fresh-project-id',
+          priority: 'high',
+          is_active: true,
+          newly_registered: true,
+        }),
+      deprioritizeProject: vi.fn().mockResolvedValue({
+        success: true,
+        is_active: false,
+        new_priority: 'normal',
+      }),
+      heartbeat: vi.fn().mockResolvedValue({
+        acknowledged: true,
+      }),
+    };
+    vi.mocked(DaemonClient).mockImplementation(
+      () => mockInstance as unknown as InstanceType<typeof DaemonClient>
+    );
+
+    const projectPath = join(tempDir, 'fresh-project');
+    mkdirSync(projectPath);
+    mkdirSync(join(projectPath, '.git'));
+    const realProjectPath = realpathSync(projectPath);
+
+    const originalCwd = process.cwd();
+    process.chdir(projectPath);
+
+    try {
+      const server = new WorkspaceQdrantMcpServer({ config, stdio: false });
+      await server.start();
+
+      const state = server.getSessionState();
+      expect(state.daemonConnected).toBe(true);
+      expect(state.projectId).toBe('fresh-project-id');
+      expect(mockInstance.registerProject).toHaveBeenCalledTimes(2);
+      expect(mockInstance.registerProject).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          path: realProjectPath,
+          register_if_new: false,
+          priority: 'high',
+        })
+      );
+      expect(mockInstance.registerProject).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          path: realProjectPath,
+          register_if_new: true,
+          priority: 'high',
+        })
+      );
+
+      await server.stop();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
 });

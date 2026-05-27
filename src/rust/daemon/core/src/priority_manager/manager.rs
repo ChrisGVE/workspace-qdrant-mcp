@@ -37,7 +37,7 @@ impl PriorityManager {
     /// Increments the session counter and updates last_activity_at.
     /// Queue ordering is computed at dequeue time based on is_active,
     /// so no queue updates are needed here.
-    pub async fn register_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
+    pub async fn register_session(&self, tenant_id: &str, _session_tag: &str) -> PriorityResult<i32> {
         if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
@@ -69,7 +69,7 @@ impl PriorityManager {
     /// Returns the is_active value after decrement. The caller uses this
     /// to decide whether side effects (LSP shutdown, watch refresh) should
     /// fire — they only fire when the count reaches 0.
-    pub async fn unregister_session(&self, tenant_id: &str, _branch: &str) -> PriorityResult<i32> {
+    pub async fn unregister_session(&self, tenant_id: &str, _session_tag: &str) -> PriorityResult<i32> {
         if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }

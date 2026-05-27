@@ -2,10 +2,10 @@
  * FTS5 exact/substring search via daemon's TextSearchService.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
 
@@ -28,7 +28,7 @@ async function resolveExactSearchTenant(
 ): Promise<ExactSearchTenantResolution> {
   if (options.scope === 'all') return { kind: 'unscoped' };
   if (options.projectId) return { kind: 'tenant', tenantId: options.projectId };
-  const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+  const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
   if (projectInfo?.projectId) {
     return { kind: 'tenant', tenantId: projectInfo.projectId };
   }
@@ -126,10 +126,10 @@ export async function searchExact(
   daemonClient: DaemonClient,
   stateManager: SqliteStateManager,
   projectDetector: ProjectDetector,
-  options: SearchOptions
+  options: SearchOptions,
+  eventId: string
 ): Promise<SearchResponse> {
   const startTime = Date.now();
-  const eventId = randomUUID();
   const resolution = await resolveExactSearchTenant(options, projectDetector);
 
   if (resolution.kind === 'unresolved') {

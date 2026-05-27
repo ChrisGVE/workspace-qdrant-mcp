@@ -1,0 +1,515 @@
+diff --git ab/src/typescript/mcp-server/src/tool-definitions/fork-workspace.ts bb/src/typescript/mcp-server/src/tool-definitions/fork-workspace.ts
+new file mode 100644
+index 0000000..e7bb3c4
+--- /dev/null
++++ bb/src/typescript/mcp-server/src/tool-definitions/fork-workspace.ts
+@@ -0,0 +1,58 @@
++/**
++ * MCP tool schema definition for the local fork workspace manager.
++ *
++ * This tool is intended for personal forks only. It is read-only by default;
++ * mutations require both allowMutation=true and WQM_WORKSPACE_MANAGER_ALLOW_MUTATION=1.
++ */
++export const forkWorkspaceToolDefinition = {
++  name: 'fork_workspace',
++  description:
++    'Manage the local fork workspace registry and safe branch chains across multiple projects. Read-only by default. Mutating actions require allowMutation=true and WQM_WORKSPACE_MANAGER_ALLOW_MUTATION=1. This tool never opens PRs and never merges into main.',
++  inputSchema: {
++    type: 'object' as const,
++    properties: {
++      action: {
++        type: 'string',
++        enum: [
++          'registry:list',
++          'registry:add',
++          'registry:remove',
++          'project:status',
++          'projects:status',
++          'project:sync-chain',
++          'projects:sync-chain',
++          'project:start-fix',
++          'project:promote-fix',
++        ],
++        description: 'Workspace-management action to execute.',
++      },
++      name: {
++        type: 'string',
++        description: 'Registry project name.',
++      },
++      path: {
++        type: 'string',
++        description: 'Project repository path, used for registry:add or direct project selection.',
++      },
++      fixBranch: {
++        type: 'string',
++        description: 'Correction branch such as fix/rules-tenant-scope.',
++      },
++      registryPath: {
++        type: 'string',
++        description:
++          'Optional registry JSON path. Defaults to WQM_WORKSPACE_REGISTRY_PATH or .wqm-fork/projects.json under the server cwd.',
++      },
++      push: {
++        type: 'boolean',
++        description: 'Push updated non-main branches to origin after mutating operations. Default: false.',
++      },
++      allowMutation: {
++        type: 'boolean',
++        description:
++          'Required for mutating operations. The environment variable WQM_WORKSPACE_MANAGER_ALLOW_MUTATION must also be 1/true.',
++      },
++    },
++    required: ['action'],
++  },
++};
+diff --git aa/src/typescript/mcp-server/src/tool-definitions/index.ts bb/src/typescript/mcp-server/src/tool-definitions/index.ts
+index c6bfecc..ca32b4e 100644
+--- aa/src/typescript/mcp-server/src/tool-definitions/index.ts
++++ bb/src/typescript/mcp-server/src/tool-definitions/index.ts
+@@ -10,6 +10,7 @@ export { storeToolDefinition } from './store.js';
+ export { grepToolDefinition } from './grep.js';
+ export { listToolDefinition } from './list.js';
+ export { embeddingToolDefinition } from './embedding.js';
++export { forkWorkspaceToolDefinition } from './fork-workspace.js';
+ 
+ import { searchToolDefinition } from './search.js';
+ import { retrieveToolDefinition } from './retrieve.js';
+@@ -18,6 +19,7 @@ import { storeToolDefinition } from './store.js';
+ import { grepToolDefinition } from './grep.js';
+ import { listToolDefinition } from './list.js';
+ import { embeddingToolDefinition } from './embedding.js';
++import { forkWorkspaceToolDefinition } from './fork-workspace.js';
+ 
+ /**
+  * Returns the full list of tool definitions for the ListTools MCP response
+@@ -31,5 +33,6 @@ export function getToolDefinitions() {
+     grepToolDefinition,
+     listToolDefinition,
+     embeddingToolDefinition,
++    forkWorkspaceToolDefinition,
+   ];
+ }
+diff --git aa/src/typescript/mcp-server/src/tool-dispatcher.ts bb/src/typescript/mcp-server/src/tool-dispatcher.ts
+index e17c0a4..6c392a0 100644
+--- aa/src/typescript/mcp-server/src/tool-dispatcher.ts
++++ bb/src/typescript/mcp-server/src/tool-dispatcher.ts
+@@ -18,6 +18,7 @@ import {
+ } from './tool-builders/index.js';
+ import { storeUrl, storeScratchpad } from './store-handlers.js';
+ import { handleEmbedding } from './tools/embedding.js';
++import { handleForkWorkspace } from './tools/fork-workspace.js';
+ import { registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
+ import { withToolMetrics } from './telemetry/metrics.js';
+ 
+@@ -26,7 +27,16 @@ export type ToolResult = {
+   isError?: boolean;
+ };
+ 
+-const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding'] as const;
++const KNOWN_TOOLS = [
++  'search',
++  'retrieve',
++  'rules',
++  'store',
++  'grep',
++  'list',
++  'embedding',
++  'fork_workspace',
++] as const;
+ 
+ /** Dispatch the 'store' tool subtypes. */
+ async function dispatchStore(
+@@ -75,6 +85,8 @@ async function routeTool(
+       return listTool.list(buildListOptions(args));
+     case 'embedding':
+       return handleEmbedding(args, daemonClient);
++    case 'fork_workspace':
++      return handleForkWorkspace(args);
+     default:
+       throw new Error(`Unexpected tool: ${toolName}`);
+   }
+diff --git ab/src/typescript/mcp-server/src/tools/fork-workspace.ts bb/src/typescript/mcp-server/src/tools/fork-workspace.ts
+new file mode 100644
+index 0000000..f48f795
+--- /dev/null
++++ bb/src/typescript/mcp-server/src/tools/fork-workspace.ts
+@@ -0,0 +1,379 @@
++/**
++ * Local fork workspace manager MCP tool.
++ *
++ * Safety properties:
++ * - read-only by default;
++ * - mutating actions require allowMutation=true AND WQM_WORKSPACE_MANAGER_ALLOW_MUTATION=1;
++ * - never opens PRs;
++ * - never checks out or merges into main;
++ * - creates fix branches from upstream/main so the local main can remain a clean human-managed mirror.
++ */
++import { execFile } from 'node:child_process';
++import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
++import { dirname, resolve } from 'node:path';
++import { promisify } from 'node:util';
++
++const execFileAsync = promisify(execFile);
++const DEFAULT_MAIN_BRANCH = 'main';
++const DEFAULT_OVERLAY_BRANCH = 'fork/overlay';
++const DEFAULT_FIXES_BRANCH = 'fork/fixes';
++const DEFAULT_USE_BRANCH = 'personal/use-in-projects';
++const DEFAULT_UPSTREAM_REMOTE = 'upstream';
++const DEFAULT_UPSTREAM_REF = 'upstream/main';
++const MUTATION_ENV = 'WQM_WORKSPACE_MANAGER_ALLOW_MUTATION';
++
++type Action =
++  | 'registry:list'
++  | 'registry:add'
++  | 'registry:remove'
++  | 'project:status'
++  | 'projects:status'
++  | 'project:sync-chain'
++  | 'projects:sync-chain'
++  | 'project:start-fix'
++  | 'project:promote-fix';
++
++interface ForkWorkspaceArgs {
++  action?: Action;
++  name?: string;
++  path?: string;
++  fixBranch?: string;
++  registryPath?: string;
++  push?: boolean;
++  allowMutation?: boolean;
++}
++
++interface ProjectEntry {
++  name: string;
++  path: string;
++  enabled?: boolean;
++  mainBranch?: string;
++  overlayBranch?: string;
++  fixesBranch?: string;
++  useBranch?: string;
++  upstreamRemote?: string;
++  upstreamRef?: string;
++}
++
++interface ProjectConfig {
++  name: string;
++  path: string;
++  enabled: boolean;
++  mainBranch: string;
++  overlayBranch: string;
++  fixesBranch: string;
++  useBranch: string;
++  upstreamRemote: string;
++  upstreamRef: string;
++}
++
++interface Registry {
++  schemaVersion: number;
++  updatedAt: string;
++  projects: ProjectEntry[];
++}
++
++interface GitResult {
++  command: string;
++  stdout: string;
++  stderr: string;
++}
++
++function asString(value: unknown): string | undefined {
++  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
++}
++
++function asBoolean(value: unknown): boolean {
++  return value === true || value === 'true' || value === '1' || value === 1;
++}
++
++function parseArgs(args: Record<string, unknown> | undefined): ForkWorkspaceArgs {
++  return {
++    action: asString(args?.['action']) as Action | undefined,
++    name: asString(args?.['name']),
++    path: asString(args?.['path']),
++    fixBranch: asString(args?.['fixBranch']),
++    registryPath: asString(args?.['registryPath']),
++    push: asBoolean(args?.['push']),
++    allowMutation: asBoolean(args?.['allowMutation']),
++  };
++}
++
++function registryPath(args: ForkWorkspaceArgs): string {
++  return resolve(
++    args.registryPath ?? process.env['WQM_WORKSPACE_REGISTRY_PATH'] ?? '.wqm-fork/projects.json'
++  );
++}
++
++function emptyRegistry(): Registry {
++  return { schemaVersion: 1, updatedAt: new Date().toISOString(), projects: [] };
++}
++
++function readRegistry(args: ForkWorkspaceArgs): Registry {
++  const path = registryPath(args);
++  if (!existsSync(path)) return emptyRegistry();
++  const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<Registry>;
++  return {
++    schemaVersion: parsed.schemaVersion ?? 1,
++    updatedAt: parsed.updatedAt ?? new Date(0).toISOString(),
++    projects: Array.isArray(parsed.projects) ? parsed.projects : [],
++  };
++}
++
++function writeRegistry(args: ForkWorkspaceArgs, registry: Registry): void {
++  const path = registryPath(args);
++  mkdirSync(dirname(path), { recursive: true });
++  registry.updatedAt = new Date().toISOString();
++  writeFileSync(path, `${JSON.stringify(registry, null, 2)}\n`, 'utf8');
++}
++
++function normalizeProject(entry: ProjectEntry): ProjectConfig {
++  return {
++    name: entry.name,
++    path: resolve(entry.path),
++    enabled: entry.enabled ?? true,
++    mainBranch: entry.mainBranch ?? DEFAULT_MAIN_BRANCH,
++    overlayBranch: entry.overlayBranch ?? DEFAULT_OVERLAY_BRANCH,
++    fixesBranch: entry.fixesBranch ?? DEFAULT_FIXES_BRANCH,
++    useBranch: entry.useBranch ?? DEFAULT_USE_BRANCH,
++    upstreamRemote: entry.upstreamRemote ?? DEFAULT_UPSTREAM_REMOTE,
++    upstreamRef: entry.upstreamRef ?? DEFAULT_UPSTREAM_REF,
++  };
++}
++
++function projects(registry: Registry): ProjectConfig[] {
++  return registry.projects.map(normalizeProject);
++}
++
++function findProject(args: ForkWorkspaceArgs, registry: Registry): ProjectConfig {
++  const all = projects(registry);
++  if (args.name) {
++    const match = all.filter((project) => project.name === args.name);
++    if (match.length !== 1) throw new Error(`Expected exactly one project named '${args.name}', found ${match.length}.`);
++    return match[0] as ProjectConfig;
++  }
++  if (args.path) {
++    const wanted = resolve(args.path);
++    const match = all.filter((project) => resolve(project.path) === wanted);
++    if (match.length !== 1) throw new Error(`Expected exactly one project at '${wanted}', found ${match.length}.`);
++    return match[0] as ProjectConfig;
++  }
++  throw new Error('Provide name or path to select a project.');
++}
++
++function mutationAllowed(args: ForkWorkspaceArgs): boolean {
++  return args.allowMutation === true && /^(1|true|yes)$/i.test(process.env[MUTATION_ENV] ?? '');
++}
++
++function requireMutation(args: ForkWorkspaceArgs): void {
++  if (!mutationAllowed(args)) {
++    throw new Error(
++      `Mutation refused. Set allowMutation=true and ${MUTATION_ENV}=1. This protects branches and prevents accidental main changes.`
++    );
++  }
++}
++
++async function git(cwd: string, gitArgs: string[], timeoutMs = 120_000): Promise<GitResult> {
++  try {
++    const { stdout, stderr } = await execFileAsync('git', gitArgs, {
++      cwd,
++      timeout: timeoutMs,
++      maxBuffer: 2 * 1024 * 1024,
++    });
++    return { command: `git ${gitArgs.join(' ')}`, stdout: stdout.trim(), stderr: stderr.trim() };
++  } catch (err) {
++    const e = err as Error & { stdout?: string; stderr?: string; code?: number | string };
++    throw new Error(
++      `git ${gitArgs.join(' ')} failed in ${cwd} (code ${e.code ?? 'unknown'}): ${e.message}\n${e.stderr ?? ''}\n${e.stdout ?? ''}`
++    );
++  }
++}
++
++async function gitMaybe(cwd: string, gitArgs: string[]): Promise<GitResult & { ok: boolean }> {
++  try {
++    return { ...(await git(cwd, gitArgs)), ok: true };
++  } catch (err) {
++    return { command: `git ${gitArgs.join(' ')}`, stdout: '', stderr: String(err), ok: false };
++  }
++}
++
++async function assertClean(project: ProjectConfig): Promise<void> {
++  const status = await git(project.path, ['status', '--porcelain']);
++  if (status.stdout.length > 0) {
++    throw new Error(`Working tree is not clean in ${project.name}. Commit or stash before mutating.\n${status.stdout}`);
++  }
++}
++
++async function branchExists(project: ProjectConfig, branch: string): Promise<boolean> {
++  const result = await gitMaybe(project.path, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
++  return result.ok;
++}
++
++async function checkoutOrCreate(project: ProjectConfig, branch: string, base: string): Promise<void> {
++  if (await branchExists(project, branch)) {
++    await git(project.path, ['checkout', branch]);
++  } else {
++    await git(project.path, ['checkout', '-b', branch, base]);
++  }
++}
++
++async function projectStatus(project: ProjectConfig): Promise<Record<string, unknown>> {
++  const currentBranch = await gitMaybe(project.path, ['branch', '--show-current']);
++  const status = await gitMaybe(project.path, ['status', '--short', '--branch']);
++  const branches = await gitMaybe(project.path, [
++    'branch',
++    '--list',
++    project.mainBranch,
++    project.overlayBranch,
++    project.fixesBranch,
++    project.useBranch,
++  ]);
++  return {
++    name: project.name,
++    path: project.path,
++    enabled: project.enabled,
++    ok: currentBranch.ok && status.ok,
++    currentBranch: currentBranch.stdout,
++    clean: status.ok && status.stdout.split('\n').filter((line) => line && !line.startsWith('## ')).length === 0,
++    status: status.stdout,
++    managedBranches: branches.stdout,
++    mainBranch: project.mainBranch,
++    overlayBranch: project.overlayBranch,
++    fixesBranch: project.fixesBranch,
++    useBranch: project.useBranch,
++    upstreamRef: project.upstreamRef,
++  };
++}
++
++function ensureSafeFixBranch(project: ProjectConfig, fixBranch: string | undefined): string {
++  if (!fixBranch) throw new Error('fixBranch is required. Example: fix/rules-tenant-scope');
++  const forbidden = new Set([
++    project.mainBranch,
++    'main',
++    'master',
++    project.overlayBranch,
++    project.fixesBranch,
++    project.useBranch,
++  ]);
++  if (forbidden.has(fixBranch)) throw new Error(`Refusing unsafe fixBranch '${fixBranch}'.`);
++  if (!/^(fix|chore|refactor|docs|test|local)\/[A-Za-z0-9._/-]+$/.test(fixBranch)) {
++    throw new Error(`fixBranch must start with fix/, chore/, refactor/, docs/, test/, or local/: ${fixBranch}`);
++  }
++  return fixBranch;
++}
++
++async function syncChain(project: ProjectConfig, push: boolean): Promise<Record<string, unknown>> {
++  await assertClean(project);
++  await git(project.path, ['fetch', project.upstreamRemote]);
++
++  // Deliberately do not checkout or merge into main.
++  await checkoutOrCreate(project, project.overlayBranch, project.upstreamRef);
++  await git(project.path, ['merge', '--no-edit', project.upstreamRef]);
++  if (push) await git(project.path, ['push', '-u', 'origin', project.overlayBranch]);
++
++  await checkoutOrCreate(project, project.fixesBranch, project.overlayBranch);
++  await git(project.path, ['merge', '--no-edit', project.overlayBranch]);
++  if (push) await git(project.path, ['push', '-u', 'origin', project.fixesBranch]);
++
++  await checkoutOrCreate(project, project.useBranch, project.fixesBranch);
++  await git(project.path, ['merge', '--no-edit', project.fixesBranch]);
++  if (push) await git(project.path, ['push', '-u', 'origin', project.useBranch]);
++
++  return projectStatus(project);
++}
++
++async function startFix(project: ProjectConfig, fixBranch: string): Promise<Record<string, unknown>> {
++  await assertClean(project);
++  await git(project.path, ['fetch', project.upstreamRemote]);
++  if (await branchExists(project, fixBranch)) {
++    await git(project.path, ['checkout', fixBranch]);
++  } else {
++    await git(project.path, ['checkout', '-b', fixBranch, project.upstreamRef]);
++  }
++  return projectStatus(project);
++}
++
++async function promoteFix(project: ProjectConfig, fixBranch: string, push: boolean): Promise<Record<string, unknown>> {
++  await assertClean(project);
++  if (!(await branchExists(project, fixBranch))) throw new Error(`Branch not found: ${fixBranch}`);
++  await checkoutOrCreate(project, project.fixesBranch, project.overlayBranch);
++  await git(project.path, ['merge', '--no-edit', fixBranch]);
++  if (push) await git(project.path, ['push', '-u', 'origin', project.fixesBranch]);
++  await checkoutOrCreate(project, project.useBranch, project.fixesBranch);
++  await git(project.path, ['merge', '--no-edit', project.fixesBranch]);
++  if (push) await git(project.path, ['push', '-u', 'origin', project.useBranch]);
++  return projectStatus(project);
++}
++
++export async function handleForkWorkspace(rawArgs: Record<string, unknown> | undefined): Promise<unknown> {
++  const args = parseArgs(rawArgs);
++  if (!args.action) throw new Error('action is required');
++  const registry = readRegistry(args);
++
++  switch (args.action) {
++    case 'registry:list':
++      return { registryPath: registryPath(args), registry, projects: projects(registry) };
++
++    case 'registry:add': {
++      requireMutation(args);
++      if (!args.name || !args.path) throw new Error('name and path are required for registry:add');
++      const existing = projects(registry).filter((project) => project.name !== args.name);
++      registry.projects = [
++        ...existing,
++        {
++          name: args.name,
++          path: resolve(args.path),
++          enabled: true,
++          mainBranch: DEFAULT_MAIN_BRANCH,
++          overlayBranch: DEFAULT_OVERLAY_BRANCH,
++          fixesBranch: DEFAULT_FIXES_BRANCH,
++          useBranch: DEFAULT_USE_BRANCH,
++          upstreamRemote: DEFAULT_UPSTREAM_REMOTE,
++          upstreamRef: DEFAULT_UPSTREAM_REF,
++        },
++      ];
++      writeRegistry(args, registry);
++      return { ok: true, registryPath: registryPath(args), projects: projects(registry) };
++    }
++
++    case 'registry:remove': {
++      requireMutation(args);
++      if (!args.name) throw new Error('name is required for registry:remove');
++      registry.projects = projects(registry).filter((project) => project.name !== args.name);
++      writeRegistry(args, registry);
++      return { ok: true, registryPath: registryPath(args), projects: projects(registry) };
++    }
++
++    case 'project:status':
++      return projectStatus(findProject(args, registry));
++
++    case 'projects:status':
++      return Promise.all(projects(registry).filter((project) => project.enabled).map(projectStatus));
++
++    case 'project:sync-chain': {
++      requireMutation(args);
++      return syncChain(findProject(args, registry), args.push === true);
++    }
++
++    case 'projects:sync-chain': {
++      requireMutation(args);
++      const result: unknown[] = [];
++      for (const project of projects(registry).filter((p) => p.enabled)) {
++        result.push(await syncChain(project, args.push === true));
++      }
++      return result;
++    }
++
++    case 'project:start-fix': {
++      requireMutation(args);
++      const project = findProject(args, registry);
++      return startFix(project, ensureSafeFixBranch(project, args.fixBranch));
++    }
++
++    case 'project:promote-fix': {
++      requireMutation(args);
++      const project = findProject(args, registry);
++      return promoteFix(project, ensureSafeFixBranch(project, args.fixBranch), args.push === true);
++    }
++  }
++}

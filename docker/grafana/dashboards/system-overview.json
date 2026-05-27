@@ -5,7 +5,7 @@
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
-  "description": "High-level health overview: service up/down, total queue depth, MCP tool invocation trend and recent error events.",
+  "description": "High-level health overview: service up/down, runtime activity, queue freshness, storage inventory, latency, indexed project inventory and recent error rates.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -13,7 +13,14 @@
   "links": [
     {
       "title": "MCP Server",
-      "url": "/d/wqm-claude-mcp",
+      "url": "/d/wqm-mcp-server",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    },
+    {
+      "title": "MCP HTTP",
+      "url": "/d/wqm-mcp-http",
       "type": "link",
       "icon": "external link",
       "targetBlank": false
@@ -36,7 +43,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "memexd",
+      "title": "memexd Target Health",
       "description": "Prometheus scrape target health for the memexd job.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
@@ -74,15 +81,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "up{job=\"memexd\"} or vector(0)",
-          "legendFormat": "memexd",
-          "refId": "A"
+          "expr": "up{job=\"memexd\"}",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 2,
-      "title": "MCP Server",
+      "title": "MCP Target Health",
       "description": "Prometheus scrape target health for the mcp job.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
@@ -120,15 +128,16 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "up{job=\"mcp\"} or vector(0)",
-          "legendFormat": "mcp",
-          "refId": "A"
+          "expr": "up{job=\"mcp\"}",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 3,
-      "title": "Qdrant",
+      "title": "Qdrant Target Health",
       "description": "Prometheus scrape target health for the qdrant job.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
@@ -166,28 +175,29 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "up{job=\"qdrant\"} or vector(0)",
-          "legendFormat": "qdrant",
-          "refId": "A"
+          "expr": "up{job=\"qdrant\"}",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 4,
-      "title": "Total Pending Queue Items",
-      "description": "Sum of all pending items across the unified queue (memexd_unified_queue_depth{status=\"pending\"}).",
+      "title": "Oldest Pending Age by Target",
+      "description": "Age in seconds of the oldest pending queue item per scrape target.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "s",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "red", "value": 500 }
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
             ]
           },
           "mappings": []
@@ -199,24 +209,65 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto"
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
-          "legendFormat": "pending items",
-          "refId": "A"
+          "expr": "wqm_queue_oldest_pending_age_seconds",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "id": 5,
-      "title": "Active MCP Sessions",
-      "description": "Number of active MCP sessions at the server level (wqm_mcp_session_count).",
+      "title": "Stale Queue Items (total)",
+      "description": "Combined number of stale lease items across all memexd scrape targets.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(memexd_unified_queue_stale_items) or vector(0)",
+          "legendFormat": "total",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Active MCP Sessions by Target",
+      "description": "Number of active MCP sessions per scrape target.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -244,18 +295,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "wqm_mcp_session_count or vector(0)",
-          "legendFormat": "sessions",
-          "refId": "A"
+          "expr": "wqm_mcp_session_count",
+          "legendFormat": "{{job}} @ {{instance}}",
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
-      "id": 6,
+      "id": 7,
       "title": "MCP Tool Invocation Rate",
-      "description": "Total MCP tool invocation rate across all tools — a sparkline view of system activity.",
+      "description": "Total MCP tool invocation rate across all tools.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -280,18 +332,18 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(wqm_mcp_tool_invocations_total[2m])) or vector(0)",
+          "expr": "sum(rate(wqm_mcp_tool_invocations_total[2m]))",
           "legendFormat": "total invocations/s",
           "refId": "A"
         }
       ]
     },
     {
-      "id": 7,
-      "title": "Queue Depth Trend",
-      "description": "Combined queue depth over time — an early warning signal for processing stalls.",
+      "id": 8,
+      "title": "Queue Health Trend",
+      "description": "Queue freshness signals over time: oldest pending age and stale lease items.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
@@ -306,8 +358,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 100 },
-              { "color": "red", "value": 500 }
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
             ]
           }
         },
@@ -320,88 +372,820 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_queue_depth) or vector(0)",
-          "legendFormat": "legacy queue",
+          "expr": "wqm_queue_oldest_pending_age_seconds",
+          "legendFormat": "oldest pending age",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
-          "legendFormat": "unified pending",
+          "expr": "sum(memexd_unified_queue_stale_items)",
+          "legendFormat": "stale items",
           "refId": "B"
         }
       ]
     },
     {
-      "id": 8,
-      "title": "Recent Error Events",
-      "description": "Table of recent error-rate values across all error counters. Non-zero rows indicate active problems.",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "id": 9,
+      "title": "Recent Error Rates",
+      "description": "Error rates across the MCP server and HTTP transport.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.001 },
+              { "color": "yellow", "value": 0.01 },
               { "color": "red", "value": 0.05 }
             ]
-          },
-          "custom": {
-            "displayMode": "color-background-solid",
-            "filterable": true
           }
         },
         "overrides": []
       },
       "options": {
-        "sortBy": [{ "displayName": "Value", "desc": true }],
-        "footer": { "show": false },
-        "showHeader": true
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
       },
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (error_type) (rate(memexd_ingestion_errors_total[5m])), \"source\", \"memexd ingestion ($1)\", \"error_type\", \"(.+)\")",
-          "legendFormat": "ingestion {{error_type}}",
+          "expr": "sum by (tool) (rate(wqm_mcp_tool_invocations_total{status=\"error\"}[5m]))",
+          "legendFormat": "{{tool}} errors",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (tool, reason) (rate(wqm_mcp_daemon_fallback_total[5m]))",
+          "legendFormat": "{{tool}} / {{reason}}",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (reason) (rate(wqm_mcp_http_auth_failures_total[5m]))",
+          "legendFormat": "auth {{reason}}",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(wqm_mcp_http_rate_limited_total[5m])",
+          "legendFormat": "rate limit hits",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Daemon Uptime",
+      "description": "Current memexd daemon uptime.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(memexd_uptime_seconds)",
+          "legendFormat": "uptime",
           "refId": "A",
           "instant": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "HTTP Requests (24h)",
+      "description": "Total MCP HTTP requests over the last 24 hours.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(wqm_mcp_http_requests_total[24h])) or vector(0)",
+          "legendFormat": "requests",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Qdrant Collections",
+      "description": "Number of Qdrant collections currently exposed by the Qdrant metrics endpoint.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "collections_total",
+          "legendFormat": "collections",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Qdrant Points",
+      "description": "Total points across Qdrant collections.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(collection_points)",
+          "legendFormat": "points",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Qdrant Memory",
+      "description": "Resident memory reported by the Qdrant process.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "memory_resident_bytes",
+          "legendFormat": "resident",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Qdrant FD Saturation",
+      "description": "Open file descriptor usage ratio for Qdrant.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "process_open_fds / clamp_min(process_max_fds, 1)",
+          "legendFormat": "fd usage",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Unified Queue Depth",
+      "description": "Current unified queue depth by item type and status.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (item_type, status) (memexd_unified_queue_depth)",
+          "legendFormat": "{{item_type}} / {{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "HTTP Traffic by Status",
+      "description": "MCP HTTP request rate grouped by status class.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (status_class) (rate(wqm_mcp_http_requests_total[5m]))",
+          "legendFormat": "{{status_class}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Collection Inventory",
+      "description": "Per-collection Qdrant point, vector, optimisation and excluded-point counts.",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto",
+            "filterable": true
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10000 },
+              { "color": "red", "value": 100000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          { "displayName": "Points", "desc": true }
+        ],
+        "footer": { "show": false }
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "collection",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Metric": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "id": true
+            },
+            "renameByName": {
+              "Value #A": "Points",
+              "Value #B": "Vectors",
+              "Value #C": "Optimising",
+              "Value #D": "Excluded"
+            },
+            "indexByName": {
+              "collection": 0,
+              "Points": 1,
+              "Vectors": 2,
+              "Optimising": 3,
+              "Excluded": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "label_replace(sum by (id) (collection_points), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (watch_id) (rate(memexd_watch_errors_total[5m])), \"source\", \"watch ($1)\", \"watch_id\", \"(.+)\")",
-          "legendFormat": "watch {{watch_id}}",
+          "expr": "sum by (collection) (collection_vectors)",
+          "legendFormat": "{{collection}}",
           "refId": "B",
-          "instant": true
+          "instant": true,
+          "format": "table"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (tool) (rate(wqm_mcp_tool_invocations_total{status=\"error\"}[5m])), \"source\", \"mcp tool ($1)\", \"tool\", \"(.+)\")",
-          "legendFormat": "mcp {{tool}}",
+          "expr": "label_replace(sum by (id) (collection_running_optimizations), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
           "refId": "C",
-          "instant": true
+          "instant": true,
+          "format": "table"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (tool, reason) (rate(wqm_mcp_daemon_fallback_total[5m])), \"source\", \"fallback ($1/$2)\", \"tool\", \"(.+)\")",
-          "legendFormat": "fallback {{tool}} {{reason}}",
+          "expr": "label_replace(sum by (id) (collection_indexed_only_excluded_points), \"collection\", \"$1\", \"id\", \"(.+)\")",
+          "legendFormat": "{{collection}}",
           "refId": "D",
-          "instant": true
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Runtime P99 Latency",
+      "description": "P99 latency for daemon SQLite, gRPC and unified queue processing.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (model, le) (rate(memexd_embedding_duration_seconds_bucket[5m])))",
+          "legendFormat": "embed {{model}} p99",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (service, method, le) (rate(memexd_grpc_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "grpc {{service}}.{{method}} p99",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (item_type, le) (rate(memexd_unified_queue_processing_time_seconds_bucket[5m])))",
+          "legendFormat": "queue {{item_type}} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "External Request P99 Latency",
+      "description": "P99 latency for MCP tools and Qdrant REST/gRPC requests.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (tool, le) (rate(wqm_mcp_tool_duration_seconds_bucket[5m])))",
+          "legendFormat": "mcp {{tool}} p99",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(rest_responses_duration_seconds_bucket[5m])))",
+          "legendFormat": "qdrant rest {{endpoint}} p99",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (endpoint, le) (rate(grpc_responses_duration_seconds_bucket[5m])))",
+          "legendFormat": "qdrant grpc {{endpoint}} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Indexed Projects",
+      "description": "Per-project inventory joined from memexd_indexed_project_* gauges. Documents = SQLite tracked_files count; Points = Qdrant chunk count; Chunks/Doc = Points/Documents (rough chunk density). Status pills reflect watch_folders flags; Last Activity is when the daemon last touched this project (heartbeat / file event / ingest).",
+      "type": "table",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "filterable": true, "inspect": true },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Project" },
+            "properties": [
+              { "id": "custom.width", "value": 220 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Path" },
+            "properties": [
+              { "id": "custom.width", "value": 380 },
+              { "id": "custom.cellOptions", "value": { "type": "auto", "wrapText": false } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Tenant" },
+            "properties": [
+              { "id": "custom.width", "value": 160 },
+              { "id": "custom.cellOptions", "value": { "type": "auto", "wrapText": false } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Documents" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "transparent", "value": null },
+                    { "color": "blue", "value": 1 },
+                    { "color": "yellow", "value": 10000 },
+                    { "color": "red", "value": 100000 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Points" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.width", "value": 110 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "gradient" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "transparent", "value": null },
+                    { "color": "blue", "value": 1 },
+                    { "color": "yellow", "value": 50000 },
+                    { "color": "red", "value": 500000 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Chunks/Doc" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.width", "value": 100 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last Scan" },
+            "properties": [
+              { "id": "unit", "value": "dateTimeFromNow" },
+              { "id": "custom.width", "value": 130 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last Activity" },
+            "properties": [
+              { "id": "unit", "value": "dateTimeFromNow" },
+              { "id": "custom.width", "value": 130 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Active" },
+            "properties": [
+              { "id": "custom.width", "value": 80 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "✓ active", "color": "green" } } },
+                { "type": "value", "options": { "false": { "text": "idle",      "color": "transparent" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Worktree" },
+            "properties": [
+              { "id": "custom.width", "value": 90 },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "↪ worktree", "color": "orange" } } },
+                { "type": "value", "options": { "false": { "text": "", "color": "transparent" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Git" },
+            "properties": [
+              { "id": "custom.width", "value": 70 },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "true":  { "text": "git",  "color": "text" } } },
+                { "type": "value", "options": { "false": { "text": "—", "color": "text-secondary" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "State" },
+            "properties": [
+              { "id": "custom.width", "value": 90 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "archived": { "text": "archived", "color": "dark-gray" } } },
+                { "type": "value", "options": { "paused":   { "text": "paused",   "color": "yellow" } } },
+                { "type": "value", "options": { "disabled": { "text": "disabled", "color": "red" } } },
+                { "type": "value", "options": { "running":  { "text": "running",  "color": "green" } } }
+              ] }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "watch_id" },
+            "properties": [
+              { "id": "custom.hidden", "value": true }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Last Activity", "desc": true }],
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "label_replace(max by (watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived, is_worktree, is_git_tracked) (memexd_indexed_project_tracked_files), \"name\", \"$1\", \"path\", \".*/([^/]+)/?$\")",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (watch_id) (memexd_indexed_project_points)",
+          "refId": "B",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1000 * max by (watch_id) (memexd_indexed_project_last_scan_seconds)",
+          "refId": "C",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1000 * max by (watch_id) (memexd_indexed_project_last_activity_seconds)",
+          "refId": "D",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (watch_id) (memexd_indexed_project_points) / clamp_min(max by (watch_id) (memexd_indexed_project_tracked_files), 1)",
+          "refId": "E",
+          "instant": true,
+          "format": "table"
         }
       ],
       "transformations": [
+        { "id": "joinByField", "options": { "byField": "watch_id", "mode": "outer" } },
         {
-          "id": "merge",
-          "options": {}
+          "id": "calculateField",
+          "options": {
+            "alias": "State",
+            "mode": "reduceRow",
+            "reduce": { "reducer": "allValues" },
+            "replaceFields": false
+          },
+          "disabled": true
         },
         {
-          "id": "filterFieldsByName",
+          "id": "organize",
           "options": {
-            "include": { "pattern": ".*" }
+            "excludeByName": {
+              "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true, "Time 5": true,
+              "Metric": true, "__name__": true, "job": true, "instance": true,
+              "enabled": true, "is_paused": true, "is_archived": true
+            },
+            "renameByName": {
+              "name": "Project",
+              "path": "Path",
+              "tenant_id": "Tenant",
+              "is_active": "Active",
+              "is_worktree": "Worktree",
+              "is_git_tracked": "Git",
+              "Value #A": "tracked_dup",
+              "Value #B": "Points",
+              "Value #C": "Last Scan",
+              "Value #D": "Last Activity",
+              "Value #E": "Chunks/Doc"
+            },
+            "indexByName": {
+              "Project": 0,
+              "Tenant": 1,
+              "Path": 2,
+              "Active": 3,
+              "Worktree": 4,
+              "Git": 5,
+              "Documents": 6,
+              "Points": 7,
+              "Chunks/Doc": 8,
+              "Last Scan": 9,
+              "Last Activity": 10
+            }
           }
+        },
+        {
+          "id": "renameByRegex",
+          "options": { "regex": "^tracked_dup$", "renamePattern": "Documents" }
         }
       ]
     }
@@ -415,5 +1199,5 @@
   "timezone": "browser",
   "title": "WQM — System Overview",
   "uid": "wqm-system",
-  "version": 1
+  "version": 4
 }

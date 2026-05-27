@@ -19,9 +19,11 @@
   "scripts": {
     "generate:config": "tsx scripts/generate-config-defaults.ts",
     "generate:build-info": "tsx scripts/generate-build-info.ts",
+    "benchmark:semantic": "tsx scripts/benchmark-semantic-search.ts",
     "build:native": "cd ../../rust/common-node && napi build --release --platform",
-    "build": "npm run clean && npm run generate:config && npm run generate:build-info && tsc && npm run copy:proto && npm run chmod:bin",
+    "build": "npm run clean && npm run generate:config && npm run generate:build-info && tsc && npm run copy:proto && npm run copy:admin-static && npm run chmod:bin",
     "copy:proto": "mkdir -p dist/proto && cp src/proto/*.proto dist/proto/",
+    "copy:admin-static": "mkdir -p dist/admin/static && cp -R src/admin/static/. dist/admin/static/",
     "chmod:bin": "chmod +x dist/index.js dist/agent.js",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",

@@ -1,0 +1,10 @@
+# BEGIN workspace-qdrant-fork-kit
+[mcp_servers.workspace-qdrant]
+url = "http://localhost:6335/mcp"
+bearer_token_env_var = "MCP_HTTP_TOKEN"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+required = true
+enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index"]
+
+# END workspace-qdrant-fork-kit

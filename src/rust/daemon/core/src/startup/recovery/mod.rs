@@ -21,6 +21,7 @@ use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
+use crate::watching_queue::WatchManager;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
@@ -213,7 +214,8 @@ async fn recover_watch_folder(
     _allowed_extensions: &AllowedExtensions,
     startup_config: &StartupConfig,
 ) -> Result<RecoveryStats, String> {
-    let root = Path::new(base_path);
+    let resolved_root = WatchManager::resolve_local_watch_path(base_path);
+    let root = Path::new(&resolved_root);
     if !root.exists() || !root.is_dir() {
         return Err(format!(
             "Watch folder path does not exist or is not a directory: {}",

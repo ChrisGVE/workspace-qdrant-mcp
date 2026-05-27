@@ -22,6 +22,7 @@ use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResu
 use crate::unified_queue_schema::{
     FilePayload, ItemType, LibraryContentPayload, LibraryPayload, QueueOperation, UnifiedQueueItem,
 };
+use crate::watching_queue::WatchManager;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 use wqm_common::paths::{CanonicalPath, RelativePath};
 
@@ -94,9 +95,11 @@ async fn handle_library_scan(
 
     match folder_path {
         Some(path) => {
+            let resolved_path = WatchManager::resolve_local_watch_path(&path);
+            let resolved_path = resolved_path.to_string_lossy().to_string();
             scan_library_directory(
                 item,
-                &path,
+                &resolved_path,
                 &ctx.queue_manager,
                 &ctx.storage_client,
                 &ctx.allowed_extensions,

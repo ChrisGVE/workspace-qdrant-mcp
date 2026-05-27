@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>workspace-qdrant — admin</title>
+  <link rel="stylesheet" href="/admin/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">▣</span>
+      <strong>workspace-qdrant</strong>
+      <span class="dim">/ admin</span>
+    </div>
+    <div class="header-status">
+      <span id="connectionStatus" class="pill pill-muted">connecting…</span>
+      <span id="lastUpdated" class="dim small"></span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- ── Login (token) ───────────────────────────────────────────── -->
+    <section id="loginPanel" class="card" hidden>
+      <h2>Authentication</h2>
+      <p class="dim">Paste your <code>MCP_HTTP_TOKEN</code> to access this UI.</p>
+      <form id="loginForm" class="row">
+        <input
+          id="tokenInput"
+          type="password"
+          placeholder="Bearer token"
+          autocomplete="off"
+          spellcheck="false"
+          required />
+        <button type="submit" class="primary">Unlock</button>
+      </form>
+      <p id="loginError" class="error" hidden></p>
+    </section>
+
+    <!-- ── Dashboard sections ─────────────────────────────────────── -->
+    <div id="appView" hidden>
+      <!-- Health row -->
+      <section class="grid grid-3">
+        <div class="card stat">
+          <div class="stat-label">Daemon</div>
+          <div id="statDaemon" class="stat-value">—</div>
+          <div id="statDaemonDetail" class="dim small">—</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Queue</div>
+          <div id="statQueue" class="stat-value">—</div>
+          <div id="statQueueDetail" class="dim small">pending / in-progress / failed</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Indexed</div>
+          <div id="statDocs" class="stat-value">—</div>
+          <div id="statDocsDetail" class="dim small">documents · collections</div>
+        </div>
+      </section>
+
+      <!-- Host integrations health -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Host integrations</h2>
+          <button type="button" id="reinstallHooksBtn" class="secondary">Reinstall git hooks</button>
+        </div>
+        <div class="grid grid-3">
+          <div>
+            <div class="stat-label">Git hooks</div>
+            <div id="healthHooks" class="stat-value small">—</div>
+            <div id="healthHooksDetail" class="dim small">—</div>
+          </div>
+          <div>
+            <div class="stat-label">Qdrant</div>
+            <div id="healthQdrant" class="stat-value small">—</div>
+            <div id="healthQdrantDetail" class="dim small">—</div>
+          </div>
+          <div>
+            <div class="stat-label">MCP server</div>
+            <div id="healthMcp" class="stat-value small">—</div>
+            <div id="healthMcpDetail" class="dim small">—</div>
+          </div>
+        </div>
+        <pre id="hooksInstallLog" class="debug" hidden></pre>
+      </section>
+
+      <!-- Settings -->
+      <section class="card">
+        <h2>Discovery settings</h2>
+        <form id="settingsForm" class="row">
+          <div class="field grow">
+            <label for="devRootInput">Parent dev root</label>
+            <input
+              id="devRootInput"
+              type="text"
+              placeholder="/run/desktop/mnt/host/c/Users/me/Documents/repositorios"
+              autocomplete="off"
+              spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="scanDepthInput">Depth</label>
+            <input id="scanDepthInput" type="number" min="1" max="5" step="1" />
+          </div>
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="scanBtn" class="secondary">Scan now</button>
+        </form>
+        <p id="settingsMsg" class="dim small"></p>
+      </section>
+
+      <!-- Candidates -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Discovered candidates</h2>
+          <span id="candidatesMeta" class="dim small"></span>
+        </div>
+        <div id="candidatesEmpty" class="dim">
+          No scan yet. Click <em>Scan now</em> above.
+        </div>
+        <table id="candidatesTable" class="data" hidden>
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Branch</th>
+              <th>Remote</th>
+              <th class="num">Depth</th>
+              <th>Type</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="candidatesBody"></tbody>
+        </table>
+      </section>
+
+      <!-- Registered -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Registered projects</h2>
+          <span id="registeredMeta" class="dim small"></span>
+        </div>
+        <div id="registeredEmpty" class="dim">No projects registered yet.</div>
+        <table id="registeredTable" class="data" hidden>
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Tenant ID</th>
+              <th>Active</th>
+              <th>Last activity</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="registeredBody"></tbody>
+        </table>
+      </section>
+
+      <!-- Debug -->
+      <section class="card">
+        <details>
+          <summary><strong>Debug snapshot</strong> <span class="dim small">(raw JSON polled every 5s)</span></summary>
+          <pre id="debugRaw" class="debug"></pre>
+        </details>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+  </main>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

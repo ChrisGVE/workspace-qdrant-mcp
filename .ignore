@@ -1,0 +1,99 @@
+# workspace-qdrant fork local ignore
+# Usado por ferramentas de busca/indexacao locais. Nao substitui .gitignore.
+
+# Segredos e configs locais
+.env
+.env.*
+*.local
+*.secret
+secrets.*
+claude_desktop_config.json
+codex_config.toml
+
+# Artefatos Node/TS
+node_modules/
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Artefatos Rust
+src/rust/target/
+target/
+Cargo.lock.bak
+
+# Qdrant / bancos / daemon state
+qdrant_storage/
+storage/
+.snapshots/
+snapshots/
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+state.db
+queue.db
+
+# Logs e diagnosticos locais
+logs/
+*.log
+*.jsonl
+.wqm-fork/
+.wqm-fork/logs/
+.wqm-fork/git-hooks/
+.wqm-fork/tmp/
+.wqm-fork/reports/
+
+# Dumps/backups locais
+backups/
+backup/
+dump/
+dumps/
+*.bak
+*.backup
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Caches gerais
+.cache/
+.tmp/
+tmp/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.fastembed_cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Dados grandes comuns
+*.parquet
+*.arrow
+*.feather
+*.onnx
+*.bin
+*.pt
+*.safetensors
+
+# Registry local multi-projeto
+.wqm-fork/projects.json
+.wqm-fork/projects.*.json
+.wqm-fork/locks/
+.wqm-fork/state/
+
+# Local registries and observability for fork/index management
+.wqm-fork/fork-branches.json
+.wqm-fork/indexed-projects.json
+.wqm-fork/agent-branches.json
+.wqm-fork/observability/
+.wqm-fork/reports/
+.wqm-fork/metrics/
+.wqm-fork/snapshots/

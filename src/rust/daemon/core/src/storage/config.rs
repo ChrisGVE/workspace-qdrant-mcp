@@ -112,6 +112,9 @@ impl StorageConfig {
     /// The Qdrant URL is resolved in order:
     ///   1. `QDRANT_URL` environment variable
     ///   2. Hard-coded default `http://127.0.0.1:6334`
+    ///
+    /// The API key is read from `QDRANT_API_KEY` when present so local
+    /// Docker runs stay aligned with the qdrant service auth settings.
     pub fn daemon_mode() -> Self {
         let mut config = Self::default();
         config.check_compatibility = false; // Disable to suppress Qdrant client output
@@ -120,6 +123,15 @@ impl StorageConfig {
                                                 // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
         config.url =
             std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://127.0.0.1:6334".to_string());
+        config.api_key = std::env::var("QDRANT_API_KEY")
+            .ok()
+            .and_then(|key| {
+                if key.trim().is_empty() {
+                    None
+                } else {
+                    Some(key)
+                }
+            });
         config
     }
 }
@@ -225,6 +237,34 @@ mod tests {
             None => std::env::remove_var("QDRANT_URL"),
         }
         assert_eq!(config.url, "http://qdrant:6333");
+        assert!(!config.check_compatibility);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn daemon_mode_uses_qdrant_api_key_env_var() {
+        let prev = std::env::var("QDRANT_API_KEY").ok();
+        std::env::set_var("QDRANT_API_KEY", "sekret");
+        let config = StorageConfig::daemon_mode();
+        match prev {
+            Some(v) => std::env::set_var("QDRANT_API_KEY", v),
+            None => std::env::remove_var("QDRANT_API_KEY"),
+        }
+        assert_eq!(config.api_key.as_deref(), Some("sekret"));
+        assert!(!config.check_compatibility);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn daemon_mode_ignores_empty_qdrant_api_key() {
+        let prev = std::env::var("QDRANT_API_KEY").ok();
+        std::env::set_var("QDRANT_API_KEY", "   ");
+        let config = StorageConfig::daemon_mode();
+        match prev {
+            Some(v) => std::env::set_var("QDRANT_API_KEY", v),
+            None => std::env::remove_var("QDRANT_API_KEY"),
+        }
+        assert!(config.api_key.is_none());
         assert!(!config.check_compatibility);
     }
 

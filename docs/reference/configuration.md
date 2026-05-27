@@ -76,7 +76,9 @@ Environment variables override the equivalent values in the configuration file.
 | `WQM_DATABASE_PATH` | string | `~/.local/share/workspace-qdrant/state.db` | Override SQLite database path |
 | `QDRANT_URL` | string | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | string | — | Qdrant API key (required for secured instances) |
-| `FASTEMBED_MODEL` | string | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model identifier |
+| `WQM_EMBEDDING_PROVIDER` | string | `openai_compatible` | Embedding provider (`fastembed` or `openai_compatible`) |
+| `WQM_EMBEDDING_CACHE_MAX_ENTRIES` | integer | `1000` | Maximum cached embedding results |
+| `WQM_EMBEDDING_MODEL_CACHE_DIR` | string | `~/.cache/fastembed/` | Override FastEmbed model download directory |
 | `WQM_DAEMON_PORT` | integer | `50051` | Daemon gRPC port |
 | `WQM_LOG_LEVEL` | string | `info` | Minimum log level (`trace`, `debug`, `info`, `warn`, `error`) |
 | `WQM_LOG_DIR` | string | (OS-canonical) | Override log directory for all components |
@@ -109,6 +111,8 @@ Other subsystem overrides:
 | `WQM_MONITOR_CHECK_INTERVAL_HOURS` | Hours between monitor checks |
 | `WQM_MCP_LOG_LEVEL` | Override log level for MCP Server only |
 
+Embedding overrides from `WQM_EMBEDDING_*` are applied after the config file is loaded, so they work even when `WQM_CONFIG_PATH` points to an explicit file. FastEmbed also honors `HF_HOME`; pointing it at the same writable cache directory as `WQM_EMBEDDING_MODEL_CACHE_DIR` keeps downloads in one place.
+
 ---
 
 ## Configuration Sections
@@ -140,7 +144,7 @@ Connection and behavior settings for the Qdrant vector database.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `url` | string | `"http://localhost:6333"` | Qdrant server URL; supports `http://`, `https://`, `grpc://` |
+| `url` | string | `"http://localhost:6333"` | Qdrant server URL; use the HTTP URL even when `transport` is `grpc` |
 | `api_key` | string\|null | `null` | Authentication key; required for Qdrant Cloud and secured self-hosted instances |
 | `timeout` | duration | `30s` | Request timeout |
 | `prefer_grpc` | bool | `true` | Prefer gRPC binary protocol over HTTP REST |

@@ -8,6 +8,7 @@
 
 import type { SqliteStateManager } from '../../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../utils/project-detector.js';
+import { getEffectiveCwd } from '../../utils/request-context.js';
 import type { TrackedFileEntry } from '../../clients/tracked-files-queries/index.js';
 import type {
   ListOptions,
@@ -265,7 +266,7 @@ export class ListFilesTool {
   }
 
   private async resolveProjectId(): Promise<string | undefined> {
-    const cwd = process.cwd();
+    const cwd = getEffectiveCwd();
     const projectInfo = await this.projectDetector.getProjectInfo(cwd, false);
     return projectInfo?.projectId;
   }

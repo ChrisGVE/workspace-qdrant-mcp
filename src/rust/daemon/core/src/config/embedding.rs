@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+const FASTEMBED_OUTPUT_DIM: usize = 384;
+
 fn default_cache_max_entries() -> usize {
     1000
 }
@@ -155,6 +157,12 @@ impl EmbeddingSettings {
             self.provider = val;
         }
 
+        if self.provider == "fastembed" {
+            // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork, so keep the
+            // authoritative dim aligned with the provider selection.
+            self.output_dim = FASTEMBED_OUTPUT_DIM;
+        }
+
         if let Ok(val) = env::var("WQM_EMBEDDING_BASE_URL") {
             self.base_url = val;
         }
@@ -231,6 +239,7 @@ mod tests {
         settings.apply_env_overrides();
 
         assert_eq!(settings.provider, "fastembed");
+        assert_eq!(settings.output_dim, FASTEMBED_OUTPUT_DIM);
         assert_eq!(settings.base_url, "https://example.test");
         assert_eq!(settings.api_key_env_var, "MY_KEY");
 

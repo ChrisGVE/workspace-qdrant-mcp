@@ -57,6 +57,51 @@ A canonical path:
 
 The rules apply identically in Rust and TypeScript implementations.
 
+#### 3.1.1 Accepted absolute forms
+
+Rule 1 ("is absolute") accepts two forms:
+
+- **POSIX**: a leading `/` followed by zero or more `/`-separated segments.
+  Canonical output: `/foo/bar/baz`.
+- **Windows drive**: a single ASCII letter, then `:`, then `/`. Backslashes
+  in the input (`C:\foo\bar`) are normalized to forward slashes before the
+  absolute-form check, so `C:\foo\bar` and `C:/foo/bar` produce the same
+  canonical value. Canonical output: `C:/foo/bar/baz`.
+
+`UNC` paths (`\\server\share`) and Windows extended-length prefixes
+(`\\?\C:\...`) are not currently recognised — they fall into the "not
+absolute" branch and are rejected. Add them here if a real use case
+surfaces; cross-language fixtures must be updated in lockstep.
+
+The same rules and accepted forms are encoded as runnable test cases in
+`tests/path-fixtures/cases.json` and exercised by both the Rust runner
+(`src/rust/common/tests/cross_lang_path_fixtures.rs`) and the sh runner
+(`tests/path-fixtures/run-sh.sh`). When you change anything in §3.1, edit
+the JSON in the same commit so divergences are caught immediately.
+
+#### 3.1.2 Cross-language helpers
+
+The same git/path-detection vocabulary is implemented in every language
+that needs it:
+
+| Concept | Rust (`wqm_common::paths`) | TypeScript (`utils/git-utils.ts`) | sh (`scripts/lib/path-resolver.sh`) | PowerShell (`scripts/windows/lib/path-resolver.ps1`) |
+|---|---|---|---|---|
+| Repo root | `resolve_git_root` | `findGitRoot` | `wqm_git_repo_root` | `Get-WqmGitRepoRoot` |
+| Is git repo | (presence of `.git`) | `isGitRepository` | (via repo root) | `Test-WqmGitMarker` |
+| Is worktree | `GitStatus.is_worktree` | `isWorktree` | `wqm_git_is_worktree` | `Test-WqmGitIsWorktree` |
+| Common git dir | `find_main_worktree_path` | `getGitCommonDir` | `wqm_git_common_dir` | `Get-WqmGitCommonDir` |
+| Current branch | `GitStatus.branch` | `getCurrentBranch` | `wqm_git_current_branch` | `Get-WqmGitCurrentBranch` |
+| Head commit | `GitStatus.commit_hash` | `getHeadCommit` | `wqm_git_head_commit` | `Get-WqmGitHeadCommit` |
+| Remote URL | `detect_git_remote` | `getGitRemoteUrl` | `wqm_git_remote_url` | `Get-WqmGitRemoteUrl` |
+| Aggregate state | `GitStatus` | `getGitState` | `wqm_git_state` (JSON) | `Get-WqmGitState` |
+| `is_windows_absolute` | (inline `windows_drive_prefix_len`) | `parseWindowsDrivePrefix` | `wqm_path_is_windows_absolute` | `Test-WqmPathIsWindowsAbsolute` |
+
+The cross-language fixtures cover the path predicates and the
+`normalize_slashes` transform. The full canonical normalizer is exercised
+in Rust and TS (covered by language-native test suites); the sh and PS
+sides delegate to `git` for git operations and don't re-implement the
+nine normalization rules.
+
 ### 3.3 Relative Paths
 
 A **relative path** names content **inside** a project or library, anchored to its owning

@@ -7,7 +7,8 @@
 
 use std::sync::Arc;
 
-use sqlx::SqlitePool;
+use chrono::DateTime;
+use sqlx::{Row, SqlitePool};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -176,6 +177,106 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
     handle
 }
 
+/// Periodically refresh the indexed-project inventory metric from SQLite.
+///
+/// Exports one Prometheus series per indexed project row so Grafana can render
+/// a live table of project metadata without querying SQLite directly.
+pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let query = r#"
+                SELECT
+                    wf.watch_id,
+                    wf.tenant_id,
+                    wf.path,
+                    wf.enabled,
+                    wf.is_active,
+                    wf.is_paused,
+                    wf.is_archived,
+                    wf.is_worktree,
+                    wf.is_git_tracked,
+                    COUNT(tf.file_id) AS document_count,
+                    COALESCE(SUM(tf.chunk_count), 0) AS point_count,
+                    wf.last_scan,
+                    wf.last_activity_at
+                FROM watch_folders wf
+                LEFT JOIN tracked_files tf
+                    ON tf.watch_folder_id = wf.watch_id
+                WHERE wf.collection = 'projects'
+                GROUP BY
+                    wf.watch_id,
+                    wf.tenant_id,
+                    wf.path,
+                    wf.enabled,
+                    wf.is_active,
+                    wf.is_paused,
+                    wf.is_archived,
+                    wf.is_worktree,
+                    wf.is_git_tracked
+                ORDER BY document_count DESC, point_count DESC, wf.tenant_id ASC, wf.path ASC
+            "#;
+
+            match sqlx::query(query).fetch_all(&pool).await {
+                Ok(rows) => {
+                    METRICS.indexed_project_tracked_files.reset();
+                    METRICS.indexed_project_points.reset();
+                    METRICS.indexed_project_last_scan_seconds.reset();
+                    METRICS.indexed_project_last_activity_seconds.reset();
+
+                    for row in rows {
+                        let watch_id: String = row.get("watch_id");
+                        let tenant_id: String = row.get("tenant_id");
+                        let path: String = row.get("path");
+                        let enabled: i32 = row.get("enabled");
+                        let is_active: i32 = row.get("is_active");
+                        let is_paused: i32 = row.get("is_paused");
+                        let is_archived: i32 = row.get("is_archived");
+                        let is_worktree: i32 = row.get("is_worktree");
+                        let is_git_tracked: i32 = row.get("is_git_tracked");
+                        let document_count: i64 = row.get("document_count");
+                        let point_count: i64 = row.get("point_count");
+                        let last_scan_epoch: Option<i64> = row
+                            .get::<Option<String>, _>("last_scan")
+                            .and_then(|value| {
+                                DateTime::parse_from_rfc3339(&value)
+                                    .ok()
+                                    .map(|dt| dt.timestamp())
+                            });
+                        let last_activity_epoch: Option<i64> = row
+                            .get::<Option<String>, _>("last_activity_at")
+                            .and_then(|value| {
+                                DateTime::parse_from_rfc3339(&value)
+                                    .ok()
+                                    .map(|dt| dt.timestamp())
+                            });
+
+                        METRICS.set_indexed_project_tracked_files(
+                            &watch_id,
+                            &tenant_id,
+                            &path,
+                            enabled != 0,
+                            is_active != 0,
+                            is_paused != 0,
+                            is_archived != 0,
+                            is_worktree != 0,
+                            is_git_tracked != 0,
+                            document_count,
+                        );
+                        METRICS.set_indexed_project_points(&watch_id, point_count);
+                        METRICS.set_indexed_project_last_scan(&watch_id, last_scan_epoch);
+                        METRICS.set_indexed_project_last_activity(&watch_id, last_activity_epoch);
+                    }
+                }
+                Err(e) => debug!("indexed project inventory refresh failed: {}", e),
+            }
+        }
+    });
+    info!("Indexed project inventory exporter started (30s interval)");
+    handle
+}
+
 /// Start hourly metrics maintenance: aggregation + retention (Task 544.11-14).
 pub fn start_metrics_maintenance(pool: SqlitePool) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -335,6 +436,7 @@ pub fn spawn_all(
     let _remote = start_remote_url_monitor(pool.clone());
     let _git_state = start_git_state_monitor(pool.clone());
     let _queue_depth = start_queue_depth_exporter(pool.clone());
+    let _project_inventory = start_indexed_project_inventory_exporter(pool.clone());
 
     BackgroundHandles {
         uptime_handle,

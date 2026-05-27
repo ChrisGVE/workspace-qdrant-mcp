@@ -71,6 +71,19 @@ export interface UpdateSearchEventRequest {
   outcome?: string;
 }
 
+/**
+ * Token-economy metrics from the post-execution shaping pass.
+ * Spec: docs/specs/20-token-economy-instrumentation.md
+ */
+export interface UpdateSearchEventEconomyRequest {
+  event_id: string;
+  bytes_in: number;
+  bytes_out: number;
+  hits_truncated: number;
+  shape_mode: 'truncate' | 'summary' | 'none';
+  tool_version?: string;
+}
+
 export interface UpsertRuleMirrorRequest {
   rule_id: string;
   rule_text: string;

@@ -83,6 +83,65 @@ impl DaemonMetrics {
             .set(bytes);
     }
 
+    /// Set the tracked-file count for an indexed project inventory row.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_indexed_project_tracked_files(
+        &self,
+        watch_id: &str,
+        tenant_id: &str,
+        path: &str,
+        enabled: bool,
+        is_active: bool,
+        is_paused: bool,
+        is_archived: bool,
+        is_worktree: bool,
+        is_git_tracked: bool,
+        tracked_files: i64,
+    ) {
+        self.indexed_project_tracked_files
+            .with_label_values(&[
+                watch_id,
+                tenant_id,
+                path,
+                if enabled { "true" } else { "false" },
+                if is_active { "true" } else { "false" },
+                if is_paused { "true" } else { "false" },
+                if is_archived { "true" } else { "false" },
+                if is_worktree { "true" } else { "false" },
+                if is_git_tracked { "true" } else { "false" },
+            ])
+            .set(tracked_files);
+    }
+
+    /// Set the point count for an indexed project inventory row.
+    pub fn set_indexed_project_points(&self, watch_id: &str, points: i64) {
+        self.indexed_project_points
+            .with_label_values(&[watch_id])
+            .set(points);
+    }
+
+    /// Set the last-scan timestamp for an indexed project inventory row.
+    pub fn set_indexed_project_last_scan(&self, watch_id: &str, last_scan_epoch: Option<i64>) {
+        if let Some(last_scan_epoch) = last_scan_epoch {
+            self.indexed_project_last_scan_seconds
+                .with_label_values(&[watch_id])
+                .set(last_scan_epoch);
+        }
+    }
+
+    /// Set the last-activity timestamp for an indexed project inventory row.
+    pub fn set_indexed_project_last_activity(
+        &self,
+        watch_id: &str,
+        last_activity_epoch: Option<i64>,
+    ) {
+        if let Some(last_activity_epoch) = last_activity_epoch {
+            self.indexed_project_last_activity_seconds
+                .with_label_values(&[watch_id])
+                .set(last_activity_epoch);
+        }
+    }
+
     // ── System helpers ────────────────────────────────────────────────
 
     /// Update daemon uptime

@@ -12,7 +12,8 @@ src/typescript/mcp-server/node_modules/
 src/typescript/mcp-server/dist/
 
 # Old Docker folder
-docker/
+docker/*
+!docker/memexd-entrypoint.sh
 
 # TaskMaster and Claude config
 .taskmaster/

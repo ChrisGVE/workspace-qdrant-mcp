@@ -214,7 +214,10 @@ See [CLI Reference](docs/reference/cli.md) for complete documentation.
 |----------|---------|-------------|
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | - | API key (required for Qdrant Cloud) |
-| `FASTEMBED_MODEL` | `all-MiniLM-L6-v2` | Embedding model |
+| `WQM_EMBEDDING_PROVIDER` | `openai_compatible` | Set to `fastembed` for local runs without an API key |
+| `WQM_EMBEDDING_MODEL_CACHE_DIR` | - | FastEmbed model cache directory |
+
+For a local FastEmbed setup, point `WQM_EMBEDDING_MODEL_CACHE_DIR` and `HF_HOME` at the same writable folder and use the Windows helper target `make -f Makefile.win service-stabilize-fastembed`.
 
 ### Claude Code Integration
 

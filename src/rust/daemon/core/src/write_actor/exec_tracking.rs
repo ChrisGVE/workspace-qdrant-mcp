@@ -58,6 +58,29 @@ impl WriteActor {
         Ok(())
     }
 
+    pub(super) async fn exec_update_search_event_economy(
+        &self,
+        data: UpdateSearchEventEconomyData,
+    ) -> WriteResult<()> {
+        sqlx::query(
+            "UPDATE search_events \
+             SET bytes_in = ?1, bytes_out = ?2, hits_truncated = ?3, \
+                 shape_mode = ?4, tool_version = ?5 \
+             WHERE id = ?6",
+        )
+        .bind(data.bytes_in)
+        .bind(data.bytes_out)
+        .bind(data.hits_truncated)
+        .bind(&data.shape_mode)
+        .bind(&data.tool_version)
+        .bind(&data.event_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("failed to update search event economy: {}", e))?;
+
+        Ok(())
+    }
+
     pub(super) async fn exec_upsert_rule_mirror(
         &self,
         data: UpsertRuleMirrorData,

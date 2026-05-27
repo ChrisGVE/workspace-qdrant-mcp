@@ -13,7 +13,13 @@ export type { Rule };
 
 /** Build a RulesTool instance from config. */
 function buildRulesTool(config: ReturnType<typeof loadConfig>): RulesTool {
-  const daemonClient = new DaemonClient({ port: config.daemon.grpcPort, timeoutMs: 5000 });
+  // See server-factory.ts for the rationale on the 30s floor (LSP startup).
+  const daemonTimeoutMs = Number(process.env['WQM_DAEMON_TIMEOUT_MS'] ?? '30000');
+  const daemonClient = new DaemonClient({
+    port: config.daemon.grpcPort,
+    timeoutMs:
+      Number.isFinite(daemonTimeoutMs) && daemonTimeoutMs > 0 ? daemonTimeoutMs : 30000,
+  });
   const stateManager = new SqliteStateManager({
     dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
   });

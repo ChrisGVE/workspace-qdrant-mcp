@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # tests/integration/docker/common.sh
 #
-# Shared helpers for the reference-compose integration suite. Source this
-# from every test script — it sets `set -euo pipefail`, exports paths,
-# installs a cleanup trap that tears the compose project down, and provides
-# polling + assertion helpers.
+# Shared helpers for the unified compose integration suite. Source this from
+# every test script — it sets `set -euo pipefail`, exports paths, installs a
+# cleanup trap that tears the compose project down, and provides polling +
+# assertion helpers.
 #
 # Each caller must export:
 #   TEST_NAME          — unique short name, used in the compose project prefix
@@ -13,7 +13,7 @@
 # The caller may override:
 #   POLL_TIMEOUT       — seconds to wait for each service (default: 180)
 #   POLL_INTERVAL      — seconds between poll attempts (default: 3)
-#   MEMEXD_IMAGE, MCP_IMAGE, QDRANT_VERSION — see compose/reference.yml
+#   MEMEXD_IMAGE, MCP_IMAGE, QDRANT_VERSION — see docker-compose.yml
 #   WQM_DEV_ROOT       — host path to bind-mount as watch root
 #                        (default: scratch dir inside BATS_TMPDIR)
 
@@ -21,10 +21,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-COMPOSE_DIR="${REPO_ROOT}/docker/compose"
 
 TEST_NAME="${TEST_NAME:-wqm-ref}"
 COMPOSE_PROJECT="wqm-e2e-${TEST_NAME}"
+COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 POLL_TIMEOUT="${POLL_TIMEOUT:-180}"
 POLL_INTERVAL="${POLL_INTERVAL:-3}"
 
@@ -58,7 +58,7 @@ fail() {
 compose() {
 	docker compose \
 		--project-name "${COMPOSE_PROJECT}" \
-		-f "${COMPOSE_DIR}/reference.yml" \
+		-f "${COMPOSE_FILE}" \
 		"$@"
 }
 

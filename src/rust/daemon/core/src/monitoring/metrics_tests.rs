@@ -75,10 +75,14 @@ mod tests {
 
         metrics.session_started("test-project", "normal");
         metrics.set_queue_depth("normal", "projects", 50);
+        metrics.set_uptime(42.0);
 
         let output = metrics.encode().expect("encoding should succeed");
         assert!(output.contains("memexd_active_sessions"));
         assert!(output.contains("memexd_queue_depth"));
+        assert!(output.contains("memexd_uptime_seconds"));
+        assert!(!output.contains("memexd_memexd_queue_depth"));
+        assert!(!output.contains("memexd_memexd_uptime_seconds"));
     }
 
     #[test]
@@ -240,5 +244,7 @@ mod tests {
         let output = metrics.encode().expect("encoding should succeed");
         assert!(output.contains("memexd_unified_queue_depth"));
         assert!(output.contains("memexd_unified_queue_enqueues_total"));
+        assert!(!output.contains("memexd_memexd_unified_queue_depth"));
+        assert!(!output.contains("memexd_memexd_unified_queue_enqueues_total"));
     }
 }

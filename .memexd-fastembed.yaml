@@ -1,0 +1,188 @@
+log_file: null
+max_concurrent_tasks: 4
+default_timeout_ms: 30000
+enable_preemption: true
+chunk_size: 1000
+log_level: info
+auto_ingestion:
+  enabled: true
+  auto_create_watches: true
+  include_common_files: true
+  include_source_files: true
+  target_collection_suffix: scratchbook
+  max_files_per_batch: 5
+  batch_delay_seconds: 2.0
+  max_file_size_mb: 50
+  recursive_depth: 5
+  debounce_seconds: 10
+project_path: null
+qdrant:
+  url: http://localhost:6333
+  api_key: null
+  timeout_ms: 30000
+  max_retries: 3
+  retry_delay_ms: 1000
+  transport: Grpc
+  pool_size: 10
+  tls: false
+  dense_vector_size: 384
+  sparse_vector_size: null
+  http2:
+    max_frame_size: 8192
+    initial_window_size: 32768
+    max_header_list_size: 8192
+    enable_push: false
+    tcp_keepalive: true
+    keepalive_interval_ms: 30000
+    keepalive_timeout_ms: 5000
+    http2_adaptive_window: false
+  check_compatibility: true
+logging:
+  info_includes_connection_events: true
+  info_includes_transport_details: true
+  info_includes_retry_attempts: true
+  info_includes_fallback_behavior: true
+  error_includes_stack_trace: true
+  error_includes_connection_state: true
+queue_processor:
+  batch_size: 10
+  poll_interval_ms: 500
+  max_retries: 5
+  retry_delays_seconds:
+  - 60
+  - 300
+  - 900
+  - 3600
+  target_throughput: 1000
+  enable_metrics: true
+monitoring:
+  check_interval_hours: 24
+  check_on_startup: true
+  enable_monitoring: true
+git:
+  enable_branch_detection: true
+  cache_ttl_seconds: 5
+observability:
+  collection_interval: 60
+  metrics:
+    enabled: false
+  telemetry:
+    enabled: false
+    history_retention: 120
+    cpu_usage: true
+    memory_usage: true
+    latency: true
+    queue_depth: true
+    throughput: true
+    service_name: memexd
+    prometheus:
+      enabled: false
+      port: 6337
+      bind: 0.0.0.0
+    otlp:
+      enabled: false
+      endpoint: http://localhost:4318
+      protocol: http/protobuf
+      sample_rate: 1.0
+      headers: {}
+embedding:
+  cache_max_entries: 1000
+  model_cache_dir: "C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/.fastembed_cache"
+  provider: fastembed
+  model: AllMiniLM-L6-v2
+  base_url: ""
+  remote_batch_size: 128
+  api_key_env_var: ""
+  output_dim: 384
+  health_probe_cache_secs: 60
+lsp:
+  user_path: null
+  max_servers_per_project: 3
+  auto_start_on_activation: true
+  deactivation_delay_secs: 60
+  enable_enrichment_cache: true
+  cache_ttl_secs: 300
+  startup_timeout_secs: 30
+  request_timeout_secs: 10
+  health_check_interval_secs: 60
+  max_restart_attempts: 3
+  restart_backoff_multiplier: 2.0
+  enable_auto_restart: true
+  stability_reset_secs: 3600
+  idle_timeout_secs: 1800
+grammars:
+  cache_dir: ~/.cache/workspace-qdrant/grammars
+  required: []
+  auto_download: true
+  tree_sitter_version: '0.26'
+  download_base_url: https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}
+  verify_checksums: true
+  lazy_loading: true
+  check_interval_hours: 168
+  idle_update_check_enabled: true
+  idle_update_check_delay_secs: 300
+  grammar_idle_timeout_secs: 1800
+updates:
+  auto_check: true
+  channel: stable
+  notify_only: true
+  check_interval_hours: 24
+resource_limits:
+  nice_level: 10
+  inter_item_delay_ms: 50
+  max_concurrent_embeddings: 0
+  max_memory_percent: 70
+  onnx_intra_threads: 0
+  idle_threshold_secs: 120
+  idle_confirmation_secs: 300
+  ramp_up_step_secs: 120
+  ramp_down_step_secs: 300
+  burst_hold_secs: 600
+  burst_concurrency_multiplier: 2.0
+  burst_inter_item_delay_ms: 0
+  cpu_pressure_threshold: 0.6
+  idle_poll_interval_secs: 5
+  active_concurrency_multiplier: 1.5
+  active_inter_item_delay_ms: 25
+  linux_idle_source: none
+  linux_idle_load_threshold: 0.1
+startup:
+  warmup_delay_secs: 5
+  warmup_window_secs: 30
+  warmup_max_concurrent_embeddings: 1
+  warmup_inter_item_delay_ms: 200
+  startup_enqueue_batch_size: 50
+  startup_enqueue_batch_delay_ms: 100
+daemon_endpoint:
+  host: 127.0.0.1
+  grpc_port: 55151
+  health_endpoint: /health
+ingestion_limits:
+  extension_size_limits_kb:
+    csv: 500
+    xsl: 500
+    tsv: 500
+    jsonl: 500
+    yml: 500
+    xslt: 500
+    jsonc: 500
+    ndjson: 500
+    toml: 500
+    yaml: 500
+    xml: 500
+    json5: 500
+    json: 500
+url_ingestion:
+  connect_timeout_secs: 15
+  read_timeout_secs: 60
+  max_redirects: 5
+  max_body_bytes: 10485760
+  allow_private_networks: false
+  allowed_content_types:
+  - text/
+  - application/json
+  - application/xhtml+xml
+  - application/xml
+mounts: []
+
+

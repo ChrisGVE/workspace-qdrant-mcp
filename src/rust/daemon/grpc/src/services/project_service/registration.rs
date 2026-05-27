@@ -358,11 +358,34 @@ impl ProjectServiceImpl {
         is_high_priority: bool,
         effective_path: &Path,
     ) -> Result<RegistrationAction, Status> {
-        if self.project_exists(project_id).await? {
+        let project_already_exists = self.project_exists(project_id).await?;
+
+        // Worktree detection runs first regardless of project existence: a
+        // request whose path is a linked worktree must register the worktree
+        // path as its own watch_folder sharing the main repo's tenant_id.
+        // Skipping this when `project_exists(project_id) == true` would mean
+        // the worktree path is never tracked separately, even though its files
+        // live at a different location on disk.
+        //
+        // `try_worktree_auto_register` itself checks whether the main repo is
+        // already registered (it requires a parent watch_folder), and whether
+        // the worktree path is already in watch_folders — so calling it on the
+        // "project exists" branch is safe and idempotent.
+        let wt_result = self
+            .try_worktree_auto_register(effective_path, is_high_priority)
+            .await?;
+        if let WorktreeResult::Registered { .. } = &wt_result {
+            return Ok(RegistrationAction::WorktreeAutoRegistered { result: wt_result });
+        }
+
+        if project_already_exists {
             if is_high_priority {
+                // Second arg is an ignored legacy `_branch` parameter (see
+                // priority_manager::register_session); pass a stable label so
+                // it can't be mistaken for a real git ref.
                 match self
                     .priority_manager
-                    .register_session(project_id, "main")
+                    .register_session(project_id, "session")
                     .await
                 {
                     Ok(_) => Ok(RegistrationAction::ExistingActivated),
@@ -374,21 +397,11 @@ impl ProjectServiceImpl {
             } else {
                 Ok(RegistrationAction::ExistingNoop)
             }
-        } else if !req.register_if_new {
-            // Project not found and caller did not request auto-registration.
-            // Check if this path is a worktree whose main project is registered.
-            let wt_result = self
-                .try_worktree_auto_register(effective_path, is_high_priority)
-                .await?;
-            match wt_result {
-                WorktreeResult::Registered { .. } => {
-                    Ok(RegistrationAction::WorktreeAutoRegistered { result: wt_result })
-                }
-                WorktreeResult::NotApplicable => Ok(RegistrationAction::NotFoundSkipped),
-            }
-        } else {
+        } else if req.register_if_new {
             self.enqueue_new_project(project_id, req, is_high_priority)
                 .await
+        } else {
+            Ok(RegistrationAction::NotFoundSkipped)
         }
     }
 

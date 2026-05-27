@@ -4,12 +4,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 
 import type { DaemonClient } from './clients/daemon-client.js';
+import type { RegisterProjectResponse } from './clients/grpc-types.js';
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import type { ProjectDetector } from './utils/project-detector.js';
 import { getGitRemoteUrl } from './utils/project-detector.js';
-import { findGitRoot } from './utils/git-utils.js';
+import { getEffectiveCwd } from './utils/request-context.js';
+import { findGitRoot, getCurrentBranch, isWorktree } from './utils/git-utils.js';
 import type { HealthMonitor } from './utils/health-monitor.js';
 import { logInfo, logError, logDebug, logSessionEvent, logDaemonStatus } from './utils/logger.js';
 import { recordDaemonFallback } from './telemetry/metrics.js';
@@ -17,17 +20,61 @@ import { HEARTBEAT_INTERVAL_MS } from './server-types.js';
 import type { SessionState } from './server-types.js';
 
 /**
- * Initialize session: detect project, connect daemon, start heartbeat.
+ * Initialize session: detect project, connect daemon, auto-register if needed,
+ * then start heartbeat.
  * Mutates sessionState in place.
  */
+/**
+ * Paths that must NEVER be auto-registered as a project, even if they
+ * survive the project-marker walk. These are common defaults that processes
+ * inherit when launched by GUIs, services, or installers and they would
+ * pollute the daemon's watch list with system directories.
+ */
+const SUSPICIOUS_CWD_PATTERNS: ReadonlyArray<RegExp> = [
+  /^[A-Za-z]:[\\/]+WINDOWS([\\/]|$)/i, // C:\WINDOWS\..., C:/Windows/...
+  /^[A-Za-z]:[\\/]+Program Files([\\/]|$)/i,
+  /^[A-Za-z]:[\\/]+ProgramData([\\/]|$)/i,
+  /^[A-Za-z]:[\\/]*$/i, // bare drive root: C:\, C:/, D:\, ...
+  /^\/$/, // POSIX root
+  /^\/(usr|bin|sbin|etc|var|tmp|root|System|Library)([\\/]|$)/i,
+];
+
+function isSuspiciousCwd(path: string): boolean {
+  return SUSPICIOUS_CWD_PATTERNS.some((re) => re.test(path));
+}
+
 /** Detect and assign project info to session state. */
 async function detectProjectForSession(
   sessionState: SessionState,
   projectDetector: ProjectDetector
 ): Promise<void> {
-  const cwd = process.cwd();
-  const projectRoot = projectDetector.findProjectRoot(cwd) ?? cwd;
-  const projectInfo = await projectDetector.getProjectInfo(projectRoot, true);
+  // Allow explicit override for service-style launches (GUI, launchd, systemd).
+  const envOverride = process.env['WQM_PROJECT_ROOT'];
+  const cwd = getEffectiveCwd();
+  const startPath = envOverride ?? cwd;
+
+  // If the search base itself is a system directory, do not even attempt
+  // to walk up — anything we'd find is wrong. This avoids the
+  // `C:\WINDOWS\system32` → `C:\` failure mode (Bug 3 in audit).
+  if (!envOverride && isSuspiciousCwd(cwd)) {
+    logDebug('Skipping project detection: cwd is a system directory', { cwd });
+    return;
+  }
+
+  const foundRoot = projectDetector.findProjectRoot(startPath);
+  if (!foundRoot) {
+    logDebug('No project marker found; not registering', { startPath });
+    return;
+  }
+  if (isSuspiciousCwd(foundRoot)) {
+    logDebug('Found project root is suspicious; refusing to register', {
+      startPath,
+      foundRoot,
+    });
+    return;
+  }
+
+  const projectInfo = await projectDetector.getProjectInfo(foundRoot, false);
   if (projectInfo) {
     sessionState.projectPath = projectInfo.projectPath;
     sessionState.projectId = projectInfo.projectId;
@@ -36,9 +83,50 @@ async function detectProjectForSession(
       project_id: projectInfo.projectId,
     });
   } else {
-    sessionState.projectPath = projectRoot;
-    logDebug('Project root detected but not registered', { projectRoot, cwd });
+    sessionState.projectPath = foundRoot;
+    logDebug('Project root detected but not registered', { projectRoot: foundRoot, cwd });
   }
+
+  // Capture initial git state. Best-effort: silently skip if git is
+  // unavailable or path is not a repo. Refreshed lazily by
+  // `ensureProjectFresh` on every tool call.
+  if (sessionState.projectPath) {
+    refreshGitState(sessionState);
+  }
+}
+
+/**
+ * Time-to-live for cached git state. After this many milliseconds since the
+ * last refresh, the next tool call will re-read `branch` and `isWorktree`
+ * from `git`. Short enough that branch switches show up quickly; long enough
+ * that a burst of tool calls doesn't cost a `git` invocation each.
+ */
+const BRANCH_FRESHNESS_MS = 5_000;
+
+function refreshGitState(sessionState: SessionState): void {
+  if (!sessionState.projectPath) return;
+  try {
+    const branch = getCurrentBranch(sessionState.projectPath);
+    if (branch !== null) sessionState.currentBranch = branch;
+    sessionState.isWorktree = isWorktree(sessionState.projectPath);
+    sessionState.lastBranchRefreshAt = Date.now();
+  } catch {
+    // Silent: best-effort enrichment.
+  }
+}
+
+/**
+ * Refresh the cached git state (branch + worktree flag) if it has aged out.
+ *
+ * Called by the tool dispatcher before each tool call so search/grep that
+ * depend on the current branch see fresh values without re-detecting on
+ * every call. Cheap when within TTL — single `Date.now()` comparison.
+ */
+export function ensureProjectFresh(sessionState: SessionState): void {
+  if (!sessionState.projectPath) return;
+  const age = Date.now() - sessionState.lastBranchRefreshAt;
+  if (age < BRANCH_FRESHNESS_MS) return;
+  refreshGitState(sessionState);
 }
 
 export async function initializeSession(
@@ -71,8 +159,10 @@ export async function initializeSession(
 /**
  * Register/activate the current project with the daemon.
  *
- * Only re-activates EXISTING projects (register_if_new: false).
- * New projects must be registered explicitly via CLI or other means.
+ * First tries to re-activate an existing project (`register_if_new: false`).
+ * If the current path is unknown to the daemon, falls back to
+ * `register_if_new: true` so fresh projects and worktrees are registered
+ * automatically during session startup.
  */
 /** Apply daemon registration response to session state. */
 function applyRegistrationResponse(
@@ -102,14 +192,34 @@ export async function registerProject(
 
   try {
     const gitRemote = getGitRemoteUrl(sessionState.projectPath);
-    const response = await daemonClient.registerProject({
-      path: sessionState.projectPath,
-      project_id: sessionState.projectId ?? '',
-      name: sessionState.projectPath.split('/').pop() ?? 'unknown',
-      register_if_new: false,
-      priority: 'high',
-      ...(gitRemote ? { git_remote: gitRemote } : {}),
-    });
+    const projectName = basename(sessionState.projectPath) || 'unknown';
+    const unknownProject = sessionState.projectId === null;
+
+    let response = await callRegisterProject(
+      daemonClient,
+      sessionState.projectPath,
+      projectName,
+      gitRemote,
+      sessionState.projectId ?? '',
+      false,
+      false
+    );
+
+    if (!response.created && !response.is_active && unknownProject) {
+      logInfo('Project not registered yet; auto-registering on session start', {
+        project_path: sessionState.projectPath,
+        project_id: response.project_id,
+      });
+      response = await callRegisterProject(
+        daemonClient,
+        sessionState.projectPath,
+        projectName,
+        gitRemote,
+        '',
+        true,
+        false
+      );
+    }
 
     if (!response.is_active && !response.created) {
       logInfo('Project not registered with daemon, skipping activation', {
@@ -138,38 +248,38 @@ export async function registerProject(
 /**
  * Register a project via the store tool (type: "project").
  *
- * Unlike session-start registration (register_if_new: false), this explicitly
- * registers new projects with register_if_new: true.
+ * Unlike session-start registration, this explicitly registers new projects
+ * with `register_if_new: true`.
  */
 /** Call the daemon to register a project and log the event. */
 async function callRegisterProject(
   daemonClient: DaemonClient,
   resolvedPath: string,
   name: string,
-  gitRemote: string | null
-): Promise<{
-  project_id: string;
-  created: boolean;
-  newly_registered: boolean;
-  is_active: boolean;
-  priority: string;
-}> {
+  gitRemote: string | null,
+  projectId: string,
+  registerIfNew: boolean,
+  logEvent = true
+): Promise<RegisterProjectResponse> {
   const response = await daemonClient.registerProject({
     path: resolvedPath,
-    project_id: '',
+    project_id: projectId,
     name,
-    register_if_new: true,
+    register_if_new: registerIfNew,
     priority: 'high',
     ...(gitRemote ? { git_remote: gitRemote } : {}),
   });
-  logSessionEvent('register', {
-    project_id: response.project_id,
-    project_path: resolvedPath,
-    created: response.created,
-    priority: response.priority,
-    is_active: response.is_active,
-    newly_registered: response.newly_registered,
-  });
+  if (logEvent && (response.created || response.is_active || registerIfNew)) {
+    logSessionEvent('register', {
+      project_id: response.project_id,
+      project_path: resolvedPath,
+      created: response.created,
+      priority: response.priority,
+      is_active: response.is_active,
+      newly_registered: response.newly_registered,
+      register_if_new: registerIfNew,
+    });
+  }
   return response;
 }
 
@@ -190,10 +300,18 @@ export async function registerProjectFromTool(
     throw new Error('Daemon is not connected — cannot register project');
 
   const resolvedPath = findGitRoot(path) ?? path;
-  const name = (args?.['name'] as string) ?? resolvedPath.split('/').pop() ?? 'unknown';
+  const name = (args?.['name'] as string) ?? (basename(resolvedPath) || 'unknown');
   const gitRemote = getGitRemoteUrl(resolvedPath);
 
-  const response = await callRegisterProject(daemonClient, resolvedPath, name, gitRemote);
+  const response = await callRegisterProject(
+    daemonClient,
+    resolvedPath,
+    name,
+    gitRemote,
+    '',
+    true,
+    true
+  );
 
   return {
     success: true,

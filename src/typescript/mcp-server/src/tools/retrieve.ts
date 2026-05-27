@@ -20,6 +20,7 @@
 
 import { QdrantClient } from '@qdrant/js-client-rest';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import { FIELD_CONTENT, FIELD_TENANT_ID, FIELD_LIBRARY_NAME } from '../common/native-bridge.js';
 
 // Re-export all types so existing imports from './retrieve.js' continue to work
@@ -310,7 +311,7 @@ export class RetrieveTool {
   }
 
   private async resolveProjectId(): Promise<string | undefined> {
-    const cwd = process.cwd();
+    const cwd = getEffectiveCwd();
     const projectInfo = await this.projectDetector.getProjectInfo(cwd, false);
     return projectInfo?.projectId;
   }

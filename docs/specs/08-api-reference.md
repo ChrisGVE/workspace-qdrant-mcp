@@ -45,6 +45,9 @@ search({
     // Structural filters
     component?: string,               // Filter by project component (e.g., "daemon", "daemon.core"). Supports prefix matching.
     pathGlob?: string,                // File path glob filter (e.g., "**/*.rs", "src/**/*.ts")
+    // Payload shaping (per-hit budget control)
+    maxBytesPerHit?: number,          // Per-hit text cap in chars (default: 1500). Set to 0 to disable.
+    summary?: boolean,                // Drop chunk bodies, return only metadata (default: false)
 )
 ```
 
@@ -94,6 +97,21 @@ search({ query: "auth", collection: "projects", scope: "other", project_id: "abc
 ```
 
 **project_id handling:** The MCP server FETCHES `project_id` from the daemon's state database (not calculated locally). This prevents drift between MCP and daemon. The fetch happens on first search operation to allow time for daemon to register the watch folder.
+
+**Payload shaping (`maxBytesPerHit`, `summary`):**
+
+Each hit ships its `content` (and `parent_context.unit_text` when context expansion is on) as inline text. Without a cap, a broad 10-hit response can exceed an MCP client's per-tool-result token budget, forcing the client to offload the response to disk and breaking the agent's flow. The server applies a per-hit cap at the outer boundary of `search` so callers don't have to think about budgets:
+
+- Default behavior (`maxBytesPerHit: 1500`): hits longer than the cap are truncated with a marker: `... [truncated at 1500 chars; full chunk via retrieve(documentId="<id>", collection="<col>")]`. The agent can call `retrieve` to fetch the full body.
+- `maxBytesPerHit: 0` — disable truncation entirely (caller takes responsibility for the budget).
+- `summary: true` — drop chunk bodies entirely; keep only `id`, `score`, `collection`, `title`, and structural metadata (path, symbol, line range, tags). Intended for "which doc do I want?" discovery before a follow-up `retrieve`. A 10-hit summary response typically fits under 5k chars.
+
+The cap also strips duplicate text from `metadata` (the Qdrant payload duplicates `content` into both `result.content` and the per-collection content field), so the shipped payload stays close to the requested cap.
+
+The shaping pass is also the instrumentation point for the **token economy
+metric** — `bytes_in` / `bytes_out` / `hits_truncated` are captured here and
+written to `search_events`. See
+[20-token-economy-instrumentation.md](20-token-economy-instrumentation.md).
 
 #### retrieve
 
@@ -291,7 +309,7 @@ When the MCP server connects to the transport (stdio or HTTP):
    - Server queries daemon via `GetProjectStatus` to check if project exists in `watch_folders`
    - **If registered:** Server sends `RegisterProject` (with `register_if_new=false`, the default)
      - Daemon sets `is_active = true` and updates `last_activity_at`
-   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` or the `store` tool with `type: \"project\"` to register") and continues without activation — search and rules tools still work, but file watching is not started
+   - **If not registered:** Server retries with `register_if_new=true` so the project/worktree is registered automatically before the session continues
 
 2. **Start heartbeat:**
    - Periodic heartbeat with daemon to prevent timeout-based deactivation
@@ -479,9 +497,9 @@ Multi-tenant project lifecycle and session management.
 
 **Registration Policy:**
 - `RegisterProject` accepts a `register_if_new` boolean field (default: `false`)
-  - `register_if_new=false` (MCP default): Only re-activates existing `watch_folders` entries. Returns error if project not found.
-  - `register_if_new=true` (CLI-initiated): Enqueues `(Tenant, Add)` if project doesn't exist. Queue processor creates watch_folder entry and triggers initial scan.
-- MCP servers call `RegisterProject` on startup with `register_if_new=false` — they only re-activate known projects
+  - `register_if_new=false` (MCP activation path): Re-activates existing `watch_folders` entries. If the project is unknown, the client can fall back to `register_if_new=true`.
+  - `register_if_new=true` (explicit registration): Enqueues `(Tenant, Add)` if project doesn't exist. Queue processor creates watch_folder entry and triggers initial scan.
+- MCP servers first call `RegisterProject` with `register_if_new=false`; if the current path is unknown, they fall back to `register_if_new=true` so new projects and worktrees are registered automatically
 - CLI `wqm project add` calls `RegisterProject` with `register_if_new=true` to create new entries
 - For existing high-priority projects, synchronous activation (direct gRPC) is preserved for MCP server flow
 

@@ -25,6 +25,12 @@ fn rule_1_absolute_required() {
 }
 
 #[test]
+fn rule_1_mnt_style_path_accepted() {
+    let p = CanonicalPath::from_user_input("/mnt/c/Users/chris/dev").unwrap();
+    assert_eq!(p.as_str(), "/mnt/c/Users/chris/dev");
+}
+
+#[test]
 fn rule_2_tilde_expansion() {
     // shellexpand::tilde calls dirs::home_dir(), which uses
     // platform APIs (NSHomeDirectory on macOS) rather than $HOME.
@@ -34,7 +40,14 @@ fn rule_2_tilde_expansion() {
     let home_str = home.to_str().expect("home path must be UTF-8");
 
     let p = CanonicalPath::from_user_input("~/project").unwrap();
-    assert_eq!(p.as_str(), format!("{home_str}/project"));
+
+    // Normalize the expected home to forward slashes, matching how
+    // `normalize_path` rewrites Windows separators before producing the
+    // canonical form. On POSIX this is a no-op; on Windows it converts
+    // the `C:\Users\<user>` form returned by `dirs::home_dir()` into the
+    // canonical `C:/Users/<user>` form.
+    let expected_home = home_str.replace('\\', "/");
+    assert_eq!(p.as_str(), format!("{expected_home}/project"));
 }
 
 #[test]
@@ -117,6 +130,64 @@ fn rule_9_local_to_canonical_rejects_non_utf8() {
 #[test]
 fn error_relative_input() {
     let err = CanonicalPath::from_user_input("relative/path").unwrap_err();
+    assert!(matches!(err, PathError::RelativeInput(_)));
+}
+
+#[test]
+fn windows_drive_path_with_backslashes_accepted() {
+    // Backslashes normalize to forward slashes; drive is preserved as-is.
+    let p = CanonicalPath::from_user_input("C:\\Users\\chris\\dev").unwrap();
+    assert_eq!(p.as_str(), "C:/Users/chris/dev");
+}
+
+#[test]
+fn windows_drive_path_with_forward_slashes_accepted() {
+    let p = CanonicalPath::from_user_input("C:/Users/chris/dev").unwrap();
+    assert_eq!(p.as_str(), "C:/Users/chris/dev");
+}
+
+#[test]
+fn windows_drive_lowercase_preserved() {
+    let p = CanonicalPath::from_user_input("d:/Projects/foo").unwrap();
+    assert_eq!(p.as_str(), "d:/Projects/foo");
+}
+
+#[test]
+fn windows_drive_mixed_separators_normalized() {
+    let p = CanonicalPath::from_user_input("C:\\Users/chris\\dev").unwrap();
+    assert_eq!(p.as_str(), "C:/Users/chris/dev");
+}
+
+#[test]
+fn windows_drive_path_dot_segments_removed() {
+    let p = CanonicalPath::from_user_input("C:/Users/./chris/./dev").unwrap();
+    assert_eq!(p.as_str(), "C:/Users/chris/dev");
+}
+
+#[test]
+fn windows_drive_path_duplicate_slashes_collapsed() {
+    let p = CanonicalPath::from_user_input("C://Users//chris///dev").unwrap();
+    assert_eq!(p.as_str(), "C:/Users/chris/dev");
+}
+
+#[test]
+fn windows_drive_path_parent_dir_rejected() {
+    let err = CanonicalPath::from_user_input("C:/Users/chris/../other").unwrap_err();
+    assert!(matches!(err, PathError::ContainsParentDir(_)));
+}
+
+#[test]
+fn windows_drive_path_idempotent() {
+    let once = CanonicalPath::from_user_input("C:\\Users\\chris\\dev").unwrap();
+    let twice = CanonicalPath::from_user_input(once.as_str()).unwrap();
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn invalid_drive_letter_rejected_as_relative() {
+    // "1:/..." is not a valid drive (must be ASCII alpha), so it's parsed
+    // as a relative path and rejected per Rule 1.
+    let err = CanonicalPath::from_user_input("1:/Users/chris").unwrap_err();
     assert!(matches!(err, PathError::RelativeInput(_)));
 }
 

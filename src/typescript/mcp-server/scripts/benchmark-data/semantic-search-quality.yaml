@@ -1,0 +1,78 @@
+name: workspace-qdrant semantic search quality
+description: Curated project questions that should be answered by semantic search on the repository itself.
+defaults:
+  scope: project
+  collection: projects
+  includeLibraries: false
+  limit: 10
+queries:
+  - id: project-id-resolution
+    query: How does the MCP server resolve projectId for project-scoped searches?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-helpers.ts
+      - src/typescript/mcp-server/src/utils/project-detector.ts
+
+  - id: hybrid-rrf
+    query: Where are dense and keyword search results combined with reciprocal rank fusion?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+
+  - id: score-threshold
+    query: Where is the Qdrant score threshold applied for semantic search?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+      - src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts
+
+  - id: graph-context
+    query: Where does the search tool attach graph context to results?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-graph-context.ts
+      - src/typescript/mcp-server/src/tools/search-helpers.ts
+
+  - id: rules-tenant-scope
+    query: How are project-scoped rules prevented from falling back to the global tenant?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/rules.ts
+      - src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts
+
+  - id: embedding-provider
+    query: How does the server report the active embedding provider?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/embedding.ts
+      - src/rust/daemon/core/src/embedding/provider/health_monitor.rs
+
+  - id: daemon-health-timeout
+    query: Where is the daemon health check timeout enforced during client bootstrap?
+    expectedFiles:
+      - src/typescript/mcp-server/src/clients/daemon-client/connection.ts
+      - src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts
+
+  - id: watcher-latency
+    query: Where is watcher processing latency tracked in the daemon?
+    expectedFiles:
+      - src/rust/daemon/core/src/watching/telemetry.rs
+      - src/rust/daemon/core/src/watching/watcher_processing.rs
+
+  - id: queue-metrics
+    query: Where is queue throughput measured in the daemon?
+    expectedFiles:
+      - src/rust/daemon/core/src/unified_queue_processor/metrics.rs
+      - src/rust/daemon/core/src/processing/metrics.rs
+
+  - id: search-quality-plan
+    query: Which document describes the next steps for semantic search quality and rerank?
+    expectedFiles:
+      - docs/plans/2026-05-25-search-quality-next-steps.md
+      - docs/ci-cd-processes.md
+
+  - id: search-modes-scope
+    query: How does the search tool choose semantic, hybrid, and exact modes?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search.ts
+      - src/typescript/mcp-server/src/tools/search-types.ts
+
+  - id: fallback-tenant-scope
+    query: How does fallback search avoid broadening project scope across tenants?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+      - src/typescript/mcp-server/src/tools/search-helpers.ts

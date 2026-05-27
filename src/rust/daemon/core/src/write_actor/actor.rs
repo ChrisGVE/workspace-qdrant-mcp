@@ -101,6 +101,9 @@ impl WriteActor {
             WriteCommand::UpdateSearchEvent { data, tx } => {
                 dispatch!(self, exec_update_search_event(data), tx)
             }
+            WriteCommand::UpdateSearchEventEconomy { data, tx } => {
+                dispatch!(self, exec_update_search_event_economy(data), tx)
+            }
             WriteCommand::UpsertRuleMirror { data, tx } => {
                 dispatch!(self, exec_upsert_rule_mirror(data), tx)
             }
@@ -249,6 +252,14 @@ impl WriteActorHandle {
 
     pub async fn update_search_event(&self, data: UpdateSearchEventData) -> WriteResult<()> {
         self.send(|tx| WriteCommand::UpdateSearchEvent { data, tx })
+            .await
+    }
+
+    pub async fn update_search_event_economy(
+        &self,
+        data: UpdateSearchEventEconomyData,
+    ) -> WriteResult<()> {
+        self.send(|tx| WriteCommand::UpdateSearchEventEconomy { data, tx })
             .await
     }
 

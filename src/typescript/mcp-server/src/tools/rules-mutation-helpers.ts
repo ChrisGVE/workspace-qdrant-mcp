@@ -2,9 +2,11 @@
  * Shared helpers for rules mutation operations.
  */
 
+import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import { randomUUID } from 'node:crypto';
 import { utcNow } from '../utils/timestamps.js';
 import {
@@ -120,7 +122,7 @@ export async function resolveProjectScopeId(
 ): Promise<{ resolvedProjectId: string | undefined; error?: RuleResponse }> {
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
     resolvedProjectId = projectInfo?.projectId;
   }
   if (scope === 'project' && !resolvedProjectId) {
@@ -255,8 +257,44 @@ function buildUpdateQueueOp(
   return op;
 }
 
+/**
+ * Resolve a rule's Qdrant point UUID from its label+scope+tenant.
+ *
+ * The daemon's ingestText handler validates that `document_id` is a UUID
+ * (Qdrant point ids are UUIDs). For updates, the caller supplies a label,
+ * not the UUID — so we have to look the UUID up before we can upsert.
+ *
+ * Returns:
+ *  - the point id as string when exactly one match exists.
+ *  - null when no rule with that (label, scope, project_id) tuple exists.
+ *  - throws on Qdrant errors (caller decides whether to fall back to queue).
+ */
+export async function findRuleIdByLabel(
+  qdrantClient: QdrantClient,
+  label: string,
+  scope: RuleScope,
+  resolvedProjectId: string | undefined
+): Promise<string | null> {
+  const must: Record<string, unknown>[] = [
+    { key: 'label', match: { value: label } },
+    { key: 'scope', match: { value: scope } },
+  ];
+  if (scope === 'project' && resolvedProjectId) {
+    must.push({ key: FIELD_PROJECT_ID, match: { value: resolvedProjectId } });
+  }
+  const result = await qdrantClient.scroll(RULES_COLLECTION, {
+    filter: { must },
+    limit: 1,
+    with_payload: false,
+  });
+  const first = result.points?.[0];
+  if (!first) return null;
+  return String(first.id);
+}
+
 export async function persistUpdateRule(
   daemonClient: DaemonClient,
+  qdrantClient: QdrantClient,
   stateManager: SqliteStateManager,
   label: string,
   content: string,
@@ -272,11 +310,20 @@ export async function persistUpdateRule(
   const tenantId = resolvedProjectId ?? TENANT_GLOBAL;
   const metadata = buildUpdateMetadata(label, scope, resolvedProjectId, title, tags, priority);
   try {
+    const existingId = await findRuleIdByLabel(qdrantClient, label, scope, resolvedProjectId);
+    if (existingId === null) {
+      return {
+        success: false,
+        action: 'update',
+        label,
+        message: `No rule with label "${label}" in scope "${scope}" — use action "add" to create it.`,
+      };
+    }
     const response = await daemonClient.ingestText({
       content,
       collection_basename: RULES_BASENAME,
       tenant_id: tenantId,
-      document_id: label,
+      document_id: existingId,
       metadata,
     });
     if (response.success) {

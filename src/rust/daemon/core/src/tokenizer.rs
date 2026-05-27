@@ -5,10 +5,45 @@
 //! counts match what the model actually processes.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 use tokenizers::Tokenizer;
 use tracing::{debug, info};
+
+/// Estimate token count for `text`, using the real model tokenizer when
+/// available and falling back to the conservative `len/4` heuristic otherwise.
+///
+/// The 4-chars-per-token heuristic underestimates for identifier-heavy code,
+/// non-ASCII content, and dense operator strings, allowing chunks to pass an
+/// upstream size gate but still exceed the embedding model's window. Callers
+/// that have a real `ModelTokenizer` should always pass it.
+pub fn estimated_token_count(text: &str, tokenizer: Option<&ModelTokenizer>) -> usize {
+    if let Some(tk) = tokenizer {
+        if let Ok(n) = tk.count_tokens(text) {
+            return n;
+        }
+    }
+    text.len() / 4
+}
+
+/// Process-global default `ModelTokenizer`, lazily loaded once from the
+/// HuggingFace / FastEmbed cache.
+///
+/// Returns `None` when the all-MiniLM-L6-v2 `tokenizer.json` is not present
+/// in any known cache location (CI without model download, embedded tests).
+/// Once a load attempt fails it stays failed for the lifetime of the process
+/// — the cache miss is not retried.
+pub fn default_tokenizer() -> Option<Arc<ModelTokenizer>> {
+    static CELL: OnceLock<Option<Arc<ModelTokenizer>>> = OnceLock::new();
+    CELL.get_or_init(|| match ModelTokenizer::from_model_cache(None) {
+        Ok(t) => Some(Arc::new(t)),
+        Err(e) => {
+            debug!("default_tokenizer: model tokenizer unavailable ({e}); falling back to len/4 estimation");
+            None
+        }
+    })
+    .clone()
+}
 
 /// Errors from tokenizer operations
 #[derive(Error, Debug)]

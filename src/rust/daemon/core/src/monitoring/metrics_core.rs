@@ -12,9 +12,9 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_queue_metrics, create_session_metrics, create_system_metrics,
-    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
-    create_watch_metrics, register_all,
+    create_dependency_metrics, create_indexed_project_metrics, create_queue_metrics,
+    create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
+    create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -66,6 +66,23 @@ pub struct DaemonMetrics {
     /// Storage bytes per tenant (estimated)
     /// Labels: tenant_id
     pub tenant_storage_bytes: GaugeVec,
+
+    /// Tracked file count per indexed project
+    /// Labels: watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived,
+    /// is_worktree, is_git_tracked
+    pub indexed_project_tracked_files: IntGaugeVec,
+
+    /// Qdrant point count per indexed project
+    /// Labels: watch_id
+    pub indexed_project_points: IntGaugeVec,
+
+    /// Last scan time in Unix epoch seconds per indexed project
+    /// Labels: watch_id
+    pub indexed_project_last_scan_seconds: IntGaugeVec,
+
+    /// Last activity time in Unix epoch seconds per indexed project
+    /// Labels: watch_id
+    pub indexed_project_last_activity_seconds: IntGaugeVec,
 
     // System metrics
     /// Daemon uptime in seconds
@@ -184,6 +201,10 @@ struct CreatedMetrics {
     tenant_documents_total: IntGaugeVec,
     tenant_search_requests_total: IntCounterVec,
     tenant_storage_bytes: GaugeVec,
+    indexed_project_tracked_files: IntGaugeVec,
+    indexed_project_points: IntGaugeVec,
+    indexed_project_last_scan_seconds: IntGaugeVec,
+    indexed_project_last_activity_seconds: IntGaugeVec,
     uptime_seconds: GaugeVec,
     ingestion_errors_total: IntCounterVec,
     heartbeat_latency_seconds: HistogramVec,
@@ -219,6 +240,12 @@ fn create_all_metrics() -> CreatedMetrics {
         create_queue_metrics();
     let (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes) =
         create_tenant_metrics();
+    let (
+        indexed_project_tracked_files,
+        indexed_project_points,
+        indexed_project_last_scan_seconds,
+        indexed_project_last_activity_seconds,
+    ) = create_indexed_project_metrics();
     let (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds) =
         create_system_metrics();
     let (
@@ -268,6 +295,10 @@ fn create_all_metrics() -> CreatedMetrics {
         tenant_documents_total,
         tenant_search_requests_total,
         tenant_storage_bytes,
+        indexed_project_tracked_files,
+        indexed_project_points,
+        indexed_project_last_scan_seconds,
+        indexed_project_last_activity_seconds,
         uptime_seconds,
         ingestion_errors_total,
         heartbeat_latency_seconds,
@@ -311,6 +342,10 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.tenant_documents_total.clone()),
             Box::new(m.tenant_search_requests_total.clone()),
             Box::new(m.tenant_storage_bytes.clone()),
+            Box::new(m.indexed_project_tracked_files.clone()),
+            Box::new(m.indexed_project_points.clone()),
+            Box::new(m.indexed_project_last_scan_seconds.clone()),
+            Box::new(m.indexed_project_last_activity_seconds.clone()),
             Box::new(m.uptime_seconds.clone()),
             Box::new(m.ingestion_errors_total.clone()),
             Box::new(m.heartbeat_latency_seconds.clone()),
@@ -359,6 +394,10 @@ impl DaemonMetrics {
             tenant_documents_total: m.tenant_documents_total,
             tenant_search_requests_total: m.tenant_search_requests_total,
             tenant_storage_bytes: m.tenant_storage_bytes,
+            indexed_project_tracked_files: m.indexed_project_tracked_files,
+            indexed_project_points: m.indexed_project_points,
+            indexed_project_last_scan_seconds: m.indexed_project_last_scan_seconds,
+            indexed_project_last_activity_seconds: m.indexed_project_last_activity_seconds,
             uptime_seconds: m.uptime_seconds,
             ingestion_errors_total: m.ingestion_errors_total,
             heartbeat_latency_seconds: m.heartbeat_latency_seconds,
