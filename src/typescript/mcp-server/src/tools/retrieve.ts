@@ -18,10 +18,14 @@
  *   error response and does NOT scroll Qdrant (no broad reads).
  */
 
+import { randomUUID } from 'node:crypto';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import type { DaemonClient } from '../clients/daemon-client.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 import { getEffectiveCwd } from '../utils/request-context.js';
 import { FIELD_CONTENT, FIELD_TENANT_ID, FIELD_LIBRARY_NAME } from '../common/native-bridge.js';
+import { finishToolEvent, logSearchEvent } from '../clients/search-event-queries.js';
+import { SERVER_VERSION as MCP_SERVER_VERSION } from '../server-types.js';
 
 // Re-export all types so existing imports from './retrieve.js' continue to work
 export type {
@@ -40,6 +44,25 @@ import type {
   RetrieveToolConfig,
 } from './retrieve-types.js';
 import { getCollectionName, extractMetadata } from './retrieve-types.js';
+
+/**
+ * Pure helper: compute `bytes_out` / `bytes_in` for a retrieve result.
+ * Spec `docs/specs/20-token-economy-instrumentation.md` §3.3: for the
+ * current implementation (full-document retrieve only — no ranged
+ * retrieve) `bytes_in == bytes_out`, so `savings_ratio` is 0%. The row
+ * still matters: when `parent_event_id` is populated, the v38
+ * `token_savings` view uses it to detect escalation (search → retrieve
+ * of the same document).
+ */
+export function computeRetrieveEconomy(documents: RetrievedDocument[]): {
+  bytesOut: number;
+  bytesIn: number;
+} {
+  let bytesOut = 0;
+  for (const d of documents) bytesOut += d.content.length;
+  // No ranged retrieve yet — full doc cost === served cost.
+  return { bytesOut, bytesIn: bytesOut };
+}
 
 /** Returned when the caller passes scope but it cannot be resolved. */
 function unresolvedTenantResponse(collection: RetrieveCollectionType): RetrieveResponse {
@@ -96,8 +119,13 @@ function payloadMatchesScope(
 export class RetrieveTool {
   private readonly qdrantClient: QdrantClient;
   private readonly projectDetector: ProjectDetector;
+  private readonly daemonClient: DaemonClient | null;
 
-  constructor(config: RetrieveToolConfig, projectDetector: ProjectDetector) {
+  constructor(
+    config: RetrieveToolConfig,
+    projectDetector: ProjectDetector,
+    daemonClient?: DaemonClient
+  ) {
     const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
       url: config.qdrantUrl,
       timeout: config.qdrantTimeout ?? 5000,
@@ -105,6 +133,7 @@ export class RetrieveTool {
     if (config.qdrantApiKey) clientConfig.apiKey = config.qdrantApiKey;
     this.qdrantClient = new QdrantClient(clientConfig);
     this.projectDetector = projectDetector;
+    this.daemonClient = daemonClient ?? null;
   }
 
   async retrieve(options: RetrieveOptions): Promise<RetrieveResponse> {
@@ -118,7 +147,23 @@ export class RetrieveTool {
       libraryName,
     } = options;
 
+    const startTime = Date.now();
+    const eventId = randomUUID();
+
     const collectionName = getCollectionName(collection);
+
+    // Log start. queryText carries documentId for by-id lookups, or a
+    // compact filter summary for by-filter scans, so retrieve events
+    // remain self-describing under `wqm admin token-savings`.
+    logSearchEvent(this.daemonClient, {
+      id: eventId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'retrieve',
+      queryText: documentId ?? (filter ? JSON.stringify(filter).slice(0, 500) : `:${collection}`),
+      topK: limit,
+      projectId: projectId,
+    });
 
     // F-002 / F-011: resolve the tenant context up front so that BOTH
     // by-id verification AND by-filter scoping share the same answer.
@@ -128,25 +173,33 @@ export class RetrieveTool {
         : undefined;
 
     if (documentId) {
-      return this.retrieveById(
+      const result = await this.retrieveById(
         collectionName,
         collection,
         documentId,
         resolvedProjectId,
         libraryName
       );
+      this.finishRetrieve(eventId, result, startTime);
+      return result;
     }
 
     // F-011: project-scope retrieve without a resolved tenant MUST refuse
     // to scroll. Same rule for libraries when no library_name is given.
     if (collection === 'projects' && !resolvedProjectId) {
-      return unresolvedTenantResponse('projects');
+      const result = unresolvedTenantResponse('projects');
+      this.finishRetrieve(eventId, result, startTime, 'unresolved_tenant');
+      return result;
     }
     if (collection === 'scratchpad' && !resolvedProjectId) {
-      return unresolvedTenantResponse('scratchpad');
+      const result = unresolvedTenantResponse('scratchpad');
+      this.finishRetrieve(eventId, result, startTime, 'unresolved_tenant');
+      return result;
     }
     if (collection === 'libraries' && !libraryName) {
-      return unresolvedTenantResponse('libraries');
+      const result = unresolvedTenantResponse('libraries');
+      this.finishRetrieve(eventId, result, startTime, 'unresolved_tenant');
+      return result;
     }
 
     const filterParams: {
@@ -162,7 +215,28 @@ export class RetrieveTool {
     if (resolvedProjectId) filterParams.projectId = resolvedProjectId;
     if (libraryName) filterParams.libraryName = libraryName;
 
-    return this.retrieveByFilter(filterParams);
+    const result = await this.retrieveByFilter(filterParams);
+    this.finishRetrieve(eventId, result, startTime);
+    return result;
+  }
+
+  /** Record post-execution metrics for a retrieve call. */
+  private finishRetrieve(
+    eventId: string,
+    response: RetrieveResponse,
+    startTime: number,
+    outcome?: string
+  ): void {
+    const economy = computeRetrieveEconomy(response.documents);
+    const finish: import('../clients/search-event-queries.js').ToolEventFinish = {
+      resultCount: response.documents.length,
+      latencyMs: Date.now() - startTime,
+      bytesIn: economy.bytesIn,
+      bytesOut: economy.bytesOut,
+      toolVersion: MCP_SERVER_VERSION,
+    };
+    if (outcome !== undefined) finish.outcome = outcome;
+    finishToolEvent(this.daemonClient, eventId, finish);
   }
 
   /**

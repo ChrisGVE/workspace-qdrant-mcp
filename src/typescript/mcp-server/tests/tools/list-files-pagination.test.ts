@@ -73,6 +73,11 @@ function makeStateManager(
     countTrackedFiles: vi.fn().mockImplementation(countTrackedFiles),
     listSubmodules: vi.fn().mockReturnValue({ data: [] }),
     listProjectComponents: vi.fn().mockReturnValue({ status: 'ok', data: [] }),
+    // Token-economy instrumentation (spec 20) — fire-and-forget; stub
+    // out so the tool's start/finish lifecycle doesn't blow up the mock.
+    logSearchEvent: vi.fn(),
+    updateSearchEvent: vi.fn(),
+    updateSearchEventEconomy: vi.fn(),
   } as unknown as SqliteStateManager;
 }
 

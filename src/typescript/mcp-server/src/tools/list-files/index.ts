@@ -6,6 +6,7 @@
  * from watch_folders and marks them with [submodule: repoName].
  */
 
+import { randomUUID } from 'node:crypto';
 import type { SqliteStateManager } from '../../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../utils/project-detector.js';
 import { getEffectiveCwd } from '../../utils/request-context.js';
@@ -18,6 +19,34 @@ import type {
   ComponentSummary,
 } from '../list-files-types.js';
 import { DEFAULT_DEPTH, MAX_DEPTH, DEFAULT_LIMIT, MAX_LIMIT } from '../list-files-types.js';
+import { SERVER_VERSION as MCP_SERVER_VERSION } from '../../server-types.js';
+
+/**
+ * Approximate per-file byte cost the agent would pay if they ran
+ * `ls -R` (or equivalent) over the project tree without the list tool.
+ *
+ * Per `docs/specs/20-token-economy-instrumentation.md` §3.4 this is the
+ * loosest baseline among the four tools — file paths are short and the
+ * estimate carries genuine uncertainty. 96 B/path is a generous middle
+ * ground (typical relative paths fall in the 40-120 B range with the
+ * trailing newline / indent overhead).
+ */
+export const LIST_BYTES_IN_PER_FILE_PROXY = 96;
+
+/**
+ * Pure helper: compute `bytes_out` / `bytes_in` for a list response.
+ * `bytes_out` is the rendered listing (the actual payload shipped);
+ * `bytes_in` approximates the cost of an unshaped `ls -R` over the
+ * matching file set.
+ */
+export function computeListEconomy(
+  listing: string,
+  totalMatching: number
+): { bytesOut: number; bytesIn: number } {
+  const bytesOut = listing.length;
+  const bytesIn = Math.max(bytesOut, totalMatching * LIST_BYTES_IN_PER_FILE_PROXY);
+  return { bytesOut, bytesIn };
+}
 import {
   detectComponents,
   componentMatchesFilter,
@@ -77,21 +106,79 @@ export class ListFilesTool {
     const limit = Math.min(Math.max(options.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const basePath = options.path ?? '';
 
+    const startTime = Date.now();
+    const eventId = randomUUID();
+    // Log start. queryText captures the most distinctive parameters
+    // (base path + format) so list events are self-describing under
+    // `wqm admin token-savings`.
+    this.stateManager.logSearchEvent({
+      id: eventId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'list',
+      queryText: basePath || '.',
+      topK: limit,
+      projectId: options.projectId,
+      filters: format !== 'tree' ? JSON.stringify({ format }) : undefined,
+    });
+
     const projectId = options.projectId ?? (await this.resolveProjectId());
     if (!projectId) {
-      return errorResponse('Could not detect project. Use projectId parameter.', basePath, format);
+      const response = errorResponse(
+        'Could not detect project. Use projectId parameter.',
+        basePath,
+        format
+      );
+      this.finishList(eventId, response, startTime, 'unresolved_project');
+      return response;
     }
 
     const watchFolderId = this.stateManager.getWatchFolderIdByTenantId(projectId);
     if (!watchFolderId) {
-      return errorResponse(
+      const response = errorResponse(
         'Project not found in database. Has the daemon indexed it?',
         basePath,
         format
       );
+      this.finishList(eventId, response, startTime, 'unknown_project');
+      return response;
     }
 
-    return this.buildListResult(options, projectId, watchFolderId, basePath, format, depth, limit);
+    const response = this.buildListResult(
+      options,
+      projectId,
+      watchFolderId,
+      basePath,
+      format,
+      depth,
+      limit
+    );
+    this.finishList(eventId, response, startTime);
+    return response;
+  }
+
+  /** Record post-execution metrics for a list call. */
+  private finishList(
+    eventId: string,
+    response: ListResponse,
+    startTime: number,
+    outcome?: string
+  ): void {
+    const totalMatching = response.stats?.totalMatching ?? 0;
+    const economy = computeListEconomy(response.listing, totalMatching);
+    const latencyMs = Date.now() - startTime;
+    this.stateManager.updateSearchEvent(eventId, {
+      resultCount: response.stats?.files ?? 0,
+      latencyMs,
+      ...(outcome !== undefined ? { outcome } : {}),
+    });
+    this.stateManager.updateSearchEventEconomy(eventId, {
+      bytesIn: economy.bytesIn,
+      bytesOut: economy.bytesOut,
+      hitsTruncated: 0,
+      shapeMode: 'none',
+      toolVersion: MCP_SERVER_VERSION,
+    });
   }
 
   private buildListResult(

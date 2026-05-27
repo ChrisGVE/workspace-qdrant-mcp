@@ -45,7 +45,7 @@ function createTools(
   config: ServerConfig
 ) {
   const searchTool = new SearchTool(qdrantConfig, daemonClient, stateManager, projectDetector);
-  const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
+  const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector, daemonClient);
   const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = {
     ...qdrantConfig,
   };

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS search_events (
     project_id TEXT,
     actor TEXT NOT NULL CHECK (actor IN ('claude', 'user', 'daemon')),
     tool TEXT NOT NULL CHECK (tool IN ('mcp_qdrant', 'rg', 'grep', 'ctags', 'lsp', 'filesearch')),
-    op TEXT NOT NULL CHECK (op IN ('search', 'expand', 'open', 'followup')),
+    op TEXT NOT NULL CHECK (op IN ('search', 'expand', 'open', 'followup', 'grep', 'retrieve', 'list', 'search_exact')),
     query_text TEXT,
     filters TEXT,
     top_k INTEGER,
@@ -64,6 +64,28 @@ mod tests {
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("actor TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("tool TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("op TEXT NOT NULL"));
+    }
+
+    #[test]
+    fn test_op_check_accepts_all_known_values() {
+        // Fresh-DB CREATE constant must accept the same op values that the
+        // v39 migration relaxes for existing databases.
+        for op in [
+            "search",
+            "expand",
+            "open",
+            "followup",
+            "grep",
+            "retrieve",
+            "list",
+            "search_exact",
+        ] {
+            assert!(
+                CREATE_SEARCH_EVENTS_SQL.contains(&format!("'{}'", op)),
+                "CREATE constant missing op CHECK value '{}'",
+                op
+            );
+        }
     }
 
     #[test]
