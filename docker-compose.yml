@@ -46,12 +46,19 @@ services:
     container_name: wqm-qdrant
     <<: *restart
     logging: *default-logging
+    # The wrapper auto-quarantines corrupted collection segments after dirty
+    # shutdowns (e.g. host reboot mid-write). Without it, Qdrant panics on
+    # `Failed to load local shard` and the `restart: always` policy retries
+    # forever, blocking every container that has `depends_on: qdrant healthy`.
+    # See docker/qdrant-quarantine-wrapper.sh.
+    entrypoint: ["/usr/local/bin/qdrant-quarantine-wrapper.sh"]
     ports:
       - "${QDRANT_HTTP_PORT:-6333}:6333"
       - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - ${WQM_STATE_DIR:-./state}/qdrant/storage:/qdrant/storage
       - ${WQM_STATE_DIR:-./state}/qdrant/snapshots:/qdrant/snapshots
+      - ./docker/qdrant-quarantine-wrapper.sh:/usr/local/bin/qdrant-quarantine-wrapper.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 15s
@@ -83,7 +90,9 @@ services:
       - "${MEMEXD_GRPC_PORT:-50051}:50051"
       - "${MEMEXD_METRICS_PORT:-9091}:9091"
     volumes:
-      # Persistent daemon state (SQLite, queues, rules cache).
+      # Bind-mount for flat-file daemon state (config.yaml, global.wqmignore,
+      # docker-compose-wqm.override.yaml, .fastembed_cache, recovery backups).
+      # SQLite DBs do NOT live here — see memexd_db named volume below for why.
       - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.workspace-qdrant
       # Optional runtime config override. Defaults to a local state file.
       - ${WQM_CONFIG_FILE:-./state/memexd/config.yaml}:/etc/wqm/config.yaml:ro
@@ -92,6 +101,16 @@ services:
       - ${WQM_FASTEMBED_CACHE_DIR:-./.fastembed_cache}:/home/memexd/.workspace-qdrant/models
       # Keep recorded paths identical between host and container.
       - ${WQM_DEV_ROOT:?Set WQM_DEV_ROOT in .env to your dev root absolute path}:${WQM_DEV_ROOT}
+      # SQLite DBs on a Docker named volume (ext4 native in the WSL2 VM).
+      # Docker Desktop's 9P/drvfs bind-mount cannot satisfy SQLite WAL's
+      # mmap/locking requirements when SQLx initialises a DB with
+      # mmap_size=256MB — every fresh-open returns SQLITE_CANTOPEN.
+      # memexd.db, search.db, graph.db all live in this volume.
+      - memexd_db:/var/lib/memexd
+      # global.wqmignore lookup follows `dirname(WQM_DATABASE_PATH)`. The
+      # admin UI writes the editable copy to state/memexd/global.wqmignore;
+      # bind-mounting it into /var/lib/memexd/ keeps both views in sync.
+      - ${WQM_STATE_DIR:-./state}/memexd/global.wqmignore:/var/lib/memexd/global.wqmignore
     environment:
       QDRANT_URL: http://qdrant:6334
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
@@ -102,7 +121,9 @@ services:
       # Default 2048 is too tight for FastEmbed + heap + mmap on this stack;
       # 4096 gives headroom without disabling the leak guard entirely.
       WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
-      WQM_DATABASE_PATH: /home/memexd/.workspace-qdrant/memexd.db
+      # Daemon DB lives on the memexd_db named volume — see volumes section
+      # above. Bind-mount on Docker Desktop 9P breaks SQLite WAL.
+      WQM_DATABASE_PATH: /var/lib/memexd/memexd.db
       WQM_EMBEDDING_MODEL_CACHE_DIR: /home/memexd/.workspace-qdrant/models
       HF_HOME: /home/memexd/.workspace-qdrant/models
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -408,3 +429,11 @@ volumes:
   grafana_data:
   loki_data:
   hf_tei_data:
+  # Daemon SQLite databases. Named volume (ext4 in WSL2 VM) instead of
+  # bind-mount because Docker Desktop's 9P/drvfs filesystem cannot satisfy
+  # SQLite WAL's mmap/locking semantics. Created on first `docker compose up`;
+  # if you need to nuke it: `docker volume rm workspace-qdrant-mcp_memexd_db`
+  # (daemon must be stopped). Pre-existing volumes from manual creation are
+  # adopted thanks to `name:` matching.
+  memexd_db:
+    name: workspace-qdrant-mcp_memexd_db

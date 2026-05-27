@@ -20,6 +20,14 @@
 | [Architecture](reference/architecture.md) | Component overview and data flow |
 | [Admin UI](ADMIN_UI.md) | Browser dashboard at `/admin/` — project discovery, real-time index info, CRUD over watch folders |
 
+## Runbooks
+
+Operational playbooks for recovering from specific incident classes.
+
+| Document | Description |
+|----------|-------------|
+| [Qdrant Corruption Recovery](runbooks/qdrant-corruption.md) | Unloadable collections after a dirty shutdown — auto-quarantine wrapper, manual fallback, drift cleanup |
+
 ## Specifications
 
 Technical specifications for developers and contributors.

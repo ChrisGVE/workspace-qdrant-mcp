@@ -77,15 +77,7 @@ pub async fn reconcile_ignore_rules(
         eligible_files.len()
     );
 
-    enqueue_reconcile_ops(
-        queue_manager,
-        tenant_id,
-        collection,
-        project_root,
-        &stale,
-        &missing,
-    )
-    .await
+    enqueue_reconcile_ops(queue_manager, tenant_id, collection, &stale, &missing).await
 }
 
 /// Look up the watch_id for a tenant+collection combination.
@@ -114,15 +106,17 @@ async fn fetch_watch_id(
 
 /// Enqueue delete + add operations for stale and missing files.
 ///
-/// `stale` and `missing` carry relative paths (forward-slash, normalized) —
-/// the JSON payload's `file_path` field is reconstructed as an absolute path
-/// by joining `project_root` so downstream file processors receive paths in
-/// the same shape they did before the v37 `tracked_files` rename.
+/// `stale` and `missing` carry relative paths (forward-slash, normalized).
+/// The JSON payload's `file_path` field is the relative form — `FilePayload`
+/// types it as `RelativePath` and the downstream strategy reanchors via
+/// `RelativePath::to_absolute(watch_folder_root)`. Sending an absolute path
+/// here makes the strategy double-join (root + absolute), producing a path
+/// like `<root>//<root>/<rel>` that does not exist on disk, which then
+/// triggers `handle_missing_file` silently — items drain without indexing.
 async fn enqueue_reconcile_ops(
     queue_manager: &Arc<QueueManager>,
     tenant_id: &str,
     collection: &str,
-    project_root: &Path,
     stale: &[&String],
     missing: &[&String],
 ) -> Result<ReconcileStats, String> {
@@ -132,7 +126,6 @@ async fn enqueue_reconcile_ops(
         queue_manager,
         tenant_id,
         collection,
-        project_root,
         QueueOperation::Delete,
         stale,
         "ignore_rule_change",
@@ -143,7 +136,6 @@ async fn enqueue_reconcile_ops(
         queue_manager,
         tenant_id,
         collection,
-        project_root,
         QueueOperation::Add,
         missing,
         "ignore_reconciliation",
@@ -173,7 +165,6 @@ async fn enqueue_ignore_ops(
     queue_manager: &Arc<QueueManager>,
     tenant_id: &str,
     collection: &str,
-    project_root: &Path,
     op: QueueOperation,
     file_paths: &[&String],
     reason: &str,
@@ -194,17 +185,18 @@ async fn enqueue_ignore_ops(
         let payloads: Vec<String> = chunk
             .iter()
             .map(|rel_path| {
-                let abs = project_root
-                    .join(rel_path.as_str())
-                    .to_string_lossy()
-                    .to_string();
+                // FilePayload.file_path is RelativePath. Sending an absolute
+                // path here is a silent footgun: serde derives are transparent
+                // and the strategy re-anchors via to_absolute(root), producing
+                // <root>//<absolute> which does not exist on disk.
+                let rel = rel_path.as_str();
                 match op {
                     QueueOperation::Delete => serde_json::json!({
-                        "file_path": abs,
+                        "file_path": rel,
                         "reason": reason,
                     }),
                     _ => serde_json::json!({
-                        "file_path": abs,
+                        "file_path": rel,
                         "source": reason,
                     }),
                 }
