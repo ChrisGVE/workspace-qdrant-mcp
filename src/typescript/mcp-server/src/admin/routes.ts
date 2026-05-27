@@ -15,6 +15,7 @@ import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import mcpPublicConfig from '../constants/mcp-public-config.json' with { type: 'json' };
 import { logError, logInfo } from '../utils/logger.js';
 
 import { scanForGitProjects, type ProjectCandidate } from './discovery.js';
@@ -537,15 +538,18 @@ const handleGetClientConfigs: RouteHandler = async (_req, res) => {
     },
   };
 
+  // All Codex-related defaults (tool list + timeouts) come from
+  // src/constants/mcp-public-config.json. Do not hardcode here — see file header.
+  const toolsToml = mcpPublicConfig.publicTools.map((t) => `"${t}"`).join(', ');
   const codexConfig = [
     `# workspace-qdrant MCP`,
     `[mcp_servers.workspace-qdrant]`,
     `url = "${mcpUrl}"`,
     `bearer_token_env_var = "MCP_HTTP_TOKEN"`,
-    `startup_timeout_sec = 20`,
-    `tool_timeout_sec = 120`,
+    `startup_timeout_sec = ${mcpPublicConfig.codex.startup_timeout_sec}`,
+    `tool_timeout_sec = ${mcpPublicConfig.codex.tool_timeout_sec}`,
     `required = true`,
-    `enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index"]`,
+    `enabled_tools = [${toolsToml}]`,
   ].join('\n');
 
   writeJson(res, 200, {

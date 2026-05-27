@@ -13,7 +13,9 @@ param(
   [string]$ClaudeHttpUrl = "http://localhost:6335/mcp",
   [string]$ClaudeBearerTokenEnvVar = "MCP_HTTP_TOKEN",
   [string]$ClaudeMcpRemotePath = "",
-  [string]$ToolCsv = "search,retrieve,grep,list,store,rules,workspace_index",
+  # Default = "(default)" sentinel; resolved from mcp-public-config.json below.
+  # Pass an explicit CSV (e.g. "search,grep") to override the canonical list.
+  [string]$ToolCsv = "(default)",
   [string]$ConfigSuffix = "",
   [string]$ClaudeConfigPath = "",
   [string]$CodexConfigPath = "",
@@ -22,6 +24,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Single source of truth for tool list + Codex/Claude defaults.
+# DO NOT hardcode publicTools or timeouts in this script — read from JSON.
+$publicConfigPath = Join-Path $RepoDir "src/typescript/mcp-server/src/constants/mcp-public-config.json"
+if (-not (Test-Path -LiteralPath $publicConfigPath)) {
+  throw "mcp-public-config.json not found at: $publicConfigPath"
+}
+$mcpPublicConfig = Get-Content -LiteralPath $publicConfigPath -Raw | ConvertFrom-Json
+
+if ($ToolCsv -eq "(default)") {
+  $ToolCsv = ($mcpPublicConfig.publicTools -join ",")
+}
+$codexStartupTimeoutSec = [int]$mcpPublicConfig.codex.startup_timeout_sec
+$codexToolTimeoutSec = [int]$mcpPublicConfig.codex.tool_timeout_sec
 
 function Escape-TomlString([string]$Value) {
   # Use forward slashes in TOML strings so Windows paths do not need backslash escaping.
@@ -175,8 +191,8 @@ $codexBlock = if ($CodexTransport -eq "http") {
 [mcp_servers.$ServerName]
 url = "$codexHttpToml"
 bearer_token_env_var = "$codexBearerTokenEnvVarToml"
-startup_timeout_sec = 20
-tool_timeout_sec = 120
+startup_timeout_sec = $codexStartupTimeoutSec
+tool_timeout_sec = $codexToolTimeoutSec
 required = true
 enabled_tools = [$toolsToml]
 
@@ -188,8 +204,8 @@ enabled_tools = [$toolsToml]
 [mcp_servers.$ServerName]
 command = "node"
 args = ["$idxToml"]
-startup_timeout_sec = 20
-tool_timeout_sec = 120
+startup_timeout_sec = $codexStartupTimeoutSec
+tool_timeout_sec = $codexToolTimeoutSec
 required = true
 enabled_tools = [$toolsToml]
 

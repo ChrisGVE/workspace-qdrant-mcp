@@ -1,0 +1,19 @@
+{
+  "$comment": "SINGLE SOURCE OF TRUTH for MCP tool exposure and Codex/Claude config defaults. Do NOT duplicate these values in templates, generators, or docs without reading from this file. Consumers: src/tool-dispatcher.ts (server tool registry), src/admin/routes.ts (admin UI client-config snippets), scripts/windows/gen-mcp-config.ps1 (build-time Codex/Claude config renderer). Drift is verified by src/admin/__tests__/config-drift.test.ts.",
+  "publicTools": [
+    "search",
+    "retrieve",
+    "grep",
+    "list",
+    "store",
+    "rules",
+    "workspace_index"
+  ],
+  "internalTools": [
+    "embedding"
+  ],
+  "codex": {
+    "startup_timeout_sec": 20,
+    "tool_timeout_sec": 120
+  }
+}

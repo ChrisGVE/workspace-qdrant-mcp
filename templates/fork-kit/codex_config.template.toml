@@ -1,3 +1,9 @@
+# Reference example for ~/.codex/config.toml (stdio variant).
+# Canonical values for `enabled_tools`, `startup_timeout_sec`, `tool_timeout_sec`
+# live in src/typescript/mcp-server/src/constants/mcp-public-config.json.
+# If you change them here, update the JSON too — drift is verified by the
+# config-drift test in src/admin/__tests__/.
+
 [mcp_servers.workspace-qdrant]
 command = "node"
 args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"]
