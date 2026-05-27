@@ -29,8 +29,9 @@ use tracing::{debug, info, warn};
 
 #[cfg(feature = "ocr")]
 use crate::ocr::OcrEngine;
+use crate::tokenizer::default_tokenizer;
 use crate::tree_sitter::parser::LanguageProvider;
-use crate::tree_sitter::{extract_chunks_with_provider, is_language_supported};
+use crate::tree_sitter::{extract_chunks_with_provider_and_tokenizer, is_language_supported};
 use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextChunk};
 
 use self::chunking::{chunk_text, convert_semantic_chunks_to_text_chunks};
@@ -364,11 +365,12 @@ fn generate_chunks(
 
     match document_type {
         DocumentType::Code(lang) if is_language_supported(lang) || has_provider_support(lang) => {
-            match extract_chunks_with_provider(
+            match extract_chunks_with_provider_and_tokenizer(
                 raw_text,
                 file_path,
                 chunking_config.chunk_size,
                 provider,
+                default_tokenizer(),
             ) {
                 Ok(semantic_chunks) => {
                     info!(

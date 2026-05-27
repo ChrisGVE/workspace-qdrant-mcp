@@ -16,13 +16,10 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
 
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-            # Alertmanager is optional. If no alertmanager runs, Prometheus
-            # still evaluates rules and shows firing alerts in its UI.
-            - alertmanager:9093
+# No `alerting:` block is configured — this stack does not deploy a
+# notification dispatcher. Prometheus still evaluates rules from
+# alerts.yml and shows firing alerts in its own UI. If a dispatcher is
+# added to docker-compose.yml later, restore the `alerting:` block here.
 
 scrape_configs:
   - job_name: memexd

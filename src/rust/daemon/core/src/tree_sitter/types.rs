@@ -219,8 +219,14 @@ impl SemanticChunk {
         self
     }
 
-    /// Estimate the token count for this chunk.
-    /// Uses a simple approximation: ~4 characters per token.
+    /// Estimate the token count for this chunk using a `len / 4` heuristic.
+    ///
+    /// This is a conservative approximation kept as a fallback for callers
+    /// without access to the embedding model's tokenizer. Production paths
+    /// that have a `ModelTokenizer` should prefer
+    /// [`crate::tokenizer::estimated_token_count`] for accurate counts —
+    /// identifier-heavy code, dense operators, and non-ASCII content all
+    /// produce more tokens per character than this heuristic predicts.
     pub fn estimated_tokens(&self) -> usize {
         self.content.len() / 4
     }

@@ -16,6 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::error::DaemonError;
+use crate::tokenizer::ModelTokenizer;
 use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::SemanticChunk;
 
@@ -35,6 +36,9 @@ pub struct SemanticChunker {
     pub(crate) max_chunk_size: usize,
     /// Optional language provider for dynamic grammar loading.
     language_provider: Option<Arc<dyn LanguageProvider>>,
+    /// Optional model-aware tokenizer. When set, the oversize-fragment gate
+    /// uses real token counts instead of the `len/4` heuristic.
+    tokenizer: Option<Arc<ModelTokenizer>>,
 }
 
 impl SemanticChunker {
@@ -45,6 +49,7 @@ impl SemanticChunker {
         Self {
             max_chunk_size,
             language_provider: None,
+            tokenizer: None,
         }
     }
 
@@ -64,6 +69,7 @@ impl SemanticChunker {
         Self {
             max_chunk_size,
             language_provider: Some(provider),
+            tokenizer: None,
         }
     }
 
@@ -75,9 +81,24 @@ impl SemanticChunker {
         self
     }
 
+    /// Attach a model-aware tokenizer for accurate oversize-gate decisions.
+    ///
+    /// When set, [`splitting::handle_oversized_chunks`] uses the tokenizer's
+    /// real token count instead of the `len/4` heuristic. Returns self for
+    /// method chaining.
+    pub fn with_tokenizer(mut self, tokenizer: Arc<ModelTokenizer>) -> Self {
+        self.tokenizer = Some(tokenizer);
+        self
+    }
+
     /// Get the language provider, if one is configured.
     pub fn language_provider(&self) -> Option<&Arc<dyn LanguageProvider>> {
         self.language_provider.as_ref()
+    }
+
+    /// Get the model tokenizer, if one is configured.
+    pub fn tokenizer(&self) -> Option<&Arc<ModelTokenizer>> {
+        self.tokenizer.as_ref()
     }
 
     /// Chunk source code using the appropriate language extractor.
@@ -108,7 +129,12 @@ impl SemanticChunker {
         let mut chunks = extractor.extract_chunks(source, file_path)?;
 
         // Process chunks that exceed the size limit
-        chunks = splitting::handle_oversized_chunks(chunks, source, self.max_chunk_size);
+        chunks = splitting::handle_oversized_chunks(
+            chunks,
+            source,
+            self.max_chunk_size,
+            self.tokenizer.as_deref(),
+        );
 
         Ok(chunks)
     }
@@ -119,6 +145,11 @@ impl SemanticChunker {
     /// `handle_oversized_chunks` internally.
     #[cfg(test)]
     pub(crate) fn split_oversized_chunk(&self, chunk: &SemanticChunk) -> Vec<SemanticChunk> {
-        splitting::handle_oversized_chunks(vec![chunk.clone()], "", self.max_chunk_size)
+        splitting::handle_oversized_chunks(
+            vec![chunk.clone()],
+            "",
+            self.max_chunk_size,
+            self.tokenizer.as_deref(),
+        )
     }
 }

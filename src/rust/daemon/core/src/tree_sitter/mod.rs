@@ -37,6 +37,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::error::DaemonError;
 use crate::language_registry::providers::registry::RegistryProvider;
+use crate::tokenizer::ModelTokenizer;
 
 /// Lazily loaded language registry data derived from the YAML registry.
 struct RegistryData {
@@ -196,6 +197,24 @@ pub fn extract_chunks_with_provider(
     max_chunk_size: usize,
     provider: Option<Arc<dyn LanguageProvider>>,
 ) -> Result<Vec<SemanticChunk>, DaemonError> {
+    extract_chunks_with_provider_and_tokenizer(source, path, max_chunk_size, provider, None)
+}
+
+/// Extract semantic chunks with an optional dynamic language provider and an
+/// optional model-aware tokenizer.
+///
+/// When `tokenizer` is `Some`, oversize-fragment decisions inside the chunker
+/// use real token counts from the embedding model's tokenizer instead of the
+/// conservative `len/4` heuristic. Production callers should always pass a
+/// tokenizer (see [`crate::tokenizer::default_tokenizer`]); tests and CI
+/// without the HF model cache can pass `None` to retain the heuristic.
+pub fn extract_chunks_with_provider_and_tokenizer(
+    source: &str,
+    path: &Path,
+    max_chunk_size: usize,
+    provider: Option<Arc<dyn LanguageProvider>>,
+    tokenizer: Option<Arc<ModelTokenizer>>,
+) -> Result<Vec<SemanticChunk>, DaemonError> {
     let language = match detect_language(path) {
         Some(lang) if is_language_supported(lang) => lang,
         Some(lang) => {
@@ -216,10 +235,13 @@ pub fn extract_chunks_with_provider(
         }
     };
 
-    let chunker = match provider {
+    let mut chunker = match provider {
         Some(p) => SemanticChunker::with_provider(max_chunk_size, p),
         None => SemanticChunker::new(max_chunk_size),
     };
+    if let Some(tk) = tokenizer {
+        chunker = chunker.with_tokenizer(tk);
+    }
     chunker.chunk_source(source, path, language)
 }
 
