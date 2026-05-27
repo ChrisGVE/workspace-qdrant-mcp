@@ -145,6 +145,26 @@ services:
       # Note: with MAX_CONCURRENT_EMBEDDINGS raised to 8, you may need to bump
       # this to 5120-6144 if you see pause-on-pressure events in the logs.
       WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
+      # FTS5 batch-mode kill switch for oversize files. When > 0, the
+      # FtsBatchProcessor falls back to single-file mode whenever ANY
+      # pending FileChange has more lines than this threshold — even
+      # at high queue depth that would otherwise pick batch mode.
+      # Protects RSS from spikes caused by one giant file (e.g. 600k-line
+      # generated CSV/log) landing in the same batch window as dozens of
+      # small source files, because batch mode loads every diff into RAM
+      # upfront before opening the SQLite transaction. 0 (default) keeps
+      # the original queue-depth-only behavior. Suggested starting value
+      # when enabling: 10000.
+      WQM_FTS5_SINGLE_MODE_THRESHOLD: ${WQM_FTS5_SINGLE_MODE_THRESHOLD:-0}
+      # FTS5 HARD CAP: files with more lines than this are excluded from
+      # code_lines / FTS5 ingestion entirely. file_metadata still gets
+      # written with fts5_skipped=1 (visible in admin UI / Grafana). The
+      # semantic-embedding pipeline is bounded separately and processes
+      # the file normally — only the line-level grep index is skipped.
+      # 0 (default) disables the cap. Suggested starting value when
+      # enabling: 100000 (~5MB at 50 chars/line — covers most legitimate
+      # source files, drops CSV dumps / generated proto / lockfiles).
+      WQM_FTS5_HARD_CAP: ${WQM_FTS5_HARD_CAP:-0}
       # Daemon DB lives on the memexd_db named volume — see volumes section
       # above. Bind-mount on Docker Desktop 9P breaks SQLite WAL.
       WQM_DATABASE_PATH: /var/lib/memexd/memexd.db

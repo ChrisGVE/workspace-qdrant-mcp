@@ -157,7 +157,8 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     tenant_id TEXT NOT NULL,
     branch TEXT,
     file_path TEXT NOT NULL,
-    size_bytes INTEGER
+    size_bytes INTEGER,
+    fts5_skipped INTEGER NOT NULL DEFAULT 0
 )
 "#;
 
@@ -203,10 +204,15 @@ pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
 /// SQL to upsert a file_metadata row.
 ///
 /// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path,
-/// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable).
+/// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable),
+/// `?8` = size_bytes (nullable), `?9` = fts5_skipped (0/1).
+///
+/// `fts5_skipped` (search.db v8) is set to 1 when [`FTS5_HARD_CAP`] fires for
+/// the file — code_lines/FTS5 work is bypassed entirely, but the metadata row
+/// is still written so the admin UI / Grafana can surface the skip.
 pub const UPSERT_FILE_METADATA_SQL: &str = r#"
-INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, size_bytes)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, size_bytes, fts5_skipped)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
 ON CONFLICT(file_id) DO UPDATE SET
     tenant_id = excluded.tenant_id,
     branch = excluded.branch,
@@ -214,7 +220,8 @@ ON CONFLICT(file_id) DO UPDATE SET
     base_point = excluded.base_point,
     relative_path = excluded.relative_path,
     file_hash = excluded.file_hash,
-    size_bytes = excluded.size_bytes
+    size_bytes = excluded.size_bytes,
+    fts5_skipped = excluded.fts5_skipped
 "#;
 
 /// SQL for search.db v7: add `size_bytes` to `file_metadata`.
@@ -226,6 +233,21 @@ ON CONFLICT(file_id) DO UPDATE SET
 /// v7 stay `NULL` and the MCP server falls back to its proxy.
 pub const ALTER_FILE_METADATA_V7_SQL: &str =
     "ALTER TABLE file_metadata ADD COLUMN size_bytes INTEGER";
+
+/// SQL for search.db v8: add `fts5_skipped` to `file_metadata`.
+///
+/// Marks files where the FTS5 ingestion was bypassed by the hard cap
+/// (`WQM_FTS5_HARD_CAP`). Such files have NO `code_lines` rows and won't
+/// appear in `wqm grep` results, but the metadata row is still written so
+/// operators can see exactly which files were skipped and why. NOT NULL
+/// with default 0 — pre-v8 rows are treated as "not skipped" on migration.
+pub const ALTER_FILE_METADATA_V8_SQL: &str =
+    "ALTER TABLE file_metadata ADD COLUMN fts5_skipped INTEGER NOT NULL DEFAULT 0";
+
+/// Index for filtering by fts5_skipped (e.g., admin UI "show skipped files only").
+pub const CREATE_FILE_METADATA_FTS5_SKIPPED_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_fts5_skipped \
+     ON file_metadata(fts5_skipped) WHERE fts5_skipped = 1";
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
 pub const DELETE_FILE_METADATA_SQL: &str = "DELETE FROM file_metadata WHERE file_id = ?1";

@@ -139,6 +139,44 @@ pub(super) async fn migrate_v7(pool: &SqlitePool) -> SearchDbResult<()> {
     Ok(())
 }
 
+/// Migration v8: Add `fts5_skipped` to `file_metadata`.
+///
+/// Marker column for files where FTS5 ingestion was bypassed by the
+/// `WQM_FTS5_HARD_CAP` guard. The hard-cap path writes the metadata row
+/// (so it shows up in admin UI / Grafana panels) but skips inserting any
+/// `code_lines` for the file — necessary to prevent RSS spikes from
+/// 600k-line generated files (CSV dumps, proto-generated Java, lockfiles,
+/// etc.) being held entirely in memory by the FTS5 batch processor's
+/// Phase 1 diff materialization.
+///
+/// Idempotent: skips ALTER if the column already exists (fresh v8+ DBs
+/// create it via `CREATE_FILE_METADATA_SQL`). Also creates a partial
+/// index on `fts5_skipped = 1` for cheap admin-UI / metrics queries.
+pub(super) async fn migrate_v8(pool: &SqlitePool) -> SearchDbResult<()> {
+    use crate::code_lines_schema::{
+        ALTER_FILE_METADATA_V8_SQL, CREATE_FILE_METADATA_FTS5_SKIPPED_INDEX_SQL,
+    };
+
+    info!("Search DB migration v8: adding fts5_skipped to file_metadata");
+
+    let has_column: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('file_metadata') WHERE name = 'fts5_skipped'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !has_column {
+        sqlx::query(ALTER_FILE_METADATA_V8_SQL).execute(pool).await?;
+    }
+
+    // Always create the partial index (IF NOT EXISTS guarantees idempotency).
+    sqlx::query(CREATE_FILE_METADATA_FTS5_SKIPPED_INDEX_SQL)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 /// Dispatch a single migration by version number.
 pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbResult<()> {
     match version {
@@ -149,6 +187,7 @@ pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbRe
         5 => migrate_v5(pool).await,
         6 => migrate_v6(pool).await,
         7 => migrate_v7(pool).await,
+        8 => migrate_v8(pool).await,
         _ => Err(SearchDbError::Migration(format!(
             "Unknown search DB migration version: {}",
             version

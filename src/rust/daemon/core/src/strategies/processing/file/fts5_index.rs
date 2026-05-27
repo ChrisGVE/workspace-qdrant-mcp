@@ -9,7 +9,10 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tracing::{debug, warn};
 
-use crate::fts_batch_processor::{BatchStats, FileChange, FtsBatchConfig, FtsBatchProcessor};
+use crate::fts_batch_processor::{
+    enforce_fts5_hard_cap_skip, hard_cap_line_threshold, line_count_estimate, BatchStats,
+    FileChange, FtsBatchConfig, FtsBatchProcessor,
+};
 use crate::indexed_content_schema;
 use crate::search_db::{Fts5WorkItem, SearchDbError, SearchDbManager};
 use wqm_common::hashing::compute_content_hash;
@@ -81,6 +84,39 @@ pub(super) async fn update_fts5_for_file_or_enqueue(
             return Ok(Fts5Outcome::Skipped);
         }
     };
+
+    // FTS5 hard cap: bypass code_lines / FTS5 entirely for giant files
+    // (CSV dumps, generated proto, lockfiles, etc.) — the batch processor's
+    // Phase 1 diff materialization is the RSS killer. file_metadata is
+    // still upserted with fts5_skipped=1 so admin UI / Grafana can surface
+    // the skip. Semantic embedding for the file proceeds independently.
+    let hard_cap = hard_cap_line_threshold();
+    if hard_cap > 0 {
+        let line_count = line_count_estimate(&new_content);
+        if line_count > hard_cap {
+            if let Err(e) = enforce_fts5_hard_cap_skip(
+                search_db.as_ref(),
+                file_id,
+                tenant_id,
+                branch,
+                file_path,
+                base_point,
+                relative_path,
+                file_hash,
+                Some(new_content.len() as i64),
+                line_count,
+            )
+            .await
+            {
+                warn!(
+                    "FTS5 hard-cap metadata upsert failed for {} ({} lines): {}",
+                    file_path, line_count, e
+                );
+            }
+            return Ok(Fts5Outcome::Skipped);
+        }
+    }
+
     let new_hash = compute_content_hash(&new_content);
     let old_content = match fetch_old_content(state_pool, file_id, file_path, &new_hash).await {
         Some(c) => c,
@@ -145,6 +181,36 @@ pub(super) async fn update_fts5_for_file(
             return Ok(false);
         }
     };
+
+    // FTS5 hard cap: same guard as the batched path
+    // ([`update_fts5_for_file_or_enqueue`]) — bypass code_lines / FTS5 for
+    // giant files, mark them fts5_skipped=1, return as if work was done.
+    let hard_cap = hard_cap_line_threshold();
+    if hard_cap > 0 {
+        let line_count = line_count_estimate(&new_content);
+        if line_count > hard_cap {
+            if let Err(e) = enforce_fts5_hard_cap_skip(
+                search_db.as_ref(),
+                file_id,
+                tenant_id,
+                branch,
+                file_path,
+                base_point,
+                relative_path,
+                file_hash,
+                Some(new_content.len() as i64),
+                line_count,
+            )
+            .await
+            {
+                warn!(
+                    "FTS5 hard-cap metadata upsert failed for {} ({} lines): {}",
+                    file_path, line_count, e
+                );
+            }
+            return Ok(false);
+        }
+    }
 
     let new_hash = compute_content_hash(&new_content);
 

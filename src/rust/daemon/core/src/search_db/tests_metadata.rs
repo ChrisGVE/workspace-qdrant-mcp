@@ -65,6 +65,8 @@ async fn test_file_metadata_upsert() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -87,6 +89,8 @@ async fn test_file_metadata_upsert() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -115,6 +119,8 @@ async fn test_file_metadata_null_branch() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -142,6 +148,8 @@ async fn test_file_metadata_delete() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -176,6 +184,8 @@ async fn test_file_metadata_delete_by_tenant() {
             .bind(None::<&str>)
             .bind(None::<&str>)
             .bind(None::<&str>)
+            .bind(None::<i64>) // size_bytes (search.db v7)
+            .bind(0_i64) // fts5_skipped (search.db v8)
             .execute(manager.pool())
             .await
             .unwrap();
@@ -189,6 +199,8 @@ async fn test_file_metadata_delete_by_tenant() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -239,6 +251,8 @@ async fn test_fts5_search_by_project() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -258,6 +272,8 @@ async fn test_fts5_search_by_project() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -301,6 +317,8 @@ async fn test_fts5_search_by_project_branch() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -315,6 +333,8 @@ async fn test_fts5_search_by_project_branch() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -357,6 +377,8 @@ async fn test_fts5_search_by_path_prefix() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -375,6 +397,8 @@ async fn test_fts5_search_by_path_prefix() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -417,6 +441,8 @@ async fn test_fts5_search_by_project_path() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -436,6 +462,8 @@ async fn test_fts5_search_by_project_path() {
         .bind(None::<&str>)
         .bind(None::<&str>)
         .bind(None::<&str>)
+        .bind(None::<i64>) // size_bytes (search.db v7)
+        .bind(0_i64) // fts5_skipped (search.db v8)
         .execute(manager.pool())
         .await
         .unwrap();
@@ -478,6 +506,8 @@ async fn test_fts5_scoped_search_performance_1000_files() {
             .bind(None::<&str>)
             .bind(None::<&str>)
             .bind(None::<&str>)
+            .bind(None::<i64>) // size_bytes (search.db v7)
+            .bind(0_i64) // fts5_skipped (search.db v8)
             .execute(&mut *tx)
             .await
             .unwrap();

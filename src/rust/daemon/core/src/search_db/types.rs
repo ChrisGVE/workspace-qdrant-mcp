@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Current schema version for search.db
-pub const SEARCH_SCHEMA_VERSION: i32 = 7;
+pub const SEARCH_SCHEMA_VERSION: i32 = 8;
 
 /// Default search database filename
 pub const SEARCH_DB_FILENAME: &str = "search.db";

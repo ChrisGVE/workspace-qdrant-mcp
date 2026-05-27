@@ -15,7 +15,9 @@
 mod diff_apply;
 mod processor;
 
-pub use processor::FtsBatchProcessor;
+pub use processor::{
+    enforce_fts5_hard_cap_skip, hard_cap_line_threshold, line_count_estimate, FtsBatchProcessor,
+};
 
 /// Default burst threshold: if the queue has more than this many pending file
 /// items, switch to batch mode.
