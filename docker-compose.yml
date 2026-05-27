@@ -117,9 +117,28 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       WQM_EMBEDDING_PROVIDER: ${WQM_EMBEDDING_PROVIDER:-fastembed}
+      # Throughput tuning for first-index / cold-start. The defaults in
+      # UnifiedProcessorConfig::default() ship conservative (2 concurrent
+      # embeddings, 50ms inter-item delay, 30s warmup window) which caps the
+      # queue at ~600 docs/min on a multi-core box. The values below push the
+      # queue processor toward `target_throughput: 1000` docs/min. Reduce them
+      # if WQM_MAX_RSS_MB pressure causes the processor to pause.
+      WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS: ${WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS:-8}
+      WQM_RESOURCE_ONNX_INTRA_THREADS: ${WQM_RESOURCE_ONNX_INTRA_THREADS:-4}
+      WQM_RESOURCE_INTER_ITEM_DELAY_MS: ${WQM_RESOURCE_INTER_ITEM_DELAY_MS:-0}
+      WQM_QUEUE_BATCH_SIZE: ${WQM_QUEUE_BATCH_SIZE:-32}
+      WQM_QUEUE_POLL_INTERVAL_MS: ${WQM_QUEUE_POLL_INTERVAL_MS:-100}
+      # Warmup throttling: keep the window short so the daemon reaches steady
+      # state quickly, but don't disable it entirely — FastEmbed first-load
+      # still benefits from a brief ramp.
+      WQM_STARTUP_WARMUP_DELAY_SECS: ${WQM_STARTUP_WARMUP_DELAY_SECS:-0}
+      WQM_STARTUP_WARMUP_WINDOW_SECS: ${WQM_STARTUP_WARMUP_WINDOW_SECS:-5}
+      WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS: ${WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS:-4}
       # Process-RSS safety valve (queue processor pauses when exceeded).
       # Default 2048 is too tight for FastEmbed + heap + mmap on this stack;
       # 4096 gives headroom without disabling the leak guard entirely.
+      # Note: with MAX_CONCURRENT_EMBEDDINGS raised to 8, you may need to bump
+      # this to 5120-6144 if you see pause-on-pressure events in the logs.
       WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
       # Daemon DB lives on the memexd_db named volume — see volumes section
       # above. Bind-mount on Docker Desktop 9P breaks SQLite WAL.
