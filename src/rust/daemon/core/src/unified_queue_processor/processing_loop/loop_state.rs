@@ -26,6 +26,8 @@ pub(super) struct LoopState {
     pub idle_since: Option<std::time::Instant>,
     /// When the last grammar idle-update check ran.
     pub last_grammar_check: std::time::Instant,
+    /// When the last DLQ purge ran.
+    pub last_dlq_purge: std::time::Instant,
     /// Maintenance task scheduler.
     pub maintenance_scheduler: crate::idle::MaintenanceScheduler,
 }
@@ -77,6 +79,7 @@ impl LoopState {
             last_triage,
             idle_since: None,
             last_grammar_check,
+            last_dlq_purge: std::time::Instant::now(),
             maintenance_scheduler,
         }
     }

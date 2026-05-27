@@ -64,6 +64,7 @@ pub(super) async fn run_idle_work(
     evict_idle_lsp_servers(lsp_manager, idle_elapsed).await;
     run_resurrection(state, config, queue_manager).await;
     run_triage(state, config, queue_manager).await;
+    run_dlq_purge(state, config, queue_manager).await;
 
     debug!(
         "Unified queue is empty, waiting {}ms",
@@ -195,6 +196,31 @@ async fn run_triage(
         warn!("Triage pass failed (non-fatal): {}", e);
     }
     state.last_triage = std::time::Instant::now();
+}
+
+const DLQ_PURGE_INTERVAL_SECS: u64 = 3600;
+
+async fn run_dlq_purge(
+    state: &mut LoopState,
+    config: &UnifiedProcessorConfig,
+    queue_manager: &QueueManager,
+) {
+    if state.last_dlq_purge.elapsed().as_secs() < DLQ_PURGE_INTERVAL_SECS {
+        return;
+    }
+    match queue_manager
+        .purge_dlq(config.dlq_retention_days, config.dlq_purge_batch_size)
+        .await
+    {
+        Ok((deleted, _has_more)) if deleted > 0 => {
+            info!("DLQ purge: removed {} expired entries", deleted);
+        }
+        Err(e) => {
+            warn!("DLQ purge failed (non-fatal): {}", e);
+        }
+        _ => {}
+    }
+    state.last_dlq_purge = std::time::Instant::now();
 }
 
 /// Grammar-specific idle work: periodic version check and idle eviction.

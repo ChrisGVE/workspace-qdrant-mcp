@@ -346,21 +346,44 @@ async fn handle_item_failure(
             e
         );
         let categorized_msg = format!("[{}] {}", error_category, e);
-        if let Err(mark_err) = queue_manager
-            .mark_unified_failed(
-                &item.queue_id,
-                &categorized_msg,
-                is_permanent,
-                config.max_retries,
-            )
-            .await
-        {
-            error!(
-                "Failed to mark item {} as failed: {}",
-                item.queue_id, mark_err
-            );
-        } else if !is_permanent {
-            METRICS.unified_queue_retry(&item.item_type.to_string());
+        let should_dlq = is_permanent || item.retry_count + 1 >= config.max_retries;
+
+        if should_dlq {
+            if let Err(mark_err) = queue_manager
+                .mark_unified_failed(&item.queue_id, &categorized_msg, true, config.max_retries)
+                .await
+            {
+                error!(
+                    "Failed to mark item {} as failed: {}",
+                    item.queue_id, mark_err
+                );
+            }
+            match queue_manager.move_to_dlq(&item.queue_id).await {
+                Ok(dlq_id) => {
+                    info!(
+                        "Moved exhausted item {} to DLQ {} (category={})",
+                        item.queue_id, dlq_id, error_category
+                    );
+                }
+                Err(dlq_err) => {
+                    warn!(
+                        "Failed to move item {} to DLQ (stays in failed): {}",
+                        item.queue_id, dlq_err
+                    );
+                }
+            }
+        } else {
+            if let Err(mark_err) = queue_manager
+                .mark_unified_failed(&item.queue_id, &categorized_msg, false, config.max_retries)
+                .await
+            {
+                error!(
+                    "Failed to mark item {} as failed: {}",
+                    item.queue_id, mark_err
+                );
+            } else {
+                METRICS.unified_queue_retry(&item.item_type.to_string());
+            }
         }
     }
 

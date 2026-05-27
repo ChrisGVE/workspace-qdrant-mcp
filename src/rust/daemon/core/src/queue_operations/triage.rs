@@ -57,11 +57,20 @@ impl QueueManager {
             let collection: &str = row.try_get("collection")?;
             let error_message: &str = row.try_get("error_message")?;
 
-            // Skip items already marked as permanently exhausted
             if error_message.starts_with("[permanent_exhausted]")
                 || error_message.starts_with("[permanent_data]")
+                || error_message.starts_with("[permanent_gone]")
             {
-                stats.skipped += 1;
+                if let Err(e) = self.move_to_dlq(queue_id).await {
+                    warn!(
+                        "Triage: failed to move permanent item {} to DLQ: {}",
+                        queue_id, e
+                    );
+                    stats.skipped += 1;
+                } else {
+                    info!("Triage: moved stale permanent item {} to DLQ", queue_id);
+                    stats.dropped += 1;
+                }
                 continue;
             }
 
