@@ -204,6 +204,8 @@ async fn find_seed_nodes(
         sqlx::query(
             "SELECT node_id FROM graph_nodes
              WHERE tenant_id = ?1 AND symbol_name = ?2
+               AND symbol_type NOT IN ('document_section', 'code_comment',
+                   'docstring', 'library_section', 'concept_node')
              LIMIT 100",
         )
         .bind(tenant_id)
