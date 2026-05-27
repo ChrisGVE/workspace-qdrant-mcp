@@ -5,6 +5,9 @@
 
 use std::path::Path;
 
+use tracing::warn;
+
+use crate::tokenizer::{estimated_token_count, ModelTokenizer};
 use crate::tree_sitter::types::SemanticChunk;
 
 /// Overlap size for fragmented chunks (in characters).
@@ -25,17 +28,43 @@ pub(crate) fn safe_char_boundary(s: &str, index: usize) -> usize {
 }
 
 /// Handle chunks that exceed the maximum size by splitting them.
+///
+/// When `tokenizer` is `Some`, real token counts from the embedding model's
+/// tokenizer drive both the oversize gate and a post-split sanity check.
+/// When `None`, falls back to the `content.len() / 4` heuristic — fine for
+/// tests and CI without the HF model cache, but the real tokenizer should
+/// always be passed in production.
 pub(super) fn handle_oversized_chunks(
     chunks: Vec<SemanticChunk>,
     _source: &str,
     max_chunk_size: usize,
+    tokenizer: Option<&ModelTokenizer>,
 ) -> Vec<SemanticChunk> {
     let mut result = Vec::new();
 
     for chunk in chunks {
-        if chunk.estimated_tokens() > max_chunk_size {
+        if estimated_token_count(&chunk.content, tokenizer) > max_chunk_size {
             // Split into fragments with overlap
             let fragments = split_chunk_with_overlap(&chunk, max_chunk_size);
+            // Post-split sanity check: char-based splitting may still produce
+            // fragments that exceed the real-token budget. Warn (don't fail)
+            // so downstream embedding doesn't silently truncate.
+            if let Some(tk) = tokenizer {
+                for frag in &fragments {
+                    if let Ok(n) = tk.count_tokens(&frag.content) {
+                        if n > max_chunk_size {
+                            warn!(
+                                file = %frag.file_path,
+                                symbol = %frag.symbol_name,
+                                fragment_index = ?frag.fragment_index,
+                                tokens = n,
+                                budget = max_chunk_size,
+                                "Fragment still exceeds token budget after char-based split"
+                            );
+                        }
+                    }
+                }
+            }
             result.extend(fragments);
         } else {
             result.push(chunk);
