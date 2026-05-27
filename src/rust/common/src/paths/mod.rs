@@ -33,6 +33,7 @@
 //! respected on all platforms.
 
 mod canonical;
+pub mod docker_alias;
 mod error;
 mod local;
 mod mount_map;
@@ -43,6 +44,7 @@ mod relative;
 mod tests;
 
 pub use canonical::CanonicalPath;
+pub use docker_alias::canonicalize_docker_mount_alias;
 pub use error::PathError;
 pub use local::LocalPath;
 pub use mount_map::{mount_section_hash, MountEntry, MountMap};

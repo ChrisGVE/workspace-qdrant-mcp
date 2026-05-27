@@ -157,6 +157,117 @@ mod tests {
         assert_eq!(hash2, hash3);
     }
 
+    // ─── Docker Desktop mount-alias canonicalization (issue #8 unit 1) ──
+    //
+    // The Windows host path `C:\Users\alice\repo` appears as three different
+    // strings depending on where the daemon runs:
+    //   * `/mnt/c/Users/alice/repo`                      (WSL2 host view)
+    //   * `/run/desktop/mnt/host/c/Users/alice/repo`     (Docker Desktop)
+    //   * `/host_mnt/c/Users/alice/repo`                 (older Docker Desktop)
+    //
+    // All three MUST hash to the same tenant_id so we don't end up with
+    // duplicate watch_folders rows indexing every file twice — the symptom
+    // documented in the container audit at GitHub issue #8.
+
+    #[test]
+    fn same_tenant_id_across_docker_mount_aliases() {
+        let calc = ProjectIdCalculator::new();
+
+        let wsl_host = calc.calculate(
+            Path::new("/mnt/c/Users/alice/project"),
+            None,
+            None,
+        );
+        let docker_desktop_wsl = calc.calculate(
+            Path::new("/run/desktop/mnt/host/c/Users/alice/project"),
+            None,
+            None,
+        );
+        let docker_desktop_host_mnt = calc.calculate(
+            Path::new("/host_mnt/c/Users/alice/project"),
+            None,
+            None,
+        );
+
+        assert_eq!(
+            wsl_host, docker_desktop_wsl,
+            "WSL2 host view and Docker Desktop /run/desktop/mnt/host/ view \
+             must produce the same tenant_id",
+        );
+        assert_eq!(
+            wsl_host, docker_desktop_host_mnt,
+            "WSL2 host view and Docker Desktop /host_mnt/ view must produce \
+             the same tenant_id",
+        );
+        // Sanity: the result still uses the local_ prefix.
+        assert!(wsl_host.starts_with("local_"));
+    }
+
+    #[test]
+    fn docker_alias_canonicalization_drive_letter_agnostic() {
+        // Different drives must still produce *different* tenant_ids — we
+        // only collapse the alias forms of the *same* drive.
+        let calc = ProjectIdCalculator::new();
+
+        let c_drive = calc.calculate(Path::new("/mnt/c/data/foo"), None, None);
+        let d_drive = calc.calculate(Path::new("/mnt/d/data/foo"), None, None);
+        assert_ne!(c_drive, d_drive);
+
+        // …but the aliases of the d drive collapse together.
+        let d_drive_alias = calc.calculate(
+            Path::new("/run/desktop/mnt/host/d/data/foo"),
+            None,
+            None,
+        );
+        assert_eq!(d_drive, d_drive_alias);
+    }
+
+    #[test]
+    fn docker_alias_does_not_affect_unrelated_paths() {
+        // Linux / macOS native paths must not be touched by the rewrite,
+        // so two distinct host paths still produce distinct tenant_ids.
+        let calc = ProjectIdCalculator::new();
+
+        let a = calc.calculate(Path::new("/home/alice/repo"), None, None);
+        let b = calc.calculate(Path::new("/home/bob/repo"), None, None);
+        assert_ne!(a, b);
+
+        let mac_a = calc.calculate(Path::new("/Users/chris/proj"), None, None);
+        let mac_b = calc.calculate(Path::new("/Users/dana/proj"), None, None);
+        assert_ne!(mac_a, mac_b);
+        assert_ne!(a, mac_a);
+    }
+
+    #[test]
+    fn docker_alias_canonicalization_does_not_apply_to_remote_branch() {
+        // When git_remote is present we hash the URL, not the path. The
+        // alias canonicalization must NOT run in that branch — otherwise
+        // we would silently mutate inputs that have nothing to do with
+        // Docker mounts.
+        let calc = ProjectIdCalculator::new();
+
+        let from_alias = calc.calculate(
+            Path::new("/run/desktop/mnt/host/c/Users/alice/repo"),
+            Some("https://github.com/user/repo.git"),
+            None,
+        );
+        let from_host = calc.calculate(
+            Path::new("/mnt/c/Users/alice/repo"),
+            Some("https://github.com/user/repo.git"),
+            None,
+        );
+        let from_completely_different_path = calc.calculate(
+            Path::new("/home/bob/elsewhere"),
+            Some("https://github.com/user/repo.git"),
+            None,
+        );
+
+        // All three are equal because git_remote dominates — no path-based
+        // disambiguation is in play.
+        assert_eq!(from_alias, from_host);
+        assert_eq!(from_alias, from_completely_different_path);
+    }
+
     // ─── resolve_path_to_project tests ──────────────────────────────────
 
     /// Helper: create a SQLite database with watch_folders table and rows
