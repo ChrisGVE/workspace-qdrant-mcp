@@ -656,6 +656,9 @@ service GraphService {
 
     // Find shortest path between two nodes
     rpc FindPath(FindPathRequest) returns (FindPathResponse);
+
+    // Query narrative nodes linked to code symbols or concepts
+    rpc NarrativeQuery(NarrativeQueryRequest) returns (NarrativeQueryResponse);
 }
 
 // QueryRelated Request
@@ -838,6 +841,36 @@ message FindPathResponse {
     repeated TraversalNodeProto path_nodes = 2;   // Ordered nodes along the path
     uint32 path_length = 3;                       // Number of hops in path
     int64 query_time_ms = 4;                      // Query execution time in ms
+}
+
+// NarrativeQuery Request
+message NarrativeQueryRequest {
+    string tenant_id = 1;                         // Project tenant_id
+    oneof query_target {
+        string symbol_name = 2;                   // Code symbol to find narrative for
+        string concept_name = 3;                  // Concept node name to traverse from
+    }
+    repeated string edge_types = 4;               // Filter by edge type (e.g., "EXPLAINS", "COVERS_TOPIC")
+    int32 max_depth = 5;                          // Default 2, clamped 1..=5
+    int32 max_results = 6;                        // Default 50, clamped 1..=200
+}
+
+// NarrativeQuery Response
+message NarrativeQueryResponse {
+    repeated NarrativeNode nodes = 1;             // Matching narrative nodes
+    int32 total_found = 2;                        // Total narrative nodes found
+}
+
+// A narrative node linked to a code symbol or concept
+message NarrativeNode {
+    string node_id = 1;
+    string symbol_name = 2;
+    string symbol_type = 3;                       // NodeType as string
+    string file_path = 4;                         // [relative] Relative to project root
+    string edge_type = 5;                         // EdgeType as string
+    int32 depth = 6;                              // Hops from source node
+    string path = 7;                              // [non-path] Traversal path description
+    optional string metadata_json = 8;            // Edge metadata (e.g., depth level)
 }
 
 // -----------------------------------------------------------------------------

@@ -9,16 +9,18 @@ use workspace_qdrant_core::graph::algorithms::{
 use workspace_qdrant_core::graph::EdgeType;
 
 use crate::proto::{
-    graph_service_server::GraphService, BetweennessNodeProto, BetweennessRequest,
-    BetweennessResponse, CommunityMemberProto, CommunityProto, CommunityRequest, CommunityResponse,
-    FindPathRequest, FindPathResponse, GraphMigrateRequest, GraphMigrateResponse,
-    GraphStatsRequest, GraphStatsResponse, ImpactAnalysisRequest, ImpactAnalysisResponse,
-    ImpactNodeProto, PageRankNodeProto, PageRankRequest, PageRankResponse, QueryRelatedRequest,
-    QueryRelatedResponse, TraversalNodeProto,
+    graph_service_server::GraphService, narrative_query_request::QueryTarget, BetweennessNodeProto,
+    BetweennessRequest, BetweennessResponse, CommunityMemberProto, CommunityProto,
+    CommunityRequest, CommunityResponse, FindPathRequest, FindPathResponse, GraphMigrateRequest,
+    GraphMigrateResponse, GraphStatsRequest, GraphStatsResponse, ImpactAnalysisRequest,
+    ImpactAnalysisResponse, ImpactNodeProto, NarrativeQueryRequest,
+    NarrativeQueryResponse, PageRankNodeProto, PageRankRequest, PageRankResponse,
+    QueryRelatedRequest, QueryRelatedResponse, TraversalNodeProto,
 };
 use crate::validation::extract_relative_path;
 
 use super::helpers::parse_edge_type_filter;
+use super::narrative_query::execute_narrative_query;
 use super::service_impl::GraphServiceImpl;
 use super::validation::{
     validate_betweenness_params, validate_community_params, validate_pagerank_params,
@@ -688,6 +690,91 @@ impl GraphService for GraphServiceImpl {
                 }))
             }
         }
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "GraphService.narrative_query"))]
+    async fn narrative_query(
+        &self,
+        request: Request<NarrativeQueryRequest>,
+    ) -> Result<Response<NarrativeQueryResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.tenant_id.is_empty() {
+            return Err(Status::invalid_argument("tenant_id is required"));
+        }
+
+        let query_target = req
+            .query_target
+            .ok_or_else(|| Status::invalid_argument("query_target is required"))?;
+
+        let (query_name, is_concept) = match &query_target {
+            QueryTarget::SymbolName(s) if s.is_empty() => {
+                return Err(Status::invalid_argument("symbol_name must not be empty"));
+            }
+            QueryTarget::ConceptName(s) if s.is_empty() => {
+                return Err(Status::invalid_argument("concept_name must not be empty"));
+            }
+            QueryTarget::SymbolName(s) => (s.clone(), false),
+            QueryTarget::ConceptName(s) => (s.clone(), true),
+        };
+
+        // Clamp max_depth: 0 or unset -> 2, negative -> InvalidArgument
+        if req.max_depth < 0 {
+            return Err(Status::invalid_argument("max_depth must not be negative"));
+        }
+        let max_depth = if req.max_depth == 0 {
+            2
+        } else {
+            req.max_depth.clamp(1, 5)
+        } as u32;
+
+        // Clamp max_results: 0 or unset -> 50, negative -> InvalidArgument
+        if req.max_results < 0 {
+            return Err(Status::invalid_argument("max_results must not be negative"));
+        }
+        let max_results = if req.max_results == 0 {
+            50
+        } else {
+            req.max_results.clamp(1, 200)
+        } as u32;
+
+        // Validate edge type filters
+        let edge_filter = parse_edge_type_filter(&req.edge_types)?;
+
+        debug!(
+            "GraphService.NarrativeQuery: tenant={} target={} concept={} \
+             depth={} limit={} edge_types={:?}",
+            req.tenant_id, query_name, is_concept, max_depth, max_results, edge_filter
+        );
+
+        let start = std::time::Instant::now();
+
+        let guard = self.graph_store.read().await.map_err(|e| {
+            error!("Failed to acquire graph read lock: {}", e);
+            Status::unavailable(format!("Graph store busy: {}", e))
+        })?;
+        let pool = guard.pool();
+
+        let nodes = execute_narrative_query(
+            pool,
+            &req.tenant_id,
+            &query_name,
+            is_concept,
+            edge_filter.as_deref(),
+            max_depth,
+            max_results,
+        )
+        .await?;
+
+        let elapsed = start.elapsed().as_millis();
+        let total_found = nodes.len() as i32;
+
+        debug!(
+            "GraphService.NarrativeQuery: found {} nodes in {}ms",
+            total_found, elapsed
+        );
+
+        Ok(Response::new(NarrativeQueryResponse { nodes, total_found }))
     }
 }
 

@@ -2,10 +2,12 @@
 //!
 //! Provides code relationship graph queries: traversal, impact analysis,
 //! statistics, PageRank, community detection, betweenness centrality,
-//! and backend migration. All queries use a shared read lock on the graph store.
+//! backend migration, and narrative-code traversal. All queries use a
+//! shared read lock on the graph store.
 
 mod handlers;
 mod helpers;
+mod narrative_query;
 mod service_impl;
 mod validation;
 
