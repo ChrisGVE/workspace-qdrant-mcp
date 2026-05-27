@@ -433,6 +433,19 @@ async fn handle_branch_lifecycle_event(
                 "Branch lifecycle: '{}' renamed to '{}' for {}",
                 old_name, new_name, watch_folder_id
             );
+            let result = workspace_qdrant_core::branch_cleanup::handle_branch_rename(
+                pool,
+                branch_ctx,
+                watch_folder_id,
+                tenant_id,
+                old_name,
+                new_name,
+            )
+            .await;
+            info!(
+                "Branch rename for '{}'->'{}': {} updated, {} errors",
+                old_name, new_name, result.updated, result.errors
+            );
         }
         _ => {
             debug!(

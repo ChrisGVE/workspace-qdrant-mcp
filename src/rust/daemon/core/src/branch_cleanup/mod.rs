@@ -30,6 +30,55 @@ pub struct BranchCleanupResult {
     pub errors: u64,
 }
 
+/// Result of a branch rename operation.
+#[derive(Debug, Default)]
+pub struct BranchRenameResult {
+    /// Tracked files updated.
+    pub updated: u64,
+    /// Errors encountered.
+    pub errors: u64,
+}
+
+/// Rename a branch across all data stores: tracked_files, Qdrant, and search.db.
+pub async fn handle_branch_rename(
+    pool: &SqlitePool,
+    branch_ctx: &BranchUpdateContext,
+    watch_folder_id: &str,
+    tenant_id: &str,
+    old_name: &str,
+    new_name: &str,
+) -> BranchRenameResult {
+    let mut result = BranchRenameResult::default();
+
+    // Hold per-tenant lock across all three stores for consistency
+    let lock = branch_ctx.branch_locks.get(tenant_id);
+    let _guard = lock.lock().await;
+
+    // 1. Rename in tracked_files.branches[]
+    match db::rename_branch_in_tracked_files(pool, watch_folder_id, old_name, new_name).await {
+        Ok(count) => result.updated = count,
+        Err(e) => {
+            warn!("Failed to rename branch in tracked_files: {}", e);
+            result.errors += 1;
+        }
+    }
+
+    // 2. Rename in Qdrant points' branches payload
+    db::rename_qdrant_branches(branch_ctx, pool, watch_folder_id, old_name, new_name).await;
+
+    // 3. Rename in file_metadata (search.db)
+    if let Some(ref sdb) = branch_ctx.search_db {
+        db::rename_file_metadata_branch(sdb.pool(), tenant_id, old_name, new_name).await;
+    }
+
+    info!(
+        "Branch rename '{}' -> '{}' complete: {} files updated, {} errors",
+        old_name, new_name, result.updated, result.errors
+    );
+
+    result
+}
+
 /// Check whether a branch still exists locally or on a remote.
 #[derive(Debug, PartialEq)]
 pub enum BranchExistence {
@@ -37,6 +86,47 @@ pub enum BranchExistence {
     ExistsRemotely,
     Gone,
     CheckFailed(String),
+}
+
+/// Resolve the default remote for a branch: try the branch's upstream remote,
+/// then fall back to git's default remote, then "origin".
+fn resolve_default_remote(project_root: &Path, branch: &str) -> String {
+    // Try branch-specific upstream remote
+    let upstream = std::process::Command::new("git")
+        .args([
+            "-C",
+            &project_root.to_string_lossy(),
+            "config",
+            &format!("branch.{}.remote", branch),
+        ])
+        .output();
+
+    if let Ok(out) = upstream {
+        if out.status.success() {
+            let remote = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !remote.is_empty() {
+                return remote;
+            }
+        }
+    }
+
+    // Fall back to first configured remote
+    let remotes = std::process::Command::new("git")
+        .args(["-C", &project_root.to_string_lossy(), "remote"])
+        .output();
+
+    if let Ok(out) = remotes {
+        if out.status.success() {
+            if let Some(first) = String::from_utf8_lossy(&out.stdout).lines().next() {
+                let first = first.trim();
+                if !first.is_empty() {
+                    return first.to_string();
+                }
+            }
+        }
+    }
+
+    "origin".to_string()
 }
 
 /// Check if a branch still exists locally or on a remote.
@@ -60,6 +150,9 @@ pub fn check_branch_existence(project_root: &Path, branch: &str) -> BranchExiste
         _ => {}
     }
 
+    // Resolve the default remote (branch upstream or fallback to "origin")
+    let remote_name = resolve_default_remote(project_root, branch);
+
     // Check remote refs
     let remote = std::process::Command::new("git")
         .args([
@@ -67,7 +160,7 @@ pub fn check_branch_existence(project_root: &Path, branch: &str) -> BranchExiste
             &project_root.to_string_lossy(),
             "ls-remote",
             "--heads",
-            "origin",
+            &remote_name,
             &format!("refs/heads/{}", branch),
         ])
         .output();
@@ -206,9 +299,16 @@ pub async fn cleanup_deleted_branch(
             .collect();
         let file_ids: Vec<i64> = to_delete.iter().map(|f| f.file_id).collect();
 
-        // Delete Qdrant points
+        // Delete Qdrant points — only if no other watch folder references the same base_point
         for bp in &base_points {
-            db::delete_qdrant_points(branch_ctx, bp).await;
+            if db::has_other_base_point_references(pool, bp, watch_folder_id).await {
+                debug!(
+                    "Keeping Qdrant points for base_point={} (referenced by other watch folders)",
+                    bp
+                );
+            } else {
+                db::delete_qdrant_points(branch_ctx, bp).await;
+            }
         }
 
         // Delete tracked_files and qdrant_chunks rows

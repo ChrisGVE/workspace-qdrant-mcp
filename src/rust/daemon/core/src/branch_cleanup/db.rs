@@ -173,6 +173,145 @@ pub async fn delete_qdrant_points(branch_ctx: &BranchUpdateContext, base_point: 
     }
 }
 
+/// Rename a branch in tracked_files.branches[] for the given watch folder.
+pub async fn rename_branch_in_tracked_files(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    old_name: &str,
+    new_name: &str,
+) -> Result<u64, String> {
+    let now = timestamps::now_utc();
+    let affected = fetch_affected_files(pool, watch_folder_id, old_name).await?;
+    if affected.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+
+    let mut updated = 0u64;
+    for f in &affected {
+        let mut branches: Vec<String> = f.branches.clone();
+        for b in &mut branches {
+            if b == old_name {
+                *b = new_name.to_string();
+            }
+        }
+        branches.sort();
+        branches.dedup();
+        let new_json = serde_json::to_string(&branches).unwrap_or_else(|_| "[]".to_string());
+
+        let result = sqlx::query(
+            "UPDATE tracked_files SET branches = ?1, updated_at = ?2 WHERE file_id = ?3",
+        )
+        .bind(&new_json)
+        .bind(&now)
+        .bind(f.file_id)
+        .execute(&mut *tx)
+        .await;
+
+        match result {
+            Ok(r) => updated += r.rows_affected(),
+            Err(e) => {
+                warn!("Failed to rename branch in file_id={}: {}", f.file_id, e);
+            }
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("Failed to commit branch rename: {}", e))?;
+
+    Ok(updated)
+}
+
+/// Rename a branch in Qdrant points' branches payload for affected files.
+pub async fn rename_qdrant_branches(
+    branch_ctx: &BranchUpdateContext,
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    old_name: &str,
+    new_name: &str,
+) {
+    let affected = match fetch_affected_files(pool, watch_folder_id, old_name).await {
+        Ok(files) => files,
+        Err(e) => {
+            warn!("Failed to fetch files for Qdrant branch rename: {}", e);
+            return;
+        }
+    };
+
+    for f in &affected {
+        if let Some(ref bp) = f.base_point {
+            let mut branches: Vec<String> = f.branches.clone();
+            for b in &mut branches {
+                if b == old_name {
+                    *b = new_name.to_string();
+                }
+            }
+            branches.sort();
+            branches.dedup();
+            let branch_refs: Vec<&str> = branches.iter().map(|b| b.as_str()).collect();
+            update_qdrant_branches(branch_ctx, bp, &branch_refs).await;
+        }
+    }
+}
+
+/// Rename a branch in file_metadata rows (search.db).
+pub async fn rename_file_metadata_branch(
+    search_pool: &SqlitePool,
+    tenant_id: &str,
+    old_name: &str,
+    new_name: &str,
+) {
+    let result =
+        sqlx::query("UPDATE file_metadata SET branch = ?1 WHERE tenant_id = ?2 AND branch = ?3")
+            .bind(new_name)
+            .bind(tenant_id)
+            .bind(old_name)
+            .execute(search_pool)
+            .await;
+
+    match result {
+        Ok(r) => {
+            if r.rows_affected() > 0 {
+                tracing::info!(
+                    "Renamed {} file_metadata rows: '{}' -> '{}'",
+                    r.rows_affected(),
+                    old_name,
+                    new_name
+                );
+            }
+        }
+        Err(e) => {
+            warn!(
+                "Failed to rename file_metadata branch '{}' -> '{}': {}",
+                old_name, new_name, e
+            );
+        }
+    }
+}
+
+/// Check if any other watch folder references the same base_point.
+pub async fn has_other_base_point_references(
+    pool: &SqlitePool,
+    base_point: &str,
+    watch_folder_id: &str,
+) -> bool {
+    let count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tracked_files WHERE base_point = ?1 AND watch_folder_id != ?2",
+    )
+    .bind(base_point)
+    .bind(watch_folder_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    count > 0
+}
+
 /// Delete file_metadata rows for the deleted branch.
 pub async fn delete_file_metadata_for_branch(
     search_pool: &SqlitePool,
