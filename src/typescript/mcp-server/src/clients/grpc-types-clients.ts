@@ -202,3 +202,43 @@ export interface TrackingWriteServiceClient {
     callback: (error: Error | null, response: Record<string, never>) => void
   ): void;
 }
+
+export interface WatchIdRequest {
+  watch_id: string;
+}
+
+export interface WatchMutationResponse {
+  affected_count: number;
+}
+
+export interface WatchWriteServiceClient {
+  pauseWatchers(
+    request: Record<string, never>,
+    callback: (error: Error | null, response: WatchMutationResponse) => void
+  ): void;
+  resumeWatchers(
+    request: Record<string, never>,
+    callback: (error: Error | null, response: WatchMutationResponse) => void
+  ): void;
+  pauseWatch(
+    request: WatchIdRequest,
+    callback: (error: Error | null, response: WatchMutationResponse) => void
+  ): void;
+  resumeWatch(
+    request: WatchIdRequest,
+    callback: (error: Error | null, response: WatchMutationResponse) => void
+  ): void;
+}
+
+export interface ReapplyIgnoreRulesResponse {
+  projects_processed: number;
+  stale_deleted: number;
+  missing_added: number;
+}
+
+export interface AdminWriteServiceClient {
+  reapplyIgnoreRules(
+    request: Record<string, never>,
+    callback: (error: Error | null, response: ReapplyIgnoreRulesResponse) => void
+  ): void;
+}

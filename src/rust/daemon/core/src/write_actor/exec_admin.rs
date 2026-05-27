@@ -89,4 +89,43 @@ impl WriteActor {
             ),
         })
     }
+
+    /// Reapply ignore rules across all active projects.
+    ///
+    /// Calls into `startup::reconciliation::reconcile_all_ignore_rules`, which
+    /// iterates `watch_folders WHERE collection='projects' AND enabled=1`,
+    /// loads the current global + per-project ignore rules, and enqueues
+    /// `file/delete` for newly-excluded paths and `file/add` for newly-included
+    /// paths. Constructs a fresh `QueueManager` over the actor's pool — the
+    /// manager is a stateless wrapper, so this is safe alongside the daemon's
+    /// long-lived queue processor.
+    pub(super) async fn exec_reapply_ignore_rules(
+        &self,
+    ) -> WriteResult<ReapplyIgnoreRulesResult> {
+        let queue_manager = std::sync::Arc::new(
+            crate::queue_operations::QueueManager::new(self.pool.clone()),
+        );
+
+        // Count active projects up-front so we can report it (the reconciler
+        // itself only returns stale/missing totals, not project count).
+        let projects_processed: u32 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM watch_folders WHERE collection = 'projects' AND enabled = 1",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("database error: {}", e))? as u32;
+
+        let stats = crate::startup::reconciliation::reconcile_all_ignore_rules(
+            &self.pool,
+            &queue_manager,
+        )
+        .await
+        .map_err(|e| format!("ignore reconciliation failed: {}", e))?;
+
+        Ok(ReapplyIgnoreRulesResult {
+            projects_processed,
+            stale_deleted: stats.stale_deleted as u32,
+            missing_added: stats.missing_added as u32,
+        })
+    }
 }

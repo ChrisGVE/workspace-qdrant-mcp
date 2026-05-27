@@ -50,6 +50,36 @@ impl WatchWriteService for WatchWriteServiceImpl {
         Ok(Response::new(WatchMutationResponse { affected_count }))
     }
 
+    async fn pause_watch(
+        &self,
+        request: Request<WatchIdRequest>,
+    ) -> Result<Response<WatchMutationResponse>, Status> {
+        let req = request.into_inner();
+        let affected_count = self
+            .write_actor
+            .pause_watch(WatchIdData {
+                watch_id: req.watch_id,
+            })
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(WatchMutationResponse { affected_count }))
+    }
+
+    async fn resume_watch(
+        &self,
+        request: Request<WatchIdRequest>,
+    ) -> Result<Response<WatchMutationResponse>, Status> {
+        let req = request.into_inner();
+        let affected_count = self
+            .write_actor
+            .resume_watch(WatchIdData {
+                watch_id: req.watch_id,
+            })
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(WatchMutationResponse { affected_count }))
+    }
+
     async fn enable_watch(
         &self,
         request: Request<WatchIdRequest>,

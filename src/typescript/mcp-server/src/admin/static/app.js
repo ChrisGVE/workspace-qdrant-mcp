@@ -274,7 +274,15 @@ function renderRegistered(snap) {
       <td>${r.isActive ? pill('active', 'ok') : pill('idle', 'muted')}</td>
       <td>${renderIndexingCell(r.indexing)}</td>
       <td class="dim">${escapeHtml(fmtTime(r.lastActivityAt))}</td>
-      <td>
+      <td style="white-space:nowrap">
+        <button class="secondary small"
+                data-action="watch-pause"
+                data-watch-id="${escapeHtml(r.path)}"
+                title="Set is_paused=1 for this watch folder">Pause</button>
+        <button class="secondary small"
+                data-action="watch-resume"
+                data-watch-id="${escapeHtml(r.path)}"
+                title="Set is_paused=0 for this watch folder">Resume</button>
         <button class="danger small"
                 data-action="deregister"
                 data-id="${escapeHtml(r.tenantId)}"
@@ -514,6 +522,28 @@ document.addEventListener('click', async (e) => {
       });
       toast(`Deactivated ${btn.dataset.id}`);
       refresh();
+    } else if (action === 'watch-pause') {
+      const result = await api('/admin/api/watches/pause', {
+        method: 'POST',
+        body: { watchId: btn.dataset.watchId },
+      });
+      if (result.affectedCount > 0) {
+        toast(`Paused watch: ${btn.dataset.watchId}`);
+      } else {
+        toast(`No change (already paused, disabled, or not found)`, 'info');
+      }
+      refresh();
+    } else if (action === 'watch-resume') {
+      const result = await api('/admin/api/watches/resume', {
+        method: 'POST',
+        body: { watchId: btn.dataset.watchId },
+      });
+      if (result.affectedCount > 0) {
+        toast(`Resumed watch: ${btn.dataset.watchId}`);
+      } else {
+        toast(`No change (not currently paused, disabled, or not found)`, 'info');
+      }
+      refresh();
     }
   } catch (e) {
     toast(e.message, 'error');
@@ -683,16 +713,21 @@ els.checkDaemonMetricsBtn.addEventListener('click', async () => {
 els.forceReconcileBtn.addEventListener('click', async () => {
   els.forceReconcileBtn.disabled = true;
   const originalLabel = els.forceReconcileBtn.textContent;
-  els.forceReconcileBtn.textContent = 'Triggering…';
+  els.forceReconcileBtn.textContent = 'Reapplying…';
   try {
-    const result = await api('/admin/api/ignore/global', {
-      method: 'PUT',
-      body: { content: document.getElementById('globalIgnoreText')?.value ?? '' },
-    });
-    els.stackActionsStatus.textContent = `Reconcile triggered · ${new Date().toLocaleTimeString()}`;
+    const result = await api('/admin/api/ignore/reapply', { method: 'POST' });
+    els.stackActionsStatus.textContent = `Ignore reapplied · ${new Date().toLocaleTimeString()}`;
     els.stackActionsLog.hidden = false;
-    els.stackActionsLog.textContent = `Saved ${result.bytes} bytes to ${result.path}\nReconciliation will run for all projects on the next file-watcher tick.`;
-    toast('Reconciliation triggered');
+    els.stackActionsLog.textContent =
+      `Projects processed : ${result.projectsProcessed}\n` +
+      `Stale deletes      : ${result.staleDeleted}\n` +
+      `Missing adds       : ${result.missingAdded}\n` +
+      `\nEnqueued items drain through the normal queue processor.`;
+    toast(
+      result.staleDeleted + result.missingAdded > 0
+        ? `Reapplied ignore: ${result.staleDeleted} deletes, ${result.missingAdded} adds`
+        : 'Reapplied ignore — no changes',
+    );
   } catch (e) {
     toast(e.message, 'error');
   } finally {

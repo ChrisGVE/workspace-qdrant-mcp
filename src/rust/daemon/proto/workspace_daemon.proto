@@ -841,6 +841,12 @@ service WatchWriteService {
     // Resume all paused watchers (set is_paused=0)
     rpc ResumeWatchers(google.protobuf.Empty) returns (WatchMutationResponse);
 
+    // Pause a specific watch folder (set is_paused=1)
+    rpc PauseWatch(WatchIdRequest) returns (WatchMutationResponse);
+
+    // Resume a specific watch folder (set is_paused=0)
+    rpc ResumeWatch(WatchIdRequest) returns (WatchMutationResponse);
+
     // Enable a specific watch folder
     rpc EnableWatch(WatchIdRequest) returns (WatchMutationResponse);
 
@@ -926,6 +932,13 @@ service AdminWriteService {
     // Trigger full re-embed pipeline (drain queue, recreate canonical
     // collections at settings.output_dim, re-enqueue all indexed sources).
     rpc TriggerReembed(TriggerReembedRequest) returns (TriggerReembedResponse);
+
+    // Reapply ignore rules across all active projects without restart.
+    // Iterates watch_folders with collection='projects' AND enabled=1,
+    // compares tracked_files against the current global+per-project ignore
+    // rules, enqueues file/delete for newly-excluded paths, file/add for
+    // newly-included paths.
+    rpc ReapplyIgnoreRules(google.protobuf.Empty) returns (ReapplyIgnoreRulesResponse);
 }
 
 // =============================================================================
@@ -1230,6 +1243,13 @@ message TriggerReembedResponse {
     uint32 rules_enqueued = 2;                        // Rules re-enqueued from rules_mirror
     uint32 scratchpad_enqueued = 3;                   // Scratchpad items re-enqueued
     string message = 4;
+}
+
+// ReapplyIgnoreRules Response
+message ReapplyIgnoreRulesResponse {
+    uint32 projects_processed = 1;                    // Number of active projects iterated
+    uint32 stale_deleted = 2;                         // Tracked files enqueued for deletion (newly ignored)
+    uint32 missing_added = 3;                         // Filesystem entries enqueued for indexing (newly included)
 }
 
 // GetEmbeddingProviderStatus Response

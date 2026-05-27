@@ -310,6 +310,14 @@ pub struct RebalanceIdfResult {
     pub message: String,
 }
 
+/// Result of ReapplyIgnoreRules
+#[derive(Debug)]
+pub struct ReapplyIgnoreRulesResult {
+    pub projects_processed: u32,
+    pub stale_deleted: u32,
+    pub missing_added: u32,
+}
+
 // ── WriteCommand enum ──────────────────────────────────────────────────
 
 /// Type alias for write results channeled back via oneshot.
@@ -356,6 +364,14 @@ pub enum WriteCommand {
         tx: oneshot::Sender<WriteResult<u32>>,
     },
     ResumeWatchers {
+        tx: oneshot::Sender<WriteResult<u32>>,
+    },
+    PauseWatch {
+        data: WatchIdData,
+        tx: oneshot::Sender<WriteResult<u32>>,
+    },
+    ResumeWatch {
+        data: WatchIdData,
         tx: oneshot::Sender<WriteResult<u32>>,
     },
     EnableWatch {
@@ -439,5 +455,8 @@ pub enum WriteCommand {
     RebalanceIdf {
         data: RebalanceIdfData,
         tx: oneshot::Sender<WriteResult<RebalanceIdfResult>>,
+    },
+    ReapplyIgnoreRules {
+        tx: oneshot::Sender<WriteResult<ReapplyIgnoreRulesResult>>,
     },
 }

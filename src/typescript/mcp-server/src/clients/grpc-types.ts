@@ -87,4 +87,9 @@ export type {
   GraphServiceClient,
   QueueWriteServiceClient,
   TrackingWriteServiceClient,
+  WatchWriteServiceClient,
+  AdminWriteServiceClient,
+  WatchIdRequest,
+  WatchMutationResponse,
+  ReapplyIgnoreRulesResponse,
 } from './grpc-types-clients.js';

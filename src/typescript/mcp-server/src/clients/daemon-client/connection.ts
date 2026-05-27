@@ -19,6 +19,8 @@ import type {
   GraphServiceClient,
   QueueWriteServiceClient,
   TrackingWriteServiceClient,
+  WatchWriteServiceClient,
+  AdminWriteServiceClient,
   HealthCheckResponse,
 } from '../grpc-types.js';
 import { DEFAULT_CONFIG } from '../../types/generated-defaults.js';
@@ -60,6 +62,8 @@ export interface ProtoGrpcType {
     GraphService: GrpcServiceDefinition;
     QueueWriteService: GrpcServiceDefinition;
     TrackingWriteService: GrpcServiceDefinition;
+    WatchWriteService: GrpcServiceDefinition;
+    AdminWriteService: GrpcServiceDefinition;
   };
 }
 
@@ -175,6 +179,8 @@ export class DaemonClientBase {
   protected graphClient?: GraphServiceClient;
   protected queueWriteClient?: QueueWriteServiceClient;
   protected trackingWriteClient?: TrackingWriteServiceClient;
+  protected watchWriteClient?: WatchWriteServiceClient;
+  protected adminWriteClient?: AdminWriteServiceClient;
 
   protected connectionState: ConnectionState = { connected: false };
 
@@ -240,6 +246,14 @@ export class DaemonClientBase {
       address,
       credentials
     ) as unknown as TrackingWriteServiceClient;
+    this.watchWriteClient = new proto.workspace_daemon.WatchWriteService(
+      address,
+      credentials
+    ) as unknown as WatchWriteServiceClient;
+    this.adminWriteClient = new proto.workspace_daemon.AdminWriteService(
+      address,
+      credentials
+    ) as unknown as AdminWriteServiceClient;
   }
 
   async connect(): Promise<void> {

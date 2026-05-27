@@ -100,13 +100,21 @@ enum WatchCommand {
         watch_id: String,
     },
 
-    /// Pause all enabled watchers (internal)
+    /// Pause all enabled watchers (or a single watch with --watch-id)
     #[command(hide = true)]
-    Pause,
+    Pause {
+        /// Watch ID or path; if omitted, pauses ALL enabled watchers
+        #[arg(long)]
+        watch_id: Option<String>,
+    },
 
-    /// Resume all paused watchers (internal)
+    /// Resume all paused watchers (or a single watch with --watch-id)
     #[command(hide = true)]
-    Resume,
+    Resume {
+        /// Watch ID or path; if omitted, resumes ALL paused watchers
+        #[arg(long)]
+        watch_id: Option<String>,
+    },
 }
 
 /// Execute watch command
@@ -139,7 +147,13 @@ pub async fn execute(args: WatchArgs) -> Result<()> {
         WatchCommand::Show { watch_id, json } => show::show(&watch_id, json).await,
         WatchCommand::Archive { watch_id } => archive::archive(&watch_id).await,
         WatchCommand::Unarchive { watch_id } => archive::unarchive(&watch_id).await,
-        WatchCommand::Pause => pause_resume::pause().await,
-        WatchCommand::Resume => pause_resume::resume().await,
+        WatchCommand::Pause { watch_id } => match watch_id {
+            Some(id) => pause_resume::pause_one(&id).await,
+            None => pause_resume::pause().await,
+        },
+        WatchCommand::Resume { watch_id } => match watch_id {
+            Some(id) => pause_resume::resume_one(&id).await,
+            None => pause_resume::resume().await,
+        },
     }
 }

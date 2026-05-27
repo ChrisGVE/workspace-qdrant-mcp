@@ -20,6 +20,7 @@ mod perf_data;
 mod perf_queries;
 mod prune_logs;
 mod rebalance_idf;
+mod reconcile_ignore;
 mod reembed;
 mod rename_tenant;
 mod requeue_failed;
@@ -162,6 +163,14 @@ enum AdminCommand {
         #[arg(long)]
         confirm: bool,
     },
+
+    /// Re-apply current ignore rules without restarting the daemon
+    ///
+    /// Iterates active projects, compares tracked_files against the current
+    /// global + per-project ignore rules, and enqueues file/delete for
+    /// newly-excluded paths and file/add for newly-included paths. Use after
+    /// editing `global.wqmignore` to propagate changes without a restart.
+    ReconcileIgnore,
 
     /// Rank directories by how strongly they look like ignore candidates
     ///
@@ -327,6 +336,7 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             min_growth_pct,
         } => rebalance_idf::execute(collection, dry_run, min_growth_pct).await,
         AdminCommand::Reembed { confirm } => reembed::execute(confirm).await,
+        AdminCommand::ReconcileIgnore => reconcile_ignore::execute().await,
         AdminCommand::IgnoreCandidates {
             top,
             depth,

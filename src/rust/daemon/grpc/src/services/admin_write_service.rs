@@ -13,9 +13,9 @@ use workspace_qdrant_core::write_actor::{
 };
 
 use crate::proto::{
-    admin_write_service_server::AdminWriteService, RebalanceIdfRequest, RebalanceIdfResponse,
-    RenameTenantAdminRequest, RenameTenantAdminResponse, TriggerReembedRequest,
-    TriggerReembedResponse,
+    admin_write_service_server::AdminWriteService, ReapplyIgnoreRulesResponse, RebalanceIdfRequest,
+    RebalanceIdfResponse, RenameTenantAdminRequest, RenameTenantAdminResponse,
+    TriggerReembedRequest, TriggerReembedResponse,
 };
 use crate::services::reembed::{execute_reembed, ReembedContext, StorageClientRecreator};
 
@@ -121,5 +121,21 @@ impl AdminWriteService for AdminWriteServiceImpl {
         let resp =
             execute_reembed(&ctx, &recreator, REEMBED_DRAIN_TIMEOUT, REEMBED_DRAIN_POLL).await?;
         Ok(Response::new(resp))
+    }
+
+    async fn reapply_ignore_rules(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<ReapplyIgnoreRulesResponse>, Status> {
+        let result = self
+            .write_actor
+            .reapply_ignore_rules()
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(ReapplyIgnoreRulesResponse {
+            projects_processed: result.projects_processed,
+            stale_deleted: result.stale_deleted,
+            missing_added: result.missing_added,
+        }))
     }
 }

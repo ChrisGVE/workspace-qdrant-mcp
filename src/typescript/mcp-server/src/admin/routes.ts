@@ -527,6 +527,79 @@ const handlePutGlobalIgnore: RouteHandler = async (req, res) => {
   writeJson(res, 200, { ok: true, bytes: content.length, path: ignoreFile });
 };
 
+// ── /api/ignore/reapply — re-run ignore reconciliation without restart ──────
+
+/**
+ * Calls `AdminWriteService.ReapplyIgnoreRules` over gRPC. After editing
+ * `global.wqmignore` the user can click "Reapply ignore" to enqueue
+ * file/delete for newly-excluded paths and file/add for newly-included
+ * paths, without waiting for a daemon restart or a per-project ignore
+ * touch.
+ */
+const handleReapplyIgnore: RouteHandler = async (_req, res, { daemonClient }) => {
+  try {
+    const response = await daemonClient.reapplyIgnoreRules();
+    logInfo('admin reapply ignore rules', {
+      projects: response.projects_processed,
+      stale_deleted: response.stale_deleted,
+      missing_added: response.missing_added,
+    });
+    writeJson(res, 200, {
+      ok: true,
+      projectsProcessed: response.projects_processed,
+      staleDeleted: response.stale_deleted,
+      missingAdded: response.missing_added,
+    });
+  } catch (error) {
+    logError('admin reapply ignore rules failed', error, {});
+    writeError(
+      res,
+      502,
+      'reapply ignore rules failed',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+};
+
+// ── /api/watches/pause + /resume — per-watch pause/resume ───────────────────
+
+interface WatchActionRequest {
+  /** Watch ID, ID prefix, or filesystem path. */
+  watchId: string;
+}
+
+const handleWatchPause: RouteHandler = async (req, res, { daemonClient }) => {
+  const body = (await readJsonBody(req)) as Partial<WatchActionRequest>;
+  const watchId = body.watchId;
+  if (!watchId || typeof watchId !== 'string') {
+    writeError(res, 400, 'watchId required');
+    return;
+  }
+  try {
+    const response = await daemonClient.pauseWatch({ watch_id: watchId });
+    writeJson(res, 200, { ok: true, affectedCount: response.affected_count });
+  } catch (error) {
+    logError('admin watch pause failed', error, { watchId });
+    writeError(res, 502, 'pause failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
+const handleWatchResume: RouteHandler = async (req, res, { daemonClient }) => {
+  const body = (await readJsonBody(req)) as Partial<WatchActionRequest>;
+  const watchId = body.watchId;
+  if (!watchId || typeof watchId !== 'string') {
+    writeError(res, 400, 'watchId required');
+    return;
+  }
+  try {
+    const response = await daemonClient.resumeWatch({ watch_id: watchId });
+    writeJson(res, 200, { ok: true, affectedCount: response.affected_count });
+  } catch (error) {
+    logError('admin watch resume failed', error, { watchId });
+    writeError(res, 502, 'resume failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
 // ── /api/settings — read + write the JSON settings file ─────────────────────
 
 const handleGetSettings: RouteHandler = async (_req, res) => {
@@ -669,6 +742,9 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'PUT', path: '/admin/api/settings', handler: handlePutSettings },
   { method: 'GET', path: '/admin/api/ignore/global', handler: handleGetGlobalIgnore },
   { method: 'PUT', path: '/admin/api/ignore/global', handler: handlePutGlobalIgnore },
+  { method: 'POST', path: '/admin/api/ignore/reapply', handler: handleReapplyIgnore },
+  { method: 'POST', path: '/admin/api/watches/pause', handler: handleWatchPause },
+  { method: 'POST', path: '/admin/api/watches/resume', handler: handleWatchResume },
   { method: 'GET', path: '/admin/api/config/clients', handler: handleGetClientConfigs },
   { method: 'GET', path: '/admin/api/logs/mcp', handler: handleGetMcpLogs },
   { method: 'GET', path: '/admin/api/daemon/raw-health', handler: handleDaemonRawHealth },
