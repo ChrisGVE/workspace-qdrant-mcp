@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, Row, SqlitePool};
+use sqlx::{Executor, Row};
 use tracing::{info, warn};
 use wqm_common::timestamps::format_utc;
 
