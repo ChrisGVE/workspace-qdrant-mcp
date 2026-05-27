@@ -138,6 +138,8 @@ export function diversifyResults(
   const tiers = buildScoreTiers(results, config.scoreTierThreshold);
   const sourceCounts = new Map<string, number>();
   const output: SearchResult[] = [];
+  const spillover: SearchResult[] = [];
+  const targetCount = results.length;
 
   for (const tier of tiers) {
     const interleaved = interleaveTier(tier);
@@ -147,8 +149,16 @@ export function diversifyResults(
       if (count < config.maxPerSource) {
         sourceCounts.set(source, count + 1);
         output.push(r);
+      } else {
+        spillover.push(r);
       }
     }
+  }
+
+  // Backfill from spillover to preserve the requested result count.
+  for (const r of spillover) {
+    if (output.length >= targetCount) break;
+    output.push(r);
   }
 
   return { results: output, diversityScore: computeDiversityScore(output) };

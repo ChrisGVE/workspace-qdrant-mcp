@@ -119,36 +119,41 @@ describe('diversifyResults — disabled', () => {
 // ---------------------------------------------------------------------------
 
 describe('diversifyResults — maxPerSource enforcement', () => {
-  it('caps single-source results to maxPerSource', () => {
-    // 6 results all from the same source
+  it('preserves count for single-source results with diversity applied', () => {
+    // 6 results all from the same source — backfill preserves count
     const results = [0.9, 0.85, 0.8, 0.75, 0.7, 0.65].map((score, i) =>
       makeProjectResult(`r${i}`, score, 'tenant-a')
     );
     const config: DiversityConfig = { ...DEFAULT_DIVERSITY_CONFIG, maxPerSource: 3 };
     const { results: out } = diversifyResults(results, config);
-    expect(out).toHaveLength(3);
+    expect(out).toHaveLength(6);
     out.forEach((r) => expect(r.metadata.tenant_id).toBe('tenant-a'));
+    // First 3 are the highest-scoring (diversity preference applied)
+    expect(out[0]!.score).toBeGreaterThanOrEqual(out[1]!.score);
+    expect(out[1]!.score).toBeGreaterThanOrEqual(out[2]!.score);
   });
 
-  it('returns max 3 per source from 10 results split 2 sources', () => {
+  it('prefers diversity then backfills to preserve count', () => {
     // 5 from source-a, 5 from source-b, interleaved by score
     const results: SearchResult[] = [];
     for (let i = 0; i < 5; i++) {
       results.push(makeProjectResult(`a${i}`, 0.9 - i * 0.05, 'tenant-a'));
       results.push(makeProjectResult(`b${i}`, 0.87 - i * 0.05, 'tenant-b'));
     }
-    // Sort by score descending (as the pipeline does before calling us)
     results.sort((a, b) => b.score - a.score);
 
     const config: DiversityConfig = { ...DEFAULT_DIVERSITY_CONFIG, maxPerSource: 3 };
     const { results: out } = diversifyResults(results, config);
 
-    const aCount = out.filter((r) => r.metadata.tenant_id === 'tenant-a').length;
-    const bCount = out.filter((r) => r.metadata.tenant_id === 'tenant-b').length;
+    // Total count preserved (backfill from spillover)
+    expect(out.length).toBe(10);
 
-    expect(aCount).toBeLessThanOrEqual(3);
-    expect(bCount).toBeLessThanOrEqual(3);
-    expect(out.length).toBeLessThanOrEqual(6);
+    // First 6 results should be diverse (max 3 per source)
+    const firstSix = out.slice(0, 6);
+    const aFirst = firstSix.filter((r) => r.metadata.tenant_id === 'tenant-a').length;
+    const bFirst = firstSix.filter((r) => r.metadata.tenant_id === 'tenant-b').length;
+    expect(aFirst).toBeLessThanOrEqual(3);
+    expect(bFirst).toBeLessThanOrEqual(3);
   });
 });
 
