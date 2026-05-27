@@ -9,6 +9,7 @@
 
 pub mod migration;
 
+pub mod fk_guard;
 mod v01;
 mod v02;
 mod v03;

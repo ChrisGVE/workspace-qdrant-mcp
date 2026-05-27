@@ -30,6 +30,7 @@ use async_trait::async_trait;
 use sqlx::{Executor, SqlitePool};
 use tracing::{debug, info, warn};
 
+use super::fk_guard::DedicatedFkConn;
 use super::migration::Migration;
 use super::SchemaError;
 
@@ -79,40 +80,31 @@ impl Migration for V37Migration {
         debug!("Migration v37: phase 1 (marker inserted)");
 
         // ---- Phase 2 (SQLite side): truncate ingest-derived tables ----
-        // Watcher-configured tables (watch_folders, rules, scratchpad) are
-        // retained. The path discipline is purely about ingest content.
-        //
-        // Per spec §6.2 the following are truncated:
-        //   tracked_files, qdrant_chunks, file_metadata (search.db is a
-        //   separate file — handled by its own migration; here we only
-        //   touch state.db), graph_nodes/graph_edges (graph.db — same
-        //   note), unified_queue, ignore_file_mtimes.
-        //
-        // For tables that live in this state.db file:
-        conn.execute("PRAGMA foreign_keys = OFF").await?;
+        // Uses a dedicated (non-pooled) connection for the FK-off window so
+        // that no pool connection can be left with FK checks disabled on
+        // error. See F-QR-001 in the queue resilience PRD.
+        drop(conn);
+        let opts = (*pool.connect_options()).clone();
+        let mut fk = DedicatedFkConn::open(opts).await?;
+        let fk_conn = fk.conn();
 
-        // Drop and rebuild `tracked_files` so the legacy `file_path`
-        // column is gone. The replacement schema lives in
-        // `tracked_files_schema/schema.rs` (no `file_path`; UNIQUE is
-        // `(watch_folder_id, relative_path, branch)`).
-        rebuild_tracked_files(&mut conn).await?;
+        rebuild_tracked_files(fk_conn).await?;
 
-        // Truncate the rest. Idempotent — ok to re-run on recovery.
         for table in ["qdrant_chunks", "unified_queue", "ignore_file_mtimes"] {
             let exists: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
             )
             .bind(table)
-            .fetch_one(&mut *conn)
+            .fetch_one(&mut *fk_conn)
             .await?;
             if exists {
                 let stmt = format!("DELETE FROM {table}");
-                conn.execute(stmt.as_str()).await?;
+                fk_conn.execute(stmt.as_str()).await?;
                 debug!("Migration v37: truncated {}", table);
             }
         }
 
-        conn.execute("PRAGMA foreign_keys = ON").await?;
+        fk.restore().await?;
 
         debug!("Migration v37: phase 2 (SQLite truncation) complete");
         info!(
@@ -139,19 +131,17 @@ impl Migration for V37Migration {
 /// rename, recreate from the canonical DDL, and (because pre-release
 /// per-CLAUDE.md "NO MIGRATION EFFORT") discard the legacy rows. The
 /// initial walk re-populates the table.
-async fn rebuild_tracked_files(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
-) -> Result<(), SchemaError> {
+async fn rebuild_tracked_files(conn: &mut sqlx::SqliteConnection) -> Result<(), SchemaError> {
     let table_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')",
     )
-    .fetch_one(&mut **conn)
+    .fetch_one(&mut *conn)
     .await?;
 
     let old_table_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files_old')",
     )
-    .fetch_one(&mut **conn)
+    .fetch_one(&mut *conn)
     .await?;
 
     if !table_exists && old_table_exists {
@@ -183,7 +173,7 @@ async fn rebuild_tracked_files(
     let tracked_sql: String = sqlx::query_scalar(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='tracked_files'",
     )
-    .fetch_one(&mut **conn)
+    .fetch_one(&mut *conn)
     .await?;
 
     if !tracked_sql.contains("file_path TEXT NOT NULL") {
