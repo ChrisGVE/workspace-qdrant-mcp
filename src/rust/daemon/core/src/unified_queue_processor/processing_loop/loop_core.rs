@@ -146,7 +146,10 @@ impl UnifiedQueueProcessor {
         if Self::handle_memory_pressure(config, poll_interval).await {
             return false;
         }
-        if Self::handle_qdrant_circuit_breaker(config, queue_manager, storage_client).await {
+        if Self::handle_qdrant_circuit_breaker(config, queue_manager, storage_client, state).await {
+            return false;
+        }
+        if Self::handle_sqlite_circuit_breaker(config, queue_manager, state).await {
             return false;
         }
         Self::update_queue_depth_metrics(queue_manager, metrics, queue_health, queue_depth_counter)
@@ -279,8 +282,13 @@ impl UnifiedQueueProcessor {
         state: &mut LoopState,
         poll_interval: Duration,
     ) -> bool {
+        let effective_batch_size = if state.recovery_ramp_remaining > 0 {
+            (config.batch_size / 4).max(1)
+        } else {
+            config.batch_size
+        };
         match fairness_scheduler
-            .dequeue_next_batch(config.batch_size)
+            .dequeue_next_batch(effective_batch_size)
             .await
         {
             Ok(items) if items.is_empty() => {
@@ -397,6 +405,9 @@ impl UnifiedQueueProcessor {
             Err(()) => false,
             Ok(tenants) => {
                 update_tenant_activity(&tenants, queue_manager).await;
+                if state.recovery_ramp_remaining > 0 {
+                    state.recovery_ramp_remaining -= 1;
+                }
                 false
             }
         }

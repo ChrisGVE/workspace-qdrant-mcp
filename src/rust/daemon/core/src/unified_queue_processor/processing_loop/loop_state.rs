@@ -1,12 +1,11 @@
 //! `LoopState` groups all mutable variables that persist across loop iterations
 //! in the unified queue processing loop.
 
+use crate::circuit_breaker::CircuitBreaker;
 use crate::unified_queue_processor::config::UnifiedProcessorConfig;
 
-/// Mutable per-iteration state for the unified processing loop.
-///
-/// Grouping these fields avoids threading 14 separate `let mut` variables
-/// through the loop body and extracted helpers.
+use super::circuit_breakers::new_sqlite_breaker;
+
 pub(super) struct LoopState {
     /// Last time periodic metrics were logged.
     pub last_metrics_log: chrono::DateTime<chrono::Utc>,
@@ -28,6 +27,10 @@ pub(super) struct LoopState {
     pub last_grammar_check: std::time::Instant,
     /// When the last DLQ purge ran.
     pub last_dlq_purge: std::time::Instant,
+    /// SQLite circuit breaker for queue operations.
+    pub sqlite_breaker: CircuitBreaker,
+    /// Remaining recovery ramp cycles after Qdrant comes back.
+    pub recovery_ramp_remaining: usize,
     /// Maintenance task scheduler.
     pub maintenance_scheduler: crate::idle::MaintenanceScheduler,
 }
@@ -80,6 +83,8 @@ impl LoopState {
             idle_since: None,
             last_grammar_check,
             last_dlq_purge: std::time::Instant::now(),
+            sqlite_breaker: new_sqlite_breaker(config),
+            recovery_ramp_remaining: 0,
             maintenance_scheduler,
         }
     }
