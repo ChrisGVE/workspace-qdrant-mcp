@@ -390,6 +390,18 @@ async fn run_middle_phases(
         create_concept_edges(ctx, &item.tenant_id, file_path, &taxonomy_tags).await;
     }
 
+    // Phase 2d: COVERS_TOPIC edges for narrative files (markdown/text only)
+    if !taxonomy_tags.is_empty() && is_narrative_file(file_path) {
+        create_covers_topic_edges(
+            ctx,
+            &item.tenant_id,
+            file_path,
+            &taxonomy_tags,
+            &document_content.raw_text,
+        )
+        .await;
+    }
+
     // Phases 3-4: keyword extraction + graph edges
     run_keyword_and_graph_phases(
         ctx,
@@ -567,6 +579,92 @@ async fn create_concept_edges(
     if let Err(e) = graph_store.insert_edges(&edges).await {
         tracing::warn!("Failed to insert IMPLEMENTS_CONCEPT edges: {e}");
     }
+}
+
+/// Check whether a file is a narrative document (markdown or plain text).
+///
+/// Only these file types get COVERS_TOPIC edges with depth metadata,
+/// because depth estimation requires prose content structure.
+fn is_narrative_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map_or(false, |ext| {
+            let lower = ext.to_ascii_lowercase();
+            lower == "md" || lower == "markdown" || lower == "txt" || lower == "rst"
+        })
+}
+
+/// Create COVERS_TOPIC edges from a narrative file's node to ConceptNodes.
+///
+/// For each taxonomy tag, ensures a global ConceptNode exists and creates
+/// a COVERS_TOPIC edge with depth metadata estimated from the file content.
+/// Only called for narrative files (markdown, text, rst).
+async fn create_covers_topic_edges(
+    ctx: &ProcessingContext,
+    tenant_id: &str,
+    file_path: &std::path::Path,
+    taxonomy_tags: &[String],
+    content: &str,
+) {
+    use crate::graph::{
+        compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
+    };
+    use crate::narrative::depth::estimate_depth;
+
+    let Some(ref graph_store) = ctx.graph_store else {
+        return;
+    };
+
+    if taxonomy_tags.is_empty() {
+        return;
+    }
+
+    // Estimate depth for the full file (heading_level=0, no subsections flag
+    // since we treat the whole file as a single narrative unit here).
+    let depth_level = estimate_depth(content, 0, false);
+
+    let mut concept_nodes = Vec::new();
+    let mut edges = Vec::new();
+    let file_path_str: String = file_path.to_string_lossy().into_owned();
+
+    let file_node_id =
+        crate::graph::compute_node_id(tenant_id, &file_path_str, &file_path_str, NodeType::File);
+
+    for tag in taxonomy_tags {
+        let concept_label = tag.strip_prefix("tax:").unwrap_or(tag);
+        let concept_fields =
+            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
+        let concept_id = compute_node_id_for_type(&concept_fields);
+
+        let mut node = GraphNode::new("__global__", "", concept_label, NodeType::ConceptNode);
+        node.node_id = concept_id.clone();
+        concept_nodes.push(node);
+
+        edges.push(
+            GraphEdge::new(
+                tenant_id,
+                &file_node_id,
+                &concept_id,
+                EdgeType::CoversTopic,
+                &file_path_str,
+            )
+            .with_depth(depth_level),
+        );
+    }
+
+    if let Err(e) = graph_store.upsert_nodes(&concept_nodes).await {
+        tracing::warn!("Failed to upsert ConceptNodes for COVERS_TOPIC: {e}");
+    }
+    if let Err(e) = graph_store.insert_edges(&edges).await {
+        tracing::warn!("Failed to insert COVERS_TOPIC edges: {e}");
+    }
+
+    debug!(
+        "Created {} COVERS_TOPIC edges with depth={} for {}",
+        edges.len(),
+        depth_level,
+        file_path_str,
+    );
 }
 
 /// Parse the document and compute file identifiers (phase 0 + 1).
@@ -790,4 +888,176 @@ async fn record_pipeline_timings(
         timings,
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::graph::{
+        compute_edge_id, compute_node_id, compute_node_id_for_type, DepthLevel, EdgeType,
+        GraphEdge, NodeIdFields, NodeType,
+    };
+
+    // ── is_narrative_file ──────────────────────────────────────────
+
+    #[test]
+    fn narrative_file_markdown() {
+        assert!(is_narrative_file(Path::new("docs/README.md")));
+        assert!(is_narrative_file(Path::new("notes.markdown")));
+    }
+
+    #[test]
+    fn narrative_file_txt() {
+        assert!(is_narrative_file(Path::new("todo.txt")));
+        assert!(is_narrative_file(Path::new("/abs/path/NOTES.TXT")));
+    }
+
+    #[test]
+    fn narrative_file_rst() {
+        assert!(is_narrative_file(Path::new("docs/index.rst")));
+    }
+
+    #[test]
+    fn narrative_file_code_is_not_narrative() {
+        assert!(!is_narrative_file(Path::new("main.rs")));
+        assert!(!is_narrative_file(Path::new("lib.py")));
+        assert!(!is_narrative_file(Path::new("index.ts")));
+        assert!(!is_narrative_file(Path::new("Cargo.toml")));
+    }
+
+    #[test]
+    fn narrative_file_no_extension() {
+        assert!(!is_narrative_file(Path::new("Makefile")));
+        assert!(!is_narrative_file(Path::new("LICENSE")));
+    }
+
+    // ── COVERS_TOPIC edge construction ─────────────────────────────
+
+    #[test]
+    fn covers_topic_edge_has_depth_metadata() {
+        let tenant = "t1";
+        let file_path = "docs/guide.md";
+        let tag = "tax:machine-learning";
+        let concept_label = "machine-learning";
+
+        let concept_fields =
+            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
+        let concept_id = compute_node_id_for_type(&concept_fields);
+
+        let file_node_id = compute_node_id(tenant, file_path, file_path, NodeType::File);
+
+        let edge = GraphEdge::new(
+            tenant,
+            &file_node_id,
+            &concept_id,
+            EdgeType::CoversTopic,
+            file_path,
+        )
+        .with_depth(DepthLevel::Intermediate);
+
+        assert_eq!(edge.edge_type, EdgeType::CoversTopic);
+        assert_eq!(edge.depth_level(), Some(DepthLevel::Intermediate));
+        assert_eq!(edge.source_node_id, file_node_id);
+        assert_eq!(edge.target_node_id, concept_id);
+        assert!(edge.metadata_json.is_some());
+    }
+
+    #[test]
+    fn covers_topic_edge_id_differs_from_implements_concept() {
+        let tenant = "t1";
+        let file_path = "docs/guide.md";
+        let concept_label = "testing";
+
+        let concept_fields =
+            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
+        let concept_id = compute_node_id_for_type(&concept_fields);
+        let file_node_id = compute_node_id(tenant, file_path, file_path, NodeType::File);
+
+        let covers_id = compute_edge_id(&file_node_id, &concept_id, EdgeType::CoversTopic);
+        let implements_id =
+            compute_edge_id(&file_node_id, &concept_id, EdgeType::ImplementsConcept);
+
+        assert_ne!(
+            covers_id, implements_id,
+            "COVERS_TOPIC and IMPLEMENTS_CONCEPT edges must have distinct IDs"
+        );
+    }
+
+    #[test]
+    fn covers_topic_depth_varies_with_content() {
+        use crate::narrative::depth::estimate_depth;
+
+        // Short content -> Reference
+        let short = "API ref";
+        let short_depth = estimate_depth(short, 0, false);
+        assert_eq!(short_depth, DepthLevel::Reference);
+
+        // Long technical content -> Rigorous
+        let long_technical = "word ".repeat(2500);
+        let long_depth = estimate_depth(&long_technical, 0, false);
+        assert_eq!(long_depth, DepthLevel::Rigorous);
+    }
+
+    #[test]
+    fn non_narrative_file_skipped_by_guard() {
+        // Verify the is_narrative_file guard prevents COVERS_TOPIC for code files
+        let rust_file = PathBuf::from("src/lib.rs");
+        let tags = vec!["tax:systems-programming".to_string()];
+
+        assert!(!is_narrative_file(&rust_file));
+        // The guard `!taxonomy_tags.is_empty() && is_narrative_file(file_path)`
+        // would be false, so no COVERS_TOPIC edges are created for .rs files.
+        assert!(!tags.is_empty() && !is_narrative_file(&rust_file));
+    }
+
+    #[test]
+    fn markdown_file_with_tags_passes_guard() {
+        let md_file = PathBuf::from("docs/architecture.md");
+        let tags = vec!["tax:architecture".to_string()];
+
+        assert!(is_narrative_file(&md_file));
+        assert!(!tags.is_empty() && is_narrative_file(&md_file));
+    }
+
+    #[test]
+    fn covers_topic_multiple_tags_create_multiple_edges() {
+        let tenant = "t1";
+        let file_path = "guide.md";
+        let tags = vec![
+            "tax:testing".to_string(),
+            "tax:ci-cd".to_string(),
+            "tax:devops".to_string(),
+        ];
+
+        let file_node_id = compute_node_id(tenant, file_path, file_path, NodeType::File);
+
+        let edges: Vec<GraphEdge> = tags
+            .iter()
+            .map(|tag| {
+                let label = tag.strip_prefix("tax:").unwrap_or(tag);
+                let fields = NodeIdFields::new("__global__", "", label, NodeType::ConceptNode);
+                let concept_id = compute_node_id_for_type(&fields);
+                GraphEdge::new(
+                    tenant,
+                    &file_node_id,
+                    &concept_id,
+                    EdgeType::CoversTopic,
+                    file_path,
+                )
+                .with_depth(DepthLevel::Introductory)
+            })
+            .collect();
+
+        assert_eq!(edges.len(), 3);
+        // Each edge targets a different concept node
+        let target_ids: std::collections::HashSet<&str> =
+            edges.iter().map(|e| e.target_node_id.as_str()).collect();
+        assert_eq!(target_ids.len(), 3, "each tag produces a unique target");
+        // All edges have depth metadata
+        for edge in &edges {
+            assert_eq!(edge.depth_level(), Some(DepthLevel::Introductory));
+        }
+    }
 }
