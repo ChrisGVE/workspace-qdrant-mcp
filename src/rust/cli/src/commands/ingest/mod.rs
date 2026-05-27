@@ -5,7 +5,7 @@
 //!
 //! Ingestion routes through the daemon which handles embedding and Qdrant writes.
 
-mod detect;
+pub(crate) mod detect;
 mod file_folder;
 mod status;
 mod text;

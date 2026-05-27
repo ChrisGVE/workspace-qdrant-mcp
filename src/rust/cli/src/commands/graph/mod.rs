@@ -241,7 +241,7 @@ enum GraphCommand {
         #[arg(long)]
         concept: String,
 
-        /// Project tenant_id (defaults to __global__)
+        /// Project tenant_id (auto-detected from CWD if omitted)
         #[arg(long)]
         tenant: Option<String>,
 

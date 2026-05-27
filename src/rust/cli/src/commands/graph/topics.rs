@@ -82,7 +82,14 @@ fn depth_sort_key(depth: &str) -> u8 {
 
 /// Execute the `wqm graph topics` subcommand.
 pub async fn topics(concept: &str, tenant_id: Option<&str>, json: bool) -> Result<()> {
-    let tid = tenant_id.unwrap_or("__global__");
+    let auto_tenant;
+    let tid = match tenant_id {
+        Some(t) => t,
+        None => {
+            auto_tenant = crate::commands::ingest::detect::detect_tenant_id();
+            auto_tenant.as_str()
+        }
+    };
 
     let mut client = DaemonClient::connect_default()
         .await
