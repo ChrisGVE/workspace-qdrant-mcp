@@ -20,7 +20,11 @@ name: workspace-qdrant-mcp
 # ── YAML anchors ─────────────────────────────────────────────────────────────
 
 x-restart: &restart
-  restart: unless-stopped
+  # 'always' (nao 'unless-stopped') garante que os containers subam toda vez que
+  # o Docker daemon iniciar, mesmo se foram parados manualmente ou se houve
+  # shutdown sujo do Docker Desktop. Removeu a necessidade de 'docker compose up'
+  # apos cada start do Docker Desktop.
+  restart: always
 
 x-watchtower-off: &watchtower-off
   com.centurylinklabs.watchtower.enable: "false"
@@ -112,8 +116,9 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
-      retries: 3
+      # Cold start: FastEmbed pode baixar/carregar modelo na primeira execucao.
+      start_period: 90s
+      retries: 5
     networks:
       - workspace-network
     labels:
