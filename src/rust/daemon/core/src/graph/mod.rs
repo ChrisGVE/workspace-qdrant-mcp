@@ -298,6 +298,17 @@ impl DepthLevel {
         }
     }
 
+    /// Numeric ordering: Qualitative (0) < Introductory (1) < Intermediate (2) < Rigorous (3) < Reference (4).
+    pub fn as_ordinal(self) -> u8 {
+        match self {
+            DepthLevel::Qualitative => 0,
+            DepthLevel::Introductory => 1,
+            DepthLevel::Intermediate => 2,
+            DepthLevel::Rigorous => 3,
+            DepthLevel::Reference => 4,
+        }
+    }
+
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "qualitative" => Some(DepthLevel::Qualitative),
@@ -532,6 +543,16 @@ pub trait GraphStore: Send + Sync {
         edge_types: &[EdgeType],
         max_hops: u32,
     ) -> GraphDbResult<Vec<TraversalNode>>;
+
+    /// Query all edges of a given type, returning full `GraphEdge` records.
+    ///
+    /// Used by maintenance tasks that need to scan edge metadata (e.g. depth
+    /// levels on COVERS_TOPIC edges). Backends that cannot support bulk edge
+    /// queries return an empty vec by default.
+    async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {
+        let _ = edge_type;
+        Ok(Vec::new())
+    }
 
     /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new
     /// edges — all within a single transaction. On error the database remains

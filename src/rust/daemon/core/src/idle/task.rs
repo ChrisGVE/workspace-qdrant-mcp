@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
 use super::IdleState;
+use crate::graph::GraphStore;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
@@ -27,6 +28,9 @@ pub struct MaintenanceContext<'a> {
     pub storage_client: &'a Arc<StorageClient>,
     pub search_db: Option<&'a Arc<SearchDbManager>>,
     pub queue_manager: &'a QueueManager,
+    /// Graph store for tasks that need to read/write graph edges (e.g. ELABORATES).
+    /// `None` when graph support is disabled.
+    pub graph_store: Option<&'a Arc<dyn GraphStore>>,
 }
 
 /// A maintenance task that runs during idle periods.

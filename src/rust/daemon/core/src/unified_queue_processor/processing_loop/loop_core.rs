@@ -293,6 +293,7 @@ impl UnifiedQueueProcessor {
                     grammar_manager,
                     lsp_manager,
                     search_db,
+                    graph_store,
                     poll_interval,
                 )
                 .await;

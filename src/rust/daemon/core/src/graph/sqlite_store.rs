@@ -597,6 +597,38 @@ impl GraphStore for SqliteGraphStore {
         Ok(())
     }
 
+    async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {
+        let rows: Vec<(String, String, String, String, String, String, f64, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT edge_id, tenant_id, source_node_id, target_node_id, edge_type,
+                        source_file, weight, metadata_json, branch
+                 FROM graph_edges
+                 WHERE edge_type = ?1",
+            )
+            .bind(edge_type.as_str())
+            .fetch_all(&self.pool)
+            .await?;
+
+        let edges = rows
+            .into_iter()
+            .filter_map(|(eid, tid, src, tgt, etype, sf, w, meta, br)| {
+                let et = EdgeType::from_str(&etype)?;
+                Some(GraphEdge {
+                    edge_id: eid,
+                    tenant_id: tid,
+                    source_node_id: src,
+                    target_node_id: tgt,
+                    edge_type: et,
+                    source_file: sf,
+                    weight: w,
+                    metadata_json: meta,
+                    branch: br,
+                })
+            })
+            .collect();
+        Ok(edges)
+    }
+
     async fn query_cross_boundary(
         &self,
         _source_tenant: &str,
