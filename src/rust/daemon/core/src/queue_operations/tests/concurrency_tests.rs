@@ -208,7 +208,7 @@ async fn test_idempotency_across_workers() {
 
     // Dequeue with worker-1
     let items = manager
-        .dequeue_unified(10, "worker-1", Some(300), None, None, None)
+        .dequeue_unified(10, "worker-1", Some(300), None, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
@@ -234,7 +234,7 @@ async fn test_idempotency_across_workers() {
 
     // Item should still be in_progress with worker-1's lease
     let items_after = manager
-        .dequeue_unified(10, "worker-2", Some(300), None, None, None)
+        .dequeue_unified(10, "worker-2", Some(300), None, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(

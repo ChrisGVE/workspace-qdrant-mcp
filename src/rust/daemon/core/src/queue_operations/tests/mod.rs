@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use tempfile::tempdir;
 
+mod age_promotion_tests;
 mod cascade_priority_tests;
 mod concurrency_tests;
 mod destination_tests;
