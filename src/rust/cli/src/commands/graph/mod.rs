@@ -1,18 +1,21 @@
 //! Graph command - code relationship queries and algorithms
 //!
-//! Subcommands: query, impact, stats, pagerank, communities, betweenness, migrate, narrative
+//! Subcommands: query, impact, stats, pagerank, communities, betweenness,
+//! migrate, narrative, concepts, topics
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 mod betweenness;
 mod communities;
+mod concepts;
 mod impact;
 mod migrate;
 mod narrative;
 mod pagerank;
 mod query;
 mod stats;
+mod topics;
 
 /// Graph command arguments
 #[derive(Args)]
@@ -189,6 +192,63 @@ enum GraphCommand {
         #[arg(long)]
         json: bool,
     },
+
+    /// List concept nodes with IMPLEMENTS_CONCEPT and COVERS_TOPIC counts
+    #[command(
+        long_about = "List concept nodes from the graph, showing how many code symbols \
+            implement each concept (IMPLEMENTS_CONCEPT edges) and how many narrative \
+            sources cover it (COVERS_TOPIC edges). Reads directly from SQLite.",
+        after_long_help = "Examples:\n  \
+            wqm graph concepts --tenant proj-abc123\n  \
+            wqm graph concepts --tenant proj-abc123 --concept async\n  \
+            wqm graph concepts --tenant proj-abc123 --depth rigorous --top 10\n  \
+            wqm graph concepts --tenant proj-abc123 --json"
+    )]
+    Concepts {
+        /// Project tenant_id
+        #[arg(long)]
+        tenant: String,
+
+        /// Filter by concept name (substring match)
+        #[arg(long)]
+        concept: Option<String>,
+
+        /// Filter by depth level (qualitative, introductory, intermediate, rigorous, reference)
+        #[arg(long)]
+        depth: Option<String>,
+
+        /// Maximum number of results
+        #[arg(long, default_value = "20")]
+        top: u32,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show topic coverage for a concept, grouped by depth level
+    #[command(
+        long_about = "Show which narrative sources (documents, sections) cover a given \
+            concept, grouped by depth level (qualitative through reference). Uses the \
+            NarrativeQuery gRPC RPC with concept_name target.",
+        after_long_help = "Examples:\n  \
+            wqm graph topics --concept async-runtime\n  \
+            wqm graph topics --concept error-handling --tenant proj-abc123\n  \
+            wqm graph topics --concept authentication --json"
+    )]
+    Topics {
+        /// Concept name to query coverage for
+        #[arg(long)]
+        concept: String,
+
+        /// Project tenant_id (defaults to __global__)
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn execute(args: GraphArgs) -> Result<()> {
@@ -262,5 +322,17 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             };
             narrative::narrative_query(target, &tenant, depth, limit, edge_type, json).await
         }
+        GraphCommand::Concepts {
+            tenant,
+            concept,
+            depth,
+            top,
+            json,
+        } => concepts::concepts(&tenant, concept.as_deref(), depth.as_deref(), top, json).await,
+        GraphCommand::Topics {
+            concept,
+            tenant,
+            json,
+        } => topics::topics(&concept, tenant.as_deref(), json).await,
     }
 }
