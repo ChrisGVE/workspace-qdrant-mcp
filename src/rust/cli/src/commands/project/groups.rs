@@ -33,16 +33,6 @@ struct GroupJsonRow {
     members: Vec<String>,
 }
 
-/// Script-friendly flat row for `--script` output.
-#[derive(serde::Serialize)]
-#[allow(dead_code)]
-struct GroupScriptRow {
-    group_id: String,
-    group_type: String,
-    confidence: String,
-    member: String,
-}
-
 /// List groups the current project belongs to.
 pub(super) async fn project_groups(
     project: Option<&str>,
@@ -128,9 +118,10 @@ fn query_project_groups(
     };
 
     // Step 2: for each group, fetch all members
-    let member_stmt_sql = "SELECT tenant_id FROM project_groups \
-                           WHERE group_id = ?1 ORDER BY tenant_id";
-    let mut member_stmt = conn.prepare(member_stmt_sql)?;
+    let mut member_stmt = conn.prepare(
+        "SELECT tenant_id FROM project_groups \
+         WHERE group_id = ?1 ORDER BY tenant_id",
+    )?;
 
     let mut groups = Vec::with_capacity(rows.len());
     for (group_id, group_type, confidence) in rows {

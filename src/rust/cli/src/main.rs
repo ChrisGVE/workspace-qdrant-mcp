@@ -34,7 +34,7 @@ Commands by domain:
     \x1b[1mtui\x1b[0m          Interactive terminal UI
 
   CONTENT:
-    \x1b[1mproject\x1b[0m      Project management (list, status, register, delete, search)
+    \x1b[1mproject\x1b[0m      Project management (list, status, register, delete, search, groups)
     \x1b[1mlibrary\x1b[0m      Library management (list, register, delete, add, search)
     \x1b[1mrules\x1b[0m        Behavioral rules (list, add, remove, search)
     \x1b[1mscratchpad\x1b[0m   Scratchpad entries (list, search)
@@ -131,18 +131,19 @@ enum Commands {
     Scratchpad(commands::scratchpad::ScratchArgs),
 
     // --- Project & Library ---
-    /// Project management (list, status, register, delete, search)
+    /// Project management (list, status, register, delete, search, groups)
     #[command(
         display_order = 20,
         long_about = "Manage projects tracked by the workspace-qdrant daemon. Projects are \
             automatically detected via Git repositories and indexed for semantic search. \
-            Use subcommands to list, inspect status, register new projects, and search content.",
+            Use subcommands to list, inspect status, register new projects, search content, and view group memberships.",
         after_long_help = "Examples:\n  \
             wqm project list                            List all registered projects\n  \
             wqm project status                          Status for current project\n  \
             wqm project register .                      Register current directory\n  \
             wqm project delete                          Delete current project\n  \
-            wqm project search 'TODO'                   Full-text search in project"
+            wqm project search 'TODO'                   Full-text search in project\n  \
+            wqm project groups                          Show group memberships"
     )]
     Project(commands::project::ProjectArgs),
 

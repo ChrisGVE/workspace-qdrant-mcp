@@ -1,6 +1,6 @@
 //! Project command - project management
 //!
-//! Subcommands: list, status, register, delete, search, branches
+//! Subcommands: list, status, register, delete, search, branches, groups
 
 use std::path::PathBuf;
 
@@ -10,6 +10,7 @@ use clap::{Args, Subcommand};
 mod activate;
 mod branches;
 mod delete;
+mod groups;
 mod list;
 mod register;
 pub(crate) mod resolver;
@@ -134,6 +135,42 @@ enum ProjectCommand {
         project: Option<String>,
     },
 
+    /// Show group memberships for this project
+    #[command(
+        long_about = "Show project groups the current project belongs to. Groups represent \
+            relationships between projects such as shared dependencies, workspace co-location, \
+            Git organization, or tag affinity. Each group lists all member projects and the \
+            confidence score assigned by the grouping strategy.\n\n\
+            Groups are computed automatically by the daemon scheduler. Defaults to the \
+            current working directory if no project is specified.",
+        after_long_help = "Examples:\n  \
+            wqm project groups                          Groups for current project\n  \
+            wqm project groups my-project               Groups for a named project\n  \
+            wqm project groups --strategy workspace     Filter by strategy\n  \
+            wqm project groups --json                   Output as JSON\n  \
+            wqm project groups --script                 Machine-readable output"
+    )]
+    Groups {
+        /// Project name, ID, or path (auto-detected from CWD if omitted)
+        project: Option<String>,
+
+        /// Filter by grouping strategy (dependency, workspace, git_org, affinity, tag_affinity)
+        #[arg(long)]
+        strategy: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Output as tab-separated script-friendly format
+        #[arg(long)]
+        script: bool,
+
+        /// Omit headers in script output
+        #[arg(long)]
+        no_headers: bool,
+    },
+
     /// Search project content (text or regex)
     #[command(
         long_about = "Full-text search across all indexed files in the current project. Supports \
@@ -188,6 +225,22 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
             list::list_projects(active, verbose, None).await
         }
         ProjectCommand::Branches { project } => branches::list_branches(project.as_deref()).await,
+        ProjectCommand::Groups {
+            project,
+            strategy,
+            json,
+            script,
+            no_headers,
+        } => {
+            groups::project_groups(
+                project.as_deref(),
+                strategy.as_deref(),
+                json,
+                script,
+                no_headers,
+            )
+            .await
+        }
         ProjectCommand::Status { project } => status::project_status(project.as_deref()).await,
         ProjectCommand::Register { path, name, yes } => {
             register::register_project(path, name, yes).await
