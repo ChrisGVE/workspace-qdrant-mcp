@@ -146,7 +146,7 @@ impl UnifiedQueueProcessor {
         if Self::handle_memory_pressure(config, poll_interval).await {
             return false;
         }
-        if Self::handle_circuit_breaker(config, queue_manager, storage_client).await {
+        if Self::handle_qdrant_circuit_breaker(config, queue_manager, storage_client).await {
             return false;
         }
         Self::update_queue_depth_metrics(queue_manager, metrics, queue_health, queue_depth_counter)
@@ -470,66 +470,6 @@ impl UnifiedQueueProcessor {
             embedding_semaphore.forget_permits(current - target);
         }
         state.adaptive_target_permits = Some(target);
-    }
-
-    /// Check memory pressure; sleep and return `true` (→ `continue`) if over limit.
-    async fn handle_memory_pressure(
-        config: &UnifiedProcessorConfig,
-        _poll_interval: Duration,
-    ) -> bool {
-        if !Self::check_memory_pressure(config.max_memory_percent).await {
-            return false;
-        }
-        let rss = Self::current_rss_mb();
-        if Self::check_process_rss() {
-            warn!(
-                "Process RSS {}MB exceeds {}MB limit, pausing processing for 10s",
-                rss,
-                Self::DEFAULT_MAX_RSS_MB
-            );
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        } else {
-            info!(
-                "System memory pressure detected (<{}% available, RSS={}MB), pausing for 5s",
-                100u8.saturating_sub(config.max_memory_percent),
-                rss
-            );
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-        true
-    }
-
-    /// Probe Qdrant when circuit breaker is open; return `true` (→ `continue`) if still down.
-    async fn handle_circuit_breaker(
-        config: &UnifiedProcessorConfig,
-        queue_manager: &QueueManager,
-        storage_client: &Arc<StorageClient>,
-    ) -> bool {
-        if storage_client.is_qdrant_available() {
-            return false;
-        }
-        match storage_client.test_connection().await {
-            Ok(true) => {
-                storage_client.circuit_breaker().record_success();
-                info!("Qdrant recovered — resuming queue processing");
-                match queue_manager
-                    .resurrect_failed_transient(config.max_resurrections)
-                    .await
-                {
-                    Ok((r, x)) if r > 0 || x > 0 => info!(
-                        "Recovery resurrection: reset {} item(s), exhausted {} item(s)",
-                        r, x
-                    ),
-                    Ok(_) => {}
-                    Err(e) => warn!("Recovery resurrection failed: {}", e),
-                }
-                false
-            }
-            _ => {
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                true
-            }
-        }
     }
 
     /// Sync queue depth into metrics, health, and the adaptive-resource counter.

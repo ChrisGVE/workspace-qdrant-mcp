@@ -407,6 +407,36 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_error_rate_limit_category() {
+        let err = UnifiedProcessorError::Embedding("rate limit exceeded".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "rate_limit");
+
+        let err = UnifiedProcessorError::Embedding("HTTP 429 too many requests".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "rate_limit");
+
+        let err = UnifiedProcessorError::ProcessingFailed("Too Many Requests from API".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "rate_limit");
+
+        let err = UnifiedProcessorError::QueueOperation("429 rate limit hit".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "rate_limit");
+    }
+
+    #[test]
+    fn test_classify_error_sqlite_busy() {
+        let err = UnifiedProcessorError::QueueOperation("database locked".into());
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_infrastructure"
+        );
+
+        let err = UnifiedProcessorError::ProcessingFailed("SQLITE_BUSY error".into());
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "transient_infrastructure"
+        );
+    }
+
+    #[test]
     fn test_is_permanent_category() {
         assert!(UnifiedQueueProcessor::is_permanent_category(
             "permanent_gone"

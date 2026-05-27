@@ -37,53 +37,59 @@ impl UnifiedQueueProcessor {
         }
     }
 
-    /// Classify a processing error into one of 6 categories:
+    /// Classify a processing error into one of 7 categories:
     /// - `permanent_data`: invalid payload, unsupported format -- no retry, no resurrection
     /// - `permanent_gone`: file deleted, permission denied -- silently dequeue
     /// - `transient_infrastructure`: Qdrant down, network error -- retry with standard backoff
     /// - `transient_resource`: OOM, embedding inference failure -- retry with longer backoff
     /// - `subsystem_unavailable`: embedding subsystem within backoff window -- re-lease, no retry burn
+    /// - `rate_limit`: HTTP 429 / rate limit -- retry with extended backoff
     /// - `partial`: partial enrichment -- retry enrichment only
     pub(crate) fn classify_error(error: &UnifiedProcessorError) -> &'static str {
         match error {
-            // File doesn't exist or was deleted
             UnifiedProcessorError::FileNotFound(_) => "permanent_gone",
-            // Malformed payload -- retrying won't fix the data
             UnifiedProcessorError::InvalidPayload(_) => "permanent_data",
-            // Queue operation errors -- check message
-            UnifiedProcessorError::QueueOperation(msg) => {
-                let lower = msg.to_lowercase();
-                if lower.contains("no watch_folder found") {
-                    // Tenant/project no longer registered — context is gone, not just bad data
-                    "permanent_gone"
-                } else if lower.contains("validation") || lower.contains("invalid") {
-                    "permanent_data"
-                } else {
-                    "transient_infrastructure"
-                }
-            }
-            // Processing errors -- check message for permanent vs transient
-            UnifiedProcessorError::ProcessingFailed(msg) => {
-                let lower = msg.to_lowercase();
-                if lower.contains("permission denied") || lower.contains("access denied") {
-                    "permanent_gone"
-                } else if lower.contains("invalid format")
-                    || lower.contains("malformed")
-                    || lower.contains("unsupported")
-                {
-                    "permanent_data"
-                } else {
-                    "transient_infrastructure"
-                }
-            }
-            // Qdrant storage errors -- transient infrastructure
+            UnifiedProcessorError::QueueOperation(msg) => Self::classify_message(msg),
+            UnifiedProcessorError::ProcessingFailed(msg) => Self::classify_message(msg),
             UnifiedProcessorError::Storage(_) => "transient_infrastructure",
-            // Embedding inference failure -- transient resource (model/memory)
-            UnifiedProcessorError::Embedding(_) => "transient_resource",
-            // Embedding subsystem within backoff window -- re-lease without burning retry budget
+            UnifiedProcessorError::Embedding(msg) => {
+                let lower = msg.to_lowercase();
+                if lower.contains("rate limit")
+                    || lower.contains("429")
+                    || lower.contains("too many requests")
+                {
+                    "rate_limit"
+                } else {
+                    "transient_resource"
+                }
+            }
             UnifiedProcessorError::EmbeddingUnavailable(_) => "subsystem_unavailable",
-            // Default: treat as transient infrastructure (retry)
             _ => "transient_infrastructure",
+        }
+    }
+
+    fn classify_message(msg: &str) -> &'static str {
+        let lower = msg.to_lowercase();
+        if lower.contains("rate limit")
+            || lower.contains("429")
+            || lower.contains("too many requests")
+        {
+            "rate_limit"
+        } else if lower.contains("database locked") || lower.contains("sqlite_busy") {
+            "transient_infrastructure"
+        } else if lower.contains("no watch_folder found") {
+            "permanent_gone"
+        } else if lower.contains("permission denied") || lower.contains("access denied") {
+            "permanent_gone"
+        } else if lower.contains("validation")
+            || lower.contains("invalid")
+            || lower.contains("invalid format")
+            || lower.contains("malformed")
+            || lower.contains("unsupported")
+        {
+            "permanent_data"
+        } else {
+            "transient_infrastructure"
         }
     }
 

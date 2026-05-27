@@ -1,13 +1,12 @@
 //! Thread-safe Qdrant circuit breaker for the StorageClient.
 //!
-//! Wraps the existing `CircuitBreaker` from `queue_error_handler` in an
-//! `Arc<Mutex<>>` so it can be shared across async tasks and the queue
-//! processor's health-check loop.
+//! Wraps the standalone `CircuitBreaker` in an `Arc<Mutex<>>` so it can be
+//! shared across async tasks and the queue processor's health-check loop.
 
 use std::sync::Mutex;
 use tracing::{debug, info};
 
-use crate::queue_error_handler::{CircuitBreaker, CircuitBreakerConfig};
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 
 /// Thread-safe Qdrant availability tracker.
 ///

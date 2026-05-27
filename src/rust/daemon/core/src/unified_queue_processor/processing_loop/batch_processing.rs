@@ -328,15 +328,12 @@ async fn handle_item_failure(
         if let Err(del_err) = queue_manager.delete_unified_item(&item.queue_id).await {
             error!("Failed to delete gone item {}: {}", item.queue_id, del_err);
         }
-    } else if error_category == "subsystem_unavailable" {
-        debug!(
-            "Item {} parked: embedding subsystem unavailable ({})",
-            item.queue_id, e
-        );
+    } else if error_category == "subsystem_unavailable" || error_category == "rate_limit" {
+        debug!("Item {} parked: {} ({})", item.queue_id, error_category, e);
         if let Err(rel_err) = queue_manager.re_lease_item(&item.queue_id, 60).await {
             error!(
-                "Failed to re-lease unavailable item {}: {}",
-                item.queue_id, rel_err
+                "Failed to re-lease {} item {}: {}",
+                error_category, item.queue_id, rel_err
             );
         }
     } else {

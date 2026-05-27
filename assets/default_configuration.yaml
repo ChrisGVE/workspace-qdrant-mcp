@@ -1041,6 +1041,42 @@ resource_limits:
   # Format: Integer 0..16
   onnx_intra_threads: 0
 
+  # --- Dead Letter Queue ---
+  # DLQ retention and purge settings for permanently-failed items.
+
+  # dlq_retention_days: Days to keep DLQ entries before auto-purge
+  # Default: 30
+  # Format: Integer > 0
+  dlq_retention_days: 30
+
+  # dlq_purge_batch_size: Number of DLQ entries to delete per purge cycle
+  # Default: 500
+  # Format: Integer > 0
+  dlq_purge_batch_size: 500
+
+  # --- SQLite Circuit Breaker ---
+  # Protects the processing loop from cascading SQLite failures.
+
+  # sqlite_failure_threshold: Consecutive SQLite failures before opening the breaker
+  # Default: 3
+  # Format: Integer > 0
+  sqlite_failure_threshold: 3
+
+  # sqlite_failure_window_secs: Window (seconds) for counting SQLite failures
+  # Default: 30
+  # Format: Integer > 0
+  sqlite_failure_window_secs: 30
+
+  # sqlite_probe_interval_secs: Probe interval (seconds) when SQLite breaker is open
+  # Default: 5
+  # Format: Integer > 0
+  sqlite_probe_interval_secs: 5
+
+  # recovery_ramp_cycles: Processing cycles of ramped-up caution after Qdrant recovery
+  # Default: 5
+  # Format: Integer > 0
+  recovery_ramp_cycles: 5
+
   # --- Adaptive Idle Mode (4-Level State Machine) ---
   # Uses 4 resource levels: Normal(0) < Active(1) < Elevated(2) < Burst(3)
   # with max 1-level transitions per evaluation. Ramp-up requires sustained idle

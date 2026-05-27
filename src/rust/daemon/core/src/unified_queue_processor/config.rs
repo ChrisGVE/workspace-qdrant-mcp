@@ -108,6 +108,22 @@ pub struct UnifiedProcessorConfig {
     /// Failed item triage interval in seconds. 0 to disable.
     /// Default: 300 (5 minutes). Examines failed items for salvageable conditions.
     pub triage_interval_secs: u64,
+
+    // Dead letter queue
+    /// Days to retain DLQ entries before auto-purge. Default: 30.
+    pub dlq_retention_days: u32,
+    /// Batch size for DLQ purge maintenance. Default: 500.
+    pub dlq_purge_batch_size: usize,
+
+    // SQLite circuit breaker
+    /// Consecutive SQLite failures before opening the breaker. Default: 3.
+    pub sqlite_failure_threshold: usize,
+    /// Time window (seconds) for counting SQLite failures. Default: 30.
+    pub sqlite_failure_window_secs: u64,
+    /// Probe interval (seconds) when SQLite breaker is open. Default: 5.
+    pub sqlite_probe_interval_secs: u64,
+    /// Cycles of ramped-up processing after Qdrant recovery. Default: 5.
+    pub recovery_ramp_cycles: usize,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -142,6 +158,14 @@ impl Default for UnifiedProcessorConfig {
             failed_resurrection_interval_secs: 3600,
             max_resurrections: 5,
             triage_interval_secs: 300,
+            // Dead letter queue
+            dlq_retention_days: 30,
+            dlq_purge_batch_size: 500,
+            // SQLite circuit breaker
+            sqlite_failure_threshold: 3,
+            sqlite_failure_window_secs: 30,
+            sqlite_probe_interval_secs: 5,
+            recovery_ramp_cycles: 5,
         }
     }
 }

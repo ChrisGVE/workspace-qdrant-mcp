@@ -1,18 +1,18 @@
-// Circuit breaker pattern for queue operations
+//! Standalone circuit breaker pattern for queue/storage subsystems.
+//!
+//! Used by QdrantCircuitBreaker (storage layer) and the processing loop's
+//! SQLite breaker. The error::circuit_breaker module is a separate
+//! implementation with a different API (async execute() wrapper) — consolidation
+//! deferred.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
-/// Circuit breaker pattern configuration
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
-    /// Number of failures before opening circuit
     pub failure_threshold: usize,
-    /// Time window for counting failures (seconds)
     pub failure_window: u64,
-    /// Time to wait before trying half-open state (seconds)
     pub recovery_timeout: u64,
-    /// Success count needed in half-open state to close circuit
     pub success_threshold: usize,
 }
 
@@ -27,7 +27,6 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
-/// Circuit breaker state
 #[derive(Debug, Clone)]
 pub enum CircuitState {
     Closed,
@@ -45,7 +44,6 @@ impl CircuitState {
     }
 }
 
-/// Circuit breaker state tracking
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerState {
     pub state: CircuitState,
@@ -69,7 +67,6 @@ impl Default for CircuitBreakerState {
     }
 }
 
-/// Manages circuit breaker state for a single collection
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     state: CircuitBreakerState,
@@ -85,8 +82,6 @@ impl CircuitBreaker {
         }
     }
 
-    /// Check whether the circuit allows a request through.
-    /// Returns `(can_proceed, reason_str)`.
     pub fn check(&mut self) -> (bool, &'static str) {
         let current_time = Self::now_secs();
 
@@ -109,8 +104,6 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a failure, potentially opening the circuit.
-    /// Returns `true` if the circuit was just opened.
     pub fn record_failure(&mut self) -> bool {
         let current_time = Self::now_secs();
 
@@ -118,7 +111,6 @@ impl CircuitBreaker {
         self.state.last_failure_time = Some(current_time);
         self.state.failures.push(current_time);
 
-        // Remove old failures outside the time window
         let window_start = current_time - self.config.failure_window;
         self.state.failures.retain(|&f| f > window_start);
 
@@ -136,7 +128,6 @@ impl CircuitBreaker {
                 }
             }
             CircuitState::HalfOpen => {
-                // Failed in half-open, back to open
                 self.state.state = CircuitState::Open;
                 self.state.opened_at = Some(current_time);
                 self.state.success_count = 0;
@@ -151,7 +142,6 @@ impl CircuitBreaker {
         false
     }
 
-    /// Record a success. When in half-open state this may close the circuit.
     pub fn record_success(&mut self) {
         if matches!(self.state.state, CircuitState::HalfOpen) {
             self.state.success_count += 1;
@@ -168,12 +158,10 @@ impl CircuitBreaker {
         }
     }
 
-    /// Return the current state string for use in metrics/logging.
     pub fn state_str(&self) -> &'static str {
         self.state.state.as_str()
     }
 
-    /// Return `true` if the circuit is currently closed (normal operation).
     pub fn is_closed(&self) -> bool {
         matches!(self.state.state, CircuitState::Closed)
     }
