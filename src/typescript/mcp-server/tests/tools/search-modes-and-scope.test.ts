@@ -43,6 +43,11 @@ function createMockDaemonClient(): DaemonClient {
       vocab_size: 1000,
       success: true,
     }),
+    resolveSearchScope: vi.fn().mockResolvedValue({
+      tenant_ids: [],
+      filter_by_tenant: false,
+      decay_map: [],
+    }),
   } as unknown as DaemonClient;
 }
 
@@ -184,6 +189,58 @@ describe('SearchTool — search modes and scope', () => {
       });
 
       expect(mockProjectDetector.getProjectInfo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('scope resolution via daemon', () => {
+    it('should not call resolveSearchScope for project scope', async () => {
+      await searchTool.search({ query: 'test query', scope: 'project' });
+
+      expect(mockDaemonClient.resolveSearchScope).not.toHaveBeenCalled();
+    });
+
+    it('should call resolveSearchScope with scope=group for group scope', async () => {
+      (mockDaemonClient.resolveSearchScope as ReturnType<typeof vi.fn>).mockResolvedValue({
+        tenant_ids: ['test-project-123', 'peer-project-456'],
+        filter_by_tenant: true,
+        decay_map: [
+          { tenant_id: 'test-project-123', multiplier: 1.0 },
+          { tenant_id: 'peer-project-456', multiplier: 0.7 },
+        ],
+      });
+
+      await searchTool.search({ query: 'test query', scope: 'group' });
+
+      expect(mockDaemonClient.resolveSearchScope).toHaveBeenCalledWith({
+        tenant_id: 'test-project-123',
+        scope: 'group',
+      });
+    });
+
+    it('should call resolveSearchScope with scope=all for all scope', async () => {
+      (mockDaemonClient.resolveSearchScope as ReturnType<typeof vi.fn>).mockResolvedValue({
+        tenant_ids: [],
+        filter_by_tenant: false,
+        decay_map: [{ tenant_id: 'test-project-123', multiplier: 1.0 }],
+      });
+
+      await searchTool.search({ query: 'test query', scope: 'all' });
+
+      expect(mockDaemonClient.resolveSearchScope).toHaveBeenCalledWith({
+        tenant_id: 'test-project-123',
+        scope: 'all',
+      });
+    });
+
+    it('should gracefully handle resolveSearchScope failure for all scope', async () => {
+      (mockDaemonClient.resolveSearchScope as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('daemon unreachable')
+      );
+
+      const result = await searchTool.search({ query: 'test query', scope: 'all' });
+
+      // Should still return results (no error), just without decay
+      expect(result.scope).toBe('all');
     });
   });
 });

@@ -56,7 +56,10 @@ export interface ProjectContextResolution {
   basePointsActiveCount?: number;
 }
 
-/** Resolve current project ID and base_points for instance-aware filtering. */
+/** Resolve current project ID and base_points for instance-aware filtering.
+ *
+ * Project detection runs for all scopes because the current project ID is
+ * needed both for tenant filtering (project/group) and relevance decay (group/all). */
 export async function resolveProjectContext(
   projectId: string | undefined,
   scope: SearchScope,
@@ -64,7 +67,7 @@ export async function resolveProjectContext(
   stateManager: SqliteStateManager
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
-  if (!currentProjectId && (scope === 'project' || scope === 'group')) {
+  if (!currentProjectId) {
     const projectInfo = await projectDetector.getProjectInfo(process.cwd(), false);
     currentProjectId = projectInfo?.projectId;
   }

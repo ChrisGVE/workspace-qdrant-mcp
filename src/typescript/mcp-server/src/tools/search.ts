@@ -185,20 +185,28 @@ export class SearchTool {
     };
   }
 
-  private async resolveGroupScope(
+  /**
+   * Resolve scope to tenant filter and relevance decay weights via the daemon.
+   *
+   * - scope=project: no daemon call needed, returns no filter/decay.
+   * - scope=group: daemon returns grouped tenant_ids + decay weights.
+   * - scope=all: daemon returns no tenant filter + decay map for the
+   *   current project (1.0) so other-project results get penalized (0.4).
+   */
+  private async resolveScopeFilter(
     currentProjectId: string | undefined,
     scope: import('./search-types.js').SearchScope
   ): Promise<{
     groupTenantIds: string[] | undefined;
     decayMap: Map<string, number> | undefined;
   }> {
-    if (scope !== 'group' || !currentProjectId) {
+    if (scope === 'project' || !currentProjectId) {
       return { groupTenantIds: undefined, decayMap: undefined };
     }
     try {
       const response = await this.daemonClient.resolveSearchScope({
         tenant_id: currentProjectId,
-        scope: 'group',
+        scope,
       });
       const decayMap = new Map<string, number>();
       for (const entry of response.decay_map ?? []) {
@@ -206,7 +214,7 @@ export class SearchTool {
       }
       return {
         groupTenantIds: response.filter_by_tenant ? response.tenant_ids : undefined,
-        decayMap,
+        decayMap: decayMap.size > 0 ? decayMap : undefined,
       };
     } catch {
       return { groupTenantIds: undefined, decayMap: undefined };
@@ -233,7 +241,7 @@ export class SearchTool {
       basePointsDegraded,
       basePointsActiveCount,
     } = await this.resolveContextAndLog(options, options.query, limit, scope, options.projectId);
-    const { groupTenantIds, decayMap } = await this.resolveGroupScope(currentProjectId, scope);
+    const { groupTenantIds, decayMap } = await this.resolveScopeFilter(currentProjectId, scope);
     if (scope === 'group' && (!groupTenantIds || groupTenantIds.length === 0)) {
       return {
         results: [],
