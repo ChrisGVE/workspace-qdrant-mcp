@@ -380,6 +380,16 @@ async fn run_middle_phases(
     // Phase 2b: Tier 2 taxonomy tagging (after embedding, before keyword extraction)
     run_tier2_tagging(ctx, &mut points, timings).await;
 
+    // Phase 2c: IMPLEMENTS_CONCEPT edges (after tagging, before graph extraction)
+    let taxonomy_tags: Vec<String> = points
+        .first()
+        .and_then(|p| p.payload.get("taxonomy_tags"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    if !taxonomy_tags.is_empty() {
+        create_concept_edges(ctx, &item.tenant_id, file_path, &taxonomy_tags).await;
+    }
+
     // Phases 3-4: keyword extraction + graph edges
     run_keyword_and_graph_phases(
         ctx,
@@ -497,6 +507,66 @@ async fn run_tier2_tagging(
         elapsed.as_millis(),
         taxonomy_tags.join(", ")
     );
+}
+
+/// Create IMPLEMENTS_CONCEPT edges from code symbols to ConceptNodes.
+///
+/// For each Tier 2 taxonomy match, ensures a global ConceptNode exists
+/// and creates edges from file-level code symbols to it.
+async fn create_concept_edges(
+    ctx: &ProcessingContext,
+    tenant_id: &str,
+    file_path: &std::path::Path,
+    taxonomy_tags: &[String],
+) {
+    use crate::graph::{
+        compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
+    };
+
+    let Some(ref graph_store) = ctx.graph_store else {
+        return;
+    };
+
+    if taxonomy_tags.is_empty() {
+        return;
+    }
+
+    let mut concept_nodes = Vec::new();
+    let mut edges = Vec::new();
+    let file_path_str: String = file_path.to_string_lossy().into_owned();
+
+    for tag in taxonomy_tags {
+        let concept_label = tag.strip_prefix("tax:").unwrap_or(tag);
+        let concept_fields =
+            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
+        let concept_id = compute_node_id_for_type(&concept_fields);
+
+        let mut node = GraphNode::new("__global__", "", concept_label, NodeType::ConceptNode);
+        node.node_id = concept_id.clone();
+        concept_nodes.push(node);
+
+        let file_node_id = crate::graph::compute_node_id(
+            tenant_id,
+            &file_path_str,
+            &file_path_str,
+            NodeType::File,
+        );
+
+        edges.push(GraphEdge::new(
+            tenant_id,
+            &file_node_id,
+            &concept_id,
+            EdgeType::ImplementsConcept,
+            &file_path_str,
+        ));
+    }
+
+    if let Err(e) = graph_store.upsert_nodes(&concept_nodes).await {
+        tracing::warn!("Failed to upsert ConceptNodes: {e}");
+    }
+    if let Err(e) = graph_store.insert_edges(&edges).await {
+        tracing::warn!("Failed to insert IMPLEMENTS_CONCEPT edges: {e}");
+    }
 }
 
 /// Parse the document and compute file identifiers (phase 0 + 1).

@@ -278,12 +278,18 @@ async fn test_ladybug_query_related() {
     store.insert_edges(&edges).await.unwrap();
 
     // 1-hop from a: should find b
-    let related = store.query_related(T, &a.node_id, 1, None, None).await.unwrap();
+    let related = store
+        .query_related(T, &a.node_id, 1, None, None)
+        .await
+        .unwrap();
     assert_eq!(related.len(), 1);
     assert_eq!(related[0].symbol_name, "bar");
 
     // 2-hop from a: should find both b and c
-    let related = store.query_related(T, &a.node_id, 2, None, None).await.unwrap();
+    let related = store
+        .query_related(T, &a.node_id, 2, None, None)
+        .await
+        .unwrap();
     assert_eq!(related.len(), 2);
     let names: Vec<&str> = related.iter().map(|n| n.symbol_name.as_str()).collect();
     assert!(names.contains(&"bar"));
@@ -344,7 +350,10 @@ async fn test_ladybug_impact_analysis() {
     ];
     store.insert_edges(&edges).await.unwrap();
 
-    let report = store.impact_analysis(T, "target_fn", None, None).await.unwrap();
+    let report = store
+        .impact_analysis(T, "target_fn", None, None)
+        .await
+        .unwrap();
     assert_eq!(report.symbol_name, "target_fn");
     assert!(
         report.total_impacted >= 1,
@@ -384,7 +393,10 @@ async fn test_ladybug_reingest_file() {
     assert_eq!(stats_after.total_nodes, 3, "All nodes preserved");
 
     // Verify new edge target: query_related from a should find c, not b
-    let related = store.query_related(T, &a.node_id, 1, None, None).await.unwrap();
+    let related = store
+        .query_related(T, &a.node_id, 1, None, None)
+        .await
+        .unwrap();
     assert_eq!(related.len(), 1);
     assert_eq!(related[0].symbol_name, "baz");
 }
