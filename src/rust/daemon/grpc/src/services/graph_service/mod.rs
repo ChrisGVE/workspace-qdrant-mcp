@@ -5,6 +5,7 @@
 //! backend migration, and narrative-code traversal. All queries use a
 //! shared read lock on the graph store.
 
+mod analytics_handlers;
 mod handlers;
 mod helpers;
 mod narrative_query;
