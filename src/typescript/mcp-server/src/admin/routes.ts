@@ -545,7 +545,7 @@ const handleGetClientConfigs: RouteHandler = async (_req, res) => {
     `startup_timeout_sec = 20`,
     `tool_timeout_sec = 120`,
     `required = true`,
-    `enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules"]`,
+    `enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index"]`,
   ].join('\n');
 
   writeJson(res, 200, {
