@@ -56,6 +56,35 @@ pub(crate) async fn ingest_file_content(
         .await;
     }
 
+    // === CROSS-BRANCH DEDUP FAST-PATH ===
+    // If another branch already indexed an identical file (same watch +
+    // path + file_hash), copy its Qdrant points under the new base_point
+    // instead of re-running parse + embed. See branch_dedup.rs and
+    // docs/specs/21-cross-branch-dedup.md. The probe is one SQL hit on
+    // the idx_tracked_files_dedup index — cheap when there's no match.
+    match super::branch_dedup::try_branch_dedup(
+        ctx,
+        item,
+        payload,
+        file_path,
+        abs_file_path,
+        relative_path,
+        watch_folder_id,
+    )
+    .await
+    {
+        Ok(Some(_hit)) => return Ok(()),
+        Ok(None) => { /* novel content — fall through to full ingest */ }
+        Err(e) => {
+            // Dedup failure is not fatal — log and proceed with the full
+            // ingest path. The data ends up correct either way.
+            warn!(
+                "branch_dedup probe failed for {} ({}): {} — falling back to full ingest",
+                relative_path, abs_file_path, e
+            );
+        }
+    }
+
     // Mark qdrant status as in_progress
     let _ = ctx
         .queue_manager

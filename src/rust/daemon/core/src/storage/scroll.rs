@@ -248,6 +248,46 @@ impl StorageClient {
 
         Ok(response.result)
     }
+
+    /// Scroll through points matching a filter, returning full point data
+    /// **including dense + sparse vectors**.
+    ///
+    /// Used by the cross-branch dedup fast-path
+    /// ([`crate::strategies::processing::file::branch_dedup`]) — it scrolls
+    /// the existing branch's points, then re-upserts them under the new
+    /// branch's base_point without re-running parse + embed.
+    ///
+    /// Limited to a single page (`limit` cap). For a typical source file
+    /// this is fine because `chunk_count` is bounded (defaults around
+    /// 100 chunks max); `limit = 256` provides comfortable headroom.
+    pub async fn scroll_with_filter_and_vectors(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+        limit: u32,
+    ) -> Result<Vec<qdrant_client::qdrant::RetrievedPoint>, StorageError> {
+        let response = self
+            .retry_operation(|| {
+                let f = filter.clone();
+                async move {
+                    let builder = ScrollPointsBuilder::new(collection_name)
+                        .filter(f)
+                        .limit(limit)
+                        .with_payload(true)
+                        .with_vectors(true);
+
+                    self.client.scroll(builder).await.map_err(|e| {
+                        StorageError::Search(format!(
+                            "Scroll with filter+vectors failed: {}",
+                            e
+                        ))
+                    })
+                }
+            })
+            .await?;
+
+        Ok(response.result)
+    }
 }
 
 /// Convert a single `RetrievedPoint` into a `SparsePointData`.
