@@ -1,6 +1,6 @@
 //! Graph command - code relationship queries and algorithms
 //!
-//! Subcommands: query, impact, stats, pagerank, communities, betweenness, migrate
+//! Subcommands: query, impact, stats, pagerank, communities, betweenness, migrate, narrative
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -9,6 +9,7 @@ mod betweenness;
 mod communities;
 mod impact;
 mod migrate;
+mod narrative;
 mod pagerank;
 mod query;
 mod stats;
@@ -147,6 +148,47 @@ enum GraphCommand {
         #[arg(long)]
         batch_size: Option<u32>,
     },
+
+    /// Query narrative nodes linked to a code symbol or concept
+    #[command(
+        long_about = "Traverse the narrative graph to find documentation, comments, and \
+            explanatory content linked to a code symbol or concept. Results are grouped \
+            by edge type (DESCRIBES, EXPLAINS, COVERS_TOPIC, etc.).",
+        after_long_help = "Examples:\n  \
+            wqm graph narrative --symbol validate_token --tenant proj-abc123\n  \
+            wqm graph narrative --concept authentication --tenant proj-abc123 --depth 3\n  \
+            wqm graph narrative --symbol parse --tenant t1 --edge-type DESCRIBES,EXPLAINS\n  \
+            wqm graph narrative --symbol main --tenant t1 --json"
+    )]
+    Narrative {
+        /// Code symbol name to find narrative for
+        #[arg(long, group = "target")]
+        symbol: Option<String>,
+
+        /// Concept node name to traverse from
+        #[arg(long, group = "target")]
+        concept: Option<String>,
+
+        /// Project tenant_id
+        #[arg(long)]
+        tenant: String,
+
+        /// Maximum traversal depth (1-5, default: 2)
+        #[arg(long, default_value = "2")]
+        depth: i32,
+
+        /// Maximum number of results (1-200, default: 50)
+        #[arg(long, default_value = "50")]
+        limit: i32,
+
+        /// Edge type filter (comma-separated, e.g. DESCRIBES,EXPLAINS)
+        #[arg(long, value_delimiter = ',')]
+        edge_type: Vec<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn execute(args: GraphArgs) -> Result<()> {
@@ -199,5 +241,26 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             tenant,
             batch_size,
         } => migrate::migrate(&from, &to, tenant, batch_size).await,
+        GraphCommand::Narrative {
+            symbol,
+            concept,
+            tenant,
+            depth,
+            limit,
+            edge_type,
+            json,
+        } => {
+            let target = match (symbol, concept) {
+                (Some(s), _) => narrative::Target::Symbol(s),
+                (_, Some(c)) => narrative::Target::Concept(c),
+                (None, None) => {
+                    anyhow::bail!(
+                        "Either --symbol or --concept is required. \
+                         Run `wqm graph narrative --help` for usage."
+                    );
+                }
+            };
+            narrative::narrative_query(target, &tenant, depth, limit, edge_type, json).await
+        }
     }
 }
