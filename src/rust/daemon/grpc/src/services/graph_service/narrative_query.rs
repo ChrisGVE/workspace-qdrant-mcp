@@ -133,17 +133,23 @@ pub(crate) async fn execute_narrative_query(
               AND e.tenant_id = ?{tenant_slot}
               {edge_type_clause}
         )
-        SELECT nt.node_id,
-               MIN(nt.edge_type) AS edge_type,
-               MIN(nt.depth) AS depth,
-               MIN(nt.path) AS path,
-               MIN(nt.metadata_json) AS metadata_json,
-               n.symbol_name, n.symbol_type, n.file_path
-        FROM narrative_traverse nt
-        JOIN graph_nodes n ON nt.node_id = n.node_id
-        WHERE n.symbol_type IN ({narr_filter})
-        GROUP BY nt.node_id, n.symbol_name, n.symbol_type, n.file_path
-        ORDER BY depth, n.symbol_name
+        SELECT r.node_id, r.edge_type, r.depth, r.path,
+               r.metadata_json,
+               r.symbol_name, r.symbol_type, r.file_path
+        FROM (
+            SELECT nt.node_id, nt.edge_type, nt.depth, nt.path,
+                   nt.metadata_json,
+                   n.symbol_name, n.symbol_type, n.file_path,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY nt.node_id
+                       ORDER BY nt.depth, nt.edge_type
+                   ) AS rn
+            FROM narrative_traverse nt
+            JOIN graph_nodes n ON nt.node_id = n.node_id
+            WHERE n.symbol_type IN ({narr_filter})
+        ) r
+        WHERE r.rn = 1
+        ORDER BY r.depth, r.symbol_name
         LIMIT ?{limit_slot}"
     );
 
