@@ -12,6 +12,7 @@ use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTIO
 mod clean_orphan_queue_items;
 mod cleanup_orphans;
 mod idle_history;
+mod ignore_candidates;
 mod metrics;
 mod metrics_setup;
 mod perf;
@@ -162,6 +163,37 @@ enum AdminCommand {
         confirm: bool,
     },
 
+    /// Rank directories by how strongly they look like ignore candidates
+    ///
+    /// Aggregates `tracked_files` by parent directory (up to `--depth` segments)
+    /// and scores each group by `file_count × (1 + 2·failure_rate + ext_homogeneity)`.
+    /// Use the output to decide what to add to `.wqmignore` / `global.wqmignore`
+    /// — this command never edits ignore files.
+    #[command(
+        after_long_help = "See also:\n  docs/specs/14-future-development.md  planned Phase 2 (cost-vs-usage scoring)"
+    )]
+    IgnoreCandidates {
+        /// Show the top N scoring directories (default: 20)
+        #[arg(short = 'n', long, default_value = "20")]
+        top: usize,
+
+        /// Parent-directory segment depth for aggregation (default: 3)
+        #[arg(short = 'd', long, default_value = "3")]
+        depth: usize,
+
+        /// Skip directories with fewer than this many files (default: 10)
+        #[arg(long, default_value = "10")]
+        min_files: u64,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override the SQLite DB path (defaults to WQM_DATABASE_PATH or XDG state dir)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
     /// Display pipeline performance statistics (per-phase timing breakdown)
     #[command(
         after_long_help = "See also:\n  wqm admin stats processing  operation-level breakdown with Q1/Q3 quartiles\n  wqm status --performance    system resource metrics (CPU, memory, disk)"
@@ -295,6 +327,13 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             min_growth_pct,
         } => rebalance_idf::execute(collection, dry_run, min_growth_pct).await,
         AdminCommand::Reembed { confirm } => reembed::execute(confirm).await,
+        AdminCommand::IgnoreCandidates {
+            top,
+            depth,
+            min_files,
+            json,
+            db,
+        } => ignore_candidates::execute(top, depth, min_files, json, db),
         AdminCommand::Perf {
             window,
             json,

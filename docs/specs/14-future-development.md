@@ -568,6 +568,48 @@ The capabilities being built form the foundation for a general-purpose knowledge
 
 **Note:** These defaults apply to fixed-size text chunking only. Tree-sitter semantic chunking uses natural code boundaries (functions, classes, methods) and has its own size limits (`DEFAULT_MAX_CHUNK_SIZE = 8000` estimated tokens).
 
+### Ignore Candidate Ranking — Phase 2: Cost vs Usage
+
+**Phase 1 (shipped):** `wqm admin ignore-candidates` ranks directories by a pure-cost score derived from `tracked_files`:
+
+```
+score = file_count × (1 + 2·failure_rate + extension_homogeneity)
+```
+
+This catches vendor/generated folders that are large, fail tree-sitter/LSP, or are homogeneous (e.g. 95% `.json`, `.min.js`, `.snap`). It uses only data the daemon already persists — no telemetry collection.
+
+**Limitation:** the Phase 1 score has no signal of *usage*. A large folder of useful project code outranks a small folder of build artifacts. False positives are obvious to a human reviewing the list, but the ranking is noisier than it needs to be.
+
+**Phase 2 (proposed): add a value-of-use signal so the score reflects cost minus value.**
+
+The MCP server already mediates every `search`, `grep`, and `retrieve` call. By recording a lightweight per-path-prefix hit counter (a SQLite table `path_usage_hits(path_prefix, tool, hits, last_hit_at)` populated as each query returns), the daemon accumulates a distribution of "what does the agent actually look at."
+
+Updated score:
+
+```
+score = cost − value_of_use
+      = file_count × (1 + 2·failure_rate + ext_homogeneity)
+        − usage_weight × log(1 + hits_in_window)
+```
+
+The candidate that emerges is no longer "biggest folder" but "biggest folder that **nobody ever consults**" — precisely what `.wqmignore` should target.
+
+**Implementation sketch:**
+
+1. New table `path_usage_hits` (schema bump) — primary key on `(path_prefix, tool)`, with rolling 30-day window via daily decay or fixed retention.
+2. Instrument the TypeScript MCP server (`store`, `search`, `grep`, `retrieve`, `list`) and the gRPC `TextSearchService` to enqueue a `usage_hit` event keyed by the path prefix of each returned chunk's `relative_path` (depth match: same `--depth` as the ranking command).
+3. Extend `wqm admin ignore-candidates` to look up hit counts at the same depth and subtract a usage term from the score.
+4. Optional: `--explain` flag dumps the cost and usage components separately so operators see *why* a directory is ranked where it is.
+
+**Trade-offs vs Phase 1:**
+
+- Requires schema migration and instrumentation across two languages (TS MCP server + Rust daemon).
+- Needs a 1–2 week collection window before scores stabilize for a given project.
+- Sensitive to "cold" projects: a brand-new project's `node_modules` will tie with its `src/` because both have zero hits. Mitigation: weight `value_of_use` only after `total_hits_in_window ≥ N` (e.g. 200).
+- Privacy/PII: path prefixes are project-internal, so risk is low, but the hit counter is still operator-visible state — document it in the privacy section if/when shipped.
+
+**When to revisit:** once Phase 1 has been used in anger on a few projects and the false-positive rate from pure-cost ranking is shown to matter operationally. Until then, the simpler form is good enough.
+
 ### Distance Matrix Visualization
 
 Qdrant's Distance Matrix API can compute pairwise distances between points using the `dense` vector. This could power interactive code intelligence visualizations showing clusters of semantically related files, functions, or documentation. Could serve as a stepping stone toward full Graph RAG by revealing natural code clusters. See the [Qdrant Dashboard Visualization](12-configuration.md#qdrant-dashboard-visualization) section for current capabilities.
