@@ -8,9 +8,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { basename, join, resolve as resolvePath } from 'node:path';
+import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 
 import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
@@ -443,6 +443,54 @@ const handleInstallHooks: RouteHandler = async (req, res) => {
   });
 };
 
+// ── /api/ignore/global — read + write global.wqmignore ──────────────────────
+
+/**
+ * Resolve the directory that holds daemon state files (global.wqmignore,
+ * memexd.db, …). Derived from `WQM_DATABASE_PATH` so both the daemon and
+ * the MCP server agree on the location regardless of deployment mode.
+ */
+function getStateDirForIgnore(): string | null {
+  const dbPath = process.env['WQM_DATABASE_PATH'];
+  if (!dbPath) return null;
+  return dirname(dbPath);
+}
+
+const handleGetGlobalIgnore: RouteHandler = async (_req, res) => {
+  const stateDir = getStateDirForIgnore();
+  if (!stateDir) {
+    writeError(res, 500, 'WQM_DATABASE_PATH not set — cannot locate global.wqmignore');
+    return;
+  }
+  const ignoreFile = join(stateDir, 'global.wqmignore');
+  const content = existsSync(ignoreFile) ? readFileSync(ignoreFile, 'utf-8') : '';
+  writeJson(res, 200, { content, path: ignoreFile });
+};
+
+const handlePutGlobalIgnore: RouteHandler = async (req, res) => {
+  const body = await readJsonBody(req);
+  if (typeof body['content'] !== 'string') {
+    writeError(res, 400, '`content` (string) is required');
+    return;
+  }
+  const content = body['content'] as string;
+  const stateDir = getStateDirForIgnore();
+  if (!stateDir) {
+    writeError(res, 500, 'WQM_DATABASE_PATH not set — cannot locate global.wqmignore');
+    return;
+  }
+  const ignoreFile = join(stateDir, 'global.wqmignore');
+  try {
+    writeFileSync(ignoreFile, content, 'utf-8');
+  } catch (err) {
+    logError('admin global.wqmignore write failed', err, { ignoreFile });
+    writeError(res, 500, 'write failed', err instanceof Error ? err.message : String(err));
+    return;
+  }
+  logInfo('admin global.wqmignore updated', { bytes: content.length, path: ignoreFile });
+  writeJson(res, 200, { ok: true, bytes: content.length, path: ignoreFile });
+};
+
 // ── /api/settings — read + write the JSON settings file ─────────────────────
 
 const handleGetSettings: RouteHandler = async (_req, res) => {
@@ -477,6 +525,8 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'POST', path: '/admin/api/hooks/install', handler: handleInstallHooks },
   { method: 'GET', path: '/admin/api/settings', handler: handleGetSettings },
   { method: 'PUT', path: '/admin/api/settings', handler: handlePutSettings },
+  { method: 'GET', path: '/admin/api/ignore/global', handler: handleGetGlobalIgnore },
+  { method: 'PUT', path: '/admin/api/ignore/global', handler: handlePutGlobalIgnore },
 ];
 
 /**

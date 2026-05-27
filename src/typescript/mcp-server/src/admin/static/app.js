@@ -46,6 +46,10 @@ const els = {
   registeredMeta: document.getElementById('registeredMeta'),
   debugRaw: document.getElementById('debugRaw'),
   toast: document.getElementById('toast'),
+  globalIgnoreText: document.getElementById('globalIgnoreText'),
+  saveIgnoreBtn: document.getElementById('saveIgnoreBtn'),
+  reloadIgnoreBtn: document.getElementById('reloadIgnoreBtn'),
+  ignoreMsg: document.getElementById('ignoreMsg'),
 };
 
 let token = sessionStorage.getItem(TOKEN_KEY) || '';
@@ -301,6 +305,7 @@ function showLogin() {
 function showApp() {
   els.loginPanel.hidden = true;
   els.appView.hidden = false;
+  loadGlobalIgnore();
 }
 
 function logout(reason) {
@@ -429,6 +434,42 @@ document.addEventListener('click', async (e) => {
     btn.disabled = false;
   }
 });
+
+// ── Global ignore rules ────────────────────────────────────────────
+
+async function loadGlobalIgnore() {
+  try {
+    const data = await api('/admin/api/ignore/global');
+    // Don't overwrite if the user is actively editing
+    if (document.activeElement !== els.globalIgnoreText) {
+      els.globalIgnoreText.value = data.content || '';
+    }
+    els.ignoreMsg.textContent = `Loaded · ${data.path || ''}`;
+  } catch (e) {
+    els.ignoreMsg.textContent = `Load failed: ${e.message}`;
+  }
+}
+
+els.saveIgnoreBtn.addEventListener('click', async () => {
+  els.saveIgnoreBtn.disabled = true;
+  const originalLabel = els.saveIgnoreBtn.textContent;
+  els.saveIgnoreBtn.textContent = 'Saving…';
+  try {
+    const result = await api('/admin/api/ignore/global', {
+      method: 'PUT',
+      body: { content: els.globalIgnoreText.value },
+    });
+    els.ignoreMsg.textContent = `Saved ${result.bytes} bytes · ${new Date().toLocaleTimeString()}`;
+    toast('Global ignore rules saved');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    els.saveIgnoreBtn.disabled = false;
+    els.saveIgnoreBtn.textContent = originalLabel;
+  }
+});
+
+els.reloadIgnoreBtn.addEventListener('click', () => loadGlobalIgnore());
 
 // ── Boot ───────────────────────────────────────────────────────────
 

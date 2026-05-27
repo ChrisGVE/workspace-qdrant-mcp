@@ -32,16 +32,21 @@ pub struct ReconcileStats {
 /// 2. Query tracked_files for all indexed file paths in that project
 /// 3. Diff: stale = indexed but now excluded, missing = on disk but not indexed
 /// 4. Enqueue file/delete for stale, file/add for missing
+///
+/// `global_ignore_path` — optional path to `global.wqmignore`, applied on top
+/// of per-project ignore files. When `None` or when the file does not exist,
+/// only the per-project `.gitignore` / `.wqmignore` files are used.
 pub async fn reconcile_ignore_rules(
     project_root: &Path,
     tenant_id: &str,
     collection: &str,
     pool: &SqlitePool,
     queue_manager: &Arc<QueueManager>,
+    global_ignore_path: Option<&Path>,
 ) -> Result<ReconcileStats, String> {
     let watch_id = fetch_watch_id(pool, tenant_id, collection).await?;
 
-    let eligible_files = walk_eligible_files(project_root)?;
+    let eligible_files = walk_eligible_files(project_root, global_ignore_path)?;
     let indexed_files = get_indexed_file_paths(pool, &watch_id).await?;
 
     let stale: Vec<&String> = indexed_files
@@ -239,7 +244,14 @@ async fn enqueue_ignore_ops(
 /// by .gitignore or .wqmignore). Returns paths relative to `project_root`,
 /// normalized to forward-slash separators so comparison against the
 /// `tracked_files.relative_path` column works identically on Windows.
-fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
+///
+/// `global_ignore_path` — if `Some` and the file exists on disk, its patterns
+/// are applied as a base-level ignore layer across the entire walk (equivalent
+/// to a project-root `.wqmignore` but sourced from outside the project tree).
+fn walk_eligible_files(
+    project_root: &Path,
+    global_ignore_path: Option<&Path>,
+) -> Result<HashSet<String>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
         .hidden(false)
@@ -248,6 +260,20 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
         .git_exclude(false)
         .add_custom_ignore_filename(".gitignore")
         .add_custom_ignore_filename(".wqmignore");
+
+    // Apply global ignore rules (daemon-wide, outside the project tree).
+    // `add_ignore` applies the file's patterns as a base layer that every
+    // project walk inherits; `add_custom_ignore_filename` only finds files
+    // inside the walked tree, so it cannot reference the global file here.
+    if let Some(global_path) = global_ignore_path {
+        if global_path.is_file() {
+            builder.add_ignore(global_path);
+            debug!(
+                "[ignore_sync] applying global ignore rules from {}",
+                global_path.display()
+            );
+        }
+    }
 
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
@@ -355,7 +381,7 @@ mod tests {
         fs::create_dir(&src).unwrap();
         fs::write(src.join("main.rs"), "fn main() {}").unwrap();
 
-        let files = walk_eligible_files(root.path()).unwrap();
+        let files = walk_eligible_files(root.path(), None).unwrap();
         // src/main.rs should be eligible
         assert!(files.iter().any(|f| f.ends_with("main.rs")));
         // dist/bundle.js should NOT be eligible
@@ -371,9 +397,30 @@ mod tests {
         fs::write(data.join("big.csv"), "a,b,c").unwrap();
         fs::write(root.path().join("readme.md"), "# hi").unwrap();
 
-        let files = walk_eligible_files(root.path()).unwrap();
+        let files = walk_eligible_files(root.path(), None).unwrap();
         assert!(files.iter().any(|f| f.ends_with("readme.md")));
         assert!(!files.iter().any(|f| f.ends_with("big.csv")));
+    }
+
+    #[test]
+    fn walk_eligible_files_respects_global_ignore() {
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(&global_ignore, "vendors/\n*.zip\n").unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let vendors = root.path().join("vendors");
+        fs::create_dir(&vendors).unwrap();
+        fs::write(vendors.join("library.js"), "// lib").unwrap();
+        fs::write(root.path().join("archive.zip"), "PK..").unwrap();
+        fs::write(root.path().join("main.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        // main.rs is eligible
+        assert!(files.contains("main.rs"), "expected main.rs, got {files:?}");
+        // vendors/ and *.zip are globally excluded
+        assert!(!files.iter().any(|f| f.contains("library.js")), "vendors/ should be excluded");
+        assert!(!files.contains("archive.zip"), "*.zip should be excluded");
     }
 
     #[test]
@@ -383,7 +430,7 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("server.rs"), "fn main() {}").unwrap();
 
-        let files = walk_eligible_files(root.path()).unwrap();
+        let files = walk_eligible_files(root.path(), None).unwrap();
 
         // Output must be a relative path joined by '/', matching the format
         // used in tracked_files.relative_path. On Windows this validates the

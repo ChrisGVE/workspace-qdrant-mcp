@@ -163,6 +163,24 @@ input:focus {
   outline-offset: -1px;
   border-color: var(--link);
 }
+textarea {
+  width: 100%;
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: var(--mono);
+  line-height: 1.6;
+  resize: vertical;
+  min-width: 0;
+}
+textarea:focus {
+  outline: 2px solid var(--link);
+  outline-offset: -1px;
+  border-color: var(--link);
+}
 button {
   background: var(--bg-3);
   color: var(--fg);

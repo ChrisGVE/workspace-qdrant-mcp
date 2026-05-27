@@ -107,6 +107,33 @@
         <p id="settingsMsg" class="dim small"></p>
       </section>
 
+      <!-- Global index exclusions -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Global index exclusions</h2>
+          <span class="dim small">applied to every project</span>
+        </div>
+        <p class="dim small">
+          Patterns are applied on top of each project's own <code>.gitignore</code> /
+          <code>.wqmignore</code>. Uses standard gitignore syntax:
+          <code>node_modules/</code>, <code>*.zip</code>, <code>!important.log</code>.
+          Changes take effect on the next ignore-file reconciliation (triggered automatically
+          when you save any project's <code>.gitignore</code> or <code>.wqmignore</code>,
+          or at the next daemon restart).
+        </p>
+        <textarea
+          id="globalIgnoreText"
+          rows="16"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="# One pattern per line — gitignore syntax&#10;node_modules/&#10;*.zip&#10;build/"></textarea>
+        <div class="row" style="margin-top:0.5rem; align-items:center; gap:0.5rem">
+          <button type="button" id="saveIgnoreBtn" class="primary">Save</button>
+          <button type="button" id="reloadIgnoreBtn" class="secondary">Reload</button>
+          <span id="ignoreMsg" class="dim small"></span>
+        </div>
+      </section>
+
       <!-- Candidates -->
       <section class="card">
         <div class="card-head">
