@@ -128,6 +128,11 @@ services:
       WQM_RESOURCE_INTER_ITEM_DELAY_MS: ${WQM_RESOURCE_INTER_ITEM_DELAY_MS:-0}
       WQM_QUEUE_BATCH_SIZE: ${WQM_QUEUE_BATCH_SIZE:-32}
       WQM_QUEUE_POLL_INTERVAL_MS: ${WQM_QUEUE_POLL_INTERVAL_MS:-100}
+      # Item-level dispatch concurrency within a batch. `1` (default) is
+      # byte-identical to the legacy sequential loop — items are dispatched one
+      # at a time. Recommended bake target: `4` (raise after observing
+      # `database is locked` log rates and RSS pressure for a few days).
+      WQM_QUEUE_MAX_CONCURRENT_ITEMS: ${WQM_QUEUE_MAX_CONCURRENT_ITEMS:-1}
       # Warmup throttling: keep the window short so the daemon reaches steady
       # state quickly, but don't disable it entirely — FastEmbed first-load
       # still benefits from a brief ramp.

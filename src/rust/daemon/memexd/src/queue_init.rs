@@ -207,6 +207,9 @@ fn build_unified_config(
         max_retries: 3,
         inter_item_delay_ms: config.resource_limits.inter_item_delay_ms,
         max_concurrent_embeddings: config.resource_limits.max_concurrent_embeddings,
+        // Default 1 = byte-identical sequential behavior. Override via
+        // WQM_QUEUE_MAX_CONCURRENT_ITEMS in docker-compose.yml or config.yaml.
+        max_concurrent_items: config.queue_max_concurrent_items.unwrap_or(1).max(1),
         max_memory_percent: config.resource_limits.max_memory_percent,
         warmup_window_secs: daemon_config.startup.warmup_window_secs,
         warmup_max_concurrent_embeddings: daemon_config.startup.warmup_max_concurrent_embeddings,

@@ -24,6 +24,9 @@ fn default_target_throughput() -> u64 {
 fn default_enable_metrics() -> bool {
     true
 }
+fn default_max_concurrent_items() -> usize {
+    1
+}
 
 /// Queue processor configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +54,15 @@ pub struct QueueProcessorSettings {
     /// Enable detailed metrics logging
     #[serde(default = "default_enable_metrics")]
     pub enable_metrics: bool,
+
+    /// Maximum number of items dispatched concurrently within a single batch.
+    ///
+    /// `1` (default) keeps byte-identical sequential behavior; higher values
+    /// drive item-level concurrency via `FuturesUnordered` in
+    /// `process_batch`. The embedding semaphore is independent and continues
+    /// to gate chunk-level parallelism.
+    #[serde(default = "default_max_concurrent_items")]
+    pub max_concurrent_items: usize,
 }
 
 impl Default for QueueProcessorSettings {
@@ -62,6 +74,7 @@ impl Default for QueueProcessorSettings {
             retry_delays_seconds: default_retry_delays_seconds(),
             target_throughput: default_target_throughput(),
             enable_metrics: default_enable_metrics(),
+            max_concurrent_items: default_max_concurrent_items(),
         }
     }
 }
@@ -92,6 +105,13 @@ impl QueueProcessorSettings {
 
         if self.retry_delays_seconds.is_empty() {
             return Err("retry_delays_seconds cannot be empty".to_string());
+        }
+
+        if self.max_concurrent_items == 0 {
+            return Err("max_concurrent_items must be greater than 0".to_string());
+        }
+        if self.max_concurrent_items > 64 {
+            return Err("max_concurrent_items should not exceed 64".to_string());
         }
 
         Ok(())
@@ -127,6 +147,12 @@ impl QueueProcessorSettings {
 
         if let Ok(val) = env::var("WQM_QUEUE_ENABLE_METRICS") {
             self.enable_metrics = val.to_lowercase() == "true" || val == "1";
+        }
+
+        if let Ok(val) = env::var("WQM_QUEUE_MAX_CONCURRENT_ITEMS") {
+            if let Ok(parsed) = val.parse() {
+                self.max_concurrent_items = parsed;
+            }
         }
     }
 }
@@ -307,6 +333,8 @@ mod tests {
         assert_eq!(settings.retry_delays_seconds, vec![60, 300, 900, 3600]);
         assert_eq!(settings.target_throughput, 1000);
         assert!(settings.enable_metrics);
+        // Default `1` keeps byte-identical sequential behavior.
+        assert_eq!(settings.max_concurrent_items, 1);
     }
 
     #[test]
@@ -340,6 +368,25 @@ mod tests {
         // Empty retry_delays
         settings.retry_delays_seconds = vec![];
         assert!(settings.validate().is_err());
+        settings.retry_delays_seconds = vec![60, 300, 900, 3600];
+
+        // Invalid max_concurrent_items
+        settings.max_concurrent_items = 0;
+        assert!(settings.validate().is_err());
+        settings.max_concurrent_items = 65;
+        assert!(settings.validate().is_err());
+        settings.max_concurrent_items = 1;
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_queue_processor_settings_env_override_max_concurrent_items() {
+        let mut settings = QueueProcessorSettings::default();
+        std::env::set_var("WQM_QUEUE_MAX_CONCURRENT_ITEMS", "4");
+        settings.apply_env_overrides();
+        assert_eq!(settings.max_concurrent_items, 4);
+        std::env::remove_var("WQM_QUEUE_MAX_CONCURRENT_ITEMS");
     }
 
     #[test]

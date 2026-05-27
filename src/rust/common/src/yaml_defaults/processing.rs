@@ -54,6 +54,12 @@ pub struct YamlQueueProcessorConfig {
     pub enable_metrics: bool,
     pub worker_count: usize,
     pub backpressure_threshold: i64,
+    /// Maximum number of items dispatched concurrently within a single
+    /// batch. `1` (default) is byte-identical to the legacy sequential
+    /// loop. Recommended bake target: `4`. See
+    /// `UnifiedProcessorConfig::max_concurrent_items` for the runtime
+    /// semantics.
+    pub max_concurrent_items: usize,
 }
 
 impl Default for YamlQueueProcessorConfig {
@@ -67,6 +73,7 @@ impl Default for YamlQueueProcessorConfig {
             enable_metrics: true,
             worker_count: 4,
             backpressure_threshold: 1000,
+            max_concurrent_items: 1,
         }
     }
 }

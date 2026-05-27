@@ -1,13 +1,16 @@
 //! Batch processing for the unified queue processor.
 //!
-//! `process_batch` handles a non-empty batch of queue items sequentially.
-//! It returns `Err(())` when a cancellation signal is detected mid-batch,
-//! signalling the caller to `return Ok(())` from the processing loop.
+//! `process_batch` dispatches a non-empty batch of queue items either
+//! sequentially (when `config.max_concurrent_items == 1`) or concurrently via
+//! `FuturesUnordered` (when `> 1`). With `=1` the behavior is byte-identical
+//! to the legacy sequential loop. It returns `Err(())` when a cancellation
+//! signal is detected mid-batch, signalling the caller to `return Ok(())`
+//! from the processing loop.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -30,10 +33,44 @@ use crate::unified_queue_processor::UnifiedQueueProcessor;
 use crate::unified_queue_schema::{ItemType, QueueOperation, QueueStatus, UnifiedQueueItem};
 use crate::{DocumentProcessor, EmbeddingGenerator};
 
-/// Process a non-empty batch of queue items sequentially.
+use super::concurrent_dispatch::run_dispatch_loop;
+
+/// Owned dependency bundle for a single spawned item future.
+///
+/// Constructed once per dispatch and cloned per spawn so that each future
+/// holds its own `'static` references (Arc-clones are cheap). Required
+/// because `FuturesUnordered` requires `'static` futures.
+#[derive(Clone)]
+struct ItemDeps {
+    queue_manager: QueueManager,
+    config: UnifiedProcessorConfig,
+    document_processor: Arc<DocumentProcessor>,
+    embedding_generator: Arc<EmbeddingGenerator>,
+    storage_client: Arc<StorageClient>,
+    lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+    embedding_semaphore: Arc<tokio::sync::Semaphore>,
+    allowed_extensions: Arc<AllowedExtensions>,
+    lexicon_manager: Arc<LexiconManager>,
+    search_db: Option<Arc<SearchDbManager>>,
+    graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
+    watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
+    grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
+    ingestion_limits: Arc<IngestionLimitsConfig>,
+    metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
+    queue_health: Option<Arc<QueueProcessorHealth>>,
+    processed_tenants: Arc<Mutex<HashSet<String>>>,
+}
+
+/// Process a non-empty batch of queue items.
+///
+/// With `config.max_concurrent_items == 1` (the default) the dispatch is
+/// strictly sequential and byte-identical to the legacy loop. With values
+/// `> 1`, items are dispatched via `FuturesUnordered` and capped by an
+/// owned semaphore.
 ///
 /// Returns `Err(())` if a shutdown cancellation is detected during processing
-/// (the caller should then `return Ok(())`). Returns `Ok(())` otherwise.
+/// (the caller should then `return Ok(())`). Returns `Ok(processed_tenants)`
+/// otherwise.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn process_batch(
     items: Vec<UnifiedQueueItem>,
@@ -57,118 +94,112 @@ pub(super) async fn process_batch(
     resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
     warmup_state: &Arc<WarmupState>,
 ) -> Result<HashSet<String>, ()> {
-    let mut processed_tenants: HashSet<String> = HashSet::new();
+    let processed_tenants: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let max_concurrent = config.max_concurrent_items.max(1);
+    let item_semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
 
-    for (item_idx, item) in items.iter().enumerate() {
-        if cancellation_token.is_cancelled() {
-            warn!("Shutdown requested during item processing");
-            return Err(());
-        }
+    let deps = ItemDeps {
+        queue_manager: queue_manager.clone(),
+        config: config.clone(),
+        document_processor: Arc::clone(document_processor),
+        embedding_generator: Arc::clone(embedding_generator),
+        storage_client: Arc::clone(storage_client),
+        lsp_manager: lsp_manager.clone(),
+        embedding_semaphore: Arc::clone(embedding_semaphore),
+        allowed_extensions: Arc::clone(allowed_extensions),
+        lexicon_manager: Arc::clone(lexicon_manager),
+        search_db: search_db.clone(),
+        graph_store: graph_store.clone(),
+        watch_refresh_signal: watch_refresh_signal.clone(),
+        grammar_manager: grammar_manager.clone(),
+        ingestion_limits: Arc::clone(ingestion_limits),
+        metrics: Arc::clone(metrics),
+        queue_health: queue_health.clone(),
+        processed_tenants: Arc::clone(&processed_tenants),
+    };
 
-        if check_memory_pressure(config).await {
-            // Re-lease ALL remaining items in the batch (F-044), not just the
-            // current one, so they return to pending instead of being stuck
-            // in_progress until lease expiry.
-            re_lease_remaining_items(queue_manager, &items, item_idx).await;
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            break;
-        }
+    let deps_for_spawn = deps.clone();
+    let cancelled = run_dispatch_loop(
+        items,
+        Arc::clone(&item_semaphore),
+        queue_manager,
+        cancellation_token,
+        |item, permit| {
+            let d = deps_for_spawn.clone();
+            tokio::spawn(process_one_item_owned(item, permit, d))
+        },
+        || async { UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await },
+        || async {
+            apply_inter_dispatch_delay(config, warmup_state, resource_profile_rx).await;
+        },
+        config.max_memory_percent,
+    )
+    .await;
 
-        let start_time = std::time::Instant::now();
-        let item_type_str = format!("{:?}", item.item_type);
-
-        match UnifiedQueueProcessor::process_item(
-            queue_manager,
-            item,
-            config,
-            document_processor,
-            embedding_generator,
-            storage_client,
-            lsp_manager,
-            embedding_semaphore,
-            allowed_extensions,
-            lexicon_manager,
-            search_db,
-            graph_store,
-            grammar_manager,
-            ingestion_limits,
-        )
-        .await
-        {
-            Ok(()) => {
-                handle_item_success(
-                    item,
-                    start_time,
-                    queue_manager,
-                    metrics,
-                    queue_health,
-                    watch_refresh_signal,
-                    &item_type_str,
-                    &mut processed_tenants,
-                    config,
-                )
-                .await;
-            }
-            Err(e) => {
-                handle_item_failure(
-                    item,
-                    e,
-                    start_time,
-                    queue_manager,
-                    metrics,
-                    queue_health,
-                    config,
-                )
-                .await;
-            }
-        }
-
-        apply_inter_item_delay(config, warmup_state, resource_profile_rx).await;
+    if cancelled {
+        return Err(());
     }
 
-    Ok(processed_tenants)
+    // Spawned tasks have all completed by this point. The outer `deps` and
+    // the spawn closure's captured `deps_for_spawn` still hold Arc clones to
+    // `processed_tenants`, so we read it through the mutex rather than
+    // try_unwrap (which would always fall through to the lock path anyway).
+    let drained = processed_tenants.lock().await.clone();
+    Ok(drained)
 }
 
-/// Check memory pressure, returning `true` if the batch should pause.
-async fn check_memory_pressure(config: &UnifiedProcessorConfig) -> bool {
-    if !UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await {
-        return false;
-    }
-
-    warn!(
-        "Memory pressure during batch processing (<{}% available), pausing remaining items",
-        100u8.saturating_sub(config.max_memory_percent)
-    );
-    true
-}
-
-/// Re-lease all items from `from_idx` onward so they return to pending (F-044).
+/// Drive a single queue item through dispatch and finalize success/failure.
+/// The dispatch permit is dropped automatically when this future returns.
 ///
-/// Without this, items leased as part of the batch but not yet processed would
-/// remain `in_progress` until their lease expires, blocking other workers.
-async fn re_lease_remaining_items(
-    queue_manager: &QueueManager,
-    items: &[UnifiedQueueItem],
-    from_idx: usize,
+/// Cancellation policy: we deliberately do NOT abort `process_item` mid-
+/// flight on `cancellation_token.cancelled()`. In-flight items run to
+/// completion to avoid half-applied SQLite state (some destination markers
+/// committed, others rolled back). The outer dispatch loop reacts to the
+/// cancel signal by halting new dispatches and re-leasing the pending
+/// remainder; this future's job is to take its single item across the
+/// finish line so the queue row settles to a terminal state.
+async fn process_one_item_owned(
+    item: UnifiedQueueItem,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    deps: ItemDeps,
 ) {
-    let remaining = &items[from_idx..];
-    let count = remaining.len();
-    let mut failures = 0;
-    for item in remaining {
-        if let Err(e) = queue_manager.re_lease_item(&item.queue_id, 30).await {
-            warn!(queue_id = %item.queue_id, "Failed to re-lease item during memory pressure: {}", e);
-            failures += 1;
+    let start_time = std::time::Instant::now();
+    let item_type_str = format!("{:?}", item.item_type);
+
+    let result = UnifiedQueueProcessor::process_item(
+        &deps.queue_manager,
+        &item,
+        &deps.config,
+        &deps.document_processor,
+        &deps.embedding_generator,
+        &deps.storage_client,
+        &deps.lsp_manager,
+        &deps.embedding_semaphore,
+        &deps.allowed_extensions,
+        &deps.lexicon_manager,
+        &deps.search_db,
+        &deps.graph_store,
+        &deps.grammar_manager,
+        &deps.ingestion_limits,
+    )
+    .await;
+
+    match result {
+        Ok(()) => {
+            handle_item_success(&item, start_time, &deps, &item_type_str).await;
+        }
+        Err(e) => {
+            handle_item_failure(&item, e, start_time, &deps).await;
         }
     }
-    info!(
-        total = count,
-        released = count - failures,
-        "Re-leased remaining batch items due to memory pressure"
-    );
 }
 
-/// Apply inter-item delay based on warmup state, adaptive profile, or config default.
-async fn apply_inter_item_delay(
+/// Apply inter-dispatch delay based on warmup state, adaptive profile, or config default.
+///
+/// With `max_concurrent_items=1` this acts as a between-items pause exactly
+/// like the pre-refactor loop. With larger values it acts as a between-
+/// completion pause — backpressure on dispatch rate rather than per-item.
+async fn apply_inter_dispatch_delay(
     config: &UnifiedProcessorConfig,
     warmup_state: &Arc<WarmupState>,
     resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
@@ -186,17 +217,11 @@ async fn apply_inter_item_delay(
 }
 
 /// Handles the success outcome of a single processed item.
-#[allow(clippy::too_many_arguments)]
 async fn handle_item_success(
     item: &UnifiedQueueItem,
     start_time: std::time::Instant,
-    queue_manager: &QueueManager,
-    metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
-    queue_health: &Option<Arc<QueueProcessorHealth>>,
-    watch_refresh_signal: &Option<Arc<tokio::sync::Notify>>,
+    deps: &ItemDeps,
     item_type_str: &str,
-    processed_tenants: &mut HashSet<String>,
-    config: &UnifiedProcessorConfig,
 ) {
     let processing_time = start_time.elapsed().as_millis() as u64;
     METRICS.unified_queue_item_processed(
@@ -210,20 +235,22 @@ async fn handle_item_success(
     // destination statuses for orchestration-only items (decision_json IS NULL).
     // Items that opted into the state machine via store_queue_decision must
     // set every destination status explicitly — pending sinks remain pending.
-    let _ = queue_manager
+    let _ = deps
+        .queue_manager
         .mark_explicit_destination_results(&item.queue_id)
         .await;
 
     // Resolve overall status. For state-machine items with pending sinks the
     // helper will return InProgress and the item remains in the queue for the
     // next lease cycle.
-    let overall = queue_manager
+    let overall = deps
+        .queue_manager
         .check_and_finalize(&item.queue_id)
         .await
         .unwrap_or(QueueStatus::Done);
     match overall {
         QueueStatus::Done => {
-            if let Err(e) = queue_manager.delete_unified_item(&item.queue_id).await {
+            if let Err(e) = deps.queue_manager.delete_unified_item(&item.queue_id).await {
                 error!("Failed to delete item {} from queue: {}", item.queue_id, e);
             }
         }
@@ -237,8 +264,9 @@ async fn handle_item_success(
                 "destination failure on success path (qdrant_status/search_status reported failed) for item={} type={:?}",
                 item.queue_id, item.item_type
             );
-            if let Err(mark_err) = queue_manager
-                .mark_unified_failed(&item.queue_id, &err_msg, false, config.max_retries)
+            if let Err(mark_err) = deps
+                .queue_manager
+                .mark_unified_failed(&item.queue_id, &err_msg, false, deps.config.max_retries)
                 .await
             {
                 error!(
@@ -255,14 +283,18 @@ async fn handle_item_success(
         }
     }
 
-    UnifiedQueueProcessor::update_metrics_success(metrics, item_type_str, processing_time).await;
+    UnifiedQueueProcessor::update_metrics_success(&deps.metrics, item_type_str, processing_time)
+        .await;
 
-    if let Some(ref h) = queue_health {
+    if let Some(ref h) = deps.queue_health {
         h.record_success(processing_time);
         h.record_heartbeat();
     }
 
-    processed_tenants.insert(item.tenant_id.clone());
+    deps.processed_tenants
+        .lock()
+        .await
+        .insert(item.tenant_id.clone());
 
     info!(
         "Successfully processed unified item {} (type={:?}, op={:?}) in {}ms",
@@ -271,7 +303,7 @@ async fn handle_item_success(
 
     // Task 12: Signal WatchManager to refresh after Tenant/Add.
     if item.item_type == ItemType::Tenant && item.op == QueueOperation::Add {
-        if let Some(ref signal) = watch_refresh_signal {
+        if let Some(ref signal) = deps.watch_refresh_signal {
             signal.notify_one();
             debug!(
                 "Signaled WatchManager refresh after Tenant/Add for {}",
@@ -286,10 +318,7 @@ async fn handle_item_failure(
     item: &UnifiedQueueItem,
     e: UnifiedProcessorError,
     start_time: std::time::Instant,
-    queue_manager: &QueueManager,
-    metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
-    queue_health: &Option<Arc<QueueProcessorHealth>>,
-    config: &UnifiedProcessorConfig,
+    deps: &ItemDeps,
 ) {
     let error_category = UnifiedQueueProcessor::classify_error(&e);
     let is_permanent = UnifiedQueueProcessor::is_permanent_category(error_category);
@@ -305,7 +334,7 @@ async fn handle_item_failure(
             "Item {} gone (type={:?}), removing from queue: {}",
             item.queue_id, item.item_type, e
         );
-        if let Err(del_err) = queue_manager.delete_unified_item(&item.queue_id).await {
+        if let Err(del_err) = deps.queue_manager.delete_unified_item(&item.queue_id).await {
             error!("Failed to delete gone item {}: {}", item.queue_id, del_err);
         }
     } else if error_category == "subsystem_unavailable" {
@@ -313,7 +342,7 @@ async fn handle_item_failure(
             "Item {} parked: embedding subsystem unavailable ({})",
             item.queue_id, e
         );
-        if let Err(rel_err) = queue_manager.re_lease_item(&item.queue_id, 60).await {
+        if let Err(rel_err) = deps.queue_manager.re_lease_item(&item.queue_id, 60).await {
             error!(
                 "Failed to re-lease unavailable item {}: {}",
                 item.queue_id, rel_err
@@ -329,12 +358,13 @@ async fn handle_item_failure(
             e
         );
         let categorized_msg = format!("[{}] {}", error_category, e);
-        if let Err(mark_err) = queue_manager
+        if let Err(mark_err) = deps
+            .queue_manager
             .mark_unified_failed(
                 &item.queue_id,
                 &categorized_msg,
                 is_permanent,
-                config.max_retries,
+                deps.config.max_retries,
             )
             .await
         {
@@ -347,8 +377,8 @@ async fn handle_item_failure(
         }
     }
 
-    UnifiedQueueProcessor::update_metrics_failure(metrics, &e).await;
-    if let Some(ref h) = queue_health {
+    UnifiedQueueProcessor::update_metrics_failure(&deps.metrics, &e).await;
+    if let Some(ref h) = deps.queue_health {
         h.record_failure();
         h.record_heartbeat();
     }

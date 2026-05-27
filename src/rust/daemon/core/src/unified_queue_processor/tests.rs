@@ -29,6 +29,17 @@ mod tests {
         assert_eq!(config.inter_item_delay_ms, 50);
         assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);
+        // Item-level concurrency: default `1` keeps byte-identical sequential
+        // behavior; raise via WQM_QUEUE_MAX_CONCURRENT_ITEMS for the bake.
+        assert_eq!(config.max_concurrent_items, 1);
+    }
+
+    /// Test that `max_concurrent_items` is `1` by default (byte-identical to
+    /// the legacy sequential loop). The dispatch refactor lands inert; the
+    /// follow-up PR is responsible for raising this in docker-compose.
+    #[test]
+    fn test_default_max_concurrent_items_is_one() {
+        assert_eq!(UnifiedProcessorConfig::default().max_concurrent_items, 1);
     }
 
     #[test]

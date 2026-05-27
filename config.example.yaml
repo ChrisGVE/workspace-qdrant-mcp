@@ -86,6 +86,12 @@ queue_processor:
   # Enable detailed metrics logging
   enable_metrics: true
 
+  # Maximum items dispatched concurrently within a single batch (1-64).
+  # `1` (default) keeps byte-identical sequential behavior. Higher values
+  # drive item-level concurrency via FuturesUnordered in process_batch.
+  # Recommended bake target: 4.
+  max_concurrent_items: 1
+
 # Enhanced logging configuration
 logging:
   info_includes_connection_events: true
@@ -101,6 +107,7 @@ logging:
 # WQM_QUEUE_MAX_RETRIES - Override max_retries
 # WQM_QUEUE_TARGET_THROUGHPUT - Override target_throughput
 # WQM_QUEUE_ENABLE_METRICS - Override enable_metrics (true/false or 1/0)
+# WQM_QUEUE_MAX_CONCURRENT_ITEMS - Override max_concurrent_items (1-64, default 1 = byte-identical sequential)
 # WQM_OPTIMIZED_MAX_CONCURRENT - Override optimized_ingestion.max_concurrent_files
 # WQM_OPTIMIZED_BATCH_SIZE - Override optimized_ingestion.batch_size
 # WQM_OPTIMIZED_DEDUP_ENABLED - Override optimized_ingestion.enable_deduplication

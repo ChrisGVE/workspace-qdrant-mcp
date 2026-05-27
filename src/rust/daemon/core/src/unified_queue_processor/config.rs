@@ -90,6 +90,20 @@ pub struct UnifiedProcessorConfig {
     pub inter_item_delay_ms: u64,
     /// Maximum concurrent embedding operations
     pub max_concurrent_embeddings: usize,
+    /// Maximum number of items processed concurrently within a single batch.
+    ///
+    /// When set to `1` (default), behavior is byte-identical to the legacy
+    /// sequential loop — items are dispatched one at a time, in fairness order,
+    /// with the inter-item delay applied between completions. With values > 1,
+    /// items are dispatched via `FuturesUnordered` and the per-item dispatch
+    /// semaphore caps concurrency. The embedding semaphore
+    /// (`max_concurrent_embeddings`) is independent and continues to gate
+    /// chunk-level parallelism within an item.
+    ///
+    /// Recommended bake target: `4`. Larger values increase SQLite write
+    /// contention; the `max_connections: 10` / `busy_timeout: 30s` pool
+    /// settings comfortably absorb `4` writers.
+    pub max_concurrent_items: usize,
     /// Pause processing when available memory falls below (100 - this)%.
     /// e.g. 70 means pause when less than 30% of system memory is available.
     pub max_memory_percent: u8,
@@ -144,6 +158,9 @@ impl Default for UnifiedProcessorConfig {
             // Resource limits defaults (Task 504)
             inter_item_delay_ms: 50,
             max_concurrent_embeddings: 2,
+            // Default 1 = byte-identical to legacy sequential loop. Raise via
+            // WQM_QUEUE_MAX_CONCURRENT_ITEMS (recommended bake: 4).
+            max_concurrent_items: 1,
             max_memory_percent: 70,
             // Warmup throttling defaults (Task 577)
             warmup_window_secs: 30,

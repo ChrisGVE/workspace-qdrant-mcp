@@ -19,6 +19,13 @@ pub fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConfig, Uni
     // conventions; the logic lives on the config struct so tests and
     // external callers can reuse it without depending on this module.
     config.observability.telemetry.apply_env_overrides();
+    // Queue / resource / startup tuning knobs land via per-domain
+    // `apply_env_overrides` on each config struct. Without these calls the
+    // `WQM_QUEUE_*`, `WQM_RESOURCE_*`, and `WQM_STARTUP_*` env vars wired
+    // through docker-compose are silently ignored at runtime.
+    config.queue_processor.apply_env_overrides();
+    config.resource_limits.apply_env_overrides();
+    config.startup.apply_env_overrides();
     Ok(config)
 }
 

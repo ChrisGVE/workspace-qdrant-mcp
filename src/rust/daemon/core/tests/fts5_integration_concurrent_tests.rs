@@ -173,6 +173,7 @@ async fn test_full_lifecycle_round_trip() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -193,6 +194,7 @@ async fn test_full_lifecycle_round_trip() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -364,6 +366,7 @@ async fn test_multi_tenant_isolation() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
     processor.flush(0).await.unwrap();
