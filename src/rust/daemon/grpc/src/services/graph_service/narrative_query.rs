@@ -79,6 +79,7 @@ pub(crate) async fn execute_narrative_query(
         .collect();
     let seed_cte = seed_values.join(" UNION ALL ");
 
+    // visited tracks "|id|id|..." to prevent cycles via INSTR check.
     let sql = format!(
         "WITH seed_set AS ({seed_cte}),
         narrative_traverse AS (
@@ -86,7 +87,8 @@ pub(crate) async fn execute_narrative_query(
                    e.edge_type,
                    e.metadata_json,
                    1 AS depth,
-                   e.source_node_id || ' -> ' || e.target_node_id AS path
+                   e.source_node_id || ' -> ' || e.target_node_id AS path,
+                   '|' || e.source_node_id || '|' || e.target_node_id || '|' AS visited
             FROM graph_edges e
             WHERE e.source_node_id IN (SELECT id FROM seed_set)
               AND e.target_node_id NOT IN (SELECT id FROM seed_set)
@@ -97,7 +99,8 @@ pub(crate) async fn execute_narrative_query(
                    e.edge_type,
                    e.metadata_json,
                    1 AS depth,
-                   e.target_node_id || ' <- ' || e.source_node_id AS path
+                   e.target_node_id || ' <- ' || e.source_node_id AS path,
+                   '|' || e.target_node_id || '|' || e.source_node_id || '|' AS visited
             FROM graph_edges e
             WHERE e.target_node_id IN (SELECT id FROM seed_set)
               AND e.source_node_id NOT IN (SELECT id FROM seed_set)
@@ -108,11 +111,12 @@ pub(crate) async fn execute_narrative_query(
                    e.edge_type,
                    e.metadata_json,
                    nt.depth + 1,
-                   nt.path || ' -> ' || e.target_node_id
+                   nt.path || ' -> ' || e.target_node_id,
+                   nt.visited || e.target_node_id || '|'
             FROM graph_edges e
             INNER JOIN narrative_traverse nt ON e.source_node_id = nt.node_id
             WHERE nt.depth < ?{depth_slot}
-              AND e.target_node_id NOT IN (SELECT id FROM seed_set)
+              AND INSTR(nt.visited, '|' || e.target_node_id || '|') = 0
               AND e.tenant_id = ?{tenant_slot}
               {edge_type_clause}
             UNION ALL
@@ -120,21 +124,26 @@ pub(crate) async fn execute_narrative_query(
                    e.edge_type,
                    e.metadata_json,
                    nt.depth + 1,
-                   nt.path || ' <- ' || e.source_node_id
+                   nt.path || ' <- ' || e.source_node_id,
+                   nt.visited || e.source_node_id || '|'
             FROM graph_edges e
             INNER JOIN narrative_traverse nt ON e.target_node_id = nt.node_id
             WHERE nt.depth < ?{depth_slot}
-              AND e.source_node_id NOT IN (SELECT id FROM seed_set)
+              AND INSTR(nt.visited, '|' || e.source_node_id || '|') = 0
               AND e.tenant_id = ?{tenant_slot}
               {edge_type_clause}
         )
-        SELECT DISTINCT nt.node_id, nt.edge_type, nt.depth, nt.path,
-               nt.metadata_json,
+        SELECT nt.node_id,
+               MIN(nt.edge_type) AS edge_type,
+               MIN(nt.depth) AS depth,
+               MIN(nt.path) AS path,
+               MIN(nt.metadata_json) AS metadata_json,
                n.symbol_name, n.symbol_type, n.file_path
         FROM narrative_traverse nt
         JOIN graph_nodes n ON nt.node_id = n.node_id
         WHERE n.symbol_type IN ({narr_filter})
-        ORDER BY nt.depth, n.symbol_name
+        GROUP BY nt.node_id, n.symbol_name, n.symbol_type, n.file_path
+        ORDER BY depth, n.symbol_name
         LIMIT ?{limit_slot}"
     );
 

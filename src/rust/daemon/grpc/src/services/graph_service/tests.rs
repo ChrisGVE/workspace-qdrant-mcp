@@ -765,6 +765,65 @@ mod narrative_query {
     }
 
     #[tokio::test]
+    async fn cycle_does_not_produce_duplicates() {
+        let (service, _tmp) = test_graph_service().await;
+
+        // Create a cycle: A --EXPLAINS--> B --EXPLAINS--> C --EXPLAINS--> A
+        // with A as function, B and C as document_section (narrative types).
+        let a = GraphNode::new("t1", "src/lib.rs", "func_a", NodeType::Function);
+        let b = GraphNode::new("t1", "docs/b.md", "section_b", NodeType::DocumentSection);
+        let c = GraphNode::new("t1", "docs/c.md", "section_c", NodeType::DocumentSection);
+
+        let guard = service.graph_store.read().await.unwrap();
+        guard
+            .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+            .await
+            .unwrap();
+
+        let edges = vec![
+            GraphEdge::new(
+                "t1",
+                &a.node_id,
+                &b.node_id,
+                EdgeType::Explains,
+                "src/lib.rs",
+            ),
+            GraphEdge::new(
+                "t1",
+                &b.node_id,
+                &c.node_id,
+                EdgeType::Explains,
+                "docs/b.md",
+            ),
+            GraphEdge::new(
+                "t1",
+                &c.node_id,
+                &a.node_id,
+                EdgeType::Explains,
+                "docs/c.md",
+            ),
+        ];
+        guard.insert_edges(&edges).await.unwrap();
+        drop(guard);
+
+        let req = make_request(
+            "t1",
+            Some(QueryTarget::SymbolName("func_a".into())),
+            vec![],
+            5, // high depth to trigger cycle
+            50,
+        );
+        let resp = service.narrative_query(req).await.unwrap().into_inner();
+
+        // Should find b and c exactly once each (both are narrative types),
+        // NOT multiply via cycling.
+        let names: Vec<&str> = resp.nodes.iter().map(|n| n.symbol_name.as_str()).collect();
+        assert!(names.contains(&"section_b"), "should find section_b");
+        assert!(names.contains(&"section_c"), "should find section_c");
+        assert_eq!(resp.total_found, 2, "cycle should not produce duplicates");
+    }
+
+    #[tokio::test]
     async fn filters_by_edge_type() {
         let (service, _tmp) = test_graph_service().await;
 
