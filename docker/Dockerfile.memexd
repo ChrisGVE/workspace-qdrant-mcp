@@ -258,7 +258,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /home/memexd/.config/workspace-qdrant \
         /home/memexd/.cache \
         /home/memexd/.local/state \
-    && chown -R memexd:memexd /home/memexd
+        /var/lib/wqm \
+    && chown -R memexd:memexd /home/memexd \
+    && chown memexd:memexd /var/lib/wqm
 
 # libgit2 (used via the `git2` crate) runs its own ownership check on every
 # Repository::open; unlike the git CLI it ignores GIT_CONFIG_* env vars and
