@@ -72,7 +72,15 @@ pub async fn reconcile_ignore_rules(
         eligible_files.len()
     );
 
-    enqueue_reconcile_ops(queue_manager, tenant_id, collection, &stale, &missing).await
+    enqueue_reconcile_ops(
+        queue_manager,
+        tenant_id,
+        collection,
+        project_root,
+        &stale,
+        &missing,
+    )
+    .await
 }
 
 /// Look up the watch_id for a tenant+collection combination.
@@ -100,10 +108,16 @@ async fn fetch_watch_id(
 }
 
 /// Enqueue delete + add operations for stale and missing files.
+///
+/// `stale` and `missing` carry relative paths (forward-slash, normalized) —
+/// the JSON payload's `file_path` field is reconstructed as an absolute path
+/// by joining `project_root` so downstream file processors receive paths in
+/// the same shape they did before the v37 `tracked_files` rename.
 async fn enqueue_reconcile_ops(
     queue_manager: &Arc<QueueManager>,
     tenant_id: &str,
     collection: &str,
+    project_root: &Path,
     stale: &[&String],
     missing: &[&String],
 ) -> Result<ReconcileStats, String> {
@@ -113,6 +127,7 @@ async fn enqueue_reconcile_ops(
         queue_manager,
         tenant_id,
         collection,
+        project_root,
         QueueOperation::Delete,
         stale,
         "ignore_rule_change",
@@ -123,6 +138,7 @@ async fn enqueue_reconcile_ops(
         queue_manager,
         tenant_id,
         collection,
+        project_root,
         QueueOperation::Add,
         missing,
         "ignore_reconciliation",
@@ -152,6 +168,7 @@ async fn enqueue_ignore_ops(
     queue_manager: &Arc<QueueManager>,
     tenant_id: &str,
     collection: &str,
+    project_root: &Path,
     op: QueueOperation,
     file_paths: &[&String],
     reason: &str,
@@ -171,14 +188,18 @@ async fn enqueue_ignore_ops(
     for chunk in file_paths.chunks(IGNORE_SYNC_BATCH_SIZE) {
         let payloads: Vec<String> = chunk
             .iter()
-            .map(|file_path| {
+            .map(|rel_path| {
+                let abs = project_root
+                    .join(rel_path.as_str())
+                    .to_string_lossy()
+                    .to_string();
                 match op {
                     QueueOperation::Delete => serde_json::json!({
-                        "file_path": file_path,
+                        "file_path": abs,
                         "reason": reason,
                     }),
                     _ => serde_json::json!({
-                        "file_path": file_path,
+                        "file_path": abs,
                         "source": reason,
                     }),
                 }
@@ -215,7 +236,9 @@ async fn enqueue_ignore_ops(
 }
 
 /// Walk project tree and collect all eligible file paths (not excluded
-/// by .gitignore or .wqmignore). Returns absolute path strings.
+/// by .gitignore or .wqmignore). Returns paths relative to `project_root`,
+/// normalized to forward-slash separators so comparison against the
+/// `tracked_files.relative_path` column works identically on Windows.
 fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
@@ -229,20 +252,42 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
-            files.insert(entry.path().to_string_lossy().to_string());
+            if let Some(rel) = entry
+                .path()
+                .strip_prefix(project_root)
+                .ok()
+                .map(normalize_relative)
+            {
+                files.insert(rel);
+            }
         }
     }
 
     Ok(files)
 }
 
-/// Get all tracked file paths for a watch folder from the DB.
+/// Normalize a relative path to the storage format used by
+/// `tracked_files.relative_path` — forward-slash separators, lossy UTF-8.
+fn normalize_relative(rel: &Path) -> String {
+    let s = rel.to_string_lossy().to_string();
+    if std::path::MAIN_SEPARATOR == '/' {
+        s
+    } else {
+        s.replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
+/// Get all tracked relative paths for a watch folder from the DB.
+///
+/// Reads the canonical `relative_path` column. Pre-v37 the schema had a
+/// denormalized absolute `file_path`; that column was dropped by the v37
+/// `tracked_files` rebuild (see `tracked_files_schema::schema`).
 async fn get_indexed_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
 ) -> Result<HashSet<String>, String> {
     let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT file_path FROM tracked_files WHERE watch_folder_id = ?1")
+        sqlx::query_as("SELECT relative_path FROM tracked_files WHERE watch_folder_id = ?1")
             .bind(watch_folder_id)
             .fetch_all(pool)
             .await
@@ -329,5 +374,62 @@ mod tests {
         let files = walk_eligible_files(root.path()).unwrap();
         assert!(files.iter().any(|f| f.ends_with("readme.md")));
         assert!(!files.iter().any(|f| f.ends_with("big.csv")));
+    }
+
+    #[test]
+    fn walk_eligible_files_emits_relative_paths_with_forward_slashes() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("src").join("api");
+        std::fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("server.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path()).unwrap();
+
+        // Output must be a relative path joined by '/', matching the format
+        // used in tracked_files.relative_path. On Windows this validates the
+        // separator normalization. The absolute path must NOT leak through.
+        assert!(
+            files.contains("src/api/server.rs"),
+            "expected 'src/api/server.rs', got {:?}",
+            files
+        );
+        assert!(
+            !files.iter().any(|f| f.contains(':') || f.starts_with('/')),
+            "no entry should look absolute, got {:?}",
+            files
+        );
+    }
+
+    #[tokio::test]
+    async fn get_indexed_file_paths_reads_relative_path_column() {
+        // Bootstrap the full SchemaManager pipeline so tracked_files has the
+        // post-v37 shape (no `file_path` column, `relative_path` canonical).
+        let pool = super::super::tests::create_test_pool().await;
+        super::super::tests::setup_schema(&pool).await;
+
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, enabled, is_archived, created_at, updated_at) \
+             VALUES ('wf1', '/some/root', 'projects', 'tenant1', 1, 0, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for rel in ["src/main.rs", "docs/readme.md"] {
+            sqlx::query(
+                "INSERT INTO tracked_files \
+                 (watch_folder_id, relative_path, branch, file_mtime, file_hash, collection, base_point, created_at, updated_at) \
+                 VALUES ('wf1', ?1, 'main', '2025-01-01T00:00:00Z', 'h', 'projects', 'bp', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+            )
+            .bind(rel)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let got = get_indexed_file_paths(&pool, "wf1").await.unwrap();
+        assert_eq!(got.len(), 2);
+        assert!(got.contains("src/main.rs"));
+        assert!(got.contains("docs/readme.md"));
     }
 }
