@@ -44,6 +44,8 @@ dist/
 out/
 target/
 _build/
+coverage/
+**/coverage/
 *.class
 *.o
 *.a
