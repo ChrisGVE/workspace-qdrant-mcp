@@ -466,7 +466,12 @@ fn log_security_warnings(config: &ServerConfig) {
     }
     tracing::warn!("============================");
     if !config.is_secure() {
-        tracing::error!("gRPC server is running in INSECURE mode - not suitable for production");
+        // INSECURE mode is the intentional default for local/dev deployments
+        // (TLS terminates at the reverse proxy in production). Logging it as
+        // warn keeps the visibility while preventing `grep ERROR` alerts from
+        // tripping on a config-by-design state — the SECURITY WARNINGS block
+        // above already enumerates the specific protections that are disabled.
+        tracing::warn!("gRPC server is running in INSECURE mode - not suitable for production");
     }
 }
 

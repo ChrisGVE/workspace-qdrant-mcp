@@ -296,10 +296,12 @@ fn build_qdrant_config(config: &StorageConfig, connection_url: &str) -> QdrantCo
             qdrant_config = qdrant_config.keep_alive_while_idle();
         }
 
-        if let Some(_frame_size) = config.http2.max_frame_size {
-            warn!("HTTP/2 max frame size configuration requires lower-level gRPC configuration");
-            warn!("Consider using HTTP transport if frame size errors persist");
-        }
+        // Note: `config.http2.max_frame_size` is intentionally not applied
+        // here. The qdrant-client crate doesn't expose tonic's max-frame-size
+        // setter at this level, so any value in config would be silently
+        // dropped. If frame-size tuning becomes necessary (e.g., a payload
+        // grows past tonic's default 16 KiB), the right place is the
+        // tonic::transport::Channel builder, not this `qdrant_config` chain.
     }
 
     qdrant_config
