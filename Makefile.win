@@ -118,6 +118,7 @@ help:
 	@Write-Host "  start-daemon-fastembed - inicia memexd local com FastEmbed e gRPC"
 	@Write-Host "  build-ts            - instala deps e compila MCP TypeScript"
 	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop (http://localhost:50051) e Codex HTTP (http://localhost:6335/mcp)"
+	@Write-Host "  config-claude-http/apply-config-claude-http - Claude Desktop via mcp-remote bridge para o container HTTP (:6335/mcp). Requer: npm install -g mcp-remote"
 	@Write-Host "  config-fastembed/apply-config-fastembed - mesma base, com Codex/Claude no fluxo FastEmbed local (http://localhost:55151)"
 	@Write-Host "  codex-open          - abre o Codex carregando MCP_HTTP_TOKEN de docker/.env"
 	@Write-Host "  register            - registra PROJECT no wqm"
@@ -529,6 +530,12 @@ config-fastembed:
 
 apply-config:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -CodexTransport http -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
+
+config-claude-http:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ClaudeTransport http -ClaudeHttpUrl http://localhost:$(MCP_HTTP_PORT)/mcp -CodexTransport http -ToolCsv "$(TOOLS)"
+
+apply-config-claude-http:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ClaudeTransport http -ClaudeHttpUrl http://localhost:$(MCP_HTTP_PORT)/mcp -CodexTransport http -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
 
 apply-config-fastembed:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -CodexTransport stdio -ToolCsv "$(TOOLS)" -ConfigSuffix ".fastembed" -ApplyClaude -ApplyCodex
