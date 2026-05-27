@@ -13,12 +13,13 @@ use crate::output;
 /// File paths are sent as relative content paths (e.g. `src/main.rs`).
 /// The gRPC handler validates them via `extract_relative_paths!` and the
 /// write-actor matches directly against `tracked_files.relative_path`.
-pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
+pub async fn execute(files: &[PathBuf], clear: bool, tag: &str) -> Result<()> {
     let file_paths: Vec<String> = files
         .iter()
         .map(|f| f.to_string_lossy().to_string())
         .collect();
 
+    let watch_folder_id = format!("lib-{}", tag);
     let mut client = ensure_daemon_available().await?;
 
     let response = client
@@ -26,7 +27,7 @@ pub async fn execute(files: &[PathBuf], clear: bool) -> Result<()> {
         .set_incremental(SetIncrementalRequest {
             file_paths,
             clear,
-            watch_folder_id: String::new(),
+            watch_folder_id,
         })
         .await?
         .into_inner();

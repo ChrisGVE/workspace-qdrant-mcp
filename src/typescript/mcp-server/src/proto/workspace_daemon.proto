@@ -1073,8 +1073,9 @@ message ConfigureLibraryRequest {
 
 // SetIncremental Request
 message SetIncrementalRequest {
-    repeated string file_paths = 1;                   // Absolute file paths
+    repeated string file_paths = 1;                   // [relative] File paths relative to project root
     bool clear = 2;                                   // If true, clear flag instead of setting it
+    string watch_folder_id = 3;                       // Scope update to specific watch folder (required)
 }
 
 // SetIncremental Response

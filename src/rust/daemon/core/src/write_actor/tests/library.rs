@@ -124,7 +124,7 @@ async fn set_incremental_matches_relative_path() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["chapter1/intro.md".into(), "nonexistent/file.rs".into()],
             clear: false,
-            watch_folder_id: None,
+            watch_folder_id: Some("lib-docs".into()),
         })
         .await
         .unwrap();
@@ -183,7 +183,7 @@ async fn set_incremental_clear_resets_flag() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["lib/core.rs".into()],
             clear: true,
-            watch_folder_id: None,
+            watch_folder_id: Some("lib-src".into()),
         })
         .await
         .unwrap();
@@ -234,7 +234,7 @@ async fn set_incremental_absolute_path_does_not_match() {
         .set_incremental(SetIncrementalData {
             file_paths: vec!["/home/user/project/src/main.rs".into()],
             clear: false,
-            watch_folder_id: None,
+            watch_folder_id: Some("lib-abs".into()),
         })
         .await
         .unwrap();
@@ -253,4 +253,88 @@ async fn set_incremental_absolute_path_does_not_match() {
     .await
     .unwrap();
     assert_eq!(incremental, 0, "incremental flag should remain unchanged");
+}
+
+/// Missing watch_folder_id must be rejected (fail-closed).
+#[tokio::test]
+async fn set_incremental_missing_watch_folder_id_rejected() {
+    let (_pool, handle) = setup_test_db().await;
+
+    let result = handle
+        .set_incremental(SetIncrementalData {
+            file_paths: vec!["src/main.rs".into()],
+            clear: false,
+            watch_folder_id: None,
+        })
+        .await;
+
+    assert!(
+        result.is_err(),
+        "SetIncremental without watch_folder_id should fail"
+    );
+    assert!(result.unwrap_err().contains("watch_folder_id"));
+}
+
+/// SetIncremental must only affect files in the specified watch folder.
+#[tokio::test]
+async fn set_incremental_scoped_to_watch_folder() {
+    let (pool, handle) = setup_test_db().await;
+    let now = wqm_common::timestamps::now_utc();
+
+    for (wid, path, tid) in [
+        ("lib-a", "/project-a", "tenant-a"),
+        ("lib-b", "/project-b", "tenant-b"),
+    ] {
+        sqlx::query(
+            "INSERT INTO watch_folders \
+             (watch_id, path, collection, tenant_id, created_at, updated_at) \
+             VALUES (?1, ?2, 'libraries', ?3, ?4, ?4)",
+        )
+        .bind(wid)
+        .bind(path)
+        .bind(tid)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracked_files \
+             (watch_folder_id, relative_path, created_at, updated_at) \
+             VALUES (?1, 'src/main.rs', ?2, ?2)",
+        )
+        .bind(wid)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Set incremental only for lib-a
+    let result = handle
+        .set_incremental(SetIncrementalData {
+            file_paths: vec!["src/main.rs".into()],
+            clear: false,
+            watch_folder_id: Some("lib-a".into()),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.updated, 1);
+
+    // lib-a should have incremental=1
+    let inc_a: i32 =
+        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE watch_folder_id = 'lib-a'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(inc_a, 1, "lib-a should have incremental set");
+
+    // lib-b must remain unaffected
+    let inc_b: i32 =
+        sqlx::query_scalar("SELECT incremental FROM tracked_files WHERE watch_folder_id = 'lib-b'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(inc_b, 0, "lib-b must not be affected by lib-a update");
 }

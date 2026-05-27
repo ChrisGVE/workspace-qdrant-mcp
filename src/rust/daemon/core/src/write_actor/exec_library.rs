@@ -267,31 +267,23 @@ impl WriteActor {
         let mut updated = 0u32;
         let mut not_found = 0u32;
 
+        let wfid = data
+            .watch_folder_id
+            .as_deref()
+            .ok_or_else(|| "watch_folder_id is required for SetIncremental".to_string())?;
+
         for path in &data.file_paths {
-            let result = if let Some(ref wfid) = data.watch_folder_id {
-                sqlx::query(
-                    "UPDATE tracked_files \
-                     SET incremental = ?1, updated_at = ?2 \
-                     WHERE relative_path = ?3 AND watch_folder_id = ?4",
-                )
-                .bind(value)
-                .bind(&now)
-                .bind(path)
-                .bind(wfid)
-                .execute(&self.pool)
-                .await
-            } else {
-                sqlx::query(
-                    "UPDATE tracked_files \
-                     SET incremental = ?1, updated_at = ?2 \
-                     WHERE relative_path = ?3",
-                )
-                .bind(value)
-                .bind(&now)
-                .bind(path)
-                .execute(&self.pool)
-                .await
-            }
+            let result = sqlx::query(
+                "UPDATE tracked_files \
+                 SET incremental = ?1, updated_at = ?2 \
+                 WHERE relative_path = ?3 AND watch_folder_id = ?4",
+            )
+            .bind(value)
+            .bind(&now)
+            .bind(path)
+            .bind(wfid)
+            .execute(&self.pool)
+            .await
             .map_err(|e| format!("database error: {}", e))?;
 
             if result.rows_affected() > 0 {

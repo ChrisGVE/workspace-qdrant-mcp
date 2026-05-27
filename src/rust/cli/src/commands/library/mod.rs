@@ -209,6 +209,8 @@ enum LibraryCommand {
         files: Vec<PathBuf>,
         #[arg(long)]
         clear: bool,
+        #[arg(long, required = true, help = "Library tag to scope the update")]
+        tag: String,
     },
 }
 
@@ -252,8 +254,8 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
             disable,
             show,
         } => config::execute(&tag, mode, patterns, enable, disable, show).await,
-        LibraryCommand::SetIncremental { files, clear } => {
-            set_incremental::execute(&files, clear).await
+        LibraryCommand::SetIncremental { files, clear, tag } => {
+            set_incremental::execute(&files, clear, &tag).await
         }
     }
 }

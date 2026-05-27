@@ -153,11 +153,12 @@ impl LibraryWriteService for LibraryWriteServiceImpl {
         let validated_strings: Vec<String> =
             validated.into_iter().map(|rp| rp.into_string()).collect();
 
-        let watch_folder_id = if req.watch_folder_id.is_empty() {
-            None
-        } else {
-            Some(req.watch_folder_id)
-        };
+        if req.watch_folder_id.is_empty() {
+            return Err(Status::invalid_argument(
+                "watch_folder_id is required to scope SetIncremental updates",
+            ));
+        }
+        let watch_folder_id = Some(req.watch_folder_id);
 
         let result = self
             .write_actor
@@ -353,5 +354,26 @@ mod tests {
         let result = service.set_incremental(request).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_set_incremental_empty_watch_folder_id_rejected() {
+        let service = LibraryWriteServiceImpl::new(test_write_actor().await);
+
+        let request = Request::new(SetIncrementalRequest {
+            file_paths: vec!["src/valid.rs".to_string()],
+            clear: false,
+            watch_folder_id: String::new(),
+        });
+
+        let result = service.set_incremental(request).await;
+        assert!(result.is_err());
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert!(
+            status.message().contains("watch_folder_id"),
+            "error should mention watch_folder_id, got: {}",
+            status.message()
+        );
     }
 }
