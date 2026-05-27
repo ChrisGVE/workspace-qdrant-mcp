@@ -11,6 +11,7 @@ import {
   PROJECTS_COLLECTION,
   LIBRARIES_COLLECTION,
   SCRATCHPAD_COLLECTION,
+  RULES_COLLECTION,
   type SearchMode,
   type SearchResult,
   type SearchCollectionParams,
@@ -39,8 +40,9 @@ function buildProvenance(
     source = 'libraries';
   } else if (collection === SCRATCHPAD_COLLECTION) {
     source = 'scratchpad';
+  } else if (collection === RULES_COLLECTION) {
+    source = 'rules';
   } else {
-    // PROJECTS_COLLECTION or any unknown collection
     source = 'projects';
   }
 

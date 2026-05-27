@@ -7,10 +7,12 @@ import {
   COLLECTION_PROJECTS,
   COLLECTION_LIBRARIES,
   COLLECTION_SCRATCHPAD,
+  COLLECTION_RULES,
 } from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 export const SCRATCHPAD_COLLECTION = COLLECTION_SCRATCHPAD;
+export const RULES_COLLECTION = COLLECTION_RULES;
 
 // Vector names for hybrid search
 export const DENSE_VECTOR_NAME = 'dense';
@@ -64,7 +66,7 @@ export interface SearchOptions {
 
 export interface Provenance {
   /** Collection the result originates from. */
-  source: 'projects' | 'libraries' | 'scratchpad';
+  source: 'projects' | 'libraries' | 'scratchpad' | 'rules';
   /** Library name for library results. */
   library_name?: string;
   /** Library path prefix for library results. */
