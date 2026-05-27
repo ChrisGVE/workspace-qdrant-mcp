@@ -344,6 +344,19 @@ pub fn init_logging_with_telemetry(
 }
 
 /// Check if another memexd instance is already running by inspecting the PID file.
+///
+/// The control-port bind (spec 16 §10.1) is the authoritative cross-process
+/// lock; this PID-file check is a secondary diagnostic that produces a
+/// clearer error when a stale or duplicate daemon is detected.
+///
+/// Special case for Docker `docker compose restart memexd`: the container
+/// is not removed between restarts, so `/tmp/memexd.pid` persists, and the
+/// new memexd process is PID 1 (entrypoint replacement) — the same PID the
+/// previous instance recorded. To avoid the new process mistaking its own
+/// PID for a living predecessor, we treat any PID equal to `process::id()`
+/// as a stale entry and continue. PIDs are not reused while their owner is
+/// alive, so PID collision with the current process always means the
+/// recorded process is gone.
 pub fn check_existing_instance(
     pid_file: &Path,
     project_id: Option<&String>,
@@ -351,6 +364,24 @@ pub fn check_existing_instance(
     if pid_file.exists() {
         let pid_content = fs::read_to_string(pid_file)?;
         let pid: u32 = pid_content.trim().parse()?;
+
+        // If the recorded PID matches the current process, the file is
+        // stale. This happens after `docker compose restart memexd`: the
+        // previous memexd (PID 1 in container) left the file behind, and
+        // the new memexd is also PID 1 inside the same container's PID
+        // namespace. Without this guard, the daemon would treat itself as
+        // a conflicting instance and refuse to start (restart loop).
+        if pid == process::id() {
+            warn!(
+                "PID file {} contains current process's PID {}, treating as stale \
+                 (likely left behind by previous container instance after \
+                 `docker compose restart`); removing it",
+                pid_file.display(),
+                pid
+            );
+            fs::remove_file(pid_file)?;
+            return Ok(());
+        }
 
         #[cfg(unix)]
         {
@@ -768,6 +799,89 @@ mod tests {
         assert_eq!(
             config.log_level, default.log_level,
             "must equal default log_level"
+        );
+    }
+
+    // ── check_existing_instance tests ────────────────────────────────────────
+
+    /// Absent PID file must succeed silently — fresh-install / clean-container
+    /// path.
+    #[test]
+    fn test_check_existing_instance_no_pid_file_ok() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pid_file = tmp.path().join("memexd.pid");
+        assert!(!pid_file.exists(), "precondition: file absent");
+
+        let result = check_existing_instance(&pid_file, None);
+        assert!(
+            result.is_ok(),
+            "no PID file must return Ok, got: {:?}",
+            result.err()
+        );
+    }
+
+    /// Regression test for the `docker compose restart memexd` restart loop:
+    /// the previous instance left `/tmp/memexd.pid` containing PID 1, the new
+    /// instance is also PID 1 (entrypoint replacement inside the same
+    /// container PID namespace). check_existing_instance must not treat
+    /// itself as a conflicting predecessor.
+    ///
+    /// Outside Docker the same code path triggers iff `process::id()` of the
+    /// running test equals the stale PID — which is exactly what we write.
+    /// The file must be removed and the function must succeed.
+    #[test]
+    fn test_check_existing_instance_self_pid_treated_as_stale() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pid_file = tmp.path().join("memexd.pid");
+        // Simulate the previous instance leaving a PID file containing this
+        // process's PID (the Docker-restart scenario).
+        fs::write(&pid_file, format!("{}\n", process::id())).expect("write pid file");
+        assert!(pid_file.exists(), "precondition: stale file present");
+
+        let result = check_existing_instance(&pid_file, None);
+        assert!(
+            result.is_ok(),
+            "self-PID match must be treated as stale, got: {:?}",
+            result.err()
+        );
+        assert!(
+            !pid_file.exists(),
+            "stale PID file must be removed, but it still exists at {}",
+            pid_file.display()
+        );
+    }
+
+    /// PID file referencing an unused PID must be treated as stale and removed
+    /// (cross-platform: the `ps`/`tasklist` lookup returns empty output and
+    /// the trailing fall-through deletes the file).
+    ///
+    /// We use u32::MAX as a PID guaranteed not to exist; on all real systems
+    /// this exceeds the configured pid_max.
+    #[test]
+    fn test_check_existing_instance_unknown_pid_treated_as_stale() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pid_file = tmp.path().join("memexd.pid");
+        // Pick a PID that is highly unlikely to be in use and distinct from
+        // process::id() so it exercises the ps/tasklist branch, not the
+        // self-PID fast-path.
+        let unused_pid: u32 = u32::MAX;
+        assert_ne!(
+            unused_pid,
+            process::id(),
+            "test PID must differ from current PID"
+        );
+        fs::write(&pid_file, format!("{}\n", unused_pid)).expect("write pid file");
+
+        let result = check_existing_instance(&pid_file, None);
+        assert!(
+            result.is_ok(),
+            "unused PID must be treated as stale, got: {:?}",
+            result.err()
+        );
+        assert!(
+            !pid_file.exists(),
+            "stale PID file must be removed, but it still exists at {}",
+            pid_file.display()
         );
     }
 }
