@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 
@@ -512,6 +512,109 @@ const handlePutSettings: RouteHandler = async (req, res) => {
   writeJson(res, 200, next);
 };
 
+// ── /api/config/clients — generate client config snippets ───────────────────
+
+const handleGetClientConfigs: RouteHandler = async (_req, res) => {
+  const port = process.env['MCP_HTTP_PORT'] ?? '6335';
+  const token = process.env['MCP_HTTP_TOKEN'] ?? '';
+  const mcpUrl = `http://localhost:${port}/mcp`;
+
+  const claudeConfig = {
+    mcpServers: {
+      'workspace-qdrant': {
+        command: 'npx',
+        args: ['mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${token}`],
+      },
+    },
+  };
+
+  const claudeHttpConfig = {
+    mcpServers: {
+      'workspace-qdrant': {
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    },
+  };
+
+  const codexConfig = [
+    `# workspace-qdrant MCP`,
+    `[mcp_servers.workspace-qdrant]`,
+    `url = "${mcpUrl}"`,
+    `bearer_token_env_var = "MCP_HTTP_TOKEN"`,
+    `startup_timeout_sec = 20`,
+    `tool_timeout_sec = 120`,
+    `required = true`,
+    `enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules"]`,
+  ].join('\n');
+
+  writeJson(res, 200, {
+    claudeDesktop: {
+      mcp_remote: JSON.stringify(claudeConfig, null, 2),
+      http_native: JSON.stringify(claudeHttpConfig, null, 2),
+    },
+    codex: codexConfig,
+    mcpUrl,
+    port,
+    hasToken: !!token,
+  });
+};
+
+// ── /api/logs/mcp — tail the MCP server JSONL log file ──────────────────────
+
+const handleGetMcpLogs: RouteHandler = async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  const lines = Math.min(parseInt(url.searchParams.get('lines') ?? '100', 10), 500);
+
+  const logDir = process.env['WQM_LOG_DIR'] ?? null;
+  if (!logDir || !existsSync(logDir)) {
+    writeJson(res, 200, { lines: [], note: 'Log directory not found' });
+    return;
+  }
+
+  let logFile: string | null = null;
+  try {
+    const files = readdirSync(logDir)
+      .filter(f => f.startsWith('mcp-server') && f.endsWith('.jsonl'))
+      .map(f => ({ name: f, mtime: statSync(join(logDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length > 0 && files[0]) logFile = join(logDir, files[0].name);
+  } catch { /* ignore */ }
+
+  if (!logFile || !existsSync(logFile)) {
+    writeJson(res, 200, { lines: [], note: 'No log file found' });
+    return;
+  }
+
+  try {
+    const content = readFileSync(logFile, 'utf-8');
+    const allLines = content.split('\n').filter(l => l.trim());
+    const tail = allLines.slice(-lines);
+    const parsed = tail.map(l => {
+      try { return JSON.parse(l); } catch { return { msg: l }; }
+    });
+    writeJson(res, 200, { lines: parsed, file: logFile, total: allLines.length });
+  } catch (err) {
+    writeError(res, 500, 'read failed', err instanceof Error ? err.message : String(err));
+  }
+};
+
+// ── /api/daemon/raw-health — proxy to memexd metrics /health ────────────────
+
+const handleDaemonRawHealth: RouteHandler = async (_req, res) => {
+  const metricsHost = process.env['WQM_DAEMON_METRICS_HOST'] ?? 'memexd';
+  const metricsPort = process.env['WQM_DAEMON_METRICS_PORT'] ?? '9091';
+  try {
+    const resp = await fetch(`http://${metricsHost}:${metricsPort}/health`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    const text = await resp.text();
+    writeJson(res, 200, { ok: resp.ok, statusCode: resp.status, body: text });
+  } catch (err) {
+    writeJson(res, 200, { ok: false, reason: err instanceof Error ? err.message : String(err) });
+  }
+};
+
 // ── Route table ──────────────────────────────────────────────────────────────
 
 type Route = { method: string; path: string; handler: RouteHandler };
@@ -527,6 +630,9 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'PUT', path: '/admin/api/settings', handler: handlePutSettings },
   { method: 'GET', path: '/admin/api/ignore/global', handler: handleGetGlobalIgnore },
   { method: 'PUT', path: '/admin/api/ignore/global', handler: handlePutGlobalIgnore },
+  { method: 'GET', path: '/admin/api/config/clients', handler: handleGetClientConfigs },
+  { method: 'GET', path: '/admin/api/logs/mcp', handler: handleGetMcpLogs },
+  { method: 'GET', path: '/admin/api/daemon/raw-health', handler: handleDaemonRawHealth },
 ];
 
 /**

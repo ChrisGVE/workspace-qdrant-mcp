@@ -229,6 +229,9 @@ button.small { padding: 4px 10px; font-size: 12px; }
 }
 .data td.num, .data th.num { text-align: right; font-family: var(--mono); }
 .data tbody tr:hover { background: var(--bg-3); }
+tr.log-warn td { color: var(--warn); }
+tr.log-err td { color: var(--err); }
+.mono { font-family: var(--mono); }
 .data .path {
   font-family: var(--mono);
   font-size: 12px;

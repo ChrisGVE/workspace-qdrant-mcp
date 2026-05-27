@@ -50,6 +50,29 @@ const els = {
   saveIgnoreBtn: document.getElementById('saveIgnoreBtn'),
   reloadIgnoreBtn: document.getElementById('reloadIgnoreBtn'),
   ignoreMsg: document.getElementById('ignoreMsg'),
+  showClaudeConfigBtn: document.getElementById('showClaudeConfigBtn'),
+  showCodexConfigBtn: document.getElementById('showCodexConfigBtn'),
+  configHint: document.getElementById('configHint'),
+  configDisplay: document.getElementById('configDisplay'),
+  configLabel: document.getElementById('configLabel'),
+  configPre: document.getElementById('configPre'),
+  copyConfigBtn: document.getElementById('copyConfigBtn'),
+  copyMsg: document.getElementById('copyMsg'),
+  logLinesSelect: document.getElementById('logLinesSelect'),
+  loadMcpLogsBtn: document.getElementById('loadMcpLogsBtn'),
+  clearLogsBtn: document.getElementById('clearLogsBtn'),
+  logsEmpty: document.getElementById('logsEmpty'),
+  logsMeta: document.getElementById('logsMeta'),
+  logsTable: document.getElementById('logsTable'),
+  logsBody: document.getElementById('logsBody'),
+  checkDaemonMetricsBtn: document.getElementById('checkDaemonMetricsBtn'),
+  daemonMetricsVal: document.getElementById('daemonMetricsVal'),
+  daemonMetricsDetail: document.getElementById('daemonMetricsDetail'),
+  forceReconcileBtn: document.getElementById('forceReconcileBtn'),
+  stackActionsStatus: document.getElementById('stackActionsStatus'),
+  stackActionsLog: document.getElementById('stackActionsLog'),
+  refreshHealthBtn: document.getElementById('refreshHealthBtn'),
+  adminPidVal: document.getElementById('adminPidVal'),
 };
 
 let token = sessionStorage.getItem(TOKEN_KEY) || '';
@@ -237,6 +260,9 @@ async function refresh() {
   try {
     const health = await api('/admin/api/health');
     renderHostHealth(health);
+    if (health.mcp) {
+      els.adminPidVal.textContent = `pid ${health.mcp.pid ?? '—'} · up ${formatUptime(health.mcp.uptimeSeconds ?? 0)}`;
+    }
   } catch {
     // Leave previous values in place; the snapshot path already drives
     // the "connecting…" pill so we don't double-flag.
@@ -470,6 +496,163 @@ els.saveIgnoreBtn.addEventListener('click', async () => {
 });
 
 els.reloadIgnoreBtn.addEventListener('click', () => loadGlobalIgnore());
+
+// ── Client configs ─────────────────────────────────────────────────
+
+let clientConfigs = null;
+
+async function loadClientConfigs() {
+  if (!clientConfigs) {
+    clientConfigs = await api('/admin/api/config/clients');
+  }
+  return clientConfigs;
+}
+
+function showConfig(label, text) {
+  els.configHint.hidden = true;
+  els.configDisplay.hidden = false;
+  els.configLabel.textContent = label;
+  els.configPre.textContent = text;
+  els.copyMsg.textContent = '';
+}
+
+els.showClaudeConfigBtn.addEventListener('click', async () => {
+  try {
+    const cfg = await loadClientConfigs();
+    showConfig('Paste into claude_desktop_config.json → mcpServers', cfg.claudeDesktop.mcp_remote);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+els.showCodexConfigBtn.addEventListener('click', async () => {
+  try {
+    const cfg = await loadClientConfigs();
+    showConfig('Paste into ~/.codex/config.toml', cfg.codex);
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+els.copyConfigBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(els.configPre.textContent);
+    els.copyMsg.textContent = 'Copied!';
+    setTimeout(() => { els.copyMsg.textContent = ''; }, 2000);
+  } catch { els.copyMsg.textContent = 'Copy failed'; }
+});
+
+// ── Logs ────────────────────────────────────────────────────────────
+
+const LOG_LEVEL_CLASSES = { trace: 'muted', debug: 'muted', info: '', warn: 'warn', error: 'err', fatal: 'err' };
+
+function fmtLogTime(ts) {
+  if (!ts) return '—';
+  try {
+    const d = new Date(ts);
+    return d.toISOString().slice(11, 23); // HH:MM:SS.mmm
+  } catch { return String(ts); }
+}
+
+function renderLogs(data) {
+  const rows = data.lines ?? [];
+  if (rows.length === 0) {
+    els.logsEmpty.hidden = false;
+    els.logsTable.hidden = true;
+    els.logsMeta.hidden = true;
+    return;
+  }
+  els.logsEmpty.hidden = true;
+  els.logsMeta.hidden = false;
+  els.logsMeta.textContent = `${rows.length} lines · ${data.file ?? ''}`;
+  els.logsTable.hidden = false;
+  els.logsBody.innerHTML = rows.map(row => {
+    const level = row.level ?? row.severity ?? '';
+    const levelName = typeof level === 'number'
+      ? (level >= 50 ? 'error' : level >= 40 ? 'warn' : level >= 30 ? 'info' : level >= 20 ? 'debug' : 'trace')
+      : String(level).toLowerCase();
+    const cls = LOG_LEVEL_CLASSES[levelName] ?? '';
+    const msg = escapeHtml(row.msg ?? row.message ?? JSON.stringify(row));
+    const ctx = Object.entries(row)
+      .filter(([k]) => !['level','time','msg','name','pid','hostname','component','v'].includes(k))
+      .map(([k,v]) => `<span class="dim">${escapeHtml(k)}=</span>${escapeHtml(String(v))}`)
+      .join(' ');
+    return `<tr class="${cls ? 'log-' + cls : ''}">
+      <td class="mono dim" style="white-space:nowrap">${escapeHtml(fmtLogTime(row.time))}</td>
+      <td class="${cls ? 'pill-' + cls : ''}" style="font-size:10px;font-weight:600;text-transform:uppercase">${escapeHtml(levelName)}</td>
+      <td>${msg}${ctx ? '<br><span class="dim small mono">' + ctx + '</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+els.loadMcpLogsBtn.addEventListener('click', async () => {
+  els.loadMcpLogsBtn.disabled = true;
+  els.loadMcpLogsBtn.textContent = 'Loading…';
+  try {
+    const lines = els.logLinesSelect.value;
+    const data = await api(`/admin/api/logs/mcp?lines=${lines}`);
+    renderLogs(data);
+    if (data.note) toast(data.note, 'error');
+  } catch (e) { toast(e.message, 'error'); }
+  finally {
+    els.loadMcpLogsBtn.disabled = false;
+    els.loadMcpLogsBtn.textContent = 'MCP logs';
+  }
+});
+
+els.clearLogsBtn.addEventListener('click', () => {
+  els.logsEmpty.hidden = false;
+  els.logsTable.hidden = true;
+  els.logsMeta.hidden = true;
+  els.logsEmpty.textContent = 'Click "MCP logs" to load recent server log entries.';
+});
+
+// ── Stack actions ───────────────────────────────────────────────────
+
+els.checkDaemonMetricsBtn.addEventListener('click', async () => {
+  els.checkDaemonMetricsBtn.disabled = true;
+  try {
+    const data = await api('/admin/api/daemon/raw-health');
+    els.daemonMetricsVal.innerHTML = data.ok ? pill('healthy', 'ok') : pill('unreachable', 'err');
+    els.daemonMetricsDetail.textContent = data.body ?? data.reason ?? '—';
+  } catch (e) {
+    els.daemonMetricsVal.innerHTML = pill('error', 'err');
+    els.daemonMetricsDetail.textContent = e.message;
+  } finally {
+    els.checkDaemonMetricsBtn.disabled = false;
+  }
+});
+
+els.forceReconcileBtn.addEventListener('click', async () => {
+  els.forceReconcileBtn.disabled = true;
+  const originalLabel = els.forceReconcileBtn.textContent;
+  els.forceReconcileBtn.textContent = 'Triggering…';
+  try {
+    const result = await api('/admin/api/ignore/global', {
+      method: 'PUT',
+      body: { content: document.getElementById('globalIgnoreText')?.value ?? '' },
+    });
+    els.stackActionsStatus.textContent = `Reconcile triggered · ${new Date().toLocaleTimeString()}`;
+    els.stackActionsLog.hidden = false;
+    els.stackActionsLog.textContent = `Saved ${result.bytes} bytes to ${result.path}\nReconciliation will run for all projects on the next file-watcher tick.`;
+    toast('Reconciliation triggered');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    els.forceReconcileBtn.disabled = false;
+    els.forceReconcileBtn.textContent = originalLabel;
+  }
+});
+
+els.refreshHealthBtn.addEventListener('click', async () => {
+  els.refreshHealthBtn.disabled = true;
+  try {
+    const h = await api('/admin/api/health');
+    renderHostHealth(h);
+    els.adminPidVal.textContent = `pid ${h.mcp?.pid ?? '—'} · up ${formatUptime(h.mcp?.uptimeSeconds ?? 0)}`;
+    toast('Health refreshed');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    els.refreshHealthBtn.disabled = false;
+  }
+});
 
 // ── Boot ───────────────────────────────────────────────────────────
 

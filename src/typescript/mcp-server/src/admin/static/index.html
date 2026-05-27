@@ -134,6 +134,83 @@
         </div>
       </section>
 
+      <!-- Client configuration -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Client configuration</h2>
+          <div class="row" style="gap:6px; margin:0">
+            <button type="button" id="showClaudeConfigBtn" class="secondary small">Claude Desktop</button>
+            <button type="button" id="showCodexConfigBtn" class="secondary small">Codex</button>
+          </div>
+        </div>
+        <p id="configHint" class="dim small">Click a button above to show the snippet to paste into your client's config file.</p>
+        <div id="configDisplay" hidden>
+          <div class="row" style="margin-bottom:0.4rem; align-items:center; gap:0.5rem">
+            <span id="configLabel" class="dim small"></span>
+            <button type="button" id="copyConfigBtn" class="secondary small">Copy</button>
+            <span id="copyMsg" class="dim small"></span>
+          </div>
+          <pre id="configPre" class="debug" style="max-height:220px; margin-top:0; white-space:pre-wrap; word-break:break-all"></pre>
+        </div>
+      </section>
+
+      <!-- Logs -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Logs</h2>
+          <div class="row" style="gap:6px; margin:0">
+            <select id="logLinesSelect" style="background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="50">50 lines</option>
+              <option value="100" selected>100 lines</option>
+              <option value="200">200 lines</option>
+            </select>
+            <button type="button" id="loadMcpLogsBtn" class="secondary small">MCP logs</button>
+            <button type="button" id="clearLogsBtn" class="secondary small">Clear</button>
+          </div>
+        </div>
+        <div id="logsEmpty" class="dim small">Click "MCP logs" to load recent server log entries.</div>
+        <div id="logsMeta" class="dim small" hidden></div>
+        <div id="logsTable" hidden>
+          <table class="data" style="font-size:11px">
+            <thead>
+              <tr>
+                <th style="width:160px">Time</th>
+                <th style="width:60px">Level</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody id="logsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Stack actions -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Stack actions</h2>
+          <span id="stackActionsStatus" class="dim small"></span>
+        </div>
+        <div class="grid grid-3" style="gap:10px">
+          <div>
+            <div class="stat-label">Daemon metrics</div>
+            <div id="daemonMetricsVal" class="stat-value small">—</div>
+            <div id="daemonMetricsDetail" class="dim small">—</div>
+            <button type="button" id="checkDaemonMetricsBtn" class="secondary small" style="margin-top:6px">Check</button>
+          </div>
+          <div>
+            <div class="stat-label">Force reconcile</div>
+            <div class="dim small">Touch global.wqmignore to trigger reconciliation for all projects</div>
+            <button type="button" id="forceReconcileBtn" class="secondary small" style="margin-top:6px">Trigger</button>
+          </div>
+          <div>
+            <div class="stat-label">Admin info</div>
+            <div id="adminPidVal" class="dim small">—</div>
+            <button type="button" id="refreshHealthBtn" class="secondary small" style="margin-top:6px">Refresh health</button>
+          </div>
+        </div>
+        <pre id="stackActionsLog" class="debug" hidden style="margin-top:10px"></pre>
+      </section>
+
       <!-- Candidates -->
       <section class="card">
         <div class="card-head">
