@@ -112,7 +112,7 @@ pub async fn topics(concept: &str, tenant_id: Option<&str>, json: bool) -> Resul
         if json {
             output::print_json(&TopicsJson {
                 concept: concept.to_string(),
-                tenant_id: tenant_id.map(String::from),
+                tenant_id: Some(tid.to_string()),
                 total: 0,
                 depth_groups: Vec::new(),
             });
@@ -148,7 +148,7 @@ pub async fn topics(concept: &str, tenant_id: Option<&str>, json: bool) -> Resul
     groups.sort_by_key(|(depth, _)| depth_sort_key(depth));
 
     if json {
-        print_topics_json(concept, tenant_id, &groups);
+        print_topics_json(concept, Some(tid), &groups);
     } else {
         print_topics_table(concept, &groups);
     }
