@@ -50,7 +50,7 @@ WITH candidates AS (
     let mut sql = format!(
         "{}
 SELECT c.line_id, c.file_id, c.line_number, c.content,
-       fm.file_path, fm.tenant_id, fm.branch
+       fm.file_path, fm.tenant_id, fm.branch, fm.size_bytes
 FROM candidates c
 JOIN file_metadata fm ON c.file_id = fm.file_id
 WHERE 1=1",

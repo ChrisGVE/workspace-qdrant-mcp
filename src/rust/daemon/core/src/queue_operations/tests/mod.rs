@@ -9,7 +9,9 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use tempfile::tempdir;
 
-mod age_promotion_tests;
+// `age_promotion_tests` module was removed in a prior change but its
+// declaration was left behind, which breaks the test crate compile on
+// `fork/fixes`. Drop the dangling declaration so `cargo test` can run.
 mod cascade_priority_tests;
 mod concurrency_tests;
 mod destination_tests;

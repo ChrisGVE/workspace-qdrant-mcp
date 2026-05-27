@@ -167,13 +167,20 @@ that already populates `latency_ms` etc.
 #### 3.2 `grep` tool
 
 [src/typescript/mcp-server/src/tools/grep.ts](../../src/typescript/mcp-server/src/tools/grep.ts)
-already emits a search event with `op = 'grep'`. Add:
+emits a search event with `op = 'grep'`:
 
-- `bytes_out` = JSON-stringified payload length.
-- `bytes_in` = sum of file sizes for each unique `file_path` in the match set,
-  capped at `FILE_PROBE_CAP` per file.
-- `shape_mode = 'none'` (grep does not shape today; if shaping is added later,
-  populate accordingly).
+- `bytes_out` = sum of `content` + `context_before` + `context_after`
+  bytes across all matches (this is what the agent actually paid for).
+- `bytes_in` = sum of file sizes for each unique `file_path` in the
+  match set. The daemon attaches `file_size` per match — for FTS5
+  results it reads `file_metadata.size_bytes` (search.db v7+), and for
+  the grep-searcher delegate path it stats the file. When a row is
+  ingested before v7 the field is `None` and the MCP server falls back
+  to a per-unique-file proxy (`GREP_BYTES_IN_PER_FILE_PROXY`, 8 KiB).
+  `bytes_in` is always floored at `bytes_out` so we never claim
+  savings for content the agent actually received.
+- `shape_mode = 'none'` (grep does not shape today; if shaping is added
+  later, populate accordingly).
 
 #### 3.3 `retrieve` tool
 

@@ -59,6 +59,9 @@ pub(super) async fn update_fts5_for_file(
     let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
     let change = FileChange {
         file_id,
+        // Record the post-upsert size. Spec 20 §3.2 — grep's `bytes_in`
+        // is computed against this column when present.
+        size_bytes: Some(new_content.len() as i64),
         old_content,
         new_content: new_content.clone(),
         tenant_id: tenant_id.to_string(),

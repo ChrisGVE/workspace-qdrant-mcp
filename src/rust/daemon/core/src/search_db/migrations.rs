@@ -115,6 +115,30 @@ pub(super) async fn migrate_v6(pool: &SqlitePool) -> SearchDbResult<()> {
     Ok(())
 }
 
+/// Migration v7: Add `size_bytes` to `file_metadata`.
+///
+/// Token-economy support (spec 20 §3.2): persisted file size lets `grep`
+/// compute `bytes_in` against real numbers instead of a per-file proxy.
+/// Idempotent — skips ALTER if the column is already present (fresh DBs
+/// created at v7+ have it in CREATE TABLE).
+pub(super) async fn migrate_v7(pool: &SqlitePool) -> SearchDbResult<()> {
+    use crate::code_lines_schema::ALTER_FILE_METADATA_V7_SQL;
+
+    info!("Search DB migration v7: adding size_bytes to file_metadata");
+
+    let has_column: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('file_metadata') WHERE name = 'size_bytes'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !has_column {
+        sqlx::query(ALTER_FILE_METADATA_V7_SQL).execute(pool).await?;
+    }
+
+    Ok(())
+}
+
 /// Dispatch a single migration by version number.
 pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbResult<()> {
     match version {
@@ -124,6 +148,7 @@ pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbRe
         4 => migrate_v4(pool).await,
         5 => migrate_v5(pool).await,
         6 => migrate_v6(pool).await,
+        7 => migrate_v7(pool).await,
         _ => Err(SearchDbError::Migration(format!(
             "Unknown search DB migration version: {}",
             version

@@ -166,6 +166,10 @@ async fn collect_matches<'q>(
             branch: row.get("branch"),
             context_before: vec![],
             context_after: vec![],
+            file_size: row
+                .try_get::<Option<i64>, _>("size_bytes")
+                .ok()
+                .flatten(),
         });
         if matches.len() >= max {
             truncated = true;

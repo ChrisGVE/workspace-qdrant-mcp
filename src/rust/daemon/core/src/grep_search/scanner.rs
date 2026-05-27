@@ -45,9 +45,15 @@ pub(super) fn grep_scan_files(
             continue;
         }
 
+        // Capture file size for the token-economy metric (spec 20 §3.2).
+        // Read once per file then attached to every emitted match.
+        // Falls back to `None` if metadata is unreadable — the MCP
+        // server has its own proxy in that case.
+        let file_size: Option<i64> = std::fs::metadata(path).map(|m| m.len() as i64).ok();
+
         if context_lines > 0 {
             // With context: use custom Sink that tracks before/after lines
-            let mut sink = ContextSink::new(file_info, context_lines);
+            let mut sink = ContextSink::new(file_info, file_size, context_lines);
             let result = searcher.search_path(&matcher, path, &mut sink);
             match result {
                 Ok(()) => {}
@@ -81,6 +87,7 @@ pub(super) fn grep_scan_files(
                         branch: file_info.branch.clone(),
                         context_before: vec![],
                         context_after: vec![],
+                        file_size,
                     });
 
                     if all_matches.len() >= max_results {

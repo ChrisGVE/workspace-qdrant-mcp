@@ -34,6 +34,14 @@ export interface TextSearchMatch {
   branch?: string;
   context_before: string[];
   context_after: string[];
+  /**
+   * File size in bytes, populated when known. Consumed by the MCP
+   * server's grep token-economy metric to compute real `bytes_in`
+   * (spec docs/specs/20-token-economy-instrumentation.md §3.2).
+   * `undefined` when search.db is at v6 or below — the tool falls
+   * back to a per-file proxy in that case.
+   */
+  file_size?: number;
 }
 
 // ── GraphService ──

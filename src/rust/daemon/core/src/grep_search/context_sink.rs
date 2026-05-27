@@ -15,6 +15,10 @@ pub(super) struct ContextSink {
     file_path: String,
     tenant_id: String,
     branch: Option<String>,
+    /// File size in bytes — attached to every emitted match for the
+    /// token-economy metric (spec 20 §3.2). `None` falls back to the
+    /// MCP proxy.
+    file_size: Option<i64>,
     context_lines: usize,
     pub(super) matches: Vec<SearchMatch>,
     /// Pending context-before lines for the next match.
@@ -24,11 +28,16 @@ pub(super) struct ContextSink {
 }
 
 impl ContextSink {
-    pub(super) fn new(file_info: &FileInfo, context_lines: usize) -> Self {
+    pub(super) fn new(
+        file_info: &FileInfo,
+        file_size: Option<i64>,
+        context_lines: usize,
+    ) -> Self {
         Self {
             file_path: file_info.file_path.clone(),
             tenant_id: file_info.tenant_id.clone(),
             branch: file_info.branch.clone(),
+            file_size,
             context_lines,
             matches: Vec::new(),
             pending_before: Vec::new(),
@@ -68,6 +77,7 @@ impl Sink for ContextSink {
             branch: self.branch.clone(),
             context_before,
             context_after: vec![],
+            file_size: self.file_size,
         });
 
         Ok(true)

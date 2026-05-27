@@ -85,6 +85,62 @@ describe('computeGrepEconomy', () => {
     expect(bytesOut).toBe(20_000);
     expect(bytesIn).toBeGreaterThanOrEqual(bytesOut);
   });
+
+  describe('file-size probe (search.db v7)', () => {
+    it('uses the reported file_size in place of the proxy', () => {
+      // 12 KiB file — bigger than the 8 KiB proxy, smaller than two
+      // proxies. The result must match the reported size, proving the
+      // proxy was bypassed.
+      const matches: GrepMatch[] = [
+        grepMatch({ file: 'a.ts', content: 'x', file_size: 12_000 }),
+      ];
+      const { bytesIn } = computeGrepEconomy(matches);
+      expect(bytesIn).toBe(12_000);
+    });
+
+    it('mixes real sizes with proxy fallback per-file', () => {
+      // Two files: one carries a real size, the other does not. The
+      // proxy MUST apply only to the size-less file.
+      const matches: GrepMatch[] = [
+        grepMatch({ file: 'a.ts', content: 'x', file_size: 50_000 }),
+        grepMatch({ file: 'b.ts', content: 'y' }),
+      ];
+      const { bytesIn } = computeGrepEconomy(matches);
+      expect(bytesIn).toBe(50_000 + GREP_BYTES_IN_PER_FILE_PROXY);
+    });
+
+    it('treats file_size === 0 as missing and falls back to the proxy', () => {
+      // Proto3 defaults unset non-optional int64 to 0 — we must not
+      // treat that as "this file is empty".
+      const matches: GrepMatch[] = [
+        grepMatch({ file: 'a.ts', content: 'x', file_size: 0 }),
+      ];
+      const { bytesIn } = computeGrepEconomy(matches);
+      expect(bytesIn).toBe(GREP_BYTES_IN_PER_FILE_PROXY);
+    });
+
+    it('uses each unique file_size exactly once across matches in that file', () => {
+      const matches: GrepMatch[] = [
+        grepMatch({ file: 'a.ts', line: 1, file_size: 4_000 }),
+        grepMatch({ file: 'a.ts', line: 9, file_size: 4_000 }),
+      ];
+      const { bytesIn } = computeGrepEconomy(matches);
+      // 4_000 bytes counted once, NOT 8_000. bytesOut floor still
+      // applies but content is small here.
+      expect(bytesIn).toBe(4_000);
+    });
+
+    it('still floors bytesIn at bytesOut even when file_size is small', () => {
+      // Real file_size is 100 B but the search shipped 20_000 B of
+      // content (e.g. expanded context). The honest bytes_in must not
+      // claim savings for content that was actually delivered.
+      const matches: GrepMatch[] = [
+        grepMatch({ file: 'a.ts', content: 'q'.repeat(20_000), file_size: 100 }),
+      ];
+      const { bytesIn, bytesOut } = computeGrepEconomy(matches);
+      expect(bytesIn).toBe(bytesOut);
+    });
+  });
 });
 
 // ───────────────────── retrieve ─────────────────────

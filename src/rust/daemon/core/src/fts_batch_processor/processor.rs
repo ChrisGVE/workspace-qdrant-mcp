@@ -364,6 +364,7 @@ async fn upsert_file_metadata(
         .bind(&change.base_point)
         .bind(&change.relative_path)
         .bind(&change.file_hash)
+        .bind(change.size_bytes)
         .execute(&mut **tx)
         .await?;
     Ok(())

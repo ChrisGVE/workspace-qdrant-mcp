@@ -57,6 +57,11 @@ pub struct FileChange {
     pub relative_path: Option<String>,
     /// File content hash (optional, added in search.db v5).
     pub file_hash: Option<String>,
+    /// File size in bytes (optional, added in search.db v7 for spec 20
+    /// token-economy instrumentation). Callers typically pass
+    /// `new_content.len() as i64`. `None` stores SQL NULL — the MCP
+    /// server falls back to its per-file proxy in that case.
+    pub size_bytes: Option<i64>,
 }
 
 /// Statistics from a batch processing run.

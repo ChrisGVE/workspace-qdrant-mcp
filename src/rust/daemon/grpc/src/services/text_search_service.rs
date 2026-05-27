@@ -170,6 +170,7 @@ impl TextSearchServiceImpl {
                 branch: m.branch,
                 context_before: m.context_before,
                 context_after: m.context_after,
+                file_size: m.file_size,
             })
             .collect()
     }

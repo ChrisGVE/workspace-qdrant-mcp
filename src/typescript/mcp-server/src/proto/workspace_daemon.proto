@@ -581,6 +581,13 @@ message TextSearchMatch {
     optional string branch = 5;                   // Branch name
     repeated string context_before = 6;           // Lines before the match
     repeated string context_after = 7;            // Lines after the match
+    // File size in bytes, when known. Populated for FTS5 results from
+    // file_metadata.size_bytes (search.db v7+) or from fs::metadata on
+    // the grep-searcher delegate path. Consumed by the MCP server's
+    // token-economy metric (spec 20 §3.2) to compute real `bytes_in`
+    // for grep. May be absent — the MCP server falls back to its
+    // per-file proxy in that case.
+    optional int64 file_size = 8;
 }
 
 // -----------------------------------------------------------------------------

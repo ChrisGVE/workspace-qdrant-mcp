@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     file_id INTEGER PRIMARY KEY,
     tenant_id TEXT NOT NULL,
     branch TEXT,
-    file_path TEXT NOT NULL
+    file_path TEXT NOT NULL,
+    size_bytes INTEGER
 )
 "#;
 
@@ -204,16 +205,27 @@ pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
 /// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path,
 /// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable).
 pub const UPSERT_FILE_METADATA_SQL: &str = r#"
-INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, size_bytes)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 ON CONFLICT(file_id) DO UPDATE SET
     tenant_id = excluded.tenant_id,
     branch = excluded.branch,
     file_path = excluded.file_path,
     base_point = excluded.base_point,
     relative_path = excluded.relative_path,
-    file_hash = excluded.file_hash
+    file_hash = excluded.file_hash,
+    size_bytes = excluded.size_bytes
 "#;
+
+/// SQL for search.db v7: add `size_bytes` to `file_metadata`.
+///
+/// Carries the byte length of a file's content as written to `code_lines`
+/// at upsert time. Used by the token-economy instrumentation (spec 20
+/// §3.2) so `grep` can report `bytes_in` against real file sizes
+/// instead of a per-file constant proxy. Nullable: rows ingested before
+/// v7 stay `NULL` and the MCP server falls back to its proxy.
+pub const ALTER_FILE_METADATA_V7_SQL: &str =
+    "ALTER TABLE file_metadata ADD COLUMN size_bytes INTEGER";
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
 pub const DELETE_FILE_METADATA_SQL: &str = "DELETE FROM file_metadata WHERE file_id = ?1";

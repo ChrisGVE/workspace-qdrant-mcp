@@ -19,6 +19,11 @@ pub struct SearchMatch {
     pub context_before: Vec<String>,
     /// Lines after the match (populated when context_lines > 0).
     pub context_after: Vec<String>,
+    /// File size in bytes when known. `None` for rows ingested before
+    /// search.db v7 (column is nullable). Carried into the gRPC
+    /// response so the MCP server can compute real `bytes_in` for the
+    /// token-economy metric (spec 20 §3.2).
+    pub file_size: Option<i64>,
 }
 
 /// Search options for scoping and filtering.
