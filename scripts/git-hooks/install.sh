@@ -40,12 +40,16 @@ CONTAINER_DEV_ROOT="${WQM_DEV_ROOT:-}"
 ENV_FILE=""
 UNINSTALL=0
 FORCE=0
+# Track whether --hooks-dir was passed explicitly. When it was, we also
+# set core.hooksPath so git actually looks there; when it defaulted to
+# the git common hooks dir, no config change is needed.
+EXPLICIT_HOOKS_DIR=0
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo)        REPO="$2"; shift 2 ;;
-    --hooks-dir)   HOOKS_DIR="$2"; shift 2 ;;
+    --hooks-dir)   HOOKS_DIR="$2"; EXPLICIT_HOOKS_DIR=1; shift 2 ;;
     --mcp-url)     MCP_URL="$2"; shift 2 ;;
     --token)       TOKEN="$2"; shift 2 ;;
     --log)         LOG_FILE="$2"; shift 2 ;;
@@ -123,6 +127,32 @@ fi
 HOOK_LIST="post-checkout post-commit post-merge post-rewrite post-worktree-add"
 MARKER="# WQM_SYNC_BRANCH_HOOK"
 
+# ── Path translation helper ───────────────────────────────────────────────────
+# When install.sh runs inside a container but the hooks must execute on the
+# host (the common case for the dockerized MCP), translate paths from their
+# container-visible form into the host-visible form before embedding them in
+# the generated hook scripts or writing them to git config. Requires both
+# --host-dev-root (path the host shell sees) and --container-dev-root (path
+# bind-mounted inside the container) — without them we echo the input
+# unchanged.
+_translate_to_host() {
+  _path="$1"
+  if [ -n "$HOST_DEV_ROOT" ] && [ -n "$CONTAINER_DEV_ROOT" ]; then
+    case "$_path" in
+      "$CONTAINER_DEV_ROOT"|"$CONTAINER_DEV_ROOT"/*)
+        printf '%s%s' "$HOST_DEV_ROOT" "${_path#"$CONTAINER_DEV_ROOT"}"
+        return 0
+        ;;
+    esac
+  fi
+  printf '%s' "$_path"
+}
+
+# core.hooksPath, when we set it below, is read by host git, so it needs
+# to be the host-visible path. HOOKS_DIR itself stays container-side
+# because install.sh writes the files from inside the container.
+HOOKS_DIR_HOST="$(_translate_to_host "$HOOKS_DIR")"
+
 # ── Uninstall mode ────────────────────────────────────────────────────────────
 if [ "$UNINSTALL" = "1" ]; then
   for h in $HOOK_LIST; do
@@ -132,6 +162,15 @@ if [ "$UNINSTALL" = "1" ]; then
       printf 'removed: %s\n' "$target"
     fi
   done
+  # Unset core.hooksPath only if it points at the dir we just cleaned out
+  # (either the container-side path or the host-translated form, depending
+  # on which was active when install last ran).
+  _current="$(git -C "$REPO" config --get core.hooksPath 2>/dev/null || true)"
+  if [ -n "$_current" ] && { [ "$_current" = "$HOOKS_DIR" ] || [ "$_current" = "$HOOKS_DIR_HOST" ]; }; then
+    if git -C "$REPO" config --unset core.hooksPath 2>/dev/null; then
+      printf 'unset: core.hooksPath\n'
+    fi
+  fi
   exit 0
 fi
 
@@ -143,19 +182,11 @@ fi
 }
 chmod +x "$WQM_SCRIPT" 2>/dev/null || true  # bind-mounted hosts may refuse chmod
 
-# When install.sh runs inside a container but the hooks must execute on the
-# host (the common case for the dockerized MCP), translate WQM_SCRIPT from
-# its container-visible path into the host-visible path before embedding it
-# in the generated hook scripts. Requires both --host-dev-root (path the
-# host shell sees) and --container-dev-root (path bind-mounted inside the
-# container) — without them we cannot safely rewrite the prefix.
-if [ -n "$HOST_DEV_ROOT" ] && [ -n "$CONTAINER_DEV_ROOT" ]; then
-  case "$WQM_SCRIPT" in
-    "$CONTAINER_DEV_ROOT"|"$CONTAINER_DEV_ROOT"/*)
-      WQM_SCRIPT="$HOST_DEV_ROOT${WQM_SCRIPT#"$CONTAINER_DEV_ROOT"}"
-      ;;
-  esac
-fi
+WQM_SCRIPT="$(_translate_to_host "$WQM_SCRIPT")"
+# WQM_HOOK_LOG inside each hook is opened by wqm-sync-branch.sh running on
+# the host, so the embedded path also needs the host prefix. Embedded value
+# only — install.sh itself never writes to LOG_FILE.
+LOG_FILE_EMBED="$(_translate_to_host "$LOG_FILE")"
 
 # Refuse to install if WQM_SCRIPT still lives under a container-only mount
 # root (`/run/desktop/...` from Docker Desktop's WSL2 host bridge, or
@@ -208,7 +239,7 @@ $_checkout_guard
 WQM_HOOK_NAME="$_hook_name" \\
 WQM_MCP_URL="$MCP_URL" \\
 WQM_MCP_TOKEN="$TOKEN" \\
-WQM_HOOK_LOG="$LOG_FILE" \\
+WQM_HOOK_LOG="$LOG_FILE_EMBED" \\
 WQM_HOST_DEV_ROOT="$HOST_DEV_ROOT" \\
 WQM_DEV_ROOT="$CONTAINER_DEV_ROOT" \\
 "$WQM_SCRIPT" "$_hook_name" >/dev/null 2>&1 || true
@@ -236,9 +267,23 @@ if [ "$FORCE" = "1" ] && [ -f "$HOOKS_DIR/wqm-git-hook.ps1" ]; then
   printf 'removed stale PS hook companion: %s\n' "$HOOKS_DIR/wqm-git-hook.ps1" >&2
 fi
 
+# Point git at the custom hooks dir. Skipped when HOOKS_DIR defaulted to
+# the git common hooks dir (git looks there natively, so a config change
+# would be a no-op at best and a confusing override at worst).
+# Uses HOOKS_DIR_HOST so host-side git resolves the same files install.sh
+# wrote via the container-side bind mount.
+if [ "$EXPLICIT_HOOKS_DIR" = "1" ]; then
+  if git -C "$REPO" config core.hooksPath "$HOOKS_DIR_HOST" 2>/dev/null; then
+    printf 'configured: core.hooksPath = %s\n' "$HOOKS_DIR_HOST"
+  else
+    printf 'warning: failed to set core.hooksPath; hooks will not fire until you run:\n' >&2
+    printf '         git -C %s config core.hooksPath %s\n' "$REPO" "$HOOKS_DIR_HOST" >&2
+  fi
+fi
+
 printf '\nHooks installed in: %s\n' "$HOOKS_DIR"
 printf 'MCP endpoint     : %s\n' "$MCP_URL"
-printf 'Log file         : %s\n' "$LOG_FILE"
+printf 'Log file         : %s\n' "$LOG_FILE_EMBED"
 if [ -n "$HOST_DEV_ROOT" ] && [ -n "$CONTAINER_DEV_ROOT" ]; then
   printf 'Path translation : %s -> %s\n' "$HOST_DEV_ROOT" "$CONTAINER_DEV_ROOT"
 fi
