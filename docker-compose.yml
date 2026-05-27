@@ -432,9 +432,24 @@ volumes:
   hf_tei_data:
   # Daemon SQLite databases. Named volume (ext4 in WSL2 VM) instead of
   # bind-mount because Docker Desktop's 9P/drvfs filesystem cannot satisfy
-  # SQLite WAL's mmap/locking semantics. Created on first `docker compose up`;
-  # if you need to nuke it: `docker volume rm workspace-qdrant-mcp_memexd_db`
-  # (daemon must be stopped). Pre-existing volumes from manual creation are
-  # adopted thanks to `name:` matching.
+  # SQLite WAL's mmap/locking semantics. memexd.db, search.db, graph.db all
+  # live in this volume.
+  #
+  # Declared `external: true` so Compose neither tries to (re)create the
+  # volume on `up` nor delete it on `down -v`. Two reasons:
+  #   1. Existing installs created the volume out-of-band (before this
+  #      compose file declared it), so it lacks Compose's adoption labels —
+  #      without `external` Compose nags "already exists but was not created
+  #      by Docker Compose" on every up.
+  #   2. Treating the daemon DB as external is the right contract: it
+  #      outlives any single deployment and must not be accidentally wiped
+  #      by `compose down -v`.
+  #
+  # Bootstrap on a fresh machine (idempotent — exits 0 if it already exists):
+  #   docker volume create workspace-qdrant-mcp_memexd_db
+  #
+  # To nuke (daemon must be stopped first):
+  #   docker volume rm workspace-qdrant-mcp_memexd_db
   memexd_db:
+    external: true
     name: workspace-qdrant-mcp_memexd_db

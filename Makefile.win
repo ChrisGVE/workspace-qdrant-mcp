@@ -502,6 +502,7 @@ first-time:
 	@Write-Host "Step 1/4: npm install + build MCP server"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) build-ts
 	@Write-Host "Step 2/4: build + start docker stack"
+	@docker volume create workspace-qdrant-mcp_memexd_db | Out-Null
 	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build } else { Write-Host "ERROR: docker/.env not found. Copy docker/.env.example first." -ForegroundColor Red; exit 1 }
 	@Write-Host "Step 3/4: install POSIX git hooks"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
@@ -516,6 +517,7 @@ redeploy: build-ts
 	@Write-Host "Step 1/4: rebuild MCP + memexd images"
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp memexd
 	@Write-Host "Step 2/4: recreate mcp + memexd (env may have changed)"
+	@docker volume create workspace-qdrant-mcp_memexd_db | Out-Null
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate mcp memexd
 	@Write-Host "Step 3/4: reinstall git hooks (idempotent)"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
