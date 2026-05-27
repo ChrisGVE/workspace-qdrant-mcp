@@ -1,0 +1,174 @@
+# =============================================================================
+# global.wqmignore — daemon-wide index exclusions (template)
+# =============================================================================
+# Patterns here are applied to EVERY indexed project on top of each project's
+# own .gitignore / .wqmignore. Uses standard gitignore syntax:
+#
+#   node_modules/   — exclude directory (trailing slash = dirs only)
+#   *.zip           — exclude by extension
+#   !important.log  — re-include a previously excluded path
+#
+# Anchored vs. unanchored: the Rust `ignore` crate treats patterns without a
+# leading slash as matching at any depth, but `add_ignore()` (used for
+# global.wqmignore) anchors them relative to the ignore-file's parent dir.
+# Use the `**/` prefix when you need a pattern to match deep inside arbitrary
+# project trees (see the IDE/cache sections below for examples).
+#
+# Changes take effect at the next ignore-file reconciliation event (triggered
+# automatically when any project's .gitignore or .wqmignore is modified, or
+# at the next daemon restart).
+#
+# Deployment: copy this file to `<daemon-state-dir>/global.wqmignore` (host
+# bind-mount target for /var/lib/memexd/global.wqmignore — see docker-compose).
+# For the bundled compose stack that's `state/memexd/global.wqmignore`.
+# =============================================================================
+
+# ─── Self-storage (Qdrant + memexd + MCP local state) ────────────────────────
+# When the workspace-qdrant-mcp repo itself is registered as a project, the
+# daemon would otherwise watch its own Qdrant storage / SQLite WAL / MCP logs,
+# creating a feedback loop: Qdrant rotates a segment -> fs event -> enqueue
+# Add/Delete -> daemon hits Qdrant -> Qdrant rotates more -> fs event -> ...
+# Excluding the host-bind state dir breaks the loop.
+#
+# See docs/runbooks/self-watch-loop.md for the diagnosis and recovery
+# procedure if you discover the loop already running.
+state/
+**/state/qdrant/
+**/state/memexd/
+**/state/mcp/
+**/.fastembed_cache/
+
+# ─── Build artifacts ─────────────────────────────────────────────────────────
+build/
+dist/
+out/
+target/
+_build/
+*.class
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+
+# ─── Dependency / vendor directories ─────────────────────────────────────────
+node_modules/
+vendors/
+vendor/
+bower_components/
+jspm_packages/
+
+# ─── Python virtual environments ─────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ─── IDE / editor state ──────────────────────────────────────────────────────
+# Belt-and-suspenders: both anchored and **/ forms because the Rust `ignore`
+# crate's add_ignore() treats patterns as anchored to the ignore-file's
+# parent dir, not the walk root. Without **/ prefix, .claude/ would only
+# match /home/memexd/.workspace-qdrant/.claude/ — NOT project-level .claude/.
+.claude/
+**/.claude/
+.codex/
+**/.codex/
+.codex-skill-staging/
+**/.codex-skill-staging/
+.agents/
+**/.agents/
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+*.iml
+*.suo
+*.ntvs_analysis.dat
+
+# ─── Git internals (not auto-skipped when hidden=false) ──────────────────────
+.git/
+**/.git/
+
+# ─── Toolchain caches ────────────────────────────────────────────────────────
+.gradle/
+**/.gradle/
+.gradle-user/
+**/.gradle-user/
+.gradle-user-codex/
+**/.gradle-user-codex/
+.gradle-user-root/
+**/.gradle-user-root/
+.tools/
+**/.tools/
+.m2/
+**/.m2/
+.ivy2/
+**/.ivy2/
+.cargo/
+**/.cargo/
+.rustup/
+**/.rustup/
+.stack-work/
+**/.stack-work/
+
+# ─── Image / media assets (FastEmbed is text-only) ───────────────────────────
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.ico
+*.webp
+*.svg
+*.bmp
+*.tiff
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.webm
+*.wav
+*.flac
+*.ogg
+
+# ─── Generated / large templates ─────────────────────────────────────────────
+*.tpl
+
+# ─── Archives and binary blobs ───────────────────────────────────────────────
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz
+*.gz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.jar
+*.war
+*.ear
+*.iso
+*.img
+*.dmg
+
+# ─── Generated / compiled assets ─────────────────────────────────────────────
+*.min.js
+*.min.css
+*.bundle.js
+*.map
+
+# ─── Lock files (large, machine-generated) ───────────────────────────────────
+# Uncomment to exclude lock files if they bloat your queue:
+# package-lock.json
+# yarn.lock
+# Cargo.lock
+# Gemfile.lock
+# poetry.lock
