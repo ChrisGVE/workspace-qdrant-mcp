@@ -8421,6 +8421,7 @@ name = "workspace-qdrant-core"
 version = "0.1.3"
 dependencies = [
  "ahash",
+ "aho-corasick",
  "anyhow",
  "async-trait",
  "atty",

@@ -127,6 +127,7 @@ test-log = { version = "0.2", features = ["trace"] }
 tracing-test = "0.2"
 once_cell = "1.19"
 regex = "1.12"
+aho-corasick = "1.1"
 testcontainers = { version = "0.25", features = ["blocking"] }
 testcontainers-modules = { version = "0.13" }
 wiremock = "0.6"
