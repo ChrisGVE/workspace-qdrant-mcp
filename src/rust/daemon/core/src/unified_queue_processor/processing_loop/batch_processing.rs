@@ -235,10 +235,23 @@ async fn handle_item_success(
     // destination statuses for orchestration-only items (decision_json IS NULL).
     // Items that opted into the state machine via store_queue_decision must
     // set every destination status explicitly — pending sinks remain pending.
-    let _ = deps
+    //
+    // If this UPDATE fails (busy lock, schema mismatch, etc.), orchestration-only
+    // items keep NULL/NULL destinations, `check_and_finalize` returns InProgress,
+    // the item stays in queue and re-leases on the next cycle. Logging the error
+    // here lets the next "destination failure on success path" report be traced
+    // back to a real prior failure rather than appearing out of nowhere.
+    if let Err(mark_err) = deps
         .queue_manager
         .mark_explicit_destination_results(&item.queue_id)
-        .await;
+        .await
+    {
+        warn!(
+            "mark_explicit_destination_results failed for item {}: {} \
+             — destinations may remain NULL/pending, item likely to re-lease",
+            item.queue_id, mark_err
+        );
+    }
 
     // Resolve overall status. For state-machine items with pending sinks the
     // helper will return InProgress and the item remains in the queue for the
@@ -260,9 +273,20 @@ async fn handle_item_success(
             // metadata (retry_count, error_message, backoff via lease_until)
             // is populated; without this, the row would stay `failed` with no
             // way to surface or schedule a retry.
+            //
+            // Read back the actual destination statuses so the persisted
+            // error_message names which sink failed — without this, every
+            // failure looks identical and you have to grep daemon logs to
+            // know whether qdrant or search (FTS5) was the culprit.
+            let (qs, ss) = deps
+                .queue_manager
+                .read_destination_statuses(&item.queue_id)
+                .await
+                .unwrap_or((None, None));
             let err_msg = format!(
-                "destination failure on success path (qdrant_status/search_status reported failed) for item={} type={:?}",
-                item.queue_id, item.item_type
+                "destination failure on success path for item={} type={:?} \
+                 (qdrant_status={:?}, search_status={:?})",
+                item.queue_id, item.item_type, qs, ss
             );
             if let Err(mark_err) = deps
                 .queue_manager

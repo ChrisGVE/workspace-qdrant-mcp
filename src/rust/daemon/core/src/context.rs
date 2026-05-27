@@ -20,7 +20,7 @@ use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::patterns::GitattributesOverrides;
 use crate::queue_operations::QueueManager;
-use crate::search_db::SearchDbManager;
+use crate::search_db::{Fts5Sender, SearchDbManager};
 use crate::storage::StorageClient;
 use crate::tree_sitter::GrammarManager;
 
@@ -56,6 +56,14 @@ pub struct ProcessingContext {
 
     /// FTS5 search database manager (optional — can be disabled).
     pub search_db: Option<Arc<SearchDbManager>>,
+
+    /// Sender for the FTS5 batch writer actor (optional). When `Some`, the
+    /// per-item file handler enqueues work to the batch actor instead of
+    /// performing inline FTS5 writes — eliminates SQLITE_BUSY lock
+    /// contention on search.db by serializing all writes through one
+    /// transaction-batched task. When `None`, ingest.rs falls back to the
+    /// inline path (test / library / single-tenant deployments).
+    pub fts5_sender: Option<Fts5Sender>,
 
     /// File type allowlist for ingestion filtering.
     pub allowed_extensions: Arc<AllowedExtensions>,
@@ -113,6 +121,7 @@ impl ProcessingContext {
             lexicon_manager,
             lsp_manager,
             search_db,
+            fts5_sender: None,
             allowed_extensions,
             cooccurrence_cache: Arc::new(tokio::sync::Mutex::new(CentralityCache::default())),
             graph_store: None,
@@ -150,6 +159,15 @@ impl ProcessingContext {
         self.url_ingestion = cfg;
         self
     }
+
+    /// Attach the FTS5 batch-writer sender. When set, the file ingest path
+    /// enqueues prepared `Fts5WorkItem` values to the actor instead of
+    /// calling `update_fts5_for_file` inline. Returns self for chaining
+    /// alongside the other `with_*` builders.
+    pub fn with_fts5_sender(mut self, sender: Fts5Sender) -> Self {
+        self.fts5_sender = Some(sender);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -172,6 +190,7 @@ mod tests {
             let _ = &ctx.lexicon_manager;
             let _ = &ctx.lsp_manager;
             let _ = &ctx.search_db;
+            let _ = &ctx.fts5_sender;
             let _ = &ctx.allowed_extensions;
             let _ = &ctx.cooccurrence_cache;
             let _ = &ctx.graph_store;

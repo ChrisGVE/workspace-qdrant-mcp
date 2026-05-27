@@ -91,6 +91,13 @@ pub struct UnifiedQueueProcessor {
     /// Search database manager for FTS5 code search index (Task 52)
     search_db: Option<Arc<SearchDbManager>>,
 
+    /// Sender to the FTS5 batch writer actor. Spawned automatically by
+    /// `with_search_db` so the per-item file handler can enqueue prepared
+    /// `Fts5WorkItem`s instead of opening one search.db transaction per
+    /// file. Eliminates `SQLITE_BUSY` lock contention by funneling all
+    /// FTS5 writes through a single batched task.
+    fts5_sender: Option<crate::search_db::Fts5Sender>,
+
     /// Graph store for code relationship extraction and storage (graph-rag)
     graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
 
@@ -169,6 +176,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            fts5_sender: None,
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
@@ -232,6 +240,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            fts5_sender: None,
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
@@ -258,8 +267,27 @@ impl UnifiedQueueProcessor {
     }
 
     /// Set the search database manager for FTS5 code search integration (Task 52)
+    ///
+    /// Also spawns the FTS5 batch writer actor and installs its sender as
+    /// the daemon-wide default (see `search_db::batch_writer::global_sender`).
+    /// The actor lives for the lifetime of the process; the per-item file
+    /// handler routes all FTS5 writes through it to eliminate SQLITE_BUSY
+    /// contention on search.db.
     pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
+        let sender = crate::search_db::batch_writer::spawn(
+            Arc::clone(&search_db),
+            self.queue_manager.pool().clone(),
+            Arc::new(self.queue_manager.clone()),
+        );
+        if let Err(_existing) = crate::search_db::batch_writer::install_global_sender(sender.clone()) {
+            tracing::warn!(
+                "FTS5 batch writer sender already installed — keeping the existing actor; \
+                 this typically only happens when with_search_db is called more than once \
+                 (e.g. in tests)"
+            );
+        }
         self.search_db = Some(search_db);
+        self.fts5_sender = Some(sender);
         self
     }
 

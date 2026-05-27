@@ -7,6 +7,7 @@
 //! Schema versioning is independent from `state.db` -- search.db starts at version 1.
 //! WAL mode is enabled for concurrent read access during writes.
 
+pub mod batch_writer;
 mod code_lines;
 mod fts;
 mod migrations;
@@ -25,6 +26,7 @@ mod tests_rebalance_stress;
 #[cfg(test)]
 mod tests_schema;
 
+pub use batch_writer::{Fts5Sender, Fts5WorkItem};
 pub use types::{
     search_db_path_from_state, InsertedLine, RebalanceResult, SearchDbError, SearchDbResult,
     SEARCH_DB_FILENAME, SEARCH_SCHEMA_VERSION,

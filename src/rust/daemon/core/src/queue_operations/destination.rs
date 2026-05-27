@@ -94,6 +94,25 @@ impl QueueManager {
         Ok(overall)
     }
 
+    /// Read the per-destination statuses for a queue item.
+    ///
+    /// Returns `(qdrant_status, search_status)` as raw strings (NULL → None).
+    /// Used by batch_processing to enrich the error_message when
+    /// `check_and_finalize` returns `Failed` on a success-path handler return.
+    pub async fn read_destination_statuses(
+        &self,
+        queue_id: &str,
+    ) -> QueueResult<(Option<String>, Option<String>)> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1",
+        )
+        .bind(queue_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.unwrap_or((None, None)))
+    }
+
     /// Update the per-destination status for a queue item.
     ///
     /// Called after each destination (Qdrant, search DB) completes or fails.

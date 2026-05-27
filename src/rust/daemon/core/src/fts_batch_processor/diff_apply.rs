@@ -200,7 +200,7 @@ async fn apply_diff_ops(
                 new_index,
                 new_content: content,
             } => {
-                let line_id = insert_single_line(tx, file_id, content).await?;
+                let line_id = insert_single_line(tx, file_id, content, *new_index).await?;
                 stats.lines_inserted += 1;
                 ordered.push((*new_index, line_id));
             }
@@ -235,17 +235,30 @@ async fn apply_diff_ops(
 
 /// Insert a single line into code_lines with a temporary seq and line_number.
 /// The correct seq and line_number will be assigned by `renumber_after_changes`.
+///
+/// `new_index` is the line's position in the new file content; it's used to
+/// derive a UNIQUE temporary seq within the transaction. Two or more
+/// `DiffOp::Inserted` operations against the same file in one transaction
+/// would otherwise collide on the `UNIQUE(file_id, seq)` constraint —
+/// previously every insert used `f64::MAX / 2.0`, so any diff that produced
+/// multiple Inserted ops (e.g. multi-line edits, common in batch mode)
+/// failed before `renumber_after_changes` had a chance to re-assign seqs.
 async fn insert_single_line(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     file_id: i64,
     content: &str,
+    new_index: usize,
 ) -> Result<i64, SearchDbError> {
-    // Use a large temporary seq; renumber will fix it.
+    // Temp seq base sits far above any real seq (real ones come from
+    // `initial_seq(i)`, gap-based around 1e3–1e6 in practice); adding
+    // `new_index` keeps each insert distinct within the transaction.
+    // Renumber overwrites all of these immediately after.
+    let temp_seq = 1.0e15_f64 + new_index as f64;
     let result = sqlx::query(
         "INSERT INTO code_lines (file_id, seq, content, line_number) VALUES (?1, ?2, ?3, 0)",
     )
     .bind(file_id)
-    .bind(f64::MAX / 2.0)
+    .bind(temp_seq)
     .bind(content)
     .execute(&mut **tx)
     .await?;

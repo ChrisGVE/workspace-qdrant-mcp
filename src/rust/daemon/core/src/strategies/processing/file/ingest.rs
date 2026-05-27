@@ -106,7 +106,7 @@ async fn handle_retry_skip(
                 .queue_manager
                 .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
                 .await;
-            let fts_status = match fts5_index::update_fts5_for_file(
+            match fts5_index::update_fts5_for_file_or_enqueue(
                 sdb,
                 pool,
                 existing.file_id,
@@ -116,22 +116,32 @@ async fn handle_retry_skip(
                 existing.base_point.as_deref(),
                 Some(relative_path),
                 Some(existing.file_hash.as_str()),
+                &item.queue_id,
             )
             .await
             {
-                Ok(_) => DestinationStatus::Done,
+                Ok(fts5_index::Fts5Outcome::Enqueued) => {
+                    // Batch writer owns search_status from here. Leave the
+                    // row at `in_progress` so check_and_finalize keeps the
+                    // queue item alive until the actor flips it to Done.
+                }
+                Ok(fts5_index::Fts5Outcome::Inline(_) | fts5_index::Fts5Outcome::Skipped) => {
+                    let _ = ctx
+                        .queue_manager
+                        .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
+                        .await;
+                }
                 Err(e) => {
                     warn!(
                         "FTS5 retry failed for {} — search_status set to Failed: {}",
                         relative_path, e
                     );
-                    DestinationStatus::Failed
+                    let _ = ctx
+                        .queue_manager
+                        .update_destination_status(&item.queue_id, "search", DestinationStatus::Failed)
+                        .await;
                 }
-            };
-            let _ = ctx
-                .queue_manager
-                .update_destination_status(&item.queue_id, "search", fts_status)
-                .await;
+            }
         } else {
             let _ = ctx
                 .queue_manager
@@ -513,9 +523,11 @@ async fn update_search_index(
         .update_destination_status(&item.queue_id, "search", DestinationStatus::InProgress)
         .await;
     let t0 = Instant::now();
-    let mut fts_ok = true;
-    if let Some(sdb) = &ctx.search_db {
-        match fts5_index::update_fts5_for_file(
+    // Tri-state: Enqueued = batch actor owns the next flip, Done = set
+    // it now (inline write succeeded or no search_db configured),
+    // Failed = set it now (inline write errored).
+    let final_status: Option<DestinationStatus> = if let Some(sdb) = &ctx.search_db {
+        match fts5_index::update_fts5_for_file_or_enqueue(
             sdb,
             pool,
             file_id,
@@ -525,32 +537,35 @@ async fn update_search_index(
             Some(base_point),
             Some(relative_path),
             Some(file_hash),
+            &item.queue_id,
         )
         .await
         {
-            Ok(_) => {}
+            Ok(fts5_index::Fts5Outcome::Enqueued) => None,
+            Ok(fts5_index::Fts5Outcome::Inline(_) | fts5_index::Fts5Outcome::Skipped) => {
+                Some(DestinationStatus::Done)
+            }
             Err(e) => {
                 warn!(
                     "FTS5 indexing failed for {} — search_status set to Failed: {}",
                     relative_path, e
                 );
-                fts_ok = false;
+                Some(DestinationStatus::Failed)
             }
         }
-    }
+    } else {
+        Some(DestinationStatus::Done)
+    };
     timings.push(PhaseTiming {
         phase: "fts5",
         duration_ms: t0.elapsed().as_millis() as u64,
     });
-    let search_status = if fts_ok {
-        DestinationStatus::Done
-    } else {
-        DestinationStatus::Failed
-    };
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(&item.queue_id, "search", search_status)
-        .await;
+    if let Some(status) = final_status {
+        let _ = ctx
+            .queue_manager
+            .update_destination_status(&item.queue_id, "search", status)
+            .await;
+    }
 }
 
 /// Record pipeline phase timings to the database.
