@@ -55,7 +55,15 @@ pub async fn batch_add_branch_to_unchanged_files(
 
     // 3. Insert file_metadata rows for the new branch in search.db
     if let Some(ref sdb) = branch_ctx.search_db {
-        insert_file_metadata_for_branch(sdb, pool, &candidates, tenant_id, new_branch).await;
+        let watch_root = match fetch_watch_folder(pool, watch_folder_id).await {
+            Ok((path, _, _)) => path,
+            Err(e) => {
+                warn!("Failed to fetch watch folder path for file_metadata: {}", e);
+                String::new()
+            }
+        };
+        insert_file_metadata_for_branch(sdb, pool, &candidates, tenant_id, new_branch, &watch_root)
+            .await;
     }
 
     info!(
@@ -215,6 +223,7 @@ async fn insert_file_metadata_for_branch(
     candidates: &[BranchAddCandidate],
     tenant_id: &str,
     new_branch: &str,
+    watch_root: &str,
 ) {
     let search_pool = sdb.pool();
 
@@ -226,6 +235,11 @@ async fn insert_file_metadata_for_branch(
                 .await
                 .unwrap_or(None);
 
+        let abs_path = format!(
+            "{}/{}",
+            watch_root.trim_end_matches('/'),
+            &candidate.relative_path
+        );
         let result = sqlx::query(
             "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -234,7 +248,7 @@ async fn insert_file_metadata_for_branch(
         .bind(candidate.file_id)
         .bind(tenant_id)
         .bind(new_branch)
-        .bind(&candidate.relative_path)
+        .bind(&abs_path)
         .bind(candidate.base_point.as_deref())
         .bind(&candidate.relative_path)
         .bind(file_hash.as_deref())

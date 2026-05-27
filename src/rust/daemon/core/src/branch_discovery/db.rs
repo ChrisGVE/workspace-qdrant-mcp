@@ -94,8 +94,10 @@ pub async fn batch_insert_file_metadata(
     entries: &[(i64, &str, Option<&str>, Option<&str>, Option<&str>)],
     tenant_id: &str,
     branch: &str,
+    watch_root: &str,
 ) {
     for &(file_id, relative_path, base_point, _rel_path_alias, file_hash) in entries {
+        let abs_path = format!("{}/{}", watch_root.trim_end_matches('/'), relative_path);
         let result = sqlx::query(
             "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -104,7 +106,7 @@ pub async fn batch_insert_file_metadata(
         .bind(file_id)
         .bind(tenant_id)
         .bind(branch)
-        .bind(relative_path)
+        .bind(&abs_path)
         .bind(base_point)
         .bind(relative_path)
         .bind(file_hash)

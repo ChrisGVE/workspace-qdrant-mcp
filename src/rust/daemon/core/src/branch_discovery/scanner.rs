@@ -87,8 +87,10 @@ impl DiscoveryScanner {
 
         // 4. Process shared files: add branch to SQLite + Qdrant + search.db
         if !shared.is_empty() {
+            let root_str = project_root.to_string_lossy();
             result.shared_count =
-                process_shared_files(pool, branch_ctx, &shared, tenant_id, new_branch).await;
+                process_shared_files(pool, branch_ctx, &shared, tenant_id, new_branch, &root_str)
+                    .await;
         }
 
         // 5. Infer parent branch (optional, informational)
@@ -213,6 +215,7 @@ async fn process_shared_files(
     shared: &[SharedFile],
     tenant_id: &str,
     new_branch: &str,
+    watch_root: &str,
 ) -> u64 {
     // 1. Batch SQLite update
     let file_ids: Vec<i64> = shared.iter().map(|s| s.file_id).collect();
@@ -274,7 +277,14 @@ async fn process_shared_files(
                 )
             })
             .collect();
-        db::batch_insert_file_metadata(sdb.pool(), &metadata_entries, tenant_id, new_branch).await;
+        db::batch_insert_file_metadata(
+            sdb.pool(),
+            &metadata_entries,
+            tenant_id,
+            new_branch,
+            watch_root,
+        )
+        .await;
     }
 
     sqlite_count
