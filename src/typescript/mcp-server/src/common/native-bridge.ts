@@ -194,6 +194,7 @@ export const PRIORITY_LOW = loadAddon().priorityLow();
 export const FIELD_TENANT_ID = loadAddon().fieldTenantId();
 export const FIELD_PROJECT_ID = loadAddon().fieldProjectId();
 export const FIELD_LIBRARY_NAME = loadAddon().fieldLibraryName();
+export const FIELD_LIBRARY_PATH = 'library_path';
 export const FIELD_BASE_POINT = loadAddon().fieldBasePoint();
 export const FIELD_BRANCH = loadAddon().fieldBranch();
 export const FIELD_BRANCHES = loadAddon().fieldBranches();

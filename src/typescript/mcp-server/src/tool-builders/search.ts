@@ -11,6 +11,7 @@ export type SearchOptions = {
   scoreThreshold?: number;
   projectId?: string;
   libraryName?: string;
+  libraryPath?: string;
   branch?: string;
   fileType?: string;
   includeLibraries?: boolean;
@@ -55,6 +56,9 @@ function extractIdentifierOptions(
 
   const libraryName = args?.['libraryName'] as string | undefined;
   if (libraryName) options.libraryName = libraryName;
+
+  const libraryPath = args?.['libraryPath'] as string | undefined;
+  if (libraryPath) options.libraryPath = libraryPath;
 
   const branch = args?.['branch'] as string | undefined;
   if (branch === '*') {

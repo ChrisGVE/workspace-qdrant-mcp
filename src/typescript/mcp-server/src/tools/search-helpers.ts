@@ -32,6 +32,7 @@ import {
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
 import { expandAndFuseWithGraph } from './search-graph-expansion.js';
+import { diversifyResults, DEFAULT_DIVERSITY_CONFIG } from './search-diversity.js';
 
 /** Maximum active base_points we still attach as a Qdrant filter. Above
  * this the filter clause would blow past server-side limits; we instead
@@ -180,6 +181,7 @@ export interface SearchAllCollectionsParams {
   branch: string | undefined;
   fileType: string | undefined;
   libraryName: string | undefined;
+  libraryPath: string | undefined;
   tag: string | undefined;
   tags: string[] | undefined;
   options: SearchOptions;
@@ -203,6 +205,7 @@ function buildCollectionSearchParams(
     branch: params.branch,
     fileType: params.fileType,
     libraryName: params.libraryName,
+    libraryPath: params.libraryPath,
     tag: params.tag,
     tags: params.tags,
     pathGlob: params.options.pathGlob,
@@ -265,7 +268,8 @@ function recordAndBuildResponse(
   stateManager: SqliteStateManager,
   finalResults: SearchResult[],
   params: FinalizeResultsParams,
-  searchStartMs: number
+  searchStartMs: number,
+  diversityScore: number | undefined
 ): SearchResponse {
   const latencyMs = Date.now() - searchStartMs;
   const topRefs = finalResults
@@ -289,10 +293,11 @@ function recordAndBuildResponse(
   // Expose the branch filter that was applied so callers can see which branch
   // scoped the search (absent when cross-branch via "*" or no filter).
   if (params.options.branch) response.branch = params.options.branch;
+  if (diversityScore !== undefined) response.diversity_score = diversityScore;
   return response;
 }
 
-/** Fuse, sort, expand context, update event, and assemble the final response. */
+/** Fuse, sort, apply diversity re-ranking, expand context, update event, and assemble the final response. */
 export async function finalizeResults(
   qdrantClient: QdrantClient,
   daemonClient: DaemonClient,
@@ -307,10 +312,26 @@ export async function finalizeResults(
     await expandAndFuseWithGraph(daemonClient, fusedResults, primaryCollection);
   }
 
-  const finalResults = fusedResults.slice(0, params.limit);
+  // Apply source diversity re-ranking when searching across multiple collections
+  // (projects + libraries) so no single source dominates the top results.
+  let diversityScore: number | undefined;
+  let reranked = fusedResults;
+  if (params.collectionsToSearch.length > 1) {
+    const diversified = diversifyResults(fusedResults, DEFAULT_DIVERSITY_CONFIG);
+    reranked = diversified.results;
+    diversityScore = diversified.diversityScore;
+  }
+
+  const finalResults = reranked.slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
   if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);
 
-  return recordAndBuildResponse(stateManager, finalResults, params, params.searchStartMs);
+  return recordAndBuildResponse(
+    stateManager,
+    finalResults,
+    params,
+    params.searchStartMs,
+    diversityScore
+  );
 }

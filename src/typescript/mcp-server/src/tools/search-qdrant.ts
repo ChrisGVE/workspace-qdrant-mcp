@@ -296,6 +296,7 @@ function buildFallbackFilter(
     branch: options.branch,
     fileType: options.fileType,
     libraryName: options.libraryName,
+    libraryPath: options.libraryPath,
     tag: options.tag,
     tags: options.tags,
     pathGlob: options.pathGlob,

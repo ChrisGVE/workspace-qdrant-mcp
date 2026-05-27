@@ -14,6 +14,7 @@ import {
   FIELD_BRANCHES,
   FIELD_FILE_TYPE,
   FIELD_LIBRARY_NAME,
+  FIELD_LIBRARY_PATH,
   FIELD_CONCEPT_TAGS,
   FIELD_TAGS,
   FIELD_FILE_PATH,
@@ -93,6 +94,11 @@ function buildLibraryNameCondition(params: FilterParams): Record<string, unknown
   return { key: FIELD_LIBRARY_NAME, match: { value: params.libraryName } };
 }
 
+function buildLibraryPathCondition(params: FilterParams): Record<string, unknown> | null {
+  if (params.collection !== LIBRARIES_COLLECTION || !params.libraryPath) return null;
+  return { key: FIELD_LIBRARY_PATH, match: { text: params.libraryPath } };
+}
+
 function buildTagConditions(params: FilterParams): Record<string, unknown>[] {
   const conditions: Record<string, unknown>[] = [];
 
@@ -152,6 +158,9 @@ function buildMustConditions(params: FilterParams): Record<string, unknown>[] {
 
   const libNameCond = buildLibraryNameCondition(params);
   if (libNameCond) conditions.push(libNameCond);
+
+  const libPathCond = buildLibraryPathCondition(params);
+  if (libPathCond) conditions.push(libPathCond);
 
   conditions.push(...buildTagConditions(params));
 

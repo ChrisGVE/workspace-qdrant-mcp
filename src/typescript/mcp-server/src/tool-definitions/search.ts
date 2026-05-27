@@ -48,6 +48,10 @@ export const searchToolDefinition = {
         type: 'string',
         description: 'Library name when searching libraries collection',
       },
+      libraryPath: {
+        type: 'string',
+        description: 'Prefix filter within library (e.g., "cs/algorithms")',
+      },
       branch: {
         type: 'string',
         description:

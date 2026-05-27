@@ -41,6 +41,7 @@ export interface SearchOptions {
   fileType?: string;
   projectId?: string;
   libraryName?: string;
+  libraryPath?: string;
   includeLibraries?: boolean;
   tag?: string;
   /** Filter results by multiple concept tags (OR logic) */
@@ -101,6 +102,13 @@ export interface SearchResponse {
   status_reason?: string;
   /** Branch filter applied to this search, or undefined when cross-branch ("*") */
   branch?: string;
+  /**
+   * Source diversity score for the returned results [0, 1].
+   * 1.0 = every result from a unique source.
+   * 0.0 = all from one source.
+   * Absent when diversity re-ranking is disabled or not applicable.
+   */
+  diversity_score?: number;
 }
 
 export interface SearchToolConfig {
@@ -124,6 +132,7 @@ export interface FilterParams {
   branch: string | undefined;
   fileType: string | undefined;
   libraryName: string | undefined;
+  libraryPath: string | undefined;
   tag: string | undefined;
   tags: string[] | undefined;
   pathGlob: string | undefined;
