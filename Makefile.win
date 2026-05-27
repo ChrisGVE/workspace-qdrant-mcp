@@ -317,10 +317,10 @@ index-init:
 
 index-hooks-install:
 	@Write-Host "Installing POSIX git hooks (sh + curl -> MCP HTTP)..."
-	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
+	@$$sh = (.\scripts\windows\find-sh.ps1); if ($$LASTEXITCODE -ne 0) { exit 1 }; $$env:PATH = (Split-Path $$sh -Parent) + ';' + $$env:PATH; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
 
 index-hooks-uninstall:
-	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
+	@$$sh = (.\scripts\windows\find-sh.ps1); if ($$LASTEXITCODE -ne 0) { exit 1 }; $$env:PATH = (Split-Path $$sh -Parent) + ';' + $$env:PATH; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
 
 index-hooks-status:
 	.\scripts\windows\indexed-projects-hooks.ps1 -Action status -RepoDir "$(REPO)"
@@ -492,8 +492,8 @@ first-time:
 
 redeploy: build-ts
 	@Write-Host "=== Redeploy after code changes ==="
-	@Write-Host "Step 1/4: rebuild MCP image"
-	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp
+	@Write-Host "Step 1/4: rebuild MCP + memexd images"
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp memexd
 	@Write-Host "Step 2/4: recreate mcp + memexd (env may have changed)"
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate mcp memexd
 	@Write-Host "Step 3/4: reinstall git hooks (idempotent)"
