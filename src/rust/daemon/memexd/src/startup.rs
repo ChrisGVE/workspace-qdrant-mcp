@@ -354,30 +354,50 @@ pub fn check_existing_instance(
 
         #[cfg(unix)]
         {
-            let output = process::Command::new("ps")
-                .args(["-p", &pid.to_string(), "-o", "comm="])
-                .output()?;
-
-            if output.status.success() && !output.stdout.is_empty() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let process_name = stdout.trim();
-
-                if process_name.contains("memexd") {
-                    let project_info = project_id
-                        .map(|id| format!(" for project {}", id))
-                        .unwrap_or_default();
-                    return Err(format!(
-                        "Another memexd instance is already running{} with PID {}. \
-                         The cross-process single-instance lock (spec 16 §10.1) is \
-                         the authoritative check — see the memexd control-port error \
-                         (default 127.0.0.1:7799) for more detail, and consider \
-                         `--control-port` if running parallel test instances.",
-                        project_info, pid
-                    )
-                    .into());
-                } else {
-                    warn!("PID file contains non-memexd process, removing stale file");
+            // Prefer /proc (always available on Linux, including minimal containers
+            // that lack procps/ps). Fall back to `ps` on non-Linux Unix (macOS).
+            #[cfg(target_os = "linux")]
+            let alive_as_memexd: Option<bool> = {
+                let cmdline_path = format!("/proc/{}/cmdline", pid);
+                std::fs::read(&cmdline_path).ok().map(|bytes| {
+                    // cmdline is NUL-separated; first field is the executable path.
+                    let exe = bytes.split(|&b| b == 0).next().unwrap_or(&[]);
+                    let exe_str = String::from_utf8_lossy(exe);
+                    exe_str.contains("memexd")
+                })
+            };
+            #[cfg(not(target_os = "linux"))]
+            let alive_as_memexd: Option<bool> = {
+                match process::Command::new("ps")
+                    .args(["-p", &pid.to_string(), "-o", "comm="])
+                    .output()
+                {
+                    Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+                        let name = String::from_utf8_lossy(&out.stdout);
+                        Some(name.trim().contains("memexd"))
+                    }
+                    Ok(_) => Some(false),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        warn!("'ps' not found; cannot verify PID {} liveness, treating as stale", pid);
+                        None
+                    }
+                    Err(e) => return Err(e.into()),
                 }
+            };
+
+            if alive_as_memexd == Some(true) {
+                let project_info = project_id
+                    .map(|id| format!(" for project {}", id))
+                    .unwrap_or_default();
+                return Err(format!(
+                    "Another memexd instance is already running{} with PID {}. \
+                     The cross-process single-instance lock (spec 16 §10.1) is \
+                     the authoritative check — see the memexd control-port error \
+                     (default 127.0.0.1:7799) for more detail, and consider \
+                     `--control-port` if running parallel test instances.",
+                    project_info, pid
+                )
+                .into());
             }
         }
 
