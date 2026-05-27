@@ -24,6 +24,7 @@ mod rebalance_idf;
 mod reembed;
 mod rename_tenant;
 mod requeue_failed;
+mod token_savings;
 
 /// Canonical collection names (validated against wqm-common constants)
 pub(super) const VALID_COLLECTIONS: &[&str] =
@@ -191,6 +192,31 @@ enum AdminCommand {
         #[arg(short = 'c', long)]
         collection: Option<String>,
     },
+    /// Display token-economy savings (how much context the MCP server
+    /// saved the agent vs. an unshaped Read of referenced files).
+    ///
+    /// Reads the `token_savings` view (added in schema v38). Spec:
+    /// docs/specs/20-token-economy-instrumentation.md
+    #[command(
+        after_long_help = "See also:\n  wqm admin perf        per-phase pipeline timing\n  wqm admin stats       search instrumentation analytics"
+    )]
+    TokenSavings {
+        /// Time window, e.g. `7d`, `24h`, `30m`, or a bare number (hours).
+        #[arg(short = 'w', long, default_value = "7d")]
+        window: String,
+
+        /// Output in JSON format.
+        #[arg(long)]
+        json: bool,
+
+        /// Filter by project_id.
+        #[arg(long)]
+        project: Option<String>,
+
+        /// Filter by tool name (e.g. `mcp_qdrant`).
+        #[arg(long)]
+        tool: Option<String>,
+    },
     /// Manage and fetch Prometheus metrics from the daemon
     Metrics {
         #[command(subcommand)]
@@ -281,6 +307,12 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             sort,
             collection,
         } => perf::execute(window, json, group_by, sort, collection).await,
+        AdminCommand::TokenSavings {
+            window,
+            json,
+            project,
+            tool,
+        } => token_savings::execute(window, json, project, tool).await,
         AdminCommand::Metrics { command } => match command {
             MetricsCommand::Show { port, json } => metrics::execute(port, json).await,
             MetricsCommand::Enable { port } => metrics_setup::enable(port).await,
