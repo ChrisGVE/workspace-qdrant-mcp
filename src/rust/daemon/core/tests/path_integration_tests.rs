@@ -64,11 +64,12 @@ async fn insert_tracked_file(
     relative_path: &str,
     branch: &str,
 ) -> i64 {
+    let branches_json = format!("[\"{}\"]", branch);
     let row = sqlx::query(
         r"INSERT INTO tracked_files
-              (watch_folder_id, relative_path, branch,
+              (watch_folder_id, relative_path, primary_branch, branches,
                file_mtime, file_hash, created_at, updated_at)
-          VALUES (?1, ?2, ?3,
+          VALUES (?1, ?2, ?3, ?4,
                   strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                   'deadbeef',
                   strftime('%Y-%m-%dT%H:%M:%fZ','now'),
@@ -78,6 +79,7 @@ async fn insert_tracked_file(
     .bind(watch_folder_id)
     .bind(relative_path)
     .bind(branch)
+    .bind(&branches_json)
     .fetch_one(pool)
     .await
     .expect("insert tracked_file");
