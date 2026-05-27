@@ -81,7 +81,7 @@ fn query_concepts(
     // Build WHERE clauses for optional filters
     let mut where_clauses = vec![
         "n.symbol_type = 'concept_node'".to_string(),
-        "n.tenant_id = ?1 OR n.tenant_id = '__global__'".to_string(),
+        "(n.tenant_id = ?1 OR n.tenant_id = '__global__')".to_string(),
     ];
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(tenant_id.to_string())];
 
