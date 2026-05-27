@@ -99,7 +99,7 @@ pub(super) async fn try_branch_dedup(
         .storage_client
         .scroll_with_filter_and_vectors(&item.collection, filter, SCROLL_LIMIT)
         .await
-        .map_err(|e| UnifiedProcessorError::Storage(e))?;
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
     if old_points.is_empty() {
         // tracked_files said there were chunks, but Qdrant has nothing —
@@ -137,7 +137,7 @@ pub(super) async fn try_branch_dedup(
     ctx.storage_client
         .insert_points_batch(&item.collection, new_points, None)
         .await
-        .map_err(|e| UnifiedProcessorError::Storage(e))?;
+        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
     // ── 4. tracked_files row for the new branch ──
     let file_mtime = std::fs::metadata(file_path)
@@ -163,8 +163,8 @@ pub(super) async fn try_branch_dedup(
         &file_hash,
         chunk_count,
         Some("dedup_clone"),
-        ProcessingStatus::Pending,
-        ProcessingStatus::Pending,
+        ProcessingStatus::None,
+        ProcessingStatus::None,
         Some(item.collection.as_str()),
         extension.as_deref(),
         is_test,
