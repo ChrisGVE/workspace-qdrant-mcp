@@ -10,6 +10,8 @@ mod metrics;
 mod processing_loop;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_resilience;
 
 pub use config::{UnifiedProcessingMetrics, UnifiedProcessorConfig, WarmupState};
 pub use error::{UnifiedProcessorError, UnifiedProcessorResult};
