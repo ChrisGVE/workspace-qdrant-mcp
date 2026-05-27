@@ -7,9 +7,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
-};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 
 mod clean_orphan_queue_items;
 mod cleanup_orphans;
@@ -26,17 +24,14 @@ mod rename_tenant;
 mod requeue_failed;
 mod token_savings;
 
-/// Canonical collection names (validated against wqm-common constants)
+/// Subset of canonical collections that participate in tenant renames
+/// (scratchpad is global-only, so it is excluded).
 pub(super) const VALID_COLLECTIONS: &[&str] =
     &[COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES];
 
-/// All 4 canonical collections for orphan scanning
-pub(super) const ALL_COLLECTIONS: &[&str] = &[
-    COLLECTION_PROJECTS,
-    COLLECTION_LIBRARIES,
-    COLLECTION_RULES,
-    COLLECTION_SCRATCHPAD,
-];
+/// All 4 canonical collections for orphan scanning. Aliased to
+/// `wqm_common::constants::CANONICAL_COLLECTIONS` for drift safety.
+pub(super) use wqm_common::constants::CANONICAL_COLLECTIONS as ALL_COLLECTIONS;
 
 /// Admin command arguments
 #[derive(Args)]

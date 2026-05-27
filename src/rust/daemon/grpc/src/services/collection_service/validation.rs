@@ -6,8 +6,9 @@
 use tonic::Status;
 use tracing::warn;
 
-/// Canonical collection names that cannot be used as aliases (per ADR-001)
-pub(super) const CANONICAL_COLLECTIONS: &[&str] = &["projects", "libraries", "rules", "scratchpad"];
+// Canonical names re-exported from wqm_common — single source of truth.
+// Re-export as pub(super) to preserve module-internal visibility.
+pub(super) use wqm_common::constants::CANONICAL_COLLECTIONS;
 
 /// Validate collection name.
 /// Rules: 3-255 chars, alphanumeric + underscore/hyphen, no leading numbers.

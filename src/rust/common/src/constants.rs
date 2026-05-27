@@ -18,6 +18,18 @@ pub const COLLECTION_RULES: &str = "rules";
 /// Filtered by tenant_id payload field (`TENANT_GLOBAL` or project_id)
 pub const COLLECTION_SCRATCHPAD: &str = "scratchpad";
 
+/// The 4 canonical collection names per ADR-001.
+///
+/// Single source of truth for "is this a known collection?" checks. Order
+/// is stable and matches ADR-001. Excludes `COLLECTION_IMAGES` which is an
+/// auxiliary collection (CLIP embeddings, not text).
+pub const CANONICAL_COLLECTIONS: &[&str] = &[
+    COLLECTION_PROJECTS,
+    COLLECTION_LIBRARIES,
+    COLLECTION_RULES,
+    COLLECTION_SCRATCHPAD,
+];
+
 /// Sentinel tenant_id for global-scope rules and scratchpad entries.
 ///
 /// Used in the `tenant_id` payload field of `rules` and `scratchpad` points
@@ -174,6 +186,18 @@ mod tests {
         assert_eq!(COLLECTION_RULES, "rules");
         assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
         assert_eq!(COLLECTION_IMAGES, "images");
+    }
+
+    #[test]
+    fn test_canonical_collections_set() {
+        // Order must match ADR-001 and be stable: downstream code may rely on
+        // CANONICAL_COLLECTIONS[0] == "projects" for iteration semantics.
+        assert_eq!(
+            CANONICAL_COLLECTIONS,
+            &["projects", "libraries", "rules", "scratchpad"]
+        );
+        // Images is intentionally excluded — it is an auxiliary collection.
+        assert!(!CANONICAL_COLLECTIONS.contains(&COLLECTION_IMAGES));
     }
 
     #[test]
