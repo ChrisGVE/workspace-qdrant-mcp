@@ -27,7 +27,7 @@ use std::time::Instant;
 use sqlx::SqlitePool;
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
@@ -185,9 +185,18 @@ impl ProjectServiceImpl {
             }
         }
 
-        let queue_depth = lsp_lifecycle::get_project_queue_depth(&self.db_pool, project_id)
-            .await
-            .unwrap_or(0);
+        let queue_depth =
+            match lsp_lifecycle::get_project_queue_depth(&self.db_pool, project_id).await {
+                Ok(depth) => depth,
+                Err(e) => {
+                    warn!(
+                        project_id = project_id,
+                        error = %e,
+                        "Queue depth query failed, assuming non-empty (fail-closed)"
+                    );
+                    return Ok(false);
+                }
+            };
         if queue_depth > 0 {
             info!(
                 project_id = project_id,

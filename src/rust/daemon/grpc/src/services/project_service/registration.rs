@@ -172,7 +172,7 @@ impl ProjectServiceImpl {
 
         let watch_meta = self
             .lookup_watch_metadata(&project_id, &effective_path_str)
-            .await;
+            .await?;
 
         self.apply_registration_action(
             action,

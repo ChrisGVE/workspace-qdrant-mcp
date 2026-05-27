@@ -188,7 +188,7 @@ impl ProjectServiceImpl {
         &self,
         project_id: &str,
         path: &str,
-    ) -> WatchMetadata {
+    ) -> Result<WatchMetadata, Status> {
         let row: Option<(i32, String)> = sqlx::query_as(
             r#"SELECT is_worktree, path FROM watch_folders
                WHERE collection = ?1
@@ -201,9 +201,12 @@ impl ProjectServiceImpl {
         .bind(project_id)
         .fetch_optional(&self.db_pool)
         .await
-        .unwrap_or(None);
+        .map_err(|e| {
+            error!("Failed to query watch metadata: {e}");
+            Status::unavailable(format!("Failed to query watch metadata: {e}"))
+        })?;
 
-        match row {
+        Ok(match row {
             Some((is_wt, watch_path)) => WatchMetadata {
                 is_worktree: is_wt != 0,
                 watch_path: Some(watch_path),
@@ -212,7 +215,7 @@ impl ProjectServiceImpl {
                 is_worktree: false,
                 watch_path: None,
             },
-        }
+        })
     }
 }
 

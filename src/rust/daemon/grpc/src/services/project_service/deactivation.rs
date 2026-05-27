@@ -148,11 +148,18 @@ impl ProjectServiceImpl {
 
     /// Handle LSP shutdown: immediate if queue empty and no delay, otherwise deferred
     async fn handle_lsp_shutdown(&self, project_id: &str) {
-        let queue_depth = super::lsp_lifecycle::get_project_queue_depth(&self.db_pool, project_id)
-            .await
-            .unwrap_or(0);
-
-        let has_queue_items = queue_depth > 0;
+        let (has_queue_items, queue_depth) =
+            match super::lsp_lifecycle::get_project_queue_depth(&self.db_pool, project_id).await {
+                Ok(depth) => (depth > 0, depth),
+                Err(e) => {
+                    warn!(
+                        project_id = %project_id,
+                        error = %e,
+                        "Queue depth query failed, assuming non-empty (fail-closed)"
+                    );
+                    (true, -1)
+                }
+            };
         let has_delay = self.deactivation_delay_secs > 0;
 
         if !has_queue_items && !has_delay {
