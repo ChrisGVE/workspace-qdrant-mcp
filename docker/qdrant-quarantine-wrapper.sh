@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # qdrant-quarantine-wrapper.sh — wraps Qdrant startup with auto-quarantine of
 # corrupted collections.
 #
@@ -58,8 +58,13 @@ echo "$WRAPPER_LOG_PREFIX wrapping $ENTRYPOINT_PATH (max_retries=$MAX_RETRIES)" 
 # $STORAGE/.quarantine_log with `<iso8601_utc>|<collection>|<reason>` so the
 # daemon can later detect drift and trigger reembed.
 quarantine_corrupted() {
-  log_path="$1"
-  moved=0
+  local log_path="$1"
+  local moved=0
+  local colls
+  local ts
+  local c
+  local src
+  local dst
   # Pattern: ERROR ... "Failed to load local shard "./storage/collections/<name>/..."
   # Extract <name> uniquely.
   colls=$(grep -oE 'Failed to load local shard "./storage/collections/[^/]+/' "$log_path" 2>/dev/null \
@@ -100,20 +105,17 @@ quarantine_corrupted() {
 
 run_once() {
   # First arg is the log path (internal); the rest are qdrant's CLI args.
-  log_path="$1"
+  local log_path="$1"
   shift
   set +e
   # Mirror qdrant's combined stdout+stderr to BOTH the container log (so
   # `docker logs wqm-qdrant` keeps working) and a file we can grep after the
   # process exits to drive quarantine decisions.
-  #
-  # `${PIPESTATUS[@]}` is bash-only; we want POSIX so we rely on the fact
-  # that `tee` only fails on disk-full / IO error, in which case the wrapper
-  # itself bailing out is acceptable.
-  "$ENTRYPOINT_PATH" "$@" 2>&1 | tee "$log_path"
-  rc=$?
+  # Capture qdrant's exit code (not tee's) via PIPESTATUS.
+  "$ENTRYPOINT_PATH" "$@" 2>&1 | tee -- "$log_path"
+  local rc=${PIPESTATUS[0]}
   set -e
-  return $rc
+  return "$rc"
 }
 
 retry=0
