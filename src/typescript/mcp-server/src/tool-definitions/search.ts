@@ -101,6 +101,11 @@ export const searchToolDefinition = {
         description:
           'Include code relationship graph context (callers/callees) for matched symbols (default: false)',
       },
+      diverse: {
+        type: 'boolean',
+        description:
+          'Enable source diversity re-ranking to surface results from different sources (default: true)',
+      },
     },
     required: ['query'],
   },

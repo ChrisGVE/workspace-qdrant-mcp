@@ -22,6 +22,7 @@ export type SearchOptions = {
   exact?: boolean;
   contextLines?: number;
   includeGraphContext?: boolean;
+  diverse?: boolean;
 };
 
 // ── Option group extractors ───────────────────────────────────────────────
@@ -108,6 +109,9 @@ function extractOutputOptions(
 
   const includeGraphContext = args?.['includeGraphContext'] as boolean | undefined;
   if (includeGraphContext !== undefined) options.includeGraphContext = includeGraphContext;
+
+  const diverse = args?.['diverse'] as boolean | undefined;
+  if (diverse !== undefined) options.diverse = diverse;
 }
 
 /**

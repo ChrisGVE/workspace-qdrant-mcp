@@ -21,6 +21,7 @@ export type {
   SearchScope,
   SearchOptions,
   ParentContext,
+  Provenance,
   SearchResult,
   SearchResponse,
   SearchToolConfig,

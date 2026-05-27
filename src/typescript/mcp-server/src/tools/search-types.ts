@@ -58,6 +58,21 @@ export interface SearchOptions {
   contextLines?: number;
   /** When true, fetch 1-hop graph context for code symbol results */
   includeGraphContext?: boolean;
+  /** Enable source diversity re-ranking to surface results from different sources (default: true) */
+  diverse?: boolean;
+}
+
+export interface Provenance {
+  /** Collection the result originates from. */
+  source: 'projects' | 'libraries' | 'scratchpad';
+  /** Library name for library results. */
+  library_name?: string;
+  /** Library path prefix for library results. */
+  library_path?: string;
+  /** Document title extracted from the result payload. */
+  doc_title?: string;
+  /** Project/tenant ID that owns this result. */
+  source_project_id?: string;
 }
 
 export interface ParentContext {
@@ -87,6 +102,7 @@ export interface SearchResult {
   content: string;
   title?: string;
   metadata: Record<string, unknown>;
+  provenance?: Provenance;
   parent_context?: ParentContext;
   graph_context?: GraphContext;
 }

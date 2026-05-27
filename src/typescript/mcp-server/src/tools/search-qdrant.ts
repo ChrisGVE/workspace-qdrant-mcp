@@ -9,16 +9,60 @@ import {
   RRF_K,
   DEFAULT_LIMIT,
   PROJECTS_COLLECTION,
+  LIBRARIES_COLLECTION,
+  SCRATCHPAD_COLLECTION,
   type SearchMode,
   type SearchResult,
   type SearchCollectionParams,
   type ParentContext,
+  type Provenance,
   type SearchOptions,
   type SearchResponse,
   type FilterParams,
 } from './search-types.js';
 import { buildFilter } from './search-filters.js';
 import { FIELD_CONTENT, FIELD_TITLE, FIELD_PARENT_UNIT_ID } from '../common/native-bridge.js';
+
+/**
+ * Build a Provenance object from a Qdrant payload and collection name.
+ *
+ * The `source` field is derived from the canonical collection name constants
+ * so it is always one of the three known values.  Unknown collection names
+ * fall back to 'projects' to avoid a type error.
+ */
+function buildProvenance(
+  payload: Record<string, unknown> | null | undefined,
+  collection: string
+): Provenance {
+  let source: Provenance['source'];
+  if (collection === LIBRARIES_COLLECTION) {
+    source = 'libraries';
+  } else if (collection === SCRATCHPAD_COLLECTION) {
+    source = 'scratchpad';
+  } else {
+    // PROJECTS_COLLECTION or any unknown collection
+    source = 'projects';
+  }
+
+  const provenance: Provenance = { source };
+
+  const libraryName = payload?.library_name as string | undefined;
+  if (libraryName) provenance.library_name = libraryName;
+
+  const libraryPath = payload?.library_path as string | undefined;
+  if (libraryPath) provenance.library_path = libraryPath;
+
+  // document_name takes precedence over title for doc_title
+  const docTitle =
+    (payload?.document_name as string | undefined) ??
+    (payload?.[FIELD_TITLE] as string | undefined);
+  if (docTitle) provenance.doc_title = docTitle;
+
+  const tenantId = payload?.tenant_id as string | undefined;
+  if (tenantId) provenance.source_project_id = tenantId;
+
+  return provenance;
+}
 
 /** Map a Qdrant search hit to a SearchResult. */
 function hitToResult(
@@ -32,6 +76,7 @@ function hitToResult(
     collection,
     content: (hit.payload?.[FIELD_CONTENT] as string) ?? '',
     metadata: { ...hit.payload, _search_type: searchType },
+    provenance: buildProvenance(hit.payload, collection),
   };
   const title = hit.payload?.[FIELD_TITLE] as string | undefined;
   if (title) result.title = title;

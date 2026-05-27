@@ -314,9 +314,11 @@ export async function finalizeResults(
 
   // Apply source diversity re-ranking when searching across multiple collections
   // (projects + libraries) so no single source dominates the top results.
+  // Skip when the caller has explicitly set diverse=false.
   let diversityScore: number | undefined;
   let reranked = fusedResults;
-  if (params.collectionsToSearch.length > 1) {
+  const diverseEnabled = params.options.diverse !== false;
+  if (diverseEnabled && params.collectionsToSearch.length > 1) {
     const diversified = diversifyResults(fusedResults, DEFAULT_DIVERSITY_CONFIG);
     reranked = diversified.results;
     diversityScore = diversified.diversityScore;
