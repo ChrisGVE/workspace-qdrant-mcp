@@ -410,11 +410,14 @@ pub fn check_existing_instance(
             if output.status.success() && !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.trim().is_empty() && stdout.contains("memexd") {
+                    let project_info = project_id
+                        .map(|id| format!(" for project {}", id))
+                        .unwrap_or_default();
                     return Err(format!(
-                        "Another memexd instance is already running with PID {}. \
+                        "Another memexd instance is already running{} with PID {}. \
                          Use --control-port to override the default 7799 control \
                          port if this is a parallel test instance.",
-                        pid
+                        project_info, pid
                     )
                     .into());
                 }

@@ -9,6 +9,10 @@ mod server;
 pub use client::IpcClient;
 pub use server::IpcServer;
 
+// `PathBuf` is only referenced by the `UnixSocket` variant of `IpcChannelType`,
+// which itself is `#[cfg(unix)]`. Gating the import the same way avoids a
+// dead-import warning on Windows builds.
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

@@ -262,6 +262,18 @@ mod tests {
             .contains("Library/Logs/workspace-qdrant"));
         #[cfg(target_os = "linux")]
         assert!(dir.to_str().unwrap().contains("workspace-qdrant/logs"));
+        #[cfg(target_os = "windows")]
+        {
+            let s = dir.to_str().unwrap();
+            assert!(
+                s.contains("workspace-qdrant"),
+                "Windows log dir should be under workspace-qdrant: {s}"
+            );
+            assert!(
+                s.contains("logs"),
+                "Windows log dir should end in a `logs` segment: {s}"
+            );
+        }
     }
 
     #[test]
@@ -335,5 +347,7 @@ mod tests {
         assert!(matches!(manager, ServiceManager::Launchctl));
         #[cfg(target_os = "linux")]
         assert!(matches!(manager, ServiceManager::Systemd));
+        #[cfg(target_os = "windows")]
+        assert!(matches!(manager, ServiceManager::WindowsService));
     }
 }

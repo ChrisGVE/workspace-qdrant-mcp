@@ -367,7 +367,6 @@ fn is_process_running(pid: u32) -> bool {
 
     #[cfg(windows)]
     {
-        use std::ptr;
         use winapi::um::processthreadsapi::{GetExitCodeProcess, OpenProcess};
         use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
 
