@@ -14,7 +14,7 @@ failures, and never silently discard items that could be re-processed later.
 
 ## 1. Error Taxonomy
 
-Every processing failure is classified into one of five categories. The category
+Every processing failure is classified into one of seven categories. The category
 determines the fate of the queue item and the daemon's response.
 
 ### 1.1 `permanent_gone`
@@ -124,6 +124,33 @@ with per-destination status tracking (`qdrant_status`, `search_status`). Not
 currently resurrected by the periodic task — the per-destination retry handles
 recovery.
 
+### 1.6 `subsystem_unavailable`
+
+**Definition:** An internal subsystem (e.g. embedding provider) is within its
+backoff window after a failed initialization. The item cannot be processed right
+now but will succeed once the subsystem recovers.
+
+**Examples:**
+- Embedding provider init failed, retry in 60 seconds
+- OpenAI API key expired, lazy re-init in progress
+
+**Action:** Re-lease the item with 60-second delay. The retry counter is NOT
+incremented — the failure is not the item's fault. The item returns to
+`in_progress` with a future `lease_until` timestamp.
+
+### 1.7 `rate_limit`
+
+**Definition:** An external API returned a rate-limit signal (HTTP 429 or
+equivalent message).
+
+**Detection patterns:** `"rate limit"`, `"429"`, `"too many requests"` in the
+error message. Checked in `QueueOperation`, `ProcessingFailed`, and `Embedding`
+error variants.
+
+**Action:** Re-lease the item with 60-second delay, same as
+`subsystem_unavailable`. The retry counter is NOT incremented. The item will
+be retried after the rate-limit window elapses.
+
 ---
 
 ## 2. Classification Logic
@@ -136,10 +163,11 @@ Classification is performed in `UnifiedQueueProcessor::classify_error()` in
 | `FileNotFound` | `permanent_gone` | — |
 | `InvalidPayload` | `permanent_data` | — |
 | `UnsupportedOperation` | `permanent_data` | — |
-| `Embedding` | `transient_resource` | — |
+| `Embedding` | `transient_resource` | `"rate limit"` / `"429"` / `"too many requests"` → `rate_limit` |
+| `EmbeddingUnavailable` | `subsystem_unavailable` | — |
 | `Storage` | `transient_infrastructure` | — |
-| `QueueOperation` | `transient_infrastructure` | `"no watch_folder found"` → `permanent_gone`; `"validation failed"` → `permanent_data` |
-| `ProcessingFailed` | `transient_infrastructure` | `"permission denied"` / `"access denied"` → `permanent_gone`; `"unsupported"` → `permanent_data` |
+| `QueueOperation` | `transient_infrastructure` | `"rate limit"` / `"429"` → `rate_limit`; `"database locked"` / `"sqlite_busy"` → `transient_infrastructure`; `"no watch_folder found"` → `permanent_gone`; `"validation"` → `permanent_data` |
+| `ProcessingFailed` | `transient_infrastructure` | `"rate limit"` / `"429"` → `rate_limit`; `"database locked"` / `"sqlite_busy"` → `transient_infrastructure`; `"permission denied"` → `permanent_gone`; `"unsupported"` → `permanent_data` |
 | `ShutdownRequested` | *(silently skip)* | Item is left `in_progress`; stale lease recovery picks it up at next startup |
 
 **Known classification gaps** (tracked for future improvement):

@@ -23,6 +23,10 @@ impl UnifiedQueueProcessor {
         if storage_client.is_qdrant_available() {
             return false;
         }
+        crate::monitoring::METRICS
+            .circuit_breaker_pauses_total
+            .with_label_values(&["qdrant"])
+            .inc();
         match storage_client.test_connection().await {
             Ok(true) => {
                 storage_client.circuit_breaker().record_success();
@@ -58,6 +62,10 @@ impl UnifiedQueueProcessor {
         if can_proceed {
             return false;
         }
+        crate::monitoring::METRICS
+            .circuit_breaker_pauses_total
+            .with_label_values(&["sqlite"])
+            .inc();
 
         let probe_secs = config.sqlite_probe_interval_secs.max(1);
         tokio::time::sleep(Duration::from_secs(probe_secs)).await;

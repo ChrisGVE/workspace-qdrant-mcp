@@ -5,6 +5,7 @@
 
 mod cancel;
 mod clean;
+mod dlq;
 mod drop;
 pub mod formatters;
 mod list;
@@ -192,6 +193,12 @@ enum QueueCommand {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    /// Dead letter queue management
+    Dlq {
+        #[command(subcommand)]
+        command: dlq::DlqCommand,
+    },
 }
 
 /// Execute queue command
@@ -258,5 +265,6 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
             let status_refs: Vec<&str> = status.iter().map(String::as_str).collect();
             cancel::execute(&project, &status_refs, dry_run, yes).await
         }
+        QueueCommand::Dlq { command } => dlq::execute(command).await,
     }
 }

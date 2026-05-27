@@ -7,7 +7,7 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry,
+    self, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
     TextEncoder,
 };
 
@@ -134,6 +134,10 @@ pub struct DaemonMetrics {
     /// Age in seconds of the oldest pending queue item (0 if none)
     pub queue_oldest_pending_age_seconds: IntGauge,
 
+    /// Circuit breaker pause events by subsystem (qdrant, sqlite)
+    /// Labels: subsystem
+    pub circuit_breaker_pauses_total: IntCounterVec,
+
     // Telemetry extension metrics (issue-64 Task 2)
     /// Total filesystem watcher events by event_type
     /// Labels: event_type (create, modify, delete, rename)
@@ -201,6 +205,7 @@ struct CreatedMetrics {
     unified_queue_stale_items: IntGaugeVec,
     unified_queue_retries_total: IntCounterVec,
     queue_oldest_pending_age_seconds: IntGauge,
+    circuit_breaker_pauses_total: IntCounterVec,
     watcher_events_total: IntCounterVec,
     watcher_coalesced_total: IntCounterVec,
     grpc_requests_total: IntCounterVec,
@@ -258,6 +263,15 @@ fn create_all_metrics() -> CreatedMetrics {
     )
     .expect("metric can be created");
 
+    let circuit_breaker_pauses_total = IntCounterVec::new(
+        Opts::new(
+            "wqm_circuit_breaker_pauses_total",
+            "Circuit breaker pause events by subsystem",
+        ),
+        &["subsystem"],
+    )
+    .expect("metric can be created");
+
     CreatedMetrics {
         active_sessions,
         total_sessions,
@@ -285,6 +299,7 @@ fn create_all_metrics() -> CreatedMetrics {
         unified_queue_stale_items,
         unified_queue_retries_total,
         queue_oldest_pending_age_seconds,
+        circuit_breaker_pauses_total,
         watcher_events_total,
         watcher_coalesced_total,
         grpc_requests_total,
@@ -328,6 +343,7 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.unified_queue_stale_items.clone()),
             Box::new(m.unified_queue_retries_total.clone()),
             Box::new(m.queue_oldest_pending_age_seconds.clone()),
+            Box::new(m.circuit_breaker_pauses_total.clone()),
             Box::new(m.watcher_events_total.clone()),
             Box::new(m.watcher_coalesced_total.clone()),
             Box::new(m.grpc_requests_total.clone()),
@@ -376,6 +392,7 @@ impl DaemonMetrics {
             unified_queue_stale_items: m.unified_queue_stale_items,
             unified_queue_retries_total: m.unified_queue_retries_total,
             queue_oldest_pending_age_seconds: m.queue_oldest_pending_age_seconds,
+            circuit_breaker_pauses_total: m.circuit_breaker_pauses_total,
             watcher_events_total: m.watcher_events_total,
             watcher_coalesced_total: m.watcher_coalesced_total,
             grpc_requests_total: m.grpc_requests_total,
