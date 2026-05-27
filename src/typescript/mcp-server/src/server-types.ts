@@ -4,6 +4,7 @@
 
 import type { ServerConfig } from './types/index.js';
 import { BUILD_NUMBER } from './build-info.js';
+import mcpPublicConfig from './constants/mcp-public-config.json' with { type: 'json' };
 
 // Heartbeat interval: 1 hour (in milliseconds)
 export const HEARTBEAT_INTERVAL_MS = 1 * 60 * 60 * 1000;
@@ -106,7 +107,12 @@ export interface ServerOptions {
   auth?: import('./auth-middleware.js').AuthConfig;
 }
 
-/** Default HTTP listener configuration for `mode: 'http'`. */
-export const DEFAULT_HTTP_HOST = '127.0.0.1';
-export const DEFAULT_HTTP_PORT = 6335;
-export const DEFAULT_HTTP_PATH = '/mcp';
+/** Default HTTP listener configuration for `mode: 'http'`.
+ *
+ * Values come from src/constants/mcp-public-config.json (single source of
+ * truth, shared with admin UI generators and PowerShell renderers).
+ * Drift is asserted by tests/admin/port-drift.test.ts.
+ */
+export const DEFAULT_HTTP_HOST = mcpPublicConfig.http.host;
+export const DEFAULT_HTTP_PORT = mcpPublicConfig.http.port;
+export const DEFAULT_HTTP_PATH = mcpPublicConfig.http.path;

@@ -23,6 +23,12 @@ import { describe, it, expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 import { DEFAULT_CONFIG } from '../../src/types/generated-defaults.js';
+import mcpPublicConfig from '../../src/constants/mcp-public-config.json' with { type: 'json' };
+import {
+  DEFAULT_HTTP_HOST,
+  DEFAULT_HTTP_PATH,
+  DEFAULT_HTTP_PORT,
+} from '../../src/server-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,5 +64,27 @@ describe('port + URL drift guard (YAML ↔ DEFAULT_CONFIG)', () => {
 
   it('DEFAULT_CONFIG.qdrant.url parses as a valid URL', () => {
     expect(() => new URL(DEFAULT_CONFIG.qdrant.url)).not.toThrow();
+  });
+});
+
+describe('MCP HTTP defaults drift guard (JSON ↔ server-types.ts)', () => {
+  // Sanity: the server-types exports must match the JSON they derive from.
+  // (Catches a manual edit to server-types.ts that bypasses the JSON.)
+  it('DEFAULT_HTTP_HOST matches mcp-public-config.json http.host', () => {
+    expect(DEFAULT_HTTP_HOST).toBe(mcpPublicConfig.http.host);
+  });
+  it('DEFAULT_HTTP_PORT matches mcp-public-config.json http.port', () => {
+    expect(DEFAULT_HTTP_PORT).toBe(mcpPublicConfig.http.port);
+  });
+  it('DEFAULT_HTTP_PATH matches mcp-public-config.json http.path', () => {
+    expect(DEFAULT_HTTP_PATH).toBe(mcpPublicConfig.http.path);
+  });
+  it('http.port is a sensible TCP port', () => {
+    expect(mcpPublicConfig.http.port).toBeGreaterThan(0);
+    expect(mcpPublicConfig.http.port).toBeLessThanOrEqual(65535);
+    expect(Number.isInteger(mcpPublicConfig.http.port)).toBe(true);
+  });
+  it('http.path starts with "/"', () => {
+    expect(mcpPublicConfig.http.path.startsWith('/')).toBe(true);
   });
 });

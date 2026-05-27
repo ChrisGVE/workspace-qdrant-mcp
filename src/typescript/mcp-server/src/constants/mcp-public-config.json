@@ -1,5 +1,5 @@
 {
-  "$comment": "SINGLE SOURCE OF TRUTH for MCP tool exposure and Codex/Claude config defaults. Do NOT duplicate these values in templates, generators, or docs without reading from this file. Consumers: src/tool-dispatcher.ts (server tool registry), src/admin/routes.ts (admin UI client-config snippets), scripts/windows/gen-mcp-config.ps1 (build-time Codex/Claude config renderer). Drift is verified by src/admin/__tests__/config-drift.test.ts.",
+  "$comment": "SINGLE SOURCE OF TRUTH for MCP tool exposure, Codex/Claude config defaults, and MCP HTTP listener defaults. Do NOT duplicate these values in templates, generators, or docs without reading from this file. Consumers: src/tool-dispatcher.ts (server tool registry), src/admin/routes.ts (admin UI client-config snippets), src/server-types.ts (HTTP listener defaults), scripts/windows/gen-mcp-config.ps1 (build-time Codex/Claude config renderer). Drift is verified by tests/admin/config-drift.test.ts and tests/admin/port-drift.test.ts.",
   "publicTools": [
     "search",
     "retrieve",
@@ -15,5 +15,10 @@
   "codex": {
     "startup_timeout_sec": 20,
     "tool_timeout_sec": 120
+  },
+  "http": {
+    "host": "127.0.0.1",
+    "port": 6335,
+    "path": "/mcp"
   }
 }
