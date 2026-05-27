@@ -1188,6 +1188,141 @@
           "options": { "regex": "^tracked_dup$", "renamePattern": "Documents" }
         }
       ]
+    },
+    {
+      "id": 22,
+      "title": "Git Hook Activity",
+      "description": "Rate of git-hook → sync_current_branch calls reaching the MCP server, broken down by originating hook (post-commit / post-checkout / post-merge / post-rewrite / post-worktree-add / manual) and result. Sustained `error` or `bad_request` indicates the daemon registerProject path is failing or hooks are mis-installed.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*result=error.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": ".*result=bad_request.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (hook, result) (rate(wqm_git_hook_invocations_total[5m]))",
+          "legendFormat": "{{hook}} · result={{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Git Hook Latency (P50 / P95 / P99)",
+      "description": "Server-side duration of sync_current_branch handlers. Excludes the MCP session-init round-trip the host hook does before this handler is reached. Tail latency reflects daemon RegisterProject work (LSP startup, fresh-branch indexing).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (hook, le) (rate(wqm_git_hook_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{hook}} p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (hook, le) (rate(wqm_git_hook_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{hook}} p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (hook, le) (rate(wqm_git_hook_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{hook}} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Git Hook Error Ratio",
+      "description": "Share of non-success git-hook invocations over the last 5 minutes. Stays at 0 when there is no recent activity (no NaN). A sustained value > 0.1 (10%) typically means the daemon is unreachable or rejecting RegisterProject calls.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 60 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(wqm_git_hook_invocations_total{result!=\"success\"}[5m])) / clamp_min(sum(rate(wqm_git_hook_invocations_total[5m])), 1) or vector(0)",
+          "legendFormat": "error ratio",
+          "refId": "A",
+          "instant": true
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -1199,5 +1334,5 @@
   "timezone": "browser",
   "title": "WQM — System Overview",
   "uid": "wqm-system",
-  "version": 4
+  "version": 5
 }

@@ -14,6 +14,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { DaemonClient } from './../clients/daemon-client.js';
+import { startGitHookTimer } from './../telemetry/metrics.js';
 import { getGitState } from './../utils/git-utils.js';
 import {
   defaultRegistryPath,
@@ -226,7 +227,10 @@ async function handleSyncCurrentBranch(
   daemonClient: DaemonClient
 ): Promise<unknown> {
   const repoDir = stringArg(args, 'repoDir');
+  const hookNameEarly = stringArg(args, 'hookName', ['hook_name']) ?? 'manual';
   if (!repoDir) {
+    const recordResult = startGitHookTimer(hookNameEarly, false);
+    recordResult('bad_request');
     return {
       success: false,
       action: 'sync_current_branch',
@@ -239,7 +243,7 @@ async function handleSyncCurrentBranch(
   const hookWorktreePath = stringArg(args, 'worktreePath', ['worktree']);
   const hookIsWorktreeRaw = boolArg(args, 'isWorktree', ['is_worktree']);
   const hookRemote = stringArg(args, 'gitRemote', ['git_remote']);
-  const hookName = stringArg(args, 'hookName', ['hook_name']) ?? 'manual';
+  const hookName = hookNameEarly;
   const projectName =
     stringArg(args, 'projectName', ['name']) ?? (basename(repoDir) || 'unknown');
 
@@ -257,6 +261,7 @@ async function handleSyncCurrentBranch(
   const worktreePath = hookWorktreePath ?? localState?.worktreePath ?? null;
 
   const watchPath = isWorktree && worktreePath ? worktreePath : repoDir;
+  const recordResult = startGitHookTimer(hookName, isWorktree);
 
   try {
     const response = await daemonClient.registerProject({
@@ -268,6 +273,7 @@ async function handleSyncCurrentBranch(
       ...(gitRemote ? { git_remote: gitRemote } : {}),
     });
 
+    recordResult('success');
     return {
       success: true,
       action: 'sync_current_branch',
@@ -283,6 +289,7 @@ async function handleSyncCurrentBranch(
       commit_hash: commitHash ?? null,
     };
   } catch (error) {
+    recordResult('error');
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       success: false,
