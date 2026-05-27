@@ -11,6 +11,7 @@ use wqm_common::constants::{
     COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
 
+mod clean_orphan_queue_items;
 mod cleanup_orphans;
 mod idle_history;
 mod metrics;
@@ -22,6 +23,7 @@ mod prune_logs;
 mod rebalance_idf;
 mod reembed;
 mod rename_tenant;
+mod requeue_failed;
 
 /// Canonical collection names (validated against wqm-common constants)
 pub(super) const VALID_COLLECTIONS: &[&str] =
@@ -93,6 +95,38 @@ enum AdminCommand {
         /// Limit to a specific collection (default: all 4 canonical collections)
         #[arg(long)]
         collection: Option<String>,
+    },
+    /// Delete `unified_queue` rows whose tenant_id no longer matches any watch_folder
+    ///
+    /// Use after disabling/removing watch folders to drop queue items the
+    /// daemon will never be able to process. Dry-run by default; pass `--apply`
+    /// to actually delete. Optional `--limit N` caps the batch size.
+    CleanOrphanQueueItems {
+        /// Actually delete matching rows (default: dry-run report only)
+        #[arg(long)]
+        apply: bool,
+
+        /// Cap the delete batch size (default: unlimited)
+        #[arg(long)]
+        limit: Option<u64>,
+    },
+    /// Reset retry-exhausted `failed` queue rows back to `pending`
+    ///
+    /// Filters by `error_message LIKE '%<reason>%'`. Use after fixing a bug
+    /// that caused a batch of items to retry-exhaust. Dry-run by default;
+    /// pass `--apply` to commit. Default `--max-rows=100` for safety.
+    RequeueFailed {
+        /// Substring matched against `error_message` (case-sensitive)
+        #[arg(long)]
+        reason_substring: String,
+
+        /// Cap the number of rows updated (default: 100)
+        #[arg(long, default_value = "100")]
+        max_rows: u64,
+
+        /// Actually reset matching rows (default: dry-run report only)
+        #[arg(long)]
+        apply: bool,
     },
     /// Rebuild state.db from Qdrant collections
     ///
@@ -225,6 +259,14 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         AdminCommand::CleanupOrphans { delete, collection } => {
             cleanup_orphans::execute(delete, collection).await
         }
+        AdminCommand::CleanOrphanQueueItems { apply, limit } => {
+            clean_orphan_queue_items::execute(apply, limit)
+        }
+        AdminCommand::RequeueFailed {
+            reason_substring,
+            max_rows,
+            apply,
+        } => requeue_failed::execute(reason_substring, max_rows, apply),
         AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
         AdminCommand::RebalanceIdf {
             collection,
