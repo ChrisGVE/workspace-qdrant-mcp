@@ -166,7 +166,7 @@ enum Commands {
     Watch(commands::watch::WatchArgs),
 
     // --- Code Analysis ---
-    /// Keyword/tag hierarchy (list, keywords, tree, stats, search, baskets)
+    /// Keyword/tag hierarchy (list, keywords, tree, stats, search, baskets, summary)
     #[command(
         display_order = 23,
         long_about = "Browse and search the keyword/tag hierarchy extracted from indexed code. \
@@ -177,7 +177,8 @@ enum Commands {
             wqm tags tree                               Show full tag hierarchy\n  \
             wqm tags search 'parse'                     Search tags by name\n  \
             wqm tags stats                              Show tag statistics\n  \
-            wqm tags keywords                           List extracted keywords"
+            wqm tags keywords                           List extracted keywords\n  \
+            wqm tags summary --tenant <id>              Tag frequency summary"
     )]
     Tags(commands::tags::TagsArgs),
 

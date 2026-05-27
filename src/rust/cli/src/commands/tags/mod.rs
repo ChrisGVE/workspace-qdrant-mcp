@@ -6,6 +6,7 @@
 mod list;
 mod search;
 mod stats;
+mod summary;
 mod tree;
 
 use anyhow::Result;
@@ -125,6 +126,33 @@ enum TagsCommand {
         #[arg(long, requires = "script")]
         no_headers: bool,
     },
+
+    /// Show tag frequency summary for a project
+    Summary {
+        /// Tenant ID
+        #[arg(long)]
+        tenant: String,
+
+        /// Maximum number of tags to display
+        #[arg(long, default_value = "20")]
+        top: usize,
+
+        /// Collection (default: projects)
+        #[arg(long, default_value = "projects")]
+        collection: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Script-friendly space-separated output (no ANSI, one row per line)
+        #[arg(long, conflicts_with = "json")]
+        script: bool,
+
+        /// Omit the header row (requires --script)
+        #[arg(long, requires = "script")]
+        no_headers: bool,
+    },
 }
 
 /// Execute tags command
@@ -160,6 +188,14 @@ pub async fn execute(args: TagsArgs) -> Result<()> {
             script,
             no_headers,
         } => search::show_baskets(&doc, json, script, no_headers),
+        TagsCommand::Summary {
+            tenant,
+            top,
+            collection,
+            json,
+            script,
+            no_headers,
+        } => summary::show_summary(&tenant, &collection, top, json, script, no_headers),
     }
 }
 
@@ -168,6 +204,7 @@ mod tests {
     use super::list::{KeywordRow, TagRow};
     use super::search::TagSearchRow;
     use super::stats::StatsRow;
+    use super::summary::SummaryRow;
     use super::*;
 
     #[test]
@@ -224,5 +261,16 @@ mod tests {
             avg_score: "0.800".to_string(),
         };
         assert_eq!(row.doc_count, 5);
+    }
+
+    #[test]
+    fn test_summary_row_tabled() {
+        let row = SummaryRow {
+            tag: "error handling".to_string(),
+            doc_count: 7,
+            avg_score: "0.721".to_string(),
+        };
+        assert_eq!(row.tag, "error handling");
+        assert_eq!(row.doc_count, 7);
     }
 }
