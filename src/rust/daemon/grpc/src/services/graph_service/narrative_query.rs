@@ -60,9 +60,6 @@ pub(crate) async fn execute_narrative_query(
     };
 
     // Step 3: Build seed placeholders
-    let seed_placeholders: Vec<String> =
-        (0..seed_ids.len()).map(|i| format!("?{}", i + 1)).collect();
-    let seed_in = seed_placeholders.join(", ");
     let tenant_slot = seed_ids.len() + 1;
     let depth_slot = seed_ids.len() + 2;
     let limit_slot = seed_ids.len() + 3;
