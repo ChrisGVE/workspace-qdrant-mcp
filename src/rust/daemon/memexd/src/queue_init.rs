@@ -15,7 +15,7 @@ use workspace_qdrant_core::{
     config::Config,
     config::DaemonConfig,
     create_grammar_manager,
-    embedding::provider::{build_dense_provider, DenseProvider},
+    embedding::provider::{build_dense_provider, DenseProvider, FastEmbedProvider},
     ipc::IpcServer,
     AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, HierarchyBuilder,
     HierarchyRebuildConfig, LanguageServerManager, MultiTenantConfig, ProcessorConfig,
@@ -95,10 +95,20 @@ fn resolve_model_cache_dir(configured: Option<std::path::PathBuf>) -> std::path:
 /// `build_dense_provider` so the dispatch logic (FastEmbed vs.
 /// OpenAI-compatible) lives in one place. The same `Arc<dyn DenseProvider>`
 /// is later cloned into the gRPC server and the `ProviderHealthMonitor`.
+///
+/// When `keyword_embedder.enabled`, a second local FastEmbed provider is
+/// created with its own thread count for keyword extraction embeddings.
 fn create_embedding_generator(
     daemon_config: &DaemonConfig,
     config: &Config,
-) -> Result<(Arc<EmbeddingGenerator>, Arc<dyn DenseProvider>), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        Arc<EmbeddingGenerator>,
+        Arc<dyn DenseProvider>,
+        Option<Arc<EmbeddingGenerator>>,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let model_cache_dir = resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
     info!("Model cache directory: {}", model_cache_dir.display());
 
@@ -113,14 +123,37 @@ fn create_embedding_generator(
 
     let embedding_config = EmbeddingConfig {
         max_cache_size: daemon_config.embedding.cache_max_entries,
-        model_cache_dir: Some(model_cache_dir),
+        model_cache_dir: Some(model_cache_dir.clone()),
         num_threads: Some(config.resource_limits.onnx_intra_threads),
         ..EmbeddingConfig::default()
     };
 
     let generator = EmbeddingGenerator::new(embedding_config, Arc::clone(&dense_provider))
         .map_err(|e| format!("Failed to create embedding generator: {}", e))?;
-    Ok((Arc::new(generator), dense_provider))
+
+    let keyword_generator = if daemon_config.embedding.keyword_embedder.enabled {
+        let kw_threads = daemon_config.embedding.keyword_embedder.num_threads;
+        let kw_provider =
+            FastEmbedProvider::new(32, Some(model_cache_dir.clone()), Some(kw_threads));
+        let kw_config = EmbeddingConfig {
+            max_cache_size: 256,
+            model_cache_dir: Some(model_cache_dir),
+            num_threads: Some(kw_threads),
+            ..EmbeddingConfig::default()
+        };
+        let kw_gen = EmbeddingGenerator::new(kw_config, Arc::new(kw_provider))
+            .map_err(|e| format!("Failed to create keyword embedding generator: {}", e))?;
+        info!(
+            num_threads = kw_threads,
+            "Keyword pipeline using dedicated local FastEmbed provider"
+        );
+        Some(Arc::new(kw_gen))
+    } else {
+        info!("Keyword pipeline using main embedding provider");
+        None
+    };
+
+    Ok((Arc::new(generator), dense_provider, keyword_generator))
 }
 
 /// Wait for Qdrant to become available on gRPC, then initialize collections.
@@ -289,7 +322,8 @@ pub async fn initialize(
         ..ProcessorConfig::default()
     };
 
-    let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
+    let (embedding_generator, dense_provider, keyword_generator) =
+        create_embedding_generator(daemon_config, config)?;
     let storage_config = StorageConfig::daemon_mode();
     info!("Connecting to Qdrant at: {}", storage_config.url);
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
@@ -318,7 +352,7 @@ pub async fn initialize(
     )
     .await;
 
-    let uqp = attach_optional_components(
+    let mut uqp = attach_optional_components(
         uqp,
         lsp_manager,
         &allowed_extensions,
@@ -326,6 +360,10 @@ pub async fn initialize(
         graph_store,
         watch_refresh_signal,
     );
+
+    if let Some(kw_gen) = keyword_generator {
+        uqp = uqp.with_keyword_embedding_generator(kw_gen);
+    }
 
     let (uqp, adaptive_shutdown_token, adaptive_state, queue_health) =
         attach_adaptive_and_health(config, uqp);

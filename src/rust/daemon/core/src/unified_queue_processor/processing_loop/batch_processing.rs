@@ -56,6 +56,7 @@ pub(super) async fn process_batch(
     cancellation_token: &CancellationToken,
     resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
     warmup_state: &Arc<WarmupState>,
+    keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
 ) -> Result<HashSet<String>, ()> {
     let mut processed_tenants: HashSet<String> = HashSet::new();
 
@@ -92,6 +93,7 @@ pub(super) async fn process_batch(
             graph_store,
             grammar_manager,
             ingestion_limits,
+            keyword_embedding_generator,
         )
         .await
         {

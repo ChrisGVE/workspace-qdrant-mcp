@@ -107,6 +107,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Per-tenant mutex registry for serializing branch-array mutations.
     branch_locks: Arc<crate::context::TenantBranchLocks>,
+
+    /// Optional dedicated local FastEmbed generator for keyword extraction.
+    keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -176,6 +179,7 @@ impl UnifiedQueueProcessor {
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
+            keyword_embedding_generator: None,
         }
     }
 
@@ -237,7 +241,14 @@ impl UnifiedQueueProcessor {
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
+            keyword_embedding_generator: None,
         }
+    }
+
+    /// Set the dedicated keyword embedding generator.
+    pub fn with_keyword_embedding_generator(mut self, gen: Arc<EmbeddingGenerator>) -> Self {
+        self.keyword_embedding_generator = Some(gen);
+        self
     }
 
     /// Set the grammar manager for dynamic tree-sitter grammar loading
@@ -378,6 +389,7 @@ impl UnifiedQueueProcessor {
         let watch_refresh_signal = self.watch_refresh_signal.clone();
         let grammar_manager = self.grammar_manager.clone();
         let ingestion_limits = self.ingestion_limits.clone();
+        let keyword_embedding_generator = self.keyword_embedding_generator.clone();
 
         if let Some(ref h) = queue_health {
             h.set_running(true);
@@ -405,6 +417,7 @@ impl UnifiedQueueProcessor {
             watch_refresh_signal,
             grammar_manager,
             ingestion_limits,
+            keyword_embedding_generator,
         ));
 
         self.task_handle = Some(task_handle);
@@ -435,6 +448,7 @@ impl UnifiedQueueProcessor {
         watch_refresh_signal: Option<Arc<tokio::sync::Notify>>,
         grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: Arc<IngestionLimitsConfig>,
+        keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
     ) {
         lexicon_manager.start_background_persister().await;
         if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
@@ -465,6 +479,7 @@ impl UnifiedQueueProcessor {
             watch_refresh_signal,
             grammar_manager,
             ingestion_limits,
+            keyword_embedding_generator,
         )
         .await
         {

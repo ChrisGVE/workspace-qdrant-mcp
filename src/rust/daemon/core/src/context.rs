@@ -180,6 +180,11 @@ pub struct ProcessingContext {
     /// for discovery. Prevents re-running discovery on every file event for
     /// a branch that's already been processed.
     pub discovery_tracker: Arc<DiscoveryTracker>,
+
+    /// Optional dedicated local FastEmbed generator for keyword extraction.
+    /// When present, keyword/tag embedding uses this instead of the main
+    /// `embedding_generator`, freeing the main provider for chunk embeddings.
+    pub keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
 }
 
 impl ProcessingContext {
@@ -219,6 +224,7 @@ impl ProcessingContext {
             branch_cache: Arc::new(BranchCache::new()),
             branch_locks: Arc::new(TenantBranchLocks::new()),
             discovery_tracker: Arc::new(DiscoveryTracker::new()),
+            keyword_embedding_generator: None,
         }
     }
 }
@@ -252,6 +258,19 @@ impl ProcessingContext {
     pub fn with_tier2_tagger(mut self, tagger: Arc<Tier2Tagger>) -> Self {
         self.tier2_tagger = Some(tagger);
         self
+    }
+
+    /// Attach a dedicated keyword embedding generator.
+    pub fn with_keyword_embedding_generator(mut self, gen: Arc<EmbeddingGenerator>) -> Self {
+        self.keyword_embedding_generator = Some(gen);
+        self
+    }
+
+    /// Returns the keyword-specific generator if available, else the main one.
+    pub fn keyword_generator(&self) -> &Arc<EmbeddingGenerator> {
+        self.keyword_embedding_generator
+            .as_ref()
+            .unwrap_or(&self.embedding_generator)
     }
 }
 
@@ -288,6 +307,7 @@ mod tests {
             let _ = &ctx.branch_cache;
             let _ = &ctx.branch_locks;
             let _ = &ctx.discovery_tracker;
+            let _ = &ctx.keyword_embedding_generator;
         }
     }
 

@@ -48,6 +48,7 @@ impl UnifiedQueueProcessor {
         graph_store: &Option<Arc<dyn crate::graph::GraphStore>>,
         grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: &Arc<IngestionLimitsConfig>,
+        keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -73,6 +74,9 @@ impl UnifiedQueueProcessor {
             ctx = ctx.with_grammar_manager(Arc::clone(gm));
         }
         ctx = ctx.with_ingestion_limits(Arc::clone(ingestion_limits));
+        if let Some(kw_gen) = keyword_embedding_generator {
+            ctx = ctx.with_keyword_embedding_generator(Arc::clone(kw_gen));
+        }
 
         match item.item_type {
             ItemType::Text => {

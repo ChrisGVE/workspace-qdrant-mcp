@@ -53,9 +53,10 @@ pub(super) async fn run_keyword_extraction(
 
     let extraction_start = std::time::Instant::now();
     let pipeline_config = collection_config::config_for_collection(&item.collection);
+    let keyword_gen = ctx.keyword_generator();
     let extraction = crate::keyword_extraction::pipeline::run_pipeline(
         &pipeline_input,
-        &ctx.embedding_generator,
+        keyword_gen,
         &pipeline_config,
     )
     .await;
