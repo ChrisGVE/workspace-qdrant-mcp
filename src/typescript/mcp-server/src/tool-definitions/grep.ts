@@ -46,6 +46,11 @@ export const grepToolDefinition = {
         type: 'string',
         description: 'Specific project ID to search',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (it cannot otherwise observe your location). Ignored when projectId is provided.',
+      },
     },
     required: ['pattern'],
   },

@@ -43,6 +43,11 @@ export const searchToolDefinition = {
         type: 'string',
         description: 'Specific project ID to search',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (it cannot otherwise observe your location). Ignored when projectId is provided.',
+      },
       libraryName: {
         type: 'string',
         description: 'Library name when searching libraries collection',

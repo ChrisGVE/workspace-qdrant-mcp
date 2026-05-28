@@ -42,6 +42,11 @@ export const retrieveToolDefinition = {
         type: 'string',
         description: 'Project ID for projects collection',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (it cannot otherwise observe your location). Ignored when projectId is provided.',
+      },
       libraryName: {
         type: 'string',
         description: 'Library name for libraries collection',
