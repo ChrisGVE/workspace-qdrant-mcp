@@ -168,9 +168,49 @@ __pycache__/
 *.map
 
 # ─── Lock files (large, machine-generated) ───────────────────────────────────
-# Uncomment to exclude lock files if they bloat your queue:
-# package-lock.json
-# yarn.lock
-# Cargo.lock
+# package-lock.json and pnpm-lock.yaml regularly hit 500KB-2MB and add no
+# search value over the package.json source. Enabled by default; comment out
+# if your workflow relies on grep over lockfile contents.
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+# Cargo.lock                # opt-in: useful for grep in Rust workspaces
 # Gemfile.lock
 # poetry.lock
+
+# ─── Generated proto / gRPC stubs ────────────────────────────────────────────
+# protobuf-java emits *.java under generated dirs; same files re-emerge on
+# every build. Search via `grep` on these is noise — the .proto source is
+# what people actually want to look at.
+**/proto/src/generated/
+**/*_proto/
+**/generated/proto/
+# protobuf-java naming convention: outer class for a .proto file gets the
+# suffix OuterClass.java (e.g. Profile.proto → ProfileOuterClass.java).
+# Catches anything emitted under proto/doc/, proto/api/, proto/<anywhere>/.
+**/*OuterClass.java
+
+# ─── User uploads / dump dirs ────────────────────────────────────────────────
+# Conventional location for uploaded artifacts (CSV dumps, file uploads,
+# database exports). Skip the whole subtree — legitimate code doesn't live
+# under uploads/. If you DO have code in an uploads/ dir, add a re-include
+# (e.g. `!**/uploads/keep.ts`).
+**/uploads/
+
+# ─── Test result dumps ───────────────────────────────────────────────────────
+# Playwright / Jest / Cypress emit massive JSON result files that can grow
+# to hundreds of MB after a few runs.
+**/e2e-results*.json
+**/test-results*.json
+**/playwright-report/
+**/validation-reports/
+**/test-artifacts/
+**/backend-test-artifacts/
+
+# ─── Generated third-party license bundles ───────────────────────────────────
+# `**/` prefix required: add_ignore() anchors patterns relative to the
+# ignore-file's parent dir (see header comment on anchored vs. unanchored).
+**/THIRD-PARTY-LICENSES.md
+**/THIRD-PARTY-NOTICES.md
+**/THIRD-PARTY-LICENSES.txt
+**/LICENSE-3rdparty.json
