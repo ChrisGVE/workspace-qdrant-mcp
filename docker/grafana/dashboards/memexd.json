@@ -13,7 +13,8 @@
   "links": [
     { "title": "System Overview", "url": "/d/wqm-system", "type": "link", "icon": "external link", "targetBlank": false },
     { "title": "MCP Server", "url": "/d/wqm-mcp-server", "type": "link", "icon": "external link", "targetBlank": false },
-    { "title": "Qdrant", "url": "/d/wqm-qdrant", "type": "link", "icon": "external link", "targetBlank": false }
+    { "title": "Qdrant", "url": "/d/wqm-qdrant", "type": "link", "icon": "external link", "targetBlank": false },
+    { "title": "FTS5 / file_metadata pressure", "url": "/d/wqm-fts5-pressure", "type": "link", "icon": "external link", "targetBlank": false }
   ],
   "panels": [
     {

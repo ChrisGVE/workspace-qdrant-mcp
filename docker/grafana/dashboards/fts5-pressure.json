@@ -1,0 +1,200 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "FTS5 / file_metadata observability — indexed file pressure per (tenant, branch) and WQM_FTS5_HARD_CAP firings. Backs the size-guard fix introduced in commits eaccb05bb (env-driven guards) and af72f4166 (metrics). For per-file inspection, use the admin UI or the sidecar SQL query in the daemon-db-sidecar-query memory note.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "memexd", "url": "/d/wqm-memexd", "type": "link", "icon": "external link", "targetBlank": false },
+    { "title": "System Overview", "url": "/d/wqm-system", "type": "link", "icon": "external link", "targetBlank": false },
+    { "title": "Qdrant", "url": "/d/wqm-qdrant", "type": "link", "icon": "external link", "targetBlank": false }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Indexed files (total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_indexed_files_count) or vector(0)", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "title": "Indexed bytes (total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1073741824 }, { "color": "red", "value": 5368709120 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_indexed_files_total_bytes) or vector(0)", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "title": "fts5_skipped files (current)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 50 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_fts5_skipped_files_count) or vector(0)", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "title": "Hard-cap firings (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 100 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(increase(memexd_fts5_skipped_files_total[24h])) or vector(0)", "refId": "A" }]
+    },
+    {
+      "id": 5,
+      "title": "Largest tenant by bytes",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(1, sum by (tenant_id) (memexd_indexed_files_total_bytes))", "legendFormat": "{{tenant_id}}", "refId": "A" }]
+    },
+    {
+      "id": 6,
+      "title": "Avg bytes per file",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_indexed_files_total_bytes) / clamp_min(sum(memexd_indexed_files_count), 1)", "refId": "A" }]
+    },
+    {
+      "id": 10,
+      "title": "Indexed files by tenant / branch",
+      "type": "barchart",
+      "description": "Current file count per (tenant_id, branch) — bounded cardinality, ~tenants × branches series.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "axisLabel": "files", "axisPlacement": "auto", "fillOpacity": 80, "gradientMode": "none", "lineWidth": 1 }
+        }
+      },
+      "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "memexd_indexed_files_count",
+        "legendFormat": "{{tenant_id}}/{{branch}}",
+        "refId": "A",
+        "instant": true
+      }]
+    },
+    {
+      "id": 11,
+      "title": "Indexed bytes by tenant / branch",
+      "type": "barchart",
+      "description": "Sum of file_metadata.size_bytes per (tenant_id, branch). Outliers here are the same files that would have spiked RSS pre-fix; sustained growth in one bar = drift to investigate.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "axisLabel": "bytes", "axisPlacement": "auto", "fillOpacity": 80, "lineWidth": 1 }
+        }
+      },
+      "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "memexd_indexed_files_total_bytes",
+        "legendFormat": "{{tenant_id}}/{{branch}}",
+        "refId": "A",
+        "instant": true
+      }]
+    },
+    {
+      "id": 20,
+      "title": "Hard-cap firing rate (per minute, by tenant)",
+      "type": "timeseries",
+      "description": "rate(memexd_fts5_skipped_files_total[5m]) × 60 = firings/min. A sustained > 0 line means a tenant has files that hit WQM_FTS5_HARD_CAP regularly; either bump the cap, or add the file's pattern to global.wqmignore so it stops getting re-ingested.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "gradientMode": "opacity", "spanNulls": true }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max", "sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum by (tenant_id) (rate(memexd_fts5_skipped_files_total[5m])) * 60",
+        "legendFormat": "{{tenant_id}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 21,
+      "title": "fts5_skipped current snapshot (by tenant/branch)",
+      "type": "table",
+      "description": "Files currently marked fts5_skipped=1. Drill into the admin UI / sidecar SQL to identify the specific paths (see daemon-db-sidecar-query memory note).",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "displayMode": "color-text" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "skipped files" }, { "id": "custom.displayMode", "value": "gradient-gauge" }] }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": true, "reducer": ["sum"], "fields": ["Value"] } },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "memexd_fts5_skipped_files_count > 0",
+        "legendFormat": "__auto",
+        "refId": "A",
+        "instant": true,
+        "format": "table"
+      }],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true }, "indexByName": { "tenant_id": 0, "branch": 1, "Value": 2 } } }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["fts5", "memexd", "wqm"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "FTS5 / file_metadata pressure",
+  "uid": "wqm-fts5-pressure",
+  "version": 1,
+  "weekStart": ""
+}
