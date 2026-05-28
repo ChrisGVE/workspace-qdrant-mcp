@@ -142,7 +142,8 @@ async function api(path, opts = {}) {
 let toastTimer = null;
 function toast(msg, kind = 'ok') {
   els.toast.textContent = msg;
-  els.toast.className = `toast${kind === 'error' ? ' error' : ''}`;
+  const variant = kind === 'error' ? ' error' : kind === 'info' ? ' info' : '';
+  els.toast.className = `toast${variant}`;
   // Errors interrupt; routine confirmations wait their turn for SR users.
   els.toast.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
   els.toast.hidden = false;
@@ -309,7 +310,7 @@ function renderRegistered(snap) {
       <td>${r.isActive ? pill('active', 'ok') : pill('idle', 'muted')}</td>
       <td>${renderIndexingCell(r.indexing)}</td>
       <td class="dim">${escapeHtml(fmtTime(r.lastActivityAt))}</td>
-      <td style="white-space:nowrap">
+      <td class="nowrap">
         <button class="secondary small"
                 data-action="watch-pause"
                 data-watch-id="${escapeHtml(r.path)}"
@@ -721,7 +722,7 @@ function renderRules(rules) {
       <td>${escapeHtml(r.title || '—')}</td>
       <td class="num">${r.priority ?? '—'}</td>
       <td><span title="${escapeHtml(content)}">${escapeHtml(short)}</span></td>
-      <td style="white-space:nowrap">
+      <td class="nowrap">
         <button class="secondary small" data-action="rule-edit"
                 data-label="${escapeHtml(label)}"
                 data-title="${escapeHtml(r.title || '')}"
@@ -940,7 +941,7 @@ async function loadLargestFiles() {
     els.largestFilesTable.hidden = false;
     els.largestFilesBody.innerHTML = files.map((f) => {
       const skippedBadge = f.fts5_skipped
-        ? '<span class="pill" style="background:#fef3c7;color:#92400e;">skipped</span>'
+        ? '<span class="pill pill-warn">skipped</span>'
         : '<span class="dim small">indexed</span>';
       // Show the trailing portion of the path to keep rows compact;
       // full path is in the title attribute on hover.
@@ -951,7 +952,7 @@ async function loadLargestFiles() {
         <td><code title="${escapeHtml(f.file_path)}">${escapeHtml(shortPath)}</code></td>
         <td><span class="dim small">${escapeHtml(f.tenant_id)}</span></td>
         <td><span class="dim small">${escapeHtml(f.branch)}</span></td>
-        <td style="text-align:right;"><strong>${formatBytes(f.size_bytes)}</strong></td>
+        <td class="right"><strong>${formatBytes(f.size_bytes)}</strong></td>
         <td>${skippedBadge}</td>
       </tr>`;
     }).join('');
@@ -961,12 +962,6 @@ async function loadLargestFiles() {
     els.largestFilesEmpty.hidden = false;
     els.largestFilesTable.hidden = true;
   }
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]);
 }
 
 els.reloadLargestFilesBtn?.addEventListener('click', () => loadLargestFiles());
@@ -1049,8 +1044,8 @@ function renderLogs(data) {
       .map(([k,v]) => `<span class="dim">${escapeHtml(k)}=</span>${escapeHtml(String(v))}`)
       .join(' ');
     return `<tr class="${cls ? 'log-' + cls : ''}">
-      <td class="mono dim" style="white-space:nowrap">${escapeHtml(fmtLogTime(row.time))}</td>
-      <td class="${cls ? 'pill-' + cls : ''}" style="font-size:10px;font-weight:600;text-transform:uppercase">${escapeHtml(levelName)}</td>
+      <td class="mono dim nowrap">${escapeHtml(fmtLogTime(row.time))}</td>
+      <td class="log-level ${cls ? 'pill-' + cls : ''}">${escapeHtml(levelName)}</td>
       <td>${msg}${ctx ? '<br><span class="dim small mono">' + ctx + '</span>' : ''}</td>
     </tr>`;
   }).join('');

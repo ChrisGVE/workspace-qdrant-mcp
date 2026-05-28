@@ -127,7 +127,7 @@
           spellcheck="false"
           autocomplete="off"
           placeholder="# One pattern per line — gitignore syntax&#10;node_modules/&#10;*.zip&#10;build/"></textarea>
-        <div class="row" style="margin-top:0.5rem; align-items:center; gap:0.5rem">
+        <div class="row" style="margin-top:var(--space-4); align-items:center; gap:var(--space-4)">
           <button type="button" id="saveIgnoreBtn" class="primary">Save</button>
           <button type="button" id="reloadIgnoreBtn" class="secondary">Reload</button>
           <button type="button" id="forceReconcileBtn" class="secondary"
@@ -147,19 +147,17 @@
           apply only to the selected project. Both are merged (global first, by priority) at
           session start and injected into the agent's system prompt.
         </p>
-        <div class="row" style="align-items:flex-end; gap:0.5rem; margin-bottom:0.5rem">
+        <div class="row" style="align-items:flex-end; gap:var(--space-4); margin-bottom:var(--space-4)">
           <div class="field">
             <label for="rulesScopeSelect">Scope</label>
-            <select id="rulesScopeSelect"
-                    style="background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:6px 8px">
+            <select id="rulesScopeSelect">
               <option value="global" selected>Global (all projects)</option>
               <option value="project">Project</option>
             </select>
           </div>
           <div class="field grow" id="rulesProjectField" hidden>
             <label for="rulesProjectSelect">Project</label>
-            <select id="rulesProjectSelect"
-                    style="width:100%;background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:6px 8px"></select>
+            <select id="rulesProjectSelect" style="width:100%"></select>
           </div>
           <button type="button" id="reloadRulesBtn" class="secondary">Reload</button>
           <span id="rulesMeta" class="dim small"></span>
@@ -179,9 +177,9 @@
           <tbody id="rulesBody"></tbody>
         </table>
 
-        <form id="ruleForm" style="margin-top:0.85rem">
-          <h3 id="ruleFormTitle" style="margin:0 0 0.4rem; font-size:0.95rem">Add rule</h3>
-          <div class="row" style="gap:0.5rem">
+        <form id="ruleForm" style="margin-top:var(--space-6)">
+          <h3 id="ruleFormTitle" style="margin:0 0 var(--space-3); font-size:var(--text-lg)">Add rule</h3>
+          <div class="row" style="gap:var(--space-4)">
             <div class="field">
               <label for="ruleLabelInput">Label (max 15)</label>
               <input id="ruleLabelInput" type="text" maxlength="15" placeholder="prefer-uv"
@@ -199,8 +197,8 @@
           </div>
           <textarea id="ruleContentInput" rows="4" spellcheck="false"
                     placeholder="The behavioral instruction the agent should follow…"
-                    style="margin-top:0.4rem" required></textarea>
-          <div class="row" style="margin-top:0.5rem; align-items:center; gap:0.5rem">
+                    style="margin-top:var(--space-3)" required></textarea>
+          <div class="row" style="margin-top:var(--space-4); align-items:center; gap:var(--space-4)">
             <button type="submit" class="primary" id="ruleSubmitBtn">Add rule</button>
             <button type="button" class="secondary" id="ruleCancelEditBtn" hidden>Cancel edit</button>
             <span id="ruleFormMsg" class="dim small"></span>
@@ -212,14 +210,14 @@
       <section class="card">
         <div class="card-head">
           <h2>Client configuration</h2>
-          <div class="row" style="gap:6px; margin:0">
+          <div class="actions">
             <button type="button" id="showClaudeConfigBtn" class="secondary small">Claude Desktop</button>
             <button type="button" id="showCodexConfigBtn" class="secondary small">Codex</button>
           </div>
         </div>
         <p id="configHint" class="dim small">Click a button above to show the snippet to paste into your client's config file.</p>
         <div id="configDisplay" hidden>
-          <div class="row" style="margin-bottom:0.4rem; align-items:center; gap:0.5rem">
+          <div class="row" style="margin-bottom:var(--space-3); align-items:center; gap:var(--space-4)">
             <span id="configLabel" class="dim small"></span>
             <button type="button" id="copyConfigBtn" class="secondary small">Copy</button>
             <span id="copyMsg" class="dim small"></span>
@@ -232,8 +230,8 @@
       <section class="card">
         <div class="card-head">
           <h2>Logs</h2>
-          <div class="row" style="gap:6px; margin:0">
-            <select id="logLinesSelect" style="background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:4px 8px;font-size:12px">
+          <div class="actions">
+            <select id="logLinesSelect" style="padding:var(--space-2) var(--space-4);font-size:var(--text-sm)">
               <option value="50">50 lines</option>
               <option value="100" selected>100 lines</option>
               <option value="200">200 lines</option>
@@ -245,7 +243,7 @@
         <div id="logsEmpty" class="dim small">Click "MCP logs" to load recent server log entries.</div>
         <div id="logsMeta" class="dim small" hidden></div>
         <div id="logsTable" hidden>
-          <table class="data" style="font-size:11px">
+          <table class="data" style="font-size:var(--text-xs)">
             <thead>
               <tr>
                 <th style="width:160px">Time</th>
@@ -264,20 +262,20 @@
           <h2>Stack actions</h2>
           <span id="stackActionsStatus" class="dim small"></span>
         </div>
-        <div class="grid grid-3" style="gap:10px">
+        <div class="grid grid-3" style="gap:var(--space-5)">
           <div>
             <div class="stat-label">Daemon metrics</div>
             <div id="daemonMetricsVal" class="stat-value small">—</div>
             <div id="daemonMetricsDetail" class="dim small">—</div>
-            <button type="button" id="checkDaemonMetricsBtn" class="secondary small" style="margin-top:6px">Check</button>
+            <button type="button" id="checkDaemonMetricsBtn" class="secondary small" style="margin-top:var(--space-3)">Check</button>
           </div>
           <div>
             <div class="stat-label">Admin info</div>
             <div id="adminPidVal" class="dim small">—</div>
-            <button type="button" id="refreshHealthBtn" class="secondary small" style="margin-top:6px">Refresh health</button>
+            <button type="button" id="refreshHealthBtn" class="secondary small" style="margin-top:var(--space-3)">Refresh health</button>
           </div>
         </div>
-        <pre id="stackActionsLog" class="debug" hidden style="margin-top:10px"></pre>
+        <pre id="stackActionsLog" class="debug" hidden style="margin-top:var(--space-5)"></pre>
       </section>
 
       <!-- Candidates -->
@@ -330,12 +328,12 @@
       <section class="card">
         <div class="card-head">
           <h2>Failed indexing items</h2>
-          <div class="row" style="gap:6px; margin:0">
+          <div class="actions">
             <button type="button" id="reloadFailedBtn" class="secondary small">Reload</button>
             <button type="button" id="retryAllFailedBtn" class="danger small">Retry all</button>
           </div>
         </div>
-        <div class="row" style="margin-bottom:8px; align-items:center">
+        <div class="row" style="margin-bottom:var(--space-4); align-items:center">
           <span class="dim small">
             queue rows in <code>failed</code> state (from the daemon); retry resets them to
             <code>pending</code> so the processor picks them up again
@@ -368,7 +366,7 @@
           </span>
           <button type="button" id="reloadLargestFilesBtn" class="secondary">Reload</button>
         </div>
-        <div class="row" style="margin-bottom: 8px;">
+        <div class="row" style="margin-bottom:var(--space-4)">
           <label class="dim small">
             <input type="checkbox" id="largestFilesSkippedOnly" />
             Skipped only (<code>fts5_skipped = 1</code>)
@@ -382,7 +380,7 @@
               <th>Path</th>
               <th>Tenant</th>
               <th>Branch</th>
-              <th style="text-align: right;">Size</th>
+              <th class="right">Size</th>
               <th>FTS5</th>
             </tr>
           </thead>
