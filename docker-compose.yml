@@ -225,6 +225,15 @@ services:
       # honors ADR-003's "daemon is the sole SQLite writer" invariant
       # at the SQL layer.
       - ${WQM_STATE_DIR:-./state}/memexd:/var/lib/wqm/memexd
+      # The daemon writes memexd.db to the memexd_db named volume (ext4 in the
+      # WSL2 VM — Docker Desktop's 9P bind-mount breaks SQLite WAL). The bind
+      # mount above does NOT contain memexd.db (only stale graph/search/state
+      # copies from an older layout), so mount the same named volume here and
+      # point WQM_DATABASE_PATH at it. Without this, project auto-detection
+      # opens a missing memexd.db -> degraded handle -> empty watch_folders ->
+      # every CWD lookup returns "Could not detect project". Shared RW + WAL is
+      # safe for a concurrent reader (better-sqlite3 opens with readonly:true).
+      - memexd_db:/var/lib/memexd
     environment:
       MCP_SERVER_MODE: http
       MCP_HTTP_HOST: 0.0.0.0
@@ -245,10 +254,11 @@ services:
       WQM_DAEMON_ENDPOINT: memexd:50051
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       WQM_LOG_DIR: /home/node/.local/share/workspace-qdrant/logs
-      # Point the MCP's read-only SQLite handle at the same memexd.db
-      # the daemon writes. Mounted read-only above; the MCP must NOT
-      # write to it (ADR-003: daemon owns the SQLite schema).
-      WQM_DATABASE_PATH: /var/lib/wqm/memexd/memexd.db
+      # Point the MCP's read-only SQLite handle at the same memexd.db the
+      # daemon writes — the memexd_db named volume mounted at /var/lib/memexd
+      # above (NOT the ./state/memexd bind, which lacks memexd.db). The MCP
+      # opens it with readonly:true (ADR-003: daemon owns the SQLite schema).
+      WQM_DATABASE_PATH: /var/lib/memexd/memexd.db
       # Force `detectProjectForSession` to start from the bind-mounted dev
       # root instead of the container's own cwd (`/app/src/...`), which
       # otherwise gets registered as a spurious project. See spec 19 §7.4.

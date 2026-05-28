@@ -6,9 +6,10 @@
  */
 
 import { readdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, posix, resolve } from 'node:path';
 
 import { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import { canonicalizeHostPath } from '../clients/project-queries.js';
 import { getEffectiveCwd } from './request-context.js';
 
 // Project signature files/directories
@@ -174,6 +175,19 @@ export class ProjectDetector {
   }
 
   /**
+   * Normalize a host working directory for cross-namespace comparison and
+   * cache keying. Uses `posix.resolve` (NOT the platform `resolve`):
+   * canonicalizeHostPath yields a POSIX-form path (e.g. `C:\…` → `/c/…`), and
+   * on Windows the win32 `resolve` would re-mangle that back into `C:\c\…`.
+   * POSIX semantics keep the result identical on every host, so the
+   * longest-prefix match in getProjectByPath can bridge a client cwd to the
+   * daemon-stored `/run/desktop/mnt/host/c/…` mount path.
+   */
+  private normalizeHostCwd(projectPath: string): string {
+    return posix.resolve(canonicalizeHostPath(projectPath));
+  }
+
+  /**
    * Path-based detection: cache lookup, then a longest-prefix match against
    * the daemon's registered project paths. Returns null on miss.
    */
@@ -181,7 +195,10 @@ export class ProjectDetector {
     projectPath: string,
     waitForRegistration: boolean
   ): Promise<ProjectInfo | null> {
-    const normalizedPath = resolve(projectPath);
+    // Bridge the host/container path namespace before any matching. An HTTP
+    // client on Windows sends a cwd like `C:\…`; see normalizeHostCwd for why
+    // this must canonicalize and use posix.resolve rather than the platform one.
+    const normalizedPath = this.normalizeHostCwd(projectPath);
 
     // Check cache first
     const cached = this.cache.get(normalizedPath);
@@ -282,7 +299,7 @@ export class ProjectDetector {
    * Clear cache entry for a specific path
    */
   clearCacheForPath(projectPath: string): void {
-    this.cache.delete(resolve(projectPath));
+    this.cache.delete(this.normalizeHostCwd(projectPath));
   }
 
   /**

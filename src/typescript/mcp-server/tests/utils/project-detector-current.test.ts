@@ -127,6 +127,33 @@ describe('ProjectDetector', () => {
 
       expect(info).toBeNull();
     });
+
+    it('resolves a Windows-form host cwd to a daemon mount-namespace path', async () => {
+      // Daemon registered the project under Docker Desktop's mount namespace.
+      const storedPath = '/run/desktop/mnt/host/c/Users/test/repos/myproj';
+      const db = new Database(dbPath);
+      db.prepare(
+        `
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-win', ?, 'projects', 'wintenant123', 1, datetime('now'), datetime('now'))
+      `
+      ).run(storedPath);
+      db.close();
+
+      stateManager.close();
+      stateManager = new SqliteStateManager({ dbPath });
+      stateManager.initialize();
+
+      const detector = new ProjectDetector({ stateManager });
+      // A Windows client reports a backslash drive path for a subdirectory.
+      // resolve() must NOT mangle it (treating C:\ as relative on Linux)
+      // before canonicalizeHostPath bridges the host/container namespace.
+      const info = await detector.getCurrentProject('C:\\Users\\test\\repos\\myproj\\src\\deep');
+
+      expect(info).not.toBeNull();
+      expect(info!.projectId).toBe('wintenant123');
+    });
   });
 
   describe('getCurrentProjectId', () => {
