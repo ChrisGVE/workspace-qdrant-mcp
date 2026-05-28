@@ -238,3 +238,142 @@ pub struct QueueThrottleSummary {
     pub high_threshold: i64,
     pub critical_threshold: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Force the state to a given load level + depth. Production code only
+    /// transitions via `update_from_queue`, which needs a real QueueManager;
+    /// these helpers let unit tests exercise the pure throttling math.
+    async fn force_state(state: &QueueThrottleState, depth: i64, level: QueueLoadLevel) {
+        *state.current_depth.write().await = depth;
+        *state.load_level.write().await = level;
+    }
+
+    #[test]
+    fn load_level_str_round_trip() {
+        assert_eq!(QueueLoadLevel::Normal.as_str(), "normal");
+        assert_eq!(QueueLoadLevel::High.as_str(), "high");
+        assert_eq!(QueueLoadLevel::Critical.as_str(), "critical");
+    }
+
+    #[test]
+    fn default_config_uses_documented_thresholds() {
+        let c = QueueThrottleConfig::default();
+        assert_eq!(c.high_threshold, 1000);
+        assert_eq!(c.critical_threshold, 5000);
+        assert_eq!(c.check_interval_ms, 5000);
+        assert_eq!(c.high_skip_ratio, 2);
+        assert_eq!(c.critical_skip_ratio, 4);
+    }
+
+    #[tokio::test]
+    async fn initial_state_is_normal_load_zero_depth() {
+        let s = QueueThrottleState::new();
+        assert_eq!(s.get_depth().await, 0);
+        assert_eq!(s.get_load_level().await, QueueLoadLevel::Normal);
+        assert!(!s.take_needs_full_reconcile());
+    }
+
+    #[tokio::test]
+    async fn should_throttle_normal_always_false() {
+        let s = QueueThrottleState::new();
+        for _ in 0..10 {
+            assert!(!s.should_throttle().await);
+        }
+        // F-045 flag stays clear under normal load.
+        assert!(!s.take_needs_full_reconcile());
+    }
+
+    #[tokio::test]
+    async fn should_throttle_high_skips_one_in_n() {
+        // With high_skip_ratio=2 the pattern is throttle/keep/throttle/keep...
+        // (count starts at 0 → 0 % 2 == 0 → keep; 1 % 2 != 0 → throttle).
+        let s = QueueThrottleState::new();
+        force_state(&s, 1500, QueueLoadLevel::High).await;
+
+        let mut kept = 0usize;
+        let mut throttled = 0usize;
+        for _ in 0..100 {
+            if s.should_throttle().await {
+                throttled += 1;
+            } else {
+                kept += 1;
+            }
+        }
+        assert_eq!(kept, 50);
+        assert_eq!(throttled, 50);
+        // High load alone never sets the reconcile flag — that's
+        // reserved for Critical.
+        assert!(!s.take_needs_full_reconcile());
+    }
+
+    #[tokio::test]
+    async fn should_throttle_critical_skips_three_in_four_and_flags_reconcile() {
+        let s = QueueThrottleState::new();
+        force_state(&s, 6000, QueueLoadLevel::Critical).await;
+
+        let mut throttled = 0usize;
+        for _ in 0..100 {
+            if s.should_throttle().await {
+                throttled += 1;
+            }
+        }
+        // skip_ratio = 4 → throttle when count % 4 != 0 → 75/100.
+        assert_eq!(throttled, 75);
+        // F-045: any throttled event under critical load arms the flag.
+        assert!(s.take_needs_full_reconcile());
+    }
+
+    #[tokio::test]
+    async fn take_needs_full_reconcile_is_consumed_on_read() {
+        let s = QueueThrottleState::new();
+        force_state(&s, 6000, QueueLoadLevel::Critical).await;
+        for _ in 0..4 {
+            let _ = s.should_throttle().await;
+        }
+        assert!(s.take_needs_full_reconcile());
+        // Second read after consumption returns false (flag was cleared).
+        assert!(!s.take_needs_full_reconcile());
+    }
+
+    #[tokio::test]
+    async fn needs_refresh_initially_true() {
+        // last_check starts at UNIX_EPOCH, so any positive interval has
+        // already elapsed and a refresh is owed.
+        let s = QueueThrottleState::new();
+        assert!(s.needs_refresh().await);
+    }
+
+    #[tokio::test]
+    async fn get_collection_depth_returns_zero_for_unknown() {
+        let s = QueueThrottleState::new();
+        assert_eq!(s.get_collection_depth("never-seen").await, 0);
+    }
+
+    #[tokio::test]
+    async fn get_summary_reflects_state_and_config() {
+        let cfg = QueueThrottleConfig {
+            high_threshold: 100,
+            critical_threshold: 500,
+            check_interval_ms: 1000,
+            high_skip_ratio: 3,
+            critical_skip_ratio: 5,
+        };
+        let s = QueueThrottleState::with_config(cfg);
+        force_state(&s, 250, QueueLoadLevel::High).await;
+        // Drive the event counter so the summary's events_processed is
+        // distinguishable from a fresh state.
+        for _ in 0..6 {
+            let _ = s.should_throttle().await;
+        }
+
+        let summary = s.get_summary().await;
+        assert_eq!(summary.total_depth, 250);
+        assert_eq!(summary.load_level, QueueLoadLevel::High);
+        assert_eq!(summary.events_processed, 6);
+        assert_eq!(summary.high_threshold, 100);
+        assert_eq!(summary.critical_threshold, 500);
+    }
+}
