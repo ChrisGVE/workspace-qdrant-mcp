@@ -83,6 +83,17 @@ jobs:
       - name: Check for unmarked canonicalize() calls
         run: bash scripts/ci/forbid_canonicalize.sh
 
+  # Guard against version drift: ORT_VERSION must match across workflow files,
+  # and the tree-sitter version in assets/default_configuration.yaml must match
+  # src/rust/Cargo.lock (build.rs reads it). See scripts/check-version-consistency.sh.
+  version-consistency:
+    name: Version consistency (ORT + tree-sitter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version consistency
+        run: bash scripts/check-version-consistency.sh
+
 
   # Rust build, lint, and test
   rust:
