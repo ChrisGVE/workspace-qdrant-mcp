@@ -16,6 +16,7 @@ import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SearchDbReader } from '../clients/search-db-reader.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import type { RulesTool, RuleScope } from '../tools/rules.js';
 import mcpPublicConfig from '../constants/mcp-public-config.json' with { type: 'json' };
 import { DEFAULT_HTTP_PORT } from '../server-types.js';
 import { logError, logInfo } from '../utils/logger.js';
@@ -34,6 +35,8 @@ export interface AdminDeps {
   stateManager: SqliteStateManager;
   /** Read-only handle for search.db; backs the "largest files" view. */
   searchDbReader: SearchDbReader;
+  /** Behavioral-rules CRUD; backs the rules-management view. */
+  rulesTool: RulesTool;
   authConfig: AuthConfig;
 }
 
@@ -934,6 +937,115 @@ const handleFilesChurn: RouteHandler = async (req, res, { searchDbReader }) => {
   });
 };
 
+// ── /api/rules — behavioral-rules CRUD (global + per-project) ────────────────
+
+interface RuleBodyOptions {
+  label?: string;
+  content?: string;
+  scope?: RuleScope;
+  projectId?: string;
+  title?: string;
+  priority?: number;
+  tags?: string[];
+}
+
+/**
+ * Extract a RulesTool option set from a JSON body, dropping keys that are
+ * absent / wrong-typed so the spread into `execute()` stays compatible with
+ * exactOptionalPropertyTypes.
+ */
+function ruleOptionsFromBody(body: Record<string, unknown>): RuleBodyOptions {
+  const opts: RuleBodyOptions = {};
+  if (typeof body['label'] === 'string') opts.label = body['label'];
+  if (typeof body['content'] === 'string') opts.content = body['content'];
+  if (body['scope'] === 'global' || body['scope'] === 'project') opts.scope = body['scope'];
+  if (typeof body['projectId'] === 'string') opts.projectId = body['projectId'];
+  if (typeof body['title'] === 'string') opts.title = body['title'];
+  if (typeof body['priority'] === 'number') opts.priority = body['priority'];
+  if (Array.isArray(body['tags'])) {
+    opts.tags = (body['tags'] as unknown[]).filter((t): t is string => typeof t === 'string');
+  }
+  return opts;
+}
+
+const handleRulesList: RouteHandler = async (req, res, { rulesTool }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const scope: RuleScope = url.searchParams.get('scope') === 'project' ? 'project' : 'global';
+  const projectId = url.searchParams.get('projectId') ?? undefined;
+  const limitRaw = url.searchParams.get('limit');
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+
+  if (scope === 'project' && !projectId) {
+    writeError(res, 400, 'projectId required for project scope');
+    return;
+  }
+
+  const opts: { action: 'list'; scope: RuleScope; projectId?: string; limit?: number } = {
+    action: 'list',
+    scope,
+  };
+  if (projectId) opts.projectId = projectId;
+  if (limit !== undefined && Number.isFinite(limit)) opts.limit = limit;
+
+  const result = await rulesTool.execute(opts);
+  writeJson(res, result.success ? 200 : 502, result);
+};
+
+const handleRulesAdd: RouteHandler = async (req, res, { rulesTool }) => {
+  const opts = ruleOptionsFromBody(await readJsonBody(req));
+  if (!opts.label?.trim()) {
+    writeError(res, 400, 'label required');
+    return;
+  }
+  if (!opts.content?.trim()) {
+    writeError(res, 400, 'content required');
+    return;
+  }
+  if (opts.scope === 'project' && !opts.projectId) {
+    writeError(res, 400, 'projectId required for project scope');
+    return;
+  }
+  const result = await rulesTool.execute({ action: 'add', ...opts });
+  // success:false with similar_rules is a duplicate-detection block, not a
+  // server error — surface it as 409 so the UI can show the conflicting rules.
+  if (result.success) writeJson(res, 200, result);
+  else writeJson(res, 409, { ...result, error: result.message ?? 'rule not added' });
+};
+
+const handleRulesUpdate: RouteHandler = async (req, res, { rulesTool }) => {
+  const opts = ruleOptionsFromBody(await readJsonBody(req));
+  if (!opts.label?.trim()) {
+    writeError(res, 400, 'label required');
+    return;
+  }
+  if (!opts.content?.trim()) {
+    writeError(res, 400, 'content required');
+    return;
+  }
+  if (opts.scope === 'project' && !opts.projectId) {
+    writeError(res, 400, 'projectId required for project scope');
+    return;
+  }
+  const result = await rulesTool.execute({ action: 'update', ...opts });
+  if (result.success) writeJson(res, 200, result);
+  else writeJson(res, 400, { ...result, error: result.message ?? 'rule not updated' });
+};
+
+const handleRulesRemove: RouteHandler = async (req, res, { rulesTool }) => {
+  const opts = ruleOptionsFromBody(await readJsonBody(req));
+  if (!opts.label?.trim()) {
+    writeError(res, 400, 'label required');
+    return;
+  }
+  if (opts.scope === 'project' && !opts.projectId) {
+    writeError(res, 400, 'projectId required for project scope');
+    return;
+  }
+  const result = await rulesTool.execute({ action: 'remove', ...opts });
+  if (result.success) writeJson(res, 200, result);
+  else writeJson(res, 400, { ...result, error: result.message ?? 'rule not removed' });
+};
+
 // ── Route table ──────────────────────────────────────────────────────────────
 
 type Route = { method: string; path: string; handler: RouteHandler };
@@ -959,6 +1071,10 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'GET', path: '/admin/api/daemon/raw-health', handler: handleDaemonRawHealth },
   { method: 'GET', path: '/admin/api/files/large', handler: handleFilesLarge },
   { method: 'GET', path: '/admin/api/files/churn', handler: handleFilesChurn },
+  { method: 'GET', path: '/admin/api/rules', handler: handleRulesList },
+  { method: 'POST', path: '/admin/api/rules', handler: handleRulesAdd },
+  { method: 'PUT', path: '/admin/api/rules', handler: handleRulesUpdate },
+  { method: 'DELETE', path: '/admin/api/rules', handler: handleRulesRemove },
 ];
 
 /**

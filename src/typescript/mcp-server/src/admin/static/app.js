@@ -79,12 +79,31 @@ const els = {
   stackActionsLog: document.getElementById('stackActionsLog'),
   refreshHealthBtn: document.getElementById('refreshHealthBtn'),
   adminPidVal: document.getElementById('adminPidVal'),
+  rulesScopeSelect: document.getElementById('rulesScopeSelect'),
+  rulesProjectField: document.getElementById('rulesProjectField'),
+  rulesProjectSelect: document.getElementById('rulesProjectSelect'),
+  reloadRulesBtn: document.getElementById('reloadRulesBtn'),
+  rulesMeta: document.getElementById('rulesMeta'),
+  rulesEmpty: document.getElementById('rulesEmpty'),
+  rulesTable: document.getElementById('rulesTable'),
+  rulesBody: document.getElementById('rulesBody'),
+  ruleForm: document.getElementById('ruleForm'),
+  ruleFormTitle: document.getElementById('ruleFormTitle'),
+  ruleLabelInput: document.getElementById('ruleLabelInput'),
+  ruleTitleInput: document.getElementById('ruleTitleInput'),
+  rulePriorityInput: document.getElementById('rulePriorityInput'),
+  ruleContentInput: document.getElementById('ruleContentInput'),
+  ruleSubmitBtn: document.getElementById('ruleSubmitBtn'),
+  ruleCancelEditBtn: document.getElementById('ruleCancelEditBtn'),
+  ruleFormMsg: document.getElementById('ruleFormMsg'),
 };
 
 let token = sessionStorage.getItem(TOKEN_KEY) || '';
 let pollTimer = null;
 let lastCandidates = [];
 let lastRegisteredPaths = new Set();
+let lastRegistered = [];
+let rulesEditingLabel = null;
 
 // ── Networking ──────────────────────────────────────────────────────
 
@@ -118,6 +137,8 @@ let toastTimer = null;
 function toast(msg, kind = 'ok') {
   els.toast.textContent = msg;
   els.toast.className = `toast${kind === 'error' ? ' error' : ''}`;
+  // Errors interrupt; routine confirmations wait their turn for SR users.
+  els.toast.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
   els.toast.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { els.toast.hidden = true; }, 3200);
@@ -265,6 +286,8 @@ function renderIndexingCell(indexing) {
 function renderRegistered(snap) {
   const registered = snap.projects?.registered || [];
   lastRegisteredPaths = new Set(registered.map((r) => r.path));
+  lastRegistered = registered;
+  populateRulesProjects();
   els.registeredMeta.textContent = `${registered.length} registered`;
   if (registered.length === 0) {
     els.registeredTable.hidden = true;
@@ -416,6 +439,7 @@ function showApp() {
   els.appView.hidden = false;
   loadGlobalIgnore();
   loadLargestFiles();
+  loadRules();
 }
 
 function logout(reason) {
@@ -581,6 +605,17 @@ document.addEventListener('click', async (e) => {
       });
       toast(`Re-embed queued for ${btn.dataset.id}: ${result.filesEnqueued ?? 0} folder scan(s)`);
       refresh();
+    } else if (action === 'rule-edit') {
+      startRuleEdit(btn.dataset);
+    } else if (action === 'rule-delete') {
+      const scope = currentRuleScope();
+      if (!confirm(`Delete rule "${btn.dataset.label}" from ${scope} scope?`)) return;
+      const body = { label: btn.dataset.label, scope };
+      if (scope === 'project') body.projectId = currentRuleProjectId();
+      await api('/admin/api/rules', { method: 'DELETE', body });
+      toast(`Deleted rule ${btn.dataset.label}`);
+      if (rulesEditingLabel === btn.dataset.label) resetRuleForm();
+      loadRules();
     }
   } catch (e) {
     toast(e.message, 'error');
@@ -624,6 +659,166 @@ els.saveIgnoreBtn.addEventListener('click', async () => {
 });
 
 els.reloadIgnoreBtn.addEventListener('click', () => loadGlobalIgnore());
+
+// ── Behavioral rules ───────────────────────────────────────────────
+
+function currentRuleScope() {
+  return els.rulesScopeSelect?.value === 'project' ? 'project' : 'global';
+}
+
+function currentRuleProjectId() {
+  return els.rulesProjectSelect?.value || '';
+}
+
+/** Repopulate the project picker from the latest registered-projects list,
+ *  preserving the current selection when it's still present. */
+function populateRulesProjects() {
+  const sel = els.rulesProjectSelect;
+  if (!sel) return;
+  const prev = sel.value;
+  if (lastRegistered.length === 0) {
+    sel.innerHTML = '<option value="">(no registered projects)</option>';
+    return;
+  }
+  sel.innerHTML = lastRegistered
+    .map((r) => `<option value="${escapeHtml(r.tenantId)}">${escapeHtml(r.path)} (${escapeHtml(r.tenantId)})</option>`)
+    .join('');
+  if (prev && lastRegistered.some((r) => r.tenantId === prev)) sel.value = prev;
+}
+
+function renderRules(rules) {
+  if (!rules || rules.length === 0) {
+    els.rulesEmpty.textContent = 'No rules in this scope yet.';
+    els.rulesEmpty.hidden = false;
+    els.rulesTable.hidden = true;
+    return;
+  }
+  els.rulesEmpty.hidden = true;
+  els.rulesTable.hidden = false;
+  els.rulesBody.innerHTML = rules.map((r) => {
+    const label = r.label || '';
+    const content = r.content || '';
+    const short = content.length > 120 ? content.slice(0, 118) + '…' : content;
+    return `<tr>
+      <td><code>${escapeHtml(label)}</code></td>
+      <td>${escapeHtml(r.title || '—')}</td>
+      <td class="num">${r.priority ?? '—'}</td>
+      <td><span title="${escapeHtml(content)}">${escapeHtml(short)}</span></td>
+      <td style="white-space:nowrap">
+        <button class="secondary small" data-action="rule-edit"
+                data-label="${escapeHtml(label)}"
+                data-title="${escapeHtml(r.title || '')}"
+                data-priority="${r.priority ?? ''}"
+                data-content="${escapeHtml(content)}"
+                ${label ? '' : 'disabled title="rule has no label — cannot edit"'}>Edit</button>
+        <button class="danger small" data-action="rule-delete"
+                data-label="${escapeHtml(label)}"
+                ${label ? '' : 'disabled title="rule has no label — cannot delete"'}>Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadRules() {
+  if (!els.rulesTable) return;
+  const scope = currentRuleScope();
+  let qs = `scope=${scope}`;
+  if (scope === 'project') {
+    const pid = currentRuleProjectId();
+    if (!pid) {
+      els.rulesEmpty.textContent = 'Select a registered project to view its rules.';
+      els.rulesEmpty.hidden = false;
+      els.rulesTable.hidden = true;
+      els.rulesMeta.textContent = '';
+      return;
+    }
+    qs += `&projectId=${encodeURIComponent(pid)}`;
+    els.rulesTable.setAttribute('aria-label', `Project behavioral rules for ${currentRuleProjectId()}`);
+  } else {
+    els.rulesTable.setAttribute('aria-label', 'Global behavioral rules');
+  }
+  try {
+    const data = await api(`/admin/api/rules?${qs}`);
+    renderRules(data.rules || []);
+    els.rulesMeta.textContent = data.message || '';
+  } catch (e) {
+    els.rulesEmpty.textContent = `Failed to load: ${e.message}`;
+    els.rulesEmpty.hidden = false;
+    els.rulesTable.hidden = true;
+    els.rulesMeta.textContent = '';
+  }
+}
+
+function startRuleEdit(ds) {
+  rulesEditingLabel = ds.label;
+  els.ruleLabelInput.value = ds.label || '';
+  els.ruleLabelInput.readOnly = true;
+  els.ruleTitleInput.value = ds.title || '';
+  els.rulePriorityInput.value = ds.priority || '';
+  els.ruleContentInput.value = ds.content || '';
+  els.ruleFormTitle.textContent = `Edit rule: ${ds.label}`;
+  els.ruleSubmitBtn.textContent = 'Update rule';
+  els.ruleCancelEditBtn.hidden = false;
+  els.ruleFormMsg.textContent = '';
+  els.ruleContentInput.focus();
+}
+
+function resetRuleForm() {
+  rulesEditingLabel = null;
+  els.ruleForm.reset();
+  els.ruleLabelInput.readOnly = false;
+  els.ruleFormTitle.textContent = 'Add rule';
+  els.ruleSubmitBtn.textContent = 'Add rule';
+  els.ruleCancelEditBtn.hidden = true;
+  els.ruleFormMsg.textContent = '';
+  els.ruleFormMsg.className = 'dim small';
+}
+
+function onRulesScopeChange() {
+  const isProject = currentRuleScope() === 'project';
+  els.rulesProjectField.hidden = !isProject;
+  resetRuleForm();
+  loadRules();
+}
+
+els.rulesScopeSelect?.addEventListener('change', onRulesScopeChange);
+els.rulesProjectSelect?.addEventListener('change', () => loadRules());
+els.reloadRulesBtn?.addEventListener('click', () => loadRules());
+els.ruleCancelEditBtn?.addEventListener('click', () => resetRuleForm());
+
+els.ruleForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const scope = currentRuleScope();
+  const body = {
+    label: els.ruleLabelInput.value.trim(),
+    title: els.ruleTitleInput.value.trim(),
+    content: els.ruleContentInput.value.trim(),
+    scope,
+  };
+  const pr = els.rulePriorityInput.value.trim();
+  if (pr !== '') body.priority = Number(pr);
+  if (scope === 'project') {
+    body.projectId = currentRuleProjectId();
+    if (!body.projectId) { toast('Select a registered project first', 'error'); return; }
+  }
+  if (!body.label || !body.content) { toast('Label and content are required', 'error'); return; }
+
+  const editing = !!rulesEditingLabel;
+  els.ruleSubmitBtn.disabled = true;
+  try {
+    const result = await api('/admin/api/rules', { method: editing ? 'PUT' : 'POST', body });
+    toast(editing ? `Updated rule ${body.label}` : `Added rule ${body.label}`);
+    resetRuleForm();
+    loadRules();
+  } catch (e) {
+    // The add path returns 409 with the duplicate message; show it inline too.
+    els.ruleFormMsg.textContent = e.message;
+    els.ruleFormMsg.className = 'error small';
+    toast(e.message, 'error');
+  } finally {
+    els.ruleSubmitBtn.disabled = false;
+  }
+});
 
 // ── Largest files (search.db file_metadata) ────────────────────────
 

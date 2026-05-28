@@ -9,9 +9,102 @@ import { logInfo, logDebug } from './utils/logger.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
 import type { RulesTool } from './tools/index.js';
 
+interface DefaultRule {
+  label: string;
+  title: string;
+  content: string;
+  priority: number;
+}
+
 /**
- * Seed a default "search-first" rule if the rules collection is empty.
- * Only runs once per fresh installation; skipped if any rule already exists.
+ * The default global rule set: the workspace-qdrant MCP usage conventions
+ * distilled into behavioral rules. Seeded once on a fresh install so every
+ * project (current and future) inherits them as global defaults — these are
+ * the same rules the server advertises in its MCP instructions.
+ */
+const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
+  {
+    label: 'search-first',
+    title: 'Always search before answering',
+    content: [
+      "For any question about this project's code, structure, or library docs,",
+      'ALWAYS call the `search` tool before answering — do not rely on training data.',
+      'Defaults: scope="project", limit=10.',
+      'Widen to scope="all" or includeLibraries=true only after a project-scoped query comes back empty.',
+      'Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
+    ].join(' '),
+    priority: 100,
+  },
+  {
+    label: 'grep-for-exact',
+    title: 'Use grep for exact identifiers',
+    content: [
+      'For exact identifiers, regex, or known substrings, use the `grep` tool before `search` —',
+      'it is faster and cheaper than `search` with exact=true.',
+      'Reserve `search` for semantic discovery (concepts, intent, "what does the code do around X").',
+    ].join(' '),
+    priority: 90,
+  },
+  {
+    label: 'scope-project',
+    title: 'Start searches project-scoped',
+    content: [
+      'Start `search` calls with scope="project" and a small limit (default 10).',
+      'Widen to scope="all" or includeLibraries=true only after the project-scoped query returns nothing useful.',
+      'Never widen silently — the widened call is more expensive and noisier.',
+    ].join(' '),
+    priority: 90,
+  },
+  {
+    label: 'branch-default',
+    title: 'Search the current branch by default',
+    content: [
+      '`search` operates on the current branch of the current project by default.',
+      'To compare or include other branches, pass branch="<name>" or branch="*" (all branches) explicitly.',
+      'Never widen branch scope silently — results from stale branches will mislead reasoning.',
+    ].join(' '),
+    priority: 80,
+  },
+  {
+    label: 'no-proj-write',
+    title: 'Never write the projects collection',
+    content: [
+      'Never call `store` targeting the `projects` collection — that collection is daemon-owned via file watching.',
+      'Use `scratchpad` for ad-hoc notes, `libraries` only when the user explicitly asks,',
+      'or `store` with type="project" to register/activate a project directory.',
+    ].join(' '),
+    priority: 80,
+  },
+  {
+    label: 'confirm-mut',
+    title: 'Confirm mutating index actions',
+    content: [
+      'Mutating `workspace_index` actions (add_project, start_agent_branch, finish_agent_branch,',
+      'abandon_agent_branch, register_wqm, register_all_wqm, cleanup_orphans) require double opt-in:',
+      'allowMutation:true in the call AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the server env.',
+      'ALWAYS get explicit user confirmation before calling these — they affect persistent shared state across sessions.',
+      '`sync_current_branch` is for git hooks only; agents must not call it directly.',
+    ].join(' '),
+    priority: 95,
+  },
+  {
+    label: 'agent-branch',
+    title: 'Register agent/feature branches',
+    content: [
+      'When creating an agent/feature branch (especially in a parallel worktree), register it via `workspace_index`',
+      'with action="start_agent_branch", passing branchName, purpose, createdBy, and useWorktree=true if applicable.',
+      'Close out with finish_agent_branch (merged) or abandon_agent_branch (discarded) — never leave it dangling in the registry.',
+      'This is a mutating action and requires double opt-in (see [[confirm-mut]]).',
+    ].join(' '),
+    priority: 70,
+  },
+];
+
+/**
+ * Seed the default global rule set if the rules collection has no global
+ * rules yet. Only runs once per fresh installation; skipped entirely if any
+ * global rule already exists (so existing installs are left untouched — no
+ * migration effort, no duplicates).
  */
 export async function seedDefaultRule(rulesTool: RulesTool): Promise<void> {
   try {
@@ -20,23 +113,21 @@ export async function seedDefaultRule(rulesTool: RulesTool): Promise<void> {
       return; // Rules exist or list failed — skip seeding
     }
 
-    const addResult = await rulesTool.execute({
-      action: 'add',
-      label: 'search-first',
-      title: 'Always search before answering',
-      content: [
-        "For any question about this project's code, structure, or library docs,",
-        'ALWAYS call the `search` tool before answering — do not rely on training data.',
-        'Defaults: scope="project", limit=10.',
-        'Widen to scope="all" or includeLibraries=true only after a project-scoped query comes back empty.',
-        'Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
-      ].join(' '),
-      scope: TENANT_GLOBAL,
-      priority: 100,
-    });
+    let seeded = 0;
+    for (const rule of DEFAULT_RULES) {
+      const addResult = await rulesTool.execute({
+        action: 'add',
+        label: rule.label,
+        title: rule.title,
+        content: rule.content,
+        scope: TENANT_GLOBAL,
+        priority: rule.priority,
+      });
+      if (addResult.success) seeded += 1;
+    }
 
-    if (addResult.success) {
-      logInfo('Created default search-first behavioral rule');
+    if (seeded > 0) {
+      logInfo('Seeded default behavioral rules', { count: seeded, of: DEFAULT_RULES.length });
     }
   } catch (error) {
     logDebug('Skipped default rule seeding', { reason: String(error) });

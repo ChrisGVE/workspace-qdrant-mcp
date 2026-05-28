@@ -19,6 +19,7 @@
 | [LLM Integration](reference/mcp-best-practices.md) | Best practices for Claude and other AI assistants |
 | [Architecture](reference/architecture.md) | Component overview and data flow |
 | [Admin UI](ADMIN_UI.md) | Browser dashboard at `/admin/` — project discovery, real-time index info, CRUD over watch folders |
+| [Admin · Behavioral Rules Handoff](design/admin-behavioral-rules-handoff.md) | Developer handoff spec for the `/admin/` rules-management section — tokens, states, REST contract, a11y |
 
 ## Guides & Operations
 

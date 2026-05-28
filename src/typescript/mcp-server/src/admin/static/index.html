@@ -136,6 +136,78 @@
         </div>
       </section>
 
+      <!-- Behavioral rules -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Behavioral rules</h2>
+          <span class="dim small">injected into every agent session</span>
+        </div>
+        <p class="dim small">
+          <strong>Global</strong> rules apply to every project; <strong>project</strong> rules
+          apply only to the selected project. Both are merged (global first, by priority) at
+          session start and injected into the agent's system prompt.
+        </p>
+        <div class="row" style="align-items:flex-end; gap:0.5rem; margin-bottom:0.5rem">
+          <div class="field">
+            <label for="rulesScopeSelect">Scope</label>
+            <select id="rulesScopeSelect"
+                    style="background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:6px 8px">
+              <option value="global" selected>Global (all projects)</option>
+              <option value="project">Project</option>
+            </select>
+          </div>
+          <div class="field grow" id="rulesProjectField" hidden>
+            <label for="rulesProjectSelect">Project</label>
+            <select id="rulesProjectSelect"
+                    style="width:100%;background:var(--bg-3);color:var(--fg);border:1px solid var(--border-2);border-radius:6px;padding:6px 8px"></select>
+          </div>
+          <button type="button" id="reloadRulesBtn" class="secondary">Reload</button>
+          <span id="rulesMeta" class="dim small"></span>
+        </div>
+
+        <div id="rulesEmpty" class="dim">No rules in this scope yet.</div>
+        <table id="rulesTable" class="data" aria-label="Global behavioral rules" hidden>
+          <thead>
+            <tr>
+              <th>Label</th>
+              <th>Title</th>
+              <th class="num">Priority</th>
+              <th>Content</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="rulesBody"></tbody>
+        </table>
+
+        <form id="ruleForm" style="margin-top:0.85rem">
+          <h3 id="ruleFormTitle" style="margin:0 0 0.4rem; font-size:0.95rem">Add rule</h3>
+          <div class="row" style="gap:0.5rem">
+            <div class="field">
+              <label for="ruleLabelInput">Label (max 15)</label>
+              <input id="ruleLabelInput" type="text" maxlength="15" placeholder="prefer-uv"
+                     autocomplete="off" spellcheck="false" required />
+            </div>
+            <div class="field grow">
+              <label for="ruleTitleInput">Title</label>
+              <input id="ruleTitleInput" type="text" maxlength="50"
+                     placeholder="Short human-readable title" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="rulePriorityInput">Priority</label>
+              <input id="rulePriorityInput" type="number" step="1" placeholder="0" />
+            </div>
+          </div>
+          <textarea id="ruleContentInput" rows="4" spellcheck="false"
+                    placeholder="The behavioral instruction the agent should follow…"
+                    style="margin-top:0.4rem" required></textarea>
+          <div class="row" style="margin-top:0.5rem; align-items:center; gap:0.5rem">
+            <button type="submit" class="primary" id="ruleSubmitBtn">Add rule</button>
+            <button type="button" class="secondary" id="ruleCancelEditBtn" hidden>Cancel edit</button>
+            <span id="ruleFormMsg" class="dim small"></span>
+          </div>
+        </form>
+      </section>
+
       <!-- Client configuration -->
       <section class="card">
         <div class="card-head">
@@ -295,7 +367,7 @@
       </section>
     </div>
 
-    <div id="toast" class="toast" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </main>
 
   <script src="/admin/app.js"></script>
