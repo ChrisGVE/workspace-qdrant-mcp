@@ -665,6 +665,18 @@ Surfaced by a 2026-05-28 round-2 audit. **Already removed:** dead `lib.rs` modul
 - [ ] **Orphaned / non-building benches** in `src/rust/daemon/core/benches/` — `example_benchmark.rs` is a fibonacci/hashmap template; `processing_benchmarks.rs` uses "mock processing functions… in a real implementation these would import from the actual crate"; `file_ingestion_benchmarks.rs` / `platform_benchmarks.rs` / `watching_benchmarks.rs` are not declared with `harness = false` (would run under libtest and break `criterion_main!`). Remove the stubs or wire them up properly.
 - [ ] **Code-unreferenced JSON schema docs** `assets/schemas/{memory,projects,libraries}-payload.schema.json` — no `include_str!` / code references (only `watch_folders_schema.sql` is embedded). `memory-payload.schema.json` still uses the legacy `memory` collection name (canonical: `scratchpad`). Decide: keep as living docs (and fix `memory`→`scratchpad`) or remove.
 
+### G. Round-3 results — docs & TypeScript (2026-05-28)
+
+**TypeScript MCP server: clean** — all `package.json` deps are imported, no orphaned modules, no legacy `memory` collection literal. (Minor: `eslint.config.js` imports `@eslint/js` via transitive resolution — worth *adding* to devDependencies, not removing.)
+
+**Removed** (orphaned + Python-era, zero inbound references): `docs/communication_protocol.md`, `docs/watch_management_migration.md`, `docs/migration_guide.md`, `docs/RELEASE_NOTES.md`.
+
+**UPDATE, do NOT remove** (Python-era content but live-referenced — removing breaks links):
+
+- [ ] `docs/ARCHITECTURE.md` — Python-era ("FastMCP", "4 Tools", "DaemonClient Python gRPC Client") but referenced by `docs/reference/architecture.md`, `TROUBLESHOOTING.md`, `BACKUP_RESTORE.md`, `LSP_INTEGRATION.md`, `WATCH_QUEUE_HANDSHAKE.md`, `runbooks/qdrant-corruption.md`, and the Related Documents table below. It is the canonical visual-diagrams doc — refresh the content, don't delete.
+- [ ] `docs/GRPC_API.md` — stale "4 services / 20 RPCs" (actual: 7 core + 5 write services) + Python client example; referenced from `EXAMPLES.md`, `CHANGELOG.md`. Refresh, or fold into `specs/08-api-reference.md`.
+- [ ] `docs/MIGRATION.md` + `docs/PHASE1_MIGRATION_GUIDE.md` — historical migration guides (Python 3.10+ prereq); referenced from `CHANGELOG.md` / `TROUBLESHOOTING.md`. If removed, fix those links first.
+
 ---
 
 ## Related Documents
