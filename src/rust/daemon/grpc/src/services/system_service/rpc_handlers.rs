@@ -135,17 +135,16 @@ impl SystemService for SystemServiceImpl {
             .unwrap_or(0);
 
         // Read adaptive resource state for idle/burst reporting
-        let (resource_mode, idle_seconds, current_max_embeddings, current_inter_item_delay_ms) =
+        let (resource_mode, idle_seconds, current_max_embeddings) =
             if let Some(ref state) = self.adaptive_state {
                 let mode = state.mode();
                 (
                     Some(mode.as_str().to_string()),
                     Some(state.idle_seconds()),
                     Some(state.max_concurrent_embeddings() as i32),
-                    Some(state.inter_item_delay_ms() as i64),
                 )
             } else {
-                (None, None, None, None)
+                (None, None, None)
             };
 
         let response = SystemStatusResponse {
@@ -166,7 +165,7 @@ impl SystemService for SystemServiceImpl {
             resource_mode,
             idle_seconds,
             current_max_embeddings,
-            current_inter_item_delay_ms,
+            current_inter_item_delay_ms: None,
         };
 
         Ok(Response::new(response))

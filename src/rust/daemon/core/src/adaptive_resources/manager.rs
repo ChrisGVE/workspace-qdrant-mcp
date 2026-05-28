@@ -148,9 +148,9 @@ async fn run_adaptive_loop(
                 if heartbeat_counter % heartbeat_interval == 0 {
                     let new_profile = profile_for_level(effective_level, &profiles.normal, &profiles.active, &profiles.elevated, &profiles.burst);
                     let new_mode = ResourceMode::from(effective_level);
-                    info!("Adaptive resources heartbeat: level={:?}, effective={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}, delay={}ms",
+                    info!("Adaptive resources heartbeat: level={:?}, effective={:?}, mode={}, idle={:.0}s, cpu_pressure={}, embeddings={}",
                         sys_state.level, effective_level, new_mode.as_str(), idle_secs, !cpu_ok,
-                        new_profile.max_concurrent_embeddings, new_profile.inter_item_delay_ms);
+                        new_profile.max_concurrent_embeddings);
                 }
                 if heartbeat_counter % rotation_interval == 0 {
                     mode_tracker.rotate();
@@ -204,11 +204,8 @@ fn apply_profile_update(
     if new_profile != current_profile {
         if old_level != sys_state.level || effective_level != sys_state.level {
             info!(
-                "Profile changed: embeddings {} -> {}, delay {}ms -> {}ms",
-                current_profile.max_concurrent_embeddings,
-                new_profile.max_concurrent_embeddings,
-                current_profile.inter_item_delay_ms,
-                new_profile.inter_item_delay_ms
+                "Profile changed: embeddings {} -> {}",
+                current_profile.max_concurrent_embeddings, new_profile.max_concurrent_embeddings,
             );
         }
         let _ = tx.send(new_profile);

@@ -5,10 +5,6 @@ impl ResourceLimitsConfig {
     /// Apply environment variable overrides
     pub fn apply_env_overrides(&mut self) {
         apply_env_i32("WQM_RESOURCE_NICE_LEVEL", &mut self.nice_level);
-        apply_env_u64(
-            "WQM_RESOURCE_INTER_ITEM_DELAY_MS",
-            &mut self.inter_item_delay_ms,
-        );
         apply_env_usize(
             "WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS",
             &mut self.max_concurrent_embeddings,
@@ -42,10 +38,6 @@ impl ResourceLimitsConfig {
             "WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER",
             &mut self.burst_concurrency_multiplier,
         );
-        apply_env_u64(
-            "WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS",
-            &mut self.burst_inter_item_delay_ms,
-        );
         apply_env_f64(
             "WQM_RESOURCE_CPU_PRESSURE_THRESHOLD",
             &mut self.cpu_pressure_threshold,
@@ -57,10 +49,6 @@ impl ResourceLimitsConfig {
         apply_env_f64(
             "WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER",
             &mut self.active_concurrency_multiplier,
-        );
-        apply_env_u64(
-            "WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS",
-            &mut self.active_inter_item_delay_ms,
         );
         apply_env_string(
             "WQM_RESOURCE_LINUX_IDLE_SOURCE",

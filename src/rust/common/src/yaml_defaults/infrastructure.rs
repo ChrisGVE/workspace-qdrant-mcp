@@ -300,8 +300,6 @@ impl Default for YamlOtlpConfig {
 pub struct YamlResourceLimitsConfig {
     /// Unix nice level for the daemon process (-20 highest, 19 lowest)
     pub nice_level: i32,
-    /// Delay in ms between processing items
-    pub inter_item_delay_ms: u64,
     /// Max concurrent embedding operations (0 = auto-detect)
     pub max_concurrent_embeddings: usize,
     /// Pause processing when available memory falls below (100 - this)%
@@ -320,16 +318,12 @@ pub struct YamlResourceLimitsConfig {
     pub burst_hold_secs: u64,
     /// Multiplier for burst-mode max_concurrent_embeddings (relative to normal)
     pub burst_concurrency_multiplier: f64,
-    /// Inter-item delay in burst mode (ms)
-    pub burst_inter_item_delay_ms: u64,
     /// CPU load fraction above which burst is suppressed
     pub cpu_pressure_threshold: f64,
     /// How often to poll idle state (seconds)
     pub idle_poll_interval_secs: u64,
     /// Multiplier for active processing mode (user present, queue has work)
     pub active_concurrency_multiplier: f64,
-    /// Inter-item delay in active processing mode (ms)
-    pub active_inter_item_delay_ms: u64,
     /// Linux idle-detection backend (`"none"` or `"proc"`).
     pub linux_idle_source: String,
     /// Normalized load-average threshold for the `/proc` Linux heuristic.
@@ -340,7 +334,6 @@ impl Default for YamlResourceLimitsConfig {
     fn default() -> Self {
         Self {
             nice_level: 10,
-            inter_item_delay_ms: 50,
             max_concurrent_embeddings: 0,
             max_memory_percent: 70,
             onnx_intra_threads: 0,
@@ -350,11 +343,9 @@ impl Default for YamlResourceLimitsConfig {
             ramp_down_step_secs: 300,
             burst_hold_secs: 600,
             burst_concurrency_multiplier: 2.0,
-            burst_inter_item_delay_ms: 0,
             cpu_pressure_threshold: 0.6,
             idle_poll_interval_secs: 5,
             active_concurrency_multiplier: 1.5,
-            active_inter_item_delay_ms: 25,
             linux_idle_source: "none".to_string(),
             linux_idle_load_threshold: 0.1,
         }

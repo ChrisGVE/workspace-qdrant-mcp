@@ -179,7 +179,6 @@ fn test_parse_size_to_bytes() {
 fn test_resource_limits_defaults() {
     let config = &*DEFAULT_YAML_CONFIG;
     assert_eq!(config.resource_limits.nice_level, 10);
-    assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
     assert_eq!(config.resource_limits.max_concurrent_embeddings, 0);
     assert_eq!(config.resource_limits.max_memory_percent, 70);
     assert_eq!(config.resource_limits.onnx_intra_threads, 0);
@@ -189,7 +188,6 @@ fn test_resource_limits_defaults() {
     assert_eq!(config.resource_limits.ramp_down_step_secs, 300);
     assert_eq!(config.resource_limits.burst_hold_secs, 600);
     assert!((config.resource_limits.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
-    assert_eq!(config.resource_limits.burst_inter_item_delay_ms, 0);
     assert!((config.resource_limits.cpu_pressure_threshold - 0.6).abs() < f64::EPSILON);
     assert_eq!(config.resource_limits.idle_poll_interval_secs, 5);
 }

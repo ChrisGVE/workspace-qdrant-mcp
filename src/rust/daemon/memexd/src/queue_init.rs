@@ -238,12 +238,10 @@ fn build_unified_config(
         worker_id: format!("memexd-{}", std::process::id()),
         lease_duration_secs: 300,
         max_retries: 3,
-        inter_item_delay_ms: config.resource_limits.inter_item_delay_ms,
         max_concurrent_embeddings: config.resource_limits.max_concurrent_embeddings,
         max_memory_percent: config.resource_limits.max_memory_percent,
         warmup_window_secs: daemon_config.startup.warmup_window_secs,
         warmup_max_concurrent_embeddings: daemon_config.startup.warmup_max_concurrent_embeddings,
-        warmup_inter_item_delay_ms: daemon_config.startup.warmup_inter_item_delay_ms,
         onnx_intra_threads: config.resource_limits.onnx_intra_threads,
         ..UnifiedProcessorConfig::default()
     }

@@ -9,9 +9,6 @@ impl ResourceLimitsConfig {
         if self.nice_level < -20 || self.nice_level > 19 {
             return Err("nice_level must be between -20 and 19".to_string());
         }
-        if self.inter_item_delay_ms > 5000 {
-            return Err("inter_item_delay_ms should not exceed 5000".to_string());
-        }
         if self.max_concurrent_embeddings == 0 || self.max_concurrent_embeddings > 8 {
             return Err("max_concurrent_embeddings must be between 1 and 8 \
                  (0 should have been auto-resolved)"

@@ -78,8 +78,6 @@ pub struct UnifiedProcessorConfig {
     pub low_priority_batch: u64,
 
     // Resource limits (Task 504)
-    /// Delay in milliseconds between processing items
-    pub inter_item_delay_ms: u64,
     /// Maximum concurrent embedding operations
     pub max_concurrent_embeddings: usize,
     /// Pause processing when available memory falls below (100 - this)%.
@@ -91,9 +89,6 @@ pub struct UnifiedProcessorConfig {
     pub warmup_window_secs: u64,
     /// Max concurrent embeddings during warmup
     pub warmup_max_concurrent_embeddings: usize,
-    /// Inter-item delay in ms during warmup
-    pub warmup_inter_item_delay_ms: u64,
-
     // ONNX thread tuning
     /// Number of ONNX intra-op threads per embedding session (default: 2)
     pub onnx_intra_threads: usize,
@@ -145,13 +140,11 @@ impl Default for UnifiedProcessorConfig {
             high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
             low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
             // Resource limits defaults (Task 504)
-            inter_item_delay_ms: 50,
             max_concurrent_embeddings: 2,
             max_memory_percent: 70,
             // Warmup throttling defaults (Task 577)
             warmup_window_secs: 30,
             warmup_max_concurrent_embeddings: 1,
-            warmup_inter_item_delay_ms: 200,
             // ONNX thread tuning
             onnx_intra_threads: 2,
             // Failed item resurrection

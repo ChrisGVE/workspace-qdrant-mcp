@@ -13,9 +13,6 @@ mod tests;
 fn default_nice_level() -> i32 {
     10
 }
-fn default_inter_item_delay_ms() -> u64 {
-    50
-}
 fn default_max_concurrent_embeddings() -> usize {
     0
 } // 0 = auto-detect
@@ -43,9 +40,6 @@ fn default_burst_hold_secs() -> u64 {
 fn default_burst_concurrency_multiplier() -> f64 {
     2.0
 }
-fn default_burst_inter_item_delay_ms() -> u64 {
-    0
-}
 fn default_cpu_pressure_threshold() -> f64 {
     0.6
 }
@@ -54,9 +48,6 @@ fn default_idle_poll_interval_secs() -> u64 {
 }
 fn default_active_concurrency_multiplier() -> f64 {
     1.5
-}
-fn default_active_inter_item_delay_ms() -> u64 {
-    25
 }
 fn default_linux_idle_source() -> String {
     "none".to_string()
@@ -85,11 +76,6 @@ pub struct ResourceLimitsConfig {
     /// Default: 10 (low priority - daemon should yield to interactive processes)
     #[serde(default = "default_nice_level")]
     pub nice_level: i32,
-
-    /// Delay in milliseconds between processing items (breathing room)
-    /// Default: 50ms
-    #[serde(default = "default_inter_item_delay_ms")]
-    pub inter_item_delay_ms: u64,
 
     /// Maximum concurrent embedding operations (semaphore on ONNX ops).
     /// 0 = auto-detect from CPU core count (physical_cores / 4, minimum 1).
@@ -137,10 +123,6 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_burst_concurrency_multiplier")]
     pub burst_concurrency_multiplier: f64,
 
-    /// Inter-item delay in full burst mode (ms).
-    #[serde(default = "default_burst_inter_item_delay_ms")]
-    pub burst_inter_item_delay_ms: u64,
-
     /// CPU load fraction above which burst is suppressed.
     #[serde(default = "default_cpu_pressure_threshold")]
     pub cpu_pressure_threshold: f64,
@@ -157,11 +139,6 @@ pub struct ResourceLimitsConfig {
     /// Default: 1.5 (+50% over normal)
     #[serde(default = "default_active_concurrency_multiplier")]
     pub active_concurrency_multiplier: f64,
-
-    /// Inter-item delay in ms during active processing (user present, queue has work).
-    /// Default: 25 (half of normal 50ms)
-    #[serde(default = "default_active_inter_item_delay_ms")]
-    pub active_inter_item_delay_ms: u64,
 
     // --- Linux Idle Detection ---
     /// Backend for Linux idle detection. Only consulted when running on Linux.
@@ -186,7 +163,6 @@ impl Default for ResourceLimitsConfig {
     fn default() -> Self {
         Self {
             nice_level: default_nice_level(),
-            inter_item_delay_ms: default_inter_item_delay_ms(),
             max_concurrent_embeddings: default_max_concurrent_embeddings(),
             max_memory_percent: default_max_memory_percent(),
             onnx_intra_threads: default_onnx_intra_threads(),
@@ -196,11 +172,9 @@ impl Default for ResourceLimitsConfig {
             ramp_down_step_secs: default_ramp_down_step_secs(),
             burst_hold_secs: default_burst_hold_secs(),
             burst_concurrency_multiplier: default_burst_concurrency_multiplier(),
-            burst_inter_item_delay_ms: default_burst_inter_item_delay_ms(),
             cpu_pressure_threshold: default_cpu_pressure_threshold(),
             idle_poll_interval_secs: default_idle_poll_interval_secs(),
             active_concurrency_multiplier: default_active_concurrency_multiplier(),
-            active_inter_item_delay_ms: default_active_inter_item_delay_ms(),
             linux_idle_source: default_linux_idle_source(),
             linux_idle_load_threshold: default_linux_idle_load_threshold(),
         }

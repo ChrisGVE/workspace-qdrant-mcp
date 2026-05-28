@@ -1033,12 +1033,6 @@ resource_limits:
   # Format: Integer -20..19
   nice_level: 10
 
-  # inter_item_delay_ms: Delay in milliseconds between processing items
-  # Purpose: Provides breathing room for the rest of the system
-  # Default: 50ms
-  # Format: Integer >= 0
-  inter_item_delay_ms: 50
-
   # max_concurrent_embeddings: Maximum concurrent embedding operations
   # 0 = auto-detect from CPU core count (physical_cores / 4, minimum 1)
   # Format: Integer 0..8
@@ -1142,11 +1136,6 @@ resource_limits:
   # Default: 2.0
   # Format: Float >= 1.0
   burst_concurrency_multiplier: 2.0
-
-  # burst_inter_item_delay_ms: Inter-item delay in full burst mode
-  # Default: 0 (no delay in burst)
-  # Format: Integer >= 0
-  burst_inter_item_delay_ms: 0
 
   # cpu_pressure_threshold: CPU load fraction above which burst is suppressed
   # Normalized to physical core count: load_avg_1min / physical_cores

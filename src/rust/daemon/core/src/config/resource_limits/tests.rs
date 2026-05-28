@@ -6,7 +6,6 @@ mod tests {
     fn test_resource_limits_config_defaults() {
         let config = ResourceLimitsConfig::default();
         assert_eq!(config.nice_level, 10);
-        assert_eq!(config.inter_item_delay_ms, 50);
         assert_eq!(
             config.max_concurrent_embeddings, 0,
             "default should be 0 (auto-detect)"
@@ -73,11 +72,6 @@ mod tests {
         assert!(config.validate().is_err());
         config.nice_level = 10;
 
-        // Invalid inter_item_delay_ms (too high)
-        config.inter_item_delay_ms = 5001;
-        assert!(config.validate().is_err());
-        config.inter_item_delay_ms = 50;
-
         // Invalid max_concurrent_embeddings (zero = unresolved auto-detect)
         config.max_concurrent_embeddings = 0;
         assert!(config.validate().is_err());
@@ -116,11 +110,6 @@ mod tests {
         config.nice_level = 19;
         assert!(config.validate().is_ok());
 
-        config.inter_item_delay_ms = 0;
-        assert!(config.validate().is_ok());
-        config.inter_item_delay_ms = 5000;
-        assert!(config.validate().is_ok());
-
         config.max_concurrent_embeddings = 1;
         assert!(config.validate().is_ok());
         config.max_concurrent_embeddings = 8;
@@ -143,20 +132,17 @@ mod tests {
 
         // Set environment variables
         std::env::set_var("WQM_RESOURCE_NICE_LEVEL", "5");
-        std::env::set_var("WQM_RESOURCE_INTER_ITEM_DELAY_MS", "100");
         std::env::set_var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS", "4");
         std::env::set_var("WQM_RESOURCE_MAX_MEMORY_PERCENT", "80");
 
         config.apply_env_overrides();
 
         assert_eq!(config.nice_level, 5);
-        assert_eq!(config.inter_item_delay_ms, 100);
         assert_eq!(config.max_concurrent_embeddings, 4);
         assert_eq!(config.max_memory_percent, 80);
 
         // Clean up
         std::env::remove_var("WQM_RESOURCE_NICE_LEVEL");
-        std::env::remove_var("WQM_RESOURCE_INTER_ITEM_DELAY_MS");
         std::env::remove_var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS");
         std::env::remove_var("WQM_RESOURCE_MAX_MEMORY_PERCENT");
     }
@@ -165,7 +151,6 @@ mod tests {
     fn test_resource_limits_serialization() {
         let config = ResourceLimitsConfig {
             nice_level: 5,
-            inter_item_delay_ms: 100,
             max_concurrent_embeddings: 4,
             max_memory_percent: 80,
             onnx_intra_threads: 2,

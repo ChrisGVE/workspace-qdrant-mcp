@@ -8,10 +8,8 @@ use crate::config::ResourceLimitsConfig;
 fn test_limits() -> ResourceLimitsConfig {
     ResourceLimitsConfig {
         max_concurrent_embeddings: 2,
-        inter_item_delay_ms: 50,
         idle_threshold_secs: 120,
         burst_concurrency_multiplier: 2.0,
-        burst_inter_item_delay_ms: 0,
         cpu_pressure_threshold: 0.6,
         idle_poll_interval_secs: 5,
         ..Default::default()
@@ -24,15 +22,12 @@ fn test_limits() -> ResourceLimitsConfig {
 fn test_resource_profile_equality() {
     let a = ResourceProfile {
         max_concurrent_embeddings: 2,
-        inter_item_delay_ms: 50,
     };
     let b = ResourceProfile {
         max_concurrent_embeddings: 2,
-        inter_item_delay_ms: 50,
     };
     let c = ResourceProfile {
         max_concurrent_embeddings: 4,
-        inter_item_delay_ms: 0,
     };
     assert_eq!(a, b);
     assert_ne!(a, c);
@@ -109,8 +104,6 @@ fn test_adaptive_config_from_resource_limits() {
     let config = AdaptiveResourceConfig::from_resource_limits(&limits);
     assert_eq!(config.normal_max_concurrent_embeddings, 2);
     assert_eq!(config.burst_max_concurrent_embeddings, 4); // 2 * 2.0
-    assert_eq!(config.normal_inter_item_delay_ms, 50);
-    assert_eq!(config.burst_inter_item_delay_ms, 0);
     assert_eq!(config.idle_threshold_secs, 120);
     assert_eq!(config.idle_confirmation_secs, 300);
     assert_eq!(config.ramp_up_step_secs, 120);
@@ -189,19 +182,15 @@ fn test_mode_encoding_all_variants() {
 fn test_profile_for_level() {
     let normal = ResourceProfile {
         max_concurrent_embeddings: 2,
-        inter_item_delay_ms: 50,
     };
     let active = ResourceProfile {
         max_concurrent_embeddings: 3,
-        inter_item_delay_ms: 25,
     };
     let elevated = ResourceProfile {
         max_concurrent_embeddings: 3,
-        inter_item_delay_ms: 12,
     };
     let burst = ResourceProfile {
         max_concurrent_embeddings: 4,
-        inter_item_delay_ms: 0,
     };
 
     assert_eq!(
@@ -233,7 +222,6 @@ async fn test_adaptive_manager_starts_with_normal_profile() {
 
     let profile = manager.current_profile();
     assert_eq!(profile.max_concurrent_embeddings, 2);
-    assert_eq!(profile.inter_item_delay_ms, 50);
     assert_eq!(manager.state().mode(), ResourceMode::Normal);
 
     token.cancel();
@@ -266,14 +254,12 @@ fn test_active_profile_values() {
             .round() as usize,
     );
     assert_eq!(active_embeddings, 3, "2 * 1.5 = 3 embeddings");
-    assert_eq!(config.active_inter_item_delay_ms, 25);
 }
 
 #[test]
 fn test_active_config_defaults() {
     let limits = ResourceLimitsConfig::default();
     assert!((limits.active_concurrency_multiplier - 1.5).abs() < f64::EPSILON);
-    assert_eq!(limits.active_inter_item_delay_ms, 25);
 }
 
 #[test]

@@ -23,7 +23,6 @@ mod tests {
         assert_eq!(config.high_priority_batch, 10);
         assert_eq!(config.low_priority_batch, 3);
         // Resource limits (Task 504)
-        assert_eq!(config.inter_item_delay_ms, 50);
         assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);
     }
@@ -131,9 +130,7 @@ mod tests {
         let config = UnifiedProcessorConfig::default();
         assert_eq!(config.warmup_window_secs, 30);
         assert_eq!(config.warmup_max_concurrent_embeddings, 1);
-        assert_eq!(config.warmup_inter_item_delay_ms, 200);
         assert_eq!(config.max_concurrent_embeddings, 2);
-        assert_eq!(config.inter_item_delay_ms, 50);
     }
 
     /// Test that warmup limits are more restrictive than normal limits (Task 578)
@@ -143,10 +140,6 @@ mod tests {
         assert!(
             config.warmup_max_concurrent_embeddings <= config.max_concurrent_embeddings,
             "Warmup max_concurrent_embeddings should be <= normal limit"
-        );
-        assert!(
-            config.warmup_inter_item_delay_ms >= config.inter_item_delay_ms,
-            "Warmup inter_item_delay should be >= normal delay (slower processing)"
         );
     }
 

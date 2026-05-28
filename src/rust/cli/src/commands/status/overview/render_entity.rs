@@ -217,12 +217,4 @@ fn render_resource_mode_section(daemon_status: &Option<SystemStatusResponse>, te
             " ".repeat(RM_KEY_W - k.len())
         );
     }
-    if let Some(delay) = status.current_inter_item_delay_ms {
-        let k = "Inter-Item Delay:";
-        println!(
-            "      {}{} {delay}ms",
-            k.bold(),
-            " ".repeat(RM_KEY_W - k.len())
-        );
-    }
 }

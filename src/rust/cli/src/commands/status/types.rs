@@ -20,8 +20,6 @@ pub struct SystemStatusJson {
     pub idle_seconds: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_max_embeddings: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_inter_item_delay_ms: Option<i64>,
 }
 
 /// JSON-serializable health status
@@ -116,14 +114,12 @@ mod tests {
             resource_mode: Some("normal".to_string()),
             idle_seconds: Some(42.5),
             current_max_embeddings: Some(1),
-            current_inter_item_delay_ms: Some(100),
         };
         let serialized = serde_json::to_string(&json_out).unwrap();
         assert!(serialized.contains("\"connected\":true"));
         assert!(serialized.contains("\"resource_mode\":\"normal\""));
         assert!(serialized.contains("\"idle_seconds\":42.5"));
         assert!(serialized.contains("\"current_max_embeddings\":1"));
-        assert!(serialized.contains("\"current_inter_item_delay_ms\":100"));
     }
 
     #[test]
@@ -138,7 +134,6 @@ mod tests {
             resource_mode: None,
             idle_seconds: None,
             current_max_embeddings: None,
-            current_inter_item_delay_ms: None,
         };
         let serialized = serde_json::to_string(&json_out).unwrap();
         assert!(!serialized.contains("resource_mode"));

@@ -355,7 +355,6 @@ fn build_updates_config(yaml: &YamlConfig) -> UpdatesConfig {
 fn build_resource_limits_config(yaml: &YamlConfig) -> ResourceLimitsConfig {
     ResourceLimitsConfig {
         nice_level: yaml.resource_limits.nice_level,
-        inter_item_delay_ms: yaml.resource_limits.inter_item_delay_ms,
         max_concurrent_embeddings: yaml.resource_limits.max_concurrent_embeddings,
         max_memory_percent: yaml.resource_limits.max_memory_percent,
         onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
@@ -365,11 +364,9 @@ fn build_resource_limits_config(yaml: &YamlConfig) -> ResourceLimitsConfig {
         ramp_down_step_secs: yaml.resource_limits.ramp_down_step_secs,
         burst_hold_secs: yaml.resource_limits.burst_hold_secs,
         burst_concurrency_multiplier: yaml.resource_limits.burst_concurrency_multiplier,
-        burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
         cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
         idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
         active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
-        active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
         linux_idle_source: yaml.resource_limits.linux_idle_source.clone(),
         linux_idle_load_threshold: yaml.resource_limits.linux_idle_load_threshold,
     }
@@ -586,7 +583,6 @@ mod tests {
     fn test_daemon_config_includes_resource_limits() {
         let config = DaemonConfig::default();
         assert_eq!(config.resource_limits.nice_level, 10);
-        assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
         assert_eq!(
             config.resource_limits.max_concurrent_embeddings, 0,
             "default is 0 (auto-detect)"

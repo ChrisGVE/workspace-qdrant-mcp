@@ -100,10 +100,6 @@ fn render_json(d: &StatusData) -> Result<()> {
             .daemon_status
             .as_ref()
             .and_then(|s| s.current_max_embeddings),
-        current_inter_item_delay_ms: d
-            .daemon_status
-            .as_ref()
-            .and_then(|s| s.current_inter_item_delay_ms),
     };
     output::print_json(&json_out);
     Ok(())
@@ -237,9 +233,6 @@ fn add_resource_mode(
     }
     if let Some(max_emb) = status.current_max_embeddings {
         builder = builder.kv("Max Embeddings", max_emb.to_string());
-    }
-    if let Some(delay) = status.current_inter_item_delay_ms {
-        builder = builder.kv("Inter-Item Delay", format!("{}ms", delay));
     }
     builder
 }

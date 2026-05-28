@@ -163,9 +163,6 @@ fn default_warmup_window_secs() -> u64 {
 fn default_warmup_max_concurrent_embeddings() -> usize {
     1
 }
-fn default_warmup_inter_item_delay_ms() -> u64 {
-    200
-}
 fn default_startup_enqueue_batch_size() -> usize {
     50
 }
@@ -191,10 +188,6 @@ pub struct StartupConfig {
     #[serde(default = "default_warmup_max_concurrent_embeddings")]
     pub warmup_max_concurrent_embeddings: usize,
 
-    /// Inter-item delay in ms during warmup (default: 200, normal: 50)
-    #[serde(default = "default_warmup_inter_item_delay_ms")]
-    pub warmup_inter_item_delay_ms: u64,
-
     /// Batch size for startup recovery enqueuing (default: 50)
     #[serde(default = "default_startup_enqueue_batch_size")]
     pub startup_enqueue_batch_size: usize,
@@ -210,7 +203,6 @@ impl Default for StartupConfig {
             warmup_delay_secs: default_warmup_delay_secs(),
             warmup_window_secs: default_warmup_window_secs(),
             warmup_max_concurrent_embeddings: default_warmup_max_concurrent_embeddings(),
-            warmup_inter_item_delay_ms: default_warmup_inter_item_delay_ms(),
             startup_enqueue_batch_size: default_startup_enqueue_batch_size(),
             startup_enqueue_batch_delay_ms: default_startup_enqueue_batch_delay_ms(),
         }
@@ -263,12 +255,6 @@ impl StartupConfig {
         if let Ok(val) = env::var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS") {
             if let Ok(parsed) = val.parse() {
                 self.warmup_max_concurrent_embeddings = parsed;
-            }
-        }
-
-        if let Ok(val) = env::var("WQM_STARTUP_INTER_ITEM_DELAY_MS") {
-            if let Ok(parsed) = val.parse() {
-                self.warmup_inter_item_delay_ms = parsed;
             }
         }
 
@@ -348,7 +334,6 @@ mod tests {
         assert_eq!(config.warmup_delay_secs, 5);
         assert_eq!(config.warmup_window_secs, 30);
         assert_eq!(config.warmup_max_concurrent_embeddings, 1);
-        assert_eq!(config.warmup_inter_item_delay_ms, 200);
         assert_eq!(config.startup_enqueue_batch_size, 50);
         assert_eq!(config.startup_enqueue_batch_delay_ms, 100);
     }
@@ -362,7 +347,6 @@ mod tests {
         std::env::set_var("WQM_STARTUP_WARMUP_DELAY_SECS", "10");
         std::env::set_var("WQM_STARTUP_WARMUP_WINDOW_SECS", "60");
         std::env::set_var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS", "2");
-        std::env::set_var("WQM_STARTUP_INTER_ITEM_DELAY_MS", "300");
         std::env::set_var("WQM_STARTUP_ENQUEUE_BATCH_SIZE", "100");
         std::env::set_var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS", "200");
 
@@ -371,7 +355,6 @@ mod tests {
         assert_eq!(config.warmup_delay_secs, 10);
         assert_eq!(config.warmup_window_secs, 60);
         assert_eq!(config.warmup_max_concurrent_embeddings, 2);
-        assert_eq!(config.warmup_inter_item_delay_ms, 300);
         assert_eq!(config.startup_enqueue_batch_size, 100);
         assert_eq!(config.startup_enqueue_batch_delay_ms, 200);
 
@@ -379,7 +362,6 @@ mod tests {
         std::env::remove_var("WQM_STARTUP_WARMUP_DELAY_SECS");
         std::env::remove_var("WQM_STARTUP_WARMUP_WINDOW_SECS");
         std::env::remove_var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS");
-        std::env::remove_var("WQM_STARTUP_INTER_ITEM_DELAY_MS");
         std::env::remove_var("WQM_STARTUP_ENQUEUE_BATCH_SIZE");
         std::env::remove_var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS");
     }
@@ -473,7 +455,6 @@ mod tests {
             warmup_delay_secs: 8,
             warmup_window_secs: 45,
             warmup_max_concurrent_embeddings: 1,
-            warmup_inter_item_delay_ms: 250,
             startup_enqueue_batch_size: 75,
             startup_enqueue_batch_delay_ms: 150,
         };

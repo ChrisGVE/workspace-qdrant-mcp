@@ -454,10 +454,8 @@ impl UnifiedQueueProcessor {
         }
         info!(
             "Warmup period complete after {}s - switching to normal resource limits \
-             (delay: {}ms -> {}ms, max_embeddings: {} -> {})",
+             (max_embeddings: {} -> {})",
             warmup_state.elapsed_secs(),
-            config.warmup_inter_item_delay_ms,
-            config.inter_item_delay_ms,
             config.warmup_max_concurrent_embeddings,
             config.max_concurrent_embeddings
         );
