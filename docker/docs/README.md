@@ -13,17 +13,14 @@ checkout, so use `--build` when you run them.
 |---|---|---|---|---|
 | **Minimal** | You already run Qdrant and want a local MCP build | `docker/compose/minimal.yml` | External | None |
 | **Minimal + observability** | Self-contained stack, no main-docker, with a local MCP build | `docker-compose.yml` + `observability.yml` | External | Self-hosted (Prometheus, Grafana, otel-collector) |
-| **Full-stack** | Integrated with main-docker, local MCP build | `docker/compose/full-stack.yml` | `main-docker` | Owned by `main-docker` |
 | **Standalone** | Single container, local MCP image | `docker run` one-liners | External | None |
 
 ## Decision guide
 
 ```text
-Do you run the main-docker stack?
-  Yes → Use full-stack.md
-  No  → Do you already have Qdrant running?
-          Yes → Use minimal.md
-          No  → Run minimal.yml + observability.yml (see minimal.md)
+Do you already have Qdrant running?
+  Yes → Use minimal.md
+  No  → Run minimal.yml + observability.yml (see minimal.md)
 ```
 
 Need just the daemon or just the MCP server without Docker Compose?  
@@ -50,7 +47,6 @@ curl -s http://localhost:9091/metrics  # Prometheus metrics endpoint
 |---|---|
 | `docker/compose/minimal.yml` | memexd + MCP server, external Qdrant |
 | `docker/compose/observability.yml` | Prometheus + Grafana + otel-collector overlay |
-| `docker/compose/full-stack.yml` | Overlay that attaches to main-docker network |
 | `docker/compose/standalone-memexd.yml` | Daemon only |
 | `docker/compose/standalone-mcp.yml` | MCP server only |
 | `docker/.env.example` | All environment variables with defaults |
@@ -63,7 +59,6 @@ curl -s http://localhost:9091/metrics  # Prometheus metrics endpoint
 ## Detailed guides
 
 - [minimal.md](minimal.md) — minimal and minimal + observability setup
-- [full-stack.md](full-stack.md) — integration with main-docker
 - [standalone.md](standalone.md) — single-container docker run commands
 - [telemetry.md](telemetry.md) — metrics reference and Prometheus queries
 - [dashboards.md](dashboards.md) — Grafana dashboard panel catalog

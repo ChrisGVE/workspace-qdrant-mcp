@@ -1,11 +1,12 @@
 # Prometheus scrape configuration for workspace-qdrant-mcp v0.1.3.
 #
-# Used by the full-stack compose bundle and as a reference for users who
-# run their own Prometheus against this project's services.
+# Used by the root compose stack and the observability overlay, and as a
+# reference for users who run their own Prometheus against this project's
+# services.
 #
-# For the main-docker stack (external Prometheus), paste the three
-# scrape_configs blocks below into the existing prometheus.yml and
-# reload with:  curl -X POST http://localhost:9090/-/reload
+# For an external Prometheus, paste the three scrape_configs blocks below
+# into the existing prometheus.yml and reload with:
+#   curl -X POST http://localhost:9090/-/reload
 #
 # Alerting rules live in ./alerts.yml (see task 9).
 
