@@ -120,7 +120,7 @@ for manual invocation too):
 
 - `WQM_MCP_URL` — MCP endpoint (default `http://localhost:6335/mcp`)
 - `WQM_MCP_TOKEN` — bearer token (falls back to `MCP_HTTP_TOKEN`)
-- `WQM_HOOK_TIMEOUT` — curl `--max-time` seconds (default `5`)
+- `WQM_HOOK_TIMEOUT` — curl `--max-time` seconds (default `35`)
 - `WQM_HOOK_LOG` — append-log path (silent if unset)
 - `WQM_HOOK_NAME` — label recorded in the response (default `manual` or `$1`)
 

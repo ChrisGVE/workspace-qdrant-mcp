@@ -4,19 +4,24 @@
     workspace-qdrant-mcp installer for Windows
 
 .DESCRIPTION
-    Builds and installs the CLI (wqm), daemon (memexd), and Python MCP server.
+    Builds and installs the CLI (wqm), daemon (memexd), and TypeScript MCP server.
+    This is the source-build installer (compiles from this checkout). For a
+    pre-built binary download, use scripts\download-install.ps1 instead.
 
 .PARAMETER Prefix
     Installation prefix (default: $env:LOCALAPPDATA\wqm)
 
+.PARAMETER Force
+    Clean rebuild from scratch (cargo clean + npm reinstall)
+
 .PARAMETER NoService
-    Skip daemon service installation
+    Skip daemon service installation hints
 
 .PARAMETER NoVerify
     Skip verification steps
 
 .PARAMETER CliOnly
-    Build only CLI (skip daemon)
+    Build only the CLI (skip daemon and MCP server)
 
 .EXAMPLE
     .\install.ps1
@@ -25,11 +30,16 @@
 .EXAMPLE
     .\install.ps1 -Prefix "C:\Program Files\wqm"
     # Install to custom location
+
+.EXAMPLE
+    .\install.ps1 -Force
+    # Clean rebuild from scratch
 #>
 
 [CmdletBinding()]
 param(
     [string]$Prefix = "$env:LOCALAPPDATA\wqm",
+    [switch]$Force,
     [switch]$NoService,
     [switch]$NoVerify,
     [switch]$CliOnly
@@ -74,21 +84,25 @@ function Write-Error {
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
 
-    # Check cargo
+    # cargo is required to build the Rust binaries
     try {
         $cargoVersion = (cargo --version) -replace 'cargo ', ''
     } catch {
         Write-Error "cargo not found. Please install Rust toolchain: https://rustup.rs"
     }
 
-    # Check uv
+    $prereq = "cargo: $cargoVersion"
+
+    # npm is optional — only needed for the TypeScript MCP server
     try {
-        $uvVersion = (uv --version) -replace 'uv ', ''
+        $npmVersion = (npm --version)
+        $prereq = "$prereq, npm: $npmVersion"
     } catch {
-        Write-Error "uv not found. Please install uv: https://github.com/astral-sh/uv"
+        Write-Warning "npm not found - MCP server installation will be skipped"
+        Write-Warning "Install Node.js 18+ from https://nodejs.org to enable the MCP server"
     }
 
-    Write-Success "Prerequisites OK (cargo: $cargoVersion, uv: $uvVersion)"
+    Write-Success "Prerequisites: $prereq"
 }
 
 # Create directories
@@ -109,6 +123,11 @@ function Build-Rust {
     Push-Location "src\rust"
 
     try {
+        if ($Force) {
+            Write-Info "Force rebuild: cleaning previous build artifacts..."
+            cargo clean
+        }
+
         if ($CliOnly) {
             Write-Info "Building CLI only (-CliOnly specified)..."
             cargo build --release -p wqm-cli
@@ -118,8 +137,8 @@ function Build-Rust {
             cargo build --release -p wqm-cli
             if ($LASTEXITCODE -ne 0) { throw "CLI build failed" }
 
-            Write-Info "Attempting to build daemon..."
-            cargo build --release -p memexd 2>$null
+            Write-Info "Building daemon..."
+            cargo build --release -p memexd
             if ($LASTEXITCODE -eq 0) {
                 Write-Success "Daemon built successfully"
             } else {
@@ -156,12 +175,40 @@ function Install-Binaries {
     }
 }
 
-# Install Python components
-function Install-Python {
-    Write-Info "Installing Python MCP server..."
-    uv sync
-    if ($LASTEXITCODE -ne 0) { throw "Python installation failed" }
-    Write-Success "Python dependencies installed"
+# Install TypeScript MCP server
+function Install-TypeScriptMcp {
+    if ($CliOnly) { return }
+
+    Write-Info "Installing TypeScript MCP server..."
+
+    # npm is required for this step
+    try {
+        npm --version | Out-Null
+    } catch {
+        Write-Warning "npm not found - skipping TypeScript MCP server installation"
+        Write-Warning "Install Node.js 18+ to enable the MCP server"
+        return
+    }
+
+    Push-Location "src\typescript\mcp-server"
+
+    try {
+        if ($Force -or -not (Test-Path "node_modules")) {
+            Write-Info "Installing npm dependencies..."
+            npm install
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+        } else {
+            Write-Info "Node modules exist, skipping npm install (use -Force to reinstall)"
+        }
+
+        Write-Info "Building TypeScript MCP server..."
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Success "TypeScript MCP server built"
 }
 
 # Verify installation
@@ -188,6 +235,8 @@ function Test-Installation {
         } catch {
             Write-Warning "wqm.exe found but could not get version"
         }
+    } else {
+        Write-Warning "wqm.exe not found at $wqmPath"
     }
 
     # Test memexd
@@ -201,13 +250,26 @@ function Test-Installation {
         }
     }
 
-    # Test Python server
-    try {
-        uv run workspace-qdrant-mcp --help 2>$null | Out-Null
-        Write-Success "MCP server ready"
-    } catch {
-        Write-Warning "MCP server not responding (may need Qdrant running)"
+    # Test TypeScript MCP server
+    if (Test-Path "src\typescript\mcp-server\dist\index.js") {
+        Write-Success "MCP server built at src\typescript\mcp-server\dist\"
+    } elseif (-not $CliOnly) {
+        Write-Warning "MCP server not built - run 'npm run build' in src\typescript\mcp-server\"
     }
+}
+
+# Setup daemon service
+function Set-DaemonService {
+    if ($NoService -or $CliOnly) { return }
+
+    if (-not (Test-Path (Join-Path $BinDir "memexd.exe"))) { return }
+
+    Write-Info "Setting up daemon service..."
+    Write-Host ""
+    Write-Host "To install and start the daemon service, run:"
+    Write-Host "  $BinDir\wqm.exe service install"
+    Write-Host "  $BinDir\wqm.exe service start"
+    Write-Host ""
 }
 
 # Print summary
@@ -222,7 +284,9 @@ function Write-Summary {
     if (Test-Path (Join-Path $BinDir "memexd.exe")) {
         Write-Host "  - memexd (daemon): $BinDir\memexd.exe"
     }
-    Write-Host "  - MCP server: uv run workspace-qdrant-mcp"
+    if (-not $CliOnly) {
+        Write-Host "  - MCP server: node src\typescript\mcp-server\dist\index.js"
+    }
     Write-Host ""
 
     $pathDirs = $env:PATH -split ';'
@@ -234,8 +298,11 @@ function Write-Summary {
 
     Write-Host "Quick start:"
     Write-Host "  1. Start Qdrant: docker run -p 6333:6333 qdrant/qdrant"
-    Write-Host "  2. Run MCP server: uv run workspace-qdrant-mcp"
-    Write-Host "  3. Use CLI: wqm --help"
+    Write-Host "  2. Start daemon: $BinDir\memexd.exe"
+    if (-not $CliOnly) {
+        Write-Host "  3. Run MCP server: node src\typescript\mcp-server\dist\index.js"
+    }
+    Write-Host "  4. Use CLI: wqm --help"
     Write-Host ""
 }
 
@@ -253,8 +320,9 @@ function Main {
     New-Directories
     Build-Rust
     Install-Binaries
-    Install-Python
+    Install-TypeScriptMcp
     Test-Installation
+    Set-DaemonService
     Write-Summary
 }
 

@@ -636,8 +636,8 @@ than bundled into the deletion. Line numbers are as-of-audit pointers.
 
 ### B. Legacy migration tooling (no users to migrate)
 
-- [ ] `scripts/phase3_cutover.sh` — cutover script that drops `ingestion_queue` / `content_ingestion_queue` (tables already gone; `unified_queue` is canonical).
-- [ ] Legacy-queue section in `docs/MIGRATION.md` (`QUEUE_SCHEMA.md` was deleted — it duplicated and contradicted `specs/04-write-path.md`).
+- [x] `scripts/phase3_cutover.sh` — **removed 2026-05-28** (one-shot dual-write→unified cutover that dropped the already-gone `ingestion_queue` / `content_ingestion_queue`; `unified_queue` is canonical).
+- [ ] Legacy-queue narrative in `docs/MIGRATION.md` — dead `phase3_cutover.sh` invocations removed 2026-05-28; the broader dual-write prose still needs the refresh tracked in §G (`QUEUE_SCHEMA.md` was already deleted — it duplicated and contradicted `specs/04-write-path.md`).
 
 ### C. Stale documentation
 
@@ -685,7 +685,7 @@ Surfaced by a 2026-05-28 round-2 audit. **Already removed:** dead `lib.rs` modul
 
 - [ ] **`docs/TESTING.md`** — kept (no canonical replacement); refresh content for the Rust/TS toolchain (drop pytest/Python).
 - [x] **Tier C (done):** `QUEUE_SCHEMA.md` **deleted** — it was stale and contradicted `specs/04-write-path.md` (had a stored `priority` column, old item types, old idempotency format), so nothing was migrated. `METRICS.md` **kept + refreshed** — on inspection it is a broad, mostly-live Prometheus catalog (queue/tool/system/watch metrics) that does **not** fit folding into the search-only `specs/09`; dropped its dead "Dual-Write Migration" + Python-API sections and indexed it in INDEX.md.
-- [ ] **`scripts/install-claude-hooks.sh`** — Python-era installer (`python -m workspace_qdrant_mcp.http_server`); superseded by `wqm init hooks install`. Evaluate for removal.
+- [x] **`scripts/install-claude-hooks.sh`** + **`scripts/claude-hooks/`** — **removed 2026-05-28** (Python-era installer plus the `session-start`/`session-end`/`test-hooks` shell hooks that called the dead `localhost:8765` / `python -m workspace_qdrant_mcp.http_server`; superseded by `wqm init hooks install`).
 
 ---
 

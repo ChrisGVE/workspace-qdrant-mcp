@@ -56,7 +56,7 @@ curl -s http://localhost:9091/metrics  # Prometheus metrics endpoint
 | `docker/.env.example` | All environment variables with defaults |
 | `docker/prometheus/prometheus.yml` | Prometheus scrape config (4 jobs) |
 | `docker/prometheus/alerts.yml` | 6 alerting rules |
-| `docker/grafana/dashboards/*.json` | 5 pre-built Grafana dashboards |
+| `docker/grafana/dashboards/*.json` | 6 pre-built Grafana dashboards |
 | `docker/grafana/provisioning/` | Grafana auto-provisioning |
 | `docker/otel/otel-collector-config.yml` | OTLP → Prometheus bridge |
 
