@@ -408,10 +408,8 @@ impl ChunkExtractor for GenericExtractor {
         Ok(chunks)
     }
 
-    fn language(&self) -> &'static str {
-        // Leak the string for the 'static lifetime required by the trait.
-        // This is acceptable because extractors are long-lived.
-        Box::leak(self.language_name.clone().into_boxed_str())
+    fn language(&self) -> &str {
+        &self.language_name
     }
 }
 

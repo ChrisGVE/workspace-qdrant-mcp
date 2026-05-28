@@ -236,7 +236,7 @@ pub trait ChunkExtractor: Send + Sync {
     ) -> Result<Vec<SemanticChunk>, DaemonError>;
 
     /// Get the language name for this extractor.
-    fn language(&self) -> &'static str;
+    fn language(&self) -> &str;
 }
 
 #[cfg(test)]
