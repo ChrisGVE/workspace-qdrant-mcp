@@ -102,20 +102,12 @@ pub mod strategies;
 // Grouping aliases (used by cross_project_search, schema versions)
 pub use grouping::affinity as affinity_grouper;
 pub use grouping::dependency as dependency_grouper;
-pub use grouping::git_org as git_org_grouper;
 pub use grouping::schema as project_groups_schema;
-pub use grouping::workspace as workspace_grouper;
-
-// Tagging aliases (unused but retained for safety during refactoring)
-pub use tagging as tier1_tagging;
-pub use tagging as tier2_tagging;
-pub use tagging as tier3_tagging;
 
 // Monitoring aliases (used by priority_manager, queue_operations)
 pub use monitoring as logging;
 pub use monitoring as metrics;
 pub use monitoring as metrics_history;
-pub use monitoring as remote_monitor;
 
 // ── Re-exports: core types ──────────────────────────────────────────────
 pub use crate::core_types::{

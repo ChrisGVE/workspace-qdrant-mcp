@@ -657,6 +657,14 @@ than bundled into the deletion. Line numbers are as-of-audit pointers.
 
 - [ ] `src/rust/daemon/memexd/src/startup.rs:349` — `check_existing_instance` ignores its `project_id: Option<&String>` parameter (unused-variable warning). Determine whether the single-instance check should be project-scoped; either wire `project_id` in or document why it is intentionally unused.
 
+### F. Round-2 candidates (need judgment)
+
+Surfaced by a 2026-05-28 round-2 audit. **Already removed:** dead `lib.rs` module aliases, unused `md5` dep, the `legacy_grpc_tests` empty feature, the root `cargo new` scaffold crate, and `daemon-config.generated.yaml`. **Also resolved:** `atty` was migrated to `std::io::IsTerminal` (closes RUSTSEC-2021-0145 and drops the dep); and `detect.rs` turned out to be **already wired** into `wqm service status` (`status.rs:30,342`) — the audit's "dead module" claim was wrong, so only its stale `#[allow(dead_code)] // task 11` annotations were removed. These remain because they need a decision:
+
+- [ ] **Deprecated types in `src/rust/daemon/core/src/project_disambiguation.rs`** — `RegisteredProject` (doc: "deprecated, use WatchFolder") and `ProjectRecord` look removable, BUT `DisambiguationError` / `DisambiguationResult` are the error types backing the **live** `ProjectIdCalculator` / `DisambiguationPathComputer` (6 call-sites), and `git_integration_tests.rs` imports from this module. So this is a careful per-type split, not a blanket removal. (Distinct from the live `RegisteredProject` in `watching/path_validator.rs`.)
+- [ ] **Orphaned / non-building benches** in `src/rust/daemon/core/benches/` — `example_benchmark.rs` is a fibonacci/hashmap template; `processing_benchmarks.rs` uses "mock processing functions… in a real implementation these would import from the actual crate"; `file_ingestion_benchmarks.rs` / `platform_benchmarks.rs` / `watching_benchmarks.rs` are not declared with `harness = false` (would run under libtest and break `criterion_main!`). Remove the stubs or wire them up properly.
+- [ ] **Code-unreferenced JSON schema docs** `assets/schemas/{memory,projects,libraries}-payload.schema.json` — no `include_str!` / code references (only `watch_folders_schema.sql` is embedded). `memory-payload.schema.json` still uses the legacy `memory` collection name (canonical: `scratchpad`). Decide: keep as living docs (and fix `memory`→`scratchpad`) or remove.
+
 ---
 
 ## Related Documents

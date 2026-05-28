@@ -52,7 +52,6 @@ imara-diff = "0.2"
 
 # Hashing and collections
 sha2 = "0.10"
-md5 = "0.7"
 lru = "0.16"
 
 # Rate limiting and performance
@@ -97,7 +96,6 @@ rand = "0.8"
 clap = { version = "4.5", features = ["derive", "string"] }
 scopeguard = "1.2"
 tempfile = "3.26"
-atty = "0.2"
 
 # Environment variable expansion for config paths
 shellexpand = "3.1"
