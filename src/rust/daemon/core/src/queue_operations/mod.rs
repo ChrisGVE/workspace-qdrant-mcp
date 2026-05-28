@@ -7,7 +7,6 @@ mod advanced;
 mod dequeue;
 mod destination;
 mod enqueue;
-mod legacy;
 mod query;
 mod triage;
 mod update;
@@ -21,9 +20,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use thiserror::Error;
-
-use crate::queue_types::MissingTool;
-use crate::unified_queue_schema::QueueOperation as UnifiedOp;
 
 /// Queue operation errors
 #[derive(Error, Debug)]
@@ -59,55 +55,6 @@ pub enum QueueError {
 
 /// Result type for queue operations
 pub type QueueResult<T> = Result<T, QueueError>;
-
-/// Missing metadata queue item representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MissingMetadataItem {
-    pub queue_id: String,
-    pub file_absolute_path: String,
-    pub collection_name: String,
-    pub tenant_id: String,
-    pub branch: String,
-    pub operation: UnifiedOp,
-    pub missing_tools: Vec<MissingTool>,
-    pub queued_timestamp: DateTime<Utc>,
-    pub retry_count: i32,
-    pub last_check_timestamp: Option<DateTime<Utc>>,
-    pub metadata: Option<String>,
-}
-
-/// Collection type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum CollectionType {
-    NonWatched,
-    WatchedDynamic,
-    WatchedCumulative,
-    Project,
-}
-
-impl CollectionType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            CollectionType::NonWatched => "non-watched",
-            CollectionType::WatchedDynamic => "watched-dynamic",
-            CollectionType::WatchedCumulative => "watched-cumulative",
-            CollectionType::Project => "project",
-        }
-    }
-}
-
-/// Collection metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CollectionMetadata {
-    pub collection_name: String,
-    pub collection_type: CollectionType,
-    pub created_timestamp: DateTime<Utc>,
-    pub last_updated: DateTime<Utc>,
-    pub configuration: HashMap<String, serde_json::Value>,
-    pub tenant_id: String,
-    pub branch: String,
-}
 
 /// Error message record
 #[derive(Debug, Clone, Serialize, Deserialize)]

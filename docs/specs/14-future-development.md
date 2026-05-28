@@ -616,6 +616,49 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 ---
 
+## Cleanup Backlog (Deferred Removals & Tech Debt)
+
+Captured from a legacy-code audit (2026-05-28). The dead v1 error-handler /
+tool-monitor / `queue_operations/legacy.rs` subsystems and the obvious dead
+artifacts (`.wqm-fork/`, `archives/`, stray `Cargo.toml.orig`,
+`.github/actions/setup-python-deps/`) have already been removed. The items below
+are confirmed-but-deferred: each needs its own verified change (and some need a
+runtime/data-safety check), so they were intentionally left for follow-up rather
+than bundled into the deletion. Line numbers are as-of-audit pointers.
+
+### A. Back-compat shims (removable under the "NO MIGRATION EFFORT" policy)
+
+- [ ] **CLI hidden deprecated aliases** — `src/rust/cli/src/main.rs:95-100,164,369-393` (~9 `hide=true` commands delegating to new subcommands). Remove enum variants + match arms. Verify no local scripts call bare `wqm search` / `wqm ingest`.
+- [ ] **Legacy queue-type string mappings** — `src/rust/common/src/queue_types/item_type.rs:56-59` and `operation.rs:44,55` (`"content"→Text`, `"project"/"library"→Tenant`, `"ingest"→Add`). Update guard tests `src/rust/common/tests/compatibility_vectors.rs:215,232`. Confirm no enqueuer still emits the old strings.
+- [ ] **`src/rust/common/src/rules_legacy.rs`** (235 lines, legacy `RULE` header parser) — used by daemon `rules_payload_backfill.rs` and CLI `rules/inject.rs` (issue #58 safety net). **Remove only after confirming no stored rules use the old header format** (data-safety check, not statically decidable).
+- [ ] **TS legacy `stdio` boolean flag** — `src/typescript/mcp-server/src/{server-types.ts:91-96,server.ts:320-337,index.ts:31,config.ts:143}`. Migrate tests to `mode`, then drop the flag.
+- [ ] **TS `legacyArtifacts` detection** — `admin/routes.ts:289-333` + `admin/app.js:248-260` (cleanup helper for the removed PowerShell git-hook + `.bak` files). Remove if users are unlikely to still have old artifacts installed.
+
+### B. Legacy migration tooling (no users to migrate)
+
+- [ ] `scripts/phase3_cutover.sh` — cutover script that drops `ingestion_queue` / `content_ingestion_queue` (tables already gone; `unified_queue` is canonical).
+- [ ] Legacy-queue sections in `docs/MIGRATION.md` and `docs/QUEUE_SCHEMA.md`.
+
+### C. Stale documentation
+
+- [ ] **Duplicate spec #16** — `docs/specs/16-path-abstraction-audit.md` (Status: Complete) duplicates the living `16-path-abstraction.md`; `docs/specs/19-branch-worktree-audit.md` is also a completed audit. Archive/retire both out of `specs/`.
+- [ ] `docs/specs/01-architecture.md` — ASCII diagram shows a "memory" collection (canonical is `rules` + `scratchpad`) and only 4 MCP tools (actual: 6 — store/search/rules/retrieve/grep/list). Update.
+- [ ] Broken `FIRST-PRINCIPLES.md` links — file no longer exists; referenced in `docs/specs/00-overview.md:24` and the Related Documents table below.
+- [ ] `CLAUDE.md` — says "7 gRPC services"; the proto defines **12** (7 core/read + 5 enqueue-only write services).
+- [ ] `.github/pull_request_template.md` — entirely Python-era (pytest, black, ruff, mypy, PEP 8, docstrings/type-hints, non-existent `tests/{unit,integration,e2e,benchmarks}/`). Rewrite for the Rust + TypeScript toolchain (`cargo test`/`fmt`/`clippy`, `npm test`/`tsc`).
+
+### D. EmbeddingWatchdog follow-ups (spec 18 — beyond §3.3, which is implemented)
+
+- [ ] **§3.2 degraded-mode boot** — `memexd` currently aborts startup if the embedding provider fails its dim/init check (`check_dim_and_start_health_monitor`). Make transient init failures start in degraded mode + watchdog instead of aborting (keep the hard `DimensionMismatch` abort).
+- [ ] **§3.4 queue-processor degraded mode** — read `embedding::EmbeddingHealth` in the unified queue processor; while `Unavailable`, re-lease embedding items (`lease_until = now + short_delay`, status `pending`) **without** counting against `retry_count`.
+- [ ] Wire `EmbeddingHealth` into the gRPC `SystemService` health response so availability is observable.
+
+### E. Potential latent bug (investigate, do not silence)
+
+- [ ] `src/rust/daemon/memexd/src/startup.rs:349` — `check_existing_instance` ignores its `project_id: Option<&String>` parameter (unused-variable warning). Determine whether the single-instance check should be project-scoped; either wire `project_id` in or document why it is intentionally unused.
+
+---
+
 ## Related Documents
 
 | Document                                                           | Purpose                          |
@@ -630,10 +673,11 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 ---
 
-**Version:** 1.10.0
-**Last Updated:** 2026-02-24
+**Version:** 1.11.0
+**Last Updated:** 2026-05-28
 **Changes:**
 
+- v1.11.0: Added "Cleanup Backlog (Deferred Removals & Tech Debt)" section from a 2026-05-28 legacy audit — back-compat shims (CLI aliases, queue-type legacy mappings, `rules_legacy`, TS `stdio`/`legacyArtifacts`), legacy migration tooling, stale docs, EmbeddingWatchdog §3.2/§3.4 follow-ups, and a suspected unused-`project_id` bug. In the same pass the dead v1 error-handler/tool-monitor/`legacy.rs` subsystems and dead artifacts were removed and the EmbeddingWatchdog (§3.3) was implemented.
 - Current fork behavior: the MCP session lifecycle now re-activates known projects first and falls back to `register_if_new=true` so fresh projects and worktrees are registered automatically on first connect.
 
 - v1.10.0: Marked Phase 1 (SQLite CTEs) as COMPLETE — documented all implemented graph subsystem components (GraphStore trait, SqliteGraphStore, algorithms, extractor, migrator, factory, SharedGraphStore, gRPC GraphService with 7 RPCs, CLI `wqm graph` with 7 subcommands, criterion benchmarks, CI workflow); added measured performance results; updated CLI command examples to reflect actual implemented syntax

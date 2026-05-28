@@ -116,7 +116,6 @@ pub use monitoring as logging;
 pub use monitoring as metrics;
 pub use monitoring as metrics_history;
 pub use monitoring as remote_monitor;
-pub use monitoring as tool_monitor;
 
 // ── Re-exports: core types ──────────────────────────────────────────────
 pub use crate::core_types::{
@@ -178,16 +177,11 @@ pub use crate::monitoring::{
     LoggingErrorMonitor,
     MetricsServer,
     MetricsSnapshot,
-    MonitoringError,
-    MonitoringResult,
     PerformanceMetrics,
     QueueContext,
-    RequeueStats,
     SearchContext,
     // Multi-tenant structured logging
     SessionContext,
-    // Tool monitor
-    ToolMonitor,
     METRICS,
 };
 pub use crate::patterns::{
@@ -207,7 +201,7 @@ pub use crate::queue_health::QueueProcessorHealth;
 pub use crate::queue_operations::{
     QueueError, QueueLoadLevel as QueueOpsLoadLevel, QueueManager, QueueThrottlingSummary,
 };
-pub use crate::queue_types::{MissingTool, ProcessorConfig};
+pub use crate::queue_types::ProcessorConfig;
 pub use crate::schema_version::{SchemaError, SchemaManager, CURRENT_SCHEMA_VERSION};
 pub use crate::search_db::{
     search_db_path_from_state, SearchDbError, SearchDbManager, SearchDbResult, SEARCH_DB_FILENAME,

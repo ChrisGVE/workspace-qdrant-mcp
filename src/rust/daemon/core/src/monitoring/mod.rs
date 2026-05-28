@@ -16,7 +16,6 @@ pub mod metrics_history;
 pub mod metrics_server;
 pub mod remote_monitor;
 pub mod tool_detection;
-pub mod tool_monitor;
 
 #[cfg(test)]
 mod logging_tests;
@@ -87,6 +86,3 @@ pub use metrics_history::{
 pub use remote_monitor::{
     check_git_state_changes, check_remote_url_changes, GitStateCheckResult, RemoteCheckResult,
 };
-
-// Tool monitor re-exports (previously `crate::tool_monitor::*`)
-pub use tool_monitor::{MonitoringError, MonitoringResult, RequeueStats, ToolMonitor};

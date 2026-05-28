@@ -149,7 +149,8 @@ async fn run_daemon(
     .await?;
 
     // Phase 5a-5b: Dimension consistency + health monitor
-    check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
+    let watchdog_shutdown =
+        check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
 
     // Phase 6: gRPC server + queue start + recovery
     let embedding_settings = Arc::new(daemon_config.embedding.clone());
@@ -188,7 +189,7 @@ async fn run_daemon(
     );
 
     // Phase 7: Wait for shutdown signal, then clean up
-    if let Err(e) = shutdown::wait_for_signal().await {
+    if let Err(e) = shutdown::wait_for_signal(watchdog_shutdown).await {
         error!("Error in signal handling: {}", e);
     }
     shutdown::stop_watchers(&watch_manager).await;
@@ -203,7 +204,7 @@ async fn check_dim_and_start_health_monitor(
     daemon_config: &DaemonConfig,
     args: &DaemonArgs,
     qc: &mut queue_init::QueueComponents,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<tokio_util::sync::CancellationToken, Box<dyn std::error::Error>> {
     let active_dim = daemon_config.embedding.output_dim;
     if let Err(e) = workspace_qdrant_core::specs::check_dim_consistency(
         &qc.mirror_storage,
@@ -241,7 +242,25 @@ async fn check_dim_and_start_health_monitor(
     let health_monitor_token = qc.adaptive_shutdown_token.child_token();
     tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
 
-    Ok(())
+    // Embedding watchdog (spec 18 §3.3): autonomous recovery, and a controlled
+    // shutdown request if the provider proves unrecoverable. Cancelling
+    // `watchdog_shutdown` unblocks `wait_for_signal`, driving normal teardown so
+    // a supervising service manager can restart the process.
+    let data_dir = wqm_common::paths::get_database_path()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let diagnostic_path = data_dir.join("embedding-failure.json");
+    let watchdog_shutdown = tokio_util::sync::CancellationToken::new();
+    let watchdog = workspace_qdrant_core::embedding::EmbeddingWatchdog::new(
+        Arc::clone(&qc.dense_provider),
+        workspace_qdrant_core::embedding::WatchdogConfig::new(diagnostic_path),
+        watchdog_shutdown.clone(),
+    );
+    let watchdog_loop_token = qc.adaptive_shutdown_token.child_token();
+    tokio::spawn(async move { watchdog.run(watchdog_loop_token).await });
+
+    Ok(watchdog_shutdown)
 }
 
 /// Phase 6b: Start file watchers, git event consumer, and hierarchy builder.
