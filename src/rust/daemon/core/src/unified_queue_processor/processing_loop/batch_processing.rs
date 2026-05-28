@@ -77,27 +77,32 @@ pub(super) async fn process_batch(
 
         let start_time = std::time::Instant::now();
         let item_type_str = format!("{:?}", item.item_type);
+        let item_timeout = Duration::from_secs(config.lease_duration_secs as u64);
 
-        match UnifiedQueueProcessor::process_item(
-            queue_manager,
-            item,
-            config,
-            document_processor,
-            embedding_generator,
-            storage_client,
-            lsp_manager,
-            embedding_semaphore,
-            allowed_extensions,
-            lexicon_manager,
-            search_db,
-            graph_store,
-            grammar_manager,
-            ingestion_limits,
-            keyword_embedding_generator,
+        let result = tokio::time::timeout(
+            item_timeout,
+            UnifiedQueueProcessor::process_item(
+                queue_manager,
+                item,
+                config,
+                document_processor,
+                embedding_generator,
+                storage_client,
+                lsp_manager,
+                embedding_semaphore,
+                allowed_extensions,
+                lexicon_manager,
+                search_db,
+                graph_store,
+                grammar_manager,
+                ingestion_limits,
+                keyword_embedding_generator,
+            ),
         )
-        .await
-        {
-            Ok(()) => {
+        .await;
+
+        match result {
+            Ok(Ok(())) => {
                 handle_item_success(
                     item,
                     start_time,
@@ -111,10 +116,32 @@ pub(super) async fn process_batch(
                 )
                 .await;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 handle_item_failure(
                     item,
                     e,
+                    start_time,
+                    queue_manager,
+                    metrics,
+                    queue_health,
+                    config,
+                )
+                .await;
+            }
+            Err(_elapsed) => {
+                warn!(
+                    queue_id = %item.queue_id,
+                    file_path = ?item.file_path,
+                    elapsed_secs = start_time.elapsed().as_secs(),
+                    "Item processing timed out (lease_duration={}s), failing item",
+                    config.lease_duration_secs
+                );
+                handle_item_failure(
+                    item,
+                    UnifiedProcessorError::ProcessingFailed(format!(
+                        "Processing timed out after {}s",
+                        config.lease_duration_secs
+                    )),
                     start_time,
                     queue_manager,
                     metrics,
