@@ -114,6 +114,23 @@ pub struct YamlEmbeddingConfig {
     pub api_key_env_var: String,
     pub output_dim: usize,
     pub health_probe_cache_secs: u64,
+    pub keyword_embedder: YamlKeywordEmbedderConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlKeywordEmbedderConfig {
+    pub enabled: bool,
+    pub num_threads: usize,
+}
+
+impl Default for YamlKeywordEmbedderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            num_threads: 4,
+        }
+    }
 }
 
 impl Default for YamlEmbeddingConfig {
@@ -133,6 +150,7 @@ impl Default for YamlEmbeddingConfig {
             api_key_env_var: "OPENAI_API_KEY".to_string(),
             output_dim: 1536,
             health_probe_cache_secs: 60,
+            keyword_embedder: YamlKeywordEmbedderConfig::default(),
         }
     }
 }

@@ -35,6 +35,61 @@ fn default_health_probe_cache_secs() -> u64 {
     60
 }
 
+fn default_keyword_embedder_threads() -> usize {
+    4
+}
+
+/// Optional dedicated local FastEmbed provider for the keyword extraction
+/// pipeline. When enabled, keyword/tag embedding (cosine reranking only,
+/// never stored in Qdrant) uses a separate ONNX model instance, freeing
+/// the main provider for chunk embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeywordEmbedderConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_keyword_embedder_threads")]
+    pub num_threads: usize,
+}
+
+impl Default for KeywordEmbedderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            num_threads: default_keyword_embedder_threads(),
+        }
+    }
+}
+
+impl KeywordEmbedderConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.enabled && self.num_threads == 0 {
+            return Err(
+                "embedding.keyword_embedder.num_threads must be > 0 when enabled".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("WQM_KEYWORD_EMBEDDER_ENABLED") {
+            match val.to_lowercase().as_str() {
+                "true" | "1" | "yes" => self.enabled = true,
+                "false" | "0" | "no" => self.enabled = false,
+                _ => {}
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_KEYWORD_EMBEDDER_THREADS") {
+            if let Ok(parsed) = val.parse() {
+                self.num_threads = parsed;
+            }
+        }
+    }
+}
+
 /// Embedding generation configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingSettings {
@@ -83,6 +138,10 @@ pub struct EmbeddingSettings {
     /// 0 = no caching (probe on every health check call).
     #[serde(default = "default_health_probe_cache_secs")]
     pub health_probe_cache_secs: u64,
+
+    /// Optional dedicated local FastEmbed provider for keyword extraction.
+    #[serde(default)]
+    pub keyword_embedder: KeywordEmbedderConfig,
 }
 
 impl Default for EmbeddingSettings {
@@ -97,6 +156,7 @@ impl Default for EmbeddingSettings {
             api_key_env_var: default_api_key_env_var(),
             output_dim: default_output_dim(),
             health_probe_cache_secs: default_health_probe_cache_secs(),
+            keyword_embedder: KeywordEmbedderConfig::default(),
         }
     }
 }
@@ -134,6 +194,8 @@ impl EmbeddingSettings {
 
         // model_cache_dir is created by the daemon at startup if absent; no existence check here.
 
+        self.keyword_embedder.validate()?;
+
         Ok(())
     }
 
@@ -162,6 +224,8 @@ impl EmbeddingSettings {
         if let Ok(val) = env::var("WQM_EMBEDDING_API_KEY_ENV_VAR") {
             self.api_key_env_var = val;
         }
+
+        self.keyword_embedder.apply_env_overrides();
     }
 }
 
@@ -251,5 +315,78 @@ mod tests {
         let mut settings = EmbeddingSettings::default();
         settings.output_dim = 0;
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn test_keyword_embedder_defaults() {
+        let cfg = KeywordEmbedderConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.num_threads, 4);
+    }
+
+    #[test]
+    fn test_keyword_embedder_disabled_validates() {
+        let cfg = KeywordEmbedderConfig {
+            enabled: false,
+            num_threads: 0,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_keyword_embedder_enabled_zero_threads_fails() {
+        let cfg = KeywordEmbedderConfig {
+            enabled: true,
+            num_threads: 0,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_keyword_embedder_in_embedding_settings() {
+        let settings = EmbeddingSettings::default();
+        assert!(!settings.keyword_embedder.enabled);
+        assert_eq!(settings.keyword_embedder.num_threads, 4);
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn test_keyword_embedder_enabled_validates_through_settings() {
+        let mut settings = EmbeddingSettings::default();
+        settings.keyword_embedder.enabled = true;
+        settings.keyword_embedder.num_threads = 0;
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_keyword_embedder_env_overrides() {
+        let mut cfg = KeywordEmbedderConfig::default();
+
+        std::env::set_var("WQM_KEYWORD_EMBEDDER_ENABLED", "true");
+        std::env::set_var("WQM_KEYWORD_EMBEDDER_THREADS", "8");
+
+        cfg.apply_env_overrides();
+
+        assert!(cfg.enabled);
+        assert_eq!(cfg.num_threads, 8);
+
+        std::env::remove_var("WQM_KEYWORD_EMBEDDER_ENABLED");
+        std::env::remove_var("WQM_KEYWORD_EMBEDDER_THREADS");
+    }
+
+    #[test]
+    #[serial]
+    fn test_keyword_embedder_env_override_false() {
+        let mut cfg = KeywordEmbedderConfig {
+            enabled: true,
+            num_threads: 4,
+        };
+
+        std::env::set_var("WQM_KEYWORD_EMBEDDER_ENABLED", "false");
+        cfg.apply_env_overrides();
+        assert!(!cfg.enabled);
+
+        std::env::remove_var("WQM_KEYWORD_EMBEDDER_ENABLED");
     }
 }

@@ -424,6 +424,22 @@ embedding:
   # Format: String path or null for default
   model_cache_dir: null
 
+  # keyword_embedder: Optional dedicated local FastEmbed provider for keyword extraction
+  # Purpose: Offloads keyword/tag embedding (cosine reranking) to a separate local ONNX
+  # instance so the main provider (e.g. OpenAI) is free for chunk embeddings.
+  # Keyword embeddings are ephemeral — used only for ranking, never stored in Qdrant.
+  # When disabled (default), the keyword pipeline uses the main embedding provider.
+  keyword_embedder:
+    # enabled: Activate the dedicated keyword embedder
+    # Format: Boolean
+    enabled: false
+
+    # num_threads: ONNX intra-op thread count for the keyword FastEmbed instance
+    # Higher values = faster keyword embedding at cost of more CPU cores
+    # Benchmark: 4 threads ≈ 550ms per file (2.4x faster than remote OpenAI, zero cost)
+    # Format: Integer > 0
+    num_threads: 4
+
 # =============================================================================
 # WORKSPACE MANAGEMENT CONFIGURATION
 # =============================================================================
