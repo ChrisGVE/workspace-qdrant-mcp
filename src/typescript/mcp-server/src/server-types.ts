@@ -5,8 +5,10 @@
 import type { ServerConfig } from './types/index.js';
 import { BUILD_NUMBER } from './build-info.js';
 
-// Heartbeat interval: 1 hour (in milliseconds)
-export const HEARTBEAT_INTERVAL_MS = 1 * 60 * 60 * 1000;
+// Heartbeat interval: 30 seconds (in milliseconds)
+// Must be well under the daemon's orphan-cleanup timeout (120s) to prevent
+// false deactivation. 30s gives 4 missed heartbeats before deactivation.
+export const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
 // Server name and version for MCP protocol
 export const SERVER_NAME = 'workspace-qdrant-mcp';

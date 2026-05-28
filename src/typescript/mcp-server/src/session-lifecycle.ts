@@ -226,7 +226,7 @@ export function startHeartbeat(sessionState: SessionState, sendHeartbeatFn: () =
     sendHeartbeatFn();
   }, HEARTBEAT_INTERVAL_MS);
 
-  logDebug('Heartbeat started', { interval_minutes: HEARTBEAT_INTERVAL_MS / 1000 / 60 });
+  logDebug('Heartbeat started', { interval_secs: HEARTBEAT_INTERVAL_MS / 1000 });
 }
 
 /**

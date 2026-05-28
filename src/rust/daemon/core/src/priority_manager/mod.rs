@@ -41,7 +41,7 @@ pub struct SessionMonitorConfig {
 impl Default for SessionMonitorConfig {
     fn default() -> Self {
         Self {
-            heartbeat_timeout_secs: 60,
+            heartbeat_timeout_secs: 120,
             check_interval_secs: 30,
         }
     }
