@@ -24,6 +24,8 @@ import type {
   HeartbeatResponse,
   ListProjectsRequest,
   ListProjectsResponse,
+  ListWatchesRequest,
+  ListWatchesResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
@@ -195,6 +197,22 @@ export class DaemonClientSystem extends DaemonClientBase {
         'listProjects',
         request,
         this.getMethodTimeout('listProjects')
+      )
+    );
+  }
+
+  /**
+   * List watched folders via the daemon's `ListWatches` RPC. Read-only gRPC
+   * equivalent of `wqm watch list` — lets the dockerized MCP server enumerate
+   * watches without a local wqm binary.
+   */
+  async listWatches(request: ListWatchesRequest = {}): Promise<ListWatchesResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'listWatches',
+        request,
+        this.getMethodTimeout('listWatches')
       )
     );
   }

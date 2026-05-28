@@ -48,6 +48,9 @@ export {
   type ListProjectsRequest,
   type ProjectInfo,
   type ListProjectsResponse,
+  type ListWatchesRequest,
+  type WatchInfo,
+  type ListWatchesResponse,
   type HeartbeatRequest,
   type HeartbeatResponse,
   // EmbeddingService

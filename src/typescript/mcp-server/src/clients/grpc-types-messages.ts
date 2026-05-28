@@ -48,6 +48,9 @@ export type {
   ListProjectsRequest,
   ProjectInfo,
   ListProjectsResponse,
+  ListWatchesRequest,
+  WatchInfo,
+  ListWatchesResponse,
   HeartbeatRequest,
   HeartbeatResponse,
 } from './grpc-types-messages-document-project.js';

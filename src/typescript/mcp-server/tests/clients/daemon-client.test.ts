@@ -97,6 +97,13 @@ describe('DaemonClient', () => {
       await expect(testClient.getQueueStats()).rejects.toThrow();
     });
   });
+
+  describe('listWatches', () => {
+    it('should reject when daemon is not running', async () => {
+      const testClient = new DaemonClient({ port: 59995, timeoutMs: 500, maxRetries: 1 });
+      await expect(testClient.listWatches()).rejects.toThrow();
+    });
+  });
 });
 
 describe('DaemonClient integration', () => {
@@ -140,6 +147,18 @@ describe('DaemonClient integration', () => {
     const stats = await client.getQueueStats();
     expect(stats).toBeDefined();
     expect(typeof stats.pending_count).toBe('number');
+
+    client.close();
+  });
+
+  it.skip('should fetch watches from running daemon', async () => {
+    const client = new DaemonClient();
+    await client.connect();
+
+    const result = await client.listWatches();
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.watches)).toBe(true);
+    expect(typeof result.total_count).toBe('number');
 
     client.close();
   });

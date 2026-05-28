@@ -27,6 +27,8 @@ export type {
   DeprioritizeProjectResponse,
   GetProjectStatusRequest,
   GetProjectStatusResponse,
+  ListWatchesRequest,
+  ListWatchesResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   IngestTextRequest,

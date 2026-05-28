@@ -19,7 +19,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { connect as netConnect } from 'node:net';
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import type { RegistryBranch, RegistryProject } from './indexed-projects-registry.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
@@ -39,40 +39,6 @@ function ensureDir(dirPath: string): void {
   if (!existsSync(dirPath)) {
     mkdirSync(dirPath, { recursive: true });
   }
-}
-
-// ── Output sanitization ────────────────────────────────────────────────────
-
-/**
- * Strip ANSI CSI escapes, drop control chars except LF/CR, replace non-ASCII
- * with '?'. Matches PS Sanitize-CommandOutput. Without this, JSON.stringify
- * downstream may emit bytes that break a strict consumer (the PS version had
- * to deal with the same problem on PowerShell 5.1's ConvertTo-Json).
- */
-export function sanitizeCommandOutput(text: string): string {
-  if (!text) return text;
-  // ESC [ ... letter (covers most CSI sequences including SGR colors).
-  // Use a raw string with hex escape to avoid embedding a literal ESC.
-  const noAnsi = text.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '');
-  let out = '';
-  for (let i = 0; i < noAnsi.length; i++) {
-    const code = noAnsi.charCodeAt(i);
-    if (code === 9) {
-      out += ' ';
-      continue;
-    } // tab → space (JSON-safe)
-    if (code === 10 || code === 13) {
-      out += noAnsi[i];
-      continue;
-    } // keep LF/CR
-    if (code < 32 || code === 0xfffd) continue; // drop other control + U+FFFD
-    if (code > 126) {
-      out += '?';
-      continue;
-    } // drop non-ASCII (box-drawing etc.)
-    out += noAnsi[i];
-  }
-  return out;
 }
 
 // ── git snapshot ───────────────────────────────────────────────────────────
@@ -218,78 +184,12 @@ export async function testQdrant(url: string | null | undefined): Promise<Qdrant
   }
 }
 
-// ── wqm CLI resolver + captured spawn ─────────────────────────────────────
+// ── captured spawn (used by git snapshots) ─────────────────────────────────────
+
 
 /**
- * Locate the `wqm` binary. Mirrors PS Resolve-WqmPath order:
- *   1. WQM_PATH / WQM_EXECUTABLE env vars (absolute or PATH-resolvable);
- *   2. <baseDir>/src/rust/target/{debug,release}/wqm[.exe];
- *   3. PATH lookup with .exe/.cmd/.bat fallbacks on Windows.
- * Returns null when unfound (e.g. dockerized daemon-only setup).
- */
-export function resolveWqmPath(baseDir: string): string | null {
-  for (const envName of ['WQM_PATH', 'WQM_EXECUTABLE'] as const) {
-    const configured = process.env[envName];
-    if (configured) {
-      const r = resolveCommandOnPath(configured);
-      if (r) return r;
-    }
-  }
-  const exeSuffix = process.platform === 'win32' ? '.exe' : '';
-  const candidates = [
-    join(baseDir, 'src', 'rust', 'target', 'debug', `wqm${exeSuffix}`),
-    join(baseDir, 'src', 'rust', 'target', 'release', `wqm${exeSuffix}`),
-  ];
-  for (const cand of candidates) {
-    if (existsSync(cand)) return cand;
-  }
-  const names =
-    process.platform === 'win32'
-      ? ['wqm.exe', 'wqm.cmd', 'wqm.bat', 'wqm']
-      : ['wqm'];
-  for (const name of names) {
-    const r = resolveCommandOnPath(name);
-    if (r) return r;
-  }
-  return null;
-}
-
-function resolveCommandOnPath(command: string): string | null {
-  if (!command) return null;
-  if (isAbsolute(command)) return existsSync(command) ? command : null;
-
-  const isWin = process.platform === 'win32';
-  const searchNames = [command];
-  if (isWin && !/\.[A-Za-z0-9]{1,4}$/.test(command)) {
-    searchNames.push(`${command}.exe`, `${command}.cmd`, `${command}.bat`);
-  }
-
-  const PATH = process.env['PATH'] ?? process.env['Path'] ?? '';
-  const entries = PATH.split(delimiter).filter((p) => p.length > 0);
-  for (const entry of entries) {
-    for (const name of searchNames) {
-      const cand = join(entry, name);
-      if (existsSync(cand)) return cand;
-    }
-  }
-  return null;
-}
-
-export interface CapturedResult {
-  ok: boolean;
-  exitCode: number;
-  file?: string;
-  stdout: string;
-  stderr: string;
-  skipped?: boolean;
-  available?: boolean;
-  reason?: string;
-}
-
-/**
- * Spawn a command and capture stdout/stderr, with a hard timeout. Matches
- * PS Invoke-Captured signature/shape closely so the JSON shipped to the LLM
- * looks identical to the PS bridge output.
+ * Spawn a command and capture stdout/stderr, with a hard timeout. Used by the
+ * git-snapshot helper (runGitSync); daemon health/queue/watch probes use gRPC.
  */
 function spawnSyncCaptured(
   file: string,
@@ -318,91 +218,6 @@ function spawnSyncCaptured(
   };
 }
 
-export function invokeCaptured(
-  file: string | null,
-  args: string[],
-  cwd: string,
-  timeoutSeconds = 20
-): CapturedResult {
-  if (!file) {
-    return {
-      ok: false,
-      exitCode: -1,
-      stdout: '',
-      stderr: 'executable not found (resolveWqmPath returned null)',
-    };
-  }
-  const cleanArgs = args.filter((a) => a !== null && a !== undefined && a !== '');
-  let resolved = file;
-  if (!isAbsolute(resolved)) {
-    const r = resolveCommandOnPath(resolved);
-    if (r) resolved = r;
-  }
-  if (!existsSync(resolved)) {
-    return {
-      ok: false,
-      exitCode: -1,
-      file: resolved,
-      stdout: '',
-      stderr: `executable missing at: ${resolved}`,
-    };
-  }
-  try {
-    const res = spawnSyncCaptured(resolved, cleanArgs, cwd, timeoutSeconds * 1000);
-    if (res.timedOut) {
-      return {
-        ok: false,
-        exitCode: -1,
-        file: resolved,
-        stdout: sanitizeCommandOutput(res.stdout),
-        stderr: `timed out after ${timeoutSeconds}s`,
-      };
-    }
-    return {
-      ok: res.exitCode === 0,
-      exitCode: res.exitCode,
-      file: resolved,
-      stdout: sanitizeCommandOutput(res.stdout),
-      stderr: sanitizeCommandOutput(res.stderr),
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      exitCode: -1,
-      file: resolved,
-      stdout: '',
-      stderr: (err as Error).message,
-    };
-  }
-}
-
-/**
- * `wqm watch list --json` is only present on builds with the watch subcommand.
- * When missing, surface a structured skip so callers see "available: false"
- * instead of a hard error. Mirrors PS Invoke-OptionalWatchCapture.
- */
-export function invokeOptionalWatchCapture(
-  file: string | null,
-  args: string[],
-  cwd: string,
-  timeoutSeconds = 20
-): CapturedResult {
-  const result = invokeCaptured(file, args, cwd, timeoutSeconds);
-  if (result.ok) return result;
-  const combined = `${result.stdout}\n${result.stderr}`;
-  if (/unrecognized subcommand 'watch'/.test(combined)) {
-    return {
-      ok: true,
-      skipped: true,
-      available: false,
-      reason: 'watch subcommand unavailable',
-      exitCode: 0,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
-  }
-  return result;
-}
 
 // ── Observation builder ────────────────────────────────────────────────────
 
@@ -433,6 +248,226 @@ export interface DaemonHealthResult {
 }
 
 /**
+ * Queue-depth snapshot sourced from SystemService.GetQueueStats over gRPC.
+ * The daemon reads its own SQLite (authoritative DB on the daemon volume), so
+ * counts are correct regardless of where the MCP server runs.
+ */
+export interface DaemonQueueResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  pending_count?: number;
+  in_progress_count?: number;
+  completed_count?: number;
+  failed_count?: number;
+  stale_items_count?: number;
+  by_item_type?: Record<string, number>;
+  by_collection?: Record<string, number>;
+  error?: string;
+}
+
+export interface Observation {
+  timestamp: string;
+  project: string;
+  root: string;
+  qdrant: QdrantProbe;
+  daemonTcp: TcpProbe;
+  wqmHealth: DaemonHealthResult;
+  queue: DaemonQueueResult;
+  branches: ObservationBranch[];
+}
+
+function serviceStatusLabel(value: number): string {
+  return ServiceStatus[value] ?? String(value);
+}
+
+/**
+ * Probe daemon health over gRPC (SystemService.Health). Never throws — an
+ * unreachable daemon yields `{ ok: false, error }` so the observation still
+ * serialises cleanly.
+ */
+async function probeDaemonHealth(
+  client: DaemonClient | null | undefined
+): Promise<DaemonHealthResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  try {
+    const r = await client.healthCheck();
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      status: serviceStatusLabel(r.status),
+      components: (r.components ?? []).map((c) => ({
+        component: c.component_name,
+        status: serviceStatusLabel(c.status),
+        message: c.message,
+      })),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Probe queue depth over gRPC (SystemService.GetQueueStats). Never throws.
+ */
+export async function probeDaemonQueue(
+  client: DaemonClient | null | undefined
+): Promise<DaemonQueueResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  try {
+    const r = await client.getQueueStats();
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      pending_count: r.pending_count,
+      in_progress_count: r.in_progress_count,
+      completed_count: r.completed_count,
+      failed_count: r.failed_count,
+      stale_items_count: r.stale_items_count,
+      by_item_type: r.by_item_type,
+      by_collection: r.by_collection,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+// ── Daemon project-status + watch-list probes (used by incremental_check) ──
+
+export interface DaemonProjectStatusResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  found?: boolean;
+  project_id?: string;
+  is_active?: boolean;
+  pending_count?: number;
+  in_progress_count?: number;
+  failed_count?: number;
+  done_count?: number;
+  total_count?: number;
+  percent_complete?: number;
+  error?: string;
+}
+
+/**
+ * Probe per-project indexing status over gRPC (ProjectService.GetProjectStatus).
+ * Replaces `wqm project status` / `wqm project check` — the pending/in_progress/
+ * done counts convey what still needs indexing. Never throws.
+ */
+export async function probeDaemonProjectStatus(
+  client: DaemonClient | null | undefined,
+  projectId: string | undefined
+): Promise<DaemonProjectStatusResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  if (!projectId) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: 'no project_id (project has no registered tenant id)',
+    };
+  }
+  try {
+    const r = await client.getProjectStatus({ project_id: projectId });
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      found: r.found,
+      project_id: r.project_id,
+      is_active: r.is_active,
+      pending_count: r.pending_count ?? 0,
+      in_progress_count: r.in_progress_count ?? 0,
+      failed_count: r.failed_count ?? 0,
+      done_count: r.done_count ?? 0,
+      total_count: r.total_count ?? 0,
+      percent_complete: r.percent_complete ?? 0,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export interface DaemonWatchInfo {
+  watch_id: string;
+  path: string;
+  collection: string;
+  tenant_id: string;
+  enabled: boolean;
+  is_active: boolean;
+  is_paused: boolean;
+  is_archived: boolean;
+}
+
+export interface DaemonWatchListResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  total_count?: number;
+  watches?: DaemonWatchInfo[];
+/**
+ * Daemon health snapshot sourced from SystemService.Health over gRPC.
+ * `ok` means the RPC succeeded (daemon reachable); `status` carries the
+ * daemon's own assessment (HEALTHY / DEGRADED / ...). On an unreachable
+ * daemon `ok` is false and `error` holds the gRPC failure message.
+ */
+export interface DaemonHealthResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  status?: string;
+  components?: Array<{ component: string; status: string; message: string }>;
+  error?: string;
+}
+
+/**
+ * Probe watched folders over gRPC (ProjectService.ListWatches). Replaces
+ * `wqm watch list`. Never throws.
+ */
+export async function probeDaemonWatches(
+  client: DaemonClient | null | undefined,
+  collection?: string
+): Promise<DaemonWatchListResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  try {
+    const r = await client.listWatches(collection ? { collection } : {});
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      total_count: r.total_count,
+      watches: (r.watches ?? []).map((w) => ({
+        watch_id: w.watch_id,
+        path: w.path,
+        collection: w.collection,
+        tenant_id: w.tenant_id,
+        enabled: w.enabled,
+        is_active: w.is_active,
+        is_paused: w.is_paused,
+        is_archived: w.is_archived,
+      })),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
  * Queue-depth snapshot sourced from SystemService.GetQueueStats over gRPC.
  * The daemon reads its own SQLite (authoritative DB on the daemon volume), so
  * counts are correct regardless of where the MCP server runs.

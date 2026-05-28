@@ -11,7 +11,8 @@ use workspace_qdrant_core::queue_operations::QueueManager;
 
 use crate::proto::{
     GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse,
-    ListProjectsRequest, ListProjectsResponse, ProjectInfo,
+    ListProjectsRequest, ListProjectsResponse, ListWatchesRequest, ListWatchesResponse,
+    ProjectInfo, WatchInfo,
 };
 
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -336,6 +337,103 @@ impl ProjectServiceImpl {
             is_active: is_active_int == 1,
             last_active,
             is_worktree: is_worktree_int != 0,
+        })
+    }
+
+    /// Execute the list_watches business logic — read-only listing of
+    /// `watch_folders`, the gRPC equivalent of `wqm watch list`.
+    pub(crate) async fn handle_list_watches(
+        &self,
+        req: ListWatchesRequest,
+    ) -> Result<ListWatchesResponse, Status> {
+        debug!(
+            "Listing watches: collection={:?}, enabled_only={}",
+            req.collection, req.enabled_only
+        );
+
+        let mut sql = String::from(
+            r#"
+            SELECT watch_id, path, collection, tenant_id, enabled, is_active,
+                   is_paused, is_archived, last_scan, last_activity_at,
+                   git_remote_url, library_mode
+            FROM watch_folders
+            WHERE 1 = 1
+            "#,
+        );
+
+        // User-supplied filter — bound as a parameter, never string-interpolated.
+        let collection_filter = req
+            .collection
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty());
+        if collection_filter.is_some() {
+            sql.push_str(" AND collection = ?");
+        }
+        if req.enabled_only {
+            sql.push_str(" AND enabled = 1");
+        }
+        sql.push_str(" ORDER BY collection, path");
+
+        let mut query = sqlx::query(&sql);
+        if let Some(collection) = collection_filter {
+            query = query.bind(collection.to_string());
+        }
+
+        let rows = query.fetch_all(&self.db_pool).await.map_err(|e| {
+            error!("Database error listing watches: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        let mut watches = Vec::with_capacity(rows.len());
+        for row in rows {
+            watches.push(Self::build_watch_info(row)?);
+        }
+
+        let total_count = watches.len() as i32;
+        Ok(ListWatchesResponse {
+            watches,
+            total_count,
+        })
+    }
+
+    /// Build a `WatchInfo` from a `watch_folders` row.
+    fn build_watch_info(row: sqlx::sqlite::SqliteRow) -> Result<WatchInfo, Status> {
+        use sqlx::Row;
+
+        let watch_id: String = row
+            .try_get("watch_id")
+            .map_err(|e| Status::internal(format!("Failed to get watch_id: {e}")))?;
+        let path: String = row
+            .try_get("path")
+            .map_err(|e| Status::internal(format!("Failed to get path: {e}")))?;
+        let collection: String = row
+            .try_get("collection")
+            .map_err(|e| Status::internal(format!("Failed to get collection: {e}")))?;
+
+        let tenant_id: Option<String> = row.try_get("tenant_id").unwrap_or(None);
+        let enabled: i32 = row.try_get("enabled").unwrap_or(0);
+        let is_active: i32 = row.try_get("is_active").unwrap_or(0);
+        let is_paused: i32 = row.try_get("is_paused").unwrap_or(0);
+        let is_archived: i32 = row.try_get("is_archived").unwrap_or(0);
+        let last_scan: Option<String> = row.try_get("last_scan").unwrap_or(None);
+        let last_activity_at: Option<String> = row.try_get("last_activity_at").unwrap_or(None);
+        let git_remote_url: Option<String> = row.try_get("git_remote_url").unwrap_or(None);
+        let library_mode: Option<String> = row.try_get("library_mode").unwrap_or(None);
+
+        Ok(WatchInfo {
+            watch_id,
+            path,
+            collection,
+            tenant_id: tenant_id.unwrap_or_default(),
+            enabled: enabled != 0,
+            is_active: is_active != 0,
+            is_paused: is_paused != 0,
+            is_archived: is_archived != 0,
+            last_scan: last_scan.unwrap_or_default(),
+            last_activity_at: last_activity_at.unwrap_or_default(),
+            git_remote_url,
+            library_mode,
         })
     }
 

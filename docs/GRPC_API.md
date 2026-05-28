@@ -22,7 +22,7 @@ The unified daemon (`memexd`) provides gRPC services for:
 - **SystemService** (7 RPCs): Health monitoring, metrics, lifecycle management
 - **CollectionService** (5 RPCs): Collection CRUD, alias management
 - **DocumentService** (3 RPCs): Direct text ingestion, updates, deletion
-- **ProjectService** (5 RPCs): Multi-tenant project registration and session management
+- **ProjectService** (8 RPCs): Multi-tenant project registration and session management
 
 **Design Principles:**
 - **Single writer pattern**: Only daemon writes to Qdrant
@@ -410,6 +410,25 @@ response = project_client.ListProjects(request)
 for proj in response.projects:
     print(f"{proj.project_name}: {proj.priority} ({proj.active_sessions} sessions)")
 ```
+
+#### ListWatches
+
+List watched folders (read-only). gRPC equivalent of `wqm watch list` — lets the
+dockerized MCP server enumerate watches without a local wqm binary.
+
+```protobuf
+rpc ListWatches(ListWatchesRequest) returns (ListWatchesResponse);
+```
+
+**Request:**
+- `collection`: Optional filter — `"projects"` | `"libraries"` (empty = all)
+- `enabled_only`: Only return enabled watches
+
+**Response:**
+- `watches[]`: Array of `WatchInfo` (`watch_id`, `path`, `collection`, `tenant_id`,
+  `enabled`, `is_active`, `is_paused`, `is_archived`, `last_scan`,
+  `last_activity_at`, `git_remote_url?`, `library_mode?`)
+- `total_count`: Total matching watches
 
 #### Heartbeat
 

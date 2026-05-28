@@ -1,8 +1,8 @@
 //! ProjectService gRPC implementation
 //!
 //! Handles multi-tenant project lifecycle and session management.
-//! Provides 7 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
-//! ListProjects, Heartbeat, RenameTenant, DeleteProject
+//! Provides 8 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
+//! ListProjects, ListWatches, Heartbeat, RenameTenant, DeleteProject
 //!
 //! LSP Integration:
 //! - On RegisterProject: detects project languages and starts LSP servers
@@ -33,8 +33,8 @@ use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectStatusRequest,
     GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
-    ListProjectsResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
-    RenameTenantResponse,
+    ListProjectsResponse, ListWatchesRequest, ListWatchesResponse, RegisterProjectRequest,
+    RegisterProjectResponse, RenameTenantRequest, RenameTenantResponse,
 };
 
 use workspace_qdrant_core::{
@@ -249,6 +249,15 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<ListProjectsResponse>, Status> {
         let req = request.into_inner();
         self.handle_list_projects(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.list_watches"))]
+    async fn list_watches(
+        &self,
+        request: Request<ListWatchesRequest>,
+    ) -> Result<Response<ListWatchesResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_list_watches(req).await.map(Response::new)
     }
 
     #[tracing::instrument(skip_all, fields(method = "ProjectService.heartbeat"))]

@@ -548,9 +548,9 @@ function dispatchTsAction(
     case 'observe_all':
       return runObserveAll(base, daemonClient);
     case 'incremental_check':
-      return runIncrementalCheck(projectArgs);
+      return runIncrementalCheck(projectArgs, daemonClient);
     case 'incremental_check_all':
-      return runIncrementalCheckAll(base);
+      return runIncrementalCheckAll(base, daemonClient);
     default:
       throw new Error(`TS-native handler missing for action: ${action}`);
   }

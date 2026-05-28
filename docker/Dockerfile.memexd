@@ -164,11 +164,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \
     ORT_LIB_LOCATION=/opt/onnxruntime/lib \
-    cargo build --release --package memexd
+    cargo build --release --package memexd --package wqm-cli
 
-# Copy the binary out of the cache mount so the next stage can access it.
+# Copy the binaries out of the cache mount so the next stage can access them.
+# wqm ships alongside memexd so `docker exec wqm-memexd wqm ...` runs against the
+# daemon's own SQLite volume + local gRPC endpoint (correct data, no host wqm).
 RUN --mount=type=cache,target=/build/target,sharing=locked \
-    cp /build/target/release/memexd /usr/local/bin/memexd
+    cp /build/target/release/memexd /usr/local/bin/memexd \
+    && cp /build/target/release/wqm /usr/local/bin/wqm
 
 # ─────────────────────────────────────────────
 # Stage 3a: rust-analyzer binary download
@@ -293,6 +296,9 @@ LABEL org.opencontainers.image.title="memexd" \
       org.opencontainers.image.licenses="MIT"
 
 COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
+# Bundled wqm CLI — lets `docker exec wqm-memexd wqm <cmd>` run inside the daemon
+# container (correct DB volume + local gRPC) so host tooling needs no local wqm.
+COPY --from=builder /usr/local/bin/wqm /usr/local/bin/wqm
 
 # Note: the Cargo release profile already sets strip=true, so the binary is
 # already stripped when copied from the builder stage.  An extra `strip` pass

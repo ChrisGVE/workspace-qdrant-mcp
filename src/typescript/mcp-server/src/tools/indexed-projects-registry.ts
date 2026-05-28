@@ -26,11 +26,14 @@ import {
 } from './../utils/git-utils.js';
 import {
   getGitSnapshot,
-  invokeCaptured,
-  invokeOptionalWatchCapture,
   newObservation,
-  resolveWqmPath,
+  probeDaemonProjectStatus,
+  probeDaemonQueue,
+  probeDaemonWatches,
   saveObservation,
+  type DaemonProjectStatusResult,
+  type DaemonQueueResult,
+  type DaemonWatchListResult,
 } from './indexed-projects-observations.js';
 import { DEFAULT_CONFIG } from './../types/generated-defaults.js';
 import type { DaemonClient } from './../clients/daemon-client.js';
@@ -483,17 +486,47 @@ interface IncrementalBranchResult {
   project?: string;
   branch: string;
   path: string;
-  projectStatus?: ReturnType<typeof invokeCaptured>;
-  projectCheck: ReturnType<typeof invokeCaptured>;
-  watchList?: ReturnType<typeof invokeOptionalWatchCapture>;
-  queue: ReturnType<typeof invokeCaptured>;
+  projectStatus: DaemonProjectStatusResult;
+  queue: DaemonQueueResult;
+  watchList?: DaemonWatchListResult;
 }
 
-function checkBranchesForProject(
+/**
+ * Per-project incremental check, sourced from the daemon over gRPC instead of
+ * the `wqm` CLI:
+ *   - `wqm project status` / `wqm project check` → GetProjectStatus (the
+ *     pending/in_progress/done counts are the "what needs indexing" signal)
+ *   - `wqm queue stats`                          → GetQueueStats
+ *   - `wqm watch list`                           → ListWatches
+ * The daemon tenant id comes from the registry; when absent we resolve it by
+ * matching the project root against the daemon's ListProjects.
+ */
+async function checkBranchesForProject(
   project: RegistryProject,
-  wqmPath: string | null,
-  includeProjectStatusAndWatch: boolean
-): IncrementalBranchResult[] {
+  daemonClient: DaemonClient | null | undefined,
+  includeWatch: boolean
+): Promise<IncrementalBranchResult[]> {
+  let projectId = project.projectId ?? undefined;
+  if (!projectId && daemonClient) {
+    try {
+      const list = await daemonClient.listProjects({});
+      const target = resolve(project.root).toLowerCase();
+      const match = list.projects.find((p) => resolve(p.project_root).toLowerCase() === target);
+      projectId = match?.project_id;
+    } catch {
+      // Leave projectId undefined — probeDaemonProjectStatus reports the gap.
+    }
+  }
+
+  // project status + queue are independent; watch list only when requested.
+  const [projectStatus, queue] = await Promise.all([
+    probeDaemonProjectStatus(daemonClient, projectId),
+    probeDaemonQueue(daemonClient),
+  ]);
+  const watchList = includeWatch
+    ? await probeDaemonWatches(daemonClient, 'projects')
+    : undefined;
+
   const results: IncrementalBranchResult[] = [];
   for (const b of project.branches ?? []) {
     const path = toAbs(b.path ?? project.root);
@@ -501,23 +534,22 @@ function checkBranchesForProject(
       project: project.name,
       branch: b.name,
       path,
-      projectCheck: invokeCaptured(wqmPath, ['project', 'check', path, '--json'], path, 60),
-      queue: invokeCaptured(wqmPath, ['queue', 'stats'], path, 20),
+      projectStatus,
+      queue,
     };
-    if (includeProjectStatusAndWatch) {
-      r.projectStatus = invokeCaptured(wqmPath, ['project', 'status', path], path, 20);
-      r.watchList = invokeOptionalWatchCapture(wqmPath, ['watch', 'list', '--json'], path, 20);
-    }
+    if (watchList !== undefined) r.watchList = watchList;
     results.push(r);
   }
   return results;
 }
 
-export function runIncrementalCheck(args: ProjectArgs): unknown {
+export async function runIncrementalCheck(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
   const project = findProject(registry, args);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
-  const results = checkBranchesForProject(project, wqmPath, /* includeStatusAndWatch */ true);
+  const results = await checkBranchesForProject(project, daemonClient, /* includeWatch */ true);
   // PS strips the redundant `project` field on the per-project variant.
   const stripped = results.map(({ project: _omit, ...rest }) => rest);
   return {
@@ -528,13 +560,15 @@ export function runIncrementalCheck(args: ProjectArgs): unknown {
   };
 }
 
-export function runIncrementalCheckAll(args: BaseArgs): unknown {
+export async function runIncrementalCheckAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
   const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
   const all: IncrementalBranchResult[] = [];
   for (const project of enabled) {
-    all.push(...checkBranchesForProject(project, wqmPath, /* includeStatusAndWatch */ false));
+    all.push(...(await checkBranchesForProject(project, daemonClient, /* includeWatch */ false)));
   }
   return {
     success: true,

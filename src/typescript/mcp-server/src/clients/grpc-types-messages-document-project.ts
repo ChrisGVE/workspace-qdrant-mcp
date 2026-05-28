@@ -118,6 +118,31 @@ export interface ListProjectsResponse {
   total_count: number;
 }
 
+export interface ListWatchesRequest {
+  collection?: string;
+  enabled_only?: boolean;
+}
+
+export interface WatchInfo {
+  watch_id: string;
+  path: string;
+  collection: string;
+  tenant_id: string;
+  enabled: boolean;
+  is_active: boolean;
+  is_paused: boolean;
+  is_archived: boolean;
+  last_scan: string;
+  last_activity_at: string;
+  git_remote_url?: string;
+  library_mode?: string;
+}
+
+export interface ListWatchesResponse {
+  watches: WatchInfo[];
+  total_count: number;
+}
+
 export interface HeartbeatRequest {
   project_id: string;
 }

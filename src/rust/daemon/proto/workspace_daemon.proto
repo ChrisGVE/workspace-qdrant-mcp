@@ -162,6 +162,9 @@ service ProjectService {
     // List all registered projects with their status
     rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
 
+    // List watched folders (read-only) — gRPC equivalent of `wqm watch list`
+    rpc ListWatches(ListWatchesRequest) returns (ListWatchesResponse);
+
     // Heartbeat to keep session alive (60s timeout)
     // Called periodically by MCP servers
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
@@ -509,6 +512,32 @@ message ProjectInfo {
     bool is_active = 5;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 6;
     bool is_worktree = 7;                         // True if this is a worktree watch root
+}
+
+// ListWatches Request/Response (read-only listing of watch_folders)
+message ListWatchesRequest {
+    optional string collection = 1;               // Filter: "projects" | "libraries" (empty = all)
+    bool enabled_only = 2;                        // Only return enabled watches
+}
+
+message ListWatchesResponse {
+    repeated WatchInfo watches = 1;
+    int32 total_count = 2;
+}
+
+message WatchInfo {
+    string watch_id = 1;
+    string path = 2;                              // Absolute watched path
+    string collection = 3;                        // "projects" | "libraries"
+    string tenant_id = 4;                         // project_id or library name
+    bool enabled = 5;
+    bool is_active = 6;                           // Has live session(s)
+    bool is_paused = 7;
+    bool is_archived = 8;
+    string last_scan = 9;                         // ISO 8601, empty if never scanned
+    string last_activity_at = 10;                 // ISO 8601, empty if none
+    optional string git_remote_url = 11;          // projects only
+    optional string library_mode = 12;            // "sync" | "incremental" (libraries only)
 }
 
 // Heartbeat Request/Response

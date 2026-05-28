@@ -37,6 +37,17 @@ O snapshot inclui:
 - `wqm project watch list --json`;
 - processos `node` e `memexd` encontrados.
 
+> **wqm via container (sem instalar no host).** Os alvos `make` acima e os scripts
+> PowerShell ainda invocam o CLI `wqm`. Para usar o `wqm` embarcado no container do
+> daemon (que lê o DB correto e fala com o daemon local), aponte `WQM_PATH` para
+> `scripts/windows/wqm-docker.cmd` — ele roda `docker exec wqm-memexd wqm`.
+> `Resolve-WqmPath` honra `WQM_PATH` primeiro, então nenhuma outra mudança é
+> necessária. Sobrescreva o nome do container com `WQM_DOCKER_CONTAINER`.
+>
+> O equivalente via MCP (`workspace_index`, ações `observe_*` / `project_status` /
+> `incremental_check`) já consulta o daemon por gRPC (`Health`, `GetQueueStats`,
+> `GetProjectStatus`, `ListWatches`) e **não** depende de `wqm` no container do MCP.
+
 ## Monitor contínuo
 
 ```powershell

@@ -31,6 +31,8 @@ import type {
   GetProjectStatusResponse,
   ListProjectsRequest,
   ListProjectsResponse,
+  ListWatchesRequest,
+  ListWatchesResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   EmbedTextRequest,
@@ -148,6 +150,10 @@ export interface ProjectServiceClient {
   listProjects(
     request: ListProjectsRequest,
     callback: (error: Error | null, response: ListProjectsResponse) => void
+  ): void;
+  listWatches(
+    request: ListWatchesRequest,
+    callback: (error: Error | null, response: ListWatchesResponse) => void
   ): void;
   heartbeat(
     request: HeartbeatRequest,
