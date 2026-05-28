@@ -78,24 +78,59 @@ function noDatabaseResult<T>(data: T): DegradedQueryResult<T> {
 
 // ── Query helpers ─────────────────────────────────────────────────────────
 
+/**
+ * Canonicalize a host/container path so the same physical location compares
+ * equal across path namespaces.
+ *
+ * The MCP server (often a Docker container) stores project roots in whatever
+ * form the daemon observed — e.g. Docker Desktop's `/run/desktop/mnt/host/c/…`
+ * — while a client reports its CWD as a Windows path (`C:\…`), a WSL mount
+ * (`/mnt/c/…`) or an MSYS/Git-Bash path (`/c/…`). All four denote drive C, so
+ * they fold to `/c/…`.
+ *
+ * Pure prefix normalization: separators to `/`, the drive/mount prefix
+ * unified, duplicate and trailing slashes trimmed. Case is preserved (callers
+ * compare case-insensitively where appropriate). Native POSIX paths and
+ * multi-letter mount dirs (e.g. `/mnt/data`) are left untouched.
+ */
+export function canonicalizeHostPath(p: string): string {
+  let s = p.replace(/\\/g, '/');
+  // Windows drive: "C:/…" or bare "C:" → "/c/…".
+  s = s.replace(/^([A-Za-z]):(?=\/|$)/, (_m, drive: string) => `/${drive.toLowerCase()}`);
+  // Docker Desktop host mount: "/run/desktop/mnt/host/c/…" → "/c/…".
+  s = s.replace(/^\/run\/desktop\/mnt\/host(?=\/[A-Za-z](?:\/|$))/i, '');
+  // WSL drive mount: "/mnt/c/…" → "/c/…".
+  s = s.replace(/^\/mnt(?=\/[A-Za-z](?:\/|$))/i, '');
+  // Collapse duplicate slashes; drop a trailing slash (but keep root "/").
+  s = s.replace(/\/{2,}/g, '/');
+  if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
+  return s;
+}
+
 function queryProjectByPath(
   db: DatabaseType,
   projectPath: string,
 ): WatchFolderRow | undefined {
-  // Normalize separators on both sides so Windows host paths (with `\`) match
-  // DB-stored paths regardless of which form the daemon persisted them in.
-  const normalized = projectPath.replace(/\\/g, '/');
-  return db
-    .prepare(
-      `${PROJECT_SELECT_FIELDS}
-      WHERE collection = ? AND (
-        ? = replace(path, '\\', '/')
-        OR ? LIKE replace(path, '\\', '/') || '/%'
-      )
-      ORDER BY length(path) DESC
-      LIMIT 1`
-    )
-    .get(COLLECTION_PROJECTS, normalized, normalized) as WatchFolderRow | undefined;
+  const rows = db
+    .prepare(`${PROJECT_SELECT_FIELDS} WHERE collection = ?`)
+    .all(COLLECTION_PROJECTS) as WatchFolderRow[];
+  if (rows.length === 0) return undefined;
+
+  // Longest canonical-prefix match. Canonicalizing both sides bridges the
+  // host/container path-namespace gap (see canonicalizeHostPath); the length
+  // tiebreak mirrors the previous SQL `ORDER BY length(path) DESC`. Compared
+  // case-insensitively to tolerate Windows path-case drift.
+  const target = canonicalizeHostPath(projectPath).toLowerCase();
+  let best: WatchFolderRow | undefined;
+  let bestLen = -1;
+  for (const row of rows) {
+    const stored = canonicalizeHostPath(row.path).toLowerCase();
+    if ((target === stored || target.startsWith(`${stored}/`)) && stored.length > bestLen) {
+      best = row;
+      bestLen = stored.length;
+    }
+  }
+  return best;
 }
 
 function queryProjectById(

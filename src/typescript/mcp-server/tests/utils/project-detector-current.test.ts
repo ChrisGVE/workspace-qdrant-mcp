@@ -184,12 +184,12 @@ describe('isGitRepository', () => {
     expect(isGitRepository(nonRepoPath)).toBe(false);
   });
 
-  it('should return false for .git file (worktrees)', () => {
+  it('should return true for a .git file (linked worktree)', () => {
     const worktreePath = join(tempDir, 'worktree');
     mkdirSync(worktreePath);
     writeFileSync(join(worktreePath, '.git'), 'gitdir: ../main/.git/worktrees/worktree');
 
-    // .git is a file, not a directory
-    expect(isGitRepository(worktreePath)).toBe(false);
+    // A linked worktree's `.git` is a file, not a directory — still a git repo.
+    expect(isGitRepository(worktreePath)).toBe(true);
   });
 });

@@ -143,7 +143,9 @@ export async function resolveProjectContext(
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
   if (!currentProjectId && scope === 'project') {
-    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
+      fallbackToSoleProject: true,
+    });
     currentProjectId = projectInfo?.projectId;
   }
 

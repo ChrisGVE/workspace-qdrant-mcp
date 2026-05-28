@@ -29,7 +29,9 @@ async function resolveExactSearchTenant(
 ): Promise<ExactSearchTenantResolution> {
   if (options.scope === 'all') return { kind: 'unscoped' };
   if (options.projectId) return { kind: 'tenant', tenantId: options.projectId };
-  const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
+  const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
+    fallbackToSoleProject: true,
+  });
   if (projectInfo?.projectId) {
     return { kind: 'tenant', tenantId: projectInfo.projectId };
   }

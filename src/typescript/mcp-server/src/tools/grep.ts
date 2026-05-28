@@ -333,7 +333,9 @@ export class GrepTool {
    */
   private async resolveProjectId(): Promise<string | undefined> {
     const cwd = getEffectiveCwd();
-    const projectInfo = await this.projectDetector.getProjectInfo(cwd, false);
+    const projectInfo = await this.projectDetector.getProjectInfo(cwd, false, {
+      fallbackToSoleProject: true,
+    });
     return projectInfo?.projectId;
   }
 }

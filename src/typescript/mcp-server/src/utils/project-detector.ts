@@ -54,6 +54,17 @@ export interface ProjectInfo {
   gitRemote?: string | undefined;
 }
 
+export interface GetProjectInfoOptions {
+  /**
+   * When path detection finds no project AND exactly one project is
+   * registered, assume that project instead of returning null. Intended for
+   * CWD-based MCP tool detection — where the host path may not be reconcilable
+   * with the daemon-stored path (e.g. the host-cwd header was absent and the
+   * container WORKDIR leaked through) — not for strict lookups.
+   */
+  fallbackToSoleProject?: boolean;
+}
+
 /**
  * Project detector for MCP server
  *
@@ -144,11 +155,31 @@ export class ProjectDetector {
    *
    * @param projectPath Absolute path to project root
    * @param waitForRegistration If true, retry if project not found
+   * @param options Optional resolution behavior (see {@link GetProjectInfoOptions})
    * @returns ProjectInfo or null if not found/registered
    */
   async getProjectInfo(
     projectPath: string,
-    waitForRegistration = false
+    waitForRegistration = false,
+    options: GetProjectInfoOptions = {}
+  ): Promise<ProjectInfo | null> {
+    const info = await this.detectProjectByPath(projectPath, waitForRegistration);
+    if (info) {
+      return info;
+    }
+    if (options.fallbackToSoleProject) {
+      return this.soleRegisteredProject();
+    }
+    return null;
+  }
+
+  /**
+   * Path-based detection: cache lookup, then a longest-prefix match against
+   * the daemon's registered project paths. Returns null on miss.
+   */
+  private async detectProjectByPath(
+    projectPath: string,
+    waitForRegistration: boolean
   ): Promise<ProjectInfo | null> {
     const normalizedPath = resolve(projectPath);
 
@@ -177,6 +208,36 @@ export class ProjectDetector {
     }
 
     return this.fetchProjectInfo(normalizedPath);
+  }
+
+  /**
+   * Fallback for CWD-based detection: when no project maps to the host path
+   * and exactly one project is registered, assume it. Returns null when zero
+   * or 2+ projects are registered, or when the database is unavailable.
+   */
+  private soleRegisteredProject(): ProjectInfo | null {
+    if (!this.stateManager.isConnected()) {
+      const initResult = this.stateManager.initialize();
+      if (initResult.status === 'degraded') {
+        return null;
+      }
+    }
+
+    const all = this.stateManager.listAllProjects();
+    if (all.status !== 'ok' || all.data.length !== 1) {
+      return null;
+    }
+
+    const [project] = all.data;
+    if (!project) {
+      return null;
+    }
+    return {
+      projectId: project.project_id,
+      projectPath: project.project_path,
+      isActive: project.is_active,
+      gitRemote: project.git_remote_url,
+    };
   }
 
   /**
