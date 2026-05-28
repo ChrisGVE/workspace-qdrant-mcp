@@ -248,6 +248,24 @@ impl StorageClient {
         {
             warn!("Could not create branches index (may already exist): {}", e);
         }
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_PROJECTS, "tenant_id")
+            .await
+        {
+            warn!(
+                "Could not create tenant_id index (may already exist): {}",
+                e
+            );
+        }
+        if let Err(e) = self
+            .create_payload_index(COLLECTION_PROJECTS, "file_path")
+            .await
+        {
+            warn!(
+                "Could not create file_path index (may already exist): {}",
+                e
+            );
+        }
         Ok(())
     }
 
