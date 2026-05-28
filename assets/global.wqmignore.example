@@ -23,6 +23,17 @@
 # For the bundled compose stack that's `state/memexd/global.wqmignore`.
 # =============================================================================
 
+# ─── Pattern syntax note ─────────────────────────────────────────────────────
+# Directory exclusion via trailing slash (`testlink/`) does NOT reliably keep
+# the walker out of that subtree when the pattern lives in global.wqmignore.
+# Use the explicit `/**` suffix when you want to exclude an entire subtree:
+#
+#   **/some/subtree/**          # exclude everything inside
+#   !**/some/subtree/keep/**    # re-include a slice (needs its own /** too)
+#
+# This is more verbose than gitignore's `subtree/` shorthand, but matches what
+# the Rust `ignore` crate's add_ignore() actually applies cross-tree.
+
 # ─── Self-storage (Qdrant + memexd + MCP local state) ────────────────────────
 # When the workspace-qdrant-mcp repo itself is registered as a project, the
 # daemon would otherwise watch its own Qdrant storage / SQLite WAL / MCP logs,
