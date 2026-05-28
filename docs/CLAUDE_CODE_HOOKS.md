@@ -11,7 +11,7 @@ This guide documents how to integrate workspace-qdrant-mcp with Claude Code's ho
 - **Hooks** call `wqm` CLI commands for session lifecycle events
 - **Daemon** manages persistent state and file watching
 
-This replaces the HTTP-based approach documented in `docs/claude_code_integration.md`.
+This replaces the legacy HTTP-based hook approach (removed).
 
 ## Architecture
 
@@ -288,4 +288,3 @@ The CLI approach is recommended as the primary integration method. It eliminates
 | `src/rust/cli/src/commands/session.rs` | CLI session command implementation |
 | `src/rust/daemon/core/src/daemon_state.rs` | Activity inheritance SQL |
 | `src/rust/daemon/grpc/src/services/project_service.rs` | RegisterProject/DeprioritizeProject handlers |
-| `docs/claude_code_integration.md` | Legacy HTTP-based approach |

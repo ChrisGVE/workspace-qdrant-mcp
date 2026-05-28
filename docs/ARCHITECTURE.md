@@ -840,15 +840,6 @@ sequenceDiagram
 
 ## Additional Resources
 
-For detailed component specifications and implementation details:
-
-- **[Component Boundaries](./architecture/component-boundaries.md)** - Formal component responsibilities
-- **[Interface Specifications](./architecture/interface-specifications.md)** - API and interface details
-- **[Data Flow and Isolation](./architecture/data-flow-and-isolation.md)** - System workflows
-- **[Implementation Roadmap](./architecture/implementation-roadmap.md)** - Migration path
-- **[Write Path Enforcement](./architecture/write-path-enforcement.md)** - Write path validation
-- **[LLM Context Injection](./architecture/llm-context-injection.md)** - Context system details
-
 **Reference Implementation:**
 - **Server**: `src/python/workspace_qdrant_mcp/server.py` - MCP tools implementation
 - **Daemon**: `src/rust/daemon/` - Unified Rust daemon (current), `src/rust/daemon/core/` (archived)

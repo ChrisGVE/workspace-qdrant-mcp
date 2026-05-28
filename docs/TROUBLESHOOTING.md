@@ -1875,8 +1875,8 @@ If issues persist after following this guide:
 
 3. **Check documentation:**
    - [README.md](README.md) - Installation and setup
-   - [API.md](API.md) - MCP tools reference
-   - [CLI.md](CLI.md) - Command-line reference
+   - [MCP Tools](specs/08-api-reference.md) - MCP tools reference
+   - [CLI Reference](reference/cli.md) - Command-line reference
    - [Architecture](docs/ARCHITECTURE.md) - System architecture
 
 4. **Open an issue:**
@@ -1890,6 +1890,6 @@ If issues persist after following this guide:
 **Related Documentation:**
 - [Installation Guide](README.md#installation)
 - [Configuration Reference](assets/default_configuration.yaml)
-- [CLI Commands](CLI.md)
-- [MCP Tools](API.md)
+- [CLI Commands](reference/cli.md)
+- [MCP Tools](specs/08-api-reference.md)
 - [Architecture](docs/ARCHITECTURE.md)

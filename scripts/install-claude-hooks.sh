@@ -49,7 +49,7 @@ if [ ! -f "$SETTINGS_FILE" ]; then
 EOF
 else
   echo "WARNING: ${SETTINGS_FILE} already exists"
-  echo "  Please manually add hooks configuration (see docs/claude_code_integration.md)"
+  echo "  Please manually add hooks configuration (see docs/CLAUDE_CODE_HOOKS.md)"
 fi
 
 echo ""
@@ -65,4 +65,4 @@ echo ""
 echo "3. Start using Claude Code in this project"
 echo "   Hooks will automatically trigger on session start/end"
 echo ""
-echo "For more information, see: docs/claude_code_integration.md"
+echo "For more information, see: docs/CLAUDE_CODE_HOOKS.md"

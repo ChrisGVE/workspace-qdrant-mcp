@@ -561,6 +561,6 @@ BackoffConfig(
 ## Related Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Overall system architecture
-- [API.md](API.md) - API reference
+- [API Reference](specs/08-api-reference.md) - MCP tools + gRPC services
 - [TESTING.md](TESTING.md) - Testing guide
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - General troubleshooting

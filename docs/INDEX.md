@@ -20,6 +20,21 @@
 | [Architecture](reference/architecture.md) | Component overview and data flow |
 | [Admin UI](ADMIN_UI.md) | Browser dashboard at `/admin/` — project discovery, real-time index info, CRUD over watch folders |
 
+## Guides & Operations
+
+| Document | Description |
+|----------|-------------|
+| [LSP Integration](LSP_INTEGRATION.md) | Per-project LSP setup and code-intelligence guide |
+| [Claude Code Hooks](CLAUDE_CODE_HOOKS.md) | CLI-based session-lifecycle hooks |
+| [Metrics](METRICS.md) | Prometheus metrics catalog and alerting rules |
+| [Troubleshooting](TROUBLESHOOTING.md) | Diagnostics and common issues |
+| [Backup & Restore](BACKUP_RESTORE.md) | Snapshot and restore procedures |
+| [OS Compatibility](OS_COMPATIBILITY.md) | Per-platform support matrix |
+| [Qdrant Cheatsheet](qdrant_cheatsheet.md) | Common Qdrant point operations |
+| [Deployment](deployment/docker.md) | Docker / [API keys](deployment/api-keys.md) / [reliability](deployment/reliability.md) reference-compose ops |
+| [Collection Naming Migration](migration/collection-naming-migration.md) | `_projects` → `projects` data migration (ADR-001) |
+| [Path Abstraction Upgrade Notes](upgrade-notes/0.1.x-path-abstraction.md) | schema v37 migration notes |
+
 ## Runbooks
 
 Operational playbooks for recovering from specific incident classes.
@@ -27,6 +42,7 @@ Operational playbooks for recovering from specific incident classes.
 | Document | Description |
 |----------|-------------|
 | [Qdrant Corruption Recovery](runbooks/qdrant-corruption.md) | Unloadable collections after a dirty shutdown — auto-quarantine wrapper, manual fallback, drift cleanup |
+| [Self-Watch Loop Recovery](runbooks/self-watch-loop.md) | Docker / `memexd_db` recovery for the self-watch loop |
 
 ## Specifications
 
@@ -50,9 +66,13 @@ Technical specifications for developers and contributors.
 | [Deployment](specs/13-deployment.md) | Build, packaging, and distribution |
 | [Future Development](specs/14-future-development.md) | Roadmap and parking lot |
 | [Language Registry](specs/15-language-registry.md) | Dynamic language registry and GenericExtractor |
+| [Path Abstraction](specs/16-path-abstraction.md) | Root-relative path model |
 | [Deferred Reprocessing](specs/17-deferred-reprocessing.md) | Deferred reprocessing pipeline |
 | [Error Handling](specs/18-error-handling-resilience.md) | Error handling and resilience patterns |
 | [Branch/Worktree Audit](specs/19-branch-worktree-audit.md) | Branch lifecycle and worktree management |
+| [Token Economy Instrumentation](specs/20-token-economy-instrumentation.md) | Token-economy metrics |
+| [Tree-sitter Roadmap](specs/21-tree-sitter-roadmap.md) | Tree-sitter chunking roadmap |
+| [Cross-branch Dedup](specs/21-cross-branch-dedup.md) | Cross-branch chunk deduplication |
 
 ## Architecture Decision Records
 
@@ -67,6 +87,7 @@ Technical specifications for developers and contributors.
 | Document | Description |
 |----------|-------------|
 | [Search Quality Next Steps](plans/2026-05-25-search-quality-next-steps.md) | Configurable roadmap for embedding profiles, rerank, diversity, GPU, and benchmarking |
+| [CLI Redesign](plans/2026-02-04-cli-redesign.md) | Completed CLI command restructure (historical record) |
 
 ## Reading Paths
 
