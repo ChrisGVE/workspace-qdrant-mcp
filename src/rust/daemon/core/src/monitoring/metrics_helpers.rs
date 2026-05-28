@@ -96,6 +96,7 @@ impl DaemonMetrics {
         is_archived: bool,
         is_worktree: bool,
         is_git_tracked: bool,
+        git_remote: &str,
         tracked_files: i64,
     ) {
         self.indexed_project_tracked_files
@@ -109,6 +110,7 @@ impl DaemonMetrics {
                 if is_archived { "true" } else { "false" },
                 if is_worktree { "true" } else { "false" },
                 if is_git_tracked { "true" } else { "false" },
+                git_remote,
             ])
             .set(tracked_files);
     }

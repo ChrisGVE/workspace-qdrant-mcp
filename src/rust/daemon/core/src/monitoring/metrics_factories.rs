@@ -137,6 +137,7 @@ pub(super) fn create_indexed_project_metrics() -> (
             "is_archived",
             "is_worktree",
             "is_git_tracked",
+            "git_remote",
         ],
     );
     let indexed_project_points = int_gauge_vec(

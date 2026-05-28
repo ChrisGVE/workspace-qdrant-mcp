@@ -387,8 +387,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (tenant_id, status) (memexd_unified_queue_depth_by_tenant)",
-          "legendFormat": "{{tenant_id}} / {{status}}",
+          "expr": "sum by (tenant_id, status) (memexd_unified_queue_depth_by_tenant) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"git_remote\", \".*/([^/]+)/?$\")) >= bool 0)",
+          "legendFormat": "{{repo}} {{tenant_id}} / {{status}}",
           "refId": "A"
         }
       ]
@@ -409,8 +409,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status=\"pending\"}))",
-          "legendFormat": "{{tenant_id}}",
+          "expr": "topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status=\"pending\"}) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"git_remote\", \".*/([^/]+)/?$\")) >= bool 0))",
+          "legendFormat": "{{repo}} {{tenant_id}}",
           "refId": "A"
         }
       ]
@@ -435,8 +435,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "memexd_indexing_eta_seconds_by_tenant >= 0",
-          "legendFormat": "{{tenant_id}}",
+          "expr": "(memexd_indexing_eta_seconds_by_tenant >= 0) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"git_remote\", \".*/([^/]+)/?$\")) >= bool 0)",
+          "legendFormat": "{{repo}} {{tenant_id}}",
           "refId": "A"
         }
       ]

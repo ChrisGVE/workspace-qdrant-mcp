@@ -242,6 +242,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                     wf.is_archived,
                     wf.is_worktree,
                     wf.is_git_tracked,
+                    wf.git_remote_url,
                     COUNT(tf.file_id) AS document_count,
                     COALESCE(SUM(tf.chunk_count), 0) AS point_count,
                     wf.last_scan,
@@ -259,7 +260,8 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                     wf.is_paused,
                     wf.is_archived,
                     wf.is_worktree,
-                    wf.is_git_tracked
+                    wf.is_git_tracked,
+                    wf.git_remote_url
                 ORDER BY document_count DESC, point_count DESC, wf.tenant_id ASC, wf.path ASC
             "#;
 
@@ -280,6 +282,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                         let is_archived: i32 = row.get("is_archived");
                         let is_worktree: i32 = row.get("is_worktree");
                         let is_git_tracked: i32 = row.get("is_git_tracked");
+                        let git_remote_url: Option<String> = row.get("git_remote_url");
                         let document_count: i64 = row.get("document_count");
                         let point_count: i64 = row.get("point_count");
                         let last_scan_epoch: Option<i64> = row
@@ -307,6 +310,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                             is_archived != 0,
                             is_worktree != 0,
                             is_git_tracked != 0,
+                            git_remote_url.as_deref().unwrap_or(""),
                             document_count,
                         );
                         METRICS.set_indexed_project_points(&watch_id, point_count);

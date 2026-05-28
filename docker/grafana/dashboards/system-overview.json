@@ -303,6 +303,33 @@
       ]
     },
     {
+      "id": 30,
+      "title": "MCP tool calls (last 24h, by tool)",
+      "description": "Total MCP tool invocations per tool over the last 24h (success + error). Use to confirm agents are actually exercising each tool — a tool stuck at 0 across a busy period is a discoverability/wiring signal, not necessarily an error.",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (tool) (increase(wqm_mcp_tool_invocations_total[24h]))",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 7,
       "title": "MCP Tool Invocation Rate",
       "description": "Total MCP tool invocation rate across all tools.",
@@ -332,8 +359,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(wqm_mcp_tool_invocations_total[2m]))",
-          "legendFormat": "total invocations/s",
+          "expr": "sum by (tool) (rate(wqm_mcp_tool_invocations_total[2m]))",
+          "legendFormat": "{{tool}}",
           "refId": "A"
         }
       ]
@@ -1101,7 +1128,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(max by (watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived, is_worktree, is_git_tracked) (memexd_indexed_project_tracked_files), \"name\", \"$1\", \"path\", \".*/([^/]+)/?$\")",
+          "expr": "label_replace(max by (watch_id, tenant_id, path, enabled, is_active, is_paused, is_archived, is_worktree, is_git_tracked, git_remote) (memexd_indexed_project_tracked_files), \"name\", \"$1\", \"path\", \".*/([^/]+)/?$\")",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -1159,6 +1186,7 @@
               "name": "Project",
               "path": "Path",
               "tenant_id": "Tenant",
+              "git_remote": "Remote",
               "is_active": "Active",
               "is_worktree": "Worktree",
               "is_git_tracked": "Git",
