@@ -33,6 +33,7 @@ import {
   saveObservation,
 } from './indexed-projects-observations.js';
 import { DEFAULT_CONFIG } from './../types/generated-defaults.js';
+import type { DaemonClient } from './../clients/daemon-client.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -411,11 +412,13 @@ export function runAgentBranchStatus(args: BranchArgs): unknown {
 
 // ── Read-action handlers (Phase 2 port: observation/status surface) ──────
 
-export async function runProjectStatus(args: ProjectArgs): Promise<unknown> {
+export async function runProjectStatus(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
   const project = findProject(registry, args);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
-  const observation = await newObservation(project, wqmPath);
+  const observation = await newObservation(project, daemonClient);
   return {
     success: true,
     project: project.name,
@@ -425,11 +428,13 @@ export async function runProjectStatus(args: ProjectArgs): Promise<unknown> {
   };
 }
 
-export async function runStatusAll(args: BaseArgs): Promise<unknown> {
+export async function runStatusAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
   const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
-  const observations = await Promise.all(enabled.map((p) => newObservation(p, wqmPath)));
+  const observations = await Promise.all(enabled.map((p) => newObservation(p, daemonClient)));
   return {
     success: true,
     count: observations.length,
@@ -437,11 +442,13 @@ export async function runStatusAll(args: BaseArgs): Promise<unknown> {
   };
 }
 
-export async function runObserveProject(args: ProjectArgs): Promise<unknown> {
+export async function runObserveProject(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
   const project = findProject(registry, args);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
-  const observation = await newObservation(project, wqmPath);
+  const observation = await newObservation(project, daemonClient);
   const savedTo = saveObservation(args.registryPath, observation);
   return {
     success: true,
@@ -451,13 +458,15 @@ export async function runObserveProject(args: ProjectArgs): Promise<unknown> {
   };
 }
 
-export async function runObserveAll(args: BaseArgs): Promise<unknown> {
+export async function runObserveAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
-  const wqmPath = resolveWqmPath(dirname(args.registryPath));
   const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
   const observations = await Promise.all(
     enabled.map(async (p) => {
-      const obs = await newObservation(p, wqmPath);
+      const obs = await newObservation(p, daemonClient);
       saveObservation(args.registryPath, obs);
       return obs;
     })

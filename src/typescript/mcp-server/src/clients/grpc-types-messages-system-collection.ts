@@ -51,6 +51,17 @@ export interface MetricsResponse {
   collected_at?: { seconds: number; nanos: number };
 }
 
+export interface QueueStatsResponse {
+  pending_count: number;
+  in_progress_count: number;
+  completed_count: number;
+  failed_count: number;
+  by_item_type: Record<string, number>;
+  by_collection: Record<string, number>;
+  stale_items_count: number;
+  collected_at?: { seconds: number; nanos: number };
+}
+
 export interface GetEmbeddingProviderStatusResponse {
   provider: string;
   model: string;

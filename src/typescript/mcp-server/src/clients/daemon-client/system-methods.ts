@@ -8,6 +8,7 @@ import type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  QueueStatsResponse,
   GetEmbeddingProviderStatusResponse,
   RebuildIndexRequest,
   RebuildIndexResponse,
@@ -65,6 +66,17 @@ export class DaemonClientSystem extends DaemonClientBase {
   async getMetrics(): Promise<MetricsResponse> {
     return this.callWithRetry(() =>
       grpcUnaryWithTimeout(this.systemClient, 'getMetrics', {}, this.getMethodTimeout('getMetrics'))
+    );
+  }
+
+  async getQueueStats(): Promise<QueueStatsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.systemClient,
+        'getQueueStats',
+        {},
+        this.getMethodTimeout('getQueueStats')
+      )
     );
   }
 

@@ -497,7 +497,8 @@ function buildStartAgentBranchArgs(
 function dispatchTsAction(
   action: string,
   args: JsonObject,
-  repoDir: string
+  repoDir: string,
+  daemonClient: DaemonClient | undefined
 ): unknown | Promise<unknown> {
   const registryPath = stringArg(args, 'registryPath') ?? defaultRegistryPath(repoDir);
   const base: BaseArgs = { registryPath };
@@ -539,13 +540,13 @@ function dispatchTsAction(
     }
     // ── Phase 2: observation/status surface ─────────────────────────────
     case 'project_status':
-      return runProjectStatus(projectArgs);
+      return runProjectStatus(projectArgs, daemonClient);
     case 'status_all':
-      return runStatusAll(base);
+      return runStatusAll(base, daemonClient);
     case 'observe_project':
-      return runObserveProject(projectArgs);
+      return runObserveProject(projectArgs, daemonClient);
     case 'observe_all':
-      return runObserveAll(base);
+      return runObserveAll(base, daemonClient);
     case 'incremental_check':
       return runIncrementalCheck(projectArgs);
     case 'incremental_check_all':
@@ -591,7 +592,7 @@ export async function handleWorkspaceIndex(
   if (action && TS_NATIVE_ACTIONS.has(action)) {
     assertMutationAllowed(action, args);
     const repoDir = resolveRepoDir(args);
-    return dispatchTsAction(action, args, repoDir);
+    return dispatchTsAction(action, args, repoDir, daemonClient);
   }
 
   // PowerShell-backed actions: require the workspace-qdrant-mcp checkout to

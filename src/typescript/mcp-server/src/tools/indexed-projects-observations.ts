@@ -22,6 +22,8 @@ import { connect as netConnect } from 'node:net';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import type { RegistryBranch, RegistryProject } from './indexed-projects-registry.js';
+import type { DaemonClient } from '../clients/daemon-client.js';
+import { ServiceStatus } from '../clients/grpc-types.js';
 
 // ── Time + small helpers ───────────────────────────────────────────────────
 
@@ -416,24 +418,127 @@ export interface ObservationBranch {
   watchEnabled?: boolean;
 }
 
+/**
+ * Daemon health snapshot sourced from SystemService.Health over gRPC.
+ * `ok` means the RPC succeeded (daemon reachable); `status` carries the
+ * daemon's own assessment (HEALTHY / DEGRADED / ...). On an unreachable
+ * daemon `ok` is false and `error` holds the gRPC failure message.
+ */
+export interface DaemonHealthResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  status?: string;
+  components?: Array<{ component: string; status: string; message: string }>;
+  error?: string;
+}
+
+/**
+ * Queue-depth snapshot sourced from SystemService.GetQueueStats over gRPC.
+ * The daemon reads its own SQLite (authoritative DB on the daemon volume), so
+ * counts are correct regardless of where the MCP server runs.
+ */
+export interface DaemonQueueResult {
+  ok: boolean;
+  source: 'daemon-grpc';
+  pending_count?: number;
+  in_progress_count?: number;
+  completed_count?: number;
+  failed_count?: number;
+  stale_items_count?: number;
+  by_item_type?: Record<string, number>;
+  by_collection?: Record<string, number>;
+  error?: string;
+}
+
 export interface Observation {
   timestamp: string;
   project: string;
   root: string;
   qdrant: QdrantProbe;
   daemonTcp: TcpProbe;
-  wqmHealth: CapturedResult;
-  queue: CapturedResult;
+  wqmHealth: DaemonHealthResult;
+  queue: DaemonQueueResult;
   branches: ObservationBranch[];
 }
 
+function serviceStatusLabel(value: number): string {
+  return ServiceStatus[value] ?? String(value);
+}
+
 /**
- * Build the per-project observation. Mirrors PS New-Observation:
- * field set, field order, fallback shapes when wqm is absent.
+ * Probe daemon health over gRPC (SystemService.Health). Never throws — an
+ * unreachable daemon yields `{ ok: false, error }` so the observation still
+ * serialises cleanly.
+ */
+async function probeDaemonHealth(
+  client: DaemonClient | null | undefined
+): Promise<DaemonHealthResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  try {
+    const r = await client.healthCheck();
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      status: serviceStatusLabel(r.status),
+      components: (r.components ?? []).map((c) => ({
+        component: c.component_name,
+        status: serviceStatusLabel(c.status),
+        message: c.message,
+      })),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Probe queue depth over gRPC (SystemService.GetQueueStats). Never throws.
+ */
+async function probeDaemonQueue(
+  client: DaemonClient | null | undefined
+): Promise<DaemonQueueResult> {
+  if (!client) {
+    return { ok: false, source: 'daemon-grpc', error: 'daemon gRPC client unavailable' };
+  }
+  try {
+    const r = await client.getQueueStats();
+    return {
+      ok: true,
+      source: 'daemon-grpc',
+      pending_count: r.pending_count,
+      in_progress_count: r.in_progress_count,
+      completed_count: r.completed_count,
+      failed_count: r.failed_count,
+      stale_items_count: r.stale_items_count,
+      by_item_type: r.by_item_type,
+      by_collection: r.by_collection,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      source: 'daemon-grpc',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Build the per-project observation. The `wqmHealth` and `queue` fields are
+ * sourced from the daemon over gRPC (SystemService.Health / GetQueueStats)
+ * instead of shelling out to the `wqm` CLI — so the observation is correct
+ * inside the dockerized MCP container, which has no wqm binary and (for the
+ * queue) no direct access to the daemon's SQLite volume. Field set/order is
+ * otherwise unchanged from the PS New-Observation surface.
  */
 export async function newObservation(
   project: RegistryProject,
-  wqmPath: string | null
+  daemonClient: DaemonClient | null | undefined
 ): Promise<Observation> {
   const root = project.root;
 
@@ -457,29 +562,14 @@ export async function newObservation(
     };
   });
 
-  // wqm probes. Container without wqm: surface a stable "not installed" stub
-  // identical to the PS impl so downstream callers don't have to special-case.
-  const wqmHealth: CapturedResult = wqmPath
-    ? invokeCaptured(wqmPath, ['status', 'health'], root, 20)
-    : {
-        ok: false,
-        exitCode: -1,
-        stdout: '',
-        stderr: 'wqm CLI not installed on host',
-      };
-  const queue: CapturedResult = wqmPath
-    ? invokeCaptured(wqmPath, ['queue', 'stats'], root, 20)
-    : {
-        ok: false,
-        exitCode: -1,
-        stdout: '',
-        stderr: 'wqm CLI not installed on host',
-      };
-
-  // Network probes (concurrent — neither depends on the other).
-  const [qdrant, daemonTcp] = await Promise.all([
+  // Health + queue come from the daemon over gRPC (SystemService). The wqm
+  // CLI shell-out is gone: it was absent in the dockerized container and, for
+  // queue stats, read the wrong SQLite anyway. All four probes are independent.
+  const [qdrant, daemonTcp, wqmHealth, queue] = await Promise.all([
     testQdrant(project.qdrantUrl),
     testTcpEndpoint(project.daemonEndpoint),
+    probeDaemonHealth(daemonClient),
+    probeDaemonQueue(daemonClient),
   ]);
 
   return {

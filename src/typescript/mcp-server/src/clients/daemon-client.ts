@@ -19,6 +19,7 @@ export type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  QueueStatsResponse,
   GetEmbeddingProviderStatusResponse,
   RegisterProjectRequest,
   RegisterProjectResponse,

@@ -18,6 +18,7 @@ export {
   type SystemStatusResponse,
   type Metric,
   type MetricsResponse,
+  type QueueStatsResponse,
   type GetEmbeddingProviderStatusResponse,
   type RebuildIndexRequest,
   type RebuildIndexResponse,
