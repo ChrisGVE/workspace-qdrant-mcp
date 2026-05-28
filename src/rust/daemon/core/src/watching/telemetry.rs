@@ -235,8 +235,14 @@ impl TelemetryTracker {
         if config.memory_usage {
             if let Some(process) = self.system.process(self.pid) {
                 let rss_mb = process.memory() as f64 / 1024.0 / 1024.0;
-                let heap_mb =
-                    (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
+                // sysinfo on Windows can report virtual_memory < memory for short-
+                // lived test processes; saturating_sub keeps the heap estimate at
+                // zero instead of underflowing.
+                let heap_mb = process
+                    .virtual_memory()
+                    .saturating_sub(process.memory()) as f64
+                    / 1024.0
+                    / 1024.0;
                 (Some(rss_mb), Some(heap_mb))
             } else {
                 (None, None)
@@ -319,5 +325,189 @@ impl TelemetryTracker {
 
     pub(super) fn get_history(&self) -> Vec<TelemetrySnapshot> {
         self.history.iter().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Telemetry config with everything enabled — the metric toggles each
+    /// gate a different branch in `collect_snapshot`, so the test default
+    /// must turn them all on.
+    fn full_config() -> TelemetryConfig {
+        TelemetryConfig {
+            enabled: true,
+            history_retention: 3,
+            collection_interval_secs: 60,
+            cpu_usage: true,
+            memory_usage: true,
+            latency: true,
+            queue_depth: true,
+            throughput: true,
+        }
+    }
+
+    #[test]
+    fn calculate_percentile_empty_latencies_returns_none() {
+        let t = TelemetryTracker::new();
+        assert!(t.calculate_percentile(50.0).is_none());
+        assert!(t.calculate_percentile(99.0).is_none());
+    }
+
+    #[test]
+    fn calculate_percentile_p50_p95_p99() {
+        let mut t = TelemetryTracker::new();
+        for i in 1..=100 {
+            t.record_latency(i as f64);
+        }
+        // index = floor(p/100 * len), clamped to len-1.
+        //   p50 → index 50 → sorted[50] = 51.0
+        //   p95 → index 95 → sorted[95] = 96.0
+        //   p99 → index 99 → sorted[99] = 100.0
+        assert_eq!(t.calculate_percentile(50.0), Some(51.0));
+        assert_eq!(t.calculate_percentile(95.0), Some(96.0));
+        assert_eq!(t.calculate_percentile(99.0), Some(100.0));
+    }
+
+    #[test]
+    fn calculate_percentile_clamps_at_max_index() {
+        let mut t = TelemetryTracker::new();
+        t.record_latency(7.0);
+        // (100/100) * 1 = 1, clamped to len-1 = 0.
+        assert_eq!(t.calculate_percentile(100.0), Some(7.0));
+    }
+
+    #[test]
+    fn record_latency_caps_buffer_at_1000() {
+        let mut t = TelemetryTracker::new();
+        for i in 0..1500 {
+            t.record_latency(i as f64);
+        }
+        assert_eq!(t.latencies.len(), 1000);
+        // FIFO eviction: oldest (0.0..499.0) are gone; min remaining is 500.0.
+        let min = t
+            .latencies
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+        assert_eq!(min, 500.0);
+    }
+
+    #[test]
+    fn record_queue_depth_tracks_running_max() {
+        let mut t = TelemetryTracker::new();
+        t.record_queue_depth(10);
+        t.record_queue_depth(50);
+        t.record_queue_depth(20);
+        assert_eq!(t.queue_depth_max, 50);
+        assert_eq!(t.queue_depth_samples, vec![10, 50, 20]);
+    }
+
+    #[test]
+    fn collect_snapshot_returns_none_when_disabled() {
+        let mut t = TelemetryTracker::new();
+        let cfg = TelemetryConfig {
+            enabled: false,
+            ..full_config()
+        };
+        assert!(t.collect_snapshot(&cfg, 42).is_none());
+    }
+
+    #[test]
+    fn collect_snapshot_populates_metrics_and_resets_interval() {
+        let mut t = TelemetryTracker::new();
+        t.record_latency(10.0);
+        t.record_latency(30.0);
+        t.record_file_processed(2048);
+        t.record_file_processed(1024);
+        t.record_queue_depth(7);
+        t.record_queue_depth(13);
+
+        let snap = t.collect_snapshot(&full_config(), 99).unwrap();
+
+        assert_eq!(snap.queue_depth_current, 99);
+        // (10 + 30) / 2 = 20.0
+        assert_eq!(snap.avg_latency_ms, Some(20.0));
+        // p95 of two samples: index = floor(0.95 * 2) = 1 → sorted[1] = 30.0
+        assert_eq!(snap.p95_latency_ms, Some(30.0));
+        // (7 + 13) / 2 = 10.0
+        assert_eq!(snap.queue_depth_avg, 10.0);
+        assert_eq!(snap.queue_depth_max, 13);
+        assert!(snap.throughput_files_per_sec > 0.0);
+        assert!(snap.throughput_bytes_per_sec > 0.0);
+
+        // Interval counters are reset after collection so the next snapshot
+        // measures only the next window.
+        assert_eq!(t.files_processed_interval, 0);
+        assert_eq!(t.bytes_processed_interval, 0);
+        assert!(t.queue_depth_samples.is_empty());
+        assert_eq!(t.queue_depth_max, 0);
+    }
+
+    #[test]
+    fn collect_snapshot_honours_individual_toggles() {
+        let mut t = TelemetryTracker::new();
+        t.record_latency(5.0);
+        t.record_queue_depth(3);
+        t.record_file_processed(100);
+
+        // Disable everything except cpu (which is still optional and may be
+        // None on this host); the disabled metrics must come back unset.
+        let cfg = TelemetryConfig {
+            enabled: true,
+            history_retention: 3,
+            collection_interval_secs: 60,
+            cpu_usage: false,
+            memory_usage: false,
+            latency: false,
+            queue_depth: false,
+            throughput: false,
+        };
+
+        let snap = t.collect_snapshot(&cfg, 0).unwrap();
+        assert!(snap.cpu_usage_percent.is_none());
+        assert!(snap.memory_rss_mb.is_none());
+        assert!(snap.memory_heap_mb.is_none());
+        assert!(snap.avg_latency_ms.is_none());
+        assert!(snap.p95_latency_ms.is_none());
+        assert!(snap.p99_latency_ms.is_none());
+        assert_eq!(snap.queue_depth_avg, 0.0);
+        assert_eq!(snap.queue_depth_max, 0);
+        assert_eq!(snap.throughput_files_per_sec, 0.0);
+        assert_eq!(snap.throughput_bytes_per_sec, 0.0);
+    }
+
+    #[test]
+    fn history_ring_buffer_evicts_oldest_past_retention() {
+        let mut t = TelemetryTracker::new();
+        let cfg = TelemetryConfig {
+            history_retention: 2,
+            ..full_config()
+        };
+
+        // Tag each snapshot via a distinct queue_depth_current so we can
+        // identify which ones survive eviction.
+        for depth in [1usize, 2, 3, 4] {
+            t.collect_snapshot(&cfg, depth);
+        }
+
+        let history = t.get_history();
+        assert_eq!(history.len(), 2);
+        // The oldest two (1, 2) were evicted; (3, 4) remain in order.
+        assert_eq!(history[0].queue_depth_current, 3);
+        assert_eq!(history[1].queue_depth_current, 4);
+    }
+
+    #[test]
+    fn empty_latencies_produce_none_avg_but_zero_throughput() {
+        let mut t = TelemetryTracker::new();
+        let snap = t.collect_snapshot(&full_config(), 0).unwrap();
+        assert!(snap.avg_latency_ms.is_none());
+        assert!(snap.p95_latency_ms.is_none());
+        assert!(snap.p99_latency_ms.is_none());
+        // No files/bytes recorded → throughput is exactly 0.0, not NaN.
+        assert_eq!(snap.throughput_files_per_sec, 0.0);
+        assert_eq!(snap.throughput_bytes_per_sec, 0.0);
     }
 }

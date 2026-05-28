@@ -103,6 +103,129 @@ impl EventDebouncer {
     }
 }
 
+#[cfg(test)]
+mod debouncer_tests {
+    use super::*;
+    use notify::event::{CreateKind, EventKind};
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    /// Build a FileEvent with the given path and timestamp. Used to seed
+    /// debounce state with a "known past" event.
+    fn mk_event(path: &str, ts: Instant) -> FileEvent {
+        FileEvent {
+            path: PathBuf::from(path),
+            event_kind: EventKind::Create(CreateKind::File),
+            timestamp: ts,
+            system_time: SystemTime::now(),
+            size: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn now_event(path: &str) -> FileEvent {
+        mk_event(path, Instant::now())
+    }
+
+    #[test]
+    fn first_event_for_path_is_accepted() {
+        let mut d = EventDebouncer::new(1_000, 10);
+        let (process, evicted) = d.add_event(now_event("/a"));
+        assert!(process);
+        assert!(evicted.is_none());
+    }
+
+    #[test]
+    fn second_event_within_window_is_debounced() {
+        let mut d = EventDebouncer::new(1_000, 10);
+        let _ = d.add_event(now_event("/a"));
+        let (process, _) = d.add_event(now_event("/a"));
+        assert!(!process, "second event for same path within window is suppressed");
+    }
+
+    #[test]
+    fn second_event_past_window_is_accepted() {
+        // Seed the cache with an event whose timestamp is well outside the
+        // 20ms debounce window — no real sleep needed, the seed event's
+        // backdated `timestamp` is what the debouncer compares against.
+        let mut d = EventDebouncer::new(20, 10);
+        let past = Instant::now()
+            .checked_sub(Duration::from_millis(500))
+            .expect("Instant subtraction with 500ms backwards must succeed");
+        let _ = d.add_event(mk_event("/a", past));
+
+        let (process, _) = d.add_event(now_event("/a"));
+        assert!(process, "event past debounce window must pass through");
+    }
+
+    #[test]
+    fn distinct_paths_do_not_interfere() {
+        let mut d = EventDebouncer::new(1_000, 10);
+        let (p1, _) = d.add_event(now_event("/a"));
+        let (p2, _) = d.add_event(now_event("/b"));
+        assert!(p1 && p2);
+    }
+
+    #[test]
+    fn capacity_overflow_evicts_oldest_and_counts() {
+        let mut d = EventDebouncer::new(60_000, 2);
+        let (_, e1) = d.add_event(now_event("/a"));
+        let (_, e2) = d.add_event(now_event("/b"));
+        assert!(e1.is_none() && e2.is_none(), "no eviction below capacity");
+
+        // Third path forces oldest (/a) out.
+        let (_, evicted) = d.add_event(now_event("/c"));
+        assert!(evicted.is_some(), "capacity overflow must surface evicted event");
+        assert_eq!(evicted.unwrap().path, PathBuf::from("/a"));
+        assert_eq!(d.eviction_count(), 1);
+    }
+
+    #[test]
+    fn get_ready_events_returns_only_past_window_entries() {
+        // debounce_ms = 0 → every entry is "past window" the instant it
+        // lands. Easier than sleeping to make events ready.
+        let mut d = EventDebouncer::new(0, 10);
+        let _ = d.add_event(now_event("/a"));
+        let _ = d.add_event(now_event("/b"));
+
+        let ready = d.get_ready_events();
+        assert_eq!(ready.len(), 2);
+
+        // get_ready_events drains the entries it returns.
+        let ready_again = d.get_ready_events();
+        assert!(ready_again.is_empty());
+    }
+
+    #[test]
+    fn get_ready_events_skips_in_window_entries() {
+        let mut d = EventDebouncer::new(60_000, 10);
+        let _ = d.add_event(now_event("/a"));
+        // Window is 60s and event was just added — nothing ready yet.
+        assert!(d.get_ready_events().is_empty());
+    }
+
+    #[test]
+    fn cleanup_removes_events_older_than_max_age() {
+        let mut d = EventDebouncer::new(60_000, 10);
+        let old = Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .expect("Instant subtraction with 10s backwards must succeed");
+        let _ = d.add_event(mk_event("/old", old));
+        let _ = d.add_event(now_event("/fresh"));
+
+        // Anything older than 1s gets purged; /old qualifies, /fresh doesn't.
+        d.cleanup(Duration::from_secs(1));
+
+        // Use get_ready_events with a zero-window debouncer to inspect what
+        // remains without depending on internal fields.
+        let mut probe = EventDebouncer::new(0, 10);
+        std::mem::swap(&mut d.events, &mut probe.events);
+        let remaining = probe.get_ready_events();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].path, PathBuf::from("/fresh"));
+    }
+}
+
 /// Batch processor for grouping and processing file events efficiently with bounded memory
 #[derive(Debug)]
 pub(super) struct EventBatcher {
@@ -242,5 +365,100 @@ impl EventBatcher {
     /// Get eviction count
     pub(super) fn eviction_count(&self) -> u64 {
         self.evictions
+    }
+}
+
+#[cfg(test)]
+mod batcher_tests {
+    use super::*;
+    use notify::event::{CreateKind, EventKind};
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    fn mk_event(path: &str) -> FileEvent {
+        FileEvent {
+            path: PathBuf::from(path),
+            event_kind: EventKind::Create(CreateKind::File),
+            timestamp: Instant::now(),
+            system_time: SystemTime::now(),
+            size: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn cfg(enabled: bool, max_batch_size: usize, group_by_type: bool) -> BatchConfig {
+        BatchConfig {
+            enabled,
+            max_batch_size,
+            // Large wait so the time-based flush never fires during tests.
+            max_batch_wait_ms: 60_000,
+            group_by_type,
+        }
+    }
+
+    #[test]
+    fn disabled_batcher_returns_each_event_immediately() {
+        let mut b = EventBatcher::new(cfg(false, 10, false), 100);
+        let out = b.add_event(mk_event("/a.txt"));
+        let batch = out.expect("disabled batcher returns the event immediately");
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].path, PathBuf::from("/a.txt"));
+    }
+
+    #[test]
+    fn batch_returns_when_max_size_reached() {
+        let mut b = EventBatcher::new(cfg(true, 2, false), 100);
+        assert!(b.add_event(mk_event("/a.txt")).is_none());
+        // Second event hits the max — batch drains and returns both.
+        let out = b
+            .add_event(mk_event("/b.txt"))
+            .expect("max_batch_size reached should drain the batch");
+        assert_eq!(out.len(), 2);
+        // Subsequent add starts a fresh batch.
+        assert!(b.add_event(mk_event("/c.txt")).is_none());
+    }
+
+    #[test]
+    fn group_by_type_keeps_extensions_separate() {
+        let mut b = EventBatcher::new(cfg(true, 2, true), 100);
+        // Two .rs and one .txt: only the .rs batch fills.
+        assert!(b.add_event(mk_event("/a.rs")).is_none());
+        assert!(b.add_event(mk_event("/c.txt")).is_none());
+        let out = b
+            .add_event(mk_event("/b.rs"))
+            .expect("rs batch fills first because max_batch_size=2");
+        assert_eq!(out.len(), 2);
+        for ev in &out {
+            assert_eq!(ev.path.extension().and_then(|e| e.to_str()), Some("rs"));
+        }
+    }
+
+    #[test]
+    fn flush_all_drains_every_group_and_returns_none_on_empty() {
+        let mut b = EventBatcher::new(cfg(true, 100, true), 100);
+        let _ = b.add_event(mk_event("/a.rs"));
+        let _ = b.add_event(mk_event("/b.txt"));
+        let _ = b.add_event(mk_event("/c.rs"));
+
+        let drained = b.flush_all().expect("flush_all returns pending events");
+        assert_eq!(drained.len(), 3);
+
+        // After a full drain the batcher is empty and flush_all returns None.
+        assert!(b.flush_all().is_none());
+    }
+
+    #[test]
+    fn capacity_overflow_evicts_oldest_for_immediate_processing() {
+        let mut b = EventBatcher::new(cfg(true, 100, false), 2);
+        let _ = b.add_event(mk_event("/oldest"));
+        let _ = b.add_event(mk_event("/middle"));
+        // Third event triggers eviction: oldest comes out immediately so
+        // it isn't lost while the batch continues to fill.
+        let evicted = b
+            .add_event(mk_event("/newest"))
+            .expect("capacity overflow yields an evicted-event batch");
+        assert_eq!(evicted.len(), 1);
+        assert_eq!(evicted[0].path, PathBuf::from("/oldest"));
+        assert_eq!(b.eviction_count(), 1);
     }
 }

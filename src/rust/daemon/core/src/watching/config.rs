@@ -201,3 +201,92 @@ impl Default for WatcherConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_polling_interval_clamps_below_min() {
+        let mut c = WatcherConfig {
+            polling_interval_ms: 10,
+            min_polling_interval_ms: 100,
+            max_polling_interval_ms: 60_000,
+            ..WatcherConfig::default()
+        };
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, 100);
+    }
+
+    #[test]
+    fn validate_polling_interval_clamps_above_max() {
+        let mut c = WatcherConfig {
+            polling_interval_ms: 120_000,
+            min_polling_interval_ms: 100,
+            max_polling_interval_ms: 60_000,
+            ..WatcherConfig::default()
+        };
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, 60_000);
+    }
+
+    #[test]
+    fn validate_polling_interval_leaves_in_range_untouched() {
+        let mut c = WatcherConfig {
+            polling_interval_ms: 3_000,
+            min_polling_interval_ms: 100,
+            max_polling_interval_ms: 60_000,
+            ..WatcherConfig::default()
+        };
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, 3_000);
+    }
+
+    #[test]
+    fn validate_polling_interval_accepts_exact_bounds() {
+        // Exactly at min or max must not be clamped (the comparison uses <
+        // and >, not <= and >=).
+        let mut c = WatcherConfig {
+            polling_interval_ms: 100,
+            min_polling_interval_ms: 100,
+            max_polling_interval_ms: 60_000,
+            ..WatcherConfig::default()
+        };
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, 100);
+
+        c.polling_interval_ms = 60_000;
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, 60_000);
+    }
+
+    #[test]
+    fn default_polling_values_pass_validation_unchanged() {
+        let mut c = WatcherConfig::default();
+        let before = c.polling_interval_ms;
+        c.validate_polling_interval();
+        assert_eq!(c.polling_interval_ms, before);
+    }
+
+    #[test]
+    fn default_telemetry_collects_everything_except_history() {
+        let t = TelemetryConfig::default();
+        assert!(!t.enabled, "telemetry is opt-in");
+        assert!(t.cpu_usage);
+        assert!(t.memory_usage);
+        assert!(t.latency);
+        assert!(t.queue_depth);
+        assert!(t.throughput);
+        assert_eq!(t.history_retention, 120);
+        assert_eq!(t.collection_interval_secs, 60);
+    }
+
+    #[test]
+    fn default_batch_config_groups_by_type_with_5s_wait() {
+        let b = WatcherConfig::default().batch_processing;
+        assert!(b.enabled);
+        assert!(b.group_by_type);
+        assert_eq!(b.max_batch_size, 10);
+        assert_eq!(b.max_batch_wait_ms, 5000);
+    }
+}
