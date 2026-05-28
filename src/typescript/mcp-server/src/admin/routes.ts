@@ -14,6 +14,7 @@ import { basename, dirname, join, resolve as resolvePath } from 'node:path';
 
 import type { AuthConfig } from '../auth-middleware.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
+import type { SearchDbReader } from '../clients/search-db-reader.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import mcpPublicConfig from '../constants/mcp-public-config.json' with { type: 'json' };
 import { DEFAULT_HTTP_PORT } from '../server-types.js';
@@ -31,6 +32,8 @@ import {
 export interface AdminDeps {
   daemonClient: DaemonClient;
   stateManager: SqliteStateManager;
+  /** Read-only handle for search.db; backs the "largest files" view. */
+  searchDbReader: SearchDbReader;
   authConfig: AuthConfig;
 }
 
@@ -727,6 +730,66 @@ const handleDaemonRawHealth: RouteHandler = async (_req, res) => {
   }
 };
 
+// ── /api/files/large — top-N indexed files by size_bytes ───────────────────
+
+/**
+ * Reads the search.db `file_metadata` table directly (read-only) and returns
+ * the largest files, optionally scoped to one (tenant_id, branch) pair.
+ *
+ * Mirrors the data behind the FTS5-pressure Grafana dashboard
+ * (memexd_indexed_files_total_bytes), but exposes per-file rows that the
+ * Prometheus exporter intentionally omits to keep cardinality bounded.
+ * Use this when an operator needs to identify the specific file driving a
+ * bar in Grafana — e.g. "tenant X jumped 60MB overnight, which file?".
+ *
+ * Query params (all optional):
+ *   - limit     : 1..500, default 50
+ *   - tenant_id : exact match
+ *   - branch    : exact match; pass "(none)" to filter NULL branch
+ *   - skipped   : "1"/"true" to filter rows with fts5_skipped=1
+ */
+const handleFilesLarge: RouteHandler = async (req, res, { searchDbReader }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const limitRaw = url.searchParams.get('limit');
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  const tenantId = url.searchParams.get('tenant_id') ?? undefined;
+  const branch = url.searchParams.get('branch') ?? undefined;
+  const skippedFlag = url.searchParams.get('skipped');
+  const skippedOnly = skippedFlag === '1' || skippedFlag === 'true';
+
+  if (limit !== undefined && !Number.isFinite(limit)) {
+    writeError(res, 400, 'limit must be an integer');
+    return;
+  }
+
+  const status = searchDbReader.initialize();
+  if (status.status !== 'ok') {
+    writeJson(res, 200, {
+      files: [],
+      source: searchDbReader.getDatabasePath(),
+      degraded: status,
+    });
+    return;
+  }
+
+  // Build options without `undefined` values so TypeScript's
+  // exactOptionalPropertyTypes is happy.
+  const opts: Parameters<typeof searchDbReader.listLargestFiles>[0] = { skippedOnly };
+  if (limit !== undefined) opts.limit = limit;
+  if (tenantId !== undefined) opts.tenantId = tenantId;
+  if (branch !== undefined) opts.branch = branch;
+  const files = searchDbReader.listLargestFiles(opts);
+  writeJson(res, 200, {
+    files,
+    source: searchDbReader.getDatabasePath(),
+    filters: {
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+      ...(branch ? { branch } : {}),
+      ...(skippedOnly ? { skipped: true } : {}),
+    },
+  });
+};
+
 // ── Route table ──────────────────────────────────────────────────────────────
 
 type Route = { method: string; path: string; handler: RouteHandler };
@@ -748,6 +811,7 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'GET', path: '/admin/api/config/clients', handler: handleGetClientConfigs },
   { method: 'GET', path: '/admin/api/logs/mcp', handler: handleGetMcpLogs },
   { method: 'GET', path: '/admin/api/daemon/raw-health', handler: handleDaemonRawHealth },
+  { method: 'GET', path: '/admin/api/files/large', handler: handleFilesLarge },
 ];
 
 /**

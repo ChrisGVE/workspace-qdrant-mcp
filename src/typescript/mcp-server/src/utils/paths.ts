@@ -100,6 +100,29 @@ export function getDatabasePath(): string {
 }
 
 /**
+ * Path to the FTS5 / file_metadata search database.
+ *
+ * Mirrors the Rust convention in `workspace_qdrant_core::search_db::
+ * search_db_path_from_state`: a sibling file named `search.db` in the
+ * same directory as state.db, ignoring any filename portion of
+ * `getDatabasePath()` (which may be customised via WQM_DATABASE_PATH).
+ *
+ * Precedence: WQM_SEARCH_DATABASE_PATH > <state-db-dir>/search.db
+ */
+export function getSearchDatabasePath(): string {
+  if (process.env['WQM_SEARCH_DATABASE_PATH']) {
+    return process.env['WQM_SEARCH_DATABASE_PATH'];
+  }
+  const stateDb = getDatabasePath();
+  // Derive the parent dir from the state.db path so a custom
+  // WQM_DATABASE_PATH like /var/lib/memexd/memexd.db produces
+  // /var/lib/memexd/search.db, not <data_dir>/search.db.
+  const lastSep = Math.max(stateDb.lastIndexOf('/'), stateDb.lastIndexOf('\\'));
+  const parent = lastSep > 0 ? stateDb.slice(0, lastSep) : getDataDirectory();
+  return join(parent, 'search.db');
+}
+
+/**
  * Ensures the log directory exists, creating it if necessary.
  */
 export function ensureLogDirectory(): boolean {

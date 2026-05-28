@@ -50,6 +50,12 @@ const els = {
   saveIgnoreBtn: document.getElementById('saveIgnoreBtn'),
   reloadIgnoreBtn: document.getElementById('reloadIgnoreBtn'),
   ignoreMsg: document.getElementById('ignoreMsg'),
+  largestFilesTable: document.getElementById('largestFilesTable'),
+  largestFilesBody: document.getElementById('largestFilesBody'),
+  largestFilesEmpty: document.getElementById('largestFilesEmpty'),
+  largestFilesMeta: document.getElementById('largestFilesMeta'),
+  largestFilesSkippedOnly: document.getElementById('largestFilesSkippedOnly'),
+  reloadLargestFilesBtn: document.getElementById('reloadLargestFilesBtn'),
   showClaudeConfigBtn: document.getElementById('showClaudeConfigBtn'),
   showCodexConfigBtn: document.getElementById('showCodexConfigBtn'),
   configHint: document.getElementById('configHint'),
@@ -401,6 +407,7 @@ function showApp() {
   els.loginPanel.hidden = true;
   els.appView.hidden = false;
   loadGlobalIgnore();
+  loadLargestFiles();
 }
 
 function logout(reason) {
@@ -587,6 +594,74 @@ els.saveIgnoreBtn.addEventListener('click', async () => {
 });
 
 els.reloadIgnoreBtn.addEventListener('click', () => loadGlobalIgnore());
+
+// ── Largest files (search.db file_metadata) ────────────────────────
+
+function formatBytes(n) {
+  if (n === null || n === undefined) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+async function loadLargestFiles() {
+  if (!els.largestFilesTable) return; // safety: section not in DOM
+  const skipped = els.largestFilesSkippedOnly?.checked ? '&skipped=1' : '';
+  try {
+    const data = await api(`/admin/api/files/large?limit=20${skipped}`);
+    const files = data?.files ?? [];
+    if (data?.degraded) {
+      els.largestFilesEmpty.textContent = `search.db unavailable: ${data.degraded.message}`;
+      els.largestFilesEmpty.hidden = false;
+      els.largestFilesTable.hidden = true;
+      els.largestFilesMeta.textContent = '';
+      return;
+    }
+    if (files.length === 0) {
+      els.largestFilesEmpty.textContent = skipped
+        ? 'No files currently marked fts5_skipped=1.'
+        : 'No files indexed yet — daemon may still be walking.';
+      els.largestFilesEmpty.hidden = false;
+      els.largestFilesTable.hidden = true;
+      els.largestFilesMeta.textContent = '';
+      return;
+    }
+    els.largestFilesEmpty.hidden = true;
+    els.largestFilesTable.hidden = false;
+    els.largestFilesBody.innerHTML = files.map((f) => {
+      const skippedBadge = f.fts5_skipped
+        ? '<span class="pill" style="background:#fef3c7;color:#92400e;">skipped</span>'
+        : '<span class="dim small">indexed</span>';
+      // Show the trailing portion of the path to keep rows compact;
+      // full path is in the title attribute on hover.
+      const shortPath = f.file_path.length > 80
+        ? '…' + f.file_path.slice(-78)
+        : f.file_path;
+      return `<tr>
+        <td><code title="${escapeHtml(f.file_path)}">${escapeHtml(shortPath)}</code></td>
+        <td><span class="dim small">${escapeHtml(f.tenant_id)}</span></td>
+        <td><span class="dim small">${escapeHtml(f.branch)}</span></td>
+        <td style="text-align:right;"><strong>${formatBytes(f.size_bytes)}</strong></td>
+        <td>${skippedBadge}</td>
+      </tr>`;
+    }).join('');
+    els.largestFilesMeta.textContent = `· ${files.length} rows · source: ${data.source ?? 'search.db'}`;
+  } catch (err) {
+    els.largestFilesEmpty.textContent = `Failed to load: ${err.message}`;
+    els.largestFilesEmpty.hidden = false;
+    els.largestFilesTable.hidden = true;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+els.reloadLargestFilesBtn?.addEventListener('click', () => loadLargestFiles());
+els.largestFilesSkippedOnly?.addEventListener('change', () => loadLargestFiles());
 
 // ── Client configs ─────────────────────────────────────────────────
 

@@ -257,6 +257,38 @@
         </table>
       </section>
 
+      <!-- Largest indexed files (search.db file_metadata) -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Largest indexed files</h2>
+          <span class="dim small">
+            top 20 by <code>size_bytes</code> from <code>search.db</code>; click
+            "Skipped only" to filter rows where the FTS5 hard cap fired
+          </span>
+          <button type="button" id="reloadLargestFilesBtn" class="secondary">Reload</button>
+        </div>
+        <div class="row" style="margin-bottom: 8px;">
+          <label class="dim small">
+            <input type="checkbox" id="largestFilesSkippedOnly" />
+            Skipped only (<code>fts5_skipped = 1</code>)
+          </label>
+          <span id="largestFilesMeta" class="dim small"></span>
+        </div>
+        <div id="largestFilesEmpty" class="dim">No files indexed yet — daemon may still be walking, or search.db is missing.</div>
+        <table id="largestFilesTable" class="data" hidden>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Tenant</th>
+              <th>Branch</th>
+              <th style="text-align: right;">Size</th>
+              <th>FTS5</th>
+            </tr>
+          </thead>
+          <tbody id="largestFilesBody"></tbody>
+        </table>
+      </section>
+
       <!-- Debug -->
       <section class="card">
         <details>

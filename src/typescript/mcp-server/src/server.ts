@@ -218,6 +218,7 @@ export class WorkspaceQdrantMcpServer {
           {
             daemonClient: this.components.daemonClient,
             stateManager: this.components.stateManager,
+            searchDbReader: this.components.searchDbReader,
             authConfig: this.authConfig,
           }
         );
