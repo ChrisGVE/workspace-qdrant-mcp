@@ -307,4 +307,134 @@ mod tests {
         let candidates = extract_symbol_candidates(&[], &LspCandidateConfig::default());
         assert!(candidates.is_empty());
     }
+
+    #[test]
+    fn test_same_symbol_across_chunk_types_dedupes() {
+        // A struct and a same-named function (rare but legal in some
+        // languages) normalize to the same phrase and must collapse to a
+        // single candidate. The first occurrence wins on `identifier`.
+        let chunks = vec![
+            meta(&[("chunk_type", "struct"), ("symbol_name", "Retry")]),
+            meta(&[("chunk_type", "function"), ("symbol_name", "Retry")]),
+        ];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].phrase, "retry");
+        assert_eq!(candidates[0].identifier, "Retry");
+    }
+
+    #[test]
+    fn test_async_function_chunk_type_emits() {
+        // `async_function` is in the concept-bearing list — exercises the
+        // branch separately from plain `function`.
+        let chunks = vec![meta(&[
+            ("chunk_type", "async_function"),
+            ("symbol_name", "fetch_remote_config"),
+        ])];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].phrase, "fetch remote config");
+    }
+
+    #[test]
+    fn test_type_alias_macro_module_emit() {
+        let chunks = vec![
+            meta(&[("chunk_type", "type_alias"), ("symbol_name", "UserId")]),
+            meta(&[("chunk_type", "macro"), ("symbol_name", "debug_log")]),
+            meta(&[("chunk_type", "module"), ("symbol_name", "network_io")]),
+        ];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        let phrases: Vec<&str> = candidates.iter().map(|c| c.phrase.as_str()).collect();
+        assert!(phrases.contains(&"user id"), "got: {:?}", phrases);
+        assert!(phrases.contains(&"debug log"), "got: {:?}", phrases);
+        assert!(phrases.contains(&"network io"), "got: {:?}", phrases);
+    }
+
+    #[test]
+    fn test_non_concept_chunk_types_filtered() {
+        // impl, preamble, constant, method, text are all rejected by
+        // is_concept_bearing_chunk_type — verify every branch.
+        let chunks = vec![
+            meta(&[("chunk_type", "impl"), ("symbol_name", "FooImpl")]),
+            meta(&[("chunk_type", "preamble"), ("symbol_name", "header")]),
+            meta(&[("chunk_type", "constant"), ("symbol_name", "MAX_BUF")]),
+            meta(&[("chunk_type", "text"), ("symbol_name", "blob")]),
+        ];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert!(candidates.is_empty(), "got: {:?}", candidates);
+    }
+
+    #[test]
+    fn test_strip_residual_below_min_filtered() {
+        // "AImpl" -> strip "Impl" -> "A". Length 1 < min_identifier_len=3
+        // so the candidate must be dropped, even though the original
+        // symbol_name passed the initial length check.
+        let chunks = vec![meta(&[("chunk_type", "struct"), ("symbol_name", "AImpl")])];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert!(
+            candidates.is_empty(),
+            "stripped residual must be filtered, got: {:?}",
+            candidates
+        );
+    }
+
+    #[test]
+    fn test_priority_boost_zero_propagates() {
+        let mut config = LspCandidateConfig::default();
+        config.priority_boost = 0.0;
+        let chunks = vec![meta(&[("chunk_type", "struct"), ("symbol_name", "Widget")])];
+        let candidates = extract_symbol_candidates(&chunks, &config);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].priority_boost, 0.0);
+    }
+
+    #[test]
+    fn test_custom_strip_suffixes_apply() {
+        // A non-default suffix should still strip when configured.
+        let mut config = LspCandidateConfig::default();
+        config.strip_suffixes = vec!["Service".to_string()];
+        let chunks = vec![meta(&[
+            ("chunk_type", "struct"),
+            ("symbol_name", "AuthService"),
+        ])];
+        let candidates = extract_symbol_candidates(&chunks, &config);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].phrase, "auth");
+        // Identifier always preserves the original symbol_name, not the stripped form.
+        assert_eq!(candidates[0].identifier, "AuthService");
+    }
+
+    #[test]
+    fn test_symbol_name_equal_to_suffix_kept() {
+        // "Manager" symbol_name + "Manager" in strip list: strip requires
+        // result.len() > suffix.len(), so it is NOT stripped. Normalize
+        // produces "manager" — a valid candidate.
+        let chunks = vec![meta(&[
+            ("chunk_type", "struct"),
+            ("symbol_name", "Manager"),
+        ])];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].phrase, "manager");
+    }
+
+    #[test]
+    fn test_empty_symbol_name_skipped() {
+        // Explicitly empty symbol_name — not "_preamble"/"_text" — must
+        // still be skipped before length checks.
+        let chunks = vec![meta(&[("chunk_type", "struct"), ("symbol_name", "")])];
+        let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_min_identifier_len_zero_admits_short_idents() {
+        // With min_identifier_len=0 a single-char identifier must survive.
+        let mut config = LspCandidateConfig::default();
+        config.min_identifier_len = 0;
+        let chunks = vec![meta(&[("chunk_type", "struct"), ("symbol_name", "X")])];
+        let candidates = extract_symbol_candidates(&chunks, &config);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].phrase, "x");
+    }
 }
