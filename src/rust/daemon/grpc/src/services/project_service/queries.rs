@@ -10,9 +10,9 @@ use workspace_qdrant_core::indexing_progress::{estimate_eta_seconds, rate_files_
 use workspace_qdrant_core::queue_operations::QueueManager;
 
 use crate::proto::{
-    GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse,
-    ListProjectsRequest, ListProjectsResponse, ListWatchesRequest, ListWatchesResponse,
-    ProjectInfo, WatchInfo,
+    FailedQueueItem, GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest,
+    HeartbeatResponse, ListFailedItemsRequest, ListFailedItemsResponse, ListProjectsRequest,
+    ListProjectsResponse, ListWatchesRequest, ListWatchesResponse, ProjectInfo, WatchInfo,
 };
 
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -242,6 +242,95 @@ impl ProjectServiceImpl {
             total_count: 0,
             percent_complete: 0.0,
             eta_seconds: None,
+        })
+    }
+
+    /// Execute the list_failed_items business logic — read-only listing of
+    /// `unified_queue` rows in the 'failed' state, optionally scoped to one
+    /// tenant. Backs the admin UI's failed-items drill-down; retry is a
+    /// separate QueueWriteService mutation.
+    pub(crate) async fn handle_list_failed_items(
+        &self,
+        req: ListFailedItemsRequest,
+    ) -> Result<ListFailedItemsResponse, Status> {
+        use sqlx::Row;
+
+        let tenant_filter = req
+            .tenant_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty());
+        let limit: i64 = if req.limit <= 0 {
+            100
+        } else {
+            (req.limit as i64).min(500)
+        };
+
+        // Total count for the same filter (so the UI can show "showing N of M").
+        let mut count_sql = String::from("SELECT COUNT(*) FROM unified_queue WHERE status = 'failed'");
+        if tenant_filter.is_some() {
+            count_sql.push_str(" AND tenant_id = ?1");
+        }
+        let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
+        if let Some(t) = tenant_filter {
+            count_q = count_q.bind(t.to_string());
+        }
+        let total_failed = count_q.fetch_one(&self.db_pool).await.map_err(|e| {
+            error!("Database error counting failed items: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        // NULL last_error_at sorts last under DESC in SQLite, so recently-failed
+        // rows surface first and rows that never recorded a timestamp trail.
+        let mut sql = String::from(
+            r#"
+            SELECT queue_id, tenant_id, branch, collection, item_type, op,
+                   COALESCE(file_path, '')     AS file_path,
+                   COALESCE(error_message, '') AS error_message,
+                   retry_count,
+                   COALESCE(last_error_at, '') AS last_error_at,
+                   updated_at
+            FROM unified_queue
+            WHERE status = 'failed'
+            "#,
+        );
+        if tenant_filter.is_some() {
+            sql.push_str(" AND tenant_id = ?1");
+        }
+        sql.push_str(" ORDER BY last_error_at DESC, updated_at DESC LIMIT ?");
+        sql.push_str(if tenant_filter.is_some() { "2" } else { "1" });
+
+        let mut query = sqlx::query(&sql);
+        if let Some(t) = tenant_filter {
+            query = query.bind(t.to_string());
+        }
+        query = query.bind(limit);
+
+        let rows = query.fetch_all(&self.db_pool).await.map_err(|e| {
+            error!("Database error listing failed items: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            items.push(FailedQueueItem {
+                queue_id: row.try_get("queue_id").unwrap_or_default(),
+                tenant_id: row.try_get("tenant_id").unwrap_or_default(),
+                branch: row.try_get("branch").unwrap_or_default(),
+                collection: row.try_get("collection").unwrap_or_default(),
+                item_type: row.try_get("item_type").unwrap_or_default(),
+                op: row.try_get("op").unwrap_or_default(),
+                file_path: row.try_get("file_path").unwrap_or_default(),
+                error_message: row.try_get("error_message").unwrap_or_default(),
+                retry_count: row.try_get::<i64, _>("retry_count").unwrap_or(0) as i32,
+                last_error_at: row.try_get("last_error_at").unwrap_or_default(),
+                updated_at: row.try_get("updated_at").unwrap_or_default(),
+            });
+        }
+
+        Ok(ListFailedItemsResponse {
+            items,
+            total_failed: total_failed as i32,
         })
     }
 

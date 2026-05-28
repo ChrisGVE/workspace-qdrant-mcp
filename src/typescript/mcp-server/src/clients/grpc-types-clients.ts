@@ -35,6 +35,8 @@ import type {
   ListWatchesResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  ListFailedItemsRequest,
+  ListFailedItemsResponse,
   EmbedTextRequest,
   EmbedTextResponse,
   SparseVectorRequest,
@@ -46,6 +48,9 @@ import type {
   QueryRelatedResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
+  RetryAllResponse,
+  RetryItemRequest,
+  RetryItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
   UpdateSearchEventEconomyRequest,
@@ -159,6 +164,10 @@ export interface ProjectServiceClient {
     request: HeartbeatRequest,
     callback: (error: Error | null, response: HeartbeatResponse) => void
   ): void;
+  listFailedItems(
+    request: ListFailedItemsRequest,
+    callback: (error: Error | null, response: ListFailedItemsResponse) => void
+  ): void;
 }
 
 export interface EmbeddingServiceClient {
@@ -194,6 +203,14 @@ export interface QueueWriteServiceClient {
   enqueueItem(
     request: EnqueueItemRequest,
     callback: (error: Error | null, response: EnqueueItemResponse) => void
+  ): void;
+  retryAll(
+    request: Record<string, never>,
+    callback: (error: Error | null, response: RetryAllResponse) => void
+  ): void;
+  retryItem(
+    request: RetryItemRequest,
+    callback: (error: Error | null, response: RetryItemResponse) => void
   ): void;
 }
 

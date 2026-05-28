@@ -151,3 +151,27 @@ export interface HeartbeatResponse {
   acknowledged: boolean;
   next_heartbeat_by?: { seconds: number; nanos: number };
 }
+
+export interface ListFailedItemsRequest {
+  tenant_id?: string;
+  limit?: number;
+}
+
+export interface FailedQueueItem {
+  queue_id: string;
+  tenant_id: string;
+  branch: string;
+  collection: string;
+  item_type: string;
+  op: string;
+  file_path: string;
+  error_message: string;
+  retry_count: number;
+  last_error_at: string;
+  updated_at: string;
+}
+
+export interface ListFailedItemsResponse {
+  items: FailedQueueItem[];
+  total_failed: number;
+}

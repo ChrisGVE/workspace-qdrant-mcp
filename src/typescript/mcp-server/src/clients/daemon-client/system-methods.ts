@@ -26,6 +26,8 @@ import type {
   ListProjectsResponse,
   ListWatchesRequest,
   ListWatchesResponse,
+  ListFailedItemsRequest,
+  ListFailedItemsResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
@@ -213,6 +215,24 @@ export class DaemonClientSystem extends DaemonClientBase {
         'listWatches',
         request,
         this.getMethodTimeout('listWatches')
+      )
+    );
+  }
+
+  /**
+   * List queue items in the 'failed' state via the daemon's `ListFailedItems`
+   * RPC. Read-only; backs the admin UI's failed-items drill-down. Retry is a
+   * separate QueueWriteService mutation (`retryAll` / `retryItem`).
+   */
+  async listFailedItems(
+    request: ListFailedItemsRequest = {}
+  ): Promise<ListFailedItemsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'listFailedItems',
+        request,
+        this.getMethodTimeout('listFailedItems')
       )
     );
   }

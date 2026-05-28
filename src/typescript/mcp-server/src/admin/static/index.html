@@ -326,6 +326,38 @@
         </table>
       </section>
 
+      <!-- Failed indexing items (unified_queue, status='failed') -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Failed indexing items</h2>
+          <div class="row" style="gap:6px; margin:0">
+            <button type="button" id="reloadFailedBtn" class="secondary small">Reload</button>
+            <button type="button" id="retryAllFailedBtn" class="danger small">Retry all</button>
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:8px; align-items:center">
+          <span class="dim small">
+            queue rows in <code>failed</code> state (from the daemon); retry resets them to
+            <code>pending</code> so the processor picks them up again
+          </span>
+          <span id="failedMeta" class="dim small"></span>
+        </div>
+        <div id="failedEmpty" class="dim">No failed items.</div>
+        <table id="failedTable" class="data" aria-label="Failed indexing items" hidden>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Tenant</th>
+              <th>Error</th>
+              <th class="num">Retries</th>
+              <th>Last error</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="failedBody"></tbody>
+        </table>
+      </section>
+
       <!-- Largest indexed files (search.db file_metadata) -->
       <section class="card">
         <div class="card-head">

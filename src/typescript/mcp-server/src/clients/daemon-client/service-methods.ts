@@ -17,6 +17,9 @@ import type {
   QueryRelatedResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
+  RetryAllResponse,
+  RetryItemRequest,
+  RetryItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
   UpdateSearchEventEconomyRequest,
@@ -119,6 +122,30 @@ export class DaemonClientService extends DaemonClientSystem {
         'enqueueItem',
         request,
         this.getMethodTimeout('enqueueItem')
+      )
+    );
+  }
+
+  /** Reset all failed queue items back to 'pending' (QueueWriteService.RetryAll). */
+  async retryAll(): Promise<RetryAllResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.queueWriteClient,
+        'retryAll',
+        {},
+        this.getMethodTimeout('retryAll')
+      )
+    );
+  }
+
+  /** Reset a single failed queue item to 'pending' by id/prefix (QueueWriteService.RetryItem). */
+  async retryItem(request: RetryItemRequest): Promise<RetryItemResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.queueWriteClient,
+        'retryItem',
+        request,
+        this.getMethodTimeout('retryItem')
       )
     );
   }

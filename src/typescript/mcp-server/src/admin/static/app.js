@@ -96,6 +96,12 @@ const els = {
   ruleSubmitBtn: document.getElementById('ruleSubmitBtn'),
   ruleCancelEditBtn: document.getElementById('ruleCancelEditBtn'),
   ruleFormMsg: document.getElementById('ruleFormMsg'),
+  reloadFailedBtn: document.getElementById('reloadFailedBtn'),
+  retryAllFailedBtn: document.getElementById('retryAllFailedBtn'),
+  failedMeta: document.getElementById('failedMeta'),
+  failedEmpty: document.getElementById('failedEmpty'),
+  failedTable: document.getElementById('failedTable'),
+  failedBody: document.getElementById('failedBody'),
 };
 
 let token = sessionStorage.getItem(TOKEN_KEY) || '';
@@ -440,6 +446,7 @@ function showApp() {
   loadGlobalIgnore();
   loadLargestFiles();
   loadRules();
+  loadFailed();
 }
 
 function logout(reason) {
@@ -616,6 +623,16 @@ document.addEventListener('click', async (e) => {
       toast(`Deleted rule ${btn.dataset.label}`);
       if (rulesEditingLabel === btn.dataset.label) resetRuleForm();
       loadRules();
+    } else if (action === 'queue-retry-item') {
+      const r = await api('/admin/api/queue/retry', {
+        method: 'POST',
+        body: { queueId: btn.dataset.id },
+      });
+      if (r.found && r.reset) toast(`Requeued ${String(btn.dataset.id).slice(0, 8)}…`);
+      else if (r.found) toast('Item is no longer in failed state', 'info');
+      else toast('Item not found', 'error');
+      loadFailed();
+      refresh();
     }
   } catch (e) {
     toast(e.message, 'error');
@@ -817,6 +834,73 @@ els.ruleForm?.addEventListener('submit', async (e) => {
     toast(e.message, 'error');
   } finally {
     els.ruleSubmitBtn.disabled = false;
+  }
+});
+
+// ── Failed indexing items (unified_queue, status='failed') ─────────
+
+function renderFailed(items, totalFailed) {
+  if (!items || items.length === 0) {
+    els.failedEmpty.textContent = 'No failed items.';
+    els.failedEmpty.hidden = false;
+    els.failedTable.hidden = true;
+    els.failedMeta.textContent = '';
+    return;
+  }
+  els.failedEmpty.hidden = true;
+  els.failedTable.hidden = false;
+  els.failedBody.innerHTML = items.map((it) => {
+    // Prefer the file path; fall back to a collection/type/op descriptor for
+    // non-file items (rules, library ingests, etc).
+    const label = it.file_path && it.file_path.length
+      ? it.file_path
+      : `${it.collection || '?'} · ${it.item_type || '?'} · ${it.op || '?'}`;
+    const shortLabel = label.length > 64 ? '…' + label.slice(-62) : label;
+    const err = it.error_message || '';
+    const shortErr = err.length > 90 ? err.slice(0, 88) + '…' : err;
+    return `<tr>
+      <td><code title="${escapeHtml(label)}">${escapeHtml(shortLabel)}</code>
+          <span class="sub">${escapeHtml(it.branch || '')}</span></td>
+      <td><span class="dim small">${escapeHtml(it.tenant_id || '')}</span></td>
+      <td><span class="warn" title="${escapeHtml(err)}">${escapeHtml(shortErr || '—')}</span></td>
+      <td class="num">${it.retry_count ?? 0}</td>
+      <td class="dim small">${escapeHtml(fmtTime(it.last_error_at || it.updated_at))}</td>
+      <td><button class="secondary small" data-action="queue-retry-item"
+                  data-id="${escapeHtml(it.queue_id)}">Retry</button></td>
+    </tr>`;
+  }).join('');
+  const shown = items.length;
+  els.failedMeta.textContent =
+    totalFailed > shown ? `· showing ${shown} of ${totalFailed}` : `· ${shown} item(s)`;
+}
+
+async function loadFailed() {
+  if (!els.failedTable) return;
+  try {
+    const data = await api('/admin/api/queue/failed?limit=100');
+    renderFailed(data.items || [], data.totalFailed ?? 0);
+  } catch (e) {
+    els.failedEmpty.textContent = `Failed to load: ${e.message}`;
+    els.failedEmpty.hidden = false;
+    els.failedTable.hidden = true;
+    els.failedMeta.textContent = '';
+  }
+}
+
+els.reloadFailedBtn?.addEventListener('click', () => loadFailed());
+
+els.retryAllFailedBtn?.addEventListener('click', async () => {
+  if (!confirm('Retry ALL failed items? They will be reset to pending and reprocessed.')) return;
+  els.retryAllFailedBtn.disabled = true;
+  try {
+    const r = await api('/admin/api/queue/retry', { method: 'POST', body: {} });
+    toast(`Requeued ${r.resetCount ?? 0} failed item(s)`);
+    loadFailed();
+    refresh();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    els.retryAllFailedBtn.disabled = false;
   }
 });
 

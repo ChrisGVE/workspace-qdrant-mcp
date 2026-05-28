@@ -53,6 +53,9 @@ export {
   type ListWatchesResponse,
   type HeartbeatRequest,
   type HeartbeatResponse,
+  type ListFailedItemsRequest,
+  type FailedQueueItem,
+  type ListFailedItemsResponse,
   // EmbeddingService
   type EmbedTextRequest,
   type EmbedTextResponse,
@@ -73,6 +76,9 @@ export {
   // QueueWriteService
   type EnqueueItemRequest,
   type EnqueueItemResponse,
+  type RetryAllResponse,
+  type RetryItemRequest,
+  type RetryItemResponse,
   // TrackingWriteService
   type LogSearchEventRequest,
   type UpdateSearchEventRequest,

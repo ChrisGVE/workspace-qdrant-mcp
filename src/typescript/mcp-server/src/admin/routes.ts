@@ -1046,6 +1046,71 @@ const handleRulesRemove: RouteHandler = async (req, res, { rulesTool }) => {
   else writeJson(res, 400, { ...result, error: result.message ?? 'rule not removed' });
 };
 
+// ── /api/queue/failed + /api/queue/retry — failed-items visibility & retry ───
+
+/**
+ * GET /admin/api/queue/failed — list unified_queue rows in the 'failed' state
+ * via the daemon's ListFailedItems RPC. Optional ?tenant_id and ?limit. The
+ * MCP container can't read the daemon's SQLite over the 9P bind mount, so this
+ * goes through gRPC rather than SqliteStateManager.
+ */
+const handleQueueFailed: RouteHandler = async (req, res, { daemonClient }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const tenantId = url.searchParams.get('tenant_id') ?? undefined;
+  const limitRaw = url.searchParams.get('limit');
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  if (limit !== undefined && !Number.isFinite(limit)) {
+    writeError(res, 400, 'limit must be an integer');
+    return;
+  }
+
+  const request: { tenant_id?: string; limit?: number } = {};
+  if (tenantId) request.tenant_id = tenantId;
+  if (limit !== undefined) request.limit = limit;
+
+  try {
+    const resp = await daemonClient.listFailedItems(request);
+    writeJson(res, 200, {
+      items: resp.items ?? [],
+      totalFailed: resp.total_failed ?? 0,
+      ...(tenantId ? { filters: { tenant_id: tenantId } } : {}),
+    });
+  } catch (error) {
+    logError('admin list failed items failed', error, { tenantId });
+    writeError(res, 502, 'list failed items failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
+/**
+ * POST /admin/api/queue/retry — requeue failed items. With `{ queueId }` it
+ * retries that one item (exact or prefix match via RetryItem); with no body it
+ * retries every failed item (RetryAll). Both reset status→pending and clear the
+ * error/retry bookkeeping so the queue processor picks them up again.
+ */
+const handleQueueRetry: RouteHandler = async (req, res, { daemonClient }) => {
+  const body = (await readJsonBody(req)) as Partial<{ queueId: string }>;
+  const queueId = typeof body.queueId === 'string' ? body.queueId.trim() : '';
+
+  try {
+    if (queueId) {
+      const r = await daemonClient.retryItem({ queue_id: queueId });
+      writeJson(res, 200, {
+        ok: r.reset,
+        found: r.found,
+        resolvedId: r.resolved_id,
+        previousStatus: r.previous_status,
+        reset: r.reset,
+      });
+    } else {
+      const r = await daemonClient.retryAll();
+      writeJson(res, 200, { ok: true, resetCount: r.reset_count });
+    }
+  } catch (error) {
+    logError('admin queue retry failed', error, { queueId });
+    writeError(res, 502, 'retry failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
 // ── Route table ──────────────────────────────────────────────────────────────
 
 type Route = { method: string; path: string; handler: RouteHandler };
@@ -1075,6 +1140,8 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'POST', path: '/admin/api/rules', handler: handleRulesAdd },
   { method: 'PUT', path: '/admin/api/rules', handler: handleRulesUpdate },
   { method: 'DELETE', path: '/admin/api/rules', handler: handleRulesRemove },
+  { method: 'GET', path: '/admin/api/queue/failed', handler: handleQueueFailed },
+  { method: 'POST', path: '/admin/api/queue/retry', handler: handleQueueRetry },
 ];
 
 /**

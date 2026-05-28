@@ -53,6 +53,9 @@ export type {
   ListWatchesResponse,
   HeartbeatRequest,
   HeartbeatResponse,
+  ListFailedItemsRequest,
+  FailedQueueItem,
+  ListFailedItemsResponse,
 } from './grpc-types-messages-document-project.js';
 
 export type {
@@ -62,6 +65,9 @@ export type {
   SparseVectorResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
+  RetryAllResponse,
+  RetryItemRequest,
+  RetryItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
   UpdateSearchEventEconomyRequest,

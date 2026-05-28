@@ -32,9 +32,10 @@ use tracing::{debug, info};
 use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectStatusRequest,
-    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
-    ListProjectsResponse, ListWatchesRequest, ListWatchesResponse, RegisterProjectRequest,
-    RegisterProjectResponse, RenameTenantRequest, RenameTenantResponse,
+    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListFailedItemsRequest,
+    ListFailedItemsResponse, ListProjectsRequest, ListProjectsResponse, ListWatchesRequest,
+    ListWatchesResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
+    RenameTenantResponse,
 };
 
 use workspace_qdrant_core::{
@@ -285,5 +286,14 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<DeleteProjectResponse>, Status> {
         let req = request.into_inner();
         self.handle_delete_project(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.list_failed_items"))]
+    async fn list_failed_items(
+        &self,
+        request: Request<ListFailedItemsRequest>,
+    ) -> Result<Response<ListFailedItemsResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_list_failed_items(req).await.map(Response::new)
     }
 }

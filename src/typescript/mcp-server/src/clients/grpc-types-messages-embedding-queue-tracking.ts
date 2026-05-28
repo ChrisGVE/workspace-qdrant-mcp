@@ -44,6 +44,22 @@ export interface EnqueueItemResponse {
   is_new: boolean;
 }
 
+export interface RetryAllResponse {
+  reset_count: number;
+}
+
+export interface RetryItemRequest {
+  queue_id: string;
+}
+
+export interface RetryItemResponse {
+  found: boolean;
+  resolved_id: string;
+  previous_status: string;
+  previous_retry_count: number;
+  reset: boolean;
+}
+
 // ── TrackingWriteService ──
 
 export interface LogSearchEventRequest {
