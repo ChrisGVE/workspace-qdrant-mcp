@@ -506,15 +506,22 @@ async function checkBranchesForProject(
   daemonClient: DaemonClient | null | undefined,
   includeWatch: boolean
 ): Promise<IncrementalBranchResult[]> {
+  // Resolve the daemon tenant id. The registry's projectId can be stale (e.g. a
+  // `local_` id when the daemon tracks the repo under a git-remote tenant), so
+  // prefer the daemon's own ListProjects: match by container-translated path
+  // (disambiguates worktrees) then by project name, falling back to the
+  // registry id only when the daemon has no match.
   let projectId = project.projectId ?? undefined;
-  if (!projectId && daemonClient) {
+  if (daemonClient) {
     try {
       const list = await daemonClient.listProjects({});
-      const target = resolve(project.root).toLowerCase();
-      const match = list.projects.find((p) => resolve(p.project_root).toLowerCase() === target);
-      projectId = match?.project_id;
+      const target = toAbs(project.root).toLowerCase();
+      const match =
+        list.projects.find((p) => toAbs(p.project_root).toLowerCase() === target) ??
+        list.projects.find((p) => p.project_name === project.name);
+      if (match?.project_id) projectId = match.project_id;
     } catch {
-      // Leave projectId undefined — probeDaemonProjectStatus reports the gap.
+      // Keep the registry projectId — probeDaemonProjectStatus reports any gap.
     }
   }
 

@@ -387,12 +387,14 @@ export async function probeDaemonProjectStatus(
       found: r.found,
       project_id: r.project_id,
       is_active: r.is_active,
-      pending_count: r.pending_count ?? 0,
-      in_progress_count: r.in_progress_count ?? 0,
-      failed_count: r.failed_count ?? 0,
-      done_count: r.done_count ?? 0,
-      total_count: r.total_count ?? 0,
-      percent_complete: r.percent_complete ?? 0,
+      // int64 count fields arrive as strings (proto-loader longs:String); coerce
+      // so the result honors the `number` type instead of leaking "0"/"159".
+      pending_count: Number(r.pending_count ?? 0),
+      in_progress_count: Number(r.in_progress_count ?? 0),
+      failed_count: Number(r.failed_count ?? 0),
+      done_count: Number(r.done_count ?? 0),
+      total_count: Number(r.total_count ?? 0),
+      percent_complete: Number(r.percent_complete ?? 0),
     };
   } catch (err) {
     return {
@@ -420,19 +422,6 @@ export interface DaemonWatchListResult {
   total_count?: number;
   error?: string;
   watches?: DaemonWatchInfo[];
-}
-/**
- * Daemon health snapshot sourced from SystemService.Health over gRPC.
- * `ok` means the RPC succeeded (daemon reachable); `status` carries the
- * daemon's own assessment (HEALTHY / DEGRADED / ...). On an unreachable
- * daemon `ok` is false and `error` holds the gRPC failure message.
- */
-export interface DaemonHealthResult {
-  ok: boolean;
-  source: 'daemon-grpc';
-  status?: string;
-  components?: Array<{ component: string; status: string; message: string }>;
-  error?: string;
 }
 
 /**
@@ -470,34 +459,6 @@ export async function probeDaemonWatches(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-/*
- * Queue-depth snapshot sourced from SystemService.GetQueueStats over gRPC.
- * The daemon reads its own SQLite (authoritative DB on the daemon volume), so
- * counts are correct regardless of where the MCP server runs.
- */
-export interface DaemonQueueResult {
-  ok: boolean;
-  source: 'daemon-grpc';
-  pending_count?: number;
-  in_progress_count?: number;
-  completed_count?: number;
-  failed_count?: number;
-  stale_items_count?: number;
-  by_item_type?: Record<string, number>;
-  by_collection?: Record<string, number>;
-  error?: string;
-}
-
-export interface Observation {
-  timestamp: string;
-  project: string;
-  root: string;
-  qdrant: QdrantProbe;
-  daemonTcp: TcpProbe;
-  wqmHealth: DaemonHealthResult;
-  queue: DaemonQueueResult;
-  branches: ObservationBranch[];
 }
 
 /**
