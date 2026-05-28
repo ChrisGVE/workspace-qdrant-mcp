@@ -18,7 +18,7 @@ pub struct GitWatcher {
     /// Resolved .git directory (handles worktrees)
     git_dir: PathBuf,
     /// Channel to send git events
-    event_tx: mpsc::UnboundedSender<GitEvent>,
+    event_tx: mpsc::Sender<GitEvent>,
     /// Notify watcher handle
     watcher: Option<Box<dyn NotifyWatcher + Send + Sync>>,
     /// Background processor handle
@@ -33,7 +33,7 @@ impl GitWatcher {
     pub fn new(
         watch_folder_id: String,
         project_root: PathBuf,
-        event_tx: mpsc::UnboundedSender<GitEvent>,
+        event_tx: mpsc::Sender<GitEvent>,
     ) -> GitWatcherResult<Self> {
         let git_dir = resolve_git_dir(&project_root).ok_or_else(|| {
             GitWatcherError::GitDirNotFound(format!(
@@ -54,12 +54,12 @@ impl GitWatcher {
 
     /// Start watching .git/HEAD and .git/refs/heads/
     pub fn start(&mut self) -> GitWatcherResult<()> {
-        let (notify_tx, notify_rx) = mpsc::unbounded_channel();
+        let (notify_tx, notify_rx) = mpsc::channel(1_000);
 
         let mut watcher = notify::RecommendedWatcher::new(
             move |result: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = result {
-                    let _ = notify_tx.send(event);
+                    let _ = notify_tx.try_send(event);
                 }
             },
             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
@@ -143,10 +143,10 @@ impl GitWatcher {
 
     /// Background event processor with debouncing
     async fn process_events(
-        mut notify_rx: mpsc::UnboundedReceiver<notify::Event>,
+        mut notify_rx: mpsc::Receiver<notify::Event>,
         git_dir: PathBuf,
         watch_folder_id: String,
-        event_tx: mpsc::UnboundedSender<GitEvent>,
+        event_tx: mpsc::Sender<GitEvent>,
     ) {
         let debounce = Duration::from_millis(200);
 
@@ -184,7 +184,7 @@ impl GitWatcher {
                         &git_event.new_sha[..git_event.new_sha.len().min(8)],
                     );
 
-                    if event_tx.send(git_event).is_err() {
+                    if event_tx.send(git_event).await.is_err() {
                         debug!("Git event receiver dropped for {}", watch_folder_id);
                         break;
                     }

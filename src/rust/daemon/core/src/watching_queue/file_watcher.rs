@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use notify::{Event, RecursiveMode, Watcher as NotifyWatcher};
 use tokio::sync::{mpsc, Mutex, RwLock};
-use tracing::{error, info};
+use tracing::info;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::queue_operations::QueueManager;
@@ -26,7 +26,7 @@ pub struct FileWatcherQueue {
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) debouncer: Arc<Mutex<EventDebouncer>>,
     pub(super) watcher: Arc<Mutex<Option<Box<dyn NotifyWatcher + Send + Sync>>>>,
-    pub(super) event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
+    pub(super) event_receiver: Arc<Mutex<Option<mpsc::Receiver<FileEvent>>>>,
     pub(super) processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
     // Error tracking (Task 461.5)
@@ -85,8 +85,12 @@ impl FileWatcherQueue {
             });
         }
 
-        // Create file system watcher
-        let (tx, rx) = mpsc::unbounded_channel();
+        // Bounded channel prevents unbounded memory growth when events
+        // outpace processing (e.g. large repos with many file changes).
+        // Dropped events are safe — the debouncer deduplicates, and the
+        // next filesystem scan will catch anything missed.
+        const EVENT_CHANNEL_CAPACITY: usize = 10_000;
+        let (tx, rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let tx_clone = tx.clone();
 
         let watcher: Box<dyn NotifyWatcher + Send + Sync> =
@@ -159,7 +163,7 @@ impl FileWatcherQueue {
     }
 
     /// Handle notify event
-    fn handle_notify_event(event: Event, tx: &mpsc::UnboundedSender<FileEvent>) {
+    fn handle_notify_event(event: Event, tx: &mpsc::Sender<FileEvent>) {
         let timestamp = SystemTime::now();
 
         for path in event.paths {
@@ -169,8 +173,12 @@ impl FileWatcherQueue {
                 timestamp,
             };
 
-            if let Err(e) = tx.send(file_event) {
-                error!("Failed to send file event: {}", e);
+            match tx.try_send(file_event) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {}
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    return;
+                }
             }
         }
     }

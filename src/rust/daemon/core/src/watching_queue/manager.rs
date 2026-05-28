@@ -21,11 +21,11 @@ pub struct WatchManager {
     pub(super) pool: SqlitePool,
     pub(super) watchers: Arc<RwLock<HashMap<String, Arc<FileWatcherQueue>>>>,
     pub(super) git_watchers: Arc<Mutex<HashMap<String, crate::git::GitWatcher>>>,
-    pub(super) git_event_tx: mpsc::UnboundedSender<crate::git::GitEvent>,
-    pub(super) git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git::GitEvent>>>>,
-    pub(super) branch_event_tx: mpsc::UnboundedSender<(String, String, crate::git::BranchEvent)>,
+    pub(super) git_event_tx: mpsc::Sender<crate::git::GitEvent>,
+    pub(super) git_event_rx: Arc<Mutex<Option<mpsc::Receiver<crate::git::GitEvent>>>>,
+    pub(super) branch_event_tx: mpsc::Sender<(String, String, crate::git::BranchEvent)>,
     pub(super) branch_event_rx:
-        Arc<Mutex<Option<mpsc::UnboundedReceiver<(String, String, crate::git::BranchEvent)>>>>,
+        Arc<Mutex<Option<mpsc::Receiver<(String, String, crate::git::BranchEvent)>>>>,
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) refresh_signal: Option<Arc<Notify>>,
 }
@@ -33,8 +33,8 @@ pub struct WatchManager {
 impl WatchManager {
     /// Create a new watch manager
     pub fn new(pool: SqlitePool, allowed_extensions: Arc<AllowedExtensions>) -> Self {
-        let (git_event_tx, git_event_rx) = mpsc::unbounded_channel();
-        let (branch_event_tx, branch_event_rx) = mpsc::unbounded_channel();
+        let (git_event_tx, git_event_rx) = mpsc::channel(1_000);
+        let (branch_event_tx, branch_event_rx) = mpsc::channel(1_000);
         Self {
             pool,
             watchers: Arc::new(RwLock::new(HashMap::new())),
@@ -49,7 +49,7 @@ impl WatchManager {
     }
 
     /// Take the git event receiver (can only be called once).
-    pub async fn take_git_event_rx(&self) -> Option<mpsc::UnboundedReceiver<crate::git::GitEvent>> {
+    pub async fn take_git_event_rx(&self) -> Option<mpsc::Receiver<crate::git::GitEvent>> {
         let mut rx_lock = self.git_event_rx.lock().await;
         rx_lock.take()
     }
@@ -57,7 +57,7 @@ impl WatchManager {
     /// Take the branch event receiver (can only be called once).
     pub async fn take_branch_event_rx(
         &self,
-    ) -> Option<mpsc::UnboundedReceiver<(String, String, crate::git::BranchEvent)>> {
+    ) -> Option<mpsc::Receiver<(String, String, crate::git::BranchEvent)>> {
         let mut rx_lock = self.branch_event_rx.lock().await;
         rx_lock.take()
     }
@@ -188,8 +188,10 @@ impl WatchManager {
                 match detector.scan_for_changes().await {
                     Ok(events) => {
                         for event in events {
-                            if branch_tx.send((wid.clone(), tid.clone(), event)).is_err() {
-                                return;
+                            match branch_tx.try_send((wid.clone(), tid.clone(), event)) {
+                                Ok(()) => {}
+                                Err(mpsc::error::TrySendError::Closed(_)) => return,
+                                Err(mpsc::error::TrySendError::Full(_)) => break,
                             }
                         }
                     }

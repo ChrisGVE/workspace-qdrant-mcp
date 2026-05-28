@@ -33,7 +33,7 @@ impl FileWatcherQueue {
     /// Main event processing loop
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn event_processing_loop(
-        event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
+        event_receiver: Arc<Mutex<Option<mpsc::Receiver<FileEvent>>>>,
         debouncer: Arc<Mutex<EventDebouncer>>,
         patterns: Arc<RwLock<CompiledPatterns>>,
         config: Arc<RwLock<WatchConfig>>,
