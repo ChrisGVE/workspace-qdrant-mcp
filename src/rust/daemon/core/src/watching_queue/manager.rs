@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use sqlx::{Row, SqlitePool};
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::allowed_extensions::AllowedExtensions;
@@ -26,6 +27,7 @@ pub struct WatchManager {
     pub(super) branch_event_tx: mpsc::Sender<(String, String, crate::git::BranchEvent)>,
     pub(super) branch_event_rx:
         Arc<Mutex<Option<mpsc::Receiver<(String, String, crate::git::BranchEvent)>>>>,
+    pub(super) branch_detector_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) refresh_signal: Option<Arc<Notify>>,
 }
@@ -43,6 +45,7 @@ impl WatchManager {
             git_event_rx: Arc::new(Mutex::new(Some(git_event_rx))),
             branch_event_tx,
             branch_event_rx: Arc::new(Mutex::new(Some(branch_event_rx))),
+            branch_detector_handles: Arc::new(Mutex::new(HashMap::new())),
             allowed_extensions,
             refresh_signal: None,
         }
@@ -181,7 +184,7 @@ impl WatchManager {
         let branch_tx = self.branch_event_tx.clone();
         let wid = watch_id.to_string();
         let tid = tenant_id.to_string();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
             loop {
                 interval.tick().await;
@@ -201,6 +204,10 @@ impl WatchManager {
                 }
             }
         });
+        self.branch_detector_handles
+            .lock()
+            .await
+            .insert(watch_id.to_string(), handle);
         info!("Started branch lifecycle detector for {}", watch_id);
     }
 
@@ -345,11 +352,24 @@ impl WatchManager {
     /// Stop all watchers
     pub async fn stop_all_watches(&self) -> WatchingQueueResult<()> {
         let watchers = self.watchers.read().await;
-
         for (id, watcher) in watchers.iter() {
             if let Err(e) = watcher.stop().await {
                 error!("Failed to stop watcher {}: {}", id, e);
             }
+        }
+        drop(watchers);
+
+        let mut git_watchers = self.git_watchers.lock().await;
+        for (id, gw) in git_watchers.iter_mut() {
+            gw.stop().await;
+            info!("Stopped git watcher: {}", id);
+        }
+        git_watchers.clear();
+
+        let mut detector_handles = self.branch_detector_handles.lock().await;
+        for (id, handle) in detector_handles.drain() {
+            handle.abort();
+            info!("Aborted branch detector: {}", id);
         }
 
         Ok(())

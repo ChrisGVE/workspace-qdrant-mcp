@@ -45,6 +45,11 @@ impl WatchManager {
                     gw.stop().await;
                     info!("Stopped git watcher for removed project: {}", id);
                 }
+                let mut detector_handles = self.branch_detector_handles.lock().await;
+                if let Some(handle) = detector_handles.remove(id) {
+                    handle.abort();
+                    info!("Aborted branch detector for removed project: {}", id);
+                }
             }
         }
 
@@ -116,6 +121,15 @@ impl WatchManager {
                     gw.stop().await;
                     info!(
                         "Stopped git watcher for {} project: {} (file watcher continues)",
+                        if !is_active { "deactivated" } else { "non-git" },
+                        watch_id
+                    );
+                }
+                let mut detector_handles = self.branch_detector_handles.lock().await;
+                if let Some(handle) = detector_handles.remove(&watch_id) {
+                    handle.abort();
+                    info!(
+                        "Aborted branch detector for {} project: {}",
                         if !is_active { "deactivated" } else { "non-git" },
                         watch_id
                     );
