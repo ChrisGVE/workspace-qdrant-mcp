@@ -395,3 +395,41 @@ pub(super) fn create_per_tenant_eta_metric() -> IntGaugeVec {
         &["tenant_id"],
     )
 }
+
+/// Per-(tenant, branch) `file_metadata` observability — refreshed every
+/// 30s by the search.db exporter in [`memexd::background`].
+///
+/// Cardinality: bounded by the number of registered (tenant_id, branch)
+/// pairs. No `path` label — that would be unbounded. For per-file
+/// inspection, route operators to the admin UI / sidecar SQL queries
+/// (see [[daemon-db-sidecar-query]] memory note).
+#[allow(clippy::type_complexity)]
+pub(super) fn create_file_metadata_metrics() -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec) {
+    let indexed_files_count = int_gauge_vec(
+        "indexed_files_count",
+        "Number of files in search.db file_metadata per tenant and branch",
+        &["tenant_id", "branch"],
+    );
+    let indexed_files_total_bytes = int_gauge_vec(
+        "indexed_files_total_bytes",
+        "Sum of file_metadata.size_bytes per tenant and branch (NULL sizes counted as 0)",
+        &["tenant_id", "branch"],
+    );
+    let fts5_skipped_files_count = int_gauge_vec(
+        "fts5_skipped_files_count",
+        "Current number of files with fts5_skipped=1 per tenant and branch \
+         (hard-cap bypass — see WQM_FTS5_HARD_CAP)",
+        &["tenant_id", "branch"],
+    );
+    let fts5_skipped_files_total = int_counter_vec(
+        "fts5_skipped_files_total",
+        "Cumulative count of times the FTS5 hard cap fired on ingestion per tenant and branch",
+        &["tenant_id", "branch"],
+    );
+    (
+        indexed_files_count,
+        indexed_files_total_bytes,
+        fts5_skipped_files_count,
+        fts5_skipped_files_total,
+    )
+}

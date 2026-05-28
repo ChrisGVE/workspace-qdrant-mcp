@@ -127,6 +127,7 @@ async fn run_daemon(
     );
     let mut bg_handles = background::spawn_all(
         &db_handles.queue_pool,
+        &db_handles.search_db,
         &db_handles.pause_flag,
         &prometheus_config,
     );

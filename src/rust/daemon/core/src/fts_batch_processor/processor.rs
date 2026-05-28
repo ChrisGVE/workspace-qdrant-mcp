@@ -592,6 +592,11 @@ pub async fn enforce_fts5_hard_cap_skip(
         .execute(search_db.pool())
         .await?;
 
+    // Bump the per-(tenant, branch) hard-cap counter so Grafana can chart
+    // how often the guard fires. NULL branch → "(none)" matches the gauge
+    // convention used by `set_file_metadata_stats`.
+    crate::monitoring::METRICS.inc_fts5_skipped(tenant_id, branch.unwrap_or("(none)"));
+
     info!(
         "FTS5 hard-cap: skipping {} ({} lines > cap {}) — marked fts5_skipped=1, no code_lines written",
         file_path,

@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::config::PrometheusExportConfig;
+use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::{
     check_git_state_changes, check_remote_url_changes, metrics_history, poll_pause_state,
     processing_timings, MetricsServer, METRICS,
@@ -461,9 +462,64 @@ pub fn start_git_state_monitor(pool: SqlitePool) -> JoinHandle<()> {
     handle
 }
 
+/// Periodically refresh `file_metadata`-derived gauges from search.db
+/// (Task #3 of the FTS5 size-guard series).
+///
+/// Queries `file_metadata` grouped by `(tenant_id, branch)` every 30s and
+/// pushes file_count, total_bytes, and fts5_skipped_count into the matching
+/// Prometheus gauges. Skipped pairs that disappear (e.g., after a project
+/// is removed) are zeroed-out so panels don't show stale series — mirrors
+/// the convention in `start_queue_depth_exporter`.
+///
+/// Cardinality: one series per (tenant_id, branch) pair across each gauge.
+/// On this stack that's ~5 tenants × ~5 branches = ~25 series total, well
+/// within Prometheus comfort zone. Adding a path-level label would explode
+/// to ~10k series and is intentionally NOT included; for per-file inspection
+/// use the admin UI / sidecar SQL queries.
+pub fn start_file_metadata_exporter(search_db: Arc<SearchDbManager>) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        // Tracks every (tenant_id, branch) pair we've ever emitted so we can
+        // zero-out gauges for pairs that vanish (deleted projects / branches).
+        let known: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
+        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+
+        loop {
+            interval.tick().await;
+            match search_db.file_metadata_stats_by_tenant_branch().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    for row in rows {
+                        METRICS.set_file_metadata_stats(
+                            &row.tenant_id,
+                            &row.branch,
+                            row.file_count,
+                            row.total_bytes,
+                            row.skipped_count,
+                        );
+                        seen.insert((row.tenant_id, row.branch));
+                    }
+                    let mut guard = known.lock().await;
+                    for pair in guard.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_file_metadata_stats(&pair.0, &pair.1, 0, 0, 0);
+                        }
+                    }
+                    guard.extend(seen);
+                }
+                Err(e) => debug!("file_metadata stats refresh failed: {}", e),
+            }
+        }
+    });
+    info!("file_metadata exporter started (30s interval)");
+    handle
+}
+
 /// Spawn all periodic background tasks and return their handles.
 pub fn spawn_all(
     pool: &SqlitePool,
+    search_db: &Arc<SearchDbManager>,
     pause_flag: &Arc<std::sync::atomic::AtomicBool>,
     prometheus_config: &PrometheusExportConfig,
 ) -> BackgroundHandles {
@@ -481,6 +537,7 @@ pub fn spawn_all(
     let _git_state = start_git_state_monitor(pool.clone());
     let _queue_depth = start_queue_depth_exporter(pool.clone());
     let _project_inventory = start_indexed_project_inventory_exporter(pool.clone());
+    let _file_metadata = start_file_metadata_exporter(Arc::clone(search_db));
 
     BackgroundHandles {
         uptime_handle,
