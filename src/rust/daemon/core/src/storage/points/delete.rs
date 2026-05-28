@@ -33,10 +33,6 @@ impl StorageClient {
             Condition::matches("tenant_id", tenant_id.to_string()),
         ]);
 
-        let count = self
-            .count_points_with_filter(collection_name, filter.clone())
-            .await?;
-
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
             .wait(true);
@@ -49,15 +45,14 @@ impl StorageClient {
         })
         .await?;
 
-        info!(
+        debug!(
             collection = collection_name,
             op = "delete_by_filter",
-            point_count = count,
             duration_ms = op_start.elapsed().as_millis() as u64,
             "qdrant delete completed"
         );
 
-        Ok(count)
+        Ok(0)
     }
 
     /// Delete points from a collection by tenant_id filter
