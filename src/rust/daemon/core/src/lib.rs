@@ -1,7 +1,7 @@
 //! Core processing engine for workspace-qdrant-mcp
 //!
-//! This crate provides the core document processing, file watching, and embedding
-//! generation capabilities for the workspace-qdrant-mcp ingestion engine.
+//! This crate provides the core document processing and embedding generation
+//! capabilities for the workspace-qdrant-mcp ingestion engine.
 
 // ── Module declarations ─────────────────────────────────────────────────
 
@@ -67,6 +67,7 @@ pub mod lsp;
 pub mod metadata_uplift;
 pub mod metrics_history_schema;
 pub mod parent_unit;
+pub mod path_validator;
 pub mod project_disambiguation;
 pub mod resolution_events_schema;
 pub mod schema_version;
@@ -88,7 +89,6 @@ pub mod unified_config;
 pub mod unified_queue_processor;
 pub mod unified_queue_schema;
 pub mod watch_folders_schema;
-pub mod watching;
 pub mod watching_queue;
 pub mod write_actor;
 

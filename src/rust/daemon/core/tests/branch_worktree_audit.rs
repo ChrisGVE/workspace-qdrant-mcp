@@ -19,7 +19,9 @@ use workspace_qdrant_core::git::{
     detect_git_status, find_main_worktree_path, BranchEvent, BranchLifecycleConfig,
     BranchLifecycleDetector,
 };
-use workspace_qdrant_core::watching::{PathValidator, PathValidatorConfig, RegisteredProject};
+use workspace_qdrant_core::path_validator::{
+    PathValidator, PathValidatorConfig, RegisteredProject,
+};
 use wqm_common::project_id::{DisambiguationPathComputer, ProjectIdCalculator};
 
 // ─── Task 2: worktree detection ────────────────────────────────────────────
