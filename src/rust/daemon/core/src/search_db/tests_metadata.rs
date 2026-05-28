@@ -105,6 +105,67 @@ async fn test_file_metadata_upsert() {
 }
 
 #[tokio::test]
+async fn test_file_metadata_churn_count() {
+    use sqlx::Row;
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("search.db");
+    let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+    // First index: reindex_count seeds to 1, first_indexed_at is stamped.
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
+        .bind(1_i64)
+        .bind("proj-churn")
+        .bind("main")
+        .bind("/gen/output.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<i64>)
+        .bind(0_i64)
+        .execute(manager.pool())
+        .await
+        .unwrap();
+
+    let row =
+        sqlx::query("SELECT reindex_count, first_indexed_at FROM file_metadata WHERE file_id = 1")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(row.get::<i64, _>("reindex_count"), 1);
+    let first_at = row.get::<Option<String>, _>("first_indexed_at");
+    assert!(first_at.is_some(), "first_indexed_at should be stamped on insert");
+
+    // Re-index the same file_id: count increments, first_indexed_at preserved.
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
+        .bind(1_i64)
+        .bind("proj-churn")
+        .bind("main")
+        .bind("/gen/output.rs")
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .bind(None::<i64>)
+        .bind(0_i64)
+        .execute(manager.pool())
+        .await
+        .unwrap();
+
+    let row2 =
+        sqlx::query("SELECT reindex_count, first_indexed_at FROM file_metadata WHERE file_id = 1")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(row2.get::<i64, _>("reindex_count"), 2);
+    assert_eq!(
+        row2.get::<Option<String>, _>("first_indexed_at"),
+        first_at,
+        "first_indexed_at must be preserved across re-index"
+    );
+
+    manager.close().await;
+}
+
+#[tokio::test]
 async fn test_file_metadata_null_branch() {
     use sqlx::Row;
     let tmp = TempDir::new().unwrap();

@@ -130,6 +130,8 @@
         <div class="row" style="margin-top:0.5rem; align-items:center; gap:0.5rem">
           <button type="button" id="saveIgnoreBtn" class="primary">Save</button>
           <button type="button" id="reloadIgnoreBtn" class="secondary">Reload</button>
+          <button type="button" id="forceReconcileBtn" class="secondary"
+                  title="Re-run ignore_sync now (no daemon restart) — picks up edits to global.wqmignore and enqueues file/delete + file/add accordingly">Reapply</button>
           <span id="ignoreMsg" class="dim small"></span>
         </div>
       </section>
@@ -196,11 +198,6 @@
             <div id="daemonMetricsVal" class="stat-value small">—</div>
             <div id="daemonMetricsDetail" class="dim small">—</div>
             <button type="button" id="checkDaemonMetricsBtn" class="secondary small" style="margin-top:6px">Check</button>
-          </div>
-          <div>
-            <div class="stat-label">Reapply ignore rules</div>
-            <div class="dim small">Re-run ignore_sync now (no daemon restart) — picks up edits to global.wqmignore and enqueues file/delete + file/add accordingly</div>
-            <button type="button" id="forceReconcileBtn" class="secondary small" style="margin-top:6px">Reapply</button>
           </div>
           <div>
             <div class="stat-label">Admin info</div>

@@ -19,6 +19,8 @@ export type {
   Metric,
   MetricsResponse,
   GetEmbeddingProviderStatusResponse,
+  RebuildIndexRequest,
+  RebuildIndexResponse,
   RefreshSignalRequest,
   ServerStatusNotification,
   CollectionConfig,

@@ -19,6 +19,8 @@ export {
   type Metric,
   type MetricsResponse,
   type GetEmbeddingProviderStatusResponse,
+  type RebuildIndexRequest,
+  type RebuildIndexResponse,
   type RefreshSignalRequest,
   type ServerStatusNotification,
   // CollectionService
@@ -92,4 +94,6 @@ export type {
   WatchIdRequest,
   WatchMutationResponse,
   ReapplyIgnoreRulesResponse,
+  ReembedTenantRequest,
+  ReembedTenantResponse,
 } from './grpc-types-clients.js';

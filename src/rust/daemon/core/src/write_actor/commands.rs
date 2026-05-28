@@ -318,6 +318,19 @@ pub struct ReapplyIgnoreRulesResult {
     pub missing_added: u32,
 }
 
+/// Data for ReembedTenant
+#[derive(Debug)]
+pub struct ReembedTenantData {
+    pub tenant_id: String,
+}
+
+/// Result of ReembedTenant
+#[derive(Debug)]
+pub struct ReembedTenantResult {
+    pub files_enqueued: u32,
+    pub message: String,
+}
+
 // ── WriteCommand enum ──────────────────────────────────────────────────
 
 /// Type alias for write results channeled back via oneshot.
@@ -458,5 +471,9 @@ pub enum WriteCommand {
     },
     ReapplyIgnoreRules {
         tx: oneshot::Sender<WriteResult<ReapplyIgnoreRulesResult>>,
+    },
+    ReembedTenant {
+        data: ReembedTenantData,
+        tx: oneshot::Sender<WriteResult<ReembedTenantResult>>,
     },
 }

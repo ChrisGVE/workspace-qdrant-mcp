@@ -289,6 +289,14 @@ function renderRegistered(snap) {
                 data-action="watch-resume"
                 data-watch-id="${escapeHtml(r.path)}"
                 title="Set is_paused=0 for this watch folder">Resume</button>
+        <button class="secondary small"
+                data-action="project-reindex"
+                data-id="${escapeHtml(r.tenantId)}"
+                title="Rebuild FTS5/tags/sparse/components for this project (no re-embed)">Reindex</button>
+        <button class="secondary small"
+                data-action="project-reembed"
+                data-id="${escapeHtml(r.tenantId)}"
+                title="Re-read & re-embed all of this project's files (regenerates vectors; runs in the queue)">Re-embed</button>
         <button class="danger small"
                 data-action="deregister"
                 data-id="${escapeHtml(r.tenantId)}"
@@ -550,6 +558,28 @@ document.addEventListener('click', async (e) => {
       } else {
         toast(`No change (not currently paused, disabled, or not found)`, 'info');
       }
+      refresh();
+    } else if (action === 'project-reindex') {
+      const result = await api('/admin/api/projects/reindex', {
+        method: 'POST',
+        body: { tenantId: btn.dataset.id },
+      });
+      if (result.ok) {
+        const ms = result.durationMs ? ` (${result.durationMs}ms)` : '';
+        toast(`Reindexed project ${btn.dataset.id}${ms}`);
+      } else {
+        toast(`Reindex reported failure: ${result.message || 'unknown'}`, 'error');
+      }
+      refresh();
+    } else if (action === 'project-reembed') {
+      if (!confirm(`Re-embed all files for project ${btn.dataset.id}? This re-reads and re-embeds the whole project in the background.`)) {
+        return;
+      }
+      const result = await api('/admin/api/projects/reembed', {
+        method: 'POST',
+        body: { tenantId: btn.dataset.id },
+      });
+      toast(`Re-embed queued for ${btn.dataset.id}: ${result.filesEnqueued ?? 0} folder scan(s)`);
       refresh();
     }
   } catch (e) {

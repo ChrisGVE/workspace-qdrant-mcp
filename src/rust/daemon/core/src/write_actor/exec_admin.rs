@@ -128,4 +128,74 @@ impl WriteActor {
             missing_added: stats.missing_added as u32,
         })
     }
+
+    /// Re-embed a single project in place.
+    ///
+    /// Enqueues a `folder|scan` for each of the tenant's enabled `watch_folders`
+    /// rows so the pipeline re-reads, re-chunks and re-embeds its files. Unlike
+    /// the global reembed pipeline this is **non-destructive** — it does not
+    /// drop/recreate Qdrant collections (the re-process upserts points by id).
+    /// Reuses the canonical `QueueManager::enqueue_unified` so idempotency keys,
+    /// dedup, and metrics match the normal ingest path.
+    pub(super) async fn exec_reembed_tenant(
+        &self,
+        data: ReembedTenantData,
+    ) -> WriteResult<ReembedTenantResult> {
+        let tenant_id = data.tenant_id.trim();
+        if tenant_id.is_empty() {
+            return Err("tenant_id must not be empty".into());
+        }
+
+        let folders = sqlx::query_as::<_, (String, String)>(
+            "SELECT path, collection FROM watch_folders WHERE enabled = 1 AND tenant_id = ?1",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("database error: {}", e))?;
+
+        if folders.is_empty() {
+            return Ok(ReembedTenantResult {
+                files_enqueued: 0,
+                message: format!("no enabled watch folders for tenant '{}'", tenant_id),
+            });
+        }
+
+        let queue_manager =
+            crate::queue_operations::QueueManager::new(self.pool.clone());
+        let mut enqueued = 0u32;
+        for (path, collection) in &folders {
+            let payload = serde_json::json!({
+                "folder_path": path,
+                "recursive": true,
+                "recursive_depth": 10,
+                "patterns": [],
+                "ignore_patterns": []
+            })
+            .to_string();
+            let (_, is_new) = queue_manager
+                .enqueue_unified(
+                    crate::unified_queue_schema::ItemType::Folder,
+                    crate::unified_queue_schema::QueueOperation::Scan,
+                    tenant_id,
+                    collection,
+                    &payload,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|e| format!("enqueue folder scan failed: {}", e))?;
+            if is_new {
+                enqueued += 1;
+            }
+        }
+
+        Ok(ReembedTenantResult {
+            files_enqueued: enqueued,
+            message: format!(
+                "re-enqueued {} folder scan(s) for tenant '{}' (re-embed in place)",
+                enqueued, tenant_id
+            ),
+        })
+    }
 }

@@ -9,6 +9,8 @@ import type {
   SystemStatusResponse,
   MetricsResponse,
   GetEmbeddingProviderStatusResponse,
+  RebuildIndexRequest,
+  RebuildIndexResponse,
   ServerState,
   ServerStatusNotification,
   RegisterProjectRequest,
@@ -74,6 +76,18 @@ export class DaemonClientSystem extends DaemonClientBase {
         {},
         this.getMethodTimeout('getEmbeddingProviderStatus')
       )
+    );
+  }
+
+  /**
+   * Rebuild computed indexes (FTS5, tags, sparse vectors, components,
+   * keywords) for one tenant. Recomputes from already-indexed content —
+   * does not re-read files or regenerate dense embeddings. Uses a longer
+   * ceiling than the 5s default since a full per-project rebuild is heavier.
+   */
+  async rebuildIndex(request: RebuildIndexRequest): Promise<RebuildIndexResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(this.systemClient, 'rebuildIndex', request, 60_000, 'rebuildIndex')
     );
   }
 

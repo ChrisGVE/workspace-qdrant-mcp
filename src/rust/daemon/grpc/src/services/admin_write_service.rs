@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::write_actor::{
-    RebalanceIdfData, RenameTenantAdminData, WriteActorHandle,
+    RebalanceIdfData, ReembedTenantData, RenameTenantAdminData, WriteActorHandle,
 };
 
 use crate::proto::{
     admin_write_service_server::AdminWriteService, ReapplyIgnoreRulesResponse, RebalanceIdfRequest,
-    RebalanceIdfResponse, RenameTenantAdminRequest, RenameTenantAdminResponse,
-    TriggerReembedRequest, TriggerReembedResponse,
+    RebalanceIdfResponse, ReembedTenantRequest, ReembedTenantResponse, RenameTenantAdminRequest,
+    RenameTenantAdminResponse, TriggerReembedRequest, TriggerReembedResponse,
 };
 use crate::services::reembed::{execute_reembed, ReembedContext, StorageClientRecreator};
 
@@ -136,6 +136,24 @@ impl AdminWriteService for AdminWriteServiceImpl {
             projects_processed: result.projects_processed,
             stale_deleted: result.stale_deleted,
             missing_added: result.missing_added,
+        }))
+    }
+
+    async fn reembed_tenant(
+        &self,
+        request: Request<ReembedTenantRequest>,
+    ) -> Result<Response<ReembedTenantResponse>, Status> {
+        let req = request.into_inner();
+        let result = self
+            .write_actor
+            .reembed_tenant(ReembedTenantData {
+                tenant_id: req.tenant_id,
+            })
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(ReembedTenantResponse {
+            files_enqueued: result.files_enqueued,
+            message: result.message,
         }))
     }
 }

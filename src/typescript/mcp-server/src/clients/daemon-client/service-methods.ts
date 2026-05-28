@@ -27,6 +27,8 @@ import type {
   WatchIdRequest,
   WatchMutationResponse,
   ReapplyIgnoreRulesResponse,
+  ReembedTenantRequest,
+  ReembedTenantResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientSystem } from './system-methods.js';
@@ -233,6 +235,17 @@ export class DaemonClientService extends DaemonClientSystem {
         'reapplyIgnoreRules',
         {},
         this.getMethodTimeout('reapplyIgnoreRules')
+      )
+    );
+  }
+
+  async reembedTenant(request: ReembedTenantRequest): Promise<ReembedTenantResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.adminWriteClient,
+        'reembedTenant',
+        request,
+        this.getMethodTimeout('reembedTenant')
       )
     );
   }

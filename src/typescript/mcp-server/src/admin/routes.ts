@@ -603,6 +603,80 @@ const handleWatchResume: RouteHandler = async (req, res, { daemonClient }) => {
   }
 };
 
+// ── /api/projects/reindex — force-rebuild one project's computed indexes ─────
+
+interface ProjectReindexRequest {
+  /** Project tenant_id (12-char hex). */
+  tenantId: string;
+}
+
+/**
+ * Calls `SystemService.RebuildIndex` scoped to one tenant with force=true,
+ * target="all". Recomputes FTS5, tags, sparse vectors, components and
+ * keywords for the project from already-indexed content. Does NOT re-read
+ * files or regenerate dense embeddings — that is the tenant-scoped re-embed
+ * (separate, daemon-side work).
+ */
+const handleProjectReindex: RouteHandler = async (req, res, { daemonClient }) => {
+  const body = (await readJsonBody(req)) as Partial<ProjectReindexRequest>;
+  const tenantId = body.tenantId;
+  if (!tenantId || typeof tenantId !== 'string') {
+    writeError(res, 400, 'tenantId required');
+    return;
+  }
+  try {
+    const response = await daemonClient.rebuildIndex({
+      target: 'all',
+      tenant_id: tenantId,
+      force: true,
+    });
+    logInfo('admin project reindex', {
+      tenantId,
+      success: response.success,
+      durationMs: response.duration_ms,
+    });
+    writeJson(res, 200, {
+      ok: response.success,
+      message: response.message,
+      durationMs: response.duration_ms,
+      details: response.details,
+    });
+  } catch (error) {
+    logError('admin project reindex failed', error, { tenantId });
+    writeError(res, 502, 'reindex failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
+// ── /api/projects/reembed — re-embed one project in place (tenant-scoped) ────
+
+/**
+ * Calls `AdminWriteService.ReembedTenant` — enqueues a folder scan for each of
+ * the project's enabled watch folders so its files are re-read, re-chunked and
+ * re-embedded (dense+sparse regenerated). Non-destructive; the heavy work runs
+ * async in the queue. Heavier than reindex (full reprocess), so the UI confirms
+ * before calling.
+ */
+const handleProjectReembed: RouteHandler = async (req, res, { daemonClient }) => {
+  const body = (await readJsonBody(req)) as Partial<ProjectReindexRequest>;
+  const tenantId = body.tenantId;
+  if (!tenantId || typeof tenantId !== 'string') {
+    writeError(res, 400, 'tenantId required');
+    return;
+  }
+  try {
+    const response = await daemonClient.reembedTenant({ tenant_id: tenantId });
+    logInfo('admin project reembed', { tenantId, filesEnqueued: response.files_enqueued });
+    writeJson(res, 200, {
+      ok: true,
+      filesEnqueued: response.files_enqueued,
+      message: response.message,
+    });
+  } catch (error) {
+    logError('admin project reembed failed', error, { tenantId });
+    writeError(res, 502, 'reembed failed', error instanceof Error ? error.message : String(error));
+  }
+};
+
 // ── /api/settings — read + write the JSON settings file ─────────────────────
 
 const handleGetSettings: RouteHandler = async (_req, res) => {
@@ -790,6 +864,76 @@ const handleFilesLarge: RouteHandler = async (req, res, { searchDbReader }) => {
   });
 };
 
+/**
+ * GET /admin/api/files/churn — the most-churned indexed files.
+ *
+ * Ranks `file_metadata` by `reindex_count` (search.db v9) and enriches each
+ * row with `churn_per_day` (count / age since `first_indexed_at`) so operators
+ * can spot IDE/build-generated files that change constantly and add them to
+ * `global.wqmignore` (then "Reapply ignore"). Mirrors the largest-files view.
+ *
+ * Query params (all optional):
+ *   - limit     : 1..500, default 50
+ *   - tenant_id : exact match
+ *   - branch    : exact match; pass "(none)" to filter NULL branch
+ *   - min_count : only files re-indexed at least N times (default 2)
+ */
+const handleFilesChurn: RouteHandler = async (req, res, { searchDbReader }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const limitRaw = url.searchParams.get('limit');
+  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  const tenantId = url.searchParams.get('tenant_id') ?? undefined;
+  const branch = url.searchParams.get('branch') ?? undefined;
+  const minCountRaw = url.searchParams.get('min_count');
+  const minCount = minCountRaw ? Number.parseInt(minCountRaw, 10) : undefined;
+
+  if (limit !== undefined && !Number.isFinite(limit)) {
+    writeError(res, 400, 'limit must be an integer');
+    return;
+  }
+  if (minCount !== undefined && !Number.isFinite(minCount)) {
+    writeError(res, 400, 'min_count must be an integer');
+    return;
+  }
+
+  const status = searchDbReader.initialize();
+  if (status.status !== 'ok') {
+    writeJson(res, 200, { files: [], source: searchDbReader.getDatabasePath(), degraded: status });
+    return;
+  }
+
+  const opts: Parameters<typeof searchDbReader.listChurnFiles>[0] = {};
+  if (limit !== undefined) opts.limit = limit;
+  if (tenantId !== undefined) opts.tenantId = tenantId;
+  if (branch !== undefined) opts.branch = branch;
+  if (minCount !== undefined) opts.minReindexCount = minCount;
+
+  const now = Date.now();
+  const files = searchDbReader.listChurnFiles(opts).map((f) => {
+    let churnPerDay: number | null = null;
+    if (f.first_indexed_at) {
+      const firstMs = Date.parse(f.first_indexed_at);
+      if (Number.isFinite(firstMs)) {
+        // Floor age at 1h so a burst of re-indexes right after first-seen
+        // doesn't divide by ~0 and report an absurd rate.
+        const ageDays = Math.max((now - firstMs) / 86_400_000, 1 / 24);
+        churnPerDay = Math.round((f.reindex_count / ageDays) * 100) / 100;
+      }
+    }
+    return { ...f, churn_per_day: churnPerDay };
+  });
+
+  writeJson(res, 200, {
+    files,
+    source: searchDbReader.getDatabasePath(),
+    filters: {
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+      ...(branch ? { branch } : {}),
+      min_count: minCount ?? 2,
+    },
+  });
+};
+
 // ── Route table ──────────────────────────────────────────────────────────────
 
 type Route = { method: string; path: string; handler: RouteHandler };
@@ -808,10 +952,13 @@ const ROUTES: ReadonlyArray<Route> = [
   { method: 'POST', path: '/admin/api/ignore/reapply', handler: handleReapplyIgnore },
   { method: 'POST', path: '/admin/api/watches/pause', handler: handleWatchPause },
   { method: 'POST', path: '/admin/api/watches/resume', handler: handleWatchResume },
+  { method: 'POST', path: '/admin/api/projects/reindex', handler: handleProjectReindex },
+  { method: 'POST', path: '/admin/api/projects/reembed', handler: handleProjectReembed },
   { method: 'GET', path: '/admin/api/config/clients', handler: handleGetClientConfigs },
   { method: 'GET', path: '/admin/api/logs/mcp', handler: handleGetMcpLogs },
   { method: 'GET', path: '/admin/api/daemon/raw-health', handler: handleDaemonRawHealth },
   { method: 'GET', path: '/admin/api/files/large', handler: handleFilesLarge },
+  { method: 'GET', path: '/admin/api/files/churn', handler: handleFilesChurn },
 ];
 
 /**

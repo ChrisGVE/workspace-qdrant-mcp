@@ -60,6 +60,20 @@ export interface GetEmbeddingProviderStatusResponse {
   probe_message: string;
 }
 
+export interface RebuildIndexRequest {
+  target: string;
+  tenant_id?: string;
+  collection?: string;
+  force?: boolean;
+}
+
+export interface RebuildIndexResponse {
+  success: boolean;
+  message: string;
+  duration_ms: number;
+  details: Record<string, string>;
+}
+
 export interface RefreshSignalRequest {
   queue_type: QueueType;
   lsp_languages?: string[];

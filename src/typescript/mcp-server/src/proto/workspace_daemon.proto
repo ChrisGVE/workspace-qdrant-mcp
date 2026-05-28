@@ -74,6 +74,9 @@ service SystemService {
 
     // Rebuild computed indexes (tag hierarchy, FTS, sparse vectors, etc.)
     rpc RebuildIndex(RebuildIndexRequest) returns (RebuildIndexResponse);
+
+    // Embedding provider status: configured provider, model, dim, probe state
+    rpc GetEmbeddingProviderStatus(google.protobuf.Empty) returns (GetEmbeddingProviderStatusResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -821,7 +824,7 @@ service QueueWriteService {
 }
 
 // -----------------------------------------------------------------------------
-// 9. WatchWriteService (6 RPCs)
+// 9. WatchWriteService (8 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Watch folder state mutations. Daemon-exclusive writes to
 //          watch_folders table.
@@ -832,6 +835,12 @@ service WatchWriteService {
 
     // Resume all paused watchers (set is_paused=0)
     rpc ResumeWatchers(google.protobuf.Empty) returns (WatchMutationResponse);
+
+    // Pause a specific watch folder (set is_paused=1)
+    rpc PauseWatch(WatchIdRequest) returns (WatchMutationResponse);
+
+    // Resume a specific watch folder (set is_paused=0)
+    rpc ResumeWatch(WatchIdRequest) returns (WatchMutationResponse);
 
     // Enable a specific watch folder
     rpc EnableWatch(WatchIdRequest) returns (WatchMutationResponse);
@@ -914,6 +923,19 @@ service AdminWriteService {
 
     // Update corpus_statistics after IDF rebalancing
     rpc RebalanceIdf(RebalanceIdfRequest) returns (RebalanceIdfResponse);
+
+    // Reapply ignore rules across all active projects without restart.
+    // Iterates watch_folders with collection='projects' AND enabled=1,
+    // compares tracked_files against the current global+per-project ignore
+    // rules, enqueues file/delete for newly-excluded paths, file/add for
+    // newly-included paths.
+    rpc ReapplyIgnoreRules(google.protobuf.Empty) returns (ReapplyIgnoreRulesResponse);
+
+    // Re-embed a single project in place: enqueue a folder scan for each of
+    // the tenant's enabled watch folders so its files are re-read, re-chunked
+    // and re-embedded. Non-destructive — unlike TriggerReembed it does NOT
+    // drop/recreate collections (use that only for an output_dim change).
+    rpc ReembedTenant(ReembedTenantRequest) returns (ReembedTenantResponse);
 }
 
 // =============================================================================
@@ -1013,7 +1035,7 @@ message WatchMutationResponse {
     uint32 affected_count = 1;                        // Number of watch folders affected
 }
 
-// Watch ID request (used by enable, disable, unarchive)
+// Watch ID request (used by pause, resume, enable, disable, unarchive)
 message WatchIdRequest {
     string watch_id = 1;                              // Watch ID or filesystem path
 }
@@ -1205,6 +1227,34 @@ message RebalanceIdfRequest {
 message RebalanceIdfResponse {
     bool success = 1;
     string message = 2;
+}
+
+// ReapplyIgnoreRules Response
+message ReapplyIgnoreRulesResponse {
+    uint32 projects_processed = 1;                    // Number of active projects iterated
+    uint32 stale_deleted = 2;                         // Tracked files enqueued for deletion (newly ignored)
+    uint32 missing_added = 3;                         // Filesystem entries enqueued for indexing (newly included)
+}
+
+// ReembedTenant Request
+message ReembedTenantRequest {
+    string tenant_id = 1;                             // Project tenant_id to re-embed in place
+}
+
+// ReembedTenant Response
+message ReembedTenantResponse {
+    uint32 files_enqueued = 1;                        // Folder scans re-enqueued for the tenant
+    string message = 2;
+}
+
+// GetEmbeddingProviderStatus Response
+message GetEmbeddingProviderStatusResponse {
+    string provider = 1;                              // fastembed | openai_compatible | ...
+    string model = 2;                                 // Model identifier
+    uint32 output_dim = 3;                            // Configured dim from settings.output_dim
+    string base_url = 4;                              // For remote providers ("" if local)
+    string probe_status = 5;                          // healthy | unhealthy | degraded | probe_pending
+    string probe_message = 6;                         // Human-readable detail
 }
 
 // =============================================================================

@@ -1,4 +1,4 @@
-//! Schema migration implementations for search.db (v1 through v6).
+//! Schema migration implementations for search.db (v1 through v9).
 
 use sqlx::SqlitePool;
 use tracing::info;
@@ -177,6 +177,41 @@ pub(super) async fn migrate_v8(pool: &SqlitePool) -> SearchDbResult<()> {
     Ok(())
 }
 
+/// Migration v9: Add churn tracking (`reindex_count`, `first_indexed_at`) to
+/// `file_metadata`.
+///
+/// Lets the admin layer rank files by how often their content is re-indexed
+/// (`reindex_count / age(first_indexed_at)`) to surface IDE/build-generated
+/// churn as ignore candidates. Idempotent: skips the ALTERs when the column
+/// already exists (fresh v9+ DBs create them via `CREATE_FILE_METADATA_SQL`).
+/// Both columns are added together, so the `reindex_count` probe gates both.
+pub(super) async fn migrate_v9(pool: &SqlitePool) -> SearchDbResult<()> {
+    use crate::code_lines_schema::{
+        ALTER_FILE_METADATA_V9_SQL, CREATE_FILE_METADATA_CHURN_INDEX_SQL,
+    };
+
+    info!("Search DB migration v9: adding reindex_count + first_indexed_at to file_metadata");
+
+    let has_column: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('file_metadata') WHERE name = 'reindex_count'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !has_column {
+        for alter_sql in ALTER_FILE_METADATA_V9_SQL {
+            sqlx::query(alter_sql).execute(pool).await?;
+        }
+    }
+
+    // Always create the churn index (IF NOT EXISTS guarantees idempotency).
+    sqlx::query(CREATE_FILE_METADATA_CHURN_INDEX_SQL)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 /// Dispatch a single migration by version number.
 pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbResult<()> {
     match version {
@@ -188,6 +223,7 @@ pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbRe
         6 => migrate_v6(pool).await,
         7 => migrate_v7(pool).await,
         8 => migrate_v8(pool).await,
+        9 => migrate_v9(pool).await,
         _ => Err(SearchDbError::Migration(format!(
             "Unknown search DB migration version: {}",
             version
