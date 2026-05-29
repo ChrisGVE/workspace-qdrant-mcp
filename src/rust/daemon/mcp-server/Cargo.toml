@@ -1,0 +1,84 @@
+[package]
+name = "mcp-server"
+version = "0.1.0"
+edition = "2021"
+description = "Rust MCP server for workspace-qdrant — drop-in replacement for the TypeScript server"
+authors = ["Chris Van Eerden"]
+license = "Apache-2.0"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[[bin]]
+name = "wqm-mcp"
+path = "src/main.rs"
+
+[lib]
+name = "mcp_server"
+path = "src/lib.rs"
+
+[dependencies]
+# MCP framework (pinned — not in workspace deps)
+rmcp = { version = "1.7", features = [
+    "server",
+    "transport-io",
+    "transport-streamable-http-server",
+    "server-side-http",
+    "auth",
+    "tower",
+    "macros",
+] }
+
+# Qdrant client (pinned to match workspace usage in daemon/core + daemon/grpc)
+qdrant-client = "1.17"
+
+# gRPC client stack (workspace versions)
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Shared config, paths, constants, project-id, hashing, payloads
+wqm-common = { path = "../../common", features = ["sqlite"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+sha2 = { workspace = true }
+thiserror = "1.0"
+anyhow = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+
+# SQLite (read-only access — matching CLI pattern)
+rusqlite = { workspace = true }
+
+# Secrets (avoid Debug leaks for tokens/api-keys)
+secrecy = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
+prometheus = { version = "0.13", features = ["process"] }
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serial_test = { workspace = true }
+tokio-test = { workspace = true }
+wiremock = { workspace = true }
+
+[features]
+# Gates integration tests that require a live daemon + Qdrant
+integration-tests = []
+# Gates golden-file capture mode (vs replay)
+golden-capture = []
+
+[lints]
+workspace = true
