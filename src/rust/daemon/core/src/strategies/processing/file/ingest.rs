@@ -403,14 +403,6 @@ async fn run_middle_phases(
         None => (Vec::new(), Vec::new()),
     };
 
-    // taxonomy_tags drive COVERS_TOPIC edges for narrative files; computed in
-    // Phase 2b and consumed by Phase 4b (narrative_phase) below.
-    let taxonomy_tags: Vec<String> = points
-        .first()
-        .and_then(|p| p.payload.get("taxonomy_tags"))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-
     // Phase 4b: narrative extraction. Failure-isolated — any error yields an
     // empty result and a warning, never aborting ingestion (AC-A9). Its output
     // is threaded into the SAME graph reingest transaction as the code and
@@ -424,7 +416,8 @@ async fn run_middle_phases(
         &document_content.raw_text,
         detected_language,
         detected_branch,
-        &taxonomy_tags,
+        &points,
+        &chunk_records,
     ))
     .catch_unwind()
     .await
@@ -442,8 +435,7 @@ async fn run_middle_phases(
         phase: "narrative",
         duration_ms: t_narr.elapsed().as_millis() as u64,
     });
-    let (narrative_nodes, narrative_edges) =
-        (narrative_result.nodes, narrative_result.edges);
+    let (narrative_nodes, narrative_edges) = (narrative_result.nodes, narrative_result.edges);
 
     // Phases 3-4: keyword extraction + graph edges (concept + narrative
     // nodes/edges merged into the single graph reingest transaction).

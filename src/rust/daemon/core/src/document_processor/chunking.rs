@@ -132,6 +132,14 @@ pub fn chunk_by_characters(
             let mut chunk_metadata = base_metadata.clone();
             chunk_metadata.insert("chunk_index".to_string(), chunk_index.to_string());
 
+            // 1-indexed line range, so section-granular COVERS_TOPIC edges can
+            // overlap text chunks with line-based section spans. `start`/
+            // `actual_end` are char-boundary byte offsets into `text`.
+            let start_line = text[..start].matches('\n').count() + 1;
+            let end_line = text[..actual_end].matches('\n').count() + 1;
+            chunk_metadata.insert("start_line".to_string(), start_line.to_string());
+            chunk_metadata.insert("end_line".to_string(), end_line.to_string());
+
             chunks.push(TextChunk {
                 content: chunk_text,
                 chunk_index,
