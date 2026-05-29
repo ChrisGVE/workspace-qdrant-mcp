@@ -708,6 +708,7 @@ impl GraphStore for SqliteGraphStore {
         source_node_id: &str,
         edge_types: &[EdgeType],
         max_hops: u32,
+        _library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
         if edge_types.is_empty() || max_hops == 0 {
             return Ok(Vec::new());

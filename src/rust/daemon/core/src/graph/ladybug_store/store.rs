@@ -693,6 +693,7 @@ impl GraphStore for LadybugGraphStore {
         _source_node_id: &str,
         _edge_types: &[EdgeType],
         _max_hops: u32,
+        _library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
         Ok(Vec::new())
     }

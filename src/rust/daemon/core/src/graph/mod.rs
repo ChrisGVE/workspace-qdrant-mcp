@@ -552,14 +552,17 @@ pub trait GraphStore: Send + Sync {
     /// Traverse graph crossing tenant boundaries via concept/narrative edges.
     ///
     /// Starts from `source_node_id` in `source_tenant`, then follows edges
-    /// regardless of target node tenant_id. Callers should clamp `max_hops`
-    /// to 1..=10 before calling.
+    /// bidirectionally. Reached nodes are constrained to the tenant relaxation
+    /// set `source_tenant ∪ {"__global__"} ∪ library_tenants` (concept nodes
+    /// live under `__global__`, so it is always included). Callers should clamp
+    /// `max_hops` to 1..=3 before calling.
     async fn query_cross_boundary(
         &self,
         source_tenant: &str,
         source_node_id: &str,
         edge_types: &[EdgeType],
         max_hops: u32,
+        library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>>;
 
     /// Query all edges of a given type, returning full `GraphEdge` records.

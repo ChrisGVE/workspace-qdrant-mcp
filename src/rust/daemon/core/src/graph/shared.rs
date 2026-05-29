@@ -214,10 +214,17 @@ impl<S: GraphStore> SharedGraphStore<S> {
         source_node_id: &str,
         edge_types: &[EdgeType],
         max_hops: u32,
+        library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
         let guard = self.acquire_read("query_cross_boundary").await?;
         guard
-            .query_cross_boundary(source_tenant, source_node_id, edge_types, max_hops)
+            .query_cross_boundary(
+                source_tenant,
+                source_node_id,
+                edge_types,
+                max_hops,
+                library_tenants,
+            )
             .await
     }
 
@@ -373,9 +380,16 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
         source_node_id: &str,
         edge_types: &[EdgeType],
         max_hops: u32,
+        library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
-        self.query_cross_boundary(source_tenant, source_node_id, edge_types, max_hops)
-            .await
+        self.query_cross_boundary(
+            source_tenant,
+            source_node_id,
+            edge_types,
+            max_hops,
+            library_tenants,
+        )
+        .await
     }
 
     async fn reingest_file(
