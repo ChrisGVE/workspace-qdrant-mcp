@@ -1,61 +1,76 @@
-/// EXPLAINS edge creation via Aho-Corasick symbol-reference scanning.
-///
-/// For narrative files (.md, .txt), scans content for code-like identifiers
-/// (backtick-wrapped references, snake_case, CamelCase) and creates EXPLAINS
-/// edges from DocumentSection nodes to stub Function nodes for each symbol
-/// mentioned 2+ times.
+//! EXPLAINS edge creation resolving REAL code-graph symbols.
+//!
+//! For narrative files (`.md`, `.txt`), scans the document for references to a
+//! tenant's REAL code symbols (via a pre-built [`SymbolAutomaton`]) and emits
+//! EXPLAINS edges from the containing [`SectionSpan`] to the resolved code node.
+//!
+//! A reference produces an edge only when:
+//! * the symbol name resolves to exactly one code node (ambiguous → dropped);
+//! * the name is at least `explains_min_symbol_length` chars;
+//! * it occurs at least twice within a section;
+//! * it is not a language stop word;
+//! * the section has not already reached `explains_max_per_section` edges.
+//!
+//! No stub `Function` nodes are ever created — unresolved or ambiguous
+//! references are simply skipped, so EXPLAINS targets are always real nodes.
+
 use std::collections::HashMap;
 use std::path::Path;
 
-use aho_corasick::AhoCorasick;
 use async_trait::async_trait;
-use regex::Regex;
 
-use crate::graph::{
-    compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
-};
+use crate::config::NarrativeConfig;
+use crate::graph::{EdgeType, GraphEdge, NodeType};
 
+use super::sections::SectionSpan;
+use super::symbol_index::SymbolAutomaton;
 use super::{NarrativeExtractionResult, NarrativeExtractor};
-
-/// Maximum EXPLAINS edges per extraction.
-const MAX_EXPLAINS_EDGES: usize = 10;
-
-/// Minimum occurrence count for a symbol to produce an edge.
-const MIN_OCCURRENCES: usize = 2;
-
-/// Minimum length for candidate symbols (shorter ones are too noisy).
-const MIN_SYMBOL_LEN: usize = 3;
 
 /// Words filtered out even when they look like code identifiers.
 const STOP_LIST: &[&str] = &[
     "self", "impl", "test", "main", "init", "drop", "send", "sync", "read", "from", "into", "next",
     "iter", "push", "poll", "copy", "move", "loop", "data", "name", "type", "path", "node", "file",
-    "list", "true", "None", "Some", "This", "that", "this", "will", "with", "have", "been", "also",
-    "when", "then", "each", "used", "only", "more", "than", "both", "most", "some",
+    "list", "true", "none", "some", "this", "that", "will", "with", "have", "been", "also", "when",
+    "then", "each", "used", "only", "more", "than", "both", "most", "string", "result", "option",
+    "error", "value", "index",
 ];
 
-/// Extracts EXPLAINS edges by scanning narrative files for code symbol references.
+/// Extracts EXPLAINS edges by resolving documentation references to real code
+/// symbols within their containing document section.
+///
+/// Construct with [`ExplainsExtractor::with_context`] to supply the section
+/// spans (from [`SectionExtractor::section_spans`](super::sections::SectionExtractor::section_spans))
+/// and the tenant's [`SymbolAutomaton`]. The bare [`ExplainsExtractor::new`] /
+/// [`Default`] constructor yields a no-context extractor that emits nothing —
+/// retained so legacy unit tests can assert the empty-fallback behaviour.
 pub struct ExplainsExtractor {
-    /// Matches backtick-wrapped inline code spans: `identifier`.
-    backtick_re: Regex,
-    /// Matches snake_case identifiers: `foo_bar`, `my_func_name`.
-    snake_case_re: Regex,
-    /// Matches CamelCase identifiers: `MyStruct`, `HttpServer`.
-    camel_case_re: Regex,
-    /// Matches markdown ATX headings for section boundary detection.
-    heading_re: Regex,
+    section_spans: Vec<SectionSpan>,
+    symbol_automaton: SymbolAutomaton,
+    config: NarrativeConfig,
 }
 
 impl ExplainsExtractor {
+    /// Create a no-context extractor that produces no edges.
     pub fn new() -> Self {
         Self {
-            backtick_re: Regex::new(r"`([a-zA-Z_][a-zA-Z0-9_]{2,})`")
-                .expect("backtick regex is valid"),
-            snake_case_re: Regex::new(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b")
-                .expect("snake_case regex is valid"),
-            camel_case_re: Regex::new(r"\b([A-Z][a-z]+(?:[A-Z][a-zA-Z]*))\b")
-                .expect("camel_case regex is valid"),
-            heading_re: Regex::new(r"^#{1,6}\s+(.+)$").expect("heading regex is valid"),
+            section_spans: Vec::new(),
+            symbol_automaton: SymbolAutomaton::empty(),
+            config: NarrativeConfig::default(),
+        }
+    }
+
+    /// Create an extractor with the inter-extractor context required to emit
+    /// EXPLAINS edges: the document's canonical section spans and the tenant's
+    /// symbol automaton.
+    pub fn with_context(
+        section_spans: Vec<SectionSpan>,
+        symbol_automaton: SymbolAutomaton,
+        config: NarrativeConfig,
+    ) -> Self {
+        Self {
+            section_spans,
+            symbol_automaton,
+            config,
         }
     }
 }
@@ -75,95 +90,18 @@ fn is_narrative_file(path: &Path) -> bool {
     matches!(ext.as_str(), "md" | "markdown" | "txt")
 }
 
-/// Extract candidate code symbols from content using regex patterns.
-fn extract_candidate_symbols(
-    content: &str,
-    backtick_re: &Regex,
-    snake_case_re: &Regex,
-    camel_case_re: &Regex,
-) -> Vec<String> {
-    let mut candidates: HashMap<String, ()> = HashMap::new();
-
-    // Backtick-wrapped code references (highest signal).
-    for caps in backtick_re.captures_iter(content) {
-        if let Some(m) = caps.get(1) {
-            candidates.insert(m.as_str().to_string(), ());
-        }
-    }
-
-    // snake_case identifiers in prose.
-    for caps in snake_case_re.captures_iter(content) {
-        if let Some(m) = caps.get(1) {
-            candidates.insert(m.as_str().to_string(), ());
-        }
-    }
-
-    // CamelCase identifiers in prose.
-    for caps in camel_case_re.captures_iter(content) {
-        if let Some(m) = caps.get(1) {
-            candidates.insert(m.as_str().to_string(), ());
-        }
-    }
-
-    candidates.into_keys().collect()
+/// Map a byte offset in `content` to its 1-indexed line number.
+fn line_at_offset(content: &str, offset: usize) -> u32 {
+    // Count newlines before the offset; line numbers are 1-indexed.
+    let upto = offset.min(content.len());
+    (content[..upto].bytes().filter(|&b| b == b'\n').count() + 1) as u32
 }
 
-/// Count occurrences of each candidate in content using Aho-Corasick.
-fn count_symbol_occurrences(content: &str, candidates: &[String]) -> HashMap<String, usize> {
-    if candidates.is_empty() {
-        return HashMap::new();
-    }
-
-    let ac = match AhoCorasick::new(candidates) {
-        Ok(ac) => ac,
-        Err(_) => return HashMap::new(),
-    };
-
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for mat in ac.find_iter(content) {
-        let pattern = &candidates[mat.pattern().as_usize()];
-        *counts.entry(pattern.clone()).or_insert(0) += 1;
-    }
-
-    counts
-}
-
-/// Filter symbols by stop-list and minimum occurrence count, returning
-/// top symbols sorted by frequency (descending), capped at `max`.
-fn filter_and_rank(
-    counts: HashMap<String, usize>,
-    min_count: usize,
-    max: usize,
-) -> Vec<(String, usize)> {
-    let stop_set: std::collections::HashSet<&str> = STOP_LIST.iter().copied().collect();
-
-    let mut filtered: Vec<(String, usize)> = counts
-        .into_iter()
-        .filter(|(sym, count)| {
-            *count >= min_count && sym.len() >= MIN_SYMBOL_LEN && !stop_set.contains(sym.as_str())
-        })
-        .collect();
-
-    // Sort by frequency descending, then alphabetically for determinism.
-    filtered.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    filtered.truncate(max);
-    filtered
-}
-
-/// Extract heading-delimited sections from markdown content.
-/// Returns (heading_text, section_index, start_line_1indexed) tuples.
-fn extract_section_boundaries(content: &str, heading_re: &Regex) -> Vec<(String, u32, u32)> {
-    let mut sections = Vec::new();
-    for (i, line) in content.lines().enumerate() {
-        if let Some(caps) = heading_re.captures(line) {
-            let text = caps.get(1).map_or("", |m| m.as_str()).trim().to_string();
-            if !text.is_empty() {
-                let idx = sections.len() as u32;
-                sections.push((text, idx, (i + 1) as u32));
-            }
-        }
-    }
-    sections
+/// Find the section span whose line range contains `line`.
+fn section_for_line<'a>(spans: &'a [SectionSpan], line: u32) -> Option<&'a SectionSpan> {
+    spans
+        .iter()
+        .find(|s| line >= s.start_line && line <= s.end_line)
 }
 
 #[async_trait]
@@ -182,102 +120,105 @@ impl NarrativeExtractor for ExplainsExtractor {
         if !is_narrative_file(file_path) {
             return NarrativeExtractionResult::default();
         }
-
-        if content.is_empty() {
+        if content.is_empty() || self.section_spans.is_empty() || self.symbol_automaton.is_empty() {
+            return NarrativeExtractionResult::default();
+        }
+        // Input-size cap (PERF-6): skip pathological files entirely.
+        if content.len() > self.config.max_input_bytes() {
+            tracing::debug!(
+                "ExplainsExtractor: skipping {} ({} bytes > {} cap)",
+                file_path.display(),
+                content.len(),
+                self.config.max_input_bytes()
+            );
             return NarrativeExtractionResult::default();
         }
 
-        // Step 1: Extract candidate code symbols via regex.
-        let candidates = extract_candidate_symbols(
-            content,
-            &self.backtick_re,
-            &self.snake_case_re,
-            &self.camel_case_re,
-        );
-
-        if candidates.is_empty() {
-            return NarrativeExtractionResult::default();
-        }
-
-        // Step 2: Count occurrences via Aho-Corasick.
-        let counts = count_symbol_occurrences(content, &candidates);
-
-        // Step 3: Filter and rank.
-        let top_symbols = filter_and_rank(counts, MIN_OCCURRENCES, MAX_EXPLAINS_EDGES);
-
-        if top_symbols.is_empty() {
-            return NarrativeExtractionResult::default();
-        }
+        let min_len = self.config.explains_min_symbol_length;
+        let max_per_section = self.config.explains_max_per_section;
+        let stop_set: std::collections::HashSet<&str> = STOP_LIST.iter().copied().collect();
 
         let fp = file_path.to_string_lossy();
 
-        // Step 4: Create a single DocumentSection node representing the whole file.
-        // If the file has markdown headings, use the first heading; otherwise
-        // use the filename stem as section name.
-        let sections = extract_section_boundaries(content, &self.heading_re);
+        // For every symbol match, tally occurrences keyed by (section_id, symbol).
+        // counts: section_node_id -> symbol_name -> occurrence count.
+        let mut counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
-        let section_name = sections
-            .first()
-            .map(|(name, _, _)| name.clone())
-            .unwrap_or_else(|| {
-                file_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("document")
-                    .to_string()
-            });
-
-        let section_fields = NodeIdFields {
-            tenant_id,
-            file_path: &fp,
-            symbol_name: &section_name,
-            symbol_type: NodeType::DocumentSection,
-            section_index: Some(0),
-            start_line: Some(1),
-            library_name: None,
-        };
-        let section_node_id = compute_node_id_for_type(&section_fields);
-
-        let mut section_node = GraphNode::new(
-            tenant_id,
-            fp.as_ref(),
-            &section_name,
-            NodeType::DocumentSection,
-        );
-        section_node.node_id = section_node_id.clone();
-        section_node.start_line = Some(1);
-        section_node.end_line = Some(content.lines().count().max(1) as u32);
-
-        let mut nodes = vec![section_node];
-        let mut edges = Vec::with_capacity(top_symbols.len());
-
-        // Step 5: Create stub Function nodes and EXPLAINS edges.
-        for (symbol, _count) in &top_symbols {
-            let stub = GraphNode::stub(tenant_id, symbol.as_str(), NodeType::Function);
-            let edge = GraphEdge::new(
-                tenant_id,
-                &section_node_id,
-                &stub.node_id,
-                EdgeType::Explains,
-                fp.as_ref(),
-            );
-            nodes.push(stub);
-            edges.push(edge);
+        for (symbol, offset) in self.symbol_automaton.find_matches(content) {
+            if symbol.len() < min_len {
+                continue;
+            }
+            if stop_set.contains(symbol.to_ascii_lowercase().as_str()) {
+                continue;
+            }
+            let line = line_at_offset(content, offset);
+            let Some(section) = section_for_line(&self.section_spans, line) else {
+                continue; // match falls outside any section (e.g. preamble)
+            };
+            *counts
+                .entry(section.node_id.clone())
+                .or_default()
+                .entry(symbol)
+                .or_insert(0) += 1;
         }
 
-        NarrativeExtractionResult { nodes, edges }
+        let mut edges = Vec::new();
+
+        // Process sections in document order for deterministic output.
+        for section in &self.section_spans {
+            let Some(symbol_counts) = counts.get(&section.node_id) else {
+                continue;
+            };
+            // Rank symbols by frequency desc, then name asc, applying the
+            // min-occurrence (>=2) filter and resolving to a unique node id.
+            let mut ranked: Vec<(&String, usize)> = symbol_counts
+                .iter()
+                .filter(|(_, &c)| c >= 2)
+                .map(|(s, &c)| (s, c))
+                .collect();
+            ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+            let mut emitted = 0usize;
+            for (symbol, _count) in ranked {
+                if emitted >= max_per_section {
+                    break;
+                }
+                let Some(target_node_id) = self.symbol_automaton.resolve_unique(symbol) else {
+                    continue; // unknown or ambiguous → drop, never stub
+                };
+                let edge = GraphEdge::new(
+                    tenant_id,
+                    section.node_id.clone(),
+                    target_node_id.to_string(),
+                    EdgeType::Explains,
+                    fp.as_ref(),
+                );
+                edges.push(edge);
+                emitted += 1;
+            }
+        }
+
+        NarrativeExtractionResult {
+            nodes: Vec::new(),
+            edges,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::SymbolRow;
 
-    fn extractor() -> ExplainsExtractor {
-        ExplainsExtractor::new()
+    fn sym(name: &str, file: &str) -> SymbolRow {
+        SymbolRow {
+            symbol_name: name.to_string(),
+            node_id: format!("node:{file}:{name}"),
+            file_path: file.to_string(),
+        }
     }
 
-    fn run_extract(
+    fn run(
         ext: &ExplainsExtractor,
         tenant: &str,
         path: &str,
@@ -287,255 +228,199 @@ mod tests {
         rt.block_on(ext.extract(tenant, Path::new(path), content, None))
     }
 
+    fn ctx_extractor(spans: Vec<SectionSpan>, symbols: &[SymbolRow]) -> ExplainsExtractor {
+        let auto = SymbolAutomaton::build(symbols, 4);
+        ExplainsExtractor::with_context(spans, auto, NarrativeConfig::default())
+    }
+
+    fn span(node_id: &str, start: u32, end: u32) -> SectionSpan {
+        SectionSpan {
+            node_id: node_id.to_string(),
+            start_line: start,
+            end_line: end,
+        }
+    }
+
     #[test]
-    fn test_markdown_with_repeated_symbol_creates_explains_edge() {
-        let ext = extractor();
+    fn no_context_extractor_emits_nothing() {
+        let ext = ExplainsExtractor::new();
+        let md = "# Auth\nThe validate_token validate_token function.\n";
+        let result = run(&ext, "t1", "auth.md", md);
+        assert!(result.is_empty(), "no-context extractor must emit nothing");
+    }
+
+    #[test]
+    fn resolves_real_symbol_to_real_node_id() {
         let md = "\
 # Authentication
-
-The `validate_token` function checks JWT tokens.
-When `validate_token` encounters an expired token, it returns an error.
-Call `validate_token` before accessing protected resources.
+The validate_token function checks tokens.
+Call validate_token before access.
 ";
-        let result = run_extract(&ext, "t1", "auth.md", md);
+        let spans = vec![span("section-auth", 1, 3)];
+        let symbols = vec![sym("validate_token", "auth.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "auth.md", md);
 
-        // Should have at least one EXPLAINS edge for validate_token.
-        assert!(
-            !result.edges.is_empty(),
-            "expected EXPLAINS edges but got none"
-        );
-
-        let edge_targets: Vec<&str> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::Function)
-            .map(|n| n.symbol_name.as_str())
-            .collect();
-        assert!(
-            edge_targets.contains(&"validate_token"),
-            "expected validate_token stub, got: {:?}",
-            edge_targets
-        );
-
-        // All edges should be EXPLAINS type.
-        for edge in &result.edges {
-            assert_eq!(edge.edge_type, EdgeType::Explains);
-        }
+        assert_eq!(result.nodes.len(), 0, "no stub nodes are ever created");
+        assert_eq!(result.edges.len(), 1);
+        let edge = &result.edges[0];
+        assert_eq!(edge.edge_type, EdgeType::Explains);
+        assert_eq!(edge.source_node_id, "section-auth");
+        assert_eq!(edge.target_node_id, "node:auth.rs:validate_token");
     }
 
     #[test]
-    fn test_stop_list_words_produce_no_edges() {
-        let ext = extractor();
-        // "self" and "test" are in the stop list. Repeat them many times.
+    fn ambiguous_symbol_drops_edge() {
         let md = "\
-# Stop Words
-
-self self self self self self self self
-test test test test test test test test
-impl impl impl impl impl impl impl impl
+# Handlers
+The request_handler is called twice.
+Always invoke request_handler safely.
 ";
-        let result = run_extract(&ext, "t1", "stop.md", md);
-
-        // No edges should be created for stop-list words.
-        let stub_names: Vec<&str> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::Function)
-            .map(|n| n.symbol_name.as_str())
-            .collect();
-        for name in &stub_names {
-            assert!(
-                !STOP_LIST.contains(name),
-                "stop-list word '{}' should not produce a stub node",
-                name
-            );
-        }
-    }
-
-    #[test]
-    fn test_single_mention_produces_no_edge() {
-        let ext = extractor();
-        let md = "\
-# Single mention
-
-The `parse_config` function is important.
-";
-        let result = run_extract(&ext, "t1", "single.md", md);
-
-        let stub_names: Vec<&str> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::Function)
-            .map(|n| n.symbol_name.as_str())
-            .collect();
+        let spans = vec![span("section-h", 1, 3)];
+        // Two distinct nodes share the name → ambiguous → dropped.
+        let symbols = vec![
+            sym("request_handler", "a.rs"),
+            sym("request_handler", "b.rs"),
+        ];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "h.md", md);
         assert!(
-            !stub_names.contains(&"parse_config"),
-            "single-mention symbol should not produce a stub"
+            result.edges.is_empty(),
+            "ambiguous symbol must not produce an edge"
         );
     }
 
     #[test]
-    fn test_cap_at_ten_edges() {
-        let ext = extractor();
-
-        // Create 15 distinct snake_case symbols, each mentioned 3+ times.
-        let symbols: Vec<String> = (0..15).map(|i| format!("symbol_func_{}", i)).collect();
-        let mut md = String::from("# Many Symbols\n\n");
-        for sym in &symbols {
-            // Mention each symbol 3 times.
-            md.push_str(&format!(
-                "Use `{}` here. Also `{}` there. Again `{}`.\n",
-                sym, sym, sym
-            ));
-        }
-
-        let result = run_extract(&ext, "t1", "many.md", &md);
-
+    fn single_occurrence_drops_edge() {
+        let md = "# Config\nThe parse_config function matters.\n";
+        let spans = vec![span("section-c", 1, 2)];
+        let symbols = vec![sym("parse_config", "c.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "c.md", md);
         assert!(
-            result.edges.len() <= MAX_EXPLAINS_EDGES,
-            "expected at most {} edges, got {}",
-            MAX_EXPLAINS_EDGES,
+            result.edges.is_empty(),
+            "single mention must not produce an edge"
+        );
+    }
+
+    #[test]
+    fn unknown_symbol_no_edge() {
+        let md = "# X\ntotally_unknown_symbol totally_unknown_symbol here.\n";
+        let spans = vec![span("section-x", 1, 2)];
+        let symbols = vec![sym("validate_token", "auth.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "x.md", md);
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn edge_attaches_to_containing_section() {
+        let md = "\
+# First
+parse_config parse_config here.
+# Second
+validate_token validate_token there.
+";
+        let spans = vec![span("sec-1", 1, 2), span("sec-2", 3, 4)];
+        let symbols = vec![sym("parse_config", "c.rs"), sym("validate_token", "a.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "doc.md", md);
+
+        assert_eq!(result.edges.len(), 2);
+        let by_target: HashMap<&str, &str> = result
+            .edges
+            .iter()
+            .map(|e| (e.target_node_id.as_str(), e.source_node_id.as_str()))
+            .collect();
+        assert_eq!(by_target["node:c.rs:parse_config"], "sec-1");
+        assert_eq!(by_target["node:a.rs:validate_token"], "sec-2");
+    }
+
+    #[test]
+    fn max_per_section_cap_enforced() {
+        // 15 distinct symbols each mentioned 3x in one section; cap is the
+        // default 10.
+        let mut md = String::from("# Many\n");
+        let mut symbols = Vec::new();
+        for i in 0..15 {
+            let name = format!("symbol_func_{i:02}");
+            md.push_str(&format!("{name} {name} {name}\n"));
+            symbols.push(sym(&name, "x.rs"));
+        }
+        let line_count = md.lines().count() as u32;
+        let spans = vec![span("sec", 1, line_count)];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "many.md", &md);
+        assert!(
+            result.edges.len() <= 10,
+            "expected <= 10 edges, got {}",
             result.edges.len()
         );
     }
 
     #[test]
-    fn test_non_markdown_file_returns_empty() {
-        let ext = extractor();
-        let content = "fn validate_token() {} // validate_token validate_token";
-        let result = run_extract(&ext, "t1", "code.rs", content);
-        assert!(result.is_empty(), "non-markdown should return empty result");
+    fn min_length_filter_via_automaton() {
+        // `io` is below min length 4 → never in the automaton → no edge.
+        let md = "# IO\nio io io io\n";
+        let spans = vec![span("sec", 1, 2)];
+        let symbols = vec![sym("io", "io.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "io.md", md);
+        assert!(result.edges.is_empty());
     }
 
     #[test]
-    fn test_snake_case_without_backticks() {
-        let ext = extractor();
-        let md = "\
-# Config
-
-The parse_config function reads YAML files.
-When parse_config fails, it logs an error.
-Always call parse_config at startup.
-";
-        let result = run_extract(&ext, "t1", "config.md", md);
-
-        let stub_names: Vec<&str> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::Function)
-            .map(|n| n.symbol_name.as_str())
-            .collect();
-        assert!(
-            stub_names.contains(&"parse_config"),
-            "snake_case symbol should be detected without backticks"
-        );
+    fn stop_word_dropped() {
+        // `result` is a stop word even though it resolves.
+        let md = "# R\nresult result result\n";
+        let spans = vec![span("sec", 1, 2)];
+        let symbols = vec![sym("result", "r.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let res = run(&ext, "t1", "r.md", md);
+        assert!(res.edges.is_empty());
     }
 
     #[test]
-    fn test_camel_case_detection() {
-        let ext = extractor();
-        let md = "\
-# Server
-
-The HttpServer handles requests.
-Configure HttpServer with proper timeouts.
-Restart HttpServer after config changes.
-";
-        let result = run_extract(&ext, "t1", "server.md", md);
-
-        let stub_names: Vec<&str> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::Function)
-            .map(|n| n.symbol_name.as_str())
-            .collect();
-        assert!(
-            stub_names.contains(&"HttpServer"),
-            "CamelCase symbol should be detected, got: {:?}",
-            stub_names
-        );
-    }
-
-    #[test]
-    fn test_empty_content_returns_empty() {
-        let ext = extractor();
-        let result = run_extract(&ext, "t1", "empty.md", "");
+    fn non_narrative_file_empty() {
+        let spans = vec![span("sec", 1, 2)];
+        let symbols = vec![sym("validate_token", "a.rs")];
+        let ext = ctx_extractor(spans, &symbols);
+        let result = run(&ext, "t1", "code.rs", "validate_token validate_token");
         assert!(result.is_empty());
     }
 
     #[test]
-    fn test_txt_file_is_narrative() {
-        let ext = extractor();
-        let txt = "\
-validate_token is the core function.
-Call validate_token before any request.
-The validate_token function ensures auth.
-";
-        let result = run_extract(&ext, "t1", "notes.txt", txt);
-        assert!(
-            !result.edges.is_empty(),
-            "txt files should be processed as narrative"
-        );
+    fn input_size_cap_skips_large_files() {
+        let spans = vec![span("sec", 1, 999_999)];
+        let symbols = vec![sym("parse_config", "c.rs")];
+        let auto = SymbolAutomaton::build(&symbols, 4);
+        let cfg = NarrativeConfig {
+            max_input_kb: 1,
+            ..NarrativeConfig::default()
+        };
+        let ext = ExplainsExtractor::with_context(spans, auto, cfg);
+        // 2 KB of content exceeds the 1 KB cap.
+        let mut md = String::from("# Big\n");
+        while md.len() < 2048 {
+            md.push_str("parse_config parse_config filler text line\n");
+        }
+        let result = run(&ext, "t1", "big.md", &md);
+        assert!(result.is_empty(), "file over cap must be skipped");
     }
 
     #[test]
-    fn test_section_node_has_correct_type() {
-        let ext = extractor();
-        let md = "\
-# My Section
-
-The `my_func_name` does things.
-Call `my_func_name` to start.
-Also `my_func_name` for cleanup.
-";
-        let result = run_extract(&ext, "t1", "section.md", md);
-
-        let section_nodes: Vec<&GraphNode> = result
-            .nodes
-            .iter()
-            .filter(|n| n.symbol_type == NodeType::DocumentSection)
-            .collect();
-        assert_eq!(section_nodes.len(), 1);
-        assert_eq!(section_nodes[0].symbol_name, "My Section");
+    fn line_at_offset_basic() {
+        let content = "line1\nline2\nline3\n";
+        assert_eq!(line_at_offset(content, 0), 1);
+        assert_eq!(line_at_offset(content, 6), 2);
+        assert_eq!(line_at_offset(content, 12), 3);
     }
 
     #[test]
-    fn test_edge_source_file_matches_input() {
-        let ext = extractor();
-        let md = "\
-# Edges
-
-Use `process_data` for processing.
-The `process_data` function is efficient.
-Call `process_data` often.
-";
-        let result = run_extract(&ext, "t1", "edges.md", md);
-
-        for edge in &result.edges {
-            assert_eq!(edge.source_file, "edges.md");
-        }
-    }
-
-    #[test]
-    fn test_deterministic_node_ids() {
-        let ext = extractor();
-        let md = "\
-# Determinism
-
-Call `check_auth` twice.
-Also `check_auth` here.
-";
-        let r1 = run_extract(&ext, "t1", "det.md", md);
-        let r2 = run_extract(&ext, "t1", "det.md", md);
-
-        assert_eq!(r1.nodes.len(), r2.nodes.len());
-        assert_eq!(r1.edges.len(), r2.edges.len());
-
-        for (n1, n2) in r1.nodes.iter().zip(r2.nodes.iter()) {
-            assert_eq!(n1.node_id, n2.node_id);
-        }
-        for (e1, e2) in r1.edges.iter().zip(r2.edges.iter()) {
-            assert_eq!(e1.edge_id, e2.edge_id);
-        }
+    fn section_for_line_lookup() {
+        let spans = vec![span("a", 1, 5), span("b", 6, 10)];
+        assert_eq!(section_for_line(&spans, 3).unwrap().node_id, "a");
+        assert_eq!(section_for_line(&spans, 6).unwrap().node_id, "b");
+        assert!(section_for_line(&spans, 20).is_none());
     }
 }
