@@ -96,6 +96,25 @@ impl<'a> FtsBatchProcessor<'a> {
         let batch_mode = self.should_use_batch_mode(queue_depth);
         let changes = std::mem::take(&mut self.pending);
 
+        // Collapse duplicate file_ids, keeping the LAST change per file.
+        //
+        // Two queue items for the same file (e.g. a re-enqueue plus a
+        // reconciliation pass, or two quick edits) can be flushed together.
+        // Each change's diff is computed against the content baseline captured
+        // when its item was prepared, but both target the same code_lines
+        // rows. Applying both — whether in one batch transaction or as two
+        // sequential single-file transactions — makes the second insert the
+        // same `(file_id, seq)` rows the first already wrote, hitting
+        // `UNIQUE constraint failed: code_lines.file_id, code_lines.seq`
+        // (SQLite error 2067) and failing the item.
+        //
+        // The last change carries the newest content and supersedes the
+        // earlier ones, so keeping only it reduces the flush to the
+        // already-correct one-change-per-file case. The dropped items' queue
+        // rows are still finalized as success by the batch writer (the file
+        // ends up correctly indexed by the surviving change).
+        let changes = dedup_changes_keep_last(changes);
+
         let mut stats = if batch_mode {
             info!(
                 "FTS5 batch mode: processing {} file changes in single transaction (queue_depth={})",
@@ -134,6 +153,11 @@ impl<'a> FtsBatchProcessor<'a> {
     async fn process_batch(&self, changes: Vec<FileChange>) -> Result<BatchStats, SearchDbError> {
         let pool = self.search_db.pool();
         let mut stats = BatchStats::default();
+
+        // NOTE: callers reach this via `flush`, which has already collapsed
+        // duplicate file_ids (see `dedup_changes_keep_last`). Applying two
+        // changes for the same file_id in this single transaction would
+        // violate `UNIQUE(code_lines.file_id, code_lines.seq)`.
 
         // Phase 1: Compute all diffs upfront (CPU-bound, no DB)
         let mut file_diffs: Vec<(FileChange, crate::line_diff::DiffResult)> =
@@ -386,6 +410,26 @@ impl<'a> FtsBatchProcessor<'a> {
     }
 }
 
+/// Collapse a batch's file changes so each `file_id` appears at most once,
+/// keeping the LAST change (newest content) and preserving its relative
+/// order. Applying two changes for the same file in one transaction causes a
+/// `UNIQUE constraint failed: code_lines.file_id, code_lines.seq` violation —
+/// see the call site in [`FtsBatchProcessor::process_batch`].
+fn dedup_changes_keep_last(changes: Vec<FileChange>) -> Vec<FileChange> {
+    use std::collections::HashMap;
+    // Index of the last occurrence of each file_id.
+    let mut last_idx: HashMap<i64, usize> = HashMap::with_capacity(changes.len());
+    for (i, change) in changes.iter().enumerate() {
+        last_idx.insert(change.file_id, i);
+    }
+    changes
+        .into_iter()
+        .enumerate()
+        .filter(|(i, change)| last_idx.get(&change.file_id) == Some(i))
+        .map(|(_, change)| change)
+        .collect()
+}
+
 /// Upsert file_metadata for search scoping within a transaction.
 ///
 /// Always writes `fts5_skipped = 0` because reaching this function means
@@ -605,4 +649,52 @@ pub async fn enforce_fts5_hard_cap_skip(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod dedup_tests {
+    use super::{dedup_changes_keep_last, FileChange};
+
+    fn change(file_id: i64, new_content: &str) -> FileChange {
+        FileChange {
+            file_id,
+            old_content: String::new(),
+            new_content: new_content.to_string(),
+            tenant_id: "t".to_string(),
+            branch: None,
+            file_path: format!("f{file_id}.rs"),
+            base_point: None,
+            relative_path: None,
+            file_hash: None,
+            size_bytes: Some(new_content.len() as i64),
+        }
+    }
+
+    #[test]
+    fn keeps_last_change_per_file_id_and_preserves_order() {
+        // file 1 appears twice (v1 then v3), file 2 once. Applying both
+        // copies of file 1 in one batch tx is what triggers the UNIQUE
+        // constraint violation, so only the newest (v3) must survive.
+        let input = vec![
+            change(1, "v1"),
+            change(2, "v2"),
+            change(1, "v3"),
+        ];
+        let out = dedup_changes_keep_last(input);
+
+        assert_eq!(out.len(), 2, "one entry per file_id");
+        // file 2 keeps its original position (before file 1's last slot).
+        assert_eq!(out[0].file_id, 2);
+        assert_eq!(out[1].file_id, 1);
+        // The surviving file-1 change is the LATEST content.
+        assert_eq!(out[1].new_content, "v3");
+    }
+
+    #[test]
+    fn no_duplicates_is_identity() {
+        let input = vec![change(1, "a"), change(2, "b"), change(3, "c")];
+        let out = dedup_changes_keep_last(input);
+        let ids: Vec<i64> = out.iter().map(|c| c.file_id).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
 }

@@ -179,6 +179,61 @@ async fn test_update_with_diff() {
 }
 
 #[tokio::test]
+async fn test_mid_file_insert_does_not_collide_on_seq() {
+    // Regression: inserting a line MID-FILE (not appending at the end) forces
+    // `renumber_after_changes` to shift existing rows' seqs. Done in place,
+    // the reassignment collides with a not-yet-renumbered row still holding
+    // the target seq → `UNIQUE constraint failed: code_lines.file_id,
+    // code_lines.seq` (SQLite 2067). The two-pass renumber must avoid it.
+    let (_tmp, db) = setup_db().await;
+    let mut processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());
+
+    processor.add_change(test_change(
+        1,
+        "",
+        "line 1\nline 2\nline 3",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
+    processor.flush(0).await.unwrap();
+
+    // Insert "inserted" between line 1 and line 2 — pushes line 2 / line 3
+    // down, so their target seqs overlap seqs still held by other rows.
+    processor.add_change(test_change(
+        1,
+        "line 1\nline 2\nline 3",
+        "line 1\ninserted\nline 2\nline 3",
+        "proj-a",
+        Some("main"),
+        "/src/main.rs",
+    ));
+    // Pre-fix this flush failed with the UNIQUE constraint violation.
+    let stats = processor.flush(0).await.unwrap();
+    assert_eq!(stats.files_processed, 1);
+
+    // Final content is in the correct new-file order.
+    let rows: Vec<String> =
+        sqlx::query_scalar("SELECT content FROM code_lines WHERE file_id = 1 ORDER BY seq")
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(rows, vec!["line 1", "inserted", "line 2", "line 3"]);
+
+    // Every seq is distinct (the renumber left no duplicates behind).
+    let (total, distinct): (i32, i32) = sqlx::query_as(
+        "SELECT COUNT(seq), COUNT(DISTINCT seq) FROM code_lines WHERE file_id = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(total, 4);
+    assert_eq!(distinct, 4, "seqs must be unique after renumber");
+
+    db.close().await;
+}
+
+#[tokio::test]
 async fn test_full_rewrite() {
     let (_tmp, db) = setup_db().await;
     let processor = FtsBatchProcessor::new(&db, FtsBatchConfig::default());

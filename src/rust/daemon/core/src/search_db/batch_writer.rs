@@ -34,6 +34,20 @@ use crate::unified_queue_schema::{DestinationStatus, QueueStatus};
 
 use super::SearchDbManager;
 
+/// Error message recorded when an FTS5 batch reports a per-item failure.
+///
+/// The `[transient_fts5]` prefix is load-bearing: it makes the item eligible
+/// for the idle resurrection pass (`QueueManager::resurrect_failed_transient`,
+/// which selects `WHERE error_message LIKE '[transient_%'`). FTS5 batch
+/// failures are typically transient — historically `SQLITE_BUSY` write-lock
+/// contention (see the module doc), or a poisoned sibling in the same batch.
+/// Resurrection bounds retries via `max_resurrections`, then promotes the row
+/// to `[permanent_exhausted]`. WITHOUT the prefix the item is neither
+/// resurrected nor triaged and sits in `failed` forever.
+fn fts5_failure_message(queue_id: &str) -> String {
+    format!("[transient_fts5] FTS5 batch reported search_status=failed for queue_id={queue_id}")
+}
+
 /// Global sender installed by the daemon's `UnifiedQueueProcessor::with_search_db`.
 ///
 /// Per-item file handlers ([`crate::strategies::processing::file::ingest`])
@@ -310,10 +324,7 @@ impl Fts5BatchWriter {
                 // hardcoded to 3 here because the actor doesn't carry the
                 // processor config; the wider queue cfg uses the same default
                 // (see UnifiedProcessorConfig).
-                let err_msg = format!(
-                    "FTS5 batch reported search_status=failed for queue_id={}",
-                    queue_id
-                );
+                let err_msg = fts5_failure_message(queue_id);
                 if let Err(e) = self
                     .queue_manager
                     .mark_unified_failed(queue_id, &err_msg, false, 3)
@@ -334,5 +345,25 @@ impl Fts5BatchWriter {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fts5_failure_message;
+
+    /// The FTS5 failure message MUST carry a `[transient_` prefix so the
+    /// idle resurrection pass (`resurrect_failed_transient`, which matches
+    /// `error_message LIKE '[transient_%'`) re-queues it. Regression guard:
+    /// dropping the prefix would silently strand failed items in `failed`
+    /// forever (the bug that left 346 SQLITE_BUSY items dead).
+    #[test]
+    fn fts5_failure_message_is_classified_transient() {
+        let msg = fts5_failure_message("abc123");
+        assert!(
+            msg.starts_with("[transient_"),
+            "must match resurrection's LIKE '[transient_%' pattern, got: {msg}"
+        );
+        assert!(msg.contains("abc123"), "must embed the queue_id, got: {msg}");
     }
 }

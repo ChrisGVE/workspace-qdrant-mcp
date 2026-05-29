@@ -331,6 +331,26 @@ async fn renumber_after_changes(
             .await?
     };
 
+    // Two-pass renumber to avoid transient `UNIQUE(file_id, seq)` collisions.
+    //
+    // Assigning the final seqs in place, row by row, can collide: when lines
+    // are reordered or inserted mid-file, an UPDATE may set seq=initial_seq(i)
+    // while a not-yet-renumbered row still holds that exact seq (its old
+    // value). That surfaced as `(code: 2067) UNIQUE constraint failed:
+    // code_lines.file_id, code_lines.seq`, failing the FTS5 batch.
+    //
+    // Pass 1 parks every target row in a temporary seq range far above any
+    // real seq (real seqs come from `initial_seq` ~1e3–1e6 and the insert temp
+    // base 1e15). Pass 2 then assigns the final gap-based seqs into the
+    // now-vacated low range, where no live row can conflict.
+    const RENUMBER_TEMP_SEQ_BASE: f64 = 2.0e15;
+    for (i, line_id) in line_ids.iter().enumerate() {
+        sqlx::query("UPDATE code_lines SET seq = ?1 WHERE line_id = ?2")
+            .bind(RENUMBER_TEMP_SEQ_BASE + i as f64)
+            .bind(*line_id)
+            .execute(&mut **tx)
+            .await?;
+    }
     for (i, line_id) in line_ids.iter().enumerate() {
         let new_seq = initial_seq(i);
         let new_line_number = (i + 1) as i64;
