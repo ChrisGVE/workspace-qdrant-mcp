@@ -148,7 +148,11 @@ function buildGrepRequest(
     max_results: maxResults,
   };
   if (tenantId) request.tenant_id = tenantId;
-  if (branch) request.branch = branch;
+  // `branch: "*"` is the documented "any branch" opt-out. The daemon FTS
+  // query builder would otherwise filter `fm.branch = '*'` literally and
+  // match nothing; drop the filter so "*" searches every branch for the
+  // tenant (mirrors search-exact.ts / search-filters.ts).
+  if (branch && branch !== '*') request.branch = branch;
   if (pathGlob) request.path_glob = pathGlob;
   return request;
 }

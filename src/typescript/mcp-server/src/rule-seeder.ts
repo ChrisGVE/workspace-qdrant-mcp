@@ -31,7 +31,7 @@ const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
       'ALWAYS call the `search` tool before answering — do not rely on training data.',
       'Defaults: scope="project", limit=10.',
       'Widen to scope="all" or includeLibraries=true only after a project-scoped query comes back empty.',
-      'Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
+      'Use mode="semantic" for concept queries; for a known identifier or exact string use exact=true or `grep`, NOT mode="keyword" (sparse BM25 — will not reliably match a verbatim token).',
     ].join(' '),
     priority: 100,
   },

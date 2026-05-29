@@ -98,7 +98,12 @@ function buildExactSearchRequest(
     max_results: options.limit ?? 100,
   };
   if (tenantId) request.tenant_id = tenantId;
-  if (options.branch) request.branch = options.branch;
+  // `branch: "*"` is the documented "any branch" opt-out (see
+  // buildSearchOptions / search-filters.ts buildBranchCondition). The
+  // daemon FTS query builder has no "*" concept — it would filter
+  // `fm.branch = '*'` literally and match nothing — so drop the filter
+  // entirely, matching the Qdrant path's behaviour.
+  if (options.branch && options.branch !== '*') request.branch = options.branch;
   if (options.pathGlob) request.path_glob = options.pathGlob;
   return request;
 }
