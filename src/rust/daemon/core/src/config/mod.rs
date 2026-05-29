@@ -7,6 +7,7 @@ mod code_intelligence;
 mod concept;
 mod embedding;
 mod ingestion;
+mod narrative;
 mod integration;
 mod observability;
 mod processing;
@@ -18,6 +19,7 @@ pub use code_intelligence::{GrammarConfig, LspSettings};
 pub use concept::ConceptConfig;
 pub use embedding::{EmbeddingSettings, KeywordEmbedderConfig};
 pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
+pub use narrative::NarrativeConfig;
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
 pub use observability::{
     LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, OtlpExportConfig,
@@ -143,6 +145,9 @@ pub struct DaemonConfig {
     /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC)
     #[serde(default)]
     pub concept: ConceptConfig,
+    /// Narrative extraction thresholds and safety limits.
+    #[serde(default)]
+    pub narrative: NarrativeConfig,
     /// URL ingestion fetch limits and SSRF policy (T5).
     #[serde(default)]
     pub url_ingestion: UrlIngestionConfig,
@@ -195,6 +200,7 @@ impl From<&YamlConfig> for DaemonConfig {
             daemon_endpoint: build_daemon_endpoint_config(yaml),
             ingestion_limits: IngestionLimitsConfig::default(),
             concept: ConceptConfig::default(),
+            narrative: NarrativeConfig::default(),
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
             control_port: None,
@@ -438,6 +444,9 @@ impl DaemonConfig {
         self.concept
             .validate()
             .map_err(|e| format!("concept: {e}"))?;
+        self.narrative
+            .validate()
+            .map_err(|e| format!("narrative: {e}"))?;
         self.auto_ingestion
             .validate()
             .map_err(|e| format!("auto_ingestion: {e}"))?;

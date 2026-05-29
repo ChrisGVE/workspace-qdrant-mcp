@@ -2406,3 +2406,29 @@ mounts: []
 #    container: /mnt/external-books
 #  - host: ~/reference
 #    container: /mnt/reference
+
+# =============================================================================
+# NARRATIVE EXTRACTION CONFIGURATION
+# =============================================================================
+# Purpose: Thresholds and safety limits for the narrative graph layer —
+# DocumentSection / CodeComment / Docstring nodes and EXPLAINS edges that link
+# human-authored documentation to real code symbols.
+#
+# These values come from NarrativeConfig defaults. Supply a `narrative:` block
+# in your own daemon config to override; omitted fields fall back to defaults.
+narrative:
+  # enabled: master switch for narrative extraction.
+  enabled: true
+  # max_input_kb: skip narrative extraction for files larger than this (KB),
+  # bounding Aho-Corasick latency on pathological inputs.
+  max_input_kb: 256
+  # explains_min_symbol_length: minimum symbol-name length for an EXPLAINS edge
+  # (shorter names are too noisy to match reliably in prose).
+  explains_min_symbol_length: 4
+  # explains_max_per_section: maximum EXPLAINS edges emitted per document section.
+  explains_max_per_section: 10
+  # comment_min_lines: minimum contiguous comment lines to form a CodeComment node.
+  comment_min_lines: 3
+  # comment_symbol_proximity: max line distance from a comment block to the
+  # nearest symbol for a DESCRIBES/EXPLAINS link.
+  comment_symbol_proximity: 5
