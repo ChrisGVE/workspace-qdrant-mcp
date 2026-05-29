@@ -99,6 +99,24 @@ fn qdrant_url() -> String {
     "http://127.0.0.1:6333".to_string()
 }
 
+/// REST/HTTP base for the Qdrant `/readyz` liveness probe.
+///
+/// `qdrant_url()` returns the daemon's configured Qdrant URL, which in the
+/// container deployment points at Qdrant's **gRPC** port (6334) — correct for
+/// the daemon's gRPC client. But `/readyz` is an HTTP endpoint served only on
+/// the **REST** port (6333), so probing it on 6334 always fails ("unreachable")
+/// even when Qdrant is perfectly healthy. Map the standard gRPC port to the
+/// REST port for the HTTP probe; URLs on any other port pass through unchanged.
+fn qdrant_http_probe_url() -> String {
+    grpc_to_rest_url(&qdrant_url())
+}
+
+/// Rewrite Qdrant's standard gRPC port (6334) to its REST port (6333). Pure
+/// helper so the mapping is unit-testable without touching process env.
+fn grpc_to_rest_url(url: &str) -> String {
+    url.replace(":6334", ":6333")
+}
+
 /// Optional MCP HTTP URL. Returns `None` in stdio deployments so the probe
 /// is skipped rather than reporting a bogus failure.
 fn mcp_http_url() -> Option<String> {
@@ -143,7 +161,7 @@ async fn probe_get(name: &'static str, base: &str, path: &str) -> Probe {
 /// wiring in the CLI root once this bubbles up.
 pub async fn health(json: bool) -> Result<()> {
     // Run the two HTTP probes in parallel with the daemon gRPC probe.
-    let qdrant_base = qdrant_url();
+    let qdrant_base = qdrant_http_probe_url();
     let qdrant_probe_fut = probe_get("qdrant", &qdrant_base, "/readyz");
     let mcp_probe_fut = async {
         match mcp_http_url() {
@@ -402,6 +420,19 @@ mod tests {
         let got = qdrant_url();
         clear_url_env();
         assert_eq!(got, TEST_HOST_B);
+    }
+
+    #[test]
+    fn grpc_url_maps_to_rest_port_for_readyz_probe() {
+        // The daemon's gRPC URL (6334) must become the REST URL (6333) for
+        // the HTTP /readyz probe; everything else is left untouched.
+        assert_eq!(grpc_to_rest_url("http://qdrant:6334"), "http://qdrant:6333");
+        assert_eq!(
+            grpc_to_rest_url("http://host.docker.internal:6334"),
+            "http://host.docker.internal:6333"
+        );
+        assert_eq!(grpc_to_rest_url("http://qdrant:6333"), "http://qdrant:6333");
+        assert_eq!(grpc_to_rest_url("https://example:9999"), "https://example:9999");
     }
 
     #[test]
