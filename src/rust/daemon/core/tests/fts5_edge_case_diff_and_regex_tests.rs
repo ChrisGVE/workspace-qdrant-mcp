@@ -118,6 +118,7 @@ async fn test_diff_completely_different_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -132,6 +133,7 @@ async fn test_diff_completely_different_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -171,6 +173,7 @@ async fn test_diff_content_to_empty() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -185,6 +188,7 @@ async fn test_diff_content_to_empty() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -213,6 +217,7 @@ async fn test_diff_empty_to_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -227,6 +232,7 @@ async fn test_diff_empty_to_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -362,6 +368,7 @@ async fn test_batch_with_mixed_edge_cases() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
 

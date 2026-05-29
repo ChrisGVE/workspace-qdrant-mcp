@@ -14,16 +14,23 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { DaemonClient } from './../clients/daemon-client.js';
+import { startGitHookTimer } from './../telemetry/metrics.js';
 import { getGitState } from './../utils/git-utils.js';
 import {
   defaultRegistryPath,
   runAbandonAgentBranch,
   runAgentBranchStatus,
   runFinishAgentBranch,
+  runIncrementalCheck,
+  runIncrementalCheckAll,
   runInit,
   runListBranches,
   runListProjects,
+  runObserveAll,
+  runObserveProject,
+  runProjectStatus,
   runStartAgentBranch,
+  runStatusAll,
   type AbandonAgentBranchArgs,
   type BaseArgs,
   type BranchArgs,
@@ -220,7 +227,10 @@ async function handleSyncCurrentBranch(
   daemonClient: DaemonClient
 ): Promise<unknown> {
   const repoDir = stringArg(args, 'repoDir');
+  const hookNameEarly = stringArg(args, 'hookName', ['hook_name']) ?? 'manual';
   if (!repoDir) {
+    const recordResult = startGitHookTimer(hookNameEarly, false);
+    recordResult('bad_request');
     return {
       success: false,
       action: 'sync_current_branch',
@@ -233,7 +243,7 @@ async function handleSyncCurrentBranch(
   const hookWorktreePath = stringArg(args, 'worktreePath', ['worktree']);
   const hookIsWorktreeRaw = boolArg(args, 'isWorktree', ['is_worktree']);
   const hookRemote = stringArg(args, 'gitRemote', ['git_remote']);
-  const hookName = stringArg(args, 'hookName', ['hook_name']) ?? 'manual';
+  const hookName = hookNameEarly;
   const projectName =
     stringArg(args, 'projectName', ['name']) ?? (basename(repoDir) || 'unknown');
 
@@ -251,6 +261,7 @@ async function handleSyncCurrentBranch(
   const worktreePath = hookWorktreePath ?? localState?.worktreePath ?? null;
 
   const watchPath = isWorktree && worktreePath ? worktreePath : repoDir;
+  const recordResult = startGitHookTimer(hookName, isWorktree);
 
   try {
     const response = await daemonClient.registerProject({
@@ -262,6 +273,7 @@ async function handleSyncCurrentBranch(
       ...(gitRemote ? { git_remote: gitRemote } : {}),
     });
 
+    recordResult('success');
     return {
       success: true,
       action: 'sync_current_branch',
@@ -277,6 +289,7 @@ async function handleSyncCurrentBranch(
       commit_hash: commitHash ?? null,
     };
   } catch (error) {
+    recordResult('error');
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       success: false,
@@ -284,6 +297,117 @@ async function handleSyncCurrentBranch(
       hook: hookName,
       repo_dir: repoDir,
       error: errorMessage,
+    };
+  }
+}
+
+/** Render an ETA in seconds as a coarse human-readable string ("3s", "12m",
+ *  "2h 14m"). Kept intentionally crude — exact precision is meaningless
+ *  for an estimate built from a 5-minute rate window. */
+function formatEtaSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'unknown';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+}
+
+/**
+ * `indexing_status` action — report per-project indexing progress without
+ * shelling out to wqm. Reads the daemon's `GetProjectStatus` (which fills
+ * pending/in_progress/failed/done/total/percent_complete).
+ *
+ * Args:
+ *   - `projectId` (optional): explicit tenant. If missing, the daemon's
+ *     `ListProjects` is consulted and we pick the first active project.
+ *     This keeps the action useful in the dockerized MCP container where
+ *     cwd-based detection isn't available.
+ */
+async function handleIndexingStatus(
+  args: JsonObject,
+  daemonClient: DaemonClient
+): Promise<unknown> {
+  let projectId = stringArg(args, 'projectId');
+
+  if (!projectId) {
+    try {
+      const projects = await daemonClient.listProjects({ active_only: true });
+      const first = projects.projects[0];
+      if (first) projectId = first.project_id;
+    } catch (err) {
+      return {
+        success: false,
+        action: 'indexing_status',
+        error: `Failed to enumerate active projects: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  if (!projectId) {
+    return {
+      success: false,
+      action: 'indexing_status',
+      error:
+        'No projectId provided and no active project found. Pass `projectId` explicitly or register a project first.',
+    };
+  }
+
+  try {
+    const status = await daemonClient.getProjectStatus({ project_id: projectId });
+    if (!status.found) {
+      return {
+        success: false,
+        action: 'indexing_status',
+        project_id: projectId,
+        error: 'Project not registered with daemon',
+      };
+    }
+    const pending = status.pending_count ?? 0;
+    const inProgress = status.in_progress_count ?? 0;
+    const failed = status.failed_count ?? 0;
+    const done = status.done_count ?? 0;
+    const total = status.total_count ?? 0;
+    const percent = status.percent_complete ?? 100;
+    const inFlight = pending + inProgress;
+    const eta = typeof status.eta_seconds === 'number' ? status.eta_seconds : undefined;
+    const etaSummary =
+      eta === undefined
+        ? 'ETA unknown (warming up)'
+        : `ETA ~${formatEtaSeconds(eta)}`;
+    const summary =
+      inFlight === 0
+        ? `Indexing complete (${done} files indexed; ${failed} failed)`
+        : `Indexing in progress: ${inFlight} files in flight, ${done}/${total} done (${percent.toFixed(1)}%) · ${etaSummary}`;
+
+    const indexing: {
+      pending: number;
+      in_progress: number;
+      failed: number;
+      done: number;
+      total: number;
+      percent: number;
+      eta_seconds?: number;
+    } = { pending, in_progress: inProgress, failed, done, total, percent };
+    if (eta !== undefined) indexing.eta_seconds = eta;
+
+    return {
+      success: true,
+      action: 'indexing_status',
+      project_id: projectId,
+      project_name: status.project_name,
+      project_root: status.project_root,
+      is_active: status.is_active,
+      indexing,
+      summary,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      action: 'indexing_status',
+      project_id: projectId,
+      error: `Failed to fetch project status: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
@@ -317,6 +441,15 @@ const TS_NATIVE_ACTIONS = new Set([
   'start_agent_branch',
   'finish_agent_branch',
   'abandon_agent_branch',
+  // Phase 2: observation/status surface — runs in the dockerized MCP
+  // container without PowerShell. wqm/git absence is handled gracefully
+  // (stub probe results) rather than failing the call.
+  'project_status',
+  'status_all',
+  'observe_project',
+  'observe_all',
+  'incremental_check',
+  'incremental_check_all',
 ]);
 
 function projectSelectorFromArgs(args: JsonObject): {
@@ -361,7 +494,12 @@ function buildStartAgentBranchArgs(
   };
 }
 
-function dispatchTsAction(action: string, args: JsonObject, repoDir: string): unknown {
+function dispatchTsAction(
+  action: string,
+  args: JsonObject,
+  repoDir: string,
+  daemonClient: DaemonClient | undefined
+): unknown | Promise<unknown> {
   const registryPath = stringArg(args, 'registryPath') ?? defaultRegistryPath(repoDir);
   const base: BaseArgs = { registryPath };
   const projectSel = projectSelectorFromArgs(args);
@@ -400,6 +538,19 @@ function dispatchTsAction(action: string, args: JsonObject, repoDir: string): un
       const arg: AbandonAgentBranchArgs = { ...projectArgs, branchName, removeWorktree };
       return runAbandonAgentBranch(arg);
     }
+    // ── Phase 2: observation/status surface ─────────────────────────────
+    case 'project_status':
+      return runProjectStatus(projectArgs, daemonClient);
+    case 'status_all':
+      return runStatusAll(base, daemonClient);
+    case 'observe_project':
+      return runObserveProject(projectArgs, daemonClient);
+    case 'observe_all':
+      return runObserveAll(base, daemonClient);
+    case 'incremental_check':
+      return runIncrementalCheck(projectArgs, daemonClient);
+    case 'incremental_check_all':
+      return runIncrementalCheckAll(base, daemonClient);
     default:
       throw new Error(`TS-native handler missing for action: ${action}`);
   }
@@ -424,13 +575,24 @@ export async function handleWorkspaceIndex(
     return handleSyncCurrentBranch(args, daemonClient);
   }
 
-  // TS-native registry actions (Phase 1 port from indexed-projects-registry.ps1).
-  // These run inside the container; they only need a writable
-  // .wqm-fork/indexed-projects.json on disk and a `git` CLI in PATH.
+  if (action === 'indexing_status') {
+    if (!daemonClient) {
+      throw new Error(
+        'indexing_status requires a connected daemon client (gRPC unavailable)'
+      );
+    }
+    return handleIndexingStatus(args, daemonClient);
+  }
+
+  // TS-native registry actions (Phases 1 + 2 ports from
+  // indexed-projects-registry.ps1). These run inside the container; they
+  // only need a writable .wqm-fork/indexed-projects.json on disk and a
+  // `git` CLI in PATH. The wqm CLI is optional — when missing, probe
+  // results carry a structured "not installed" stub instead of failing.
   if (action && TS_NATIVE_ACTIONS.has(action)) {
     assertMutationAllowed(action, args);
     const repoDir = resolveRepoDir(args);
-    return dispatchTsAction(action, args, repoDir);
+    return dispatchTsAction(action, args, repoDir, daemonClient);
   }
 
   // PowerShell-backed actions: require the workspace-qdrant-mcp checkout to

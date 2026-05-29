@@ -82,6 +82,20 @@ export interface GetProjectStatusResponse {
   last_active?: { seconds: number; nanos: number };
   registered_at?: { seconds: number; nanos: number };
   git_remote?: string;
+  is_worktree?: boolean;
+  main_worktree_path?: string;
+  // Indexing-progress block (filled by daemon's project_service).
+  pending_count?: number;
+  in_progress_count?: number;
+  failed_count?: number;
+  done_count?: number;
+  total_count?: number;
+  percent_complete?: number;
+  // Optional ETA in seconds. Absent when the daemon doesn't have enough
+  // recent activity data (cold-start) or when the rate is zero with
+  // pending > 0 — callers must render "warming up" / "unknown" instead
+  // of fabricating a value.
+  eta_seconds?: number;
 }
 
 export interface ListProjectsRequest {
@@ -104,6 +118,31 @@ export interface ListProjectsResponse {
   total_count: number;
 }
 
+export interface ListWatchesRequest {
+  collection?: string;
+  enabled_only?: boolean;
+}
+
+export interface WatchInfo {
+  watch_id: string;
+  path: string;
+  collection: string;
+  tenant_id: string;
+  enabled: boolean;
+  is_active: boolean;
+  is_paused: boolean;
+  is_archived: boolean;
+  last_scan: string;
+  last_activity_at: string;
+  git_remote_url?: string;
+  library_mode?: string;
+}
+
+export interface ListWatchesResponse {
+  watches: WatchInfo[];
+  total_count: number;
+}
+
 export interface HeartbeatRequest {
   project_id: string;
 }
@@ -111,4 +150,28 @@ export interface HeartbeatRequest {
 export interface HeartbeatResponse {
   acknowledged: boolean;
   next_heartbeat_by?: { seconds: number; nanos: number };
+}
+
+export interface ListFailedItemsRequest {
+  tenant_id?: string;
+  limit?: number;
+}
+
+export interface FailedQueueItem {
+  queue_id: string;
+  tenant_id: string;
+  branch: string;
+  collection: string;
+  item_type: string;
+  op: string;
+  file_path: string;
+  error_message: string;
+  retry_count: number;
+  last_error_at: string;
+  updated_at: string;
+}
+
+export interface ListFailedItemsResponse {
+  items: FailedQueueItem[];
+  total_failed: number;
 }

@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::config::PrometheusExportConfig;
+use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::{
     check_git_state_changes, check_remote_url_changes, metrics_history, poll_pause_state,
     processing_timings, MetricsServer, METRICS,
@@ -146,6 +147,9 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
         let known_pairs: std::sync::Arc<
             tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
         > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+        let known_tenant_pairs: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
+        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
         loop {
             interval.tick().await;
             match manager.get_unified_queue_depth_by_type_status().await {
@@ -166,6 +170,47 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
                     guard.extend(seen);
                 }
                 Err(e) => debug!("queue depth refresh failed: {}", e),
+            }
+            // Per-tenant indexing-progress gauge (Grafana / MCP indexing block).
+            match manager.get_unified_queue_depth_by_tenant_status().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    // Accumulate (pending + in_progress) per tenant for ETA.
+                    let mut in_flight_by_tenant: std::collections::HashMap<String, i64> =
+                        std::collections::HashMap::new();
+                    for (tenant_id, status, count) in rows {
+                        METRICS.set_unified_queue_depth_by_tenant(&tenant_id, &status, count);
+                        if status == "pending" || status == "in_progress" {
+                            *in_flight_by_tenant.entry(tenant_id.clone()).or_insert(0) += count;
+                        }
+                        seen.insert((tenant_id, status));
+                    }
+                    let mut guard = known_tenant_pairs.lock().await;
+                    for pair in guard.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_unified_queue_depth_by_tenant(&pair.0, &pair.1, 0);
+                        }
+                    }
+                    guard.extend(seen);
+                    drop(guard);
+
+                    // Per-tenant ETA gauge: query the rate from
+                    // tracked_files for every tenant we just observed.
+                    // Tenants that drained (in-flight == 0) get ETA = 0
+                    // so the Grafana panel shows "done" instead of stale.
+                    use workspace_qdrant_core::indexing_progress::{
+                        estimate_eta_seconds, eta_for_gauge, rate_files_per_sec,
+                    };
+                    for (tenant_id, in_flight) in in_flight_by_tenant {
+                        let rate = rate_files_per_sec(&pool, &tenant_id).await;
+                        // Split in_flight back into a (pending, in_progress)
+                        // pair only for the API shape — the sum is what
+                        // matters for ETA, so pass it all as `pending`.
+                        let eta = estimate_eta_seconds(in_flight, 0, rate);
+                        METRICS.set_indexing_eta_seconds(&tenant_id, eta_for_gauge(eta));
+                    }
+                }
+                Err(e) => debug!("per-tenant queue depth refresh failed: {}", e),
             }
             match manager.get_unified_queue_stats().await {
                 Ok(stats) => METRICS.set_unified_queue_stale_items(stats.stale_leases),
@@ -197,6 +242,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                     wf.is_archived,
                     wf.is_worktree,
                     wf.is_git_tracked,
+                    wf.git_remote_url,
                     COUNT(tf.file_id) AS document_count,
                     COALESCE(SUM(tf.chunk_count), 0) AS point_count,
                     wf.last_scan,
@@ -214,7 +260,8 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                     wf.is_paused,
                     wf.is_archived,
                     wf.is_worktree,
-                    wf.is_git_tracked
+                    wf.is_git_tracked,
+                    wf.git_remote_url
                 ORDER BY document_count DESC, point_count DESC, wf.tenant_id ASC, wf.path ASC
             "#;
 
@@ -235,6 +282,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                         let is_archived: i32 = row.get("is_archived");
                         let is_worktree: i32 = row.get("is_worktree");
                         let is_git_tracked: i32 = row.get("is_git_tracked");
+                        let git_remote_url: Option<String> = row.get("git_remote_url");
                         let document_count: i64 = row.get("document_count");
                         let point_count: i64 = row.get("point_count");
                         let last_scan_epoch: Option<i64> = row
@@ -262,6 +310,7 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                             is_archived != 0,
                             is_worktree != 0,
                             is_git_tracked != 0,
+                            git_remote_url.as_deref().unwrap_or(""),
                             document_count,
                         );
                         METRICS.set_indexed_project_points(&watch_id, point_count);
@@ -417,9 +466,64 @@ pub fn start_git_state_monitor(pool: SqlitePool) -> JoinHandle<()> {
     handle
 }
 
+/// Periodically refresh `file_metadata`-derived gauges from search.db
+/// (Task #3 of the FTS5 size-guard series).
+///
+/// Queries `file_metadata` grouped by `(tenant_id, branch)` every 30s and
+/// pushes file_count, total_bytes, and fts5_skipped_count into the matching
+/// Prometheus gauges. Skipped pairs that disappear (e.g., after a project
+/// is removed) are zeroed-out so panels don't show stale series — mirrors
+/// the convention in `start_queue_depth_exporter`.
+///
+/// Cardinality: one series per (tenant_id, branch) pair across each gauge.
+/// On this stack that's ~5 tenants × ~5 branches = ~25 series total, well
+/// within Prometheus comfort zone. Adding a path-level label would explode
+/// to ~10k series and is intentionally NOT included; for per-file inspection
+/// use the admin UI / sidecar SQL queries.
+pub fn start_file_metadata_exporter(search_db: Arc<SearchDbManager>) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        // Tracks every (tenant_id, branch) pair we've ever emitted so we can
+        // zero-out gauges for pairs that vanish (deleted projects / branches).
+        let known: std::sync::Arc<
+            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
+        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+
+        loop {
+            interval.tick().await;
+            match search_db.file_metadata_stats_by_tenant_branch().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    for row in rows {
+                        METRICS.set_file_metadata_stats(
+                            &row.tenant_id,
+                            &row.branch,
+                            row.file_count,
+                            row.total_bytes,
+                            row.skipped_count,
+                        );
+                        seen.insert((row.tenant_id, row.branch));
+                    }
+                    let mut guard = known.lock().await;
+                    for pair in guard.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_file_metadata_stats(&pair.0, &pair.1, 0, 0, 0);
+                        }
+                    }
+                    guard.extend(seen);
+                }
+                Err(e) => debug!("file_metadata stats refresh failed: {}", e),
+            }
+        }
+    });
+    info!("file_metadata exporter started (30s interval)");
+    handle
+}
+
 /// Spawn all periodic background tasks and return their handles.
 pub fn spawn_all(
     pool: &SqlitePool,
+    search_db: &Arc<SearchDbManager>,
     pause_flag: &Arc<std::sync::atomic::AtomicBool>,
     prometheus_config: &PrometheusExportConfig,
 ) -> BackgroundHandles {
@@ -437,6 +541,7 @@ pub fn spawn_all(
     let _git_state = start_git_state_monitor(pool.clone());
     let _queue_depth = start_queue_depth_exporter(pool.clone());
     let _project_inventory = start_indexed_project_inventory_exporter(pool.clone());
+    let _file_metadata = start_file_metadata_exporter(Arc::clone(search_db));
 
     BackgroundHandles {
         uptime_handle,

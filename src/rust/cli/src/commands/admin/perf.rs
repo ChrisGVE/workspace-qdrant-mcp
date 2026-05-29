@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tabled::Tabled;
+use wqm_common::constants::CANONICAL_COLLECTIONS;
 use wqm_common::duration_fmt::fmt_approx_duration;
 
 use crate::output::canvas;
@@ -132,9 +133,12 @@ fn open_timings_db(collection: &Option<String>) -> Result<rusqlite::Connection> 
     }
 
     if let Some(ref c) = collection {
-        let valid = ["projects", "libraries", "rules", "scratchpad"];
-        if !valid.contains(&c.as_str()) {
-            anyhow::bail!("Unknown collection '{}'. Valid: {}", c, valid.join(", "));
+        if !CANONICAL_COLLECTIONS.contains(&c.as_str()) {
+            anyhow::bail!(
+                "Unknown collection '{}'. Valid: {}",
+                c,
+                CANONICAL_COLLECTIONS.join(", ")
+            );
         }
     }
 

@@ -15,7 +15,9 @@ use workspace_qdrant_core::{LanguageServerManager, UnifiedQueueProcessor, WatchM
 use crate::background::BackgroundHandles;
 
 /// Block until a termination signal is received.
-pub async fn wait_for_signal() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn wait_for_signal(
+    watchdog_shutdown: tokio_util::sync::CancellationToken,
+) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     {
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
@@ -31,6 +33,9 @@ pub async fn wait_for_signal() -> Result<(), Box<dyn std::error::Error>> {
             _ = signal::ctrl_c() => {
                 info!("Received Ctrl+C, initiating graceful shutdown");
             }
+            _ = watchdog_shutdown.cancelled() => {
+                info!("Embedding watchdog requested controlled shutdown");
+            }
         }
     }
 
@@ -44,13 +49,23 @@ pub async fn wait_for_signal() -> Result<(), Box<dyn std::error::Error>> {
             _ = scm_notify.notified() => {
                 info!("Received SCM Stop/Shutdown, initiating graceful shutdown");
             }
+            _ = watchdog_shutdown.cancelled() => {
+                info!("Embedding watchdog requested controlled shutdown");
+            }
         }
     }
 
     #[cfg(all(not(unix), not(windows)))]
     {
-        signal::ctrl_c().await?;
-        info!("Received Ctrl+C, initiating graceful shutdown");
+        tokio::select! {
+            r = signal::ctrl_c() => {
+                r?;
+                info!("Received Ctrl+C, initiating graceful shutdown");
+            }
+            _ = watchdog_shutdown.cancelled() => {
+                info!("Embedding watchdog requested controlled shutdown");
+            }
+        }
     }
 
     Ok(())

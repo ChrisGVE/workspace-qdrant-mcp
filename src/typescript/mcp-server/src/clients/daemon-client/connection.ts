@@ -19,15 +19,20 @@ import type {
   GraphServiceClient,
   QueueWriteServiceClient,
   TrackingWriteServiceClient,
+  WatchWriteServiceClient,
+  AdminWriteServiceClient,
   HealthCheckResponse,
 } from '../grpc-types.js';
+import { DEFAULT_CONFIG } from '../../types/generated-defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const PROTO_PATH = join(__dirname, '..', '..', 'proto', 'workspace_daemon.proto');
-const DEFAULT_HOST = 'localhost';
-const DEFAULT_PORT = 50051;
+// Daemon host/port defaults come from assets/default_configuration.yaml via
+// generated-defaults.ts — do not declare local copies (drift risk).
+const DEFAULT_HOST = DEFAULT_CONFIG.daemon.grpcHost;
+const DEFAULT_PORT = DEFAULT_CONFIG.daemon.grpcPort;
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 100;
@@ -57,6 +62,8 @@ export interface ProtoGrpcType {
     GraphService: GrpcServiceDefinition;
     QueueWriteService: GrpcServiceDefinition;
     TrackingWriteService: GrpcServiceDefinition;
+    WatchWriteService: GrpcServiceDefinition;
+    AdminWriteService: GrpcServiceDefinition;
   };
 }
 
@@ -172,6 +179,8 @@ export class DaemonClientBase {
   protected graphClient?: GraphServiceClient;
   protected queueWriteClient?: QueueWriteServiceClient;
   protected trackingWriteClient?: TrackingWriteServiceClient;
+  protected watchWriteClient?: WatchWriteServiceClient;
+  protected adminWriteClient?: AdminWriteServiceClient;
 
   protected connectionState: ConnectionState = { connected: false };
 
@@ -237,6 +246,14 @@ export class DaemonClientBase {
       address,
       credentials
     ) as unknown as TrackingWriteServiceClient;
+    this.watchWriteClient = new proto.workspace_daemon.WatchWriteService(
+      address,
+      credentials
+    ) as unknown as WatchWriteServiceClient;
+    this.adminWriteClient = new proto.workspace_daemon.AdminWriteService(
+      address,
+      credentials
+    ) as unknown as AdminWriteServiceClient;
   }
 
   async connect(): Promise<void> {

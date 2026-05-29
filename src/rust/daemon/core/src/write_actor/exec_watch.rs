@@ -37,6 +37,42 @@ impl WriteActor {
         Ok(result.rows_affected() as u32)
     }
 
+    pub(super) async fn exec_pause_watch(&self, data: WatchIdData) -> WriteResult<u32> {
+        let watch_id = resolve_watch_id(&self.pool, &data.watch_id).await?;
+        let now = timestamps::now_utc();
+
+        let result = sqlx::query(
+            "UPDATE watch_folders SET is_paused = 1, \
+             pause_start_time = ?1, updated_at = ?1 \
+             WHERE watch_id = ?2 AND enabled = 1 AND is_paused = 0",
+        )
+        .bind(&now)
+        .bind(&watch_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("database error: {}", e))?;
+
+        Ok(result.rows_affected() as u32)
+    }
+
+    pub(super) async fn exec_resume_watch(&self, data: WatchIdData) -> WriteResult<u32> {
+        let watch_id = resolve_watch_id(&self.pool, &data.watch_id).await?;
+        let now = timestamps::now_utc();
+
+        let result = sqlx::query(
+            "UPDATE watch_folders SET is_paused = 0, \
+             pause_start_time = NULL, updated_at = ?1 \
+             WHERE watch_id = ?2 AND enabled = 1 AND is_paused = 1",
+        )
+        .bind(&now)
+        .bind(&watch_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("database error: {}", e))?;
+
+        Ok(result.rows_affected() as u32)
+    }
+
     pub(super) async fn exec_enable_watch(&self, data: WatchIdData) -> WriteResult<u32> {
         let watch_id = resolve_watch_id(&self.pool, &data.watch_id).await?;
         let now = timestamps::now_utc();

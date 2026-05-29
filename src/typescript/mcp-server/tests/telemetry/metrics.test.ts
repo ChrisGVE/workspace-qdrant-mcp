@@ -2,11 +2,14 @@
  * Tests for telemetry/metrics.ts
  *
  * Verifies:
- *  - All 6 metrics registered with correct names, label names, and histogram buckets
+ *  - Core metrics (tool, session, daemon-fallback, cache) registered with
+ *    correct names, label names, and histogram buckets
  *  - withToolMetrics records success and failure cases
  *  - withToolMetrics preserves return value and rethrows errors unchanged
  *  - recordSessionStart / recordSessionEnd update session gauge
  *  - recordDaemonFallback increments the counter
+ *  - Git hook metrics (wqm_git_hook_*) registered with bucketed duration
+ *    and startGitHookTimer records both invocation counter and histogram
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -23,10 +26,13 @@ import {
   daemonFallback,
   cacheHits,
   cacheMisses,
+  gitHookInvocations,
+  gitHookDuration,
   withToolMetrics,
   recordSessionStart,
   recordSessionEnd,
   recordDaemonFallback,
+  startGitHookTimer,
 } from '../../src/telemetry/metrics.js';
 
 // Helper: read a counter value for a given label set from the registry
@@ -279,6 +285,104 @@ describe('recordDaemonFallback', () => {
     });
     expect(c1).toBe(1);
     expect(c2).toBe(1);
+  });
+});
+
+// ── Git hook metrics ──────────────────────────────────────────────────────────
+
+describe('git hook metrics', () => {
+  it('registers wqm_git_hook_invocations_total as a Counter', () => {
+    expect(gitHookInvocations).toBeInstanceOf(Counter);
+  });
+
+  it('registers wqm_git_hook_duration_seconds as a Histogram', () => {
+    expect(gitHookDuration).toBeInstanceOf(Histogram);
+  });
+
+  it('git hook metrics appear in the registry', async () => {
+    const names = (await register.getMetricsAsJSON()).map((m) => m.name);
+    expect(names).toContain('wqm_git_hook_invocations_total');
+    expect(names).toContain('wqm_git_hook_duration_seconds');
+  });
+
+  it('wqm_git_hook_invocations_total has label names [hook, result, is_worktree]', async () => {
+    gitHookInvocations
+      .labels({ hook: 'post-commit', result: 'success', is_worktree: 'false' })
+      .inc();
+    const metrics = await register.getMetricsAsJSON();
+    const metric = metrics.find((m) => m.name === 'wqm_git_hook_invocations_total');
+    expect(metric).toBeDefined();
+    const sampleLabels = (metric!.values[0] as { labels: Record<string, string> }).labels;
+    expect(Object.keys(sampleLabels)).toEqual(
+      expect.arrayContaining(['hook', 'result', 'is_worktree'])
+    );
+  });
+
+  it('wqm_git_hook_duration_seconds buckets cover the LSP-startup range', async () => {
+    gitHookDuration.observe({ hook: 'post-commit', result: 'success' }, 0.1);
+    const metrics = await register.getMetricsAsJSON();
+    const metric = metrics.find((m) => m.name === 'wqm_git_hook_duration_seconds');
+    const bucketLabels = (
+      metric!.values as Array<{ labels: Record<string, string>; value: number }>
+    )
+      .filter((v) => v.labels['le'] !== undefined && v.labels['le'] !== '+Inf')
+      .map((v) => parseFloat(v.labels['le'] ?? '0'));
+    expect(bucketLabels).toEqual(
+      expect.arrayContaining([0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30])
+    );
+  });
+
+  it('startGitHookTimer records a success invocation', async () => {
+    const done = startGitHookTimer('post-merge', false);
+    done('success');
+    const count = await getCounterValue('wqm_git_hook_invocations_total', {
+      hook: 'post-merge',
+      result: 'success',
+      is_worktree: 'false',
+    });
+    expect(count).toBe(1);
+  });
+
+  it('startGitHookTimer records an error invocation with is_worktree=true', async () => {
+    const done = startGitHookTimer('post-checkout', true);
+    done('error');
+    const count = await getCounterValue('wqm_git_hook_invocations_total', {
+      hook: 'post-checkout',
+      result: 'error',
+      is_worktree: 'true',
+    });
+    expect(count).toBe(1);
+  });
+
+  it('startGitHookTimer records a histogram observation under the matching labels', async () => {
+    const done = startGitHookTimer('post-commit', false);
+    done('success');
+    const metrics = await register.getMetricsAsJSON();
+    const metric = metrics.find((m) => m.name === 'wqm_git_hook_duration_seconds');
+    const countEntry = (
+      metric!.values as Array<{
+        labels: Record<string, string>;
+        value: number;
+        metricName?: string;
+      }>
+    ).find(
+      (v) =>
+        v.metricName === 'wqm_git_hook_duration_seconds_count' &&
+        v.labels['hook'] === 'post-commit' &&
+        v.labels['result'] === 'success'
+    );
+    expect(countEntry?.value).toBe(1);
+  });
+
+  it('startGitHookTimer handles bad_request result without throwing', async () => {
+    const done = startGitHookTimer('manual', false);
+    expect(() => done('bad_request')).not.toThrow();
+    const count = await getCounterValue('wqm_git_hook_invocations_total', {
+      hook: 'manual',
+      result: 'bad_request',
+      is_worktree: 'false',
+    });
+    expect(count).toBe(1);
   });
 });
 

@@ -9,10 +9,144 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tracing::{debug, warn};
 
-use crate::fts_batch_processor::{BatchStats, FileChange, FtsBatchConfig, FtsBatchProcessor};
+use crate::fts_batch_processor::{
+    enforce_fts5_hard_cap_skip, hard_cap_line_threshold, line_count_estimate, BatchStats,
+    FileChange, FtsBatchConfig, FtsBatchProcessor,
+};
 use crate::indexed_content_schema;
-use crate::search_db::{SearchDbError, SearchDbManager};
+use crate::search_db::{Fts5WorkItem, SearchDbError, SearchDbManager};
 use wqm_common::hashing::compute_content_hash;
+
+/// Outcome of `update_fts5_for_file_or_enqueue` — tells the caller how to
+/// handle `search_status` for the queue item.
+pub(super) enum Fts5Outcome {
+    /// File was processed inline; caller should flip `search_status=done`.
+    Inline,
+    /// File was handed off to the global FTS5 batch writer. The batch
+    /// actor takes responsibility for flipping `search_status` and
+    /// finalizing the queue item — the caller MUST NOT touch
+    /// `search_status` again, or it will race the actor.
+    Enqueued,
+    /// File was skipped before any write attempt (binary content, hash
+    /// match against `indexed_content` cache). Caller should still flip
+    /// `search_status=done` because no search work is owed for this row.
+    Skipped,
+}
+
+/// Hand the FTS5 work off to the global batch writer when one is installed;
+/// otherwise fall back to the legacy inline path.
+///
+/// The batched path eliminates `SQLITE_BUSY` contention on `search.db` by
+/// funneling all writes through one transaction-batched task. Workers
+/// still do the disk read + hash + old-content lookup, so file IO stays
+/// parallel — only the database write is serialized.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn update_fts5_for_file_or_enqueue(
+    search_db: &Arc<SearchDbManager>,
+    state_pool: &SqlitePool,
+    file_id: i64,
+    file_path: &str,
+    tenant_id: &str,
+    branch: Option<&str>,
+    base_point: Option<&str>,
+    relative_path: Option<&str>,
+    file_hash: Option<&str>,
+    queue_id: &str,
+) -> Result<Fts5Outcome, String> {
+    let Some(sender) = crate::search_db::batch_writer::global_sender() else {
+        return update_fts5_for_file(
+            search_db,
+            state_pool,
+            file_id,
+            file_path,
+            tenant_id,
+            branch,
+            base_point,
+            relative_path,
+            file_hash,
+        )
+        .await
+        .map(|_| Fts5Outcome::Inline);
+    };
+
+    // Batched path: do disk + hash + cache-lookup here so workers stay
+    // parallel for that work, then `send` and return — the actor owns
+    // every write after this point.
+    let new_content = match tokio::fs::read_to_string(file_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            debug!(
+                "FTS5: cannot read file for indexing (may be binary): {}: {}",
+                file_path, e
+            );
+            return Ok(Fts5Outcome::Skipped);
+        }
+    };
+
+    // FTS5 hard cap: bypass code_lines / FTS5 entirely for giant files
+    // (CSV dumps, generated proto, lockfiles, etc.) — the batch processor's
+    // Phase 1 diff materialization is the RSS killer. file_metadata is
+    // still upserted with fts5_skipped=1 so admin UI / Grafana can surface
+    // the skip. Semantic embedding for the file proceeds independently.
+    let hard_cap = hard_cap_line_threshold();
+    if hard_cap > 0 {
+        let line_count = line_count_estimate(&new_content);
+        if line_count > hard_cap {
+            if let Err(e) = enforce_fts5_hard_cap_skip(
+                search_db.as_ref(),
+                file_id,
+                tenant_id,
+                branch,
+                file_path,
+                base_point,
+                relative_path,
+                file_hash,
+                Some(new_content.len() as i64),
+                line_count,
+            )
+            .await
+            {
+                warn!(
+                    "FTS5 hard-cap metadata upsert failed for {} ({} lines): {}",
+                    file_path, line_count, e
+                );
+            }
+            return Ok(Fts5Outcome::Skipped);
+        }
+    }
+
+    let new_hash = compute_content_hash(&new_content);
+    let old_content = match fetch_old_content(state_pool, file_id, file_path, &new_hash).await {
+        Some(c) => c,
+        None => return Ok(Fts5Outcome::Skipped),
+    };
+
+    let change = FileChange {
+        file_id,
+        size_bytes: Some(new_content.len() as i64),
+        old_content,
+        new_content: new_content.clone(),
+        tenant_id: tenant_id.to_string(),
+        branch: branch.map(|s| s.to_string()),
+        file_path: file_path.to_string(),
+        base_point: base_point.map(|s| s.to_string()),
+        relative_path: relative_path.map(|s| s.to_string()),
+        file_hash: file_hash.map(|s| s.to_string()),
+    };
+
+    let work = Fts5WorkItem {
+        change,
+        new_content_bytes: new_content.into_bytes(),
+        new_hash,
+        queue_id: queue_id.to_string(),
+    };
+
+    sender
+        .send(work)
+        .await
+        .map(|()| Fts5Outcome::Enqueued)
+        .map_err(|e| format!("FTS5 batch writer channel closed: {}", e))
+}
 
 /// Update the FTS5 code search index for a single file (Task 52).
 ///
@@ -46,6 +180,36 @@ pub(super) async fn update_fts5_for_file(
         }
     };
 
+    // FTS5 hard cap: same guard as the batched path
+    // ([`update_fts5_for_file_or_enqueue`]) — bypass code_lines / FTS5 for
+    // giant files, mark them fts5_skipped=1, return as if work was done.
+    let hard_cap = hard_cap_line_threshold();
+    if hard_cap > 0 {
+        let line_count = line_count_estimate(&new_content);
+        if line_count > hard_cap {
+            if let Err(e) = enforce_fts5_hard_cap_skip(
+                search_db.as_ref(),
+                file_id,
+                tenant_id,
+                branch,
+                file_path,
+                base_point,
+                relative_path,
+                file_hash,
+                Some(new_content.len() as i64),
+                line_count,
+            )
+            .await
+            {
+                warn!(
+                    "FTS5 hard-cap metadata upsert failed for {} ({} lines): {}",
+                    file_path, line_count, e
+                );
+            }
+            return Ok(false);
+        }
+    }
+
     let new_hash = compute_content_hash(&new_content);
 
     // Check indexed_content cache for skip detection
@@ -59,6 +223,9 @@ pub(super) async fn update_fts5_for_file(
     let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
     let change = FileChange {
         file_id,
+        // Record the post-upsert size. Spec 20 §3.2 — grep's `bytes_in`
+        // is computed against this column when present.
+        size_bytes: Some(new_content.len() as i64),
         old_content,
         new_content: new_content.clone(),
         tenant_id: tenant_id.to_string(),

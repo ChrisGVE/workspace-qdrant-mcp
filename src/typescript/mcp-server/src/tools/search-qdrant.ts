@@ -354,6 +354,10 @@ export async function fallbackSearch(
   const statusReason = isDegraded
     ? `Daemon unavailable and project scope unresolved - cannot run cross-tenant fallback. Refused collections: ${refusedCollections.join(', ')}`
     : 'Daemon unavailable - using fallback text search';
+  // No indexing block here: fallback runs precisely when the daemon
+  // is unreachable. The cached probe in search-helpers will return any
+  // recent value transparently on the normal path; we don't fire a fresh
+  // gRPC here only to have it fail.
   return {
     results: limitedResults,
     total: limitedResults.length,

@@ -635,17 +635,12 @@ await state_manager.enqueue_unified(
 )
 ```
 
-### Step 5: Run Phase 3 Cutover (Optional)
+### Step 5: Cutover
 
-For automated migration with safety checks:
-
-```bash
-# Dry run first
-./scripts/phase3_cutover.sh --dry-run
-
-# Execute cutover
-./scripts/phase3_cutover.sh --force
-```
+No cutover step is required: the dual-write era is over, `unified_queue` is the
+canonical queue, and the legacy `ingestion_queue` / `content_ingestion_queue`
+tables no longer exist. (The former `scripts/phase3_cutover.sh` helper was
+removed 2026-05-28.)
 
 ### Step 6: Verify Migration
 
@@ -699,14 +694,7 @@ This format is consistent across Python and Rust implementations.
 
 ## Rollback
 
-If issues occur after migration:
-
-```bash
-# Re-enable dual-write
-./scripts/phase3_cutover.sh --rollback
-```
-
-Or manually:
+If issues occur after migration, re-enable dual-write manually:
 
 ```yaml
 # config.yaml
@@ -721,13 +709,9 @@ wqm service restart
 
 ## Cleanup (v0.5.0)
 
-Once stable, legacy tables can be removed:
+Once stable, legacy tables can be removed with manual SQL:
 
 ```bash
-# Automated cleanup
-./scripts/phase3_cutover.sh --drop-tables
-
-# Or manual SQL
 sqlite3 ~/Library/Application\ Support/workspace-qdrant-mcp/state.db \
   "DROP TABLE IF EXISTS ingestion_queue; DROP TABLE IF EXISTS content_ingestion_queue;"
 ```

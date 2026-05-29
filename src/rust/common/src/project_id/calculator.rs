@@ -2,9 +2,9 @@
 
 use super::types::DisambiguationConfig;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::paths::CanonicalPath;
+use crate::paths::{canonicalize_docker_mount_alias, CanonicalPath};
 
 /// Calculator for unique project IDs with disambiguation support
 pub struct ProjectIdCalculator {
@@ -31,6 +31,12 @@ impl ProjectIdCalculator {
     ///    - If disambiguation_path provided: hash(normalized_url|disambiguation_path)
     ///    - Otherwise: hash(normalized_url)
     /// 2. If no git_remote (local project):
+    ///    - Rewrite well-known Docker Desktop mount aliases (e.g.
+    ///      `/run/desktop/mnt/host/c/...` and `/host_mnt/c/...`) back to
+    ///      the canonical host form `/mnt/c/...` so the same physical
+    ///      project hashes to the same tenant_id whether it is registered
+    ///      from the WSL2 host or from inside a Docker Desktop container.
+    ///      See `paths/docker_alias.rs` for the recognized prefix families.
     ///    - hash(syntactic-canonical project_root_path)
     ///
     /// Per spec §16 (path-abstraction §3.2.3) the local-project path is
@@ -55,14 +61,27 @@ impl ProjectIdCalculator {
 
             self.hash_to_id(&input)
         } else {
-            // Local project — hash the syntactic-canonical form of the
-            // project root. Fall back to a lossy stringification only when
-            // canonical normalization is impossible (non-UTF-8, etc.) so
-            // that we still emit *some* deterministic ID; this is the
-            // documented fallback behavior of the legacy implementation.
-            let path_str = path_to_syntactic_canonical(project_root);
+            // Local project. Two steps:
+            //
+            // 1. Rewrite Docker Desktop mount aliases back to host form so
+            //    a project registered via `/mnt/c/...` (WSL2 host) and the
+            //    same project registered via `/run/desktop/mnt/host/c/...`
+            //    or `/host_mnt/c/...` (inside a Docker Desktop container)
+            //    converge on a single tenant_id. Without this step we
+            //    create duplicate watch_folders rows that index every file
+            //    twice — see issue #8 unit 1.
+            // 2. Reduce to the syntactic-canonical UTF-8 form (spec §3.1).
+            //    Fall back to lossy stringification when canonicalization
+            //    is impossible so we still emit *some* deterministic ID.
+            let aliased: PathBuf = path_str(project_root)
+                .as_deref()
+                .and_then(canonicalize_docker_mount_alias)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| project_root.to_path_buf());
 
-            format!("local_{}", self.hash_to_id(&path_str))
+            let canonical = path_to_syntactic_canonical(&aliased);
+
+            format!("local_{}", self.hash_to_id(&canonical))
         }
     }
 
@@ -122,6 +141,13 @@ impl Default for ProjectIdCalculator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Return the path's UTF-8 string view, or `None` when the path contains
+/// non-UTF-8 bytes. This is a thin wrapper around [`Path::to_str`] kept here
+/// so the call site reads as a step in the alias-then-canonicalize pipeline.
+fn path_str(path: &Path) -> Option<String> {
+    path.to_str().map(|s| s.to_string())
 }
 
 /// Reduce a [`Path`] to its syntactic-canonical UTF-8 string per spec §3.1.

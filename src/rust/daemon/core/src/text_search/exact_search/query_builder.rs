@@ -56,7 +56,7 @@ WITH matching AS (
     let mut sql = format!(
         "{}
 SELECT m.line_id, m.file_id, m.line_number, m.content,
-       fm.file_path, fm.tenant_id, fm.branch
+       fm.file_path, fm.tenant_id, fm.branch, fm.size_bytes
 FROM matching m
 JOIN file_metadata fm ON m.file_id = fm.file_id
 WHERE 1=1",

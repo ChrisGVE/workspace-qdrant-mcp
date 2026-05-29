@@ -65,7 +65,6 @@ fn pid_file_path() -> PathBuf {
 /// Returns `Some(pid)` iff the file exists, parses as a `u32`, and the
 /// corresponding process is alive. Any other condition (missing file,
 /// corrupted contents, dead pid) yields `None`.
-#[allow(dead_code)] // wiring into service commands lands in task 11
 fn check_local_pid() -> Option<u32> {
     check_local_pid_at(&pid_file_path())
 }
@@ -112,7 +111,6 @@ fn is_pid_alive(pid: u32) -> bool {
 /// Runs `docker ps --filter name=^memexd$ --quiet`. If the `docker` CLI is
 /// missing or otherwise unreachable, returns `false` rather than propagating
 /// the error so detection stays best-effort.
-#[allow(dead_code)] // wiring into service commands lands in task 11
 fn check_docker_container() -> bool {
     let result = Command::new("docker")
         .args(["ps", "--filter", "name=^memexd$", "--quiet"])
@@ -136,7 +134,6 @@ fn check_docker_container() -> bool {
 /// best-effort `DaemonClient::connect_default()` under a 1s deadline. A
 /// successful connect means the TCP port is accepting gRPC traffic, which is
 /// sufficient signal for "something is listening on 50051".
-#[allow(dead_code)] // wiring into service commands lands in task 11
 async fn check_grpc_health() -> bool {
     match tokio::time::timeout(GRPC_PROBE_TIMEOUT, DaemonClient::connect_default()).await {
         Ok(Ok(_client)) => true,
@@ -150,7 +147,6 @@ async fn check_grpc_health() -> bool {
 /// Preserves the layering required for unit testing: the classification
 /// logic is a separate pure function ([`classify`]), so the public entry
 /// point is effectively just wiring.
-#[allow(dead_code)] // wiring into service commands lands in task 11
 pub async fn detect_daemon_source() -> DaemonSource {
     let local_pid = check_local_pid();
     let docker = check_docker_container();

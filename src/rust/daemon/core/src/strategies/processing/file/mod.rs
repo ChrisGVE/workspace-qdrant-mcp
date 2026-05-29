@@ -14,6 +14,7 @@
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
 //! - `zero_byte` — graceful handling of empty (0-byte) files
 
+mod branch_dedup;
 mod chunk_embed;
 mod component;
 mod delete;

@@ -124,6 +124,61 @@ impl QueueManager {
         Ok(rows)
     }
 
+    /// Per-tenant in-flight queue counts: (pending, in_progress, failed).
+    ///
+    /// Single query — used by the gRPC `GetProjectStatus` handler to fill the
+    /// indexing-progress block, and by the metrics exporter to keep the
+    /// per-tenant gauge fresh. Done rows are deliberately excluded: they are
+    /// deleted by `cleanup_completed_unified_items()` after retention, so the
+    /// "done" count must come from `tracked_files` instead.
+    pub async fn get_in_flight_counts_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> QueueResult<(i64, i64, i64)> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                SUM(CASE WHEN status = 'pending'     THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+                SUM(CASE WHEN status = 'failed'      THEN 1 ELSE 0 END) AS failed
+            FROM unified_queue
+            WHERE tenant_id = ?1
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let pending: Option<i64> = row.try_get("pending")?;
+        let in_progress: Option<i64> = row.try_get("in_progress")?;
+        let failed: Option<i64> = row.try_get("failed")?;
+        Ok((
+            pending.unwrap_or(0),
+            in_progress.unwrap_or(0),
+            failed.unwrap_or(0),
+        ))
+    }
+
+    /// Per-tenant queue depth grouped by status (pending / in_progress / failed).
+    ///
+    /// Returns rows of `(tenant_id, status, count)`. Used by the Prometheus
+    /// exporter to publish a per-tenant gauge so Grafana can show indexing
+    /// progress per project. Excludes 'done' for the same reason as
+    /// `get_unified_queue_depth_by_type_status`.
+    pub async fn get_unified_queue_depth_by_tenant_status(
+        &self,
+    ) -> QueueResult<Vec<(String, String, i64)>> {
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT tenant_id, status, COUNT(*) \
+             FROM unified_queue \
+             WHERE status != 'done' \
+             GROUP BY tenant_id, status",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// Get the depth of the unified queue per collection (pending items only)
     ///
     /// Returns a HashMap mapping collection names to their pending item counts.

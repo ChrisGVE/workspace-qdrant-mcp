@@ -6,9 +6,10 @@
  */
 
 import { readdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, posix, resolve } from 'node:path';
 
 import { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import { canonicalizeHostPath } from '../clients/project-queries.js';
 import { getEffectiveCwd } from './request-context.js';
 
 // Project signature files/directories
@@ -52,6 +53,17 @@ export interface ProjectInfo {
   projectPath: string;
   isActive: boolean;
   gitRemote?: string | undefined;
+}
+
+export interface GetProjectInfoOptions {
+  /**
+   * When path detection finds no project AND exactly one project is
+   * registered, assume that project instead of returning null. Intended for
+   * CWD-based MCP tool detection — where the host path may not be reconcilable
+   * with the daemon-stored path (e.g. the host-cwd header was absent and the
+   * container WORKDIR leaked through) — not for strict lookups.
+   */
+  fallbackToSoleProject?: boolean;
 }
 
 /**
@@ -144,13 +156,49 @@ export class ProjectDetector {
    *
    * @param projectPath Absolute path to project root
    * @param waitForRegistration If true, retry if project not found
+   * @param options Optional resolution behavior (see {@link GetProjectInfoOptions})
    * @returns ProjectInfo or null if not found/registered
    */
   async getProjectInfo(
     projectPath: string,
-    waitForRegistration = false
+    waitForRegistration = false,
+    options: GetProjectInfoOptions = {}
   ): Promise<ProjectInfo | null> {
-    const normalizedPath = resolve(projectPath);
+    const info = await this.detectProjectByPath(projectPath, waitForRegistration);
+    if (info) {
+      return info;
+    }
+    if (options.fallbackToSoleProject) {
+      return this.soleRegisteredProject();
+    }
+    return null;
+  }
+
+  /**
+   * Normalize a host working directory for cross-namespace comparison and
+   * cache keying. Uses `posix.resolve` (NOT the platform `resolve`):
+   * canonicalizeHostPath yields a POSIX-form path (e.g. `C:\…` → `/c/…`), and
+   * on Windows the win32 `resolve` would re-mangle that back into `C:\c\…`.
+   * POSIX semantics keep the result identical on every host, so the
+   * longest-prefix match in getProjectByPath can bridge a client cwd to the
+   * daemon-stored `/run/desktop/mnt/host/c/…` mount path.
+   */
+  private normalizeHostCwd(projectPath: string): string {
+    return posix.resolve(canonicalizeHostPath(projectPath));
+  }
+
+  /**
+   * Path-based detection: cache lookup, then a longest-prefix match against
+   * the daemon's registered project paths. Returns null on miss.
+   */
+  private async detectProjectByPath(
+    projectPath: string,
+    waitForRegistration: boolean
+  ): Promise<ProjectInfo | null> {
+    // Bridge the host/container path namespace before any matching. An HTTP
+    // client on Windows sends a cwd like `C:\…`; see normalizeHostCwd for why
+    // this must canonicalize and use posix.resolve rather than the platform one.
+    const normalizedPath = this.normalizeHostCwd(projectPath);
 
     // Check cache first
     const cached = this.cache.get(normalizedPath);
@@ -177,6 +225,36 @@ export class ProjectDetector {
     }
 
     return this.fetchProjectInfo(normalizedPath);
+  }
+
+  /**
+   * Fallback for CWD-based detection: when no project maps to the host path
+   * and exactly one project is registered, assume it. Returns null when zero
+   * or 2+ projects are registered, or when the database is unavailable.
+   */
+  private soleRegisteredProject(): ProjectInfo | null {
+    if (!this.stateManager.isConnected()) {
+      const initResult = this.stateManager.initialize();
+      if (initResult.status === 'degraded') {
+        return null;
+      }
+    }
+
+    const all = this.stateManager.listAllProjects();
+    if (all.status !== 'ok' || all.data.length !== 1) {
+      return null;
+    }
+
+    const [project] = all.data;
+    if (!project) {
+      return null;
+    }
+    return {
+      projectId: project.project_id,
+      projectPath: project.project_path,
+      isActive: project.is_active,
+      gitRemote: project.git_remote_url,
+    };
   }
 
   /**
@@ -221,7 +299,7 @@ export class ProjectDetector {
    * Clear cache entry for a specific path
    */
   clearCacheForPath(projectPath: string): void {
-    this.cache.delete(resolve(projectPath));
+    this.cache.delete(this.normalizeHostCwd(projectPath));
   }
 
   /**

@@ -137,6 +137,7 @@ pub(super) fn create_indexed_project_metrics() -> (
             "is_archived",
             "is_worktree",
             "is_git_tracked",
+            "git_remote",
         ],
     );
     let indexed_project_points = int_gauge_vec(
@@ -367,5 +368,69 @@ pub(super) fn create_unified_queue_metrics() -> (
         unified_queue_dequeues_total,
         unified_queue_stale_items,
         unified_queue_retries_total,
+    )
+}
+
+/// Per-tenant indexing-progress gauge: `unified_queue` rows grouped by
+/// `(tenant_id, status)` (status in pending / in_progress / failed).
+///
+/// Kept separate from `unified_queue_depth` to avoid label-cardinality
+/// blow-up on the global gauge. Refreshed every 10s by the exporter.
+pub(super) fn create_per_tenant_indexing_metric() -> IntGaugeVec {
+    int_gauge_vec(
+        "unified_queue_depth_by_tenant",
+        "Current unified queue depth per tenant_id and status (excludes done)",
+        &["tenant_id", "status"],
+    )
+}
+
+/// Per-tenant ETA (seconds) derived from the rate at which
+/// `tracked_files.updated_at` advances over a 5-minute window. Set to
+/// `-1` when the daemon can't estimate (cold-start, rate==0, queue
+/// drained) — Prometheus has no native null, and a sentinel lets PromQL
+/// filter via `>= 0`.
+pub(super) fn create_per_tenant_eta_metric() -> IntGaugeVec {
+    int_gauge_vec(
+        "indexing_eta_seconds_by_tenant",
+        "Estimated seconds to drain the queue per tenant; -1 = unknown / warming up",
+        &["tenant_id"],
+    )
+}
+
+/// Per-(tenant, branch) `file_metadata` observability — refreshed every
+/// 30s by the search.db exporter in [`memexd::background`].
+///
+/// Cardinality: bounded by the number of registered (tenant_id, branch)
+/// pairs. No `path` label — that would be unbounded. For per-file
+/// inspection, route operators to the admin UI / sidecar SQL queries
+/// (see [[daemon-db-sidecar-query]] memory note).
+#[allow(clippy::type_complexity)]
+pub(super) fn create_file_metadata_metrics() -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec) {
+    let indexed_files_count = int_gauge_vec(
+        "indexed_files_count",
+        "Number of files in search.db file_metadata per tenant and branch",
+        &["tenant_id", "branch"],
+    );
+    let indexed_files_total_bytes = int_gauge_vec(
+        "indexed_files_total_bytes",
+        "Sum of file_metadata.size_bytes per tenant and branch (NULL sizes counted as 0)",
+        &["tenant_id", "branch"],
+    );
+    let fts5_skipped_files_count = int_gauge_vec(
+        "fts5_skipped_files_count",
+        "Current number of files with fts5_skipped=1 per tenant and branch \
+         (hard-cap bypass — see WQM_FTS5_HARD_CAP)",
+        &["tenant_id", "branch"],
+    );
+    let fts5_skipped_files_total = int_counter_vec(
+        "fts5_skipped_files_total",
+        "Cumulative count of times the FTS5 hard cap fired on ingestion per tenant and branch",
+        &["tenant_id", "branch"],
+    );
+    (
+        indexed_files_count,
+        indexed_files_total_bytes,
+        fts5_skipped_files_count,
+        fts5_skipped_files_total,
     )
 }

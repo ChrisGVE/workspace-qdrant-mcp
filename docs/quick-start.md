@@ -23,13 +23,13 @@ This installs `wqm` (CLI) and `memexd` (daemon) to `~/.local/bin`.
 ```bash
 wqm service install   # One-time: install as system service
 wqm service start     # Start background daemon
-wqm admin health      # Verify: should show "healthy"
+wqm status health     # Verify: should show "healthy"
 ```
 
 ## 4. Register a project
 
 ```bash
-wqm project add /path/to/your/project
+wqm project register /path/to/your/project
 ```
 
 The daemon automatically watches the directory, detects files, and indexes them. Check progress:
@@ -42,9 +42,9 @@ wqm project list      # See registered projects
 ## 5. Search
 
 ```bash
-wqm search "authentication middleware"           # Semantic search
-wqm search "handleRequest" --exact               # Exact match
-wqm search "error handling" --collection libraries  # Search docs
+wqm search project "authentication middleware"        # Search the current project
+wqm search project "handleRequest" --file-type code   # Filter by file type
+wqm search project "error handling" --include-libs    # Include library content
 ```
 
 ## 6. Connect to Claude

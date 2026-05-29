@@ -51,6 +51,17 @@ export interface MetricsResponse {
   collected_at?: { seconds: number; nanos: number };
 }
 
+export interface QueueStatsResponse {
+  pending_count: number;
+  in_progress_count: number;
+  completed_count: number;
+  failed_count: number;
+  by_item_type: Record<string, number>;
+  by_collection: Record<string, number>;
+  stale_items_count: number;
+  collected_at?: { seconds: number; nanos: number };
+}
+
 export interface GetEmbeddingProviderStatusResponse {
   provider: string;
   model: string;
@@ -58,6 +69,20 @@ export interface GetEmbeddingProviderStatusResponse {
   base_url: string;
   probe_status: string;
   probe_message: string;
+}
+
+export interface RebuildIndexRequest {
+  target: string;
+  tenant_id?: string;
+  collection?: string;
+  force?: boolean;
+}
+
+export interface RebuildIndexResponse {
+  success: boolean;
+  message: string;
+  duration_ms: number;
+  details: Record<string, string>;
 }
 
 export interface RefreshSignalRequest {

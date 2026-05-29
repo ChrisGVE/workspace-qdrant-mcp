@@ -4,7 +4,9 @@
 //! - PROJECT: _{project_id} where project_id is 12-char hex hash
 //! - LIBRARY: _{library_name} where library_name is alphanumeric with hyphens
 //! - USER: {basename}-{type} format
-//! - RULES: exact match "rules" (also accepts legacy "memory")
+//! - RULES: exact match COLLECTION_RULES (also accepts legacy "memory")
+
+use wqm_common::constants::COLLECTION_RULES;
 
 /// Collection type enumeration for metadata enrichment
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,8 +58,8 @@ impl CollectionType {
     /// assert!(matches!(ctype, CollectionType::Rules));
     /// ```
     pub fn from_name(collection_name: &str) -> Self {
-        // Check for "rules" (or legacy "memory") match
-        if collection_name == "rules" || collection_name == "memory" {
+        // Check for COLLECTION_RULES (or legacy "memory") match
+        if collection_name == COLLECTION_RULES || collection_name == "memory" {
             return CollectionType::Rules;
         }
 

@@ -4,8 +4,9 @@
 #   - observability (tags / dispatch only): boots minimal + observability +
 #     qdrant and validates the telemetry pipeline.
 #   - reference-stack (also runs on PRs touching docker/ Rust Dockerfiles or
-#     the MCP server): boots docker/compose/reference.yml and runs the
-#     reference-stack test suite under tests/integration/docker/.
+#     the MCP server): runs the reference-stack suite via
+#     tests/integration/docker/run-all.sh (which boots the root
+#     docker-compose.yml with the CI-built memexd:ci / mcp:ci images).
 #
 # Triggers: version tags, PRs with matching path filters, manual dispatch.
 

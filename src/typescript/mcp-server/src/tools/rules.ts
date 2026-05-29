@@ -6,7 +6,8 @@
  * - rules-list.ts: List/query operations with mirror fallback
  */
 
-import { QdrantClient } from '@qdrant/js-client-rest';
+import type { QdrantClient } from '@qdrant/js-client-rest';
+import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
@@ -47,14 +48,11 @@ export class RulesTool {
     stateManager: SqliteStateManager,
     projectDetector: ProjectDetector
   ) {
-    const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
+    this.qdrantClient = getQdrantClient({
       url: config.qdrantUrl,
+      apiKey: config.qdrantApiKey,
       timeout: config.qdrantTimeout ?? 5000,
-    };
-    if (config.qdrantApiKey) {
-      clientConfig.apiKey = config.qdrantApiKey;
-    }
-    this.qdrantClient = new QdrantClient(clientConfig);
+    });
     this.daemonClient = daemonClient;
     this.stateManager = stateManager;
     this.projectDetector = projectDetector;

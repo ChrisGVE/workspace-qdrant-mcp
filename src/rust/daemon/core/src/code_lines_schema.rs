@@ -156,7 +156,11 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     file_id INTEGER PRIMARY KEY,
     tenant_id TEXT NOT NULL,
     branch TEXT,
-    file_path TEXT NOT NULL
+    file_path TEXT NOT NULL,
+    size_bytes INTEGER,
+    fts5_skipped INTEGER NOT NULL DEFAULT 0,
+    reindex_count INTEGER NOT NULL DEFAULT 0,
+    first_indexed_at TEXT
 )
 "#;
 
@@ -202,18 +206,77 @@ pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
 /// SQL to upsert a file_metadata row.
 ///
 /// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path,
-/// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable).
+/// `?5` = base_point (nullable), `?6` = relative_path (nullable), `?7` = file_hash (nullable),
+/// `?8` = size_bytes (nullable), `?9` = fts5_skipped (0/1).
+///
+/// `fts5_skipped` (search.db v8) is set to 1 when [`FTS5_HARD_CAP`] fires for
+/// the file — code_lines/FTS5 work is bypassed entirely, but the metadata row
+/// is still written so the admin UI / Grafana can surface the skip.
+///
+/// `reindex_count` / `first_indexed_at` (search.db v9) are **auto-managed by
+/// this SQL** — no bind params. The first insert seeds count=1 and stamps
+/// `first_indexed_at`; every subsequent upsert (re-index of changed content)
+/// increments the count and preserves the original timestamp. `count /
+/// age(first_indexed_at)` gives a churn rate used to flag IDE/build-generated
+/// files as ignore candidates.
 pub const UPSERT_FILE_METADATA_SQL: &str = r#"
-INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, size_bytes, fts5_skipped, reindex_count, first_indexed_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT(file_id) DO UPDATE SET
     tenant_id = excluded.tenant_id,
     branch = excluded.branch,
     file_path = excluded.file_path,
     base_point = excluded.base_point,
     relative_path = excluded.relative_path,
-    file_hash = excluded.file_hash
+    file_hash = excluded.file_hash,
+    size_bytes = excluded.size_bytes,
+    fts5_skipped = excluded.fts5_skipped,
+    reindex_count = reindex_count + 1
 "#;
+
+/// SQL for search.db v7: add `size_bytes` to `file_metadata`.
+///
+/// Carries the byte length of a file's content as written to `code_lines`
+/// at upsert time. Used by the token-economy instrumentation (spec 20
+/// §3.2) so `grep` can report `bytes_in` against real file sizes
+/// instead of a per-file constant proxy. Nullable: rows ingested before
+/// v7 stay `NULL` and the MCP server falls back to its proxy.
+pub const ALTER_FILE_METADATA_V7_SQL: &str =
+    "ALTER TABLE file_metadata ADD COLUMN size_bytes INTEGER";
+
+/// SQL for search.db v8: add `fts5_skipped` to `file_metadata`.
+///
+/// Marks files where the FTS5 ingestion was bypassed by the hard cap
+/// (`WQM_FTS5_HARD_CAP`). Such files have NO `code_lines` rows and won't
+/// appear in `wqm grep` results, but the metadata row is still written so
+/// operators can see exactly which files were skipped and why. NOT NULL
+/// with default 0 — pre-v8 rows are treated as "not skipped" on migration.
+pub const ALTER_FILE_METADATA_V8_SQL: &str =
+    "ALTER TABLE file_metadata ADD COLUMN fts5_skipped INTEGER NOT NULL DEFAULT 0";
+
+/// Index for filtering by fts5_skipped (e.g., admin UI "show skipped files only").
+pub const CREATE_FILE_METADATA_FTS5_SKIPPED_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_fts5_skipped \
+     ON file_metadata(fts5_skipped) WHERE fts5_skipped = 1";
+
+/// SQL for search.db v9: add churn tracking to `file_metadata`.
+///
+/// `reindex_count` counts how many times the daemon has (re)written the file's
+/// content (first index seeds 1, each subsequent content change increments).
+/// `first_indexed_at` stamps the initial index time so the admin layer can
+/// derive a churn *rate* (`reindex_count / age`) and flag IDE/build-generated
+/// files that change constantly as ignore candidates. Both are auto-managed by
+/// [`UPSERT_FILE_METADATA_SQL`] — no bind params. NOT NULL/default for the
+/// counter so pre-v9 rows read as 0 (not churny) until next touch.
+pub const ALTER_FILE_METADATA_V9_SQL: &[&str] = &[
+    "ALTER TABLE file_metadata ADD COLUMN reindex_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE file_metadata ADD COLUMN first_indexed_at TEXT",
+];
+
+/// Index for ranking by churn (admin UI "high-churn files" view).
+pub const CREATE_FILE_METADATA_CHURN_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_reindex_count \
+     ON file_metadata(reindex_count)";
 
 /// SQL to delete a file_metadata row when its code_lines are removed.
 pub const DELETE_FILE_METADATA_SQL: &str = "DELETE FROM file_metadata WHERE file_id = ?1";
@@ -453,6 +516,18 @@ mod tests {
         assert!(UPSERT_FILE_METADATA_SQL.contains("base_point"));
         assert!(UPSERT_FILE_METADATA_SQL.contains("relative_path"));
         assert!(UPSERT_FILE_METADATA_SQL.contains("file_hash"));
+        // v9 churn tracking (auto-managed, no bind params)
+        assert!(UPSERT_FILE_METADATA_SQL.contains("reindex_count = reindex_count + 1"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("first_indexed_at"));
+    }
+
+    #[test]
+    fn test_alter_file_metadata_v9_sql_valid() {
+        assert_eq!(ALTER_FILE_METADATA_V9_SQL.len(), 2);
+        assert!(ALTER_FILE_METADATA_V9_SQL[0].contains("reindex_count"));
+        assert!(ALTER_FILE_METADATA_V9_SQL[1].contains("first_indexed_at"));
+        assert!(CREATE_FILE_METADATA_CHURN_INDEX_SQL.contains("IF NOT EXISTS"));
+        assert!(CREATE_FILE_METADATA_CHURN_INDEX_SQL.contains("reindex_count"));
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub mod fts_batch_processor;
 pub mod git;
 pub mod graph;
 pub mod grouping;
+pub mod indexing_progress;
 pub mod idle;
 pub mod idle_history;
 pub mod ignore_mtime;
@@ -101,21 +102,12 @@ pub mod strategies;
 // Grouping aliases (used by cross_project_search, schema versions)
 pub use grouping::affinity as affinity_grouper;
 pub use grouping::dependency as dependency_grouper;
-pub use grouping::git_org as git_org_grouper;
 pub use grouping::schema as project_groups_schema;
-pub use grouping::workspace as workspace_grouper;
-
-// Tagging aliases (unused but retained for safety during refactoring)
-pub use tagging as tier1_tagging;
-pub use tagging as tier2_tagging;
-pub use tagging as tier3_tagging;
 
 // Monitoring aliases (used by priority_manager, queue_operations)
 pub use monitoring as logging;
 pub use monitoring as metrics;
 pub use monitoring as metrics_history;
-pub use monitoring as remote_monitor;
-pub use monitoring as tool_monitor;
 
 // ── Re-exports: core types ──────────────────────────────────────────────
 pub use crate::core_types::{
@@ -177,16 +169,11 @@ pub use crate::monitoring::{
     LoggingErrorMonitor,
     MetricsServer,
     MetricsSnapshot,
-    MonitoringError,
-    MonitoringResult,
     PerformanceMetrics,
     QueueContext,
-    RequeueStats,
     SearchContext,
     // Multi-tenant structured logging
     SessionContext,
-    // Tool monitor
-    ToolMonitor,
     METRICS,
 };
 pub use crate::patterns::{
@@ -206,7 +193,7 @@ pub use crate::queue_health::QueueProcessorHealth;
 pub use crate::queue_operations::{
     QueueError, QueueLoadLevel as QueueOpsLoadLevel, QueueManager, QueueThrottlingSummary,
 };
-pub use crate::queue_types::{MissingTool, ProcessorConfig};
+pub use crate::queue_types::ProcessorConfig;
 pub use crate::schema_version::{SchemaError, SchemaManager, CURRENT_SCHEMA_VERSION};
 pub use crate::search_db::{
     search_db_path_from_state, SearchDbError, SearchDbManager, SearchDbResult, SEARCH_DB_FILENAME,

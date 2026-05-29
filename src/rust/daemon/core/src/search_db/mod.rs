@@ -7,6 +7,7 @@
 //! Schema versioning is independent from `state.db` -- search.db starts at version 1.
 //! WAL mode is enabled for concurrent read access during writes.
 
+pub mod batch_writer;
 mod code_lines;
 mod fts;
 mod migrations;
@@ -25,6 +26,7 @@ mod tests_rebalance_stress;
 #[cfg(test)]
 mod tests_schema;
 
+pub use batch_writer::{Fts5Sender, Fts5WorkItem};
 pub use types::{
     search_db_path_from_state, InsertedLine, RebalanceResult, SearchDbError, SearchDbResult,
     SEARCH_DB_FILENAME, SEARCH_SCHEMA_VERSION,
@@ -48,6 +50,16 @@ use types::SearchDbResult as Result;
 pub struct SearchDbManager {
     pool: SqlitePool,
     path: PathBuf,
+}
+
+/// One row of `file_metadata_stats_by_tenant_branch`.
+#[derive(Debug, Clone)]
+pub struct FileMetadataStats {
+    pub tenant_id: String,
+    pub branch: String,
+    pub file_count: i64,
+    pub total_bytes: i64,
+    pub skipped_count: i64,
 }
 
 impl SearchDbManager {
@@ -117,6 +129,46 @@ impl SearchDbManager {
     pub async fn close(&self) {
         info!("Closing search database: {}", self.path.display());
         self.pool.close().await;
+    }
+
+    /// Aggregate `file_metadata` stats grouped by `(tenant_id, branch)`.
+    ///
+    /// Returns one row per pair with `(file_count, total_bytes, skipped_count)`
+    /// where `skipped_count` is the number of rows with `fts5_skipped = 1`
+    /// (search.db v8). Used by the Prometheus exporter in
+    /// `memexd::background::start_file_metadata_exporter` to populate the
+    /// `indexed_files_*` and `fts5_skipped_files_count` gauges every ~30s.
+    ///
+    /// `NULL` branch is normalized to the literal string `"(none)"` so the
+    /// gauge label is non-empty (Prometheus dislikes empty label values in
+    /// aggregations) and matches the convention used elsewhere in the daemon.
+    pub async fn file_metadata_stats_by_tenant_branch(
+        &self,
+    ) -> Result<Vec<FileMetadataStats>> {
+        let rows: Vec<(String, Option<String>, i64, i64, i64)> = sqlx::query_as(
+            "SELECT \
+                 tenant_id, \
+                 branch, \
+                 COUNT(*) AS file_count, \
+                 COALESCE(SUM(size_bytes), 0) AS total_bytes, \
+                 COALESCE(SUM(CASE WHEN fts5_skipped = 1 THEN 1 ELSE 0 END), 0) AS skipped_count \
+             FROM file_metadata \
+             GROUP BY tenant_id, branch",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(tenant_id, branch, file_count, total_bytes, skipped_count)| {
+                FileMetadataStats {
+                    tenant_id,
+                    branch: branch.unwrap_or_else(|| "(none)".to_string()),
+                    file_count,
+                    total_bytes,
+                    skipped_count,
+                }
+            })
+            .collect())
     }
 
     // ========================================================================

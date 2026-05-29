@@ -310,6 +310,27 @@ pub struct RebalanceIdfResult {
     pub message: String,
 }
 
+/// Result of ReapplyIgnoreRules
+#[derive(Debug)]
+pub struct ReapplyIgnoreRulesResult {
+    pub projects_processed: u32,
+    pub stale_deleted: u32,
+    pub missing_added: u32,
+}
+
+/// Data for ReembedTenant
+#[derive(Debug)]
+pub struct ReembedTenantData {
+    pub tenant_id: String,
+}
+
+/// Result of ReembedTenant
+#[derive(Debug)]
+pub struct ReembedTenantResult {
+    pub files_enqueued: u32,
+    pub message: String,
+}
+
 // ── WriteCommand enum ──────────────────────────────────────────────────
 
 /// Type alias for write results channeled back via oneshot.
@@ -356,6 +377,14 @@ pub enum WriteCommand {
         tx: oneshot::Sender<WriteResult<u32>>,
     },
     ResumeWatchers {
+        tx: oneshot::Sender<WriteResult<u32>>,
+    },
+    PauseWatch {
+        data: WatchIdData,
+        tx: oneshot::Sender<WriteResult<u32>>,
+    },
+    ResumeWatch {
+        data: WatchIdData,
         tx: oneshot::Sender<WriteResult<u32>>,
     },
     EnableWatch {
@@ -439,5 +468,12 @@ pub enum WriteCommand {
     RebalanceIdf {
         data: RebalanceIdfData,
         tx: oneshot::Sender<WriteResult<RebalanceIdfResult>>,
+    },
+    ReapplyIgnoreRules {
+        tx: oneshot::Sender<WriteResult<ReapplyIgnoreRulesResult>>,
+    },
+    ReembedTenant {
+        data: ReembedTenantData,
+        tx: oneshot::Sender<WriteResult<ReembedTenantResult>>,
     },
 }

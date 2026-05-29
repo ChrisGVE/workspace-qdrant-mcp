@@ -18,6 +18,7 @@ import type {
 import { loadConfig } from './config.js';
 import { ProjectDetector } from './utils/project-detector.js';
 import { type Rule, fetchRules, formatRulesForPrompt } from './agent-rules.js';
+import { DEFAULT_CONFIG } from './types/generated-defaults.js';
 
 // Session state for agent lifecycle
 interface AgentSessionState {
@@ -104,7 +105,7 @@ function buildAgentOptions(): ClaudeAgentOptions {
         command: 'node',
         args: [mcpServerPath, '--mcp-only'],
         env: {
-          QDRANT_URL: config.qdrant?.url ?? 'http://localhost:6333',
+          QDRANT_URL: config.qdrant?.url ?? DEFAULT_CONFIG.qdrant.url,
           QDRANT_API_KEY: config.qdrant?.apiKey ?? '',
           WQM_SQLITE_DB_PATH: config.database.path,
         },

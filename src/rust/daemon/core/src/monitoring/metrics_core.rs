@@ -12,7 +12,8 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_indexed_project_metrics, create_queue_metrics,
+    create_dependency_metrics, create_file_metadata_metrics, create_indexed_project_metrics,
+    create_per_tenant_eta_metric, create_per_tenant_indexing_metric, create_queue_metrics,
     create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
     create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
 };
@@ -125,6 +126,16 @@ pub struct DaemonMetrics {
     /// Labels: item_type, status (pending, in_progress, done, failed)
     pub unified_queue_depth: IntGaugeVec,
 
+    /// Per-tenant unified queue depth (indexing-progress observability).
+    /// Labels: tenant_id, status (pending, in_progress, failed; 'done' excluded
+    /// because those rows are deleted by `cleanup_completed_unified_items`).
+    pub unified_queue_depth_by_tenant: IntGaugeVec,
+
+    /// Per-tenant indexing ETA (seconds). Set to `-1` when unknown
+    /// (cold-start / rate=0 / queue already drained).
+    /// Labels: tenant_id
+    pub indexing_eta_seconds_by_tenant: IntGaugeVec,
+
     /// Unified queue processing time in seconds by item_type
     /// Labels: item_type
     pub unified_queue_processing_time_seconds: HistogramVec,
@@ -188,6 +199,23 @@ pub struct DaemonMetrics {
     /// Total Qdrant request errors by op and error_type
     /// Labels: op, error_type
     pub qdrant_request_errors_total: IntCounterVec,
+
+    // search.db / file_metadata observability (Task 3 of FTS5 size-guard series).
+    /// Number of files in `file_metadata` per (tenant_id, branch).
+    pub indexed_files_count: IntGaugeVec,
+
+    /// Sum of `file_metadata.size_bytes` per (tenant_id, branch).
+    pub indexed_files_total_bytes: IntGaugeVec,
+
+    /// Current number of files with `fts5_skipped = 1` per (tenant_id, branch).
+    /// Refreshed alongside `indexed_files_count` by the search.db exporter.
+    pub fts5_skipped_files_count: IntGaugeVec,
+
+    /// Cumulative count of `WQM_FTS5_HARD_CAP` firings per (tenant_id, branch).
+    /// Incremented inline by [`enforce_fts5_hard_cap_skip`] — distinct from
+    /// `fts5_skipped_files_count` (which is a current snapshot and can go
+    /// down when files shrink below the cap and get re-ingested).
+    pub fts5_skipped_files_total: IntCounterVec,
 }
 
 /// Intermediate struct holding all created metrics before registration.
@@ -215,6 +243,8 @@ struct CreatedMetrics {
     watch_recovery_time_seconds: HistogramVec,
     watch_events_throttled_total: IntCounterVec,
     unified_queue_depth: IntGaugeVec,
+    unified_queue_depth_by_tenant: IntGaugeVec,
+    indexing_eta_seconds_by_tenant: IntGaugeVec,
     unified_queue_processing_time_seconds: HistogramVec,
     unified_queue_items_total: IntCounterVec,
     unified_queue_enqueues_total: IntCounterVec,
@@ -231,6 +261,10 @@ struct CreatedMetrics {
     sqlite_query_duration_seconds: HistogramVec,
     qdrant_request_duration_seconds: HistogramVec,
     qdrant_request_errors_total: IntCounterVec,
+    indexed_files_count: IntGaugeVec,
+    indexed_files_total_bytes: IntGaugeVec,
+    fts5_skipped_files_count: IntGaugeVec,
+    fts5_skipped_files_total: IntCounterVec,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -265,6 +299,8 @@ fn create_all_metrics() -> CreatedMetrics {
         unified_queue_stale_items,
         unified_queue_retries_total,
     ) = create_unified_queue_metrics();
+    let unified_queue_depth_by_tenant = create_per_tenant_indexing_metric();
+    let indexing_eta_seconds_by_tenant = create_per_tenant_eta_metric();
     let (
         watcher_events_total,
         watcher_coalesced_total,
@@ -284,6 +320,13 @@ fn create_all_metrics() -> CreatedMetrics {
         "Age in seconds of the oldest pending queue item",
     )
     .expect("metric can be created");
+
+    let (
+        indexed_files_count,
+        indexed_files_total_bytes,
+        fts5_skipped_files_count,
+        fts5_skipped_files_total,
+    ) = create_file_metadata_metrics();
 
     CreatedMetrics {
         active_sessions,
@@ -309,6 +352,8 @@ fn create_all_metrics() -> CreatedMetrics {
         watch_recovery_time_seconds,
         watch_events_throttled_total,
         unified_queue_depth,
+        unified_queue_depth_by_tenant,
+        indexing_eta_seconds_by_tenant,
         unified_queue_processing_time_seconds,
         unified_queue_items_total,
         unified_queue_enqueues_total,
@@ -325,6 +370,10 @@ fn create_all_metrics() -> CreatedMetrics {
         sqlite_query_duration_seconds,
         qdrant_request_duration_seconds,
         qdrant_request_errors_total,
+        indexed_files_count,
+        indexed_files_total_bytes,
+        fts5_skipped_files_count,
+        fts5_skipped_files_total,
     }
 }
 
@@ -356,6 +405,8 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.watch_recovery_time_seconds.clone()),
             Box::new(m.watch_events_throttled_total.clone()),
             Box::new(m.unified_queue_depth.clone()),
+            Box::new(m.unified_queue_depth_by_tenant.clone()),
+            Box::new(m.indexing_eta_seconds_by_tenant.clone()),
             Box::new(m.unified_queue_processing_time_seconds.clone()),
             Box::new(m.unified_queue_items_total.clone()),
             Box::new(m.unified_queue_enqueues_total.clone()),
@@ -372,6 +423,10 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.sqlite_query_duration_seconds.clone()),
             Box::new(m.qdrant_request_duration_seconds.clone()),
             Box::new(m.qdrant_request_errors_total.clone()),
+            Box::new(m.indexed_files_count.clone()),
+            Box::new(m.indexed_files_total_bytes.clone()),
+            Box::new(m.fts5_skipped_files_count.clone()),
+            Box::new(m.fts5_skipped_files_total.clone()),
         ],
     );
 }
@@ -408,6 +463,8 @@ impl DaemonMetrics {
             watch_recovery_time_seconds: m.watch_recovery_time_seconds,
             watch_events_throttled_total: m.watch_events_throttled_total,
             unified_queue_depth: m.unified_queue_depth,
+            unified_queue_depth_by_tenant: m.unified_queue_depth_by_tenant,
+            indexing_eta_seconds_by_tenant: m.indexing_eta_seconds_by_tenant,
             unified_queue_processing_time_seconds: m.unified_queue_processing_time_seconds,
             unified_queue_items_total: m.unified_queue_items_total,
             unified_queue_enqueues_total: m.unified_queue_enqueues_total,
@@ -424,7 +481,39 @@ impl DaemonMetrics {
             sqlite_query_duration_seconds: m.sqlite_query_duration_seconds,
             qdrant_request_duration_seconds: m.qdrant_request_duration_seconds,
             qdrant_request_errors_total: m.qdrant_request_errors_total,
+            indexed_files_count: m.indexed_files_count,
+            indexed_files_total_bytes: m.indexed_files_total_bytes,
+            fts5_skipped_files_count: m.fts5_skipped_files_count,
+            fts5_skipped_files_total: m.fts5_skipped_files_total,
         }
+    }
+
+    /// Snapshot the search.db `file_metadata` stats for one (tenant, branch).
+    /// Called every ~30s by the search.db exporter in `memexd::background`.
+    pub fn set_file_metadata_stats(
+        &self,
+        tenant_id: &str,
+        branch: &str,
+        file_count: i64,
+        total_bytes: i64,
+        skipped_count: i64,
+    ) {
+        self.indexed_files_count
+            .with_label_values(&[tenant_id, branch])
+            .set(file_count);
+        self.indexed_files_total_bytes
+            .with_label_values(&[tenant_id, branch])
+            .set(total_bytes);
+        self.fts5_skipped_files_count
+            .with_label_values(&[tenant_id, branch])
+            .set(skipped_count);
+    }
+
+    /// Increment the FTS5 hard-cap counter for a single skip event.
+    pub fn inc_fts5_skipped(&self, tenant_id: &str, branch: &str) {
+        self.fts5_skipped_files_total
+            .with_label_values(&[tenant_id, branch])
+            .inc();
     }
 
     /// Record an embedding batch: duration and batch size by model.

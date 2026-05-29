@@ -3,43 +3,6 @@
 //! Types used across multiple queue-related modules.
 
 use chrono::Duration as ChronoDuration;
-use serde::{Deserialize, Serialize};
-
-/// Enumeration of tools that might be missing during processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MissingTool {
-    /// LSP server not available for the specified language
-    LspServer { language: String },
-    /// Tree-sitter parser not available for the specified language
-    TreeSitterParser { language: String },
-    /// Embedding model not loaded or unavailable
-    EmbeddingModel { reason: String },
-    /// Qdrant connection unavailable
-    QdrantConnection { reason: String },
-}
-
-impl std::fmt::Display for MissingTool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MissingTool::LspServer { language } => {
-                write!(f, "LSP server unavailable for language: {}", language)
-            }
-            MissingTool::TreeSitterParser { language } => {
-                write!(
-                    f,
-                    "Tree-sitter parser unavailable for language: {}",
-                    language
-                )
-            }
-            MissingTool::EmbeddingModel { reason } => {
-                write!(f, "Embedding model unavailable: {}", reason)
-            }
-            MissingTool::QdrantConnection { reason } => {
-                write!(f, "Qdrant connection unavailable: {}", reason)
-            }
-        }
-    }
-}
 
 /// Configuration for the queue processor
 #[derive(Debug, Clone)]

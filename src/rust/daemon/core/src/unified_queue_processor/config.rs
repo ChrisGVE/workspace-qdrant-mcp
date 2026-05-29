@@ -76,12 +76,34 @@ pub struct UnifiedProcessorConfig {
     pub high_priority_batch: u64,
     /// Batch size when processing low-priority items (priority ASC / anti-starvation, default: 3)
     pub low_priority_batch: u64,
+    /// Age (seconds) at which a pending item gets +1 in the dequeue age-promotion CASE.
+    /// Prevents low-op-weight items (e.g. folder/scan) from being starved by tenants
+    /// with larger queues of high-weight ops. Default: 300 (5 minutes).
+    pub age_promotion_warning_seconds: u64,
+    /// Age (seconds) at which a pending item gets +2 in the dequeue age-promotion CASE.
+    /// Items past this threshold outrank everything except delete/reset and tenant/add.
+    /// Default: 900 (15 minutes).
+    pub age_promotion_critical_seconds: u64,
 
     // Resource limits (Task 504)
     /// Delay in milliseconds between processing items
     pub inter_item_delay_ms: u64,
     /// Maximum concurrent embedding operations
     pub max_concurrent_embeddings: usize,
+    /// Maximum number of items processed concurrently within a single batch.
+    ///
+    /// When set to `1` (default), behavior is byte-identical to the legacy
+    /// sequential loop — items are dispatched one at a time, in fairness order,
+    /// with the inter-item delay applied between completions. With values > 1,
+    /// items are dispatched via `FuturesUnordered` and the per-item dispatch
+    /// semaphore caps concurrency. The embedding semaphore
+    /// (`max_concurrent_embeddings`) is independent and continues to gate
+    /// chunk-level parallelism within an item.
+    ///
+    /// Recommended bake target: `4`. Larger values increase SQLite write
+    /// contention; the `max_connections: 10` / `busy_timeout: 30s` pool
+    /// settings comfortably absorb `4` writers.
+    pub max_concurrent_items: usize,
     /// Pause processing when available memory falls below (100 - this)%.
     /// e.g. 70 means pause when less than 30% of system memory is available.
     pub max_memory_percent: u8,
@@ -128,9 +150,17 @@ impl Default for UnifiedProcessorConfig {
             fairness_enabled: true,
             high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
             low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
+            // Age-based promotion in fairness dequeue (Unit 3 of audit issue #8):
+            // prevents tenants whose pending items have low op-weight from being
+            // starved indefinitely under multi-tenant fairness alternation.
+            age_promotion_warning_seconds: 300, // 5 minutes
+            age_promotion_critical_seconds: 900, // 15 minutes
             // Resource limits defaults (Task 504)
             inter_item_delay_ms: 50,
             max_concurrent_embeddings: 2,
+            // Default 1 = byte-identical to legacy sequential loop. Raise via
+            // WQM_QUEUE_MAX_CONCURRENT_ITEMS (recommended bake: 4).
+            max_concurrent_items: 1,
             max_memory_percent: 70,
             // Warmup throttling defaults (Task 577)
             warmup_window_secs: 30,

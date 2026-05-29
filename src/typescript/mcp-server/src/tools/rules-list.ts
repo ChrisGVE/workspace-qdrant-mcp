@@ -111,7 +111,9 @@ export async function listRules(
 
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false);
+    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
+      fallbackToSoleProject: true,
+    });
     resolvedProjectId = projectInfo?.projectId;
   }
 

@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use wqm_common::constants::COLLECTION_LIBRARIES;
+
 use super::types::FileRoute;
 
 /// Extensions for binary/reference formats that route to the `libraries` collection
@@ -218,7 +220,7 @@ impl AllowedExtensions {
         // Prepend dot for lookup
         let dotted = format!(".{}", ext);
 
-        if collection == "libraries" {
+        if collection == COLLECTION_LIBRARIES {
             self.library_extensions.contains(&dotted)
         } else {
             self.project_extensions.contains(&dotted)
@@ -262,7 +264,7 @@ impl AllowedExtensions {
 
         let dotted = format!(".{}", ext);
 
-        if watch_collection == "libraries" {
+        if watch_collection == COLLECTION_LIBRARIES {
             // Library watch folder: accept any library-allowed extension
             if self.library_extensions.contains(&dotted) {
                 FileRoute::LibraryCollection {

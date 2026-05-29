@@ -76,6 +76,28 @@ If the MCP container is up and the token matches, the log line shows the
 daemon's `RegisterProject` response, including the resolved `project_id`,
 `watch_path`, and `is_worktree` flag.
 
+## Observability
+
+Every `sync_current_branch` call the MCP server services emits Prometheus
+metrics (scraped from `mcp:9092/metrics`):
+
+| Metric | Type | Labels | Notes |
+|--------|------|--------|-------|
+| `wqm_git_hook_invocations_total` | counter | `hook`, `result`, `is_worktree` | `result` is `success` / `error` / `bad_request` |
+| `wqm_git_hook_duration_seconds`  | histogram | `hook`, `result` | Server-side; excludes the client's session init |
+
+These power three panels on the **WQM — System Overview** Grafana dashboard
+(`docker/grafana/dashboards/system-overview.json`):
+
+- *Git Hook Activity* — stacked rate by `hook` × `result`, red for `error`, orange for `bad_request`.
+- *Git Hook Latency (P50 / P95 / P99)* — per-hook tail latency, useful for spotting LSP-startup pauses.
+- *Git Hook Error Ratio* — single-stat 5-minute error share, green ≤5% / yellow / red ≥20%.
+
+If the panels stay flat at 0 after running `git checkout -b test-wqm-sync && git checkout -`,
+either the hook isn't reaching the MCP server (check `WQM_MCP_URL`/`WQM_MCP_TOKEN` and
+the host integration card in the admin UI) or Prometheus isn't scraping the MCP target
+(check the *MCP Target Health* stat on the same dashboard).
+
 ## How it differs from the PowerShell hooks
 
 | Aspect | PowerShell hook | This (POSIX) |
@@ -98,7 +120,7 @@ for manual invocation too):
 
 - `WQM_MCP_URL` — MCP endpoint (default `http://localhost:6335/mcp`)
 - `WQM_MCP_TOKEN` — bearer token (falls back to `MCP_HTTP_TOKEN`)
-- `WQM_HOOK_TIMEOUT` — curl `--max-time` seconds (default `5`)
+- `WQM_HOOK_TIMEOUT` — curl `--max-time` seconds (default `35`)
 - `WQM_HOOK_LOG` — append-log path (silent if unset)
 - `WQM_HOOK_NAME` — label recorded in the response (default `manual` or `$1`)
 

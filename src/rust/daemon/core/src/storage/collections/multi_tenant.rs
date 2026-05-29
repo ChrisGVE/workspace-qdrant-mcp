@@ -21,6 +21,42 @@ use super::super::client::StorageClient;
 use super::super::config::MultiTenantConfig;
 use super::super::types::{MultiTenantInitResult, StorageError};
 
+// ── Payload-index field manifests ───────────────────────────────────────────
+//
+// Single source of truth for which keyword-typed payload fields each canonical
+// collection has indexed at startup. The init_*_collection helpers iterate
+// over these and call create_payload_index for each entry.
+//
+// **Why constants instead of inline lists**: regression tests in `mod tests`
+// assert that every field used in a production filter (e.g. the file_path +
+// tenant_id pair in `storage/points/delete.rs::delete_points_by_filter`) is
+// present here. Without these constants the assertion would need to inspect
+// private function bodies, which is fragile. Changing a field name in either
+// place forces a synchronous update in the test — the bug we just fixed
+// (project_id indexed but tenant_id/file_path missing, causing 2.3s/delete
+// because Qdrant fell back to full-scan) wouldn't have shipped.
+
+/// Payload-index fields for the `projects` collection.
+///
+/// MUST include every keyword field used in a filter expression against
+/// this collection. Adding a new filter field without updating this list
+/// is a performance bug; see `multi_tenant_indexes` test below.
+pub(crate) const PROJECTS_PAYLOAD_INDEX_FIELDS: &[&str] =
+    &["tenant_id", "file_path", "branch", "project_id"];
+
+/// Payload-index fields for the `libraries` collection.
+pub(crate) const LIBRARIES_PAYLOAD_INDEX_FIELDS: &[&str] =
+    &["tenant_id", "library_name", "file_path", "branch"];
+
+/// Payload-index fields for the `rules` collection.
+pub(crate) const RULES_PAYLOAD_INDEX_FIELDS: &[&str] = &["tenant_id"];
+
+/// Payload-index fields for the `scratchpad` collection.
+pub(crate) const SCRATCHPAD_PAYLOAD_INDEX_FIELDS: &[&str] = &["tenant_id"];
+
+/// Payload-index fields for the `images` collection.
+pub(crate) const IMAGES_PAYLOAD_INDEX_FIELDS: &[&str] = &["tenant_id", "source_document_id"];
+
 impl StorageClient {
     /// Create a multi-tenant collection with optimized HNSW configuration
     ///
@@ -190,6 +226,22 @@ impl StorageClient {
         Ok(())
     }
 
+    /// Create a payload index, logging a warning on failure rather than
+    /// propagating the error.
+    ///
+    /// Used by the init_* helpers below where each canonical collection needs
+    /// several payload indexes. Qdrant returns success when the index already
+    /// exists, so this helper is safe to call on every daemon startup —
+    /// existing indexes are no-ops, missing ones get backfilled.
+    async fn try_create_payload_index(&self, collection: &str, field: &str) {
+        if let Err(e) = self.create_payload_index(collection, field).await {
+            warn!(
+                "Could not create payload index on {}.{} (may already exist): {}",
+                collection, field, e
+            );
+        }
+    }
+
     /// Initialize all multi-tenant collections with proper configuration
     ///
     /// Creates the unified collections: projects, libraries, rules, scratchpad,
@@ -229,19 +281,19 @@ impl StorageClient {
                 e
             })?;
         result.projects_created = true;
-        match self
-            .create_payload_index(COLLECTION_PROJECTS, "project_id")
-            .await
-        {
-            Ok(()) => result.projects_indexed = true,
-            Err(e) => {
-                warn!(
-                    "Could not create project_id index (may already exist): {}",
-                    e
-                );
-                result.projects_indexed = true;
-            }
+
+        // Payload indexes for the fields actually used in filter queries.
+        // Without these, every delete_by_filter / scoped search degrades to
+        // a full collection scan (~2s per call on a 40k-point collection),
+        // which starves the queue processor and blocks throughput.
+        //
+        // Field list lives in PROJECTS_PAYLOAD_INDEX_FIELDS so regression
+        // tests can assert the production filter fields are present.
+        for field in PROJECTS_PAYLOAD_INDEX_FIELDS {
+            self.try_create_payload_index(COLLECTION_PROJECTS, field)
+                .await;
         }
+        result.projects_indexed = true;
         Ok(())
     }
 
@@ -260,19 +312,12 @@ impl StorageClient {
                 e
             })?;
         result.libraries_created = true;
-        match self
-            .create_payload_index(COLLECTION_LIBRARIES, "library_name")
-            .await
-        {
-            Ok(()) => result.libraries_indexed = true,
-            Err(e) => {
-                warn!(
-                    "Could not create library_name index (may already exist): {}",
-                    e
-                );
-                result.libraries_indexed = true;
-            }
+        // Same rationale as init_projects_collection — see comments there.
+        for field in LIBRARIES_PAYLOAD_INDEX_FIELDS {
+            self.try_create_payload_index(COLLECTION_LIBRARIES, field)
+                .await;
         }
+        result.libraries_indexed = true;
         Ok(())
     }
 
@@ -288,6 +333,11 @@ impl StorageClient {
                 e
             })?;
         result.rules_created = true;
+        // Rules are tenant-scoped; without the index, listing rules for a
+        // tenant degrades to a full scan.
+        for field in RULES_PAYLOAD_INDEX_FIELDS {
+            self.try_create_payload_index(COLLECTION_RULES, field).await;
+        }
         Ok(())
     }
 
@@ -306,14 +356,9 @@ impl StorageClient {
                 e
             })?;
         result.scratchpad_created = true;
-        if let Err(e) = self
-            .create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id")
-            .await
-        {
-            warn!(
-                "Could not create tenant_id index on scratchpad (may already exist): {}",
-                e
-            );
+        for field in SCRATCHPAD_PAYLOAD_INDEX_FIELDS {
+            self.try_create_payload_index(COLLECTION_SCRATCHPAD, field)
+                .await;
         }
         Ok(())
     }
@@ -328,24 +373,116 @@ impl StorageClient {
             e
         })?;
         result.images_created = true;
-        if let Err(e) = self
-            .create_payload_index(COLLECTION_IMAGES, "tenant_id")
-            .await
-        {
-            warn!(
-                "Could not create tenant_id index on images (may already exist): {}",
-                e
-            );
-        }
-        if let Err(e) = self
-            .create_payload_index(COLLECTION_IMAGES, "source_document_id")
-            .await
-        {
-            warn!(
-                "Could not create source_document_id index on images (may already exist): {}",
-                e
-            );
+        for field in IMAGES_PAYLOAD_INDEX_FIELDS {
+            self.try_create_payload_index(COLLECTION_IMAGES, field)
+                .await;
         }
         Ok(())
+    }
+}
+
+// ── Regression tests ────────────────────────────────────────────────────────
+//
+// These are pure unit tests on the payload-index manifest constants — no
+// Qdrant, no async runtime needed. The integration test that hits a live
+// Qdrant lives in tests/qdrant_payload_index_test.rs and is gated on
+// connection availability.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every keyword field used in a production filter MUST appear in the
+    /// matching collection's payload-index manifest, or Qdrant falls back to
+    /// a full-collection scan (the bug fixed in this commit: project_id was
+    /// indexed but tenant_id+file_path — used by delete_points_by_filter —
+    /// were not, costing ~2.3s per delete on a 40k-point collection).
+    ///
+    /// To keep this test honest: if you add a new payload filter in
+    /// `storage/points/*.rs`, update both the manifest above AND this list.
+    #[test]
+    fn projects_indexes_cover_production_filter_fields() {
+        // From storage/points/delete.rs::delete_points_by_filter
+        let required = ["tenant_id", "file_path"];
+        for field in required {
+            assert!(
+                PROJECTS_PAYLOAD_INDEX_FIELDS.contains(&field),
+                "projects.{field} is used by a production filter but is not in \
+                 PROJECTS_PAYLOAD_INDEX_FIELDS — delete_by_filter / scoped search \
+                 will degrade to full-scan. Add it to the manifest.",
+            );
+        }
+    }
+
+    #[test]
+    fn libraries_indexes_cover_production_filter_fields() {
+        // Libraries collection uses the same delete_points_by_filter path.
+        let required = ["tenant_id", "file_path"];
+        for field in required {
+            assert!(
+                LIBRARIES_PAYLOAD_INDEX_FIELDS.contains(&field),
+                "libraries.{field} missing from LIBRARIES_PAYLOAD_INDEX_FIELDS",
+            );
+        }
+    }
+
+    #[test]
+    fn scratchpad_indexes_cover_tenant_isolation() {
+        assert!(
+            SCRATCHPAD_PAYLOAD_INDEX_FIELDS.contains(&"tenant_id"),
+            "scratchpad needs tenant_id indexed for per-tenant scoping",
+        );
+    }
+
+    #[test]
+    fn rules_indexes_cover_tenant_isolation() {
+        assert!(
+            RULES_PAYLOAD_INDEX_FIELDS.contains(&"tenant_id"),
+            "rules needs tenant_id indexed for per-tenant scoping",
+        );
+    }
+
+    #[test]
+    fn images_indexes_cover_tenant_isolation() {
+        assert!(
+            IMAGES_PAYLOAD_INDEX_FIELDS.contains(&"tenant_id"),
+            "images needs tenant_id indexed for per-tenant scoping",
+        );
+    }
+
+    /// Sanity: no manifest is empty. An empty manifest would silently disable
+    /// the index-creation loop — much harder to spot in review than a missing
+    /// field.
+    #[test]
+    fn no_payload_index_manifest_is_empty() {
+        assert!(!PROJECTS_PAYLOAD_INDEX_FIELDS.is_empty());
+        assert!(!LIBRARIES_PAYLOAD_INDEX_FIELDS.is_empty());
+        assert!(!RULES_PAYLOAD_INDEX_FIELDS.is_empty());
+        assert!(!SCRATCHPAD_PAYLOAD_INDEX_FIELDS.is_empty());
+        assert!(!IMAGES_PAYLOAD_INDEX_FIELDS.is_empty());
+    }
+
+    /// Manifests must not contain duplicates — call_create_payload_index on a
+    /// duplicate is harmless (idempotent) but wastes a roundtrip and signals
+    /// a copy-paste mistake.
+    #[test]
+    fn no_payload_index_manifest_has_duplicates() {
+        for (name, fields) in [
+            ("projects", PROJECTS_PAYLOAD_INDEX_FIELDS),
+            ("libraries", LIBRARIES_PAYLOAD_INDEX_FIELDS),
+            ("rules", RULES_PAYLOAD_INDEX_FIELDS),
+            ("scratchpad", SCRATCHPAD_PAYLOAD_INDEX_FIELDS),
+            ("images", IMAGES_PAYLOAD_INDEX_FIELDS),
+        ] {
+            let mut sorted: Vec<&&str> = fields.iter().collect();
+            sorted.sort();
+            let original_len = sorted.len();
+            sorted.dedup();
+            assert_eq!(
+                sorted.len(),
+                original_len,
+                "{name} payload-index manifest has duplicate fields: {fields:?}",
+            );
+        }
     }
 }

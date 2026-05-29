@@ -106,6 +106,18 @@ Every watch folder the daemon knows about, regardless of activity
 state:
 
 - **Project** — path the daemon is watching.
+- **Indexing** — per-project progress bar plus `<in_flight> in flight ·
+  <done>/<total> · <percent>%`, and a third line with `ETA ~<duration>`
+  while the queue is draining (e.g. `ETA ~3m`, `ETA ~2h 14m`). When the
+  daemon can't estimate ETA yet — fewer than 60 s of activity or zero
+  throughput with pending > 0 — the line reads `ETA — warming up`. The
+  bar pulses while items are pending or in progress, turns solid green
+  when the queue is drained, and goes amber when `failed > 0`. When the
+  daemon doesn't report at all (for example right after registration
+  before the first reconcile), the cell shows `—` instead of guessing.
+  The snapshot route enriches every registered project with this data
+  in parallel via `GetProjectStatus`; per-project failures degrade
+  gracefully and don't blank the whole row.
 - **Tenant ID** — the project's `tenant_id` (e.g. `local_5288aa13ad6c`
   for path-derived or a 12-char hex for remote-derived). Stable
   across worktrees of the same repo when a remote is configured.

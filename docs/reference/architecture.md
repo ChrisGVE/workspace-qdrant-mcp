@@ -183,5 +183,5 @@ Queue priority is computed at dequeue time:
 - [docs/ARCHITECTURE.md](../ARCHITECTURE.md) — visual Mermaid diagrams of all subsystems
 - [docs/specs/](../specs/) — modular specification (authoritative)
 - [docs/adr/](../adr/) — architecture decision records
-- [docs/API.md](../API.md) — complete MCP tool reference
-- [docs/CLI.md](../CLI.md) — wqm CLI command reference
+- [docs/specs/08-api-reference.md](../specs/08-api-reference.md) — MCP tools + gRPC services reference
+- [docs/reference/cli.md](cli.md) — wqm CLI command reference

@@ -419,9 +419,13 @@ async fn remove_item_not_found() {
 async fn clean_queue_by_collection_deletes_matching() {
     let (pool, handle) = setup_test_db().await;
 
+    use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD};
     let now = wqm_common::timestamps::now_utc();
     // Insert items in different collections
-    for (i, col) in ["projects", "libraries", "scratchpad"].iter().enumerate() {
+    for (i, col) in [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_SCRATCHPAD]
+        .iter()
+        .enumerate()
+    {
         sqlx::query(
             "INSERT INTO unified_queue \
              (queue_id, idempotency_key, item_type, op, tenant_id, collection, \

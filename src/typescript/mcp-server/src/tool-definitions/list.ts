@@ -50,6 +50,11 @@ export const listToolDefinition = {
         type: 'string',
         description: 'Specific project ID (default: current project)',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (it cannot otherwise observe your location). Ignored when projectId is provided.',
+      },
       component: {
         type: 'string',
         description:

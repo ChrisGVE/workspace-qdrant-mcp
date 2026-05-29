@@ -7,7 +7,7 @@
 
 use tonic::Status;
 use uuid::Uuid;
-use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 
 /// Validate collection name format.
 /// Rules: 3-255 chars, alphanumeric + underscore/hyphen, no leading numbers.
@@ -140,9 +140,9 @@ pub(crate) fn determine_collection_routing(
     }
 
     // Rules collection uses single canonical name with tenant isolation via metadata
-    if basename == "rules" || basename == "memory" || basename == "agent_memory" {
+    if basename == COLLECTION_RULES || basename == "memory" || basename == "agent_memory" {
         return Ok((
-            "rules".to_string(),
+            COLLECTION_RULES.to_string(),
             "project_id".to_string(),
             tenant_id.to_string(),
         ));

@@ -5,6 +5,8 @@
 //! - **libraries**: Pure prose, more keywords, detailed hierarchies
 //! - **scratchpad**: Higher diversity, lower stability, lighter extraction
 
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD};
+
 use super::basket_assignment::BasketConfig;
 use super::keyword_selector::KeywordSelectionConfig;
 use super::lexical_candidates::LexicalConfig;
@@ -19,9 +21,9 @@ use super::tag_selector::TagSelectionConfig;
 /// Falls back to default config for unknown collections.
 pub fn config_for_collection(collection: &str) -> PipelineConfig {
     match collection {
-        "projects" => projects_config(),
-        "libraries" => libraries_config(),
-        "scratchpad" => scratchpad_config(),
+        COLLECTION_PROJECTS => projects_config(),
+        COLLECTION_LIBRARIES => libraries_config(),
+        COLLECTION_SCRATCHPAD => scratchpad_config(),
         _ => PipelineConfig::default(),
     }
 }

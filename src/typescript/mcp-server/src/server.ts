@@ -15,6 +15,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 
 import type { ServerConfig } from './types/index.js';
 import { logInfo, logError, logDebug } from './utils/logger.js';
+import { resolveBodyCwdOverride, runWithRequestContext } from './utils/request-context.js';
 import {
   SERVER_NAME,
   SERVER_VERSION,
@@ -104,6 +105,7 @@ export class WorkspaceQdrantMcpServer {
           'Start of session: call `rules` with action="list" to load behavioral preferences before any non-trivial work.',
           'Discovery — call `search` FIRST for any question about this codebase, project structure, or library docs; do not answer from training data. Defaults: scope="project", limit=10. Widen to scope="all" or includeLibraries=true only after a project-scoped query returns nothing useful. Use mode="semantic" for concept queries, mode="keyword" or exact=true for known identifiers.',
           'Exact lookups — use `grep` for regex / exact substring across the project (faster and cheaper than `search` with exact=true for known strings). Use `list` (start with format="summary") to understand layout before drilling in. Use `retrieve` when you already know the document ID/metadata — do not re-search.',
+          'Project context — `search`, `grep`, `list`, `retrieve`, and `rules` auto-detect the current project from your working directory. Over HTTP the server cannot observe it, so pass your absolute working directory in the `cwd` argument on each such call (unless you already pass an explicit `projectId`). Omitting both can yield "Could not detect project".',
           'Writes — `store` writes to `scratchpad` (notes, snippets) or `libraries` (only when the user explicitly asks). The server does NOT write project code to the `projects` collection — that is daemon-owned via file watching. To register/activate a project, use `store` with type="project".',
           'Embeddings — `embedding` is a low-level helper; prefer `search` unless you specifically need a raw vector.',
           'Branches & worktrees — project registration is automatic on session start; the server tracks the current branch via heartbeat. Use `workspace_index` for observability (read-only actions: list_projects, project_status, status_all, list_branches, agent_branch_status, observe_*, incremental_check*). `search` defaults to the current branch; pass `branch="<name>"` or `branch="*"` to widen explicitly — do not widen silently. When working on an agent/feature branch (especially in a parallel worktree), register it via `start_agent_branch` with `branchName`, `purpose`, `createdBy`, and `useWorktree=true` if applicable; close out with `finish_agent_branch` (merged) or `abandon_agent_branch` (discarded). Mutating actions require DOUBLE opt-in (allowMutation:true AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1) and explicit user confirmation, because they affect persistent shared state. `sync_current_branch` is for git hooks only — agents must not call it. Multi-clone: tenant_ids are stable per clone; if results come from the wrong clone, pass `projectId` explicitly.',
@@ -143,6 +145,22 @@ export class WorkspaceQdrantMcpServer {
     components: ServerComponents,
     sessionState: SessionState
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+    // Body-level host-CWD fallback. The HTTP transport binds the host cwd from
+    // the `x-mcp-host-cwd` header, which always wins. But a client may be
+    // unable to send that header per session (e.g. Claude Code over HTTP has no
+    // dynamic header for the cwd). In that case an agent can pass its working
+    // directory in the tool's `cwd` argument; bind it into the request context
+    // so getEffectiveCwd() — and thus project auto-detection — picks it up
+    // exactly as if it were the header. Precedence stays:
+    //   header > body `cwd` > WQM_DEFAULT_HOST_CWD > process.cwd().
+    const override = resolveBodyCwdOverride(
+      typeof args?.['cwd'] === 'string' ? (args['cwd'] as string) : undefined
+    );
+    if (override) {
+      return runWithRequestContext({ hostCwd: override }, () =>
+        dispatchToolCall(toolName, args, components, sessionState)
+      );
+    }
     return dispatchToolCall(toolName, args, components, sessionState);
   }
 
@@ -218,6 +236,8 @@ export class WorkspaceQdrantMcpServer {
           {
             daemonClient: this.components.daemonClient,
             stateManager: this.components.stateManager,
+            searchDbReader: this.components.searchDbReader,
+            rulesTool: this.components.rulesTool,
             authConfig: this.authConfig,
           }
         );

@@ -45,9 +45,40 @@ impl<'a> FtsBatchProcessor<'a> {
         self.pending.len()
     }
 
-    /// Determine processing mode based on queue depth.
+    /// Determine processing mode based on queue depth and pending change sizes.
+    ///
+    /// Returns `true` (batch mode) only when both:
+    /// 1. `queue_depth > burst_threshold` — there's enough work to amortize
+    ///    the batched transaction.
+    /// 2. No pending change exceeds [`single_mode_line_threshold`] — batch
+    ///    mode's Phase 1 loads every diff into RAM before opening the
+    ///    transaction, so one giant file in the same window as small ones
+    ///    can spike RSS into the multi-GB range and trip the queue
+    ///    processor's memory-pressure pause-loop.
     pub fn should_use_batch_mode(&self, queue_depth: usize) -> bool {
-        queue_depth > self.config.burst_threshold
+        self.should_use_batch_mode_with(queue_depth, single_mode_line_threshold())
+    }
+
+    /// Same decision as [`should_use_batch_mode`], with the line threshold
+    /// passed in explicitly. Lets tests cover the size-guard branch without
+    /// fighting the env-cached OnceLock in [`single_mode_line_threshold`].
+    pub(super) fn should_use_batch_mode_with(
+        &self,
+        queue_depth: usize,
+        line_threshold: usize,
+    ) -> bool {
+        if queue_depth <= self.config.burst_threshold {
+            return false;
+        }
+        if line_threshold > 0
+            && self
+                .pending
+                .iter()
+                .any(|c| line_count_estimate(&c.new_content) > line_threshold)
+        {
+            return false;
+        }
+        true
     }
 
     /// Flush all pending changes, choosing single-file or batch mode.
@@ -221,7 +252,9 @@ impl<'a> FtsBatchProcessor<'a> {
         // Insert all new lines with standard gaps and 1-based line numbers
         insert_new_lines(&mut tx, file_id, &lines).await?;
 
-        // Upsert file_metadata
+        // Upsert file_metadata. v7 added size_bytes (8th param); v8 added
+        // fts5_skipped (9th). full_rewrite always writes fts5_skipped=0 —
+        // see upsert_file_metadata.
         sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
             .bind(file_id)
             .bind(tenant_id)
@@ -230,6 +263,8 @@ impl<'a> FtsBatchProcessor<'a> {
             .bind(base_point)
             .bind(relative_path)
             .bind(file_hash)
+            .bind(content.len() as i64) // size_bytes
+            .bind(0_i64) // fts5_skipped
             .execute(&mut *tx)
             .await?;
 
@@ -352,6 +387,10 @@ impl<'a> FtsBatchProcessor<'a> {
 }
 
 /// Upsert file_metadata for search scoping within a transaction.
+///
+/// Always writes `fts5_skipped = 0` because reaching this function means
+/// the file went through the normal batch/diff path — the hard cap fork in
+/// [`enforce_fts5_hard_cap_skip`] is the only place that ever writes 1.
 async fn upsert_file_metadata(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     change: &FileChange,
@@ -364,6 +403,8 @@ async fn upsert_file_metadata(
         .bind(&change.base_point)
         .bind(&change.relative_path)
         .bind(&change.file_hash)
+        .bind(change.size_bytes)
+        .bind(0_i64) // fts5_skipped: not skipped — we did the FTS5 work
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -442,5 +483,126 @@ async fn insert_new_lines(
             .execute(&mut **tx)
             .await?;
     }
+    Ok(())
+}
+
+/// Threshold (in lines) above which a single oversize change forces the
+/// processor into single-file mode regardless of queue depth.
+///
+/// Read from `WQM_FTS5_SINGLE_MODE_THRESHOLD` once at first call and
+/// cached. Returns 0 when unset, malformed, or non-positive — that
+/// disables the guard, restoring the queue-depth-only decision.
+///
+/// Rationale: batch mode loads ALL pending diffs into RAM upfront before
+/// opening the SQLite transaction. When one file in the window is 600k+
+/// lines, that working set alone can drive RSS over 10GB and trip the
+/// `UnifiedQueueProcessor` memory-pressure pause-loop. Forcing single-mode
+/// isolates the giant file into its own transaction so the rest of the
+/// window commits quickly while we still pay the per-file cost for the
+/// giant.
+pub(super) fn single_mode_line_threshold() -> usize {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<usize> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::env::var("WQM_FTS5_SINGLE_MODE_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+    })
+}
+
+/// Cheap line-count estimate by counting `\n` bytes. Off by one when the
+/// final line lacks a trailing newline — harmless for threshold checks.
+pub fn line_count_estimate(s: &str) -> usize {
+    s.bytes().filter(|b| *b == b'\n').count()
+}
+
+/// Hard line cap above which a file is excluded from the FTS5 / `code_lines`
+/// pipeline entirely.
+///
+/// Read from `WQM_FTS5_HARD_CAP` once at first call and cached. Returns 0
+/// when unset, malformed, or non-positive — that disables the cap.
+///
+/// When the cap fires, [`enforce_fts5_hard_cap_skip`] writes a
+/// `file_metadata` row with `fts5_skipped = 1` (so the admin UI / Grafana
+/// can surface the skip) but inserts NO `code_lines` and NO FTS5 trigrams.
+/// The file remains searchable via the semantic-embedding pipeline, which
+/// is separately bounded and not affected by this cap.
+///
+/// Rationale: even single-mode processing of a 600k-line file holds
+/// `old_content + new_content + DiffResult` in RAM and runs hundreds of
+/// thousands of FTS5 inserts in a single transaction. Both push RSS into
+/// the multi-GB range. The cap stops that work from starting at all.
+pub fn hard_cap_line_threshold() -> usize {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<usize> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::env::var("WQM_FTS5_HARD_CAP")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+    })
+}
+
+/// Mark a file as FTS5-skipped: clear any existing `code_lines` / FTS5
+/// rows for it, then upsert `file_metadata` with `fts5_skipped = 1`.
+///
+/// Called by the FTS5 ingestion entry points
+/// ([`crate::strategies::processing::file::fts5_index`]) when
+/// [`hard_cap_line_threshold`] fires for a file. Two SQL steps (delete +
+/// upsert) because they run against different statement scopes; a crash
+/// between them leaves the file with no rows but no metadata, which the
+/// next ingestion attempt will heal idempotently.
+///
+/// `line_count` is logged as the reason. The actual decision must already
+/// have been made by the caller — this function does NOT re-check the cap.
+#[allow(clippy::too_many_arguments)]
+pub async fn enforce_fts5_hard_cap_skip(
+    search_db: &SearchDbManager,
+    file_id: i64,
+    tenant_id: &str,
+    branch: Option<&str>,
+    file_path: &str,
+    base_point: Option<&str>,
+    relative_path: Option<&str>,
+    file_hash: Option<&str>,
+    size_bytes: Option<i64>,
+    line_count: usize,
+) -> Result<(), SearchDbError> {
+    // Step 1: clear any prior code_lines + FTS5 rows for this file.
+    // `delete_file` is idempotent — returns Ok(0) if nothing was indexed
+    // (the common case: hard cap fires on first ingestion of a file).
+    let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
+    let _ = processor.delete_file(file_id).await?;
+
+    // Step 2: upsert file_metadata with fts5_skipped = 1.
+    // delete_file also wipes file_metadata, so this is a fresh INSERT in
+    // most cases; the ON CONFLICT clause handles the unlikely race where
+    // a concurrent path re-created the row between the two steps.
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
+        .bind(file_id)
+        .bind(tenant_id)
+        .bind(branch)
+        .bind(file_path)
+        .bind(base_point)
+        .bind(relative_path)
+        .bind(file_hash)
+        .bind(size_bytes)
+        .bind(1_i64) // fts5_skipped = TRUE
+        .execute(search_db.pool())
+        .await?;
+
+    // Bump the per-(tenant, branch) hard-cap counter so Grafana can chart
+    // how often the guard fires. NULL branch → "(none)" matches the gauge
+    // convention used by `set_file_metadata_stats`.
+    crate::monitoring::METRICS.inc_fts5_skipped(tenant_id, branch.unwrap_or("(none)"));
+
+    info!(
+        "FTS5 hard-cap: skipping {} ({} lines > cap {}) — marked fts5_skipped=1, no code_lines written",
+        file_path,
+        line_count,
+        hard_cap_line_threshold()
+    );
+
     Ok(())
 }

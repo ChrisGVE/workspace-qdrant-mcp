@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;
+use wqm_common::constants::COLLECTION_LIBRARIES;
 
 // ─── Configuration ─────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ impl Default for RoutingConfig {
                 ".numbers".into(),
                 ".parquet".into(),
             ],
-            route_docx_to: "libraries".into(),
-            route_pptx_to: "libraries".into(),
+            route_docx_to: COLLECTION_LIBRARIES.into(),
+            route_pptx_to: COLLECTION_LIBRARIES.into(),
         }
     }
 }
@@ -65,10 +66,10 @@ impl RoutingConfig {
 
         // Configurable overrides
         if ext == ".docx" || ext == ".doc" {
-            return self.route_docx_to == "libraries";
+            return self.route_docx_to == COLLECTION_LIBRARIES;
         }
         if ext == ".pptx" || ext == ".ppt" {
-            return self.route_pptx_to == "libraries";
+            return self.route_pptx_to == COLLECTION_LIBRARIES;
         }
 
         self.library_extensions.contains(&ext)

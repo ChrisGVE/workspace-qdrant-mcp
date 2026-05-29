@@ -3,6 +3,7 @@
  */
 
 import { DaemonClient } from './clients/daemon-client.js';
+import { SearchDbReader } from './clients/search-db-reader.js';
 import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { ProjectDetector } from './utils/project-detector.js';
 import { HealthMonitor } from './utils/health-monitor.js';
@@ -13,10 +14,12 @@ import { StoreTool } from './tools/store.js';
 import { GrepTool } from './tools/grep.js';
 import { ListFilesTool } from './tools/list-files/index.js';
 import type { ServerConfig } from './types/index.js';
+import { DEFAULT_CONFIG } from './types/generated-defaults.js';
 
 export interface ServerComponents {
   daemonClient: DaemonClient;
   stateManager: SqliteStateManager;
+  searchDbReader: SearchDbReader;
   projectDetector: ProjectDetector;
   healthMonitor: HealthMonitor;
   searchTool: SearchTool;
@@ -30,7 +33,7 @@ export interface ServerComponents {
 
 /** Build Qdrant config, conditionally including API key for exactOptionalPropertyTypes. */
 function buildQdrantConfig(config: ServerConfig): { qdrantUrl: string; qdrantApiKey?: string } {
-  const qdrantUrl = config.qdrant?.url ?? 'http://localhost:6333';
+  const qdrantUrl = config.qdrant?.url ?? DEFAULT_CONFIG.qdrant.url;
   const result: { qdrantUrl: string; qdrantApiKey?: string } = { qdrantUrl };
   if (config.qdrant?.apiKey) result.qdrantApiKey = config.qdrant.apiKey;
   return result;
@@ -45,7 +48,7 @@ function createTools(
   config: ServerConfig
 ) {
   const searchTool = new SearchTool(qdrantConfig, daemonClient, stateManager, projectDetector);
-  const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector);
+  const retrieveTool = new RetrieveTool(qdrantConfig, projectDetector, daemonClient);
   const rulesConfig: { qdrantUrl: string; qdrantApiKey?: string; duplicationThreshold?: number } = {
     ...qdrantConfig,
   };
@@ -81,10 +84,21 @@ export function buildServerComponents(config: ServerConfig): ServerComponents {
     dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
   });
   stateManager.setDaemonClient(daemonClient);
+  // search.db lives next to state.db (mirroring the Rust convention in
+  // `search_db_path_from_state`). Lazy-init: opens on first admin call.
+  const searchDbReader = new SearchDbReader();
   const projectDetector = new ProjectDetector({ stateManager });
   const qdrantConfig = buildQdrantConfig(config);
   const healthMonitor = new HealthMonitor(qdrantConfig, daemonClient);
   const tools = createTools(qdrantConfig, daemonClient, stateManager, projectDetector, config);
 
-  return { daemonClient, stateManager, projectDetector, healthMonitor, qdrantConfig, ...tools };
+  return {
+    daemonClient,
+    stateManager,
+    searchDbReader,
+    projectDetector,
+    healthMonitor,
+    qdrantConfig,
+    ...tools,
+  };
 }

@@ -538,6 +538,20 @@ pub async fn reconcile_all_ignore_rules(
         rows.len()
     );
 
+    // Derive the global.wqmignore path from the database file's parent directory.
+    // This resolves to `<data_dir>/global.wqmignore` (e.g. state/memexd/ on the host).
+    // When `WQM_DATABASE_PATH` is not set we fall back to the XDG default.
+    let global_ignore_path: Option<std::path::PathBuf> =
+        wqm_common::paths::get_database_path()
+            .ok()
+            .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")));
+
+    if let Some(ref gip) = global_ignore_path {
+        if gip.is_file() {
+            info!("[ignore_sync] Using global ignore rules from {}", gip.display());
+        }
+    }
+
     let mut totals = ignore_sync::ReconcileStats::default();
     for (tenant_id, project_root) in &rows {
         let root = WatchManager::resolve_local_watch_path(project_root);
@@ -552,6 +566,7 @@ pub async fn reconcile_all_ignore_rules(
             "projects",
             pool,
             queue_manager,
+            global_ignore_path.as_deref(),
         )
         .await
         {

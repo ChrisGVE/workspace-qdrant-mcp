@@ -21,13 +21,17 @@ import { handleEmbedding } from './tools/embedding.js';
 import { handleWorkspaceIndex } from './tools/workspace-index.js';
 import { ensureProjectFresh, registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
 import { withToolMetrics } from './telemetry/metrics.js';
+import mcpPublicConfig from './constants/mcp-public-config.json' with { type: 'json' };
 
 export type ToolResult = {
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
 };
 
-const KNOWN_TOOLS = ['search', 'retrieve', 'rules', 'store', 'grep', 'list', 'embedding', 'workspace_index'] as const;
+// Derived from src/constants/mcp-public-config.json (single source of truth).
+// publicTools = tools exposed in client `enabled_tools` lists.
+// internalTools = tools the server accepts but not advertised to clients by default.
+const KNOWN_TOOLS = [...mcpPublicConfig.publicTools, ...mcpPublicConfig.internalTools] as const;
 
 /** Dispatch the 'store' tool subtypes. */
 async function dispatchStore(

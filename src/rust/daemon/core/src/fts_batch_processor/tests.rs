@@ -13,6 +13,7 @@ fn test_change(
 ) -> FileChange {
     FileChange {
         file_id,
+        size_bytes: Some(new_content.len() as i64),
         old_content: old_content.to_string(),
         new_content: new_content.to_string(),
         tenant_id: tenant_id.to_string(),

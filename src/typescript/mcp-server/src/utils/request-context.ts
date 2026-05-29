@@ -55,3 +55,27 @@ export function getEffectiveCwd(): string {
   }
   return process.cwd();
 }
+
+/**
+ * Decide whether a tool-body `cwd` argument should override the request's host
+ * cwd. The `X-MCP-Host-Cwd` header (already bound into the request context by
+ * the HTTP transport) always wins; the body value is only used when the header
+ * is absent. Returns the cwd to bind via {@link runWithRequestContext}, or
+ * `undefined` to leave the context unchanged.
+ *
+ * This lets an agent pass its working directory in a tool call when the client
+ * cannot send the header per session (e.g. Claude Code over HTTP), without
+ * letting a body value shadow an authoritative header. The detection
+ * resolution order thus stays: header > body `cwd` > `WQM_DEFAULT_HOST_CWD` >
+ * `process.cwd()`.
+ */
+export function resolveBodyCwdOverride(bodyCwd: string | undefined): string | undefined {
+  if (!bodyCwd || bodyCwd.length === 0) {
+    return undefined;
+  }
+  const ctx = storage.getStore();
+  if (ctx?.hostCwd && ctx.hostCwd.length > 0) {
+    return undefined;
+  }
+  return bodyCwd;
+}

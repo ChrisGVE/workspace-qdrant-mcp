@@ -7,12 +7,12 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
-};
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 
+mod clean_orphan_queue_items;
 mod cleanup_orphans;
 mod idle_history;
+mod ignore_candidates;
 mod metrics;
 mod metrics_setup;
 mod perf;
@@ -20,20 +20,20 @@ mod perf_data;
 mod perf_queries;
 mod prune_logs;
 mod rebalance_idf;
+mod reconcile_ignore;
 mod reembed;
 mod rename_tenant;
+mod requeue_failed;
+mod token_savings;
 
-/// Canonical collection names (validated against wqm-common constants)
+/// Subset of canonical collections that participate in tenant renames
+/// (scratchpad is global-only, so it is excluded).
 pub(super) const VALID_COLLECTIONS: &[&str] =
     &[COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_RULES];
 
-/// All 4 canonical collections for orphan scanning
-pub(super) const ALL_COLLECTIONS: &[&str] = &[
-    COLLECTION_PROJECTS,
-    COLLECTION_LIBRARIES,
-    COLLECTION_RULES,
-    COLLECTION_SCRATCHPAD,
-];
+/// All 4 canonical collections for orphan scanning. Aliased to
+/// `wqm_common::constants::CANONICAL_COLLECTIONS` for drift safety.
+pub(super) use wqm_common::constants::CANONICAL_COLLECTIONS as ALL_COLLECTIONS;
 
 /// Admin command arguments
 #[derive(Args)]
@@ -94,6 +94,38 @@ enum AdminCommand {
         #[arg(long)]
         collection: Option<String>,
     },
+    /// Delete `unified_queue` rows whose tenant_id no longer matches any watch_folder
+    ///
+    /// Use after disabling/removing watch folders to drop queue items the
+    /// daemon will never be able to process. Dry-run by default; pass `--apply`
+    /// to actually delete. Optional `--limit N` caps the batch size.
+    CleanOrphanQueueItems {
+        /// Actually delete matching rows (default: dry-run report only)
+        #[arg(long)]
+        apply: bool,
+
+        /// Cap the delete batch size (default: unlimited)
+        #[arg(long)]
+        limit: Option<u64>,
+    },
+    /// Reset retry-exhausted `failed` queue rows back to `pending`
+    ///
+    /// Filters by `error_message LIKE '%<reason>%'`. Use after fixing a bug
+    /// that caused a batch of items to retry-exhaust. Dry-run by default;
+    /// pass `--apply` to commit. Default `--max-rows=100` for safety.
+    RequeueFailed {
+        /// Substring matched against `error_message` (case-sensitive)
+        #[arg(long)]
+        reason_substring: String,
+
+        /// Cap the number of rows updated (default: 100)
+        #[arg(long, default_value = "100")]
+        max_rows: u64,
+
+        /// Actually reset matching rows (default: dry-run report only)
+        #[arg(long)]
+        apply: bool,
+    },
     /// Rebuild state.db from Qdrant collections
     ///
     /// Scrolls all Qdrant collections and reconstructs watch_folders, tracked_files,
@@ -132,6 +164,45 @@ enum AdminCommand {
         confirm: bool,
     },
 
+    /// Re-apply current ignore rules without restarting the daemon
+    ///
+    /// Iterates active projects, compares tracked_files against the current
+    /// global + per-project ignore rules, and enqueues file/delete for
+    /// newly-excluded paths and file/add for newly-included paths. Use after
+    /// editing `global.wqmignore` to propagate changes without a restart.
+    ReconcileIgnore,
+
+    /// Rank directories by how strongly they look like ignore candidates
+    ///
+    /// Aggregates `tracked_files` by parent directory (up to `--depth` segments)
+    /// and scores each group by `file_count × (1 + 2·failure_rate + ext_homogeneity)`.
+    /// Use the output to decide what to add to `.wqmignore` / `global.wqmignore`
+    /// — this command never edits ignore files.
+    #[command(
+        after_long_help = "See also:\n  docs/specs/14-future-development.md  planned Phase 2 (cost-vs-usage scoring)"
+    )]
+    IgnoreCandidates {
+        /// Show the top N scoring directories (default: 20)
+        #[arg(short = 'n', long, default_value = "20")]
+        top: usize,
+
+        /// Parent-directory segment depth for aggregation (default: 3)
+        #[arg(short = 'd', long, default_value = "3")]
+        depth: usize,
+
+        /// Skip directories with fewer than this many files (default: 10)
+        #[arg(long, default_value = "10")]
+        min_files: u64,
+
+        /// Output in JSON format
+        #[arg(long)]
+        json: bool,
+
+        /// Override the SQLite DB path (defaults to WQM_DATABASE_PATH or XDG state dir)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
     /// Display pipeline performance statistics (per-phase timing breakdown)
     #[command(
         after_long_help = "See also:\n  wqm admin stats processing  operation-level breakdown with Q1/Q3 quartiles\n  wqm status --performance    system resource metrics (CPU, memory, disk)"
@@ -156,6 +227,31 @@ enum AdminCommand {
         /// Filter by collection (projects, libraries, rules, scratchpad)
         #[arg(short = 'c', long)]
         collection: Option<String>,
+    },
+    /// Display token-economy savings (how much context the MCP server
+    /// saved the agent vs. an unshaped Read of referenced files).
+    ///
+    /// Reads the `token_savings` view (added in schema v38). Spec:
+    /// docs/specs/20-token-economy-instrumentation.md
+    #[command(
+        after_long_help = "See also:\n  wqm admin perf        per-phase pipeline timing\n  wqm admin stats       search instrumentation analytics"
+    )]
+    TokenSavings {
+        /// Time window, e.g. `7d`, `24h`, `30m`, or a bare number (hours).
+        #[arg(short = 'w', long, default_value = "7d")]
+        window: String,
+
+        /// Output in JSON format.
+        #[arg(long)]
+        json: bool,
+
+        /// Filter by project_id.
+        #[arg(long)]
+        project: Option<String>,
+
+        /// Filter by tool name (e.g. `mcp_qdrant`).
+        #[arg(long)]
+        tool: Option<String>,
     },
     /// Manage and fetch Prometheus metrics from the daemon
     Metrics {
@@ -225,6 +321,14 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         AdminCommand::CleanupOrphans { delete, collection } => {
             cleanup_orphans::execute(delete, collection).await
         }
+        AdminCommand::CleanOrphanQueueItems { apply, limit } => {
+            clean_orphan_queue_items::execute(apply, limit)
+        }
+        AdminCommand::RequeueFailed {
+            reason_substring,
+            max_rows,
+            apply,
+        } => requeue_failed::execute(reason_substring, max_rows, apply),
         AdminCommand::RecoverState { confirm } => super::recover_state::execute(confirm).await,
         AdminCommand::RebalanceIdf {
             collection,
@@ -232,6 +336,14 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             min_growth_pct,
         } => rebalance_idf::execute(collection, dry_run, min_growth_pct).await,
         AdminCommand::Reembed { confirm } => reembed::execute(confirm).await,
+        AdminCommand::ReconcileIgnore => reconcile_ignore::execute().await,
+        AdminCommand::IgnoreCandidates {
+            top,
+            depth,
+            min_files,
+            json,
+            db,
+        } => ignore_candidates::execute(top, depth, min_files, json, db),
         AdminCommand::Perf {
             window,
             json,
@@ -239,6 +351,12 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             sort,
             collection,
         } => perf::execute(window, json, group_by, sort, collection).await,
+        AdminCommand::TokenSavings {
+            window,
+            json,
+            project,
+            tool,
+        } => token_savings::execute(window, json, project, tool).await,
         AdminCommand::Metrics { command } => match command {
             MetricsCommand::Show { port, json } => metrics::execute(port, json).await,
             MetricsCommand::Enable { port } => metrics_setup::enable(port).await,

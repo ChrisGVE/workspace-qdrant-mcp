@@ -25,6 +25,14 @@ test-unit:
 test-integration:
     ./test-runner.sh --integration
 
+# Build + run tests single-threaded to avoid the Windows "paging file too
+# small" failure (os error 1455) when linking many test binaries in parallel
+# against the large core + ort + ONNX rlibs on memory-constrained machines.
+# Slower but reliable. Optional FILTER narrows to matching test names, e.g.
+# `just test-lowmem file_metadata`.
+test-lowmem FILTER='':
+    cargo test --workspace -j 1 {{FILTER}}
+
 # Run benchmarks
 bench:
     ./test-runner.sh --benchmarks

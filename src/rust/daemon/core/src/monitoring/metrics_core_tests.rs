@@ -137,6 +137,7 @@ fn indexed_project_inventory_metrics_are_exported() {
         false,
         false,
         true,
+        "https://github.com/user/repo.git",
         42,
     );
     m.set_indexed_project_points("watch-123", 128);
@@ -154,6 +155,7 @@ fn indexed_project_inventory_metrics_are_exported() {
             "false",
             "false",
             "true",
+            "https://github.com/user/repo.git",
         ]).get(),
         42
     );

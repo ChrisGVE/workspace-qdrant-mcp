@@ -4,6 +4,7 @@
 //! focused helpers: service wiring, TLS configuration, and server launch.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::RwLock;
 use tonic::service::interceptor::InterceptedService;
@@ -121,6 +122,14 @@ impl GrpcServer {
         if let Some(ref settings) = self.embedding_settings {
             svc = svc.with_embedding_settings(Arc::clone(settings));
         }
+
+        // Keep the embedding-provider health cache warm in the background so
+        // the Health RPC reflects the provider's real state instead of
+        // reporting "probe pending" indefinitely. No-op when no provider is
+        // wired; the detached task ends with the process.
+        let _ = svc.spawn_embedding_health_probe_loop(Duration::from_secs(
+            workspace_qdrant_core::embedding::provider::health_monitor::DEFAULT_PROBE_INTERVAL_SECS,
+        ));
 
         svc
     }
@@ -466,7 +475,12 @@ fn log_security_warnings(config: &ServerConfig) {
     }
     tracing::warn!("============================");
     if !config.is_secure() {
-        tracing::error!("gRPC server is running in INSECURE mode - not suitable for production");
+        // INSECURE mode is the intentional default for local/dev deployments
+        // (TLS terminates at the reverse proxy in production). Logging it as
+        // warn keeps the visibility while preventing `grep ERROR` alerts from
+        // tripping on a config-by-design state — the SECURITY WARNINGS block
+        // above already enumerates the specific protections that are disabled.
+        tracing::warn!("gRPC server is running in INSECURE mode - not suitable for production");
     }
 }
 

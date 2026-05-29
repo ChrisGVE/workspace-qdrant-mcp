@@ -22,10 +22,24 @@ mod tests {
         assert!(config.fairness_enabled);
         assert_eq!(config.high_priority_batch, 10);
         assert_eq!(config.low_priority_batch, 3);
+        // Age-based promotion thresholds (Unit 3 of audit issue #8)
+        assert_eq!(config.age_promotion_warning_seconds, 300);
+        assert_eq!(config.age_promotion_critical_seconds, 900);
         // Resource limits (Task 504)
         assert_eq!(config.inter_item_delay_ms, 50);
         assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);
+        // Item-level concurrency: default `1` keeps byte-identical sequential
+        // behavior; raise via WQM_QUEUE_MAX_CONCURRENT_ITEMS for the bake.
+        assert_eq!(config.max_concurrent_items, 1);
+    }
+
+    /// Test that `max_concurrent_items` is `1` by default (byte-identical to
+    /// the legacy sequential loop). The dispatch refactor lands inert; the
+    /// follow-up PR is responsible for raising this in docker-compose.
+    #[test]
+    fn test_default_max_concurrent_items_is_one() {
+        assert_eq!(UnifiedProcessorConfig::default().max_concurrent_items, 1);
     }
 
     #[test]

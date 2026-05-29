@@ -35,6 +35,7 @@ export const workspaceIndexToolDefinition = {
           'register_all_wqm',
           'cleanup_orphans',
           'sync_current_branch',
+          'indexing_status',
         ],
         description: 'Workspace index action to execute.',
       },

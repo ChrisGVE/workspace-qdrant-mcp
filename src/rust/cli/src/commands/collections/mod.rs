@@ -14,13 +14,9 @@ use clap::{Args, Subcommand};
 pub use list::list_collections;
 pub use reset::reset_collections;
 
-/// Canonical collection names (validated against wqm-common constants)
-pub(crate) const VALID_COLLECTIONS: &[&str] = &[
-    wqm_common::constants::COLLECTION_PROJECTS,
-    wqm_common::constants::COLLECTION_LIBRARIES,
-    wqm_common::constants::COLLECTION_RULES,
-    wqm_common::constants::COLLECTION_SCRATCHPAD,
-];
+/// Canonical collection names — re-exported from wqm_common as VALID_COLLECTIONS
+/// to keep the existing call sites unchanged while removing the local duplicate.
+pub(crate) use wqm_common::constants::CANONICAL_COLLECTIONS as VALID_COLLECTIONS;
 
 /// Get Qdrant URL from environment or default
 pub(crate) fn qdrant_url() -> String {

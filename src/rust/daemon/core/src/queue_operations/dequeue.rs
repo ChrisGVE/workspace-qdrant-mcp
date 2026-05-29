@@ -29,6 +29,11 @@ impl QueueManager {
     /// * `priority_descending` - If true, high priority first (DESC) with FIFO tiebreaker;
     ///   if false, low priority first (ASC) with LIFO tiebreaker.
     ///   Used for anti-starvation alternation. Defaults to true if None.
+    /// * `age_promotion_warning_seconds` - Items pending longer than this get +1 priority
+    ///   bump in the age-promotion CASE. Defaults to 300 (5 minutes) if None.
+    /// * `age_promotion_critical_seconds` - Items pending longer than this get +2 priority
+    ///   bump in the age-promotion CASE. Defaults to 900 (15 minutes) if None.
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(
         name = "queue.dequeue",
         skip_all,
@@ -47,6 +52,8 @@ impl QueueManager {
         tenant_id: Option<&str>,
         item_type: Option<ItemType>,
         priority_descending: Option<bool>,
+        age_promotion_warning_seconds: Option<u64>,
+        age_promotion_critical_seconds: Option<u64>,
     ) -> QueueResult<Vec<UnifiedQueueItem>> {
         if let Some(tid) = tenant_id {
             tracing::Span::current().record("tenant_id", tid);
@@ -71,6 +78,15 @@ impl QueueManager {
         // (stale data removal), not just a performance preference.
         let op_order = "DESC";
 
+        // Age-based promotion thresholds (Unit 3: prevent tenant starvation under
+        // fairness scheduler). Items pending longer than `warning_seconds` get +1
+        // in the age-promotion CASE; items pending longer than `critical_seconds`
+        // get +2. This is applied AFTER delete/tenant-add precedence but BEFORE
+        // the project-active priority, so old low-weight scans eventually outrank
+        // fresh high-weight adds from other tenants.
+        let age_warning_seconds = age_promotion_warning_seconds.unwrap_or(300);
+        let age_critical_seconds = age_promotion_critical_seconds.unwrap_or(900);
+
         // Wrap SELECT→UPDATE→SELECT in a single transaction to reduce lock churn
         let mut tx = self.pool.begin().await.map_err(QueueError::Database)?;
 
@@ -84,6 +100,8 @@ impl QueueManager {
             op_order,
             created_at_order,
             batch_size,
+            age_warning_seconds as i64,
+            age_critical_seconds as i64,
         )
         .await?;
 
@@ -166,6 +184,7 @@ impl QueueManager {
 }
 
 /// Select queue item IDs for dequeuing with dynamic priority ordering.
+#[allow(clippy::too_many_arguments)]
 async fn select_queue_ids(
     conn: &mut SqliteConnection,
     now_str: &str,
@@ -175,6 +194,8 @@ async fn select_queue_ids(
     op_order: &str,
     created_at_order: &str,
     batch_size: i32,
+    age_warning_seconds: i64,
+    age_critical_seconds: i64,
 ) -> QueueResult<Vec<String>> {
     let query = build_dequeue_query(
         tenant_id,
@@ -183,7 +204,17 @@ async fn select_queue_ids(
         op_order,
         created_at_order,
     );
-    execute_dequeue_query(conn, &query, now_str, tenant_id, item_type, batch_size).await
+    execute_dequeue_query(
+        conn,
+        &query,
+        now_str,
+        tenant_id,
+        item_type,
+        batch_size,
+        age_warning_seconds,
+        age_critical_seconds,
+    )
+    .await
 }
 
 /// Update selected items to in_progress with a lease.
@@ -283,6 +314,24 @@ async fn fetch_items(
 }
 
 /// Build the dequeue SELECT query with filters substituted in.
+///
+/// Parameter binding order (positional):
+/// - `?1`           = `now_str` (lease expiry comparison)
+/// - tenant filter  = `?2` (tenant_id) and/or `?3` (item_type), see match below
+/// - age thresholds = next two positions (warning, critical) — bound BEFORE the limit
+/// - limit          = last position
+///
+/// The age-promotion CASE is placed AFTER the delete-first and tenant/add priority
+/// rows but BEFORE the project-active priority. This ensures:
+/// - delete/reset still take precedence (correctness)
+/// - tenant registrations still jump the line (UX)
+/// - old items DO override the active-vs-inactive ranking once they cross the
+///   warning/critical thresholds — preventing tenants whose pending items have
+///   low op-weight (e.g. folder/scan) from being starved indefinitely when other
+///   tenants have larger queues with higher-weight ops.
+///
+/// The age-promotion CASE uses `{priority_order}` so the DESC/ASC fairness flip
+/// still inverts the ranking on the anti-starvation pass.
 fn build_dequeue_query(
     tenant_id: Option<&str>,
     item_type: Option<ItemType>,
@@ -290,17 +339,18 @@ fn build_dequeue_query(
     op_order: &str,
     created_at_order: &str,
 ) -> String {
-    let tenant_filter = match (tenant_id, item_type) {
-        (Some(_), Some(_)) => "AND q.tenant_id = ?2 AND q.item_type = ?3",
-        (Some(_), None) => "AND q.tenant_id = ?2",
-        (None, Some(_)) => "AND q.item_type = ?2",
-        (None, None) => "",
-    };
-    let limit_param = match (tenant_id, item_type) {
-        (Some(_), Some(_)) => "?4",
-        (Some(_), None) | (None, Some(_)) => "?3",
-        (None, None) => "?2",
-    };
+    let (tenant_filter, age_warning_param, age_critical_param, limit_param) =
+        match (tenant_id, item_type) {
+            (Some(_), Some(_)) => (
+                "AND q.tenant_id = ?2 AND q.item_type = ?3",
+                "?4",
+                "?5",
+                "?6",
+            ),
+            (Some(_), None) => ("AND q.tenant_id = ?2", "?3", "?4", "?5"),
+            (None, Some(_)) => ("AND q.item_type = ?2", "?3", "?4", "?5"),
+            (None, None) => ("", "?2", "?3", "?4"),
+        };
     format!(
         r#"
         SELECT q.queue_id
@@ -323,6 +373,18 @@ fn build_dequeue_query(
             -- materialises in `wqm project list` even when the queue is
             -- backlogged with file ingestion (issue #70).
             CASE WHEN q.item_type = 'tenant' AND q.op = 'add' THEN 1 ELSE 0 END DESC,
+            -- Age-based promotion (Unit 3 of audit issue #8): prevent starvation
+            -- of tenants whose pending items have low op-weight by promoting
+            -- old items above the project-active ranking.
+            -- +1 once age >= warning threshold, +2 once age >= critical threshold.
+            -- Uses {priority_order} so anti-starvation flip still inverts ranking.
+            CASE
+                WHEN (strftime('%s','now') - strftime('%s', q.created_at))
+                     >= {age_critical_param} THEN 2
+                WHEN (strftime('%s','now') - strftime('%s', q.created_at))
+                     >= {age_warning_param} THEN 1
+                ELSE 0
+            END {priority_order},
             CASE
                 WHEN q.collection = '{coll_memory}' THEN 1
                 WHEN q.collection = '{coll_libraries}' THEN 0
@@ -348,11 +410,18 @@ fn build_dequeue_query(
         priority_order = priority_order,
         op_order = op_order,
         created_at_order = created_at_order,
+        age_warning_param = age_warning_param,
+        age_critical_param = age_critical_param,
         limit_param = limit_param,
     )
 }
 
 /// Execute the dequeue query with the appropriate bound parameters.
+///
+/// Binding order matches the placeholder layout produced by `build_dequeue_query`:
+/// `now_str`, optional tenant_id, optional item_type, `age_warning_seconds`,
+/// `age_critical_seconds`, `batch_size`.
+#[allow(clippy::too_many_arguments)]
 async fn execute_dequeue_query(
     conn: &mut SqliteConnection,
     query: &str,
@@ -360,6 +429,8 @@ async fn execute_dequeue_query(
     tenant_id: Option<&str>,
     item_type: Option<ItemType>,
     batch_size: i32,
+    age_warning_seconds: i64,
+    age_critical_seconds: i64,
 ) -> QueueResult<Vec<String>> {
     let result = match (tenant_id, item_type) {
         (Some(tid), Some(itype)) => {
@@ -367,6 +438,8 @@ async fn execute_dequeue_query(
                 .bind(now_str)
                 .bind(tid)
                 .bind(itype.to_string())
+                .bind(age_warning_seconds)
+                .bind(age_critical_seconds)
                 .bind(batch_size)
                 .fetch_all(&mut *conn)
                 .await?
@@ -375,6 +448,8 @@ async fn execute_dequeue_query(
             sqlx::query_scalar::<_, String>(query)
                 .bind(now_str)
                 .bind(tid)
+                .bind(age_warning_seconds)
+                .bind(age_critical_seconds)
                 .bind(batch_size)
                 .fetch_all(&mut *conn)
                 .await?
@@ -383,6 +458,8 @@ async fn execute_dequeue_query(
             sqlx::query_scalar::<_, String>(query)
                 .bind(now_str)
                 .bind(itype.to_string())
+                .bind(age_warning_seconds)
+                .bind(age_critical_seconds)
                 .bind(batch_size)
                 .fetch_all(&mut *conn)
                 .await?
@@ -390,6 +467,8 @@ async fn execute_dequeue_query(
         (None, None) => {
             sqlx::query_scalar::<_, String>(query)
                 .bind(now_str)
+                .bind(age_warning_seconds)
+                .bind(age_critical_seconds)
                 .bind(batch_size)
                 .fetch_all(&mut *conn)
                 .await?
@@ -454,6 +533,93 @@ mod tests {
             q.contains("item_type = ?3"),
             "should include item_type filter"
         );
-        assert!(q.contains("?4"), "limit should be ?4 with both filters");
+        // With age-promotion thresholds added: ?4 = warning, ?5 = critical, ?6 = limit
+        assert!(
+            q.contains("LIMIT ?6"),
+            "limit should be ?6 with both filters + age thresholds"
+        );
+    }
+
+    #[test]
+    fn test_build_dequeue_query_includes_age_promotion_case() {
+        // The age-promotion CASE must appear in the ORDER BY and must reference
+        // both threshold placeholders.
+        let q = build_dequeue_query(None, None, "DESC", "DESC", "ASC");
+        assert!(
+            q.contains("strftime('%s','now')"),
+            "should compute item age in seconds"
+        );
+        assert!(
+            q.contains("strftime('%s', q.created_at)"),
+            "should subtract created_at to get age"
+        );
+        // No filters → warning=?2, critical=?3, limit=?4
+        assert!(
+            q.contains(">= ?3 THEN 2"),
+            "critical threshold (?3) bumps priority to +2"
+        );
+        assert!(
+            q.contains(">= ?2 THEN 1"),
+            "warning threshold (?2) bumps priority to +1"
+        );
+    }
+
+    #[test]
+    fn test_build_dequeue_query_age_promotion_respects_priority_order_flip() {
+        // The age-promotion CASE must use {priority_order} like the active CASE,
+        // so the DESC/ASC fairness flip inverts both consistently.
+        let q_desc = build_dequeue_query(None, None, "DESC", "DESC", "ASC");
+        let q_asc = build_dequeue_query(None, None, "ASC", "DESC", "DESC");
+
+        // DESC pass: age-promotion ends with DESC (older = higher rank)
+        let desc_age_section = q_desc
+            .split(">= ?2 THEN 1")
+            .nth(1)
+            .expect("split should yield section after warning case");
+        assert!(
+            desc_age_section.trim_start().starts_with("ELSE 0\n"),
+            "DESC pass: age CASE should be followed by ELSE 0 then END DESC"
+        );
+
+        let asc_age_section = q_asc
+            .split(">= ?2 THEN 1")
+            .nth(1)
+            .expect("split should yield section after warning case");
+        assert!(
+            asc_age_section.trim_start().starts_with("ELSE 0\n"),
+            "ASC pass: age CASE should be followed by ELSE 0 then END ASC"
+        );
+
+        // Sanity: priority_order shows up multiple times (active CASE + age CASE).
+        assert!(
+            q_desc.matches("END DESC").count() >= 3,
+            "DESC pass should have at least 3 END DESC (delete, tenant/add, active CASE, age CASE, op CASE)"
+        );
+    }
+
+    #[test]
+    fn test_build_dequeue_query_age_case_placed_before_active_case() {
+        // The age-promotion CASE must appear BEFORE the active-vs-inactive CASE
+        // so that age can override the active ranking once thresholds are crossed.
+        let q = build_dequeue_query(None, None, "DESC", "DESC", "ASC");
+        let age_idx = q
+            .find(">= ?3 THEN 2")
+            .expect("age-promotion CASE should be present");
+        let active_idx = q
+            .find("w.is_active > 0")
+            .expect("active CASE should be present");
+        assert!(
+            age_idx < active_idx,
+            "age-promotion CASE must come before active-vs-inactive CASE"
+        );
+
+        // And both must come AFTER the delete CASE.
+        let delete_idx = q
+            .find("WHEN q.op = 'delete' THEN 1")
+            .expect("delete CASE should be present");
+        assert!(
+            delete_idx < age_idx,
+            "delete CASE must take precedence over age promotion"
+        );
     }
 }

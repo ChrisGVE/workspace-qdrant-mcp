@@ -26,9 +26,8 @@
 #   reference.yml                        → memexd + mcp + Qdrant (no observability)
 #   reference.yml + observability.yml    → same + self-hosted prometheus/grafana/otel-collector
 #   minimal.yml + observability.yml      → memexd + mcp (external Qdrant) + observability
-#   full-stack.yml                       → attaches to main-docker (owns observability there)
 #
-# All four compose files share the `workspace-network` bridge so
+# These compose files share the `workspace-network` bridge so
 # Prometheus can reach `memexd:9091`, `mcp:9092`, and `qdrant:6333`.
 #
 # compose-spec (no Swarm, no BuildKit extensions)
@@ -111,7 +110,7 @@ services:
     <<: *restart
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
-      - ../loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - ../loki/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/tmp/loki
     ports:
       - "${LOKI_PORT:-3100}:3100"

@@ -325,7 +325,26 @@ impl UnifiedQueueProcessor {
                 .await
             }
             Err(e) => {
-                error!("Failed to dequeue unified batch: {}", e);
+                // SQLite "database is locked" is a transient condition: the
+                // next poll cycle retries automatically. It is expected during
+                // boot when the four recovery tasks spawned right after
+                // `start_processor` (base-point migration, startup recovery,
+                // rules-mirror backfill, component backfill — see
+                // memexd::queue_init::spawn_recovery_tasks) hold the write
+                // lock long enough to exceed our 30s busy_timeout. Classify
+                // it as a warn so dashboards/alerts grepping ERROR don't
+                // flag normal startup contention; reserve error! for genuine
+                // dequeue failures. Matches the DatabaseLocked classification
+                // already used by queue_error_handler::classify_error.
+                let msg = e.to_string();
+                if msg.to_lowercase().contains("database is locked") {
+                    warn!(
+                        "Dequeue contended on SQLite write lock (transient, will retry after {:?}): {}",
+                        poll_interval, msg
+                    );
+                } else {
+                    error!("Failed to dequeue unified batch: {}", msg);
+                }
                 if let Some(ref h) = queue_health {
                     h.record_error();
                 }

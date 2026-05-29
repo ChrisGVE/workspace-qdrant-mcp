@@ -69,6 +69,8 @@ impl WriteActor {
             }
             WriteCommand::PauseWatchers { tx } => dispatch!(self, exec_pause_watchers(), tx),
             WriteCommand::ResumeWatchers { tx } => dispatch!(self, exec_resume_watchers(), tx),
+            WriteCommand::PauseWatch { data, tx } => dispatch!(self, exec_pause_watch(data), tx),
+            WriteCommand::ResumeWatch { data, tx } => dispatch!(self, exec_resume_watch(data), tx),
             WriteCommand::EnableWatch { data, tx } => dispatch!(self, exec_enable_watch(data), tx),
             WriteCommand::DisableWatch { data, tx } => {
                 dispatch!(self, exec_disable_watch(data), tx)
@@ -121,6 +123,12 @@ impl WriteActor {
             }
             WriteCommand::RebalanceIdf { data, tx } => {
                 dispatch!(self, exec_rebalance_idf(data), tx)
+            }
+            WriteCommand::ReapplyIgnoreRules { tx } => {
+                dispatch!(self, exec_reapply_ignore_rules(), tx)
+            }
+            WriteCommand::ReembedTenant { data, tx } => {
+                dispatch!(self, exec_reembed_tenant(data), tx)
             }
         }
     }
@@ -185,6 +193,14 @@ impl WriteActorHandle {
 
     pub async fn resume_watchers(&self) -> WriteResult<u32> {
         self.send(|tx| WriteCommand::ResumeWatchers { tx }).await
+    }
+
+    pub async fn pause_watch(&self, data: WatchIdData) -> WriteResult<u32> {
+        self.send(|tx| WriteCommand::PauseWatch { data, tx }).await
+    }
+
+    pub async fn resume_watch(&self, data: WatchIdData) -> WriteResult<u32> {
+        self.send(|tx| WriteCommand::ResumeWatch { data, tx }).await
     }
 
     pub async fn enable_watch(&self, data: WatchIdData) -> WriteResult<u32> {
@@ -302,5 +318,16 @@ impl WriteActorHandle {
     pub async fn rebalance_idf(&self, data: RebalanceIdfData) -> WriteResult<RebalanceIdfResult> {
         self.send(|tx| WriteCommand::RebalanceIdf { data, tx })
             .await
+    }
+
+    pub async fn reapply_ignore_rules(&self) -> WriteResult<ReapplyIgnoreRulesResult> {
+        self.send(|tx| WriteCommand::ReapplyIgnoreRules { tx }).await
+    }
+
+    pub async fn reembed_tenant(
+        &self,
+        data: ReembedTenantData,
+    ) -> WriteResult<ReembedTenantResult> {
+        self.send(|tx| WriteCommand::ReembedTenant { data, tx }).await
     }
 }

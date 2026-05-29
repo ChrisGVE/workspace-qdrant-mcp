@@ -10,7 +10,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { QdrantClient } from '@qdrant/js-client-rest';
+import type { QdrantClient } from '@qdrant/js-client-rest';
+import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
@@ -89,14 +90,11 @@ export class SearchTool {
     stateManager: SqliteStateManager,
     projectDetector: ProjectDetector
   ) {
-    const clientConfig: { url: string; apiKey?: string; timeout?: number } = {
+    this.qdrantClient = getQdrantClient({
       url: config.qdrantUrl,
+      apiKey: config.qdrantApiKey,
       timeout: config.qdrantTimeout ?? 5000,
-    };
-    if (config.qdrantApiKey) {
-      clientConfig.apiKey = config.qdrantApiKey;
-    }
-    this.qdrantClient = new QdrantClient(clientConfig);
+    });
     this.daemonClient = daemonClient;
     this._stateManager = stateManager;
     this.projectDetector = projectDetector;
@@ -355,6 +353,7 @@ export class SearchTool {
       collectionsToSearch,
       status,
       statusReason,
+      currentProjectId,
     });
   }
 

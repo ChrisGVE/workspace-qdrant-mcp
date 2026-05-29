@@ -698,7 +698,7 @@ wqm backup restore <PATH> [OPTIONS]
 
 - [Architecture Overview](ARCHITECTURE.md)
 - [Configuration Guide](CONFIGURATION.md)
-- [CLI Reference](CLI.md)
+- [CLI Reference](reference/cli.md)
 - [Troubleshooting Guide](TROUBLESHOOTING.md)
 - [Version Migration Guide](VERSION_MIGRATION.md) (future)
 

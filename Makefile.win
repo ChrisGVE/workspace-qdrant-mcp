@@ -34,10 +34,15 @@ QDRANT_GRPC_PORT ?= 6334
 MCP_HTTP_PORT ?= 6335
 QDRANT_URL ?= http://localhost:$(QDRANT_HTTP_PORT)
 DAEMON_ENDPOINT ?= http://localhost:50051
-TOOLS ?= search,retrieve,grep,list,store,rules
+# TOOLS list lives in src/typescript/mcp-server/src/constants/mcp-public-config.json.
+# Override here only for ad-hoc experiments; otherwise leave unset so gen-mcp-config.ps1
+# reads from the JSON (single source of truth, verified by config-drift.test.ts).
+TOOLS ?= (default)
 LOG_DIR ?= $(REPO)\.wqm-fork\logs
 OBS_INTERVAL ?= 30
-REPAIR ?= false
+
+MCP_HEALTH_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/api/health
+MCP_INIT_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/init
 
 UPSTREAM_URL ?= https://github.com/ChrisGVE/workspace-qdrant-mcp.git
 MAIN_BRANCH ?= main
@@ -50,7 +55,6 @@ PUSH ?= false
 TAG ?= fork-claude-codex-ready-v0.1.0
 TENANT_PATCH ?= patches/fixes/fix-rules-tenant-scope.patch
 TENANT_HARDEN_PATCH ?= patches/fixes/harden-rules-add-scope-error.patch
-RUN_TYPECHECK ?= false
 
 REGISTRY ?= $(REPO)\.wqm-fork\projects.json
 WORKSPACE_NAME ?= workspace-qdrant
@@ -90,7 +94,39 @@ FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(Q
 FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
 FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -QdrantUrl "$(FASTEMBED_QDRANT_URL)" -GrpcPort $(FASTEMBED_GRPC_PORT) -ControlPort $(FASTEMBED_CONTROL_PORT) -MetricsPort $(FASTEMBED_METRICS_PORT) -LogLevel "$(FASTEMBED_LOG_LEVEL)"
 
-.PHONY: help doctor bootstrap fork-branch pull-upstream push pr qdrant-up qdrant-up-grpc compose-up compose-down compose-ps stack-up stack-down stack-restart stack-status stack-logs mcp-rebuild memexd-recreate health-quick first-time redeploy build-ts test-ts typecheck-ts build-rust start-daemon start-daemon-fastembed config config-fastembed apply-config apply-config-fastembed codex-open register smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke status clean branch-help branch-status branch-init sync-main sync-overlay sync-fixes sync-use sync-chain fix-start fix-promote tag-use tenant-check tenant-apply tenant-validate tenant-flow no-main-pr health observe observability-snapshot incremental-check incremental-repair service-stabilize service-stabilize-fastembed reliability-doctor workspace-help workspace-init workspace-add workspace-remove workspace-list workspace-status workspace-status-all workspace-sync workspace-sync-all workspace-fix-start workspace-fix-promote workspace-observe-all mcp-manager-check mcp-manager-apply mcp-manager-validate index-help index-init index-hooks-install index-hooks-uninstall index-hooks-status index-project-add index-project-list index-project-status index-status-all index-branch-list index-agent-start index-agent-finish index-agent-abandon index-agent-status index-observe index-observe-all index-prune-orphans index-incremental-check index-incremental-check-all index-register-wqm index-register-all-wqm workspace-index-check workspace-index-apply workspace-index-validate up up-fastembed
+.PHONY: help doctor bootstrap fork-branch pull-upstream push pr \
+	qdrant-up qdrant-up-grpc \
+	compose-up compose-down compose-ps \
+	stack-up stack-down stack-restart stack-status stack-logs \
+	mcp-rebuild memexd-recreate health-quick first-time redeploy \
+	build-ts test-ts typecheck-ts build-rust \
+	start-daemon start-daemon-fastembed \
+	config config-fastembed config-claude-http \
+	apply-config apply-config-fastembed apply-config-claude-http \
+	codex-open register \
+	smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke \
+	status clean \
+	branch-help branch-status branch-init \
+	sync-main sync-overlay sync-fixes sync-use sync-chain \
+	fix-start fix-promote tag-use \
+	tenant-check tenant-apply tenant-validate tenant-flow no-main-pr \
+	health observe observability-snapshot \
+	incremental-check incremental-repair \
+	service-stabilize service-stabilize-fastembed reliability-doctor \
+	workspace-help workspace-init workspace-add workspace-remove workspace-list \
+	workspace-status workspace-status-all workspace-sync workspace-sync-all \
+	workspace-fix-start workspace-fix-promote workspace-observe-all \
+	mcp-manager-check mcp-manager-apply mcp-manager-validate \
+	index-help index-init \
+	index-hooks-install index-hooks-uninstall index-hooks-status \
+	index-project-add index-project-list index-project-status \
+	index-status-all index-branch-list \
+	index-agent-start index-agent-finish index-agent-abandon index-agent-status \
+	index-observe index-observe-all index-prune-orphans \
+	index-incremental-check index-incremental-check-all \
+	index-register-wqm index-register-all-wqm \
+	workspace-index-check workspace-index-apply workspace-index-validate \
+	up up-fastembed
 
 help:
 	@Write-Host "============================================================"
@@ -118,6 +154,7 @@ help:
 	@Write-Host "  start-daemon-fastembed - inicia memexd local com FastEmbed e gRPC"
 	@Write-Host "  build-ts            - instala deps e compila MCP TypeScript"
 	@Write-Host "  config/apply-config - gera/aplica configs Claude Desktop (http://localhost:50051) e Codex HTTP (http://localhost:6335/mcp)"
+	@Write-Host "  config-claude-http/apply-config-claude-http - Claude Desktop via mcp-remote bridge para o container HTTP (:6335/mcp). Requer: npm install -g mcp-remote"
 	@Write-Host "  config-fastembed/apply-config-fastembed - mesma base, com Codex/Claude no fluxo FastEmbed local (http://localhost:55151)"
 	@Write-Host "  codex-open          - abre o Codex carregando MCP_HTTP_TOKEN de docker/.env"
 	@Write-Host "  register            - registra PROJECT no wqm"
@@ -316,10 +353,10 @@ index-init:
 
 index-hooks-install:
 	@Write-Host "Installing POSIX git hooks (sh + curl -> MCP HTTP)..."
-	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin. Install Git Bash (https://gitforwindows.org) or add C:\Program Files\Git\usr\bin to PATH." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
+	@$$sh = (.\scripts\windows\find-sh.ps1); if ($$LASTEXITCODE -ne 0) { exit 1 }; $$env:PATH = (Split-Path $$sh -Parent) + ';' + $$env:PATH; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --force
 
 index-hooks-uninstall:
-	@$$sh = $$null; if ($$cmd = Get-Command sh -ErrorAction SilentlyContinue) { $$sh = $$cmd.Source } elseif (Test-Path "$$env:ProgramFiles\Git\usr\bin\sh.exe") { $$sh = "$$env:ProgramFiles\Git\usr\bin\sh.exe" } elseif (Test-Path "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe") { $$sh = "$${env:ProgramFiles(x86)}\Git\usr\bin\sh.exe" } elseif ($$g = Get-Command git -ErrorAction SilentlyContinue) { $$c = (Split-Path (Split-Path (Split-Path $$g.Source -Parent) -Parent) -Parent) + "\usr\bin\sh.exe"; if (Test-Path $$c) { $$sh = $$c } }; if (-not $$sh) { Write-Host "ERROR: 'sh' not on PATH and not found in Git\usr\bin." -ForegroundColor Red; exit 1 }; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
+	@$$sh = (.\scripts\windows\find-sh.ps1); if ($$LASTEXITCODE -ne 0) { exit 1 }; $$env:PATH = (Split-Path $$sh -Parent) + ';' + $$env:PATH; & $$sh scripts/git-hooks/install.sh --repo "$(REPO)" --hooks-dir "$(REPO)/.wqm-fork/git-hooks" --uninstall
 
 index-hooks-status:
 	.\scripts\windows\indexed-projects-hooks.ps1 -Action status -RepoDir "$(REPO)"
@@ -411,33 +448,18 @@ qdrant-up-grpc:
 	.\scripts\windows\start-qdrant.ps1 -QdrantUrl "$(QDRANT_URL)" -HttpPort $(QDRANT_HTTP_PORT) -GrpcPort $(QDRANT_GRPC_PORT) -EnsureGrpc
 
 compose-up:
-	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" up -d --build }
+	@if (-not (Test-Path "$(COMPOSE_ENV_FILE)")) { Write-Host "ERROR: $(COMPOSE_ENV_FILE) nao encontrado. Copie docker\.env.example para docker\.env." -ForegroundColor Red; exit 1 }
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build
 
 compose-down:
-	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" down } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" down }
+	@if (-not (Test-Path "$(COMPOSE_ENV_FILE)")) { Write-Host "ERROR: $(COMPOSE_ENV_FILE) nao encontrado." -ForegroundColor Red; exit 1 }
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" down
 
 compose-ps:
-	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps } else { Set-Location "$(REPO)"; docker compose -f "$(COMPOSE_FILE)" ps }
+	@if (-not (Test-Path "$(COMPOSE_ENV_FILE)")) { Write-Host "ERROR: $(COMPOSE_ENV_FILE) nao encontrado." -ForegroundColor Red; exit 1 }
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" ps
 
-# ----------------------------------------------------------------------------
-# Stack lifecycle - high-level orchestration over docker-compose.
-#
-# Quick reference:
-#   first-time      Fresh clone / never set up before
-#   redeploy        After `git pull` or merging fork/fixes - rebuild + restart
-#   stack-up        Start the docker stack (no rebuild)
-#   stack-down      Stop everything
-#   stack-restart   Stop then start
-#   stack-status    docker ps + ping admin/qdrant/daemon
-#   stack-logs      Tail mcp + memexd logs
-#   mcp-rebuild     Rebuild MCP image after src/typescript/mcp-server/ changes
-#   memexd-recreate Recreate memexd container (env changes in docker-compose.yml)
-#   health-quick    curl /admin/api/health and pretty-print
-# ----------------------------------------------------------------------------
-
-MCP_HTTP_PORT ?= 6335
-MCP_HEALTH_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/api/health
-MCP_INIT_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/init
+# Stack lifecycle (docker-compose orchestration). Veja `make -f Makefile.win help`.
 
 stack-up:
 	@Write-Host "Starting docker stack..."
@@ -480,6 +502,7 @@ first-time:
 	@Write-Host "Step 1/4: npm install + build MCP server"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) build-ts
 	@Write-Host "Step 2/4: build + start docker stack"
+	@docker volume create workspace-qdrant-mcp_memexd_db | Out-Null
 	@if (Test-Path "$(COMPOSE_ENV_FILE)") { Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --build } else { Write-Host "ERROR: docker/.env not found. Copy docker/.env.example first." -ForegroundColor Red; exit 1 }
 	@Write-Host "Step 3/4: install POSIX git hooks"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
@@ -491,9 +514,10 @@ first-time:
 
 redeploy: build-ts
 	@Write-Host "=== Redeploy after code changes ==="
-	@Write-Host "Step 1/4: rebuild MCP image"
-	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp
+	@Write-Host "Step 1/4: rebuild MCP + memexd images"
+	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" build mcp memexd
 	@Write-Host "Step 2/4: recreate mcp + memexd (env may have changed)"
+	@docker volume create workspace-qdrant-mcp_memexd_db | Out-Null
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" up -d --force-recreate mcp memexd
 	@Write-Host "Step 3/4: reinstall git hooks (idempotent)"
 	@$(MAKE) -f $(firstword $(MAKEFILE_LIST)) index-hooks-install
@@ -529,6 +553,12 @@ config-fastembed:
 
 apply-config:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -CodexTransport http -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
+
+config-claude-http:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ClaudeTransport http -ClaudeHttpUrl http://localhost:$(MCP_HTTP_PORT)/mcp -CodexTransport http -ToolCsv "$(TOOLS)"
+
+apply-config-claude-http:
+	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -ClaudeTransport http -ClaudeHttpUrl http://localhost:$(MCP_HTTP_PORT)/mcp -CodexTransport http -ToolCsv "$(TOOLS)" -ApplyClaude -ApplyCodex
 
 apply-config-fastembed:
 	.\scripts\windows\gen-mcp-config.ps1 -RepoDir "$(REPO)" -ServerName "$(SERVER_NAME)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -CodexTransport stdio -ToolCsv "$(TOOLS)" -ConfigSuffix ".fastembed" -ApplyClaude -ApplyCodex

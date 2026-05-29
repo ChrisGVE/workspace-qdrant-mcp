@@ -346,6 +346,13 @@ detect_spurious_mounts() {
 
     # Build the list of expected container mount points: declared containers
     # plus the spec §9.2 runtime bind targets plus the override file path.
+    #
+    # The /home/memexd/.workspace-qdrant* and /var/lib/memexd* paths are the
+    # canonical daemon-state mounts declared in docker-compose.yml (state dir
+    # bind, model cache, named SQLite volume, global.wqmignore override).
+    # They are intentional and documented; without them in the allowlist this
+    # layer warns on every boot. The hash check (layer 1) guarantees these
+    # paths cannot drift from the override file without aborting first.
     local expected
     expected=$(
         if [ -n "${pairs}" ]; then
@@ -356,6 +363,10 @@ detect_spurious_mounts() {
             "/etc/wqm/config.yaml" \
             "/var/lib/wqm" \
             "/qdrant/storage" \
+            "/var/lib/memexd" \
+            "/var/lib/memexd/global.wqmignore" \
+            "/home/memexd/.workspace-qdrant" \
+            "/home/memexd/.workspace-qdrant/models" \
             "${WQM_OVERRIDE_PATH}"
     )
 

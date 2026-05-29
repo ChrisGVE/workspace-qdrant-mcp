@@ -83,6 +83,29 @@ jobs:
       - name: Check for unmarked canonicalize() calls
         run: bash scripts/ci/forbid_canonicalize.sh
 
+  # Guard against version drift: ORT_VERSION must match across workflow files,
+  # and the tree-sitter version in assets/default_configuration.yaml must match
+  # src/rust/Cargo.lock (build.rs reads it). See scripts/check-version-consistency.sh.
+  version-consistency:
+    name: Version consistency (ORT + tree-sitter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version consistency
+        run: bash scripts/check-version-consistency.sh
+
+  # Guard against gRPC proto drift. The TypeScript MCP daemon-client does NOT
+  # codegen from the canonical Rust proto — it calls RPCs via hardcoded
+  # camelCase method-name strings. If a daemon RPC is renamed/removed, the TS
+  # side still compiles and only fails at runtime with "Unknown method".
+  proto-consistency:
+    name: Proto consistency (TS calls vs Rust proto)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check proto consistency
+        run: bash scripts/check-proto-consistency.sh
+
 
   # Rust build, lint, and test
   rust:

@@ -4,12 +4,11 @@ This document describes all metrics collected by workspace-qdrant-mcp for monito
 
 ## Overview
 
-workspace-qdrant-mcp exposes Prometheus-compatible metrics for monitoring queue health, MCP tool performance, and system resources. Metrics are collected via the `MetricsCollector` class and can be exported in Prometheus exposition format.
+workspace-qdrant-mcp exposes Prometheus-compatible metrics for monitoring queue health, MCP tool performance, and system resources. The Rust daemon (`memexd`) collects them and serves them in Prometheus exposition format on its metrics endpoint (default port 9091).
 
 ## Metric Categories
 
 - [Queue Processor Metrics](#queue-processor-metrics) - Queue depth, throughput, latency
-- [Dual-Write Migration Metrics](#dual-write-migration-metrics) - Migration monitoring
 - [MCP Tool Metrics](#mcp-tool-metrics) - Tool call performance
 - [System Metrics](#system-metrics) - Resource utilization
 
@@ -73,6 +72,47 @@ queue_depth_current{status="pending"}
 sum(queue_depth_current{status=~"pending|in_progress"})
 ```
 
+#### `memexd_unified_queue_depth_by_tenant`
+**Type:** Gauge
+**Labels:** `tenant_id`, `status` (`pending`, `in_progress`, `failed` — `done` is excluded because those rows are deleted by `cleanup_completed_unified_items`)
+**Description:** Per-tenant unified-queue depth. Drives the Grafana
+"Indexing progress (per tenant)" panel set and gives operators a way to
+spot a single project that's lagging behind the others. Refreshed every
+10 s by the queue-depth exporter, alongside the global
+`memexd_unified_queue_depth`.
+
+```promql
+# Total still-pending items across all tenants
+sum(memexd_unified_queue_depth_by_tenant{status=~"pending|in_progress"})
+
+# Top 10 tenants by pending depth
+topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status="pending"}))
+
+# Alert when one tenant has more than 5 000 pending for >10 min
+max by (tenant_id) (memexd_unified_queue_depth_by_tenant{status="pending"}) > 5000
+```
+
+#### `memexd_indexing_eta_seconds_by_tenant`
+**Type:** Gauge
+**Labels:** `tenant_id`
+**Description:** Estimated seconds until each tenant's queue is fully
+drained. Derived from the rate at which `tracked_files.updated_at`
+advances over a 5-minute window, capped at 24 h. Set to `-1` when the
+daemon can't estimate (cold-start, zero throughput with pending > 0,
+or queue already drained) — Prometheus has no native null. Filter the
+sentinel out in PromQL with `>= 0`.
+
+```promql
+# Only series with a real estimate
+memexd_indexing_eta_seconds_by_tenant >= 0
+
+# Tenants in "warming up" state right now
+count(memexd_indexing_eta_seconds_by_tenant == -1)
+
+# Alert when one tenant's ETA exceeds 1h for >10 minutes
+max by (tenant_id) (memexd_indexing_eta_seconds_by_tenant >= 0) > 3600
+```
+
 #### `queue_age_oldest_pending_seconds`
 **Type:** Gauge
 **Labels:** None
@@ -114,48 +154,6 @@ rate(queue_processing_duration_seconds_count[5m])
 ```promql
 # p99 wait time
 histogram_quantile(0.99, rate(queue_wait_duration_seconds_bucket[5m]))
-```
-
----
-
-## Dual-Write Migration Metrics
-
-These metrics track the dual-write migration process during the transition from legacy queues to the unified queue.
-
-### Counters
-
-#### `dual_write_legacy_success_total`
-**Type:** Counter
-**Labels:** `item_type`, `legacy_queue`
-**Description:** Successful writes to legacy queue during dual-write mode.
-
-#### `dual_write_legacy_failure_total`
-**Type:** Counter
-**Labels:** `item_type`, `legacy_queue`, `error_type`
-**Description:** Failed writes to legacy queue during dual-write mode.
-
-```promql
-# Dual-write failure rate
-sum(rate(dual_write_legacy_failure_total[5m])) /
-(sum(rate(dual_write_legacy_success_total[5m])) +
- sum(rate(dual_write_legacy_failure_total[5m])))
-```
-
-#### `dual_write_drift_detected_total`
-**Type:** Counter
-**Labels:** `drift_type`
-**Description:** Drift detection events. Types: `missing_in_legacy`, `missing_in_unified`, `status_mismatch`.
-
-### Gauges
-
-#### `dual_write_queue_drift_items`
-**Type:** Gauge
-**Labels:** `drift_type`
-**Description:** Current number of items with drift between unified and legacy queues.
-
-```promql
-# Alert on any drift
-sum(dual_write_queue_drift_items) > 0
 ```
 
 ---
@@ -248,23 +246,14 @@ Standard system resource metrics.
 
 ## Prometheus Export
 
-Metrics can be exported in Prometheus exposition format:
-
-```python
-from workspace_qdrant_mcp.observability.metrics import get_metrics_collector
-
-collector = get_metrics_collector()
-prometheus_text = collector.export_prometheus_format()
-```
-
-Example output:
+The daemon serves the metrics on its Prometheus endpoint (default `http://127.0.0.1:9091/metrics`). Example output:
 
 ```prometheus
 # HELP queue_items_enqueued_total Total items enqueued by item_type and operation
 # TYPE queue_items_enqueued_total counter
 queue_items_enqueued_total 42
-queue_items_enqueued_total{item_type="file", op="ingest"} 35
-queue_items_enqueued_total{item_type="content", op="update"} 7
+queue_items_enqueued_total{item_type="file", op="add"} 35
+queue_items_enqueued_total{item_type="text", op="update"} 7
 
 # HELP queue_depth_current Current queue depth by status
 # TYPE queue_depth_current gauge
@@ -342,63 +331,6 @@ groups:
         annotations:
           summary: High queue failure rate
           description: "Queue failure rate is {{ $value | humanizePercentage }}"
-
-      - alert: QueueDriftDetected
-        expr: sum(dual_write_queue_drift_items) > 0
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: Queue drift detected
-          description: "{{ $value }} items have drift between unified and legacy queues"
-```
-
----
-
-## Python API
-
-### Recording Metrics
-
-```python
-from workspace_qdrant_mcp.observability.metrics import (
-    record_queue_enqueue,
-    record_queue_processed,
-    record_wait_duration,
-    record_processing_duration,
-    set_queue_depth,
-    set_oldest_pending_age,
-    get_queue_processor_metrics_summary,
-)
-
-# Record enqueue
-record_queue_enqueue(item_type="file", op="ingest")
-
-# Record completion
-record_queue_processed(item_type="file", op="ingest", status="done")
-
-# Record latencies
-record_wait_duration(item_type="file", duration_seconds=2.5)
-record_processing_duration(item_type="file", op="ingest", duration_seconds=15.3)
-
-# Update gauges
-set_queue_depth(status="pending", count=42)
-set_oldest_pending_age(age_seconds=120.5)
-
-# Get summary
-summary = get_queue_processor_metrics_summary()
-```
-
-### Tool Metrics Decorator
-
-```python
-from workspace_qdrant_mcp.observability.metrics import track_tool
-
-@track_tool("search")
-async def search(query: str, ...) -> dict:
-    # Automatically tracks:
-    # - wqm_tool_calls_total{tool_name="search", status="success|error|logical_failure"}
-    # - wqm_tool_duration_seconds{tool_name="search"}
-    ...
 ```
 
 ---
@@ -413,6 +345,4 @@ async def search(query: str, ...) -> dict:
 
 4. **Track wait duration percentiles**: High p95/p99 wait times indicate bottlenecks even if average is acceptable.
 
-5. **Set up drift alerts during migration**: Queue drift should be zero after dual-write stabilization.
-
-6. **Review Grafana dashboard regularly**: The pre-built dashboard provides at-a-glance health monitoring.
+5. **Review Grafana dashboard regularly**: The pre-built dashboard provides at-a-glance health monitoring.

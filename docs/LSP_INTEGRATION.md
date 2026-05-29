@@ -743,7 +743,7 @@ wqm admin cleanup --lsp     # Clear stale LSP state
 |----------|---------|
 | [docs/specs/](../docs/specs/) | Modular specification files |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture |
-| [CLI.md](./CLI.md) | CLI command reference |
+| [CLI Reference](reference/cli.md) | CLI command reference |
 | [METRICS.md](./METRICS.md) | Metrics documentation |
 
 ---

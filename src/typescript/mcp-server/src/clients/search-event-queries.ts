@@ -166,3 +166,53 @@ export function updateSearchEventEconomy(
     );
   });
 }
+
+/**
+ * Combined finish-instrumentation for tools that don't have a shaping
+ * pass of their own (grep / retrieve / list). Records both the
+ * post-execution `result_count` / `latency_ms` and the token-economy
+ * sidecar in a single call site so the tool's own code stays minimal.
+ *
+ * Spec: `docs/specs/20-token-economy-instrumentation.md` §3.2–§3.4.
+ *
+ * Fire-and-forget for both sides — never raises to the caller.
+ */
+export interface ToolEventFinish {
+  resultCount: number;
+  latencyMs: number;
+  bytesIn: number;
+  bytesOut: number;
+  toolVersion?: string | undefined;
+  outcome?: string | undefined;
+  /**
+   * Optional shaping mode. Defaults to `'none'` — these tools don't
+   * currently shape responses. If a tool later grows a shaping pass,
+   * pass `'truncate'` or `'summary'` accordingly.
+   */
+  shapeMode?: 'truncate' | 'summary' | 'none' | undefined;
+  /** Optional truncated-hit count. Defaults to 0 when shapeMode is 'none'. */
+  hitsTruncated?: number | undefined;
+}
+
+export function finishToolEvent(
+  daemonClient: DaemonClient | null,
+  eventId: string,
+  finish: ToolEventFinish
+): void {
+  if (!daemonClient) return;
+  const updateArgs: SearchEventUpdate = {
+    resultCount: finish.resultCount,
+    latencyMs: finish.latencyMs,
+  };
+  if (finish.outcome !== undefined) updateArgs.outcome = finish.outcome;
+  updateSearchEvent(daemonClient, eventId, updateArgs);
+
+  const economyArgs: SearchEventEconomyInput = {
+    bytesIn: finish.bytesIn,
+    bytesOut: finish.bytesOut,
+    hitsTruncated: finish.hitsTruncated ?? 0,
+    shapeMode: finish.shapeMode ?? 'none',
+  };
+  if (finish.toolVersion !== undefined) economyArgs.toolVersion = finish.toolVersion;
+  updateSearchEventEconomy(daemonClient, eventId, economyArgs);
+}

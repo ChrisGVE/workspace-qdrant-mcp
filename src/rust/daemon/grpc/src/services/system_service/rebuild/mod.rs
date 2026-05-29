@@ -5,6 +5,9 @@
 
 use std::sync::Arc;
 use tracing::info;
+use wqm_common::constants::{
+    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+};
 
 mod folder_targets;
 mod index_targets;
@@ -30,11 +33,15 @@ pub(super) async fn dispatch(
             index_targets::rebuild_vocabulary(lexicon_manager, db_pool, collection).await
         }
         "keywords" => keyword_targets::rebuild_keywords(db_pool, tenant_id, collection).await,
-        "rules" => storage_targets::rebuild_rules(storage_client, db_pool).await,
+        COLLECTION_RULES => storage_targets::rebuild_rules(storage_client, db_pool).await,
         "rules-payload" => storage_targets::rebuild_rules_payload(storage_client, db_pool).await,
-        "scratchpad" => storage_targets::rebuild_scratchpad(storage_client, db_pool).await,
-        "projects" => folder_targets::rebuild_watch_folders(db_pool, "projects", tenant_id).await,
-        "libraries" => folder_targets::rebuild_watch_folders(db_pool, "libraries", tenant_id).await,
+        COLLECTION_SCRATCHPAD => storage_targets::rebuild_scratchpad(storage_client, db_pool).await,
+        COLLECTION_PROJECTS => {
+            folder_targets::rebuild_watch_folders(db_pool, COLLECTION_PROJECTS, tenant_id).await
+        }
+        COLLECTION_LIBRARIES => {
+            folder_targets::rebuild_watch_folders(db_pool, COLLECTION_LIBRARIES, tenant_id).await
+        }
         "components" => folder_targets::rebuild_components(db_pool, tenant_id, force).await,
         "all" => {
             info!("Starting full rebuild (all targets)");
@@ -48,8 +55,8 @@ pub(super) async fn dispatch(
             storage_targets::rebuild_rules_payload(storage_client.clone(), db_pool).await;
             storage_targets::rebuild_rules(storage_client.clone(), db_pool).await;
             storage_targets::rebuild_scratchpad(storage_client, db_pool).await;
-            folder_targets::rebuild_watch_folders(db_pool, "projects", tenant_id).await;
-            folder_targets::rebuild_watch_folders(db_pool, "libraries", tenant_id).await;
+            folder_targets::rebuild_watch_folders(db_pool, COLLECTION_PROJECTS, tenant_id).await;
+            folder_targets::rebuild_watch_folders(db_pool, COLLECTION_LIBRARIES, tenant_id).await;
             info!("Full rebuild complete (all targets)");
         }
         _ => {} // Validated by caller

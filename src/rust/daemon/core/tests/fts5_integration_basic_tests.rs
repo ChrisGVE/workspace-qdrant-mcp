@@ -68,6 +68,7 @@ async fn test_file_add_via_flush_then_search() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -108,6 +109,7 @@ async fn test_file_update_diff_search_finds_new_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -129,6 +131,7 @@ async fn test_file_update_diff_search_finds_new_content() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -166,6 +169,7 @@ async fn test_file_update_adds_new_lines() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -181,6 +185,7 @@ async fn test_file_update_adds_new_lines() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 

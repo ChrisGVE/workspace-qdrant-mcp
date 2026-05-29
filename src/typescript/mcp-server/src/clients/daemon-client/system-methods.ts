@@ -8,17 +8,26 @@ import type {
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
+  QueueStatsResponse,
   GetEmbeddingProviderStatusResponse,
+  RebuildIndexRequest,
+  RebuildIndexResponse,
   ServerState,
   ServerStatusNotification,
   RegisterProjectRequest,
   RegisterProjectResponse,
   DeprioritizeProjectRequest,
   DeprioritizeProjectResponse,
+  GetProjectStatusRequest,
+  GetProjectStatusResponse,
   HeartbeatRequest,
   HeartbeatResponse,
   ListProjectsRequest,
   ListProjectsResponse,
+  ListWatchesRequest,
+  ListWatchesResponse,
+  ListFailedItemsRequest,
+  ListFailedItemsResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
@@ -64,6 +73,17 @@ export class DaemonClientSystem extends DaemonClientBase {
     );
   }
 
+  async getQueueStats(): Promise<QueueStatsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.systemClient,
+        'getQueueStats',
+        {},
+        this.getMethodTimeout('getQueueStats')
+      )
+    );
+  }
+
   async getEmbeddingProviderStatus(): Promise<GetEmbeddingProviderStatusResponse> {
     return this.callWithRetry(() =>
       grpcUnaryWithTimeout(
@@ -72,6 +92,18 @@ export class DaemonClientSystem extends DaemonClientBase {
         {},
         this.getMethodTimeout('getEmbeddingProviderStatus')
       )
+    );
+  }
+
+  /**
+   * Rebuild computed indexes (FTS5, tags, sparse vectors, components,
+   * keywords) for one tenant. Recomputes from already-indexed content —
+   * does not re-read files or regenerate dense embeddings. Uses a longer
+   * ceiling than the 5s default since a full per-project rebuild is heavier.
+   */
+  async rebuildIndex(request: RebuildIndexRequest): Promise<RebuildIndexResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(this.systemClient, 'rebuildIndex', request, 60_000, 'rebuildIndex')
     );
   }
 
@@ -131,6 +163,26 @@ export class DaemonClientSystem extends DaemonClientBase {
   }
 
   /**
+   * Fetch project status — registration metadata plus per-project indexing
+   * counts (pending / in_progress / failed / done / total / percent_complete).
+   *
+   * Drives the `indexing` block on `SearchResponse` and the `indexing_status`
+   * action on the `workspace_index` MCP tool. Cheap call (two COUNT queries
+   * on indexed tables), but `search-helpers` caches the result with a short
+   * TTL anyway since it can fire on every tool invocation.
+   */
+  async getProjectStatus(request: GetProjectStatusRequest): Promise<GetProjectStatusResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'getProjectStatus',
+        request,
+        this.getMethodTimeout('getProjectStatus')
+      )
+    );
+  }
+
+  /**
    * List registered projects via the daemon's `ListProjects` RPC.
    *
    * Prefer this over `SqliteStateManager.listAllProjects()` when the MCP
@@ -147,6 +199,40 @@ export class DaemonClientSystem extends DaemonClientBase {
         'listProjects',
         request,
         this.getMethodTimeout('listProjects')
+      )
+    );
+  }
+
+  /**
+   * List watched folders via the daemon's `ListWatches` RPC. Read-only gRPC
+   * equivalent of `wqm watch list` — lets the dockerized MCP server enumerate
+   * watches without a local wqm binary.
+   */
+  async listWatches(request: ListWatchesRequest = {}): Promise<ListWatchesResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'listWatches',
+        request,
+        this.getMethodTimeout('listWatches')
+      )
+    );
+  }
+
+  /**
+   * List queue items in the 'failed' state via the daemon's `ListFailedItems`
+   * RPC. Read-only; backs the admin UI's failed-items drill-down. Retry is a
+   * separate QueueWriteService mutation (`retryAll` / `retryItem`).
+   */
+  async listFailedItems(
+    request: ListFailedItemsRequest = {}
+  ): Promise<ListFailedItemsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.projectClient,
+        'listFailedItems',
+        request,
+        this.getMethodTimeout('listFailedItems')
       )
     );
   }

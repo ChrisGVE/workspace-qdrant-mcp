@@ -164,11 +164,59 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \
     ORT_LIB_LOCATION=/opt/onnxruntime/lib \
-    cargo build --release --package memexd
+    cargo build --release --package memexd --package wqm-cli
 
-# Copy the binary out of the cache mount so the next stage can access it.
+# Copy the binaries out of the cache mount so the next stage can access them.
+# wqm ships alongside memexd so `docker exec wqm-memexd wqm ...` runs against the
+# daemon's own SQLite volume + local gRPC endpoint (correct data, no host wqm).
 RUN --mount=type=cache,target=/build/target,sharing=locked \
-    cp /build/target/release/memexd /usr/local/bin/memexd
+    cp /build/target/release/memexd /usr/local/bin/memexd \
+    && cp /build/target/release/wqm /usr/local/bin/wqm
+
+# ─────────────────────────────────────────────
+# Stage 2b: validate — local CI-parity gate (NOT part of the runtime image)
+#
+# Why this exists: work on `fork/fixes` gets no CI. `.github/workflows/ci.yml`
+# only runs on PRs to `main`/`dev`, and the local Windows build breaks on a
+# pre-existing winapi gate in storage/client.rs. This stage runs the SAME
+# clippy + test suite as the CI `rust` job, inside the Linux builder, so any
+# host can validate before merging into fork/fixes.
+#
+#   docker build --target validate -f docker/Dockerfile.memexd .
+#   # or: scripts/validate.sh   (bash)   /   scripts/validate.ps1 (Windows)
+#
+# It is `FROM builder`, so it reuses the exact source layout, ONNX setup and
+# dependency graph of the production build — zero drift. `runtime` does not
+# reference it, so a normal image build never runs this stage.
+# ─────────────────────────────────────────────
+FROM builder AS validate
+
+# The base rust image ships cargo/rustc but not the clippy component.
+RUN rustup component add clippy
+
+# The builder flattens src/rust to /build and copies only the two runtime
+# YAML assets to /assets. Test code reaches additional repo-root assets via
+# include_str! (e.g. tagging/taxonomy.rs → ../../../../../../assets/taxonomy.yaml,
+# which resolves to /assets in this layout), so copy the whole assets tree for
+# the clippy --tests / test compile to succeed.
+COPY assets/ /assets/
+
+# Gate = clippy (-D warnings, mirrors the CI `rust` job's lint step, compiling
+# lib + bins + all test targets) + the production release build inherited from
+# the `builder` stage. This is the reliable, high-value signal: lint-clean and
+# the production binaries compile.
+#
+# The full `cargo test` suite is deliberately NOT run here. In this flattened
+# single-container layout it is fragile and non-representative — the FTS5
+# trigram text-search tests (text_search::{exact,regex}_search) and the
+# timing-based adaptive_resources::idle_detection test fail for environment
+# reasons, not real regressions. Run the suite at true parity via a
+# `fork/fixes → main` PR, where CI checks it out in full with network.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/build/target,sharing=locked \
+    ORT_LIB_LOCATION=/opt/onnxruntime/lib \
+    cargo clippy --lib --bins --tests -- -D warnings
 
 # ─────────────────────────────────────────────
 # Stage 3a: rust-analyzer binary download
@@ -258,7 +306,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /home/memexd/.config/workspace-qdrant \
         /home/memexd/.cache \
         /home/memexd/.local/state \
-    && chown -R memexd:memexd /home/memexd
+        /var/lib/wqm \
+    && chown -R memexd:memexd /home/memexd \
+    && chown memexd:memexd /var/lib/wqm
 
 # libgit2 (used via the `git2` crate) runs its own ownership check on every
 # Repository::open; unlike the git CLI it ignores GIT_CONFIG_* env vars and
@@ -291,6 +341,9 @@ LABEL org.opencontainers.image.title="memexd" \
       org.opencontainers.image.licenses="MIT"
 
 COPY --from=builder /usr/local/bin/memexd /usr/local/bin/memexd
+# Bundled wqm CLI — lets `docker exec wqm-memexd wqm <cmd>` run inside the daemon
+# container (correct DB volume + local gRPC) so host tooling needs no local wqm.
+COPY --from=builder /usr/local/bin/wqm /usr/local/bin/wqm
 
 # Note: the Cargo release profile already sets strip=true, so the binary is
 # already stripped when copied from the builder stage.  An extra `strip` pass

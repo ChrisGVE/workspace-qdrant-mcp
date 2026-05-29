@@ -17,7 +17,6 @@ are included in the container image.
 | `standalone-memexd.yml` | Single-service memexd example. |
 | `standalone-mcp.yml` | Single-service MCP example. |
 | `qdrant.yml` | Qdrant-only example. |
-| `full-stack.yml` | Legacy main-docker-specific overlay. |
 | `observability.yml` | Observability overlay for local Prometheus/Grafana/OTel. |
 
 ## Quickstart
@@ -131,10 +130,6 @@ Prometheus scrape targets live in `docker/prometheus/prometheus.yml`
 The MCP scrape reuses `MCP_HTTP_TOKEN`; the Prometheus container writes it
 to an in-memory secret file before launching.
 Grafana picks up `docker/grafana/provisioning/` on first boot.
-
-Already running `main-docker`? Use `full-stack.yml` instead only if you
-need that legacy integration path — it attaches memexd + mcp to the
-main-docker observability stack and omits Prometheus/Grafana here.
 
 ## Add Let's Encrypt TLS
 

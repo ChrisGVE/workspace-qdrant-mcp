@@ -17,6 +17,23 @@ use wqm_common::constants::COLLECTION_PROJECTS;
 use super::grammar_warm;
 use super::project_worktree::resolve_worktree_info;
 
+/// Outcome of attempting to insert a watch_folder row during project Add.
+///
+/// Mirrors the `FileEnqueueResult` pattern used in `library.rs`: a small
+/// status enum returned alongside `UnifiedProcessorResult` so the caller can
+/// branch on what actually happened in the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatchFolderInsertStatus {
+    /// A new watch_folder row was inserted for this project.
+    Inserted,
+    /// A watch_folder row for this path/collection already exists
+    /// (idempotent re-registration).
+    AlreadyExists,
+    /// The project_root is a subdirectory of an already-registered project,
+    /// so no watch_folder was created and no scan should be enqueued.
+    SkippedSubdir,
+}
+
 /// Process project item -- create/manage project collections.
 pub(crate) async fn process_project_item(
     ctx: &ProcessingContext,
@@ -62,6 +79,11 @@ pub(crate) async fn process_project_item(
 ///
 /// Creates the Qdrant collection (idempotent), inserts a watch_folder row,
 /// and enqueues a follow-up (Tenant, Scan) item.
+///
+/// When `insert_watch_folder` reports `SkippedSubdir` (the project_root is
+/// a subdirectory of an already-registered project), both the scan enqueue
+/// and grammar pre-warming are skipped — otherwise the daemon would
+/// generate orphan File/Add items whose tenant_id has no watch_folder row.
 async fn handle_project_add(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -72,24 +94,45 @@ async fn handle_project_add(
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
     let git_status = crate::git::detect_git_status(std::path::Path::new(&payload.project_root));
-    insert_watch_folder(ctx, item, payload, &git_status).await?;
-    enqueue_project_scan(ctx, item, payload).await;
+    let insert_status = insert_watch_folder(ctx, item, payload, &git_status).await?;
 
-    // Spawn background grammar pre-warming for this project's languages.
-    // Non-blocking: project registration returns immediately.
-    if let Some(ref gm) = ctx.grammar_manager {
-        grammar_warm::spawn_grammar_warming(gm.clone(), payload.project_root.clone());
+    match insert_status {
+        WatchFolderInsertStatus::Inserted | WatchFolderInsertStatus::AlreadyExists => {
+            enqueue_project_scan(ctx, item, payload).await;
+
+            // Spawn background grammar pre-warming for this project's languages.
+            // Non-blocking: project registration returns immediately.
+            if let Some(ref gm) = ctx.grammar_manager {
+                grammar_warm::spawn_grammar_warming(gm.clone(), payload.project_root.clone());
+            }
+        }
+        WatchFolderInsertStatus::SkippedSubdir => {
+            info!(
+                "Skipping project scan for tenant={} (subdirectory of existing project, no watch_folder)",
+                item.tenant_id
+            );
+        }
     }
 
     Ok(())
 }
 
-async fn insert_watch_folder(
+/// Insert (or detect existing) watch_folder row for a project Add.
+///
+/// Returns a [`WatchFolderInsertStatus`] describing what happened:
+/// - `SkippedSubdir`: the path is a subdirectory of an already-registered
+///   project, so no row was written. Callers MUST NOT enqueue a scan in
+///   this case — the orphan tenant_id has no watch_folder and downstream
+///   processors will reject every File/Add item it would generate.
+/// - `Inserted`: a brand-new watch_folder row was written.
+/// - `AlreadyExists`: a watch_folder for this exact path/collection was
+///   already present (idempotent re-registration).
+pub(crate) async fn insert_watch_folder(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,
     git_status: &crate::git::GitStatus,
-) -> UnifiedProcessorResult<()> {
+) -> UnifiedProcessorResult<WatchFolderInsertStatus> {
     // Guard: reject registering a subdirectory of an already-registered project.
     // This prevents test fixtures, language directories, etc. from becoming
     // spurious watch folders.
@@ -110,7 +153,7 @@ async fn insert_watch_folder(
             "Skipping watch folder creation: {} is a subdirectory of an already-registered project",
             payload.project_root
         );
-        return Ok(());
+        return Ok(WatchFolderInsertStatus::SkippedSubdir);
     }
 
     let now = wqm_common::timestamps::now_utc();
@@ -163,16 +206,17 @@ async fn insert_watch_folder(
             is_worktree,
             main_worktree_watch_id,
         );
+        Ok(WatchFolderInsertStatus::Inserted)
     } else {
         info!(
             "Watch folder already exists for tenant={} (idempotent)",
             item.tenant_id
         );
+        Ok(WatchFolderInsertStatus::AlreadyExists)
     }
-    Ok(())
 }
 
-async fn enqueue_project_scan(
+pub(crate) async fn enqueue_project_scan(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,

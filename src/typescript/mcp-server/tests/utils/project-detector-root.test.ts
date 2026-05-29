@@ -215,4 +215,59 @@ describe('ProjectDetector', () => {
       expect(info3?.projectId).toBe('modified1234');
     });
   });
+
+  describe('getProjectInfo fallbackToSoleProject', () => {
+    function register(watchId: string, path: string, tenant: string): void {
+      const db = new Database(dbPath);
+      db.prepare(
+        `INSERT INTO watch_folders
+         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+         VALUES (?, ?, 'projects', ?, 1, datetime('now'), datetime('now'))`
+      ).run(watchId, path, tenant);
+      db.close();
+
+      stateManager.close();
+      stateManager = new SqliteStateManager({ dbPath });
+      stateManager.initialize();
+    }
+
+    it('assumes the sole registered project when the path cannot be mapped', async () => {
+      register('w1', '/run/desktop/mnt/host/c/Users/x/repo', 'soletenant001');
+
+      const detector = new ProjectDetector({ stateManager });
+      const unmapped = join(tempDir, 'cannot-map-this');
+
+      const info = await detector.getProjectInfo(unmapped, false, {
+        fallbackToSoleProject: true,
+      });
+
+      expect(info).not.toBeNull();
+      expect(info!.projectId).toBe('soletenant001');
+    });
+
+    it('returns null for an unmapped path without the fallback flag', async () => {
+      register('w1', '/run/desktop/mnt/host/c/Users/x/repo', 'soletenant001');
+
+      const detector = new ProjectDetector({ stateManager });
+      const unmapped = join(tempDir, 'cannot-map-this');
+
+      const info = await detector.getProjectInfo(unmapped, false);
+
+      expect(info).toBeNull();
+    });
+
+    it('does not guess when 2+ projects are registered', async () => {
+      register('w1', '/run/desktop/mnt/host/c/Users/x/repo-a', 'tenanta000001');
+      register('w2', '/run/desktop/mnt/host/c/Users/x/repo-b', 'tenantb000001');
+
+      const detector = new ProjectDetector({ stateManager });
+      const unmapped = join(tempDir, 'cannot-map-this');
+
+      const info = await detector.getProjectInfo(unmapped, false, {
+        fallbackToSoleProject: true,
+      });
+
+      expect(info).toBeNull();
+    });
+  });
 });

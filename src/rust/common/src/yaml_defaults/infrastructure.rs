@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+use crate::constants::{DEFAULT_GRPC_PORT, DEFAULT_QDRANT_URL};
 use super::duration_serde;
 use super::parse_duration_to_ms;
 
@@ -28,7 +29,7 @@ pub struct YamlQdrantConfig {
 impl Default for YamlQdrantConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:6333".to_string(),
+            url: DEFAULT_QDRANT_URL.to_string(),
             api_key: None,
             timeout: 30_000,
             prefer_grpc: true,
@@ -107,7 +108,7 @@ impl Default for YamlGrpcConfig {
         Self {
             enabled: true,
             host: "127.0.0.1".to_string(),
-            port: 50051,
+            port: DEFAULT_GRPC_PORT,
             fallback_to_direct: true,
             max_retries: 3,
         }

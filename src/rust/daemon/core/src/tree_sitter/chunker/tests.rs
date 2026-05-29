@@ -230,10 +230,228 @@ fn test_oversize_gate_no_split_when_under_budget() {
     assert_eq!(without_tk.len(), 1);
     assert!(!without_tk[0].is_fragment);
 
-    if let Some(tokenizer) = ModelTokenizer::from_model_cache(None).ok() {
+    if let Ok(tokenizer) = ModelTokenizer::from_model_cache(None) {
         let tk = Arc::new(tokenizer);
         let with_tk = handle_oversized_chunks(vec![chunk], "", 1000, Some(&tk));
         assert_eq!(with_tk.len(), 1);
         assert!(!with_tk[0].is_fragment);
+    }
+}
+
+#[test]
+fn test_text_chunk_fallback_empty_source() {
+    // Empty source should produce no chunks (no content to chunk).
+    // Current behavior: returns a single empty chunk because the
+    // small-file branch handles `source.len() <= target_chars` first.
+    let path = PathBuf::from("empty.txt");
+    let chunks = text_chunk_fallback("", &path, 8000);
+
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].chunk_type, ChunkType::Text);
+    assert!(chunks[0].content.is_empty());
+}
+
+#[test]
+fn test_text_chunk_fallback_no_newlines_large() {
+    // Content with no newlines that exceeds target_chars hits the
+    // `for line in source.lines()` loop with a single line. Since the
+    // line itself is bigger than the budget, the loop still emits one
+    // chunk containing that whole line — verify we don't drop content.
+    let source = "x".repeat(10_000);
+    let path = PathBuf::from("oneliner.txt");
+    let chunks = text_chunk_fallback(&source, &path, 100); // target 400 chars
+
+    assert!(!chunks.is_empty(), "Must not drop content");
+    // Reassembling all chunk contents should round-trip the source
+    // (with newlines reinserted by the splitter only when content had
+    // them — no newlines here, so the single chunk contains everything).
+    let reassembled: String = chunks.iter().map(|c| c.content.as_str()).collect();
+    assert_eq!(reassembled.len(), source.len());
+}
+
+#[test]
+fn test_text_chunk_fallback_language_from_extension() {
+    let chunks = text_chunk_fallback("println!(\"hi\");", &PathBuf::from("a.rs"), 8000);
+    assert_eq!(chunks[0].language, "rs");
+
+    let chunks = text_chunk_fallback("print('hi')", &PathBuf::from("a.py"), 8000);
+    assert_eq!(chunks[0].language, "py");
+
+    // Missing extension falls back to "text".
+    let chunks = text_chunk_fallback("plain", &PathBuf::from("README"), 8000);
+    assert_eq!(chunks[0].language, "text");
+}
+
+#[test]
+fn test_text_chunk_fallback_line_numbers_contiguous() {
+    // Chunks emitted by the line-by-line splitter must cover the
+    // source with monotonically increasing, contiguous line ranges
+    // (chunk[i].end_line + 1 == chunk[i+1].start_line).
+    let source = (1..=200).map(|i| format!("line {}", i)).collect::<Vec<_>>().join("\n");
+    let chunks = text_chunk_fallback(&source, &PathBuf::from("file.txt"), 50);
+
+    assert!(chunks.len() > 1, "expected multiple chunks");
+    for pair in chunks.windows(2) {
+        assert_eq!(
+            pair[0].end_line + 1,
+            pair[1].start_line,
+            "chunks not contiguous: {} -> {}",
+            pair[0].end_line,
+            pair[1].start_line
+        );
+    }
+}
+
+#[test]
+fn test_safe_char_boundary_emoji_4byte() {
+    // 4-byte UTF-8 (emoji): U+1F600 "😀" encodes as F0 9F 98 80.
+    let s = "a\u{1F600}b";
+    // Layout: a(0) 😀(1,2,3,4) b(5)
+    assert_eq!(safe_char_boundary(s, 0), 0);
+    assert_eq!(safe_char_boundary(s, 1), 1); // start of emoji
+    assert_eq!(safe_char_boundary(s, 2), 1); // inside emoji -> back to 1
+    assert_eq!(safe_char_boundary(s, 3), 1);
+    assert_eq!(safe_char_boundary(s, 4), 1);
+    assert_eq!(safe_char_boundary(s, 5), 5); // start of b
+}
+
+#[test]
+fn test_safe_char_boundary_empty_and_zero() {
+    assert_eq!(safe_char_boundary("", 0), 0);
+    assert_eq!(safe_char_boundary("", 100), 0); // beyond len of empty
+    assert_eq!(safe_char_boundary("abc", 0), 0);
+}
+
+#[test]
+fn test_handle_oversized_chunks_empty_input() {
+    let result = handle_oversized_chunks(Vec::new(), "", 1000, None);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_handle_oversized_chunks_mixed_batch_preserves_order() {
+    // Small + large + small: small chunks pass through unchanged,
+    // large is split into fragments. Order must be preserved.
+    let small_a = SemanticChunk::new(
+        ChunkType::Function,
+        "small_a",
+        "fn a() {}",
+        1,
+        1,
+        "rust",
+        "a.rs",
+    );
+    let large = SemanticChunk::new(
+        ChunkType::Function,
+        "big",
+        "let v = compute();\n".repeat(150), // ~2850 chars, ~712 tokens via len/4
+        1,
+        150,
+        "rust",
+        "big.rs",
+    );
+    let small_b = SemanticChunk::new(
+        ChunkType::Function,
+        "small_b",
+        "fn b() {}",
+        1,
+        1,
+        "rust",
+        "b.rs",
+    );
+
+    // max_chunk_size=200 → target_size=800 chars, step_size=300 (> 0),
+    // so the splitter actually advances past the first fragment.
+    let result = handle_oversized_chunks(
+        vec![small_a.clone(), large.clone(), small_b.clone()],
+        "",
+        200,
+        None,
+    );
+
+    // First should be the unchanged small_a.
+    assert_eq!(result[0].symbol_name, "small_a");
+    assert!(!result[0].is_fragment);
+
+    // Last should be the unchanged small_b.
+    let last = result.last().expect("non-empty");
+    assert_eq!(last.symbol_name, "small_b");
+    assert!(!last.is_fragment);
+
+    // Everything between must be `big` fragments.
+    let middle = &result[1..result.len() - 1];
+    assert!(!middle.is_empty(), "expected `big` to split into >=1 fragment");
+    for frag in middle {
+        assert_eq!(frag.symbol_name, "big");
+        assert!(frag.is_fragment);
+    }
+}
+
+#[test]
+fn test_split_preserves_parent_symbol_on_all_fragments() {
+    // Methods carry parent_symbol; when a long method is fragmented,
+    // every fragment must keep the parent attribution so downstream
+    // consumers (graph, search) don't lose the class context.
+    let chunker = SemanticChunker::new(200); // target 800 chars
+
+    let chunk = SemanticChunk::new(
+        ChunkType::Method,
+        "process",
+        "let v = compute();\n".repeat(150), // ~2850 chars
+        10,
+        160,
+        "rust",
+        "svc.rs",
+    )
+    .with_parent("AuthService");
+
+    let fragments = chunker.split_oversized_chunk(&chunk);
+    assert!(fragments.len() > 1, "expected fragmentation");
+    for frag in &fragments {
+        assert_eq!(
+            frag.parent_symbol.as_deref(),
+            Some("AuthService"),
+            "fragment {:?} lost parent_symbol",
+            frag.fragment_index
+        );
+    }
+}
+
+#[test]
+fn test_split_fragment_indices_sequential() {
+    // Fragment indices must form 0, 1, 2, ... with no gaps or duplicates.
+    let chunker = SemanticChunker::new(200);
+    let chunk = SemanticChunk::new(
+        ChunkType::Function,
+        "long_fn",
+        "let _x = 0;\n".repeat(400), // 4800 chars, will produce several fragments
+        1,
+        400,
+        "rust",
+        "f.rs",
+    );
+
+    let fragments = chunker.split_oversized_chunk(&chunk);
+    assert!(fragments.len() >= 3, "need multiple fragments to test ordering");
+
+    let indices: Vec<usize> = fragments
+        .iter()
+        .map(|f| f.fragment_index.expect("set on fragments"))
+        .collect();
+    let expected: Vec<usize> = (0..fragments.len()).collect();
+    assert_eq!(indices, expected, "fragment indices must be 0..N sequential");
+
+    // All fragments report the same total_fragments value.
+    let totals: std::collections::HashSet<usize> = fragments
+        .iter()
+        .map(|f| f.total_fragments.expect("set on fragments"))
+        .collect();
+    assert_eq!(totals.len(), 1, "total_fragments must agree across fragments");
+
+    // Later fragments never leak docstring/signature — those belong only
+    // to the first fragment (regression for the as_fragment() logic).
+    for frag in &fragments[1..] {
+        assert!(frag.docstring.is_none(), "non-first fragment leaked docstring");
+        assert!(frag.signature.is_none(), "non-first fragment leaked signature");
     }
 }

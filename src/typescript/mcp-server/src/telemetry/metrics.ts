@@ -1,7 +1,7 @@
 /**
  * Prometheus metrics for the workspace-qdrant MCP server.
  *
- * Defines 9 metric families:
+ * Defines 11 metric families:
  *   wqm_mcp_tool_invocations_total     - Counter, labels [tool, status]
  *   wqm_mcp_tool_duration_seconds      - Histogram, label [tool], buckets [0.01…5]
  *   wqm_mcp_session_count              - Gauge
@@ -11,6 +11,8 @@
  *   wqm_mcp_http_requests_total        - Counter, labels [path, status_class]
  *   wqm_mcp_http_auth_failures_total   - Counter, label [reason]
  *   wqm_mcp_http_rate_limited_total    - Counter (no labels; single signal)
+ *   wqm_git_hook_invocations_total     - Counter, labels [hook, result, is_worktree]
+ *   wqm_git_hook_duration_seconds      - Histogram, labels [hook, result], buckets [0.05…30]
  *
  * Cache hit/miss counters are defined but unwired: no cache layer exists in
  * the MCP server at v0.1.3. They are ready for future use.
@@ -113,6 +115,62 @@ export const httpRateLimited = new Counter({
   help: 'MCP HTTP requests rejected by the per-IP sliding-window rate limiter',
   registers: [register],
 });
+
+// ── Git hook integration metrics ────────────────────────────────────────────
+
+/**
+ * Total invocations of the git-hook → `workspace_index.sync_current_branch`
+ * call path, broken down by:
+ *  - `hook`: the originating hook name (`post-commit`, `post-checkout`,
+ *    `post-merge`, `post-rewrite`, `post-worktree-add`, or `manual`)
+ *  - `result`: `success` if the daemon `registerProject` call returned,
+ *    `error` if it threw, `bad_request` if required args were missing.
+ *  - `is_worktree`: `true`/`false`, indicating whether the sync targeted a
+ *    linked worktree.
+ *
+ * Cardinality is bounded (~6 hooks × 3 results × 2 worktree = 36 series).
+ */
+export const gitHookInvocations = new Counter({
+  name: 'wqm_git_hook_invocations_total',
+  help: 'Git hooks dispatched to sync_current_branch by hook name, result and worktree flag',
+  labelNames: ['hook', 'result', 'is_worktree'] as const,
+  registers: [register],
+});
+
+/**
+ * Server-side duration of a git-hook sync_current_branch call (mostly the
+ * RegisterProject gRPC round-trip; excludes the initial MCP session init the
+ * client does before this handler is reached).
+ *
+ * Buckets reach 30s because RegisterProject can stall behind LSP startup
+ * (pyright initialize alone can take ~10s; other servers queue behind it).
+ */
+export const gitHookDuration = new Histogram({
+  name: 'wqm_git_hook_duration_seconds',
+  help: 'Server-side sync_current_branch handler duration in seconds',
+  labelNames: ['hook', 'result'] as const,
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+  registers: [register],
+});
+
+/**
+ * Start a hook-duration timer. Returns a function that finalises the timer
+ * and records the matching invocation counter. Always call the returned
+ * function exactly once, with the resolved `result` label.
+ */
+export function startGitHookTimer(
+  hook: string,
+  isWorktree: boolean
+): (result: 'success' | 'error' | 'bad_request') => void {
+  const startNs = process.hrtime.bigint();
+  return (result) => {
+    const seconds = Number(process.hrtime.bigint() - startNs) / 1e9;
+    gitHookDuration.labels({ hook, result }).observe(seconds);
+    gitHookInvocations
+      .labels({ hook, result, is_worktree: isWorktree ? 'true' : 'false' })
+      .inc();
+  };
+}
 
 // ── Tool wrapper ─────────────────────────────────────────────────────────────
 

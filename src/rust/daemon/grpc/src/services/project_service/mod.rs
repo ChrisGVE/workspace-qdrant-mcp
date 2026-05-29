@@ -1,8 +1,8 @@
 //! ProjectService gRPC implementation
 //!
 //! Handles multi-tenant project lifecycle and session management.
-//! Provides 7 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
-//! ListProjects, Heartbeat, RenameTenant, DeleteProject
+//! Provides 8 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
+//! ListProjects, ListWatches, Heartbeat, RenameTenant, DeleteProject
 //!
 //! LSP Integration:
 //! - On RegisterProject: detects project languages and starts LSP servers
@@ -32,8 +32,9 @@ use tracing::{debug, info};
 use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectStatusRequest,
-    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListProjectsRequest,
-    ListProjectsResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
+    GetProjectStatusResponse, HeartbeatRequest, HeartbeatResponse, ListFailedItemsRequest,
+    ListFailedItemsResponse, ListProjectsRequest, ListProjectsResponse, ListWatchesRequest,
+    ListWatchesResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
     RenameTenantResponse,
 };
 
@@ -251,6 +252,15 @@ impl ProjectService for ProjectServiceImpl {
         self.handle_list_projects(req).await.map(Response::new)
     }
 
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.list_watches"))]
+    async fn list_watches(
+        &self,
+        request: Request<ListWatchesRequest>,
+    ) -> Result<Response<ListWatchesResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_list_watches(req).await.map(Response::new)
+    }
+
     #[tracing::instrument(skip_all, fields(method = "ProjectService.heartbeat"))]
     async fn heartbeat(
         &self,
@@ -276,5 +286,14 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<DeleteProjectResponse>, Status> {
         let req = request.into_inner();
         self.handle_delete_project(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.list_failed_items"))]
+    async fn list_failed_items(
+        &self,
+        request: Request<ListFailedItemsRequest>,
+    ) -> Result<Response<ListFailedItemsResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_list_failed_items(req).await.map(Response::new)
     }
 }

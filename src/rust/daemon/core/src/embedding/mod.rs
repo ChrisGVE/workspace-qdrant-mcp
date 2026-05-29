@@ -13,6 +13,7 @@ mod generator;
 mod phrase_cache;
 pub mod provider;
 mod types;
+pub mod watchdog;
 
 #[cfg(test)]
 mod tests;
@@ -25,3 +26,4 @@ pub use types::{
     DenseEmbedding, EmbeddingConfig, EmbeddingError, EmbeddingResult, PreprocessedText,
     SparseEmbedding,
 };
+pub use watchdog::{EmbeddingHealth, EmbeddingWatchdog, WatchdogConfig};

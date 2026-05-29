@@ -91,6 +91,13 @@ pub struct UnifiedQueueProcessor {
     /// Search database manager for FTS5 code search index (Task 52)
     search_db: Option<Arc<SearchDbManager>>,
 
+    /// Sender to the FTS5 batch writer actor. Spawned automatically by
+    /// `with_search_db` so the per-item file handler can enqueue prepared
+    /// `Fts5WorkItem`s instead of opening one search.db transaction per
+    /// file. Eliminates `SQLITE_BUSY` lock contention by funneling all
+    /// FTS5 writes through a single batched task.
+    fts5_sender: Option<crate::search_db::Fts5Sender>,
+
     /// Graph store for code relationship extraction and storage (graph-rag)
     graph_store: Option<crate::graph::SharedGraphStore<crate::graph::SqliteGraphStore>>,
 
@@ -105,8 +112,15 @@ pub struct UnifiedQueueProcessor {
 }
 
 impl UnifiedQueueProcessor {
-    /// Create a new unified queue processor
-    pub fn new(pool: SqlitePool, config: UnifiedProcessorConfig) -> Self {
+    /// Create a new unified queue processor.
+    ///
+    /// Returns an error if the embedding generator fails to initialize, rather
+    /// than panicking — a failed embedding-provider init must not bring down the
+    /// daemon's file watching, embedding, and gRPC subsystems together.
+    pub fn new(
+        pool: SqlitePool,
+        config: UnifiedProcessorConfig,
+    ) -> UnifiedProcessorResult<Self> {
         let document_processor = Arc::new(DocumentProcessor::new());
         let embedding_config = EmbeddingConfig {
             num_threads: Some(config.onnx_intra_threads),
@@ -119,7 +133,7 @@ impl UnifiedQueueProcessor {
         ));
         let embedding_generator = Arc::new(
             EmbeddingGenerator::new(embedding_config.clone(), dense_provider)
-                .expect("Failed to create embedding generator"),
+                .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?,
         );
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
@@ -135,6 +149,9 @@ impl UnifiedQueueProcessor {
             low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
+            // Unit 3 of audit issue #8: thread age-promotion thresholds through.
+            age_promotion_warning_seconds: config.age_promotion_warning_seconds,
+            age_promotion_critical_seconds: config.age_promotion_critical_seconds,
         };
         let fairness_scheduler = Arc::new(FairnessScheduler::new(
             queue_manager.clone(),
@@ -147,7 +164,7 @@ impl UnifiedQueueProcessor {
         ));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
-        Self {
+        Ok(Self {
             queue_manager,
             config,
             fairness_scheduler,
@@ -166,11 +183,12 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            fts5_sender: None,
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
-        }
+        })
     }
 
     /// Create with custom components
@@ -195,6 +213,9 @@ impl UnifiedQueueProcessor {
             low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
+            // Unit 3 of audit issue #8: thread age-promotion thresholds through.
+            age_promotion_warning_seconds: config.age_promotion_warning_seconds,
+            age_promotion_critical_seconds: config.age_promotion_critical_seconds,
         };
         let fairness_scheduler = Arc::new(FairnessScheduler::new(
             queue_manager.clone(),
@@ -226,6 +247,7 @@ impl UnifiedQueueProcessor {
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
             search_db: None,
+            fts5_sender: None,
             graph_store: None,
             watch_refresh_signal: None,
             grammar_manager: None,
@@ -252,8 +274,27 @@ impl UnifiedQueueProcessor {
     }
 
     /// Set the search database manager for FTS5 code search integration (Task 52)
+    ///
+    /// Also spawns the FTS5 batch writer actor and installs its sender as
+    /// the daemon-wide default (see `search_db::batch_writer::global_sender`).
+    /// The actor lives for the lifetime of the process; the per-item file
+    /// handler routes all FTS5 writes through it to eliminate SQLITE_BUSY
+    /// contention on search.db.
     pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
+        let sender = crate::search_db::batch_writer::spawn(
+            Arc::clone(&search_db),
+            self.queue_manager.pool().clone(),
+            Arc::new(self.queue_manager.clone()),
+        );
+        if let Err(_existing) = crate::search_db::batch_writer::install_global_sender(sender.clone()) {
+            tracing::warn!(
+                "FTS5 batch writer sender already installed — keeping the existing actor; \
+                 this typically only happens when with_search_db is called more than once \
+                 (e.g. in tests)"
+            );
+        }
         self.search_db = Some(search_db);
+        self.fts5_sender = Some(sender);
         self
     }
 

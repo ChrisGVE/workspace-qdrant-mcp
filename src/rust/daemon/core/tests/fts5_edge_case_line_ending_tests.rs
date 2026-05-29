@@ -78,6 +78,7 @@ async fn test_crlf_diff_update_works() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -94,6 +95,7 @@ async fn test_crlf_diff_update_works() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 

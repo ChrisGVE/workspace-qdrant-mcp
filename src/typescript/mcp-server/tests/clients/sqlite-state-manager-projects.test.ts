@@ -232,6 +232,59 @@ describe('SqliteStateManager', () => {
     });
   });
 
+  // Daemon (in a Docker Desktop container) stores the project root under the
+  // host mount `/run/desktop/mnt/host/c/...`, but a Windows MCP client reports
+  // its CWD as `C:\...`. Detection must bridge these path namespaces.
+  describe('cross-namespace path lookup', () => {
+    let manager: SqliteStateManager;
+
+    beforeEach(() => {
+      const db = new Database(dbPath);
+      db.prepare(
+        `INSERT INTO watch_folders
+         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+         VALUES ('watch-win', '/run/desktop/mnt/host/c/Users/alb/repo', 'projects', 'wintenant0001', 1,
+                 datetime('now'), datetime('now'))`
+      ).run();
+      db.close();
+
+      manager = new SqliteStateManager({ dbPath });
+      manager.initialize();
+    });
+
+    afterEach(() => {
+      manager.close();
+    });
+
+    it('matches a Windows host CWD to a Docker-mount stored path', () => {
+      const result = manager.getProjectByPath('C:\\Users\\alb\\repo');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).not.toBeNull();
+      expect(result.data!.project_id).toBe('wintenant0001');
+    });
+
+    it('matches a worktree subdirectory of the Windows CWD', () => {
+      const result = manager.getProjectByPath('C:\\Users\\alb\\repo\\.claude\\worktrees\\feat');
+
+      expect(result.data!.project_id).toBe('wintenant0001');
+    });
+
+    it('matches WSL and MSYS forms of the same path', () => {
+      expect(manager.getProjectByPath('/mnt/c/Users/alb/repo').data!.project_id).toBe(
+        'wintenant0001'
+      );
+      expect(manager.getProjectByPath('/c/Users/alb/repo').data!.project_id).toBe('wintenant0001');
+    });
+
+    it('still returns null for an unrelated sibling path', () => {
+      const result = manager.getProjectByPath('C:\\Users\\alb\\other-repo');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).toBeNull();
+    });
+  });
+
   describe('graceful degradation', () => {
     it('should return degraded for missing unified_queue table', async () => {
       // Create database without unified_queue table

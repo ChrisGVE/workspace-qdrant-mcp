@@ -240,6 +240,7 @@ fn build_queue_processor_settings(yaml: &YamlConfig) -> QueueProcessorSettings {
         retry_delays_seconds: default_retry_delays_seconds(),
         target_throughput: yaml.queue_processor.target_throughput,
         enable_metrics: yaml.queue_processor.enable_metrics,
+        max_concurrent_items: yaml.queue_processor.max_concurrent_items,
     }
 }
 
@@ -493,6 +494,10 @@ pub struct Config {
     pub queue_worker_count: Option<usize>,
     /// Queue backpressure threshold
     pub queue_backpressure_threshold: Option<i64>,
+    /// Max items dispatched concurrently within a single batch (default 1 =
+    /// byte-identical sequential behavior). Plumbed into
+    /// `UnifiedProcessorConfig::max_concurrent_items`.
+    pub queue_max_concurrent_items: Option<usize>,
     /// Resource limits for daemon processing
     pub resource_limits: ResourceLimitsConfig,
 }
@@ -513,6 +518,7 @@ impl From<DaemonConfig> for Config {
             queue_poll_interval_ms: Some(daemon_config.queue_processor.poll_interval_ms),
             queue_worker_count: Some(4), // Default worker count
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
+            queue_max_concurrent_items: Some(daemon_config.queue_processor.max_concurrent_items),
             resource_limits: daemon_config.resource_limits,
         }
     }
@@ -535,6 +541,7 @@ impl Config {
             queue_poll_interval_ms: Some(500),
             queue_worker_count: Some(4),
             queue_backpressure_threshold: Some(1000),
+            queue_max_concurrent_items: Some(1),
             resource_limits: ResourceLimitsConfig::default(),
         }
     }

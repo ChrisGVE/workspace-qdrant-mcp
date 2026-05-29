@@ -13,7 +13,8 @@
   "links": [
     { "title": "System Overview", "url": "/d/wqm-system", "type": "link", "icon": "external link", "targetBlank": false },
     { "title": "MCP Server", "url": "/d/wqm-mcp-server", "type": "link", "icon": "external link", "targetBlank": false },
-    { "title": "Qdrant", "url": "/d/wqm-qdrant", "type": "link", "icon": "external link", "targetBlank": false }
+    { "title": "Qdrant", "url": "/d/wqm-qdrant", "type": "link", "icon": "external link", "targetBlank": false },
+    { "title": "FTS5 / file_metadata pressure", "url": "/d/wqm-fts5-pressure", "type": "link", "icon": "external link", "targetBlank": false }
   ],
   "panels": [
     {
@@ -343,6 +344,123 @@
           }
         }
       ]
+    },
+    { "id": 500, "type": "row", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 }, "title": "Indexing progress (per tenant)", "collapsed": false },
+    {
+      "id": 501,
+      "title": "Total in-flight (pending + in_progress)",
+      "description": "Sum of unified_queue items across all tenants that are still pending or in progress. When this is 0, every registered project is fully indexed.",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 0, "y": 50 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 1000 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(memexd_unified_queue_depth_by_tenant{status=~\"pending|in_progress\"}) or vector(0)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 502,
+      "title": "Per-tenant queue depth (stacked by status)",
+      "description": "Live snapshot of unified_queue items per tenant_id, split by status (pending / in_progress / failed). Sustained growth on one tenant = that project's indexing isn't keeping up.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 10, "x": 4, "y": 50 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (tenant_id, status) (memexd_unified_queue_depth_by_tenant) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
+          "legendFormat": "{{repo}} {{tenant_id}} / {{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 503,
+      "title": "Top 10 tenants by pending items",
+      "description": "Snapshot of the tenants with the most still-pending items in unified_queue. Use to identify which project needs attention when /metrics shows growing backlog.",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 50 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 500 }] }
+        }
+      },
+      "options": { "displayMode": "lcd", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status=\"pending\"}) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0))",
+          "legendFormat": "{{repo}} {{tenant_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 504,
+      "title": "Time to drain (per tenant)",
+      "description": "Estimated seconds until each tenant's queue is fully drained, derived from tracked_files.updated_at over a 5-minute rolling window. Series with value -1 mean the daemon doesn't have enough recent activity to estimate (cold-start / warming up) — filtered out by the `>= 0` clause.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(memexd_indexing_eta_seconds_by_tenant >= 0) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
+          "legendFormat": "{{repo}} {{tenant_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 505,
+      "title": "Tenants in cold-start (ETA unknown)",
+      "description": "Count of tenants where the daemon can't estimate ETA yet — either the project was just registered, or the indexing rate is currently zero with work still pending. Should drop to 0 within ~1 minute of any sustained activity.",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(memexd_indexing_eta_seconds_by_tenant == -1) or vector(0)",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -355,6 +473,6 @@
   "timezone": "",
   "title": "WQM — memexd Daemon",
   "uid": "wqm-memexd",
-  "version": 2,
+  "version": 4,
   "weekStart": ""
 }

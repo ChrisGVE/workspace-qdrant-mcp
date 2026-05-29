@@ -782,6 +782,22 @@ queue_processor:
   # Default reasoning: 1000 items provides buffer before triggering
   backpressure_threshold: 1000
 
+  # max_concurrent_items: Maximum items dispatched concurrently within a batch
+  # Purpose: Item-level concurrency knob (separate from worker_count, which is
+  #          a legacy field). When > 1, the batch loop uses FuturesUnordered
+  #          and a per-batch semaphore to overlap I/O and embedding stalls.
+  # Throughput: 1 = byte-identical to legacy sequential loop; raising to 4
+  #             can yield 1.5x-6x on first-index workloads.
+  # Resource usage: Each in-flight item holds a SQLite connection during
+  #                 finalization; pool default max_connections=10 absorbs
+  #                 up to 8 comfortably.
+  # Recommended: 1 (default, safe) for new deployments; bake target 4 after
+  #              observing `database is locked` log rate and RSS pressure.
+  # Override: WQM_QUEUE_MAX_CONCURRENT_ITEMS env var.
+  # Format: Integer in [1, 64]
+  # Default reasoning: 1 ships byte-identical behavior; raise after bake.
+  max_concurrent_items: 1
+
   # -------------------------------------------------------------------------
   # Fairness Scheduler Settings (Task 34)
   # -------------------------------------------------------------------------

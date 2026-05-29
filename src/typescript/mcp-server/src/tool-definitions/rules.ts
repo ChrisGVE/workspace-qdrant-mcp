@@ -32,6 +32,11 @@ export const rulesToolDefinition = {
         type: 'string',
         description: 'Project ID for project-scoped rules',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (it cannot otherwise observe your location). Ignored when projectId is provided.',
+      },
       title: {
         type: 'string',
         description: 'Rule title (max 50 chars)',

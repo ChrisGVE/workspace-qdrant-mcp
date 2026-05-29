@@ -617,6 +617,168 @@ async fn test_mark_explicit_destination_results_preserves_done() {
     assert_eq!(ss, "done");
 }
 
+/// F-009: `finalize_after_success` must resolve an orchestration-only item
+/// (`decision_json IS NULL`) to `Done` by auto-resolving both pending sinks and
+/// finalizing in a single transaction — identical outcome to calling
+/// `mark_explicit_destination_results` + `check_and_finalize` separately.
+#[tokio::test]
+async fn test_finalize_after_success_orchestration_resolves_done() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("finalize_atomic_done.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            UnifiedOp::Scan,
+            "atomic-tenant",
+            "projects",
+            r#"{"project_root":"/test"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Both sinks pending + decision_json NULL → auto-resolve both to done →
+    // overall Done, all within one transaction.
+    let overall = manager.finalize_after_success(&queue_id).await.unwrap();
+    assert_eq!(overall, QueueStatus::Done);
+
+    let row: (String, String, String) = sqlx::query_as(
+        "SELECT qdrant_status, search_status, status FROM unified_queue WHERE queue_id = ?1",
+    )
+    .bind(&queue_id)
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.0, "done");
+    assert_eq!(row.1, "done");
+    assert_eq!(row.2, "done");
+}
+
+/// F-009: `finalize_after_success` must resolve a state-machine item
+/// (`decision_json IS NOT NULL`) with one failed sink to `Failed` and must NOT
+/// flip the still-pending sink to done.
+#[tokio::test]
+async fn test_finalize_after_success_state_machine_failed() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("finalize_atomic_failed.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Update,
+            "atomic-tenant2",
+            "projects",
+            r#"{"file_path":"/test/file.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let decision = wqm_common::queue_types::QueueDecision {
+        delete_old: false,
+        old_base_point: None,
+        new_base_point: "bp_new".to_string(),
+        old_file_hash: None,
+        new_file_hash: "h_new".to_string(),
+    };
+    manager
+        .store_queue_decision(&queue_id, &decision)
+        .await
+        .unwrap();
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Failed)
+        .await
+        .unwrap();
+
+    let overall = manager.finalize_after_success(&queue_id).await.unwrap();
+    assert_eq!(overall, QueueStatus::Failed);
+
+    // search must stay pending (state-machine items don't auto-resolve).
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(ss, "pending");
+}
+
+/// F-009: `finalize_after_success` must leave a state-machine item with a
+/// still-pending sink as `InProgress` (re-leased next cycle), not Done.
+#[tokio::test]
+async fn test_finalize_after_success_state_machine_in_progress() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("finalize_atomic_inprogress.db");
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (queue_id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Update,
+            "atomic-tenant3",
+            "projects",
+            r#"{"file_path":"/test/sm.rs"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let decision = wqm_common::queue_types::QueueDecision {
+        delete_old: false,
+        old_base_point: None,
+        new_base_point: "bp_sm".to_string(),
+        old_file_hash: None,
+        new_file_hash: "h_sm".to_string(),
+    };
+    manager
+        .store_queue_decision(&queue_id, &decision)
+        .await
+        .unwrap();
+    // Only qdrant written; search left pending.
+    manager
+        .update_destination_status(&queue_id, "qdrant", DestinationStatus::Done)
+        .await
+        .unwrap();
+
+    let overall = manager.finalize_after_success(&queue_id).await.unwrap();
+    assert_eq!(overall, QueueStatus::InProgress);
+
+    let ss: String =
+        sqlx::query_scalar("SELECT search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        ss, "pending",
+        "Untouched search sink must stay pending; helper must not flip it to done"
+    );
+}
+
 /// F-033/F-034 regression: a handler that returns Ok but reported a sink
 /// failure must end up with retry metadata (error_message, retry_count,
 /// last_error_at, lease_until/backoff) — not silently stuck on `failed`

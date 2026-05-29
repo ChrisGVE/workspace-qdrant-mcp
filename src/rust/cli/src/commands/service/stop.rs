@@ -178,6 +178,12 @@ async fn stop_windows() -> Result<()> {
     {
         let status = Command::new("sc.exe").args(["stop", "memexd"]).status()?;
 
+        if !status.success() {
+            output::warning(
+                "sc.exe stop returned non-zero — service may not be installed or already stopped; falling back to direct process check",
+            );
+        }
+
         if wait_for_shutdown(SHUTDOWN_TIMEOUT_SECS).await {
             output::success("Daemon stopped");
         } else {

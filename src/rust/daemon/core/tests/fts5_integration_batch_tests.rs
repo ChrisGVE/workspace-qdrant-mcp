@@ -44,6 +44,7 @@ async fn test_batch_mode_20_files_all_searchable() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
 
@@ -115,6 +116,7 @@ async fn test_search_accuracy_100_files() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
 
@@ -206,6 +208,7 @@ async fn test_regex_search_accuracy_across_files() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
     processor.flush(0).await.unwrap();
@@ -266,6 +269,7 @@ async fn test_context_lines_after_batch_ingest() {
         base_point: None,
         relative_path: None,
         file_hash: None,
+        size_bytes: None,
     });
     processor.flush(0).await.unwrap();
 
@@ -318,6 +322,7 @@ async fn test_path_glob_across_ingested_files() {
             base_point: None,
             relative_path: None,
             file_hash: None,
+            size_bytes: None,
         });
     }
     processor.flush(0).await.unwrap();

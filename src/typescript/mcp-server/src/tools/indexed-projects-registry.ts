@@ -24,6 +24,19 @@ import {
   isGitRepository,
   isWorktree,
 } from './../utils/git-utils.js';
+import {
+  getGitSnapshot,
+  newObservation,
+  probeDaemonProjectStatus,
+  probeDaemonQueue,
+  probeDaemonWatches,
+  saveObservation,
+  type DaemonProjectStatusResult,
+  type DaemonQueueResult,
+  type DaemonWatchListResult,
+} from './indexed-projects-observations.js';
+import { DEFAULT_CONFIG } from './../types/generated-defaults.js';
+import type { DaemonClient } from './../clients/daemon-client.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -179,8 +192,9 @@ function normalizeProject(p: RegistryProject): RegistryProject {
   return {
     ...p,
     root: toAbs(p.root),
-    qdrantUrl: p.qdrantUrl ?? 'http://localhost:6333',
-    daemonEndpoint: p.daemonEndpoint ?? 'localhost:50051',
+    qdrantUrl: p.qdrantUrl ?? DEFAULT_CONFIG.qdrant.url,
+    daemonEndpoint:
+      p.daemonEndpoint ?? `${DEFAULT_CONFIG.daemon.grpcHost}:${DEFAULT_CONFIG.daemon.grpcPort}`,
     defaultBranch: p.defaultBranch ?? 'main',
     tenantStrategy: p.tenantStrategy ?? 'project',
     enabled: p.enabled ?? true,
@@ -382,11 +396,198 @@ export function runAgentBranchStatus(args: BranchArgs): unknown {
   const project = findProject(registry, args);
   const branch = findBranch(project, args.branchName);
   if (!branch) throw new Error(`Branch nao registrada: ${args.branchName}`);
+  // Match PS shape: include the live git snapshot from the branch's working
+  // tree. `path` may be a worktree separate from project.root, so we snapshot
+  // that path directly. When the path no longer exists, surface ok=false with
+  // a structured error instead of throwing — the registry entry is still
+  // useful to the LLM in that case.
+  const branchPath = toAbs(branch.path);
+  const git = existsSync(branchPath)
+    ? getGitSnapshot(branchPath, branch.baseBranch ?? '')
+    : { ok: false, error: 'path missing' };
   return {
     success: true,
     project: project.name,
     branch,
+    git,
   };
+}
+
+// ── Read-action handlers (Phase 2 port: observation/status surface) ──────
+
+export async function runProjectStatus(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const observation = await newObservation(project, daemonClient);
+  return {
+    success: true,
+    project: project.name,
+    root: project.root,
+    branches: project.branches ?? [],
+    observation,
+  };
+}
+
+export async function runStatusAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const observations = await Promise.all(enabled.map((p) => newObservation(p, daemonClient)));
+  return {
+    success: true,
+    count: observations.length,
+    projects: observations,
+  };
+}
+
+export async function runObserveProject(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const observation = await newObservation(project, daemonClient);
+  const savedTo = saveObservation(args.registryPath, observation);
+  return {
+    success: true,
+    action: 'observe_project',
+    observation,
+    savedTo,
+  };
+}
+
+export async function runObserveAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const observations = await Promise.all(
+    enabled.map(async (p) => {
+      const obs = await newObservation(p, daemonClient);
+      saveObservation(args.registryPath, obs);
+      return obs;
+    })
+  );
+  return {
+    success: true,
+    action: 'observe_all',
+    count: observations.length,
+    observations,
+  };
+}
+
+interface IncrementalBranchResult {
+  project?: string;
+  branch: string;
+  path: string;
+  projectStatus: DaemonProjectStatusResult;
+  queue: DaemonQueueResult;
+  watchList?: DaemonWatchListResult;
+}
+
+/**
+ * Per-project incremental check, sourced from the daemon over gRPC instead of
+ * the `wqm` CLI:
+ *   - `wqm project status` / `wqm project check` → GetProjectStatus (the
+ *     pending/in_progress/done counts are the "what needs indexing" signal)
+ *   - `wqm queue stats`                          → GetQueueStats
+ *   - `wqm watch list`                           → ListWatches
+ * The daemon tenant id comes from the registry; when absent we resolve it by
+ * matching the project root against the daemon's ListProjects.
+ */
+async function checkBranchesForProject(
+  project: RegistryProject,
+  daemonClient: DaemonClient | null | undefined,
+  includeWatch: boolean
+): Promise<IncrementalBranchResult[]> {
+  // Resolve the daemon tenant id. The registry's projectId can be stale (e.g. a
+  // `local_` id when the daemon tracks the repo under a git-remote tenant), so
+  // prefer the daemon's own ListProjects: match by container-translated path
+  // (disambiguates worktrees) then by project name, falling back to the
+  // registry id only when the daemon has no match.
+  let projectId = project.projectId ?? undefined;
+  if (daemonClient) {
+    try {
+      const list = await daemonClient.listProjects({});
+      const target = toAbs(project.root).toLowerCase();
+      const match =
+        list.projects.find((p) => toAbs(p.project_root).toLowerCase() === target) ??
+        list.projects.find((p) => p.project_name === project.name);
+      if (match?.project_id) projectId = match.project_id;
+    } catch {
+      // Keep the registry projectId — probeDaemonProjectStatus reports any gap.
+    }
+  }
+
+  // project status + queue are independent; watch list only when requested.
+  const [projectStatus, queue] = await Promise.all([
+    probeDaemonProjectStatus(daemonClient, projectId),
+    probeDaemonQueue(daemonClient),
+  ]);
+  const watchList = includeWatch
+    ? await probeDaemonWatches(daemonClient, 'projects')
+    : undefined;
+
+  const results: IncrementalBranchResult[] = [];
+  for (const b of project.branches ?? []) {
+    const path = toAbs(b.path ?? project.root);
+    const r: IncrementalBranchResult = {
+      project: project.name,
+      branch: b.name,
+      path,
+      projectStatus,
+      queue,
+    };
+    if (watchList !== undefined) r.watchList = watchList;
+    results.push(r);
+  }
+  return results;
+}
+
+export async function runIncrementalCheck(
+  args: ProjectArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const project = findProject(registry, args);
+  const results = await checkBranchesForProject(project, daemonClient, /* includeWatch */ true);
+  // PS strips the redundant `project` field on the per-project variant.
+  const stripped = results.map(({ project: _omit, ...rest }) => rest);
+  return {
+    success: true,
+    action: 'incremental_check',
+    project: project.name,
+    results: stripped,
+  };
+}
+
+export async function runIncrementalCheckAll(
+  args: BaseArgs,
+  daemonClient: DaemonClient | null | undefined
+): Promise<unknown> {
+  const registry = readRegistry(args.registryPath);
+  const enabled = registry.projects.map(normalizeProjectExport).filter((p) => p.enabled);
+  const all: IncrementalBranchResult[] = [];
+  for (const project of enabled) {
+    all.push(...(await checkBranchesForProject(project, daemonClient, /* includeWatch */ false)));
+  }
+  return {
+    success: true,
+    action: 'incremental_check_all',
+    results: all,
+  };
+}
+
+// Re-export normalizeProject for the read-action handlers above. (The
+// internal `normalizeProject` declared earlier is module-private.)
+function normalizeProjectExport(p: RegistryProject): RegistryProject {
+  return normalizeProject(p);
 }
 
 export function runStartAgentBranch(args: StartAgentBranchArgs): unknown {

@@ -32,16 +32,21 @@ pub struct ReconcileStats {
 /// 2. Query tracked_files for all indexed file paths in that project
 /// 3. Diff: stale = indexed but now excluded, missing = on disk but not indexed
 /// 4. Enqueue file/delete for stale, file/add for missing
+///
+/// `global_ignore_path` — optional path to `global.wqmignore`, applied on top
+/// of per-project ignore files. When `None` or when the file does not exist,
+/// only the per-project `.gitignore` / `.wqmignore` files are used.
 pub async fn reconcile_ignore_rules(
     project_root: &Path,
     tenant_id: &str,
     collection: &str,
     pool: &SqlitePool,
     queue_manager: &Arc<QueueManager>,
+    global_ignore_path: Option<&Path>,
 ) -> Result<ReconcileStats, String> {
     let watch_id = fetch_watch_id(pool, tenant_id, collection).await?;
 
-    let eligible_files = walk_eligible_files(project_root)?;
+    let eligible_files = walk_eligible_files(project_root, global_ignore_path)?;
     let indexed_files = get_indexed_file_paths(pool, &watch_id).await?;
 
     let stale: Vec<&String> = indexed_files
@@ -100,6 +105,14 @@ async fn fetch_watch_id(
 }
 
 /// Enqueue delete + add operations for stale and missing files.
+///
+/// `stale` and `missing` carry relative paths (forward-slash, normalized).
+/// The JSON payload's `file_path` field is the relative form — `FilePayload`
+/// types it as `RelativePath` and the downstream strategy reanchors via
+/// `RelativePath::to_absolute(watch_folder_root)`. Sending an absolute path
+/// here makes the strategy double-join (root + absolute), producing a path
+/// like `<root>//<root>/<rel>` that does not exist on disk, which then
+/// triggers `handle_missing_file` silently — items drain without indexing.
 async fn enqueue_reconcile_ops(
     queue_manager: &Arc<QueueManager>,
     tenant_id: &str,
@@ -171,14 +184,19 @@ async fn enqueue_ignore_ops(
     for chunk in file_paths.chunks(IGNORE_SYNC_BATCH_SIZE) {
         let payloads: Vec<String> = chunk
             .iter()
-            .map(|file_path| {
+            .map(|rel_path| {
+                // FilePayload.file_path is RelativePath. Sending an absolute
+                // path here is a silent footgun: serde derives are transparent
+                // and the strategy re-anchors via to_absolute(root), producing
+                // <root>//<absolute> which does not exist on disk.
+                let rel = rel_path.as_str();
                 match op {
                     QueueOperation::Delete => serde_json::json!({
-                        "file_path": file_path,
+                        "file_path": rel,
                         "reason": reason,
                     }),
                     _ => serde_json::json!({
-                        "file_path": file_path,
+                        "file_path": rel,
                         "source": reason,
                     }),
                 }
@@ -215,8 +233,17 @@ async fn enqueue_ignore_ops(
 }
 
 /// Walk project tree and collect all eligible file paths (not excluded
-/// by .gitignore or .wqmignore). Returns absolute path strings.
-fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
+/// by .gitignore or .wqmignore). Returns paths relative to `project_root`,
+/// normalized to forward-slash separators so comparison against the
+/// `tracked_files.relative_path` column works identically on Windows.
+///
+/// `global_ignore_path` — if `Some` and the file exists on disk, its patterns
+/// are applied as a base-level ignore layer across the entire walk (equivalent
+/// to a project-root `.wqmignore` but sourced from outside the project tree).
+fn walk_eligible_files(
+    project_root: &Path,
+    global_ignore_path: Option<&Path>,
+) -> Result<HashSet<String>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
         .hidden(false)
@@ -226,23 +253,59 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
         .add_custom_ignore_filename(".gitignore")
         .add_custom_ignore_filename(".wqmignore");
 
+    // Apply global ignore rules (daemon-wide, outside the project tree).
+    // `add_ignore` applies the file's patterns as a base layer that every
+    // project walk inherits; `add_custom_ignore_filename` only finds files
+    // inside the walked tree, so it cannot reference the global file here.
+    if let Some(global_path) = global_ignore_path {
+        if global_path.is_file() {
+            builder.add_ignore(global_path);
+            debug!(
+                "[ignore_sync] applying global ignore rules from {}",
+                global_path.display()
+            );
+        }
+    }
+
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
-            files.insert(entry.path().to_string_lossy().to_string());
+            if let Some(rel) = entry
+                .path()
+                .strip_prefix(project_root)
+                .ok()
+                .map(normalize_relative)
+            {
+                files.insert(rel);
+            }
         }
     }
 
     Ok(files)
 }
 
-/// Get all tracked file paths for a watch folder from the DB.
+/// Normalize a relative path to the storage format used by
+/// `tracked_files.relative_path` — forward-slash separators, lossy UTF-8.
+fn normalize_relative(rel: &Path) -> String {
+    let s = rel.to_string_lossy().to_string();
+    if std::path::MAIN_SEPARATOR == '/' {
+        s
+    } else {
+        s.replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
+/// Get all tracked relative paths for a watch folder from the DB.
+///
+/// Reads the canonical `relative_path` column. Pre-v37 the schema had a
+/// denormalized absolute `file_path`; that column was dropped by the v37
+/// `tracked_files` rebuild (see `tracked_files_schema::schema`).
 async fn get_indexed_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
 ) -> Result<HashSet<String>, String> {
     let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT file_path FROM tracked_files WHERE watch_folder_id = ?1")
+        sqlx::query_as("SELECT relative_path FROM tracked_files WHERE watch_folder_id = ?1")
             .bind(watch_folder_id)
             .fetch_all(pool)
             .await
@@ -310,7 +373,7 @@ mod tests {
         fs::create_dir(&src).unwrap();
         fs::write(src.join("main.rs"), "fn main() {}").unwrap();
 
-        let files = walk_eligible_files(root.path()).unwrap();
+        let files = walk_eligible_files(root.path(), None).unwrap();
         // src/main.rs should be eligible
         assert!(files.iter().any(|f| f.ends_with("main.rs")));
         // dist/bundle.js should NOT be eligible
@@ -326,8 +389,86 @@ mod tests {
         fs::write(data.join("big.csv"), "a,b,c").unwrap();
         fs::write(root.path().join("readme.md"), "# hi").unwrap();
 
-        let files = walk_eligible_files(root.path()).unwrap();
+        let files = walk_eligible_files(root.path(), None).unwrap();
         assert!(files.iter().any(|f| f.ends_with("readme.md")));
         assert!(!files.iter().any(|f| f.ends_with("big.csv")));
+    }
+
+    #[test]
+    fn walk_eligible_files_respects_global_ignore() {
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(&global_ignore, "vendors/\n*.zip\n").unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let vendors = root.path().join("vendors");
+        fs::create_dir(&vendors).unwrap();
+        fs::write(vendors.join("library.js"), "// lib").unwrap();
+        fs::write(root.path().join("archive.zip"), "PK..").unwrap();
+        fs::write(root.path().join("main.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        // main.rs is eligible
+        assert!(files.contains("main.rs"), "expected main.rs, got {files:?}");
+        // vendors/ and *.zip are globally excluded
+        assert!(!files.iter().any(|f| f.contains("library.js")), "vendors/ should be excluded");
+        assert!(!files.contains("archive.zip"), "*.zip should be excluded");
+    }
+
+    #[test]
+    fn walk_eligible_files_emits_relative_paths_with_forward_slashes() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("src").join("api");
+        std::fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("server.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), None).unwrap();
+
+        // Output must be a relative path joined by '/', matching the format
+        // used in tracked_files.relative_path. On Windows this validates the
+        // separator normalization. The absolute path must NOT leak through.
+        assert!(
+            files.contains("src/api/server.rs"),
+            "expected 'src/api/server.rs', got {:?}",
+            files
+        );
+        assert!(
+            !files.iter().any(|f| f.contains(':') || f.starts_with('/')),
+            "no entry should look absolute, got {:?}",
+            files
+        );
+    }
+
+    #[tokio::test]
+    async fn get_indexed_file_paths_reads_relative_path_column() {
+        // Bootstrap the full SchemaManager pipeline so tracked_files has the
+        // post-v37 shape (no `file_path` column, `relative_path` canonical).
+        let pool = super::super::tests::create_test_pool().await;
+        super::super::tests::setup_schema(&pool).await;
+
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, enabled, is_archived, created_at, updated_at) \
+             VALUES ('wf1', '/some/root', 'projects', 'tenant1', 1, 0, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for rel in ["src/main.rs", "docs/readme.md"] {
+            sqlx::query(
+                "INSERT INTO tracked_files \
+                 (watch_folder_id, relative_path, branch, file_mtime, file_hash, collection, base_point, created_at, updated_at) \
+                 VALUES ('wf1', ?1, 'main', '2025-01-01T00:00:00Z', 'h', 'projects', 'bp', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+            )
+            .bind(rel)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let got = get_indexed_file_paths(&pool, "wf1").await.unwrap();
+        assert_eq!(got.len(), 2);
+        assert!(got.contains("src/main.rs"));
+        assert!(got.contains("docs/readme.md"));
     }
 }

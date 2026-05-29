@@ -17,7 +17,7 @@ mod schema;
 
 use anyhow::Result;
 use wqm_common::constants::{
-    COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+    CANONICAL_COLLECTIONS, COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES,
 };
 
 use super::qdrant_helpers;
@@ -28,13 +28,9 @@ use reconstruction::{
 };
 use schema::create_fresh_database;
 
-/// All 4 canonical collections
-const ALL_COLLECTIONS: &[&str] = &[
-    COLLECTION_PROJECTS,
-    COLLECTION_LIBRARIES,
-    COLLECTION_RULES,
-    COLLECTION_SCRATCHPAD,
-];
+/// All 4 canonical collections — alias for wqm_common::constants::CANONICAL_COLLECTIONS
+/// (kept as a module-local name to minimize churn at call sites).
+use CANONICAL_COLLECTIONS as ALL_COLLECTIONS;
 
 /// Scroll all collections and reconstruct SQLite state. Returns totals.
 async fn reconstruct_all_collections(

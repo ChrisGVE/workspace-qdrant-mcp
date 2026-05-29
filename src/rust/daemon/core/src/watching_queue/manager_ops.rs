@@ -6,6 +6,7 @@ use std::time::Duration;
 use sqlx::Row;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
+use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use crate::queue_operations::QueueManager;
 
@@ -136,7 +137,7 @@ impl WatchManager {
             let collection: String = row.get("collection");
             let tenant_id: String = row.get("tenant_id");
 
-            if collection == "libraries" {
+            if collection == COLLECTION_LIBRARIES {
                 ids.push(format!("lib_{}", tenant_id));
             } else {
                 ids.push(watch_id);

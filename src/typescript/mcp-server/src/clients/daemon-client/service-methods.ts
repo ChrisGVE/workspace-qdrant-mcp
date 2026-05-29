@@ -17,6 +17,9 @@ import type {
   QueryRelatedResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
+  RetryAllResponse,
+  RetryItemRequest,
+  RetryItemResponse,
   LogSearchEventRequest,
   UpdateSearchEventRequest,
   UpdateSearchEventEconomyRequest,
@@ -24,6 +27,11 @@ import type {
   DeleteRuleMirrorRequest,
   UpsertScratchpadMirrorRequest,
   DeleteScratchpadMirrorRequest,
+  WatchIdRequest,
+  WatchMutationResponse,
+  ReapplyIgnoreRulesResponse,
+  ReembedTenantRequest,
+  ReembedTenantResponse,
 } from '../grpc-types.js';
 
 import { DaemonClientSystem } from './system-methods.js';
@@ -118,6 +126,30 @@ export class DaemonClientService extends DaemonClientSystem {
     );
   }
 
+  /** Reset all failed queue items back to 'pending' (QueueWriteService.RetryAll). */
+  async retryAll(): Promise<RetryAllResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.queueWriteClient,
+        'retryAll',
+        {},
+        this.getMethodTimeout('retryAll')
+      )
+    );
+  }
+
+  /** Reset a single failed queue item to 'pending' by id/prefix (QueueWriteService.RetryItem). */
+  async retryItem(request: RetryItemRequest): Promise<RetryItemResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.queueWriteClient,
+        'retryItem',
+        request,
+        this.getMethodTimeout('retryItem')
+      )
+    );
+  }
+
   // ── TrackingWriteService ──
 
   async logSearchEvent(request: LogSearchEventRequest): Promise<void> {
@@ -193,6 +225,54 @@ export class DaemonClientService extends DaemonClientSystem {
         'deleteScratchpadMirror',
         request,
         this.getMethodTimeout('deleteScratchpadMirror')
+      )
+    );
+  }
+
+  // ── WatchWriteService ──
+
+  async pauseWatch(request: WatchIdRequest): Promise<WatchMutationResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.watchWriteClient,
+        'pauseWatch',
+        request,
+        this.getMethodTimeout('pauseWatch')
+      )
+    );
+  }
+
+  async resumeWatch(request: WatchIdRequest): Promise<WatchMutationResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.watchWriteClient,
+        'resumeWatch',
+        request,
+        this.getMethodTimeout('resumeWatch')
+      )
+    );
+  }
+
+  // ── AdminWriteService ──
+
+  async reapplyIgnoreRules(): Promise<ReapplyIgnoreRulesResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.adminWriteClient,
+        'reapplyIgnoreRules',
+        {},
+        this.getMethodTimeout('reapplyIgnoreRules')
+      )
+    );
+  }
+
+  async reembedTenant(request: ReembedTenantRequest): Promise<ReembedTenantResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.adminWriteClient,
+        'reembedTenant',
+        request,
+        this.getMethodTimeout('reembedTenant')
       )
     );
   }

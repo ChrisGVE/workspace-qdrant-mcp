@@ -96,6 +96,7 @@ impl DaemonMetrics {
         is_archived: bool,
         is_worktree: bool,
         is_git_tracked: bool,
+        git_remote: &str,
         tracked_files: i64,
     ) {
         self.indexed_project_tracked_files
@@ -109,6 +110,7 @@ impl DaemonMetrics {
                 if is_archived { "true" } else { "false" },
                 if is_worktree { "true" } else { "false" },
                 if is_git_tracked { "true" } else { "false" },
+                git_remote,
             ])
             .set(tracked_files);
     }
@@ -234,6 +236,24 @@ impl DaemonMetrics {
         self.unified_queue_depth
             .with_label_values(&[item_type, status])
             .set(depth);
+    }
+
+    /// Set per-tenant unified queue depth for a given status.
+    ///
+    /// Drives the Grafana indexing-progress panel and the MCP search-time
+    /// `indexing` block. Refreshed every 10s by `start_queue_depth_exporter`.
+    pub fn set_unified_queue_depth_by_tenant(&self, tenant_id: &str, status: &str, depth: i64) {
+        self.unified_queue_depth_by_tenant
+            .with_label_values(&[tenant_id, status])
+            .set(depth);
+    }
+
+    /// Set per-tenant indexing ETA in seconds. Pass `-1` when the rate is
+    /// unknown so PromQL can filter via `>= 0`.
+    pub fn set_indexing_eta_seconds(&self, tenant_id: &str, seconds: i64) {
+        self.indexing_eta_seconds_by_tenant
+            .with_label_values(&[tenant_id])
+            .set(seconds);
     }
 
     /// Record unified queue item processed
