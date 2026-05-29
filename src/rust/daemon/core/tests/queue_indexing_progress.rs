@@ -6,10 +6,10 @@
 //! `get_unified_queue_depth_by_tenant_status` (Prometheus exporter feed).
 
 use sqlx::SqlitePool;
-use wqm_common::timestamps;
 use workspace_qdrant_core::{
     QueueManager, CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
 };
+use wqm_common::timestamps;
 
 async fn build_pool() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -20,7 +20,10 @@ async fn build_pool() -> SqlitePool {
         .await
         .expect("create unified_queue");
     for stmt in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
-        sqlx::query(stmt).execute(&pool).await.expect("create index");
+        sqlx::query(stmt)
+            .execute(&pool)
+            .await
+            .expect("create index");
     }
     pool
 }
@@ -106,10 +109,8 @@ async fn depth_by_tenant_status_excludes_done_and_groups_correctly() {
         .await
         .expect("depth by tenant/status");
 
-    let lookup: std::collections::HashMap<(String, String), i64> = rows
-        .into_iter()
-        .map(|(t, s, c)| ((t, s), c))
-        .collect();
+    let lookup: std::collections::HashMap<(String, String), i64> =
+        rows.into_iter().map(|(t, s, c)| ((t, s), c)).collect();
 
     assert_eq!(lookup.get(&("tenant_x".into(), "pending".into())), Some(&2));
     assert_eq!(

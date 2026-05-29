@@ -26,7 +26,10 @@ fn fixtures_path() -> PathBuf {
         .and_then(|p| p.parent())
         .and_then(|p| p.parent())
         .expect("expected repo root reachable from CARGO_MANIFEST_DIR");
-    repo_root.join("tests").join("path-fixtures").join("cases.json")
+    repo_root
+        .join("tests")
+        .join("path-fixtures")
+        .join("cases.json")
 }
 
 fn load_cases() -> Value {

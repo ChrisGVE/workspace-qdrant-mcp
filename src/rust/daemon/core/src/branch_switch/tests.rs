@@ -7,7 +7,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
 use crate::queue_operations::QueueManager;
-use crate::tracked_files_schema::{CREATE_TRACKED_FILES_V37_INDEXES_SQL, CREATE_TRACKED_FILES_V37_SQL};
+use crate::tracked_files_schema::{
+    CREATE_TRACKED_FILES_V37_INDEXES_SQL, CREATE_TRACKED_FILES_V37_SQL,
+};
 use crate::unified_queue_schema::{
     QueueOperation, CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
 };

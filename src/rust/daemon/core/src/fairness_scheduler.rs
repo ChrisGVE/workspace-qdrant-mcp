@@ -64,8 +64,8 @@ impl Default for FairnessSchedulerConfig {
             high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
             low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
             worker_id: format!("fairness-worker-{}", uuid::Uuid::new_v4()),
-            lease_duration_secs: 300, // 5 minutes
-            age_promotion_warning_seconds: 300, // 5 minutes
+            lease_duration_secs: 300,            // 5 minutes
+            age_promotion_warning_seconds: 300,  // 5 minutes
             age_promotion_critical_seconds: 900, // 15 minutes
         }
     }

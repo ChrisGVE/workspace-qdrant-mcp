@@ -189,11 +189,8 @@ impl IngestionEngine {
             })?;
 
         let mut points = Vec::with_capacity(content.chunks.len());
-        for (chunk_idx, (chunk, embedding_result)) in content
-            .chunks
-            .iter()
-            .zip(batch_results)
-            .enumerate()
+        for (chunk_idx, (chunk, embedding_result)) in
+            content.chunks.iter().zip(batch_results).enumerate()
         {
             let payload = build_chunk_payload(
                 chunk,

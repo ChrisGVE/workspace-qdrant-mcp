@@ -393,17 +393,15 @@ impl TaskSubmitter {
                             file_path_str, e
                         ))
                     })?;
-                let relative =
-                    wqm_common::paths::RelativePath::from_absolute_and_root(&abs, &root).map_err(
-                        |e| {
-                            PriorityError::Communication(format!(
-                                "Spill: file {} not under watch_folder root {}: {}",
-                                file_path_str,
-                                root.as_str(),
-                                e
-                            ))
-                        },
-                    )?;
+                let relative = wqm_common::paths::RelativePath::from_absolute_and_root(&abs, &root)
+                    .map_err(|e| {
+                        PriorityError::Communication(format!(
+                            "Spill: file {} not under watch_folder root {}: {}",
+                            file_path_str,
+                            root.as_str(),
+                            e
+                        ))
+                    })?;
 
                 let file_payload = UqFilePayload {
                     file_path: relative,

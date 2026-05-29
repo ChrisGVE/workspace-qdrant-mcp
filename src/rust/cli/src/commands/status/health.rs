@@ -432,7 +432,10 @@ mod tests {
             "http://host.docker.internal:6333"
         );
         assert_eq!(grpc_to_rest_url("http://qdrant:6333"), "http://qdrant:6333");
-        assert_eq!(grpc_to_rest_url("https://example:9999"), "https://example:9999");
+        assert_eq!(
+            grpc_to_rest_url("https://example:9999"),
+            "https://example:9999"
+        );
     }
 
     #[test]

@@ -28,11 +28,7 @@ pub(super) struct ContextSink {
 }
 
 impl ContextSink {
-    pub(super) fn new(
-        file_info: &FileInfo,
-        file_size: Option<i64>,
-        context_lines: usize,
-    ) -> Self {
+    pub(super) fn new(file_info: &FileInfo, file_size: Option<i64>, context_lines: usize) -> Self {
         Self {
             file_path: file_info.file_path.clone(),
             tenant_id: file_info.tenant_id.clone(),

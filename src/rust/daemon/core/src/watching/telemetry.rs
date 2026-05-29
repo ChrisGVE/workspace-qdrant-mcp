@@ -238,9 +238,7 @@ impl TelemetryTracker {
                 // sysinfo on Windows can report virtual_memory < memory for short-
                 // lived test processes; saturating_sub keeps the heap estimate at
                 // zero instead of underflowing.
-                let heap_mb = process
-                    .virtual_memory()
-                    .saturating_sub(process.memory()) as f64
+                let heap_mb = process.virtual_memory().saturating_sub(process.memory()) as f64
                     / 1024.0
                     / 1024.0;
                 (Some(rss_mb), Some(heap_mb))
@@ -386,11 +384,7 @@ mod tests {
         }
         assert_eq!(t.latencies.len(), 1000);
         // FIFO eviction: oldest (0.0..499.0) are gone; min remaining is 500.0.
-        let min = t
-            .latencies
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min);
+        let min = t.latencies.iter().copied().fold(f64::INFINITY, f64::min);
         assert_eq!(min, 500.0);
     }
 

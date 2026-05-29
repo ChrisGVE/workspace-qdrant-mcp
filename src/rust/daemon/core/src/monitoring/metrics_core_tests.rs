@@ -145,18 +145,20 @@ fn indexed_project_inventory_metrics_are_exported() {
     m.set_indexed_project_last_activity("watch-123", Some(1_717_000_123));
 
     assert_eq!(
-        m.indexed_project_tracked_files.with_label_values(&[
-            "watch-123",
-            "proj-123",
-            "C:/dev/project",
-            "true",
-            "true",
-            "false",
-            "false",
-            "false",
-            "true",
-            "https://github.com/user/repo.git",
-        ]).get(),
+        m.indexed_project_tracked_files
+            .with_label_values(&[
+                "watch-123",
+                "proj-123",
+                "C:/dev/project",
+                "true",
+                "true",
+                "false",
+                "false",
+                "false",
+                "true",
+                "https://github.com/user/repo.git",
+            ])
+            .get(),
         42
     );
     assert_eq!(

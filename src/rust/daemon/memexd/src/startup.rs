@@ -409,7 +409,10 @@ pub fn check_existing_instance(
                     }
                     Ok(_) => Some(false),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                        warn!("'ps' not found; cannot verify PID {} liveness, treating as stale", pid);
+                        warn!(
+                            "'ps' not found; cannot verify PID {} liveness, treating as stale",
+                            pid
+                        );
                         None
                     }
                     Err(e) => return Err(e.into()),

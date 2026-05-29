@@ -331,7 +331,10 @@ mod tests {
         handle.await.expect("watchdog task must finish on give-up");
 
         assert!(shutdown.is_cancelled(), "give-up must request shutdown");
-        assert!(!health.is_available(), "state must be unavailable on give-up");
+        assert!(
+            !health.is_available(),
+            "state must be unavailable on give-up"
+        );
         assert!(diag.exists(), "diagnostic file must be written");
         let body = std::fs::read_to_string(&diag).unwrap();
         assert!(body.contains("controlled_shutdown"));
@@ -359,7 +362,10 @@ mod tests {
         }
 
         assert!(health.is_available(), "provider should have recovered");
-        assert!(!shutdown.is_cancelled(), "recovery must not request shutdown");
+        assert!(
+            !shutdown.is_cancelled(),
+            "recovery must not request shutdown"
+        );
 
         loop_cancel.cancel();
         handle.await.expect("watchdog must exit on cancel");

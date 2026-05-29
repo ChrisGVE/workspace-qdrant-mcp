@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::constants::{DEFAULT_GRPC_PORT, DEFAULT_QDRANT_URL};
 use super::duration_serde;
 use super::parse_duration_to_ms;
+use crate::constants::{DEFAULT_GRPC_PORT, DEFAULT_QDRANT_URL};
 
 // ── Qdrant ──────────────────────────────────────────────────────────────
 

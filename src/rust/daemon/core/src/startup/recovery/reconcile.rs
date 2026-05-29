@@ -133,7 +133,8 @@ async fn reconcile_single_file(
         Err(e) => {
             warn!(
                 "Failed to re-queue reconcile file {}: {}",
-                file.relative_path.as_str(), e
+                file.relative_path.as_str(),
+                e
             );
             stats.reconcile_errors += 1;
         }

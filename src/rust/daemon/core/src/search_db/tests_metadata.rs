@@ -133,7 +133,10 @@ async fn test_file_metadata_churn_count() {
             .unwrap();
     assert_eq!(row.get::<i64, _>("reindex_count"), 1);
     let first_at = row.get::<Option<String>, _>("first_indexed_at");
-    assert!(first_at.is_some(), "first_indexed_at should be stamped on insert");
+    assert!(
+        first_at.is_some(),
+        "first_indexed_at should be stamped on insert"
+    );
 
     // Re-index the same file_id: count increments, first_indexed_at preserved.
     sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)

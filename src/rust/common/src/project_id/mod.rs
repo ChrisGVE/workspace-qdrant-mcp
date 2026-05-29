@@ -173,21 +173,14 @@ mod tests {
     fn same_tenant_id_across_docker_mount_aliases() {
         let calc = ProjectIdCalculator::new();
 
-        let wsl_host = calc.calculate(
-            Path::new("/mnt/c/Users/alice/project"),
-            None,
-            None,
-        );
+        let wsl_host = calc.calculate(Path::new("/mnt/c/Users/alice/project"), None, None);
         let docker_desktop_wsl = calc.calculate(
             Path::new("/run/desktop/mnt/host/c/Users/alice/project"),
             None,
             None,
         );
-        let docker_desktop_host_mnt = calc.calculate(
-            Path::new("/host_mnt/c/Users/alice/project"),
-            None,
-            None,
-        );
+        let docker_desktop_host_mnt =
+            calc.calculate(Path::new("/host_mnt/c/Users/alice/project"), None, None);
 
         assert_eq!(
             wsl_host, docker_desktop_wsl,
@@ -214,11 +207,8 @@ mod tests {
         assert_ne!(c_drive, d_drive);
 
         // …but the aliases of the d drive collapse together.
-        let d_drive_alias = calc.calculate(
-            Path::new("/run/desktop/mnt/host/d/data/foo"),
-            None,
-            None,
-        );
+        let d_drive_alias =
+            calc.calculate(Path::new("/run/desktop/mnt/host/d/data/foo"), None, None);
         assert_eq!(d_drive, d_drive_alias);
     }
 

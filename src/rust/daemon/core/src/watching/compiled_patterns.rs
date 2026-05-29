@@ -62,7 +62,9 @@ impl CompiledPatterns {
     /// keeps the file-watching hot path alive instead of cascading the panic
     /// into every subsequent `should_process` call.
     fn lock_cache(&self) -> MutexGuard<'_, LruCache<PathBuf, bool>> {
-        self.cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(super) fn should_process(&self, path: &Path) -> bool {
@@ -262,7 +264,10 @@ mod tests {
                 panic!("intentional panic to poison the cache mutex");
             })
         };
-        assert!(poisoner.join().is_err(), "poisoner thread should have panicked");
+        assert!(
+            poisoner.join().is_err(),
+            "poisoner thread should have panicked"
+        );
         assert!(p.cache.is_poisoned(), "cache mutex should be poisoned");
 
         // These calls would panic with a bare `.lock().unwrap()`; with

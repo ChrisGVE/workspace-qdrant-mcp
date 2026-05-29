@@ -11,7 +11,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::lsp_candidates::{normalize_identifier, CandidateSource, LspCandidate, LspCandidateConfig};
+use super::lsp_candidates::{
+    normalize_identifier, CandidateSource, LspCandidate, LspCandidateConfig,
+};
 
 /// Chunk types worth emitting as candidates.
 ///
@@ -260,7 +262,11 @@ mod tests {
                 ("chunk_type", "function"),
                 ("symbol_name", "validate_token"),
             ]),
-            meta(&[("chunk_type", "method"), ("symbol_name", "exec"), ("parent_symbol", "AsyncRunner")]),
+            meta(&[
+                ("chunk_type", "method"),
+                ("symbol_name", "exec"),
+                ("parent_symbol", "AsyncRunner"),
+            ]),
             meta(&[("chunk_type", "constant"), ("symbol_name", "MAX_RETRIES")]),
         ];
         let candidates = extract_symbol_candidates(&chunks, &LspCandidateConfig::default());
@@ -273,9 +279,17 @@ mod tests {
         // Function → "validate_token" → "validate token"
         assert!(phrases.contains(&"validate token"), "got: {:?}", phrases);
         // Method excluded
-        assert!(!phrases.iter().any(|p| p.contains("exec")), "got: {:?}", phrases);
+        assert!(
+            !phrases.iter().any(|p| p.contains("exec")),
+            "got: {:?}",
+            phrases
+        );
         // Constant excluded (not concept-bearing)
-        assert!(!phrases.iter().any(|p| p.contains("max")), "got: {:?}", phrases);
+        assert!(
+            !phrases.iter().any(|p| p.contains("max")),
+            "got: {:?}",
+            phrases
+        );
     }
 
     #[test]

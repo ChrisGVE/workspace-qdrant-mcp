@@ -321,13 +321,15 @@ impl WriteActorHandle {
     }
 
     pub async fn reapply_ignore_rules(&self) -> WriteResult<ReapplyIgnoreRulesResult> {
-        self.send(|tx| WriteCommand::ReapplyIgnoreRules { tx }).await
+        self.send(|tx| WriteCommand::ReapplyIgnoreRules { tx })
+            .await
     }
 
     pub async fn reembed_tenant(
         &self,
         data: ReembedTenantData,
     ) -> WriteResult<ReembedTenantResult> {
-        self.send(|tx| WriteCommand::ReembedTenant { data, tx }).await
+        self.send(|tx| WriteCommand::ReembedTenant { data, tx })
+            .await
     }
 }

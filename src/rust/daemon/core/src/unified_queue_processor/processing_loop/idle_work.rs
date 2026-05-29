@@ -83,7 +83,10 @@ async fn run_uplift_pass(
         "Queue idle — running metadata uplift pass (gen={})",
         state.uplift_config.current_generation
     );
-    let collections = vec![COLLECTION_PROJECTS.to_string(), COLLECTION_LIBRARIES.to_string()];
+    let collections = vec![
+        COLLECTION_PROJECTS.to_string(),
+        COLLECTION_LIBRARIES.to_string(),
+    ];
     let stats = crate::metadata_uplift::run_uplift_pass(
         storage_client,
         lexicon_manager,

@@ -118,12 +118,8 @@ pub(super) fn create_tenant_metrics() -> (IntGaugeVec, IntCounterVec, GaugeVec) 
     )
 }
 
-pub(super) fn create_indexed_project_metrics() -> (
-    IntGaugeVec,
-    IntGaugeVec,
-    IntGaugeVec,
-    IntGaugeVec,
-) {
+pub(super) fn create_indexed_project_metrics(
+) -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntGaugeVec) {
     let indexed_project_tracked_files = int_gauge_vec(
         "indexed_project_tracked_files",
         "Tracked file count per indexed project with project inventory labels",
@@ -405,7 +401,8 @@ pub(super) fn create_per_tenant_eta_metric() -> IntGaugeVec {
 /// inspection, route operators to the admin UI / sidecar SQL queries
 /// (see [[daemon-db-sidecar-query]] memory note).
 #[allow(clippy::type_complexity)]
-pub(super) fn create_file_metadata_metrics() -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec) {
+pub(super) fn create_file_metadata_metrics(
+) -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec) {
     let indexed_files_count = int_gauge_vec(
         "indexed_files_count",
         "Number of files in search.db file_metadata per tenant and branch",

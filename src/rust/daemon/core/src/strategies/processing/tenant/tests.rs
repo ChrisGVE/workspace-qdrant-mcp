@@ -20,15 +20,13 @@ use crate::queue_operations::QueueManager;
 use crate::storage::StorageClient;
 use crate::strategies::ProcessingStrategy;
 use crate::unified_queue_schema::{
-    CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL, ItemType, ProjectPayload,
-    QueueOperation, QueueStatus, UnifiedQueueItem,
+    ItemType, ProjectPayload, QueueOperation, QueueStatus, UnifiedQueueItem,
+    CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL,
 };
 use crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL;
 use wqm_common::constants::COLLECTION_PROJECTS;
 
-use super::project::{
-    enqueue_project_scan, insert_watch_folder, WatchFolderInsertStatus,
-};
+use super::project::{enqueue_project_scan, insert_watch_folder, WatchFolderInsertStatus};
 use super::TenantStrategy;
 
 #[test]

@@ -91,7 +91,9 @@ where
                 Ok(p) => p,
                 Err(_) => break,
             };
-            let item = pending.pop_front().expect("pending non-empty guarded above");
+            let item = pending
+                .pop_front()
+                .expect("pending non-empty guarded above");
             in_flight.push(spawn_item(item, permit));
         }
 

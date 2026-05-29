@@ -157,7 +157,11 @@ async fn handle_retry_skip(
                 Ok(fts5_index::Fts5Outcome::Inline | fts5_index::Fts5Outcome::Skipped) => {
                     let _ = ctx
                         .queue_manager
-                        .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
+                        .update_destination_status(
+                            &item.queue_id,
+                            "search",
+                            DestinationStatus::Done,
+                        )
                         .await;
                 }
                 Err(e) => {
@@ -167,7 +171,11 @@ async fn handle_retry_skip(
                     );
                     let _ = ctx
                         .queue_manager
-                        .update_destination_status(&item.queue_id, "search", DestinationStatus::Failed)
+                        .update_destination_status(
+                            &item.queue_id,
+                            "search",
+                            DestinationStatus::Failed,
+                        )
                         .await;
                 }
             }

@@ -157,9 +157,7 @@ mod tests {
     #[test]
     fn run_desktop_alias_with_subpath() {
         assert_eq!(
-            canonicalize_docker_mount_alias(
-                "/run/desktop/mnt/host/c/Users/alice/repo"
-            ),
+            canonicalize_docker_mount_alias("/run/desktop/mnt/host/c/Users/alice/repo"),
             Some("/mnt/c/Users/alice/repo".to_string()),
         );
     }
@@ -243,10 +241,7 @@ mod tests {
             canonicalize_docker_mount_alias("/Users/chris/dev/project"),
             None,
         );
-        assert_eq!(
-            canonicalize_docker_mount_alias("/home/alice/repo"),
-            None,
-        );
+        assert_eq!(canonicalize_docker_mount_alias("/home/alice/repo"), None,);
         assert_eq!(canonicalize_docker_mount_alias("/"), None);
     }
 
@@ -273,10 +268,7 @@ mod tests {
             canonicalize_docker_mount_alias("/run/desktop/mnt/host/foo/bar"),
             None,
         );
-        assert_eq!(
-            canonicalize_docker_mount_alias("/host_mnt/12/foo"),
-            None,
-        );
+        assert_eq!(canonicalize_docker_mount_alias("/host_mnt/12/foo"), None,);
         assert_eq!(canonicalize_docker_mount_alias("/host_mnt/"), None);
     }
 
@@ -302,8 +294,7 @@ mod tests {
         let host_mnt_view = "/host_mnt/c/Users/alice/repo";
 
         let wsl2_canonical = canonicalize_docker_mount_alias(wsl2_view).unwrap();
-        let host_mnt_canonical =
-            canonicalize_docker_mount_alias(host_mnt_view).unwrap();
+        let host_mnt_canonical = canonicalize_docker_mount_alias(host_mnt_view).unwrap();
 
         assert_eq!(wsl2_canonical, host_mnt_canonical);
         assert_eq!(wsl2_canonical, "/mnt/c/Users/alice/repo");

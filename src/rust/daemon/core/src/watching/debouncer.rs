@@ -140,7 +140,10 @@ mod debouncer_tests {
         let mut d = EventDebouncer::new(1_000, 10);
         let _ = d.add_event(now_event("/a"));
         let (process, _) = d.add_event(now_event("/a"));
-        assert!(!process, "second event for same path within window is suppressed");
+        assert!(
+            !process,
+            "second event for same path within window is suppressed"
+        );
     }
 
     #[test]
@@ -175,7 +178,10 @@ mod debouncer_tests {
 
         // Third path forces oldest (/a) out.
         let (_, evicted) = d.add_event(now_event("/c"));
-        assert!(evicted.is_some(), "capacity overflow must surface evicted event");
+        assert!(
+            evicted.is_some(),
+            "capacity overflow must surface evicted event"
+        );
         assert_eq!(evicted.unwrap().path, PathBuf::from("/a"));
         assert_eq!(d.eviction_count(), 1);
     }

@@ -122,9 +122,7 @@ pub fn execute(
     let mut scored = score_and_filter(stats, min_files);
 
     // Sort by score descending (NaN-safe: NaN falls to the bottom).
-    scored.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     if scored.len() > top {
         scored.truncate(top);
     }
@@ -317,12 +315,7 @@ fn score_and_filter(stats: Vec<DirStats>, min_files: u64) -> Vec<(DirStats, f64)
         .collect()
 }
 
-fn print_table(
-    scored: &[(DirStats, f64)],
-    total_files: u64,
-    depth: usize,
-    min_files: u64,
-) {
+fn print_table(scored: &[(DirStats, f64)], total_files: u64, depth: usize, min_files: u64) {
     output::print_title("Ignore Candidates");
     output::print_blank();
 
@@ -397,14 +390,7 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
 
-    fn row(
-        rel: &str,
-        chunks: i64,
-        ts: &str,
-        lsp: &str,
-        err: bool,
-        ext: &str,
-    ) -> FileRow {
+    fn row(rel: &str, chunks: i64, ts: &str, lsp: &str, err: bool, ext: &str) -> FileRow {
         FileRow {
             relative_path: rel.to_string(),
             chunk_count: chunks,

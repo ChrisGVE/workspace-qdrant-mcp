@@ -123,15 +123,13 @@ impl StorageConfig {
                                                 // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
         config.url =
             std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://127.0.0.1:6334".to_string());
-        config.api_key = std::env::var("QDRANT_API_KEY")
-            .ok()
-            .and_then(|key| {
-                if key.trim().is_empty() {
-                    None
-                } else {
-                    Some(key)
-                }
-            });
+        config.api_key = std::env::var("QDRANT_API_KEY").ok().and_then(|key| {
+            if key.trim().is_empty() {
+                None
+            } else {
+                Some(key)
+            }
+        });
         config
     }
 }

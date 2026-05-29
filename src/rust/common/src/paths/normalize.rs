@@ -36,11 +36,7 @@ use super::PathError;
 /// slashes. The drive letter must be ASCII alphabetic; `1:/` is rejected.
 fn windows_drive_prefix_len(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
-    if bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && bytes[2] == b'/'
-    {
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/' {
         // "C:" — caller skips the trailing slash separately when splitting.
         Some(2)
     } else {

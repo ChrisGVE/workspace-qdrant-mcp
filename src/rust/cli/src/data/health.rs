@@ -71,4 +71,3 @@ pub async fn check_qdrant() -> QdrantHealth {
         },
     }
 }
-

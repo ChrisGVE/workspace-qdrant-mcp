@@ -99,12 +99,10 @@ impl WriteActor {
     /// paths. Constructs a fresh `QueueManager` over the actor's pool — the
     /// manager is a stateless wrapper, so this is safe alongside the daemon's
     /// long-lived queue processor.
-    pub(super) async fn exec_reapply_ignore_rules(
-        &self,
-    ) -> WriteResult<ReapplyIgnoreRulesResult> {
-        let queue_manager = std::sync::Arc::new(
-            crate::queue_operations::QueueManager::new(self.pool.clone()),
-        );
+    pub(super) async fn exec_reapply_ignore_rules(&self) -> WriteResult<ReapplyIgnoreRulesResult> {
+        let queue_manager = std::sync::Arc::new(crate::queue_operations::QueueManager::new(
+            self.pool.clone(),
+        ));
 
         // Count active projects up-front so we can report it (the reconciler
         // itself only returns stale/missing totals, not project count).
@@ -113,14 +111,13 @@ impl WriteActor {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| format!("database error: {}", e))? as u32;
+        .map_err(|e| format!("database error: {}", e))?
+            as u32;
 
-        let stats = crate::startup::reconciliation::reconcile_all_ignore_rules(
-            &self.pool,
-            &queue_manager,
-        )
-        .await
-        .map_err(|e| format!("ignore reconciliation failed: {}", e))?;
+        let stats =
+            crate::startup::reconciliation::reconcile_all_ignore_rules(&self.pool, &queue_manager)
+                .await
+                .map_err(|e| format!("ignore reconciliation failed: {}", e))?;
 
         Ok(ReapplyIgnoreRulesResult {
             projects_processed,
@@ -161,8 +158,7 @@ impl WriteActor {
             });
         }
 
-        let queue_manager =
-            crate::queue_operations::QueueManager::new(self.pool.clone());
+        let queue_manager = crate::queue_operations::QueueManager::new(self.pool.clone());
         let mut enqueued = 0u32;
         for (path, collection) in &folders {
             let payload = serde_json::json!({

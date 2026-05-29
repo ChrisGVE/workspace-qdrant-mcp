@@ -133,7 +133,9 @@ pub(super) async fn migrate_v7(pool: &SqlitePool) -> SearchDbResult<()> {
     .await?;
 
     if !has_column {
-        sqlx::query(ALTER_FILE_METADATA_V7_SQL).execute(pool).await?;
+        sqlx::query(ALTER_FILE_METADATA_V7_SQL)
+            .execute(pool)
+            .await?;
     }
 
     Ok(())
@@ -166,7 +168,9 @@ pub(super) async fn migrate_v8(pool: &SqlitePool) -> SearchDbResult<()> {
     .await?;
 
     if !has_column {
-        sqlx::query(ALTER_FILE_METADATA_V8_SQL).execute(pool).await?;
+        sqlx::query(ALTER_FILE_METADATA_V8_SQL)
+            .execute(pool)
+            .await?;
     }
 
     // Always create the partial index (IF NOT EXISTS guarantees idempotency).

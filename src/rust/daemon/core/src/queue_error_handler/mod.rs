@@ -2,4 +2,6 @@
 
 mod circuit_breaker;
 
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerState, CircuitState};
+pub use circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerState, CircuitState,
+};
