@@ -118,6 +118,92 @@ async fn test_register_existing_project() {
 }
 
 #[tokio::test]
+async fn test_register_sibling_clone_of_existing_tenant() {
+    // Multi-clone: a tenant_id is already registered at one path (a sibling
+    // working copy of the same git remote). Registering a DIFFERENT path
+    // under the same tenant_id must register the new clone as an additional
+    // watch root (created + newly_registered), NOT short-circuit to a no-op —
+    // otherwise the second working copy never gets scanned/indexed.
+    //
+    // Pre-fix this returned created=false / newly_registered=false because
+    // `determine_registration_action` keyed only on tenant existence.
+    let (pool, temp_dir) = setup_test_db().await;
+
+    // Sibling clone A: already registered under the shared tenant_id.
+    let clone_a = temp_dir.path().join("clone-a");
+    std::fs::create_dir_all(&clone_a).unwrap();
+    let clone_a_path = syntactic_canonical_str(&clone_a);
+    create_test_watch_folder(&pool, "abcd12345678", &clone_a_path).await;
+
+    // Clone B: a different path, not yet registered, same tenant_id.
+    let clone_b = temp_dir.path().join("clone-b");
+    std::fs::create_dir_all(&clone_b).unwrap();
+    let clone_b_path = syntactic_canonical_str(&clone_b);
+
+    let service = ProjectServiceImpl::new(pool);
+
+    let request = Request::new(RegisterProjectRequest {
+        path: clone_b_path,
+        project_id: "abcd12345678".to_string(),
+        name: Some("Clone B".to_string()),
+        git_remote: None,
+        register_if_new: true,
+        priority: Some("high".to_string()),
+    });
+
+    let response = service
+        .register_project(request)
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.project_id, "abcd12345678");
+    assert!(
+        response.created,
+        "a new clone path under an existing tenant must be registered, not no-op'd"
+    );
+    assert!(
+        response.newly_registered,
+        "the new clone path must be newly_registered"
+    );
+}
+
+#[tokio::test]
+async fn test_reregister_same_path_is_still_noop() {
+    // Guard the other side of the multi-clone branch: re-registering the SAME
+    // already-tracked path (the common session-start case) must still
+    // short-circuit (created=false), not spuriously enqueue a new project.
+    let (pool, temp_dir) = setup_test_db().await;
+    let project_dir = temp_dir.path().join("project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let canonical_path = syntactic_canonical_str(&project_dir);
+    create_test_watch_folder(&pool, "abcd12345678", &canonical_path).await;
+
+    let service = ProjectServiceImpl::new(pool);
+
+    let request = Request::new(RegisterProjectRequest {
+        path: canonical_path,
+        project_id: "abcd12345678".to_string(),
+        name: None,
+        git_remote: None,
+        register_if_new: true,
+        priority: Some("high".to_string()),
+    });
+
+    let response = service
+        .register_project(request)
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(
+        !response.created,
+        "re-registering an already-tracked path must not create a new project"
+    );
+    assert!(!response.newly_registered);
+}
+
+#[tokio::test]
 async fn test_invalid_project_id_format() {
     let (pool, temp_dir) = setup_test_db().await;
     let project_dir = temp_dir.path().join("project");

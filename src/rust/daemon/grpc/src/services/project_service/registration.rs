@@ -350,6 +350,32 @@ impl ProjectServiceImpl {
         Ok(existing.is_some())
     }
 
+    /// Check whether a specific path already has a watch_folder row.
+    ///
+    /// Distinct from [`project_exists`], which keys on `tenant_id`: two
+    /// independent working copies of the same git remote share a tenant_id but
+    /// occupy different paths. This lets the caller tell "the tenant is known"
+    /// from "this exact working copy is registered", which is what enables
+    /// multi-clone registration. An empty path is treated as not-registered.
+    async fn path_has_watch_folder(&self, path: &str) -> Result<bool, Status> {
+        if path.is_empty() {
+            return Ok(false);
+        }
+        let existing: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM watch_folders WHERE path = ?1 AND collection = ?2 LIMIT 1",
+        )
+        .bind(path)
+        .bind(COLLECTION_PROJECTS)
+        .fetch_optional(&self.db_pool)
+        .await
+        .map_err(|e| {
+            error!("Database error checking watch folder path: {e}");
+            Status::internal(format!("Database error: {e}"))
+        })?;
+
+        Ok(existing.is_some())
+    }
+
     /// Determine registration action based on project state and request parameters
     async fn determine_registration_action(
         &self,
@@ -379,6 +405,33 @@ impl ProjectServiceImpl {
         }
 
         if project_already_exists {
+            // Multi-clone: the tenant_id is already registered (e.g. by a
+            // sibling working copy of the same git remote), but THIS path has
+            // no watch_folder row yet. Register the new clone as an additional
+            // watch root under the same tenant_id instead of treating it as a
+            // no-op re-registration — otherwise the second working copy never
+            // gets scanned/indexed and its branches stay invisible.
+            //
+            // Routing through `enqueue_new_project` reuses the queue-level
+            // (Tenant, Add) handler, which keys watch_folders on PATH (INSERT
+            // OR IGNORE), scans `payload.project_root`, and rejects true
+            // subdirectories via its own guard — so a sibling clone gets its
+            // own row while a re-registration of an already-tracked path (the
+            // common session-start case) still short-circuits below.
+            let path_str = effective_path.to_str().unwrap_or("");
+            if req.register_if_new
+                && !path_str.is_empty()
+                && !self.path_has_watch_folder(path_str).await?
+            {
+                info!(
+                    "Registering additional clone of existing tenant {} at new path {}",
+                    project_id, path_str
+                );
+                return self
+                    .enqueue_new_project(project_id, req, is_high_priority)
+                    .await;
+            }
+
             if is_high_priority {
                 // Second arg is an ignored legacy `_branch` parameter (see
                 // priority_manager::register_session); pass a stable label so
