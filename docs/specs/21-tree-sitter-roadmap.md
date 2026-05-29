@@ -47,6 +47,31 @@ never issued, `kind` classifier uses naive string match on hover text).
 
 ### Validated gaps (execution order)
 
+> **Status update — 2026-05-29 (re-audited against the code).** Items #1 and #2
+> are now SHIPPED; the per-item text below is kept for historical context.
+> Items #3 and #4 remain open.
+>
+> - **#1 Real tokenizer — DONE.** `tokenizer::estimated_token_count(text, Option<&ModelTokenizer>)`
+>   drives the oversize gate in `chunker/splitting.rs::handle_oversized_chunks`
+>   (with a post-split sanity warning); `SemanticChunker` carries an
+>   `Option<Arc<ModelTokenizer>>` with a `with_tokenizer` builder; and the
+>   production path wires the real tokenizer in via `default_tokenizer()`
+>   (`document_processor/mod.rs:373`, `tree_sitter/mod.rs:243`). Covered by
+>   `chunker/tests.rs` (with/without-tokenizer split cases). The legacy
+>   `SemanticChunk::estimated_tokens()` (`len/4`) is now only referenced by a test.
+> - **#2 Symbols → tagging — DONE.** `keyword_extraction/symbol_candidates.rs`
+>   consumes `SemanticChunk` symbol names into the candidate merge
+>   (`keyword_extraction/pipeline.rs`); see also `cooccurrence_graph.rs`.
+> - **#3 LSP `definition` + `kind` precision — OPEN.** `enrichment.rs:81` still
+>   hardcodes `definition: None` and `:419` still classifies `kind` by
+>   `type_signature.contains("fn ")…`. Validating a fix needs a live LSP server,
+>   so it is not a host-only drop-in.
+> - **#4 Incremental parse + tree-diff re-embed — OPEN (groundwork only).**
+>   `parser::parse_incremental(old_tree)` exists with a unit test but has NO
+>   production caller; the watcher/`document_processor` still full-reparses and
+>   re-embeds every chunk. Large effort (old-tree cache + changed-range → changed-
+>   chunk-only re-embed).
+
 #### 1. Real tokenizer in place of `content.len() / 4`
 
 **Current state.** `SemanticChunk::estimated_tokens()`
