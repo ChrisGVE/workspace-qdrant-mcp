@@ -1,41 +1,50 @@
 {
   "_note": [
-    "Behavioral-rules seed/template for workspace-qdrant-mcp — full recovery artifact.",
+    "Behavioral-rules seed/template for workspace-qdrant-mcp — full recovery artifact (clean intended state).",
     "Rules live in the daemon's `rules` Qdrant collection (host-bind state/qdrant/storage), NOT in git — a volume loss, `state/` wipe, or tenant change wipes them. This file is the versioned source of truth to RE-APPLY them.",
     "Two scopes: GLOBAL rules apply to every project; PROJECT rules bind to a tenant_id (resolved from cwd). The default `rules action=list` is project-scoped — run `rules action=list scope=global` to see the global set.",
-    "Re-apply GLOBAL: for each entry in `global`, call MCP `rules` action=add with scope=global (cwd optional).",
-    "Re-apply PROJECT: for each entry in `project`, call MCP `rules` action=add with scope=project AND your repo cwd (so it binds to the right tenant_id).",
-    "Keep this file in sync whenever a rule is added/changed. Last synced: 2026-05-29."
+    "Re-apply GLOBAL: for each entry in `global`, call MCP `rules` action=add with scope=global.",
+    "Re-apply PROJECT: for each entry in `project`, call MCP `rules` action=add with scope=project AND your repo cwd.",
+    "WARNING: use action=add on a CLEAN collection. `rules action=update` does NOT edit in place — it creates a duplicate. And `remove` cannot disambiguate two rules sharing (label, scope, projectId). To change a rule, remove it then add it (on a clean key).",
+    "Keep this file in sync whenever a rule is added/changed. Last synced: 2026-05-29 (priorities set; scope-project merged into search-first; mcp-pass-cwd promoted to global)."
   ],
   "global": [
     {
       "label": "search-first",
       "title": "Always search before answering",
       "priority": 100,
-      "content": "For any question about this project's code, structure, or library docs, ALWAYS call the `search` tool before answering — do not rely on training data. Defaults: scope=\"project\", limit=10. Widen to scope=\"all\" or includeLibraries=true only after a project-scoped query comes back empty. Use mode=\"semantic\" for concept queries, mode=\"keyword\" or exact=true for known identifiers."
+      "content": "For any question about this project's code, structure, or library docs, ALWAYS call the `search` tool before answering — do not rely on training data. Start with scope=\"project\" and a small limit (default 10). Widen to scope=\"all\" or includeLibraries=true only after a project-scoped query comes back empty — never widen silently (it is more expensive and noisier). Use mode=\"semantic\" for concept queries, mode=\"keyword\" or exact=true for known identifiers."
     },
     {
-      "label": "scope-project",
-      "content": "Start `search` calls with scope=\"project\" and a small limit (default 10). Widen to scope=\"all\" or includeLibraries=true only after the project-scoped query returns nothing useful. Never widen silently — the widened call is more expensive and noisier."
+      "label": "confirm-mut",
+      "priority": 95,
+      "content": "Mutating `workspace_index` actions (add_project, start_agent_branch, finish_agent_branch, abandon_agent_branch, register_wqm, register_all_wqm, cleanup_orphans) require double opt-in: allowMutation:true in the call AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the server env. ALWAYS get explicit user confirmation before calling these — they affect persistent shared state across sessions. `sync_current_branch` is for git hooks only; agents must not call it directly."
+    },
+    {
+      "label": "no-proj-write",
+      "priority": 90,
+      "content": "Never call `store` targeting the `projects` collection — that collection is daemon-owned via file watching. Use `scratchpad` for ad-hoc notes, `libraries` only when the user explicitly asks, or `store` with type=\"project\" to register/activate a project directory."
+    },
+    {
+      "label": "mcp-pass-cwd",
+      "title": "Always pass cwd (or projectId) to workspace-qdrant tools",
+      "priority": 85,
+      "tags": ["tools", "mcp"],
+      "content": "The MCP server runs over HTTP (dockerized) and CANNOT observe your working directory. Always pass `cwd` (absolute path) — or an explicit `projectId` — to `search`, `grep`, `list`, `retrieve`, and `rules`. Omitting both yields \"Could not detect project\" (path-based detection fails when the daemon registered a different mount path than the client sends, e.g. Windows/9P: client sends C:\\..., daemon has /run/desktop/mnt/host/c/...)."
     },
     {
       "label": "grep-for-exact",
+      "priority": 70,
       "content": "For exact identifiers, regex, or known substrings, use the `grep` tool before `search` — it is faster and cheaper than `search` with exact=true. Reserve `search` for semantic discovery (concepts, intent, \"what does the code do around X\")."
     },
     {
       "label": "branch-default",
+      "priority": 60,
       "content": "`search` operates on the current branch of the current project by default. To compare or include other branches, pass branch=\"<name>\" or branch=\"*\" (all branches) explicitly. Never widen branch scope silently — results from stale branches will mislead reasoning."
     },
     {
-      "label": "no-proj-write",
-      "content": "Never call `store` targeting the `projects` collection — that collection is daemon-owned via file watching. Use `scratchpad` for ad-hoc notes, `libraries` only when the user explicitly asks, or `store` with type=\"project\" to register/activate a project directory."
-    },
-    {
-      "label": "confirm-mut",
-      "content": "Mutating `workspace_index` actions (add_project, start_agent_branch, finish_agent_branch, abandon_agent_branch, register_wqm, register_all_wqm, cleanup_orphans) require double opt-in: allowMutation:true in the call AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the server env. ALWAYS get explicit user confirmation before calling these — they affect persistent shared state across sessions. `sync_current_branch` is for git hooks only; agents must not call it directly."
-    },
-    {
       "label": "agent-branch",
+      "priority": 50,
       "content": "When creating an agent/feature branch (especially in a parallel worktree), register it via `workspace_index` with action=\"start_agent_branch\", passing branchName, purpose, createdBy, and useWorktree=true if applicable. Close out with finish_agent_branch (merged) or abandon_agent_branch (discarded) — never leave it dangling in the registry. This is a mutating action and requires double opt-in (see confirm-mut)."
     }
   ],
@@ -76,25 +85,18 @@
       "content": "The daemon's global ignore is the host-bind file state/memexd/global.wqmignore (read at reconcile; mounted at /var/lib/memexd/global.wqmignore in BOTH the memexd and mcp containers). APPEND, never truncate — it holds custom + worktree patterns. Directory patterns MUST use the `**/` prefix: the Rust `ignore` crate's add_ignore() anchors patterns at the file's parent dir, so `.claude/` alone won't match project-level (use `**/.claude/`). Worktrees and .claude/.codex/.agents are excluded by design. Canonical template: assets/global.wqmignore.example."
     },
     {
-      "label": "vitest-scoped",
-      "title": "Run vitest scoped to one file via cd + npx",
-      "priority": 5,
-      "tags": ["typescript", "test"],
-      "content": "Run a single MCP-server test with `cd src/typescript/mcp-server && npx vitest run <file-substring>`. Do NOT use `npm --prefix ... exec -- vitest --root ...` — the positional path filter is dropped and the entire ~859-test suite runs (and crashes on the server-http-transport teardown with a stack-overflow). Typecheck with `npx tsc --noEmit` from the mcp-server dir."
-    },
-    {
-      "label": "mcp-pass-cwd",
-      "title": "Always pass cwd (or projectId) to workspace-qdrant tools",
-      "priority": 7,
-      "tags": ["tools", "mcp", "windows"],
-      "content": "The MCP server runs over HTTP (dockerized) and CANNOT observe your working directory. Always pass `cwd` (absolute path) — or an explicit `projectId` — to `search`, `grep`, `list`, `retrieve`, and `rules`. Omitting both yields \"Could not detect project\" (the Windows/9P mount makes path-based detection fail: client sends C:\\..., daemon registered /run/desktop/mnt/host/c/...)."
-    },
-    {
       "label": "worktree-tools",
       "title": "On worktrees: local Read/Grep; MCP search against main",
       "priority": 6,
       "tags": ["tools", "worktree", "search"],
       "content": "Git worktrees (.claude/worktrees/, parallel agent worktrees) are NOT indexed by design (excluded in global.wqmignore — indexing them is ~98% noise). So inside a worktree, read its own files with the native Read/Grep tools, and use workspace-qdrant `search`/`grep` (MCP) only against the main canonical index. Merging back to main re-indexes via the file watcher."
+    },
+    {
+      "label": "vitest-scoped",
+      "title": "Run vitest scoped to one file via cd + npx",
+      "priority": 5,
+      "tags": ["typescript", "test"],
+      "content": "Run a single MCP-server test with `cd src/typescript/mcp-server && npx vitest run <file-substring>`. Do NOT use `npm --prefix ... exec -- vitest --root ...` — the positional path filter is dropped and the entire ~859-test suite runs (and crashes on the server-http-transport teardown with a stack-overflow). Typecheck with `npx tsc --noEmit` from the mcp-server dir."
     }
   ]
 }
