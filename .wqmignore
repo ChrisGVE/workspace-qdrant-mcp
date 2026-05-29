@@ -1,0 +1,18 @@
+# =============================================================================
+# .wqmignore — project-scoped index exclusions for workspace-qdrant-mcp
+# =============================================================================
+# Applied by the daemon ON TOP OF .gitignore and the daemon-wide
+# global.wqmignore. Standard gitignore syntax, anchored to this repo root.
+# Changes take effect at the next ignore reconciliation (file modified or
+# daemon restart).
+# =============================================================================
+
+# ─── Semantic-search evaluation artifacts ────────────────────────────────────
+# These two files contain the benchmark queries AND their expected file paths
+# verbatim. When indexed, they dominate semantic-search results for any query
+# about search internals (data leakage) — the eval fixtures outrank the real
+# implementation files they point at. The benchmark runner
+# (`npm run benchmark:semantic`) reads them straight from disk, so excluding
+# them from the INDEX does not affect benchmarking.
+src/typescript/mcp-server/reports/
+src/typescript/mcp-server/scripts/benchmark-data/
