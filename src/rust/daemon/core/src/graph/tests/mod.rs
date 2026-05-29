@@ -5,6 +5,7 @@
 //! - `store_tests`: CRUD operations (upsert, insert, delete)
 //! - `query_tests`: Traversal, impact analysis, stats, orphan pruning
 
+mod cross_boundary_tests;
 mod id_tests;
 mod query_tests;
 mod store_tests;

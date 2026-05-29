@@ -365,6 +365,7 @@ async fn test_query_cross_boundary_basic() {
             &func.node_id,
             &[EdgeType::ImplementsConcept, EdgeType::CoversTopic],
             3,
+            &["other_tenant".to_string()],
         )
         .await
         .unwrap();
@@ -380,7 +381,7 @@ async fn test_query_cross_boundary_basic() {
 async fn test_query_cross_boundary_empty_edge_types() {
     let store = test_store().await;
     let results = store
-        .query_cross_boundary(TENANT, "nonexistent", &[], 3)
+        .query_cross_boundary(TENANT, "nonexistent", &[], 3, &[])
         .await
         .unwrap();
     assert!(results.is_empty());
@@ -390,7 +391,7 @@ async fn test_query_cross_boundary_empty_edge_types() {
 async fn test_query_cross_boundary_zero_hops() {
     let store = test_store().await;
     let results = store
-        .query_cross_boundary(TENANT, "any", &[EdgeType::CoversTopic], 0)
+        .query_cross_boundary(TENANT, "any", &[EdgeType::CoversTopic], 0, &[])
         .await
         .unwrap();
     assert!(results.is_empty());

@@ -10,6 +10,12 @@ use super::{
     ImpactNode, ImpactReport, SymbolRow, TraversalNode,
 };
 
+/// Tenant under which cross-boundary concept nodes are stored.
+pub(crate) const GLOBAL_TENANT: &str = "__global__";
+
+/// Maximum recursion depth supported by cross-boundary traversal.
+pub(crate) const CROSS_BOUNDARY_MAX_HOPS: u32 = 3;
+
 /// SQLite-backed implementation of `GraphStore`.
 ///
 /// Uses a dedicated `graph.db` with WAL mode. Recursive CTEs handle
@@ -704,64 +710,114 @@ impl GraphStore for SqliteGraphStore {
 
     async fn query_cross_boundary(
         &self,
-        _source_tenant: &str,
+        source_tenant: &str,
         source_node_id: &str,
         edge_types: &[EdgeType],
         max_hops: u32,
-        _library_tenants: &[String],
+        library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
         if edge_types.is_empty() || max_hops == 0 {
             return Ok(Vec::new());
         }
+        // Clamp to the supported recursion budget (1..=3).
+        let hops = max_hops.clamp(1, CROSS_BOUNDARY_MAX_HOPS) as i64;
 
-        let type_placeholders: Vec<String> = edge_types
+        // Edge-type IN-list. Edge types come from a fixed enum (as_str is a
+        // static literal), so inlining is injection-safe.
+        let type_list = edge_types
             .iter()
             .map(|et| format!("'{}'", et.as_str()))
-            .collect();
-        let type_list = type_placeholders.join(",");
+            .collect::<Vec<_>>()
+            .join(",");
 
+        // Tenant relaxation set: source_tenant ∪ {"__global__"} ∪ library_tenants.
+        // ConceptNodes live under "__global__", so it must always be included or
+        // code→concept→code traversal returns nothing.
+        let mut tenants: Vec<String> = Vec::with_capacity(library_tenants.len() + 2);
+        tenants.push(source_tenant.to_string());
+        tenants.push(GLOBAL_TENANT.to_string());
+        for lt in library_tenants {
+            tenants.push(lt.clone());
+        }
+        // Bound parameters ?1=source_node_id, ?2=hops, then one per tenant.
+        let tenant_placeholders = (0..tenants.len())
+            .map(|i| format!("?{}", i + 3))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        // Per-edge-type base confidence (Feature E weight × per-type base is
+        // applied in Rust; the CTE carries weight × base per reaching edge).
+        let confidence_case = "CASE e.edge_type                 WHEN 'EXPLAINS' THEN 0.6                 WHEN 'COVERS_TOPIC' THEN 0.6                 WHEN 'IMPLEMENTS_CONCEPT' THEN 0.7                 ELSE 1.0 END";
+
+        // Bidirectional recursive traversal. Each recursive member follows an
+        // edge of the allowed set in one direction, joins the reached node, and
+        // applies the tenant guard so we never hop through a foreign tenant.
+        // `conf` carries the reaching edge's (weight × per-type base); `MAX` of
+        // it is taken per reached node after grouping.
         let sql = format!(
-            "WITH RECURSIVE traverse(node_id, depth, path) AS (
-                SELECT ?1, 0, ?1
+            "WITH RECURSIVE traverse(node_id, depth, path, edge_type, conf) AS (
+                SELECT ?1, 0, ?1, '', 1.0
                 UNION ALL
-                SELECT e.target_node_id, t.depth + 1,
-                       t.path || ' -> ' || e.target_node_id
+                SELECT n.node_id, t.depth + 1,
+                       t.path || ' -> ' || n.node_id,
+                       e.edge_type,
+                       COALESCE(e.weight, 1.0) * ({confidence_case})
                 FROM traverse t
                 JOIN graph_edges e ON e.source_node_id = t.node_id
+                JOIN graph_nodes n ON n.node_id = e.target_node_id
                 WHERE t.depth < ?2
                   AND e.edge_type IN ({type_list})
-                  AND INSTR(t.path, e.target_node_id) = 0
+                  AND INSTR(t.path, n.node_id) = 0
+                  AND (n.tenant_id IN ({tenant_placeholders}))
+                UNION ALL
+                SELECT n.node_id, t.depth + 1,
+                       t.path || ' -> ' || n.node_id,
+                       e.edge_type,
+                       COALESCE(e.weight, 1.0) * ({confidence_case})
+                FROM traverse t
+                JOIN graph_edges e ON e.target_node_id = t.node_id
+                JOIN graph_nodes n ON n.node_id = e.source_node_id
+                WHERE t.depth < ?2
+                  AND e.edge_type IN ({type_list})
+                  AND INSTR(t.path, n.node_id) = 0
+                  AND (n.tenant_id IN ({tenant_placeholders}))
             )
             SELECT n.node_id, n.symbol_name, n.symbol_type, n.file_path,
-                   COALESCE(e.edge_type, '') as edge_type,
-                   t.depth, t.path
+                   n.tenant_id,
+                   MIN(t.depth) AS depth,
+                   MAX(t.edge_type) AS edge_type,
+                   MAX(t.conf) AS edge_confidence,
+                   t.path
             FROM traverse t
             JOIN graph_nodes n ON n.node_id = t.node_id
-            LEFT JOIN graph_edges e ON e.target_node_id = t.node_id
-                AND e.edge_type IN ({type_list})
             WHERE t.depth > 0
-            ORDER BY t.depth, n.symbol_name"
+            GROUP BY t.node_id
+            ORDER BY depth, n.symbol_name"
         );
 
-        let rows: Vec<(String, String, String, String, String, i64, String)> = sqlx::query_as(&sql)
+        let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, String, f64, String)>(&sql)
             .bind(source_node_id)
-            .bind(max_hops as i64)
-            .fetch_all(&self.pool)
-            .await?;
+            .bind(hops);
+        for tenant in &tenants {
+            q = q.bind(tenant);
+        }
+        let rows = q.fetch_all(&self.pool).await?;
 
         let results = rows
             .into_iter()
             .map(
-                |(node_id, name, stype, fpath, etype, depth, path)| TraversalNode {
-                    node_id,
-                    symbol_name: name,
-                    symbol_type: stype,
-                    file_path: fpath,
-                    edge_type: etype,
-                    depth: depth as u32,
-                    path,
-                    tenant_id: _source_tenant.to_string(),
-                    edge_confidence: 1.0,
+                |(node_id, name, stype, fpath, tenant_id, depth, etype, conf, path)| {
+                    TraversalNode {
+                        node_id,
+                        symbol_name: name,
+                        symbol_type: stype,
+                        file_path: fpath,
+                        edge_type: etype,
+                        depth: depth as u32,
+                        path,
+                        tenant_id,
+                        edge_confidence: conf,
+                    }
                 },
             )
             .collect();
