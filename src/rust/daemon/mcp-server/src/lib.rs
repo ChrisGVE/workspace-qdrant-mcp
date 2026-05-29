@@ -6,6 +6,7 @@
 
 pub mod canonicalize;
 pub mod config;
+pub mod grpc;
 pub mod instructions;
 pub mod server;
 pub mod server_types;
