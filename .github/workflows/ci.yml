@@ -94,6 +94,18 @@ jobs:
       - name: Check version consistency
         run: bash scripts/check-version-consistency.sh
 
+  # Guard against gRPC proto drift. The TypeScript MCP daemon-client does NOT
+  # codegen from the canonical Rust proto — it calls RPCs via hardcoded
+  # camelCase method-name strings. If a daemon RPC is renamed/removed, the TS
+  # side still compiles and only fails at runtime with "Unknown method".
+  proto-consistency:
+    name: Proto consistency (TS calls vs Rust proto)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check proto consistency
+        run: bash scripts/check-proto-consistency.sh
+
 
   # Rust build, lint, and test
   rust:
