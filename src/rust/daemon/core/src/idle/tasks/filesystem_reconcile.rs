@@ -10,6 +10,19 @@ use crate::idle::task::{MaintenanceContext, MaintenanceResult, MaintenanceTask};
 use crate::idle::IdleState;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
+/// Batch SELECT joining tracked files to their watch folder.
+///
+/// `watch_folders` is keyed by `watch_id` (not `id`); `tracked_files`
+/// references it via `watch_folder_id`. Kept as a named const so the join
+/// is exercised by a schema-backed test and cannot silently drift from the
+/// real schema again.
+const RECONCILE_BATCH_QUERY: &str = "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS branch, tf.collection,
+                    wf.tenant_id, wf.path AS watch_path
+             FROM tracked_files tf
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+             ORDER BY tf.file_id
+             LIMIT ?1 OFFSET ?2";
+
 /// Batch-checks tracked files against the filesystem.
 ///
 /// Runs in `FullIdle` or `QdrantDownIdle` (only needs disk + SQLite).
@@ -62,24 +75,24 @@ impl MaintenanceTask for FilesystemReconcileTask {
         ctx: &MaintenanceContext<'_>,
         cancel: &CancellationToken,
     ) -> MaintenanceResult {
-        let rows = sqlx::query(
-            "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS branch, tf.collection,
-                    wf.tenant_id, wf.path AS watch_path
-             FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
-             ORDER BY tf.file_id
-             LIMIT ?1 OFFSET ?2",
-        )
-        .bind(self.batch_size)
-        .bind(self.offset)
-        .fetch_all(ctx.pool)
-        .await;
+        let rows = sqlx::query(RECONCILE_BATCH_QUERY)
+            .bind(self.batch_size)
+            .bind(self.offset)
+            .fetch_all(ctx.pool)
+            .await;
 
         let rows = match rows {
             Ok(r) => r,
             Err(e) => {
-                warn!("Filesystem reconcile query failed: {} — will retry", e);
-                return MaintenanceResult::Yielded;
+                // A query error here is structural (schema mismatch), not
+                // transient. Returning `Yielded` would re-run on the very next
+                // tick with no cooldown, hot-looping and flooding the log.
+                // End the cycle so the task's cooldown applies before retry.
+                warn!(
+                    "Filesystem reconcile query failed: {} — backing off until next cycle",
+                    e
+                );
+                return MaintenanceResult::Done;
             }
         };
 
@@ -149,5 +162,62 @@ impl MaintenanceTask for FilesystemReconcileTask {
 
         self.offset += self.batch_size;
         MaintenanceResult::Continue
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::queue_config::QueueConnectionConfig;
+    use crate::schema_version::v40::CREATE_TRACKED_FILES_V40_SQL;
+
+    /// The reconcile join must run against the real `watch_folders` schema,
+    /// whose primary key is `watch_id` (regression guard for the `wf.id`
+    /// typo that produced "no such column: wf.id" and flooded the log).
+    #[tokio::test]
+    async fn reconcile_query_matches_watch_folders_schema() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("reconcile_schema.db");
+        let pool = QueueConnectionConfig::with_database_path(&db_path)
+            .create_pool()
+            .await
+            .unwrap();
+
+        for stmt in include_str!("../../schema/watch_folders_schema.sql").split(';') {
+            let stmt = stmt.trim();
+            if !stmt.is_empty() {
+                sqlx::query(stmt).execute(&pool).await.unwrap();
+            }
+        }
+        sqlx::query(CREATE_TRACKED_FILES_V40_SQL)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/tmp/proj', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, primary_branch, file_mtime, file_hash, collection, relative_path, created_at, updated_at)
+             VALUES ('w1', 'main', '2025-01-01T00:00:00Z', 'h1', 'projects', 'src/main.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows = sqlx::query(RECONCILE_BATCH_QUERY)
+            .bind(100_i64)
+            .bind(0_i64)
+            .fetch_all(&pool)
+            .await
+            .expect("reconcile query must execute against the real schema");
+
+        assert_eq!(rows.len(), 1, "expected the single tracked file to join");
+        let watch_path: String = rows[0].try_get("watch_path").unwrap();
+        assert_eq!(watch_path, "/tmp/proj");
     }
 }
