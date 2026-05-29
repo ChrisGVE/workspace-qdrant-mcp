@@ -469,6 +469,94 @@ fn bench_extract_edges(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_cross_boundary_supernode(c: &mut Criterion) {
+    use workspace_qdrant_core::graph::NodeType;
+
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("graph_cross_boundary_supernode");
+    group.measurement_time(Duration::from_secs(10));
+
+    // Worst case (PERF-5): one ConceptNode with a high in-degree. `degree`
+    // code symbols IMPLEMENTS_CONCEPT it and `degree` library sections
+    // COVERS_TOPIC it, so a 2-hop bidirectional traversal from one symbol must
+    // touch the whole supernode neighbourhood before the Rust fan-out caps
+    // bound the output. Target: < 100ms for graphs < 50K nodes.
+    for degree in [1000usize, 2000] {
+        let label = format!("degree_{degree}");
+        group.bench_function(BenchmarkId::new("query_cross_boundary", &label), |b| {
+            let dir = TempDir::new().unwrap();
+            let store = rt.block_on(setup_store(&dir));
+            let tenant = "bench_proj";
+            let lib_tenant = "bench_lib";
+
+            let seed = rt.block_on(async {
+                let concept = GraphNode::new("__global__", "", "supernode", NodeType::ConceptNode);
+                store.upsert_nodes(&[concept.clone()]).await.unwrap();
+
+                let mut nodes = Vec::with_capacity(degree * 2);
+                let mut edges = Vec::with_capacity(degree * 2);
+                let mut seed_id = String::new();
+                for i in 0..degree {
+                    let code = GraphNode::new(
+                        tenant,
+                        format!("c{i}.rs"),
+                        format!("sym_{i}"),
+                        NodeType::Function,
+                    );
+                    if i == 0 {
+                        seed_id = code.node_id.clone();
+                    }
+                    edges.push(GraphEdge::new(
+                        tenant,
+                        &code.node_id,
+                        &concept.node_id,
+                        EdgeType::ImplementsConcept,
+                        "c.rs",
+                    ));
+                    nodes.push(code);
+
+                    let doc = GraphNode::new(
+                        lib_tenant,
+                        format!("d{i}.md"),
+                        format!("sec_{i}"),
+                        NodeType::LibrarySection,
+                    );
+                    edges.push(GraphEdge::new(
+                        lib_tenant,
+                        &doc.node_id,
+                        &concept.node_id,
+                        EdgeType::CoversTopic,
+                        "d.md",
+                    ));
+                    nodes.push(doc);
+                }
+                store.upsert_nodes(&nodes).await.unwrap();
+                store.insert_edges(&edges).await.unwrap();
+                seed_id
+            });
+
+            let edge_types = [
+                EdgeType::ImplementsConcept,
+                EdgeType::CoversTopic,
+                EdgeType::Explains,
+            ];
+            let lib_tenants = [lib_tenant.to_string()];
+
+            b.iter(|| {
+                rt.block_on(store.query_cross_boundary(
+                    black_box(tenant),
+                    black_box(&seed),
+                    black_box(&edge_types),
+                    black_box(2),
+                    black_box(&lib_tenants),
+                ))
+                .unwrap();
+            });
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_edge_insertion,
@@ -482,5 +570,6 @@ criterion_group!(
     bench_communities,
     bench_betweenness,
     bench_extract_edges,
+    bench_cross_boundary_supernode,
 );
 criterion_main!(benches);

@@ -776,7 +776,7 @@ impl GraphStore for SqliteGraphStore {
                        e.edge_type,
                        COALESCE(e.weight, 1.0) * ({confidence_case})
                 FROM traverse t
-                JOIN graph_edges e ON e.source_node_id = t.node_id
+                CROSS JOIN graph_edges e ON e.source_node_id = t.node_id
                 JOIN graph_nodes n ON n.node_id = e.target_node_id
                 WHERE t.depth < ?2
                   AND e.edge_type IN ({type_list})
@@ -788,7 +788,7 @@ impl GraphStore for SqliteGraphStore {
                        e.edge_type,
                        COALESCE(e.weight, 1.0) * ({confidence_case})
                 FROM traverse t
-                JOIN graph_edges e ON e.target_node_id = t.node_id
+                CROSS JOIN graph_edges e ON e.target_node_id = t.node_id
                 JOIN graph_nodes n ON n.node_id = e.source_node_id
                 WHERE t.depth < ?2
                   AND e.edge_type IN ({type_list})

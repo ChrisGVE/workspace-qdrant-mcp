@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for graph.db.
-pub const GRAPH_SCHEMA_VERSION: i32 = 3;
+pub const GRAPH_SCHEMA_VERSION: i32 = 4;
 
 /// Default graph database filename.
 pub const GRAPH_DB_FILENAME: &str = "graph.db";
@@ -170,6 +170,7 @@ impl GraphDbManager {
             1 => self.migrate_v1().await,
             2 => self.migrate_v2().await,
             3 => self.migrate_v3().await,
+            4 => self.migrate_v4().await,
             _ => Err(GraphDbError::Migration(format!(
                 "Unknown graph migration version: {}",
                 version
@@ -306,6 +307,34 @@ impl GraphDbManager {
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_nodes_type_tenant \
              ON graph_nodes(symbol_type, tenant_id)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Migration v4: node-driven composite indexes for cross-boundary traversal.
+    ///
+    /// The bidirectional cross-boundary CTE drives from the recursive node set
+    /// into `graph_edges`. Without `(source_node_id, edge_type)` /
+    /// `(target_node_id, edge_type)` the planner scans all edges of a type per
+    /// recursion step, which is O(degree^2) on a high-degree ConceptNode. These
+    /// indexes let each step look up a node's edges directly.
+    async fn migrate_v4(&self) -> GraphDbResult<()> {
+        info!("Graph migration v4: adding node-driven edge indexes for cross-boundary traversal");
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_edges_source_type              ON graph_edges(source_node_id, edge_type)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_edges_target_type              ON graph_edges(target_node_id, edge_type)",
         )
         .execute(&mut *tx)
         .await?;
