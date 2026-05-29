@@ -1,0 +1,53 @@
+{
+  "_note": [
+    "Behavioral-rules seed/template for workspace-qdrant-mcp.",
+    "Rules live in the daemon's `rules` Qdrant collection (host-bind state/qdrant/storage), NOT in git — so a volume loss or tenant change wipes them. This file is the versioned source of truth to RE-APPLY them.",
+    "Re-apply: for each entry, call the MCP `rules` tool with action=add, passing label/title/content/priority/scope/tags and your repo cwd (so project-scoped rules bind to the right tenant_id). See docs/runbooks/restore-rules-and-global-ignore.md.",
+    "Keep this file in sync whenever you add/change a behavioral rule. Last synced: 2026-05-29."
+  ],
+  "scope": "project",
+  "rules": [
+    {
+      "label": "look-then-write",
+      "title": "Inspect daemon shared state before overwriting it",
+      "priority": 9,
+      "tags": ["safety", "daemon", "ops"],
+      "content": "Before overwriting or deleting daemon-owned shared state (global.wqmignore, named volumes, the queue/search SQLite DBs), inspect/diff the target first. The live global.wqmignore is NOT empty — it carries custom entries (e.g. `**/bws-dev-plataform/testlink/**`, `**/zabbix/zabbix/**`) that a blind truncate-overwrite would destroy. Prefer append over overwrite; diff against assets/global.wqmignore.example rather than replacing."
+    },
+    {
+      "label": "daemon-via-grpc",
+      "title": "Operate the daemon via container gRPC, not host wqm",
+      "priority": 8,
+      "tags": ["daemon", "ops", "cli"],
+      "content": "Reach the daemon through the dockerized stack — MCP gRPC, or `docker exec wqm-memexd wqm ...` for CLI ops (e.g. `wqm admin requeue-failed`). Do NOT run the host `wqm` CLI: it resolves the wrong DB (host XDG path, not the daemon's volume). Running wqm INSIDE wqm-memexd resolves the real /var/lib/memexd/memexd.db."
+    },
+    {
+      "label": "db-via-sidecar",
+      "title": "Query daemon SQLite via sidecar on the active volume",
+      "priority": 8,
+      "tags": ["daemon", "ops", "sqlite"],
+      "content": "Inspect/query the daemon's SQLite (memexd.db, queue/state) with a sidecar container mounting volume `workspace-qdrant-mcp_memexd_db` (RW + WAL = safe concurrent read with the live daemon). Gotchas: there are multiple memexd volumes — the compose-prefixed `workspace-qdrant-mcp_memexd_db` is live; bare `memexd_db` was a stale empty orphan (removed). The live Qdrant index is a HOST BIND at state/qdrant/storage (no qdrant volume). global.wqmignore is a host bind at state/memexd/, not inside the DB volume."
+    },
+    {
+      "label": "validate-build",
+      "title": "Validate the crate, then rebuild the container image",
+      "priority": 7,
+      "tags": ["rust", "build", "deploy"],
+      "content": "For Rust daemon changes, validate the specific crate FIRST on Windows — `cargo check/clippy/test -p workspace-qdrant-core` (or -grpc); core/grpc compile without ORT. Then deploy by rebuilding the image: `docker compose build memexd && docker compose up -d memexd` (memexd is heavy; mcp is a fast TS rebuild). The running container keeps the OLD binary until rebuilt — source edits alone do nothing."
+    },
+    {
+      "label": "wqmignore-edit",
+      "title": "Edit global.wqmignore at host bind; use **/ dir prefixes",
+      "priority": 6,
+      "tags": ["ignore", "daemon", "config"],
+      "content": "The daemon's global ignore is the host-bind file state/memexd/global.wqmignore (read at reconcile; mounted at /var/lib/memexd/global.wqmignore in-container). APPEND, never truncate — it holds custom + worktree patterns. Directory patterns MUST use the `**/` prefix: the Rust `ignore` crate's add_ignore() anchors patterns at the file's parent dir, so `.claude/` alone won't match project-level (use `**/.claude/`). Worktrees and .claude/.codex/.agents are excluded by design (indexing them = ~98% noise). Canonical template: assets/global.wqmignore.example."
+    },
+    {
+      "label": "vitest-scoped",
+      "title": "Run vitest scoped to one file via cd + npx",
+      "priority": 5,
+      "tags": ["typescript", "test"],
+      "content": "Run a single MCP-server test with `cd src/typescript/mcp-server && npx vitest run <file-substring>`. Do NOT use `npm --prefix ... exec -- vitest --root ...` — the positional path filter is dropped and the entire ~859-test suite runs (and crashes on the server-http-transport teardown with a stack-overflow). Typecheck with `npx tsc --noEmit` from the mcp-server dir."
+    }
+  ]
+}
