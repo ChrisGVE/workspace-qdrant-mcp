@@ -236,7 +236,7 @@ impl DaemonClient {
         &mut self.project
     }
 
-    pub fn text_search(&mut self) -> &mut TextSearchServiceClient<Channel> {
+    pub fn text_search_client(&mut self) -> &mut TextSearchServiceClient<Channel> {
         &mut self.text_search
     }
 
