@@ -9,6 +9,8 @@ pub mod embedding;
 pub mod envelope;
 pub mod grep;
 pub mod retrieve;
+pub mod rules;
+pub mod store;
 #[cfg(test)]
 mod tests;
 
