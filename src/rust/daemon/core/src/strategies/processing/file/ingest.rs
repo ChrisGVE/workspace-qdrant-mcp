@@ -3,8 +3,11 @@
 //! keyword extraction -> graph extraction -> component detection -> Qdrant
 //! upsert -> FTS5 indexing -> dependency extraction.
 
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::time::Instant;
+
+use futures::future::FutureExt;
 
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
@@ -26,6 +29,7 @@ use super::grammar;
 use super::graph_ingest;
 use super::keyword_extract;
 use super::keyword_persist;
+use super::narrative_phase;
 use super::store_track;
 
 /// Ingest file content: embedding, Qdrant upsert, tracked_files, FTS5.
@@ -238,6 +242,7 @@ async fn run_ingest_pipeline(
         payload.file_type.as_deref(),
         &mut timings,
         detected_branch,
+        detected_language,
     )
     .await?;
 
@@ -346,6 +351,7 @@ async fn run_middle_phases(
     file_type: Option<&str>,
     timings: &mut Vec<PhaseTiming>,
     detected_branch: &str,
+    detected_language: Option<&'static str>,
 ) -> UnifiedProcessorResult<(
     Vec<crate::storage::DocumentPoint>,
     Vec<chunk_embed::ChunkRecord>,
@@ -397,27 +403,50 @@ async fn run_middle_phases(
         None => (Vec::new(), Vec::new()),
     };
 
-    // taxonomy_tags retained for Phase 2d COVERS_TOPIC (narrative files).
+    // taxonomy_tags drive COVERS_TOPIC edges for narrative files; computed in
+    // Phase 2b and consumed by Phase 4b (narrative_phase) below.
     let taxonomy_tags: Vec<String> = points
         .first()
         .and_then(|p| p.payload.get("taxonomy_tags"))
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    // Phase 2d: COVERS_TOPIC edges for narrative files (markdown/text only)
-    if !taxonomy_tags.is_empty() && is_narrative_file(file_path) {
-        create_covers_topic_edges(
-            ctx,
-            &item.tenant_id,
-            file_path,
-            &taxonomy_tags,
-            &document_content.raw_text,
-        )
-        .await;
-    }
+    // Phase 4b: narrative extraction. Failure-isolated — any error yields an
+    // empty result and a warning, never aborting ingestion (AC-A9). Its output
+    // is threaded into the SAME graph reingest transaction as the code and
+    // concept layers (a separate write would delete those edges).
+    let t_narr = Instant::now();
+    let narrative_result = match AssertUnwindSafe(narrative_phase::run(
+        ctx,
+        &item.tenant_id,
+        file_path,
+        relative_path,
+        &document_content.raw_text,
+        detected_language,
+        detected_branch,
+        &taxonomy_tags,
+    ))
+    .catch_unwind()
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            warn!(
+                "narrative_extraction_failed: panic during narrative extraction for {} (tenant {}); ingestion continues",
+                relative_path, item.tenant_id
+            );
+            crate::narrative::NarrativeExtractionResult::default()
+        }
+    };
+    timings.push(PhaseTiming {
+        phase: "narrative",
+        duration_ms: t_narr.elapsed().as_millis() as u64,
+    });
+    let (narrative_nodes, narrative_edges) =
+        (narrative_result.nodes, narrative_result.edges);
 
-    // Phases 3-4: keyword extraction + graph edges (concept nodes/edges merged
-    // into the graph reingest transaction).
+    // Phases 3-4: keyword extraction + graph edges (concept + narrative
+    // nodes/edges merged into the single graph reingest transaction).
     run_keyword_and_graph_phases(
         ctx,
         item,
@@ -431,6 +460,8 @@ async fn run_middle_phases(
         detected_branch,
         concept_nodes,
         concept_edges,
+        narrative_nodes,
+        narrative_edges,
     )
     .await;
 
@@ -668,8 +699,9 @@ fn build_implements_concept_edges(
 
 /// Check whether a file is a narrative document (markdown or plain text).
 ///
-/// Only these file types get COVERS_TOPIC edges with depth metadata,
-/// because depth estimation requires prose content structure.
+/// Only used by tests now; production narrative-file detection lives in
+/// [`narrative_phase`].
+#[cfg(test)]
 fn is_narrative_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -677,79 +709,6 @@ fn is_narrative_file(path: &Path) -> bool {
             let lower = ext.to_ascii_lowercase();
             lower == "md" || lower == "markdown" || lower == "txt" || lower == "rst"
         })
-}
-
-/// Create COVERS_TOPIC edges from a narrative file's node to ConceptNodes.
-///
-/// For each taxonomy tag, ensures a global ConceptNode exists and creates
-/// a COVERS_TOPIC edge with depth metadata estimated from the file content.
-/// Only called for narrative files (markdown, text, rst).
-async fn create_covers_topic_edges(
-    ctx: &ProcessingContext,
-    tenant_id: &str,
-    file_path: &std::path::Path,
-    taxonomy_tags: &[String],
-    content: &str,
-) {
-    use crate::graph::{
-        compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
-    };
-    use crate::narrative::depth::estimate_depth;
-
-    let Some(ref graph_store) = ctx.graph_store else {
-        return;
-    };
-
-    if taxonomy_tags.is_empty() {
-        return;
-    }
-
-    // Estimate depth for the full file (heading_level=0, no subsections flag
-    // since we treat the whole file as a single narrative unit here).
-    let depth_level = estimate_depth(content, 0, false);
-
-    let mut concept_nodes = Vec::new();
-    let mut edges = Vec::new();
-    let file_path_str: String = file_path.to_string_lossy().into_owned();
-
-    let file_node_id =
-        crate::graph::compute_node_id(tenant_id, &file_path_str, &file_path_str, NodeType::File);
-
-    for tag in taxonomy_tags {
-        let concept_label = tag.strip_prefix("tax:").unwrap_or(tag);
-        let concept_fields =
-            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
-        let concept_id = compute_node_id_for_type(&concept_fields);
-
-        let mut node = GraphNode::new("__global__", "", concept_label, NodeType::ConceptNode);
-        node.node_id = concept_id.clone();
-        concept_nodes.push(node);
-
-        edges.push(
-            GraphEdge::new(
-                tenant_id,
-                &file_node_id,
-                &concept_id,
-                EdgeType::CoversTopic,
-                &file_path_str,
-            )
-            .with_depth(depth_level),
-        );
-    }
-
-    if let Err(e) = graph_store.upsert_nodes(&concept_nodes).await {
-        tracing::warn!("Failed to upsert ConceptNodes for COVERS_TOPIC: {e}");
-    }
-    if let Err(e) = graph_store.insert_edges(&edges).await {
-        tracing::warn!("Failed to insert COVERS_TOPIC edges: {e}");
-    }
-
-    debug!(
-        "Created {} COVERS_TOPIC edges with depth={} for {}",
-        edges.len(),
-        depth_level,
-        file_path_str,
-    );
 }
 
 /// Parse the document and compute file identifiers (phase 0 + 1).
@@ -804,6 +763,8 @@ async fn run_keyword_and_graph_phases(
     detected_branch: &str,
     concept_nodes: Vec<crate::graph::GraphNode>,
     concept_edges: Vec<crate::graph::GraphEdge>,
+    narrative_nodes: Vec<crate::graph::GraphNode>,
+    narrative_edges: Vec<crate::graph::GraphEdge>,
 ) {
     if matches!(
         item.op,
@@ -838,6 +799,8 @@ async fn run_keyword_and_graph_phases(
         Some(detected_branch),
         concept_nodes,
         concept_edges,
+        narrative_nodes,
+        narrative_edges,
     )
     .await;
     timings.push(PhaseTiming {

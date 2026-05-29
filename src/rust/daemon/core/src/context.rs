@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::component_detection::ComponentMap;
-use crate::config::{ConceptConfig, IngestionLimitsConfig, UrlIngestionConfig};
+use crate::config::{ConceptConfig, IngestionLimitsConfig, NarrativeConfig, UrlIngestionConfig};
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::git::BranchCache;
@@ -185,6 +185,13 @@ pub struct ProcessingContext {
     /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC).
     pub concept_config: Arc<ConceptConfig>,
 
+    /// Narrative extraction thresholds and safety limits.
+    pub narrative_config: Arc<NarrativeConfig>,
+
+    /// Per-tenant cache of built symbol automatons for narrative EXPLAINS
+    /// resolution (built once per batch, reused across files).
+    pub automaton_cache: Arc<crate::narrative::symbol_index::AutomatonCache>,
+
     /// TTL-based cache for resolving the current git branch from `.git/HEAD`.
     /// Shared across all file items so rapid successive items from the same
     /// project avoid repeated filesystem reads.
@@ -241,6 +248,8 @@ impl ProcessingContext {
             url_ingestion: Arc::new(UrlIngestionConfig::default()),
             tier2_tagger: None,
             concept_config: Arc::new(ConceptConfig::default()),
+            narrative_config: Arc::new(NarrativeConfig::default()),
+            automaton_cache: Arc::new(crate::narrative::symbol_index::AutomatonCache::new()),
             branch_cache: Arc::new(BranchCache::new()),
             branch_locks: Arc::new(TenantBranchLocks::new()),
             discovery_tracker: DiscoveryTracker::global(),
@@ -283,6 +292,12 @@ impl ProcessingContext {
     /// Override concept-edge emission thresholds.
     pub fn with_concept_config(mut self, cfg: Arc<ConceptConfig>) -> Self {
         self.concept_config = cfg;
+        self
+    }
+
+    /// Override narrative extraction thresholds.
+    pub fn with_narrative_config(mut self, cfg: Arc<NarrativeConfig>) -> Self {
+        self.narrative_config = cfg;
         self
     }
 

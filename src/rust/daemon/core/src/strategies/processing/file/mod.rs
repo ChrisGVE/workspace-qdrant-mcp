@@ -28,6 +28,7 @@ mod graph_ingest;
 mod ingest;
 mod keyword_extract;
 mod keyword_persist;
+mod narrative_phase;
 pub(crate) mod lsp_payload;
 mod store_track;
 mod update_preamble;

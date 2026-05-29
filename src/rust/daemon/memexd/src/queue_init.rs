@@ -349,6 +349,7 @@ pub async fn initialize(
     )
     .await;
     let concept_config = Arc::new(daemon_config.concept.clone());
+    let narrative_config = Arc::new(daemon_config.narrative.clone());
 
     let uqp = build_core_processor(
         config,
@@ -374,6 +375,7 @@ pub async fn initialize(
     }
 
     uqp = uqp.with_concept_config(concept_config);
+    uqp = uqp.with_narrative_config(narrative_config);
     if let Some(tagger) = tier2_tagger {
         info!("Tier-2 taxonomy tagger attached to queue processor (concept edges enabled)");
         uqp = uqp.with_tier2_tagger(tagger);

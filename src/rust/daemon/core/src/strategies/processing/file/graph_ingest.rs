@@ -13,9 +13,10 @@ use crate::TextChunk;
 /// Performs:
 /// 1. Delete old edges for this file (cleanup from previous ingestion)
 /// 2. Extract new nodes/edges from chunk metadata
-/// 3. Merge caller-supplied concept nodes/edges (IMPLEMENTS_CONCEPT) so they
-///    share the file's single delete-then-insert transaction and are cleaned
-///    up on re-ingestion (their `source_file` is this file's relative path).
+/// 3. Merge caller-supplied concept nodes/edges (IMPLEMENTS_CONCEPT) and
+///    narrative nodes/edges so they share the file's single delete-then-insert
+///    transaction and are cleaned up on re-ingestion (their `source_file` is
+///    this file's relative path).
 /// 4. Upsert nodes + insert edges in a single write-lock hold
 ///
 /// All graph errors are logged and swallowed — graph failures must never
@@ -28,6 +29,8 @@ pub(super) async fn ingest_graph_edges(
     branch: Option<&str>,
     concept_nodes: Vec<crate::graph::GraphNode>,
     concept_edges: Vec<crate::graph::GraphEdge>,
+    narrative_nodes: Vec<crate::graph::GraphNode>,
+    narrative_edges: Vec<crate::graph::GraphEdge>,
 ) {
     let Some(ref graph_store) = ctx.graph_store else {
         return; // Graph not initialized — skip silently
@@ -43,6 +46,13 @@ pub(super) async fn ingest_graph_edges(
     // this file's relative path so the reingest DELETE cleans up stale ones.
     nodes.extend(concept_nodes);
     edges.extend(concept_edges);
+
+    // Merge narrative nodes/edges (DocumentSection / CodeComment / Docstring +
+    // EXPLAINS / DESCRIBES / REFERENCES_DOC / COVERS_TOPIC) into the SAME
+    // transaction. A separate reingest_file call would delete the code and
+    // concept edges just prepared above.
+    nodes.extend(narrative_nodes);
+    edges.extend(narrative_edges);
 
     if nodes.is_empty() && edges.is_empty() {
         return;

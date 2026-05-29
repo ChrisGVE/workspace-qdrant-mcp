@@ -53,6 +53,7 @@ struct BatchContext {
     keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
     tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
     concept_config: Arc<crate::config::ConceptConfig>,
+    narrative_config: Arc<crate::config::NarrativeConfig>,
 }
 
 /// Process a non-empty batch of queue items concurrently.
@@ -84,6 +85,7 @@ pub(super) async fn process_batch(
     keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
     tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
     concept_config: &Arc<crate::config::ConceptConfig>,
+    narrative_config: &Arc<crate::config::NarrativeConfig>,
 ) -> Result<HashSet<String>, ()> {
     let ctx = Arc::new(BatchContext {
         config: config.clone(),
@@ -105,6 +107,7 @@ pub(super) async fn process_batch(
         keyword_embedding_generator: keyword_embedding_generator.clone(),
         tier2_tagger: tier2_tagger.clone(),
         concept_config: Arc::clone(concept_config),
+        narrative_config: Arc::clone(narrative_config),
     });
 
     let concurrency = config.max_concurrent_embeddings.max(1);
@@ -211,6 +214,7 @@ async fn process_single_item(item: UnifiedQueueItem, ctx: &BatchContext) -> Opti
             &ctx.keyword_embedding_generator,
             &ctx.tier2_tagger,
             &ctx.concept_config,
+            &ctx.narrative_config,
         ),
     )
     .await;

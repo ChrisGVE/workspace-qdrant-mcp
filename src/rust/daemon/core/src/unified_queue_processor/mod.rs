@@ -117,6 +117,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC).
     concept_config: Arc<crate::config::ConceptConfig>,
+
+    /// Narrative extraction thresholds and safety limits.
+    narrative_config: Arc<crate::config::NarrativeConfig>,
 }
 
 impl UnifiedQueueProcessor {
@@ -189,6 +192,7 @@ impl UnifiedQueueProcessor {
             keyword_embedding_generator: None,
             tier2_tagger: None,
             concept_config: Arc::new(crate::config::ConceptConfig::default()),
+            narrative_config: Arc::new(crate::config::NarrativeConfig::default()),
         }
     }
 
@@ -253,6 +257,7 @@ impl UnifiedQueueProcessor {
             keyword_embedding_generator: None,
             tier2_tagger: None,
             concept_config: Arc::new(crate::config::ConceptConfig::default()),
+            narrative_config: Arc::new(crate::config::NarrativeConfig::default()),
         }
     }
 
@@ -277,6 +282,12 @@ impl UnifiedQueueProcessor {
     /// Override concept-edge emission thresholds.
     pub fn with_concept_config(mut self, cfg: Arc<crate::config::ConceptConfig>) -> Self {
         self.concept_config = cfg;
+        self
+    }
+
+    /// Override narrative extraction thresholds.
+    pub fn with_narrative_config(mut self, cfg: Arc<crate::config::NarrativeConfig>) -> Self {
+        self.narrative_config = cfg;
         self
     }
 
@@ -415,6 +426,7 @@ impl UnifiedQueueProcessor {
         let keyword_embedding_generator = self.keyword_embedding_generator.clone();
         let tier2_tagger = self.tier2_tagger.clone();
         let concept_config = self.concept_config.clone();
+        let narrative_config = self.narrative_config.clone();
 
         if let Some(ref h) = queue_health {
             h.set_running(true);
@@ -445,6 +457,7 @@ impl UnifiedQueueProcessor {
             keyword_embedding_generator,
             tier2_tagger,
             concept_config,
+            narrative_config,
         ));
 
         self.task_handle = Some(task_handle);
@@ -478,6 +491,7 @@ impl UnifiedQueueProcessor {
         keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
         tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
         concept_config: Arc<crate::config::ConceptConfig>,
+        narrative_config: Arc<crate::config::NarrativeConfig>,
     ) {
         lexicon_manager.start_background_persister().await;
         if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
@@ -511,6 +525,7 @@ impl UnifiedQueueProcessor {
             keyword_embedding_generator,
             tier2_tagger,
             concept_config,
+            narrative_config,
         )
         .await
         {
