@@ -231,34 +231,18 @@ async fn handle_item_success(
         start_time.elapsed().as_secs_f64(),
     );
 
-    // Per-destination state machine (F-010, F-056): only auto-resolve
-    // destination statuses for orchestration-only items (decision_json IS NULL).
-    // Items that opted into the state machine via store_queue_decision must
-    // set every destination status explicitly — pending sinks remain pending.
-    //
-    // If this UPDATE fails (busy lock, schema mismatch, etc.), orchestration-only
-    // items keep NULL/NULL destinations, `check_and_finalize` returns InProgress,
-    // the item stays in queue and re-leases on the next cycle. Logging the error
-    // here lets the next "destination failure on success path" report be traced
-    // back to a real prior failure rather than appearing out of nowhere.
-    if let Err(mark_err) = deps
-        .queue_manager
-        .mark_explicit_destination_results(&item.queue_id)
-        .await
-    {
-        warn!(
-            "mark_explicit_destination_results failed for item {}: {} \
-             — destinations may remain NULL/pending, item likely to re-lease",
-            item.queue_id, mark_err
-        );
-    }
-
-    // Resolve overall status. For state-machine items with pending sinks the
-    // helper will return InProgress and the item remains in the queue for the
-    // next lease cycle.
+    // Per-destination state machine (F-009, F-010, F-056): resolve destination
+    // statuses and overall status atomically. `finalize_after_success` runs the
+    // auto-resolve UPDATE (orchestration-only items, decision_json IS NULL) and
+    // the finalize SELECT+UPDATE inside one transaction, so the finalize read
+    // cannot observe a concurrent mid-flight `failed` write committed between
+    // them. Items that opted into the state machine via store_queue_decision
+    // still keep pending sinks pending (decision_json IS NOT NULL), so the
+    // helper returns InProgress and the item remains in the queue for the next
+    // lease cycle.
     let overall = deps
         .queue_manager
-        .check_and_finalize(&item.queue_id)
+        .finalize_after_success(&item.queue_id)
         .await
         .unwrap_or(QueueStatus::Done);
     match overall {
