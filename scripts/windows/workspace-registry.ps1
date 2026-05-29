@@ -6,9 +6,8 @@ param(
   [string]$Name = "",
   [string]$ProjectDir = "",
   [string]$MainBranch = "main",
-  [string]$OverlayBranch = "fork/overlay",
-  [string]$FixesBranch = "fork/fixes",
-  [string]$UseBranch = "personal/use-in-projects",
+  [string]$DevBranch = "dev",
+  [string]$UpstreamSyncBranch = "upstream-sync",
   [string]$UpstreamRemote = "upstream",
   [string]$UpstreamUrl = "https://github.com/ChrisGVE/workspace-qdrant-mcp.git",
   [string]$UpstreamRef = "upstream/main",
@@ -41,7 +40,7 @@ function Convert-ToAbsolutePath([string]$PathValue) {
 
 function New-EmptyRegistry {
   return [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     updatedAt = (Get-Date).ToUniversalTime().ToString("o")
     projects = @()
   }
@@ -71,9 +70,8 @@ function Normalize-Project($Project) {
     path = $Project.path
     enabled = if ($null -ne $Project.enabled) { [bool]$Project.enabled } else { $true }
     mainBranch = if ($Project.mainBranch) { $Project.mainBranch } else { $MainBranch }
-    overlayBranch = if ($Project.overlayBranch) { $Project.overlayBranch } else { $OverlayBranch }
-    fixesBranch = if ($Project.fixesBranch) { $Project.fixesBranch } else { $FixesBranch }
-    useBranch = if ($Project.useBranch) { $Project.useBranch } else { $UseBranch }
+    devBranch = if ($Project.devBranch) { $Project.devBranch } else { $DevBranch }
+    upstreamSyncBranch = if ($Project.upstreamSyncBranch) { $Project.upstreamSyncBranch } else { $UpstreamSyncBranch }
     upstreamRemote = if ($Project.upstreamRemote) { $Project.upstreamRemote } else { $UpstreamRemote }
     upstreamUrl = if ($Project.upstreamUrl) { $Project.upstreamUrl } else { $UpstreamUrl }
     upstreamRef = if ($Project.upstreamRef) { $Project.upstreamRef } else { $UpstreamRef }
@@ -171,7 +169,7 @@ function Get-ProjectStatus {
   }
   $branch = Invoke-GitText -Repo $Project.path -Args @("branch", "--show-current")
   $status = Invoke-GitText -Repo $Project.path -Args @("status", "--short", "--branch")
-  $branches = Invoke-GitText -Repo $Project.path -Args @("branch", "--list", $Project.mainBranch, $Project.overlayBranch, $Project.fixesBranch, $Project.useBranch)
+  $branches = Invoke-GitText -Repo $Project.path -Args @("branch", "--list", $Project.mainBranch, $Project.devBranch, $Project.upstreamSyncBranch)
   return [pscustomobject]@{
     name = $Project.name
     path = $Project.path
@@ -182,9 +180,8 @@ function Get-ProjectStatus {
     status = @($status.output)
     managedBranches = @($branches.output)
     mainBranch = $Project.mainBranch
-    overlayBranch = $Project.overlayBranch
-    fixesBranch = $Project.fixesBranch
-    useBranch = $Project.useBranch
+    devBranch = $Project.devBranch
+    upstreamSyncBranch = $Project.upstreamSyncBranch
     upstreamRef = $Project.upstreamRef
   }
 }
@@ -196,19 +193,15 @@ function Sync-ProjectChain {
   Ensure-Remote $Project
   Invoke-Git -Repo $Project.path fetch $Project.upstreamRemote
 
-  # Importante: este fluxo MCP/registry nao faz checkout nem merge na main.
-  # Ele usa upstream/main como base para overlay e preserva main como espelho humano.
-  Checkout-OrCreate -Repo $Project.path -Branch $Project.overlayBranch -Base $Project.upstreamRef
-  Invoke-Git -Repo $Project.path merge --no-edit $Project.upstreamRef
-  Push-IfRequested -Repo $Project.path -Branch $Project.overlayBranch
+  # Modelo: upstream-sync (ff de upstream/main) -> dev. A main só recebe promoções
+  # estáveis; este fluxo automatizado nunca faz checkout/merge na main.
+  Checkout-OrCreate -Repo $Project.path -Branch $Project.upstreamSyncBranch -Base $Project.upstreamRef
+  Invoke-Git -Repo $Project.path merge --ff-only $Project.upstreamRef
+  Push-IfRequested -Repo $Project.path -Branch $Project.upstreamSyncBranch
 
-  Checkout-OrCreate -Repo $Project.path -Branch $Project.fixesBranch -Base $Project.overlayBranch
-  Invoke-Git -Repo $Project.path merge --no-edit $Project.overlayBranch
-  Push-IfRequested -Repo $Project.path -Branch $Project.fixesBranch
-
-  Checkout-OrCreate -Repo $Project.path -Branch $Project.useBranch -Base $Project.fixesBranch
-  Invoke-Git -Repo $Project.path merge --no-edit $Project.fixesBranch
-  Push-IfRequested -Repo $Project.path -Branch $Project.useBranch
+  Checkout-OrCreate -Repo $Project.path -Branch $Project.devBranch -Base $Project.upstreamSyncBranch
+  Invoke-Git -Repo $Project.path merge --no-edit $Project.upstreamSyncBranch
+  Push-IfRequested -Repo $Project.path -Branch $Project.devBranch
 
   return Get-ProjectStatus $Project
 }
@@ -216,7 +209,7 @@ function Sync-ProjectChain {
 function Assert-SafeFixBranch {
   param($Project)
   if (-not $FixBranch) { throw "Informe -FixBranch, por exemplo fix/minha-correcao." }
-  $forbidden = @($Project.mainBranch, "main", "master", $Project.overlayBranch, $Project.fixesBranch, $Project.useBranch)
+  $forbidden = @($Project.mainBranch, $Project.devBranch, $Project.upstreamSyncBranch, "main", "master", "dev", "upstream-sync", "fork/overlay", "fork/fixes", "personal/use-in-projects")
   if ($forbidden -contains $FixBranch) { throw "FixBranch proibida: $FixBranch" }
   if ($FixBranch -notmatch '^(fix|chore|refactor|docs|test|local)/[A-Za-z0-9._/-]+$') {
     throw "FixBranch deve começar com fix/, chore/, refactor/, docs/, test/ ou local/: $FixBranch"
@@ -228,12 +221,11 @@ function Start-FixBranch {
   Assert-MutationAllowed
   Assert-SafeFixBranch $Project
   Assert-RepoClean -Repo $Project.path
-  Ensure-Remote $Project
-  Invoke-Git -Repo $Project.path fetch $Project.upstreamRemote
   if (Test-BranchExists -Repo $Project.path -Branch $FixBranch) {
     Invoke-Git -Repo $Project.path checkout $FixBranch
   } else {
-    Invoke-Git -Repo $Project.path checkout -b $FixBranch $Project.upstreamRef
+    Checkout-OrCreate -Repo $Project.path -Branch $Project.devBranch -Base $Project.mainBranch
+    Invoke-Git -Repo $Project.path checkout -b $FixBranch $Project.devBranch
   }
   return Get-ProjectStatus $Project
 }
@@ -246,12 +238,9 @@ function Promote-FixBranch {
   if (-not (Test-BranchExists -Repo $Project.path -Branch $FixBranch)) {
     throw "Branch de correcao nao encontrada: $FixBranch"
   }
-  Checkout-OrCreate -Repo $Project.path -Branch $Project.fixesBranch -Base $Project.overlayBranch
+  Checkout-OrCreate -Repo $Project.path -Branch $Project.devBranch -Base $Project.mainBranch
   Invoke-Git -Repo $Project.path merge --no-edit $FixBranch
-  Push-IfRequested -Repo $Project.path -Branch $Project.fixesBranch
-  Checkout-OrCreate -Repo $Project.path -Branch $Project.useBranch -Base $Project.fixesBranch
-  Invoke-Git -Repo $Project.path merge --no-edit $Project.fixesBranch
-  Push-IfRequested -Repo $Project.path -Branch $Project.useBranch
+  Push-IfRequested -Repo $Project.path -Branch $Project.devBranch
   return Get-ProjectStatus $Project
 }
 
@@ -287,9 +276,8 @@ switch ($Action) {
       path = $abs
       enabled = $true
       mainBranch = $MainBranch
-      overlayBranch = $OverlayBranch
-      fixesBranch = $FixesBranch
-      useBranch = $UseBranch
+      devBranch = $DevBranch
+      upstreamSyncBranch = $UpstreamSyncBranch
       upstreamRemote = $UpstreamRemote
       upstreamUrl = $UpstreamUrl
       upstreamRef = $UpstreamRef

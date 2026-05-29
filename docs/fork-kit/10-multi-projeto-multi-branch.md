@@ -1,11 +1,11 @@
 # 10 — Gestão multi-projeto e multi-branch
 
-> ⚠️ **LEGADO (modelo antigo de 4 camadas).** O modelo atual do fork é `main` (estável) + `dev` (trabalho, com CI) + `upstream-sync` (espelho fetch-only) — veja `AGENTS.md` › "Modelo de branches e regra sobre `main`". Os targets `workspace-*` e o `branch-flow.ps1` descritos abaixo ainda assumem a cadeia antiga (`main` = espelho do upstream → overlay → fixes → use) e estão pendentes de migração.
+> Modelo de branches por projeto (desde 2026-05-29): `main` (estável) ← `dev` (trabalho, com CI) ← `upstream-sync` (espelho fetch-only de `upstream/main`). Veja `AGENTS.md` › "Modelo de branches e regra sobre `main`". Os targets `workspace-*` operam nesse modelo (versão multi-projeto).
 
 Este fork pode operar vários clones/projetos ao mesmo tempo. Cada projeto pode ter a cadeia:
 
 ```text
-upstream/main -> main -> fork/overlay -> fork/fixes -> personal/use-in-projects
+upstream/main --(ff)--> upstream-sync --(merge)--> dev --(promote)--> main
 ```
 
 Além disso, cada correção isolada deve viver em uma branch própria:
@@ -75,7 +75,7 @@ Criar uma branch de correção limpa sem mexer na `main` local:
 make -f Makefile.win workspace-fix-start WORKSPACE_NAME=workspace-qdrant WORKSPACE_FIX_BRANCH=fix/minha-correcao
 ```
 
-Promover a correção para `fork/fixes` e `personal/use-in-projects`:
+Integrar a correção na linha de trabalho (`dev`):
 
 ```powershell
 make -f Makefile.win workspace-fix-promote WORKSPACE_NAME=workspace-qdrant WORKSPACE_FIX_BRANCH=fix/minha-correcao PUSH=true
@@ -83,11 +83,11 @@ make -f Makefile.win workspace-fix-promote WORKSPACE_NAME=workspace-qdrant WORKS
 
 ## Segurança
 
-O fluxo multi-projeto usa `upstream/main` como base para overlay/fixes/use e evita fazer checkout/merge em `main` durante ações automatizadas. A `main` continua sendo espelho limpo do upstream e só deve ser sincronizada manualmente por humano.
+O fluxo multi-projeto faz fast-forward de `upstream-sync` a partir de `upstream/main` e mergeia em `dev`; ações automatizadas nunca fazem checkout/merge na `main`. A `main` é a versão estável e só recebe promoções de `dev` (decisão humana). O `upstream` é fetch-only (push desabilitado).
 
 Regras:
 
 - não operar com working tree suja;
-- não criar branch chamada `main`, `master`, `fork/overlay`, `fork/fixes` ou `personal/use-in-projects` como branch de correção;
+- não criar branch chamada `main`, `dev`, `upstream-sync`, `master` (ou as legadas `fork/overlay`/`fork/fixes`/`personal/use-in-projects`) como branch de correção;
 - branches de correção devem começar com `fix/`, `chore/`, `refactor/`, `docs/`, `test/` ou `local/`;
 - ações mutáveis exigem `-Mutate true`, usado pelos targets do Makefile somente em comandos explícitos.

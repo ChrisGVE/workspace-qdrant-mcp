@@ -15,13 +15,12 @@
 #   MCP_HTTP_PORT=6335
 #   LOG_DIR=C:\dev\workspace-qdrant-mcp\.wqm-fork\logs
 #
-# Fluxo de branches recomendado (desde 2026-05-29):
+# Fluxo de branches (desde 2026-05-29):
+#   upstream/main --(ff)--> upstream-sync --(merge)--> dev --(promote quando estavel)--> main
 #   main = versao estavel | dev = trabalho (com CI) | upstream-sync = espelho fetch-only
-#   Trabalhe em dev; promova dev -> main quando estavel. Veja AGENTS.md.
+# Targets: sync-upstream, sync-dev, promote, fix-start, fix-promote, branch-status. Veja AGENTS.md.
 #
-# LEGADO: os targets branch-help/sync-chain/fix-* abaixo ainda implementam a
-# cadeia antiga (main=espelho upstream -> overlay -> fixes -> use) e estao
-# pendentes de migracao. Ate la, prefira git direto, nao 'make sync-chain'.
+# Politica: a main so recebe promocoes estaveis (promote); upstream e fetch-only (push desabilitado).
 
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -ExecutionPolicy Bypass -Command
@@ -49,9 +48,8 @@ MCP_INIT_URL ?= http://localhost:$(MCP_HTTP_PORT)/admin/init
 
 UPSTREAM_URL ?= https://github.com/ChrisGVE/workspace-qdrant-mcp.git
 MAIN_BRANCH ?= main
-OVERLAY_BRANCH ?= fork/overlay
-FIXES_BRANCH ?= fork/fixes
-USE_BRANCH ?= personal/use-in-projects
+DEV_BRANCH ?= dev
+UPSTREAM_SYNC_BRANCH ?= upstream-sync
 FIX_BRANCH ?= fix/rules-tenant-scope
 SYNC_STRATEGY ?= merge
 PUSH ?= false
@@ -88,10 +86,10 @@ FASTEMBED_METRICS_PORT ?= 9091
 FASTEMBED_DAEMON_ENDPOINT ?= http://localhost:$(FASTEMBED_GRPC_PORT)
 FASTEMBED_LOG_LEVEL ?= info
 
-FLOW_ARGS = -RepoDir "$(REPO)" -UpstreamUrl "$(UPSTREAM_URL)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -Strategy "$(SYNC_STRATEGY)" -Push "$(PUSH)"
+FLOW_ARGS = -RepoDir "$(REPO)" -UpstreamUrl "$(UPSTREAM_URL)" -MainBranch "$(MAIN_BRANCH)" -DevBranch "$(DEV_BRANCH)" -UpstreamSyncBranch "$(UPSTREAM_SYNC_BRANCH)" -Strategy "$(SYNC_STRATEGY)" -Push "$(PUSH)"
 TENANT_ARGS = -RepoDir "$(REPO)" -PatchPath "$(TENANT_PATCH)" -ExtraPatchPath "$(TENANT_HARDEN_PATCH)"
 OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)"
-WORKSPACE_ARGS = -RegistryPath "$(REGISTRY)" -Name "$(WORKSPACE_NAME)" -ProjectDir "$(WORKSPACE_PROJECT)" -MainBranch "$(MAIN_BRANCH)" -OverlayBranch "$(OVERLAY_BRANCH)" -FixesBranch "$(FIXES_BRANCH)" -UseBranch "$(USE_BRANCH)" -UpstreamUrl "$(UPSTREAM_URL)" -UpstreamRef "upstream/$(MAIN_BRANCH)" -FixBranch "$(WORKSPACE_FIX_BRANCH)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Push "$(PUSH)"
+WORKSPACE_ARGS = -RegistryPath "$(REGISTRY)" -Name "$(WORKSPACE_NAME)" -ProjectDir "$(WORKSPACE_PROJECT)" -MainBranch "$(MAIN_BRANCH)" -DevBranch "$(DEV_BRANCH)" -UpstreamSyncBranch "$(UPSTREAM_SYNC_BRANCH)" -UpstreamUrl "$(UPSTREAM_URL)" -UpstreamRef "upstream/$(MAIN_BRANCH)" -FixBranch "$(WORKSPACE_FIX_BRANCH)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Push "$(PUSH)"
 INDEX_ARGS = -RegistryPath "$(INDEX_REGISTRY)" -ProjectName "$(INDEX_PROJECT_NAME)" -ProjectDir "$(INDEX_PROJECT)" -BranchName "$(INDEX_BRANCH)" -BaseBranch "$(INDEX_BASE_BRANCH)" -ReturnBranch "$(INDEX_RETURN_BRANCH)" -WorktreePath "$(INDEX_WORKTREE_PATH)" -WorktreeRoot "$(INDEX_WORKTREE_ROOT)" -UseWorktree "$(INDEX_USE_WORKTREE)" -Purpose "$(INDEX_PURPOSE)" -CreatedBy "$(INDEX_CREATED_BY)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)" -Mutate "$(INDEX_MUTATE)"
 FASTEMBED_OBS_ARGS = -RepoDir "$(REPO)" -ProjectDir "$(PROJECT)" -QdrantUrl "$(QDRANT_URL)" -DaemonEndpoint "$(FASTEMBED_DAEMON_ENDPOINT)" -LogDir "$(LOG_DIR)"
 FASTEMBED_SERVICE_ARGS = -FastEmbed -FastEmbedCacheDir "$(FASTEMBED_CACHE_DIR)" -FastEmbedQdrantUrl "$(FASTEMBED_QDRANT_URL)" -FastEmbedGrpcPort $(FASTEMBED_GRPC_PORT) -FastEmbedControlPort $(FASTEMBED_CONTROL_PORT) -FastEmbedMetricsPort $(FASTEMBED_METRICS_PORT) -FastEmbedLogLevel "$(FASTEMBED_LOG_LEVEL)"
@@ -109,10 +107,10 @@ FASTEMBED_DAEMON_ARGS = -RepoDir "$(REPO)" -CacheDir "$(FASTEMBED_CACHE_DIR)" -Q
 	codex-open register \
 	smoke smoke-full semantic-smoke semantic-search-library-smoke semantic-search-project-smoke \
 	status clean \
-	branch-help branch-status branch-init \
-	sync-main sync-overlay sync-fixes sync-use sync-chain \
-	fix-start fix-promote tag-use \
-	tenant-check tenant-apply tenant-validate tenant-flow no-main-pr \
+	branch-help branch-status \
+	sync-upstream sync-dev promote \
+	fix-start fix-promote tag-main \
+	tenant-check tenant-apply tenant-validate tenant-flow \
 	health observe observability-snapshot \
 	incremental-check incremental-repair \
 	service-stabilize service-stabilize-fastembed reliability-doctor \
@@ -176,13 +174,14 @@ help:
 	@Write-Host "  service-stabilize-fastembed - sobe Qdrant/daemon com FastEmbed e gRPC"
 	@Write-Host "  reliability-doctor  - health + incremental-check + tenant-validate"
 	@Write-Host ""
-	@Write-Host "Fluxo de branches:"
-	@Write-Host "  branch-help   - explica main -> overlay -> fixes -> use-in-projects"
-	@Write-Host "  branch-status - mostra branches/remotes/log resumido"
-	@Write-Host "  branch-init   - cria/sincroniza main, overlay, fixes e use-in-projects"
-	@Write-Host "  sync-chain    - atualiza main -> overlay -> fixes -> use-in-projects"
-	@Write-Host "  fix-start     - cria FIX_BRANCH limpo a partir da main"
-	@Write-Host "  fix-promote   - merge de FIX_BRANCH em fixes e use-in-projects"
+	@Write-Host "Fluxo de branches (main estavel <- dev <- upstream-sync):"
+	@Write-Host "  branch-help   - explica o modelo de branches"
+	@Write-Host "  branch-status - mostra branches e log resumido"
+	@Write-Host "  sync-upstream - ff upstream-sync a partir de upstream/main"
+	@Write-Host "  sync-dev      - traz upstream-sync para dev (sync-upstream + merge)"
+	@Write-Host "  promote       - promove dev -> main (so quando estavel/CI verde)"
+	@Write-Host "  fix-start     - cria FIX_BRANCH a partir de dev"
+	@Write-Host "  fix-promote   - merge de FIX_BRANCH em dev"
 	@Write-Host ""
 	@Write-Host "Tenant fix:"
 	@Write-Host "  tenant-check    - verifica se patches de tenant sao aplicaveis ou ja estao presentes"
@@ -195,9 +194,9 @@ help:
 	@Write-Host "  workspace-init       - inicializa .wqm-fork/projects.json"
 	@Write-Host "  workspace-add        - adiciona WORKSPACE_PROJECT com WORKSPACE_NAME"
 	@Write-Host "  workspace-status-all - status git/branches de todos os projetos"
-	@Write-Host "  workspace-sync-all   - sincroniza overlay->fixes->use em todos os projetos"
+	@Write-Host "  workspace-sync-all   - sincroniza upstream-sync->dev em todos os projetos"
 	@Write-Host "  workspace-fix-start  - cria branch de correcao em um projeto sem tocar na main"
-	@Write-Host "  workspace-fix-promote- promove correcao para fixes/use"
+	@Write-Host "  workspace-fix-promote- promove correcao para dev"
 	@Write-Host ""
 	@Write-Host "Projetos indexados / branches de agentes:"
 	@Write-Host "  index-help                  - explica indexed-projects.json e agent branches"
@@ -227,55 +226,47 @@ help:
 	@Write-Host "  mcp-manager-validate - confirma ferramenta MCP instalada"
 	@Write-Host ""
 	@Write-Host "Exemplos:"
-	@Write-Host "  make -f Makefile.win sync-chain PUSH=true"
+	@Write-Host "  make -f Makefile.win sync-dev PUSH=true"
 	@Write-Host "  make -f Makefile.win tenant-flow"
 	@Write-Host "  make -f Makefile.win observe PROJECT=C:\dev\meu-projeto OBS_INTERVAL=15"
 
 branch-help:
-	@Write-Host "Fluxo recomendado para este fork:"
+	@Write-Host "Modelo de branches deste fork (GitFlow-lite):"
 	@Write-Host ""
-	@Write-Host "  upstream/main -> $(MAIN_BRANCH) -> $(OVERLAY_BRANCH) -> $(FIXES_BRANCH) -> $(USE_BRANCH)"
+	@Write-Host "  upstream/main --(ff)--> $(UPSTREAM_SYNC_BRANCH) --(merge)--> $(DEV_BRANCH) --(promote)--> $(MAIN_BRANCH)"
 	@Write-Host ""
 	@Write-Host "Papel de cada branch:"
-	@Write-Host "  $(MAIN_BRANCH): espelho limpo do upstream original. Nao trabalhe direto nela."
-	@Write-Host "  $(OVERLAY_BRANCH): Makefile.win, scripts Windows, docs, templates, AGENTS.md e .ignore."
-	@Write-Host "  $(FIXES_BRANCH): overlay + correcoes que voce quer usar no fork."
-	@Write-Host "  $(USE_BRANCH): branch diaria para instalar e usar nos seus projetos."
+	@Write-Host "  $(MAIN_BRANCH): versao estavel/funcional. So recebe promocoes estaveis."
+	@Write-Host "  $(DEV_BRANCH): linha de trabalho ativa (CI roda aqui). Feature branches saem daqui."
+	@Write-Host "  $(UPSTREAM_SYNC_BRANCH): espelho limpo de upstream/main (fetch-only, nunca commitar)."
 	@Write-Host ""
-	@Write-Host "Correcoes que podem virar PR upstream devem nascer da $(MAIN_BRANCH):"
+	@Write-Host "Correcoes nascem de $(DEV_BRANCH):"
 	@Write-Host "  make -f Makefile.win fix-start FIX_BRANCH=fix/minha-correcao"
+	@Write-Host "  make -f Makefile.win fix-promote FIX_BRANCH=fix/minha-correcao"
 	@Write-Host ""
-	@Write-Host "Agentes nunca fazem PR/merge para main. O usuario humano decide PRs."
+	@Write-Host "Promover para main (so quando estavel): make -f Makefile.win promote"
+	@Write-Host "upstream e fetch-only: o push para upstream esta desabilitado de proposito."
 
 branch-status:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action status-chain
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action status
 
-branch-init:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action init-chain
+sync-upstream:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-upstream
 
-sync-main:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-main
+sync-dev:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-dev
 
-sync-overlay:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-overlay
-
-sync-fixes:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-fixes
-
-sync-use:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-use
-
-sync-chain:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action sync-chain
+promote:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action promote
 
 fix-start:
 	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action start-fix -FixBranch "$(FIX_BRANCH)"
 
 fix-promote:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action merge-fix -FixBranch "$(FIX_BRANCH)"
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action finish-fix -FixBranch "$(FIX_BRANCH)"
 
-tag-use:
-	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action tag-use -Tag "$(TAG)"
+tag-main:
+	.\scripts\windows\branch-flow.ps1 $(FLOW_ARGS) -Action tag-main -Tag "$(TAG)"
 
 tenant-check:
 	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS) -CheckOnly
@@ -291,13 +282,9 @@ tenant-flow:
 	.\scripts\windows\apply-tenant-fix.ps1 $(TENANT_ARGS)
 	@Write-Host "Proximos passos: make -f Makefile.win typecheck-ts; make -f Makefile.win test-ts; git add src/typescript/mcp-server/src/tools; git commit -m 'fix(mcp/rules): scope rule mutations by tenant'"
 
-no-main-pr:
-	@Write-Error "Bloqueado: agentes nao devem abrir PR para main. Use branch fix/* e peca revisao humana."
-	@exit 1
-
 workspace-help:
 	@Write-Host "Registry multi-projeto: $(REGISTRY)"
-	@Write-Host "Fluxo por projeto: upstream/main -> overlay -> fixes -> use-in-projects (sem merge automatizado na main)"
+	@Write-Host "Fluxo por projeto: upstream/main -> upstream-sync -> dev (a main so recebe promocoes estaveis)"
 	@Write-Host "Adicionar: make -f Makefile.win workspace-add WORKSPACE_NAME=nome WORKSPACE_PROJECT=C:\dev\repo"
 	@Write-Host "Status:    make -f Makefile.win workspace-status-all"
 	@Write-Host "Sync all:  make -f Makefile.win workspace-sync-all PUSH=true"
@@ -441,8 +428,8 @@ push:
 	.\scripts\windows\git-flow.ps1 -RepoDir "$(REPO)" -Branch "$(BRANCH)" -Action push
 
 pr:
-	@Write-Error "Bloqueado: este kit nao cria PR para main. Use fix-start/fix-promote; PR upstream e decisao humana explicita."
-	@exit 1
+	@Write-Host "Promocao dev -> main: 'make -f Makefile.win promote' (merge local) ou 'gh pr create --base $(MAIN_BRANCH) --head $(DEV_BRANCH)'."
+	@Write-Host "PR para o upstream (ChrisGVE) e decisao humana; o push para upstream esta desabilitado."
 
 qdrant-up:
 	.\scripts\windows\start-qdrant.ps1 -QdrantUrl "$(QDRANT_URL)"
