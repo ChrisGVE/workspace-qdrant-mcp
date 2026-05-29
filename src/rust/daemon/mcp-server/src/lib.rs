@@ -5,6 +5,7 @@
 //! over stdio and streamable-HTTP transports.
 
 pub mod config;
+pub mod instructions;
 pub mod server;
 pub mod server_types;
 

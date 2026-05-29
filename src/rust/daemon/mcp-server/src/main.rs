@@ -5,11 +5,11 @@
 //! are added in subsequent tasks; this stub exits 0 after printing the
 //! version banner so the scaffold build can be verified.
 
-use mcp_server::server_types::{BUILD_NUMBER, SERVER_NAME, SERVER_VERSION};
+use mcp_server::server_types::{BUILD_NUMBER, SERVER_NAME, SERVER_VERSION_BASE};
 
 fn main() {
     println!(
         "{} v{} (build {})",
-        SERVER_NAME, SERVER_VERSION, BUILD_NUMBER
+        SERVER_NAME, SERVER_VERSION_BASE, BUILD_NUMBER
     );
 }
