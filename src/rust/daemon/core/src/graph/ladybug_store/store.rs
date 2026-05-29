@@ -476,6 +476,8 @@ impl GraphStore for LadybugGraphStore {
                     edge_type: String::new(), // aggregate over variable-length path
                     depth: 1,
                     path: String::new(),
+                    tenant_id: tenant_id.to_string(),
+                    edge_confidence: 1.0,
                 });
             }
         }

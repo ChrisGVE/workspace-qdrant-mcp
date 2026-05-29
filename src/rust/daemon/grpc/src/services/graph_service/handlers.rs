@@ -100,6 +100,8 @@ impl GraphService for GraphServiceImpl {
                         edge_type: n.edge_type,
                         depth: n.depth,
                         path: n.path,
+                        tenant_id: n.tenant_id,
+                        edge_confidence: n.edge_confidence,
                     })
                     .collect();
 
@@ -390,6 +392,8 @@ impl GraphService for GraphServiceImpl {
                         edge_type: String::new(),
                         depth: n.depth,
                         path: String::new(),
+                        tenant_id: n.tenant_id,
+                        edge_confidence: n.edge_confidence,
                     })
                     .collect();
 

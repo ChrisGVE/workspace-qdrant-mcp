@@ -427,6 +427,13 @@ pub struct TraversalNode {
     pub edge_type: String,
     pub depth: u32,
     pub path: String,
+    /// Tenant the reached node belongs to. For Layer-1 (same-tenant) queries
+    /// this equals the query tenant; for cross-boundary queries it may be the
+    /// source tenant, `__global__`, or a library tenant.
+    pub tenant_id: String,
+    /// Confidence of the edge that reached this node. Structural Layer-1 paths
+    /// use `1.0`; cross-boundary concept/narrative paths scale per edge type.
+    pub edge_confidence: f64,
 }
 
 /// Result of an impact analysis query.

@@ -630,7 +630,7 @@ message TextSearchMatch {
 }
 
 // -----------------------------------------------------------------------------
-// 7. GraphService (3 RPCs)
+// 7. GraphService (10 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Code relationship graph queries for traversal, impact analysis,
 //          and statistics. Backed by SQLite graph.db with recursive CTEs.
@@ -689,6 +689,8 @@ message TraversalNodeProto {
     string edge_type = 5;                         // EdgeType as string (e.g., "CALLS")
     uint32 depth = 6;                             // Hops from source node
     string path = 7;                              // [non-path] Traversal path description
+    string tenant_id = 8;                         // Tenant of the reached node
+    double edge_confidence = 9;                   // Confidence of reaching edge (1.0 = structural)
 }
 
 // ImpactAnalysis Request

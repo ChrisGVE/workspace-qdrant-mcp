@@ -278,6 +278,8 @@ impl GraphStore for SqliteGraphStore {
                 edge_type: row.get("edge_type"),
                 depth: row.get::<i64, _>("depth") as u32,
                 path: row.get("path"),
+                tenant_id: tenant_id.to_string(),
+                edge_confidence: 1.0,
             })
             .collect())
     }
@@ -514,6 +516,8 @@ impl GraphStore for SqliteGraphStore {
                             edge_type: String::new(),
                             depth: hop as u32,
                             path: String::new(),
+                            tenant_id: tenant_id.to_string(),
+                            edge_confidence: 1.0,
                         });
                     }
                 }
@@ -755,6 +759,8 @@ impl GraphStore for SqliteGraphStore {
                     edge_type: etype,
                     depth: depth as u32,
                     path,
+                    tenant_id: _source_tenant.to_string(),
+                    edge_confidence: 1.0,
                 },
             )
             .collect();
