@@ -4,10 +4,10 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing project-scoped Qdrant vector database operations with hybrid search capabilities.
+workspace-qdrant-mcp (v0.1.3) is a Model Context Protocol (MCP) server providing project-scoped Qdrant vector database operations with hybrid search capabilities.
 
 **Core Architecture:**
-- **MCP Server**: TypeScript (in development)
+- **MCP Server**: TypeScript
 - **Daemon**: Rust (high-performance file watching and processing)
 - **CLI**: Rust (high-performance command-line interface)
 
@@ -18,7 +18,7 @@ workspace-qdrant-mcp (v0.1.0) is a Model Context Protocol (MCP) server providing
 - Behavioral rules via persistent rules collection
 - Rust daemon for high-performance file watching and processing
 
-**v0.1.0 Features:**
+**v0.1.3 Features:**
 - Dynamic Language Registry: 44 bundled languages defined in YAML, zero hardcoded language support. GenericExtractor replaces 25 per-language extractors. Upstream providers (Linguist, nvim-treesitter, mason-registry, tree-sitter-grammars org) for metadata refresh.
 - Tree-sitter semantic code chunking by function/class/method (dynamic grammar auto-download)
 - LSP integration for code intelligence (per-project, active projects only)
