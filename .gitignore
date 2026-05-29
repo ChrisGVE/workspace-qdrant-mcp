@@ -101,6 +101,7 @@ state/
 .ruff_cache/
 .mypy_cache/
 .uv-cache/
+.vite/
 
 # Backup directories
 .workspace-qdrant/backups/
