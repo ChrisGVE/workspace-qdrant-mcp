@@ -173,7 +173,7 @@ wqm service status             # Check daemon status
 wqm status health              # System health check
 
 # Search and content
-wqm search "query"             # Search collections
+wqm search project "query"     # Search the current project
 wqm ingest file path.py        # Ingest a file
 wqm rules list                 # List behavioral rules
 
