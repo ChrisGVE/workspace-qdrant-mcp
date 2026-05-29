@@ -5,6 +5,10 @@
 //! by tasks 24–30; the handler here returns `unimplemented` for `call_tool`.
 
 pub mod definitions;
+pub mod embedding;
+pub mod envelope;
+pub mod grep;
+pub mod retrieve;
 #[cfg(test)]
 mod tests;
 
