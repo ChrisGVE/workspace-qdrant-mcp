@@ -7,35 +7,32 @@
 //!
 //! # Result shape (field order matches TS `RetrieveResponse` declaration)
 //!
-//! ```json
+//! ```text
 //! // success by-id
-//! { "success": true, "documents": [{ "id": "...", "content": "...",
-//!   "metadata": {...} }], "total": 1, "hasMore": false }
-//!
-//! // success by-filter (empty)
-//! { "success": true, "documents": [], "total": 0, "hasMore": false }
-//!
-//! // collection not found (normalised to success)
-//! { "success": true, "documents": [], "total": 0, "hasMore": false,
-//!   "message": "Collection not found or empty" }
-//!
-//! // unresolvable scope
-//! { "success": false, "documents": [], "total": 0, "hasMore": false,
-//!   "message": "Cannot retrieve from \"projects\" without a resolvable scope. ..." }
-//!
-//! // qdrant down
-//! { "success": false, "documents": [],
-//!   "message": "Failed to retrieve documents: ..." }
+//! { "success": true, "documents": [...], "total": 1, "hasMore": false }
+//! // by-id not-found / error — NO hasMore key
+//! { "success": false, "documents": [], "message": "..." }
+//! // by-filter success
+//! { "success": true, "documents": [...], "total": N, "hasMore": bool }
+//! // collection-not-found (normalised to success) — hasMore included
+//! { "success": true, "documents": [], "total": 0, "hasMore": false, "message": "..." }
+//! // non-collection-not-found error — NO hasMore key
+//! { "success": false, "documents": [], "message": "..." }
 //! ```
 
 use std::collections::HashMap;
 
 use rmcp::model::CallToolResult;
-use serde::Serialize;
 use serde_json::Value;
 
-use crate::qdrant::client::{QdrantReadClient, QdrantRetrievedPoint};
+pub use self::retrieve_types::{
+    RetrieveFilter, RetrieveInput, RetrieveQdrant, RetrieveResponse, RetrievedDocument,
+};
+use crate::qdrant::client::QdrantRetrievedPoint;
 use crate::tools::envelope::ok_text;
+
+#[path = "retrieve_types.rs"]
+mod retrieve_types;
 
 // ---------------------------------------------------------------------------
 // Constants — canonical Qdrant collection names (from wqm_common)
@@ -47,160 +44,6 @@ use wqm_common::constants::{
 
 /// Keys excluded from metadata — mirrors `extractMetadata` in retrieve-types.ts line 72.
 const EXCLUDED_PAYLOAD_KEYS: &[&str] = &["content", "dense_vector", "sparse_vector"];
-
-// ---------------------------------------------------------------------------
-// Public trait — injectable for tests
-// ---------------------------------------------------------------------------
-
-/// Abstraction over Qdrant read operations needed by the retrieve tool.
-pub trait RetrieveQdrant {
-    fn retrieve_by_ids(
-        &self,
-        collection: &str,
-        ids: Vec<String>,
-    ) -> impl std::future::Future<Output = Result<Vec<QdrantRetrievedPoint>, String>> + Send;
-
-    fn scroll(
-        &self,
-        collection: &str,
-        filter: Option<RetrieveFilter>,
-        limit: u32,
-    ) -> impl std::future::Future<Output = Result<Vec<QdrantRetrievedPoint>, String>> + Send;
-}
-
-/// Simple key=value filter for scroll operations.
-#[derive(Debug, Clone)]
-pub struct RetrieveFilter {
-    pub must: Vec<(String, String)>,
-}
-
-impl RetrieveQdrant for QdrantReadClient {
-    async fn retrieve_by_ids(
-        &self,
-        collection: &str,
-        ids: Vec<String>,
-    ) -> Result<Vec<QdrantRetrievedPoint>, String> {
-        self.retrieve(collection, ids)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn scroll(
-        &self,
-        collection: &str,
-        filter: Option<RetrieveFilter>,
-        limit: u32,
-    ) -> Result<Vec<QdrantRetrievedPoint>, String> {
-        use qdrant_client::qdrant::{Condition, Filter};
-
-        let qdrant_filter = filter.map(|f| {
-            let conditions: Vec<_> = f
-                .must
-                .into_iter()
-                .map(|(key, value)| Condition::matches(key, value))
-                .collect();
-            Filter::must(conditions)
-        });
-
-        self.scroll(collection, qdrant_filter, limit, None)
-            .await
-            .map(|(points, _next)| points)
-            .map_err(|e| e.to_string())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Input struct
-// ---------------------------------------------------------------------------
-
-/// Input arguments for the `retrieve` tool.
-#[derive(Debug, Default)]
-pub struct RetrieveInput {
-    pub document_id: Option<String>,
-    /// "projects" | "libraries" | "rules" | "scratchpad" — default "projects"
-    pub collection: String,
-    pub filter: Option<HashMap<String, String>>,
-    pub limit: u32,
-    pub offset: u32,
-    pub project_id: Option<String>,
-    pub library_name: Option<String>,
-}
-
-impl RetrieveInput {
-    /// Parse from the JSON `arguments` map of a `CallToolRequestParams`.
-    ///
-    /// Mirrors the destructuring defaults in retrieve.ts lines 110-119.
-    pub fn from_args(args: &serde_json::Map<String, Value>) -> Self {
-        let document_id = args
-            .get("documentId")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-
-        let collection = args
-            .get("collection")
-            .and_then(|v| v.as_str())
-            .unwrap_or("projects")
-            .to_string();
-
-        let filter = args.get("filter").and_then(|v| v.as_object()).map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect()
-        });
-
-        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
-
-        let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-
-        let project_id = args
-            .get("projectId")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-
-        let library_name = args
-            .get("libraryName")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-
-        Self {
-            document_id,
-            collection,
-            filter,
-            limit,
-            offset,
-            project_id,
-            library_name,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Result structs — field ORDER matches TS declarations for JSON parity
-// ---------------------------------------------------------------------------
-
-/// Single retrieved document — mirrors TS `RetrievedDocument` (retrieve-types.ts lines 31-36).
-#[derive(Debug, Serialize, serde::Deserialize)]
-pub struct RetrievedDocument {
-    pub id: String,
-    pub content: String,
-    pub metadata: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub score: Option<f32>,
-}
-
-/// Tool response — mirrors TS `RetrieveResponse` (retrieve-types.ts lines 38-44).
-#[derive(Debug, Serialize, serde::Deserialize)]
-pub struct RetrieveResponse {
-    pub success: bool,
-    pub documents: Vec<RetrievedDocument>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total: Option<u64>,
-    /// camelCase per TS interface — use `#[serde(rename)]`.
-    #[serde(rename = "hasMore")]
-    pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -220,6 +63,10 @@ fn collection_name(collection: &str) -> &str {
 /// Extract metadata from a payload, excluding content and vector keys.
 ///
 /// Mirrors `extractMetadata` in retrieve-types.ts lines 68-78.
+///
+/// NOTE: Key ordering is non-deterministic here (gRPC protobuf map has no
+/// defined order) whereas TS reads Qdrant REST JSON which preserves insertion
+/// order.  Normalisation of key order is deferred to task-33.
 fn extract_metadata(payload: &HashMap<String, Value>) -> Value {
     let map: serde_json::Map<String, Value> = payload
         .iter()
@@ -229,13 +76,14 @@ fn extract_metadata(payload: &HashMap<String, Value>) -> Value {
     Value::Object(map)
 }
 
-/// Build an "unresolvable scope" error response — mirrors `unresolvedTenantResponse`.
+/// Build an "unresolvable scope" error response — mirrors `unresolvedTenantResponse`
+/// (retrieve.ts:44-55 includes `hasMore: false`).
 fn unresolved_tenant_response(collection: &str) -> RetrieveResponse {
     RetrieveResponse {
         success: false,
         documents: vec![],
         total: Some(0),
-        has_more: false,
+        has_more: Some(false),
         message: Some(format!(
             "Cannot retrieve from \"{collection}\" without a resolvable scope. \
              Pass `projectId` (for projects) or `libraryName` (for libraries), \
@@ -316,6 +164,7 @@ where
         coll_name,
         input.filter,
         input.limit,
+        input.offset,
         resolved_project_id.as_deref(),
         input.library_name.as_deref(),
         qdrant,
@@ -349,49 +198,50 @@ where
         Ok(points) => {
             let point = match points.into_iter().next() {
                 Some(p) => p,
+                // Not found — TS retrieve.ts:202 omits `hasMore` entirely.
                 None => {
-                    let resp = RetrieveResponse {
+                    return ok_text(&RetrieveResponse {
                         success: false,
                         documents: vec![],
                         total: None,
-                        has_more: false,
+                        has_more: None,
                         message: Some(format!("Document not found: {doc_id}")),
-                    };
-                    return ok_text(&resp);
+                    });
                 }
             };
 
-            // F-002: ownership check.
+            // F-002: ownership check. TS retrieve.ts:208 omits `hasMore` on mismatch.
             if !payload_matches_scope(
                 &point.payload,
                 collection,
                 resolved_project_id,
                 library_name,
             ) {
-                let resp = RetrieveResponse {
+                return ok_text(&RetrieveResponse {
                     success: false,
                     documents: vec![],
                     total: None,
-                    has_more: false,
+                    has_more: None,
                     message: Some(format!("Document not found: {doc_id}")),
-                };
-                return ok_text(&resp);
+                });
             }
 
             let document = point_to_document(point);
+            // Success — TS retrieve.ts:217 includes `hasMore: false`.
             ok_text(&RetrieveResponse {
                 success: true,
                 documents: vec![document],
                 total: Some(1),
-                has_more: false,
+                has_more: Some(false),
                 message: None,
             })
         }
+        // Catch error — TS retrieve.ts:219-223 omits `hasMore` entirely.
         Err(err) => ok_text(&RetrieveResponse {
             success: false,
             documents: vec![],
             total: None,
-            has_more: false,
+            has_more: None,
             message: Some(format!("Failed to retrieve document: {}", err)),
         }),
     }
@@ -402,6 +252,7 @@ async fn retrieve_by_filter<Q>(
     coll_name: &str,
     extra_filter: Option<HashMap<String, String>>,
     limit: u32,
+    offset: u32,
     project_id: Option<&str>,
     library_name: Option<&str>,
     qdrant: &Q,
@@ -409,7 +260,59 @@ async fn retrieve_by_filter<Q>(
 where
     Q: RetrieveQdrant,
 {
-    // Build filter conditions.
+    let filter = build_scroll_filter(collection, extra_filter, project_id, library_name);
+
+    // Over-fetch by 1 to detect hasMore — retrieve.ts lines 246/252.
+    let fetch_limit = limit + 1;
+
+    match qdrant.scroll(coll_name, filter, fetch_limit, offset).await {
+        Ok(mut points) => {
+            let has_more = points.len() > limit as usize;
+            if has_more {
+                points.truncate(limit as usize);
+            }
+            let documents: Vec<RetrievedDocument> =
+                points.into_iter().map(point_to_document).collect();
+            let total = documents.len() as u64;
+            // Success — TS retrieve.ts:261 includes `hasMore`.
+            ok_text(&RetrieveResponse {
+                success: true,
+                documents,
+                total: Some(total),
+                has_more: Some(has_more),
+                message: None,
+            })
+        }
+        Err(err) if is_collection_not_found(&err) => {
+            // Normalise to success-empty — TS retrieve.ts:265-271 includes `hasMore: false`.
+            ok_text(&RetrieveResponse {
+                success: true,
+                documents: vec![],
+                total: Some(0),
+                has_more: Some(false),
+                message: Some("Collection not found or empty".to_string()),
+            })
+        }
+        // Non-collection-not-found error — TS retrieve.ts:273-277 omits `hasMore`.
+        Err(err) => ok_text(&RetrieveResponse {
+            success: false,
+            documents: vec![],
+            total: None,
+            has_more: None,
+            message: Some(format!("Failed to retrieve documents: {err}")),
+        }),
+    }
+}
+
+/// Build the `RetrieveFilter` for a scroll-based retrieve.
+///
+/// Extracted to keep `retrieve_by_filter` under 80 lines.
+fn build_scroll_filter(
+    collection: &str,
+    extra_filter: Option<HashMap<String, String>>,
+    project_id: Option<&str>,
+    library_name: Option<&str>,
+) -> Option<RetrieveFilter> {
     let mut must: Vec<(String, String)> = vec![];
 
     match collection {
@@ -432,52 +335,10 @@ where
         }
     }
 
-    let filter = if must.is_empty() {
+    if must.is_empty() {
         None
     } else {
         Some(RetrieveFilter { must })
-    };
-
-    // Over-fetch by 1 to detect hasMore — retrieve.ts lines 246/252.
-    let fetch_limit = limit + 1;
-
-    match qdrant.scroll(coll_name, filter, fetch_limit).await {
-        Ok(mut points) => {
-            let has_more = points.len() > limit as usize;
-            if has_more {
-                points.truncate(limit as usize);
-            }
-            let documents: Vec<RetrievedDocument> =
-                points.into_iter().map(point_to_document).collect();
-            let total = documents.len() as u64;
-            ok_text(&RetrieveResponse {
-                success: true,
-                documents,
-                total: Some(total),
-                has_more,
-                message: None,
-            })
-        }
-        Err(err) => {
-            if is_collection_not_found(&err) {
-                // Normalise to success-empty — retrieve.ts:264-272
-                ok_text(&RetrieveResponse {
-                    success: true,
-                    documents: vec![],
-                    total: Some(0),
-                    has_more: false,
-                    message: Some("Collection not found or empty".to_string()),
-                })
-            } else {
-                ok_text(&RetrieveResponse {
-                    success: false,
-                    documents: vec![],
-                    total: None,
-                    has_more: false,
-                    message: Some(format!("Failed to retrieve documents: {err}")),
-                })
-            }
-        }
     }
 }
 
