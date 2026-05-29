@@ -65,3 +65,47 @@ User: "For future reference, always use uv instead of pip"
 ```
 
 ---
+
+## Known Issues & Planned Improvements (rules tool)
+
+Found 2026-05-29 while reviewing/repairing behavioral rules. Tracked for fixing
+(see the spawned "Fix rules update/remove" task).
+
+1. **`update` creates a duplicate instead of editing in place.** Calling
+   `rules action=update` on an existing rule (same label+scope) inserts a NEW
+   point with a new id and leaves the original — violating the "label + scope
+   must be unique" invariant above. Fix: make `update` an upsert keyed on
+   (label, scope, project_id), reusing the existing point id.
+
+2. **`remove` cannot disambiguate two rules sharing (label, scope, project_id).**
+   When duplicates exist with identical keys, `remove` deletes neither
+   (idempotency-keyed; three calls left both copies in place). Fix: `remove`
+   should delete ALL rows matching the filter, and/or accept an explicit rule
+   `id` to target a single point.
+
+3. **Default `list` is project-scoped and hides global rules.** `rules action=list`
+   without `scope` returns only the current project's rules — EMPTY for a
+   project with no project-rules, even though that project DOES receive all
+   global rules at injection time (see Context Injection above). This misleads:
+   an agent concludes "no rules" when the global baseline applies. Fix: default
+   `list` should reflect the injection set (global + current project), or clearly
+   signal "use scope=global to see global rules".
+
+4. **Rules writes are NOT gated.** `add` / `update` / `remove` mutate persistent,
+   cross-session, cross-project shared state with no confirmation — unlike
+   mutating `workspace_index` actions, which require double opt-in (the
+   `confirm-mut` global rule). An agent can silently rewrite the rules that every
+   future session (and, for global rules, every project) inherits. Improvement:
+   gate rules writes behind explicit user confirmation (same philosophy as
+   `confirm-mut`) — agent proposes, user approves, agent applies.
+
+**Related drift observed:** the `rules_mirror` SQLite table and the Qdrant
+`rules` collection can fall out of sync (8 mirror rows vs 17 Qdrant points
+observed 2026-05-29). Any write-path fix must keep both consistent.
+
+**Recovery:** the canonical rule set is versioned at `assets/rules.example.json`
+(global + project arrays). On DB/volume loss, re-apply with `rules action=add`
+on a clean collection (NOT `update` — see issue 1). See
+`docs/runbooks/restore-rules-and-global-ignore.md` for the procedure.
+
+---
