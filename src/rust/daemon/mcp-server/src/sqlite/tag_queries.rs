@@ -50,8 +50,13 @@ fn tokenize_query(query: &str) -> Vec<String> {
         .to_lowercase()
         .split_whitespace()
         .map(|t| {
+            // ASCII-only, matching the TS regex `/[^a-z0-9_-]/g` (no `u` flag).
+            // `char::is_alphanumeric` is Unicode-aware and would wrongly retain
+            // non-ASCII word chars (é, CJK, …) the TS strips, diverging the LIKE
+            // params on the shared DB. Input is already lowercased, so keeping
+            // ASCII A–Z in the set is harmless.
             t.chars()
-                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
                 .collect::<String>()
         })
         .filter(|t| t.len() >= 3)

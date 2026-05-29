@@ -86,6 +86,21 @@ fn tokenize_query_strips_short_tokens() {
 }
 
 #[test]
+fn tokenize_query_strips_non_ascii_like_ts() {
+    // Parity with TS `/[^a-z0-9_-]/g` (ASCII-only): non-ASCII word chars are
+    // stripped, NOT retained. "café" → "caf" (length 3, kept); a CJK-only
+    // token strips to empty and is filtered.
+    let tokens = tokenize_query("café 日本語 hello");
+    assert!(
+        tokens.contains(&"caf".to_string()),
+        "é must be stripped: {tokens:?}"
+    );
+    assert!(!tokens.iter().any(|t| t.contains('é')));
+    assert!(tokens.iter().all(|t| t.is_ascii()));
+    assert!(tokens.contains(&"hello".to_string()));
+}
+
+#[test]
 fn get_matching_tags_finds_concept_tags() {
     let dir = TempDir::new().unwrap();
     let (path, conn) = make_db(&dir);
