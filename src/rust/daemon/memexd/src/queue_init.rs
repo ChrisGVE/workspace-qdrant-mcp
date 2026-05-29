@@ -264,7 +264,7 @@ fn attach_optional_components(
     uqp = uqp.with_allowed_extensions(Arc::clone(allowed_extensions));
     uqp = uqp.with_search_db(Arc::clone(search_db));
     if let Some(ref gs) = graph_store {
-        uqp = uqp.with_graph_store(Arc::new(gs.clone()));
+        uqp = uqp.with_graph_store(Arc::clone(gs));
     }
     uqp = uqp.with_watch_refresh_signal(Arc::clone(watch_refresh_signal));
     uqp

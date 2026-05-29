@@ -90,6 +90,34 @@ impl Default for YamlHnswConfig {
     }
 }
 
+// ── Graph backend ─────────────────────────────────────────────────────────
+
+/// Code-relationship graph backend configuration (`graph.*`).
+///
+/// Selects the graph store implementation and carries LadybugDB tuning knobs.
+/// The core crate maps this into its own `GraphConfig` (common cannot depend
+/// on core).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlGraphConfig {
+    /// Backend selector: `"sqlite"` (default) or `"ladybug"`.
+    pub backend: String,
+    /// LadybugDB buffer pool size in bytes (ignored for sqlite).
+    pub buffer_pool_size: u64,
+    /// LadybugDB max worker threads (ignored for sqlite).
+    pub max_threads: u64,
+}
+
+impl Default for YamlGraphConfig {
+    fn default() -> Self {
+        Self {
+            backend: "sqlite".to_string(),
+            buffer_pool_size: 256 * 1024 * 1024,
+            max_threads: 2,
+        }
+    }
+}
+
 // ── gRPC ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]

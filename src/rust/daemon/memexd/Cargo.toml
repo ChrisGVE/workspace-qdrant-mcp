@@ -58,6 +58,8 @@ serde_yaml_ng = { workspace = true }
 default = []
 # Enable OCR support (requires Tesseract system library)
 ocr = ["workspace-qdrant-core/ocr"]
+# Enable the LadybugDB (Kuzu) graph backend (requires a C++ toolchain)
+ladybug = ["workspace-qdrant-core/ladybug"]
 
 [lints]
 workspace = true

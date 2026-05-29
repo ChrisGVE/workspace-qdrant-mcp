@@ -150,6 +150,9 @@ pub struct DaemonConfig {
     /// Cross-boundary graph-RAG traversal caps and fusion (search.graph_rag.*)
     #[serde(default)]
     pub graph_rag: GraphRagConfig,
+    /// Code-relationship graph backend selection (`graph.*`).
+    #[serde(default)]
+    pub graph: crate::graph::GraphConfig,
     /// Narrative extraction thresholds and safety limits.
     #[serde(default)]
     pub narrative: NarrativeConfig,
@@ -206,11 +209,26 @@ impl From<&YamlConfig> for DaemonConfig {
             ingestion_limits: IngestionLimitsConfig::default(),
             concept: ConceptConfig::default(),
             graph_rag: GraphRagConfig::default(),
+            graph: build_graph_config(yaml),
             narrative: NarrativeConfig::default(),
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
             control_port: None,
         }
+    }
+}
+
+fn build_graph_config(yaml: &YamlConfig) -> crate::graph::GraphConfig {
+    use crate::graph::{GraphBackend, GraphConfig};
+    let backend = match yaml.graph.backend.trim().to_ascii_lowercase().as_str() {
+        "ladybug" => GraphBackend::Ladybug,
+        _ => GraphBackend::Sqlite,
+    };
+    GraphConfig {
+        backend,
+        db_dir: None,
+        buffer_pool_size: yaml.graph.buffer_pool_size,
+        max_threads: yaml.graph.max_threads,
     }
 }
 
@@ -525,6 +543,8 @@ pub struct Config {
     pub queue_backpressure_threshold: Option<i64>,
     /// Resource limits for daemon processing
     pub resource_limits: ResourceLimitsConfig,
+    /// Code-relationship graph backend selection (`graph.*`).
+    pub graph: crate::graph::GraphConfig,
 }
 
 impl From<DaemonConfig> for Config {
@@ -544,6 +564,7 @@ impl From<DaemonConfig> for Config {
             queue_worker_count: Some(4), // Default worker count
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
             resource_limits: daemon_config.resource_limits,
+            graph: daemon_config.graph,
         }
     }
 }
@@ -566,6 +587,7 @@ impl Config {
             queue_worker_count: Some(4),
             queue_backpressure_threshold: Some(1000),
             resource_limits: ResourceLimitsConfig::default(),
+            graph: crate::graph::GraphConfig::default(),
         }
     }
 

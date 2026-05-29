@@ -16,8 +16,19 @@ use workspace_qdrant_core::{
     SearchDbManager,
 };
 
-/// Concrete graph store type used throughout the daemon.
-pub type ConcreteGraphStore =
+/// Type-erased graph store handle used by the ingestion/query path
+/// (queue processor, `ProcessingContext`). The concrete backend (SQLite CTE
+/// or LadybugDB) is selected at runtime from `config.graph.backend`.
+pub type ConcreteGraphStore = Arc<dyn workspace_qdrant_core::graph::GraphStore>;
+
+/// SQLite-only graph handle for the gRPC `GraphService`.
+///
+/// The graph analytics handlers (PageRank, community detection, betweenness)
+/// and `migrate` operate directly on a `SqlitePool` (`store.pool()`), so they
+/// are inherently SQLite-bound. When the LadybugDB backend is selected this is
+/// `None` and `GraphService` is not registered — analytics and migration are a
+/// SQLite-only feature by design.
+pub type GraphServiceStore =
     workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>;
 
 /// Result of database initialization containing all database handles.
@@ -26,8 +37,10 @@ pub struct DatabaseHandles {
     pub queue_pool: SqlitePool,
     /// FTS5 search database manager.
     pub search_db: Arc<SearchDbManager>,
-    /// Graph store (if initialization succeeded).
+    /// Type-erased graph store for the queue processor (backend-selectable).
     pub graph_store: Option<ConcreteGraphStore>,
+    /// SQLite-typed graph store for `GraphService` (None when backend is ladybug).
+    pub graph_sqlite: Option<GraphServiceStore>,
     /// Shared pause flag initialized from database state.
     pub pause_flag: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -93,27 +106,103 @@ pub async fn init_search_db(
     Ok(Arc::new(search_db))
 }
 
-/// Initialize the graph database for code relationship tracking (graph-rag).
-pub async fn init_graph_db(queue_pool: &SqlitePool) -> Option<ConcreteGraphStore> {
-    let db_path = get_state_db_path(queue_pool);
-    let db_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
+/// Result of graph backend initialization.
+///
+/// `processing` is the type-erased handle used by the queue processor and is
+/// populated for every successfully-initialized backend. `service` is the
+/// SQLite-typed handle for `GraphService`; it is only `Some` when the SQLite
+/// backend is active.
+#[derive(Default)]
+pub struct GraphStores {
+    pub processing: Option<ConcreteGraphStore>,
+    pub service: Option<GraphServiceStore>,
+}
 
-    match workspace_qdrant_core::graph::factory::create_sqlite_graph_store(db_dir).await {
+/// Initialize the graph database for code relationship tracking (graph-rag).
+///
+/// The backend is selected at runtime from `config.graph.backend`:
+/// - `sqlite` (default): recursive-CTE store; also drives `GraphService`.
+/// - `ladybug`: LadybugDB (Kuzu) store, only available when compiled with the
+///   `ladybug` feature. Analytics/migration (`GraphService`) are unavailable.
+///
+/// Returns empty handles (graph features disabled) on initialization failure.
+pub async fn init_graph_db(config: &Config, queue_pool: &SqlitePool) -> GraphStores {
+    use workspace_qdrant_core::graph::{factory, GraphBackend};
+
+    let db_path = get_state_db_path(queue_pool);
+    let db_dir = config
+        .graph
+        .db_dir
+        .clone()
+        .unwrap_or_else(|| db_path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf());
+
+    // Fail fast with a clear message if the configured backend is not
+    // compiled in (e.g. `ladybug` without the feature flag).
+    if let Err(e) = factory::validate_backend(&config.graph.backend) {
+        warn!("Graph backend unavailable: {} (graph features disabled)", e);
+        return GraphStores::default();
+    }
+
+    match config.graph.backend {
+        GraphBackend::Sqlite => match factory::create_sqlite_graph_store(&db_dir).await {
+            Ok(store) => {
+                info!(
+                    "Graph database initialized (SQLite backend, version {})",
+                    workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
+                );
+                GraphStores {
+                    processing: Some(Arc::new(store.clone())),
+                    service: Some(store),
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Graph database initialization failed: {} (graph features disabled)",
+                    e
+                );
+                GraphStores::default()
+            }
+        },
+        GraphBackend::Ladybug => init_ladybug_graph_db(&db_dir, &config.graph).await,
+    }
+}
+
+/// Initialize the LadybugDB graph backend (only compiled with `ladybug`).
+#[cfg(feature = "ladybug")]
+async fn init_ladybug_graph_db(
+    db_dir: &std::path::Path,
+    graph_config: &workspace_qdrant_core::graph::GraphConfig,
+) -> GraphStores {
+    match workspace_qdrant_core::graph::factory::create_ladybug_graph_store(db_dir, graph_config)
+        .await
+    {
         Ok(store) => {
-            info!(
-                "Graph database initialized (SQLite backend, version {})",
-                workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
-            );
-            Some(store)
+            info!("Graph database initialized (LadybugDB backend); GraphService analytics/migration are SQLite-only and disabled");
+            GraphStores {
+                processing: Some(Arc::new(store)),
+                service: None,
+            }
         }
         Err(e) => {
             warn!(
-                "Graph database initialization failed: {} (graph features disabled)",
+                "LadybugDB graph initialization failed: {} (graph features disabled)",
                 e
             );
-            None
+            GraphStores::default()
         }
     }
+}
+
+/// Fallback when the `ladybug` feature is not compiled in. `validate_backend`
+/// already rejects the ladybug backend before this is reached, so this only
+/// guards against logic drift.
+#[cfg(not(feature = "ladybug"))]
+async fn init_ladybug_graph_db(
+    _db_dir: &std::path::Path,
+    _graph_config: &workspace_qdrant_core::graph::GraphConfig,
+) -> GraphStores {
+    warn!("LadybugDB backend requested but the 'ladybug' feature is not enabled (graph features disabled)");
+    GraphStores::default()
 }
 
 /// Run the **fast** half of startup reconciliation.
@@ -388,14 +477,15 @@ pub async fn initialize_all(
 ) -> Result<DatabaseHandles, Box<dyn std::error::Error>> {
     let queue_pool = create_pool_and_migrate(config).await?;
     let search_db = init_search_db(&queue_pool).await?;
-    let graph_store = init_graph_db(&queue_pool).await;
+    let graph_stores = init_graph_db(config, &queue_pool).await;
     run_reconciliation(&queue_pool).await;
     let pause_flag = init_pause_flag(&queue_pool).await;
 
     Ok(DatabaseHandles {
         queue_pool,
         search_db,
-        graph_store,
+        graph_store: graph_stores.processing,
+        graph_sqlite: graph_stores.service,
         pause_flag,
     })
 }

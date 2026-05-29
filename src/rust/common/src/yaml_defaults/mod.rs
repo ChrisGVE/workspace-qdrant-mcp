@@ -142,6 +142,8 @@ pub struct YamlConfig {
     pub resource_limits: YamlResourceLimitsConfig,
     pub tagging: YamlTaggingConfig,
     pub url_ingestion: YamlUrlIngestionConfig,
+    /// Code-relationship graph backend selection and tuning (`graph.*`).
+    pub graph: YamlGraphConfig,
     /// Host-↔-container directory mounts (see docs/specs/16-path-abstraction.md §5).
     /// Empty/missing = identity map (host == container, no translation).
     pub mounts: Vec<YamlMountEntry>,

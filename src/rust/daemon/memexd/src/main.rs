@@ -95,7 +95,7 @@ fn wire_grpc(
         Arc::clone(&qc.queue_health),
         Arc::clone(&qc.adaptive_state),
         Arc::clone(&db_handles.search_db),
-        db_handles.graph_store.clone(),
+        db_handles.graph_sqlite.clone(),
         lsp_manager.clone(),
         Arc::clone(&qc.hierarchy_builder),
         qc.watch_pool.clone(),
