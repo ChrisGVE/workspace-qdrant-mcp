@@ -30,6 +30,35 @@ export function getWatchFolderIdByTenantId(
 }
 
 /**
+ * Count the top-level watch folders registered for a tenant_id.
+ *
+ * This is the number of independent clones/instances of the same project
+ * (same tenant_id) the daemon is tracking. When it is <= 1 there is no
+ * instance ambiguity: the tenant filter alone isolates results, so
+ * per-file base_point narrowing is unnecessary. Only when 2+ clones share
+ * a tenant_id does base_point filtering actually disambiguate instances.
+ *
+ * Returns 0 when the database is unavailable.
+ */
+export function countWatchFoldersByTenantId(
+  db: DatabaseType | null,
+  tenantId: string,
+): number {
+  if (!db) return 0;
+
+  try {
+    const row = db.prepare(
+      `SELECT COUNT(*) AS n FROM watch_folders
+       WHERE tenant_id = ? AND collection = 'projects' AND parent_watch_id IS NULL`
+    ).get(tenantId) as { n: number } | undefined;
+
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Get all distinct base_point values for files tracked under a watch folder
  * (and optionally its submodules via junction table).
  *

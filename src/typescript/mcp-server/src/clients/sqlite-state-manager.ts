@@ -247,6 +247,10 @@ export class SqliteStateManager {
     return instanceQueries.getWatchFolderIdByTenantId(this.db, tenantId);
   }
 
+  countWatchFoldersByTenantId(tenantId: string) {
+    return instanceQueries.countWatchFoldersByTenantId(this.db, tenantId);
+  }
+
   getActiveBasePoints(watchFolderId: string, includeSubmodules = false) {
     return instanceQueries.getActiveBasePoints(this.db, watchFolderId, includeSubmodules);
   }

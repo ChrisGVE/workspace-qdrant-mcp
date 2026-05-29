@@ -155,20 +155,22 @@ export async function resolveProjectContext(
   if (currentProjectId && scope === 'project') {
     const watchFolderId = stateManager.getWatchFolderIdByTenantId(currentProjectId);
     if (watchFolderId) {
-      const points = stateManager.getActiveBasePoints(watchFolderId, false);
-      if (points.length > 0 && points.length <= BASE_POINTS_FILTER_CAP) {
-        basePoints = points;
-      } else if (points.length > BASE_POINTS_FILTER_CAP) {
-        // F-012: Fall back to "primary base-point only" filter.
-        // Instead of dropping instance isolation entirely, narrow to
-        // the single base point matching the caller's working directory.
-        // Tenant filter still applies for project-level scoping.
-        const cwd = getEffectiveCwd();
-        const primaryPoint = points.find(bp => cwd.startsWith(bp));
-        if (primaryPoint) {
-          basePoints = [primaryPoint];
-        } else {
-          // No base point matches cwd — degrade gracefully.
+      // base_point narrowing only disambiguates *instances* — i.e. multiple
+      // clones/worktrees of the same project sharing one tenant_id. With a
+      // single watch folder the tenant filter alone isolates results, so
+      // enumerating one base_point per tracked file (which never scales past
+      // the cap on a real repo) buys nothing and would falsely report
+      // `status: uncertain` on every project search. Only pay the cost — and
+      // only flag degradation — when there genuinely are 2+ clones.
+      const cloneCount = stateManager.countWatchFoldersByTenantId(currentProjectId);
+      if (cloneCount > 1) {
+        const points = stateManager.getActiveBasePoints(watchFolderId, false);
+        if (points.length > 0 && points.length <= BASE_POINTS_FILTER_CAP) {
+          basePoints = points;
+        } else if (points.length > BASE_POINTS_FILTER_CAP) {
+          // Genuine multi-clone ambiguity that exceeds the filter cap: we
+          // cannot enumerate every base_point, so instance isolation is
+          // unavailable. Surface it so the caller reports it explicitly.
           basePointsDegraded = true;
           basePointsActiveCount = points.length;
         }
