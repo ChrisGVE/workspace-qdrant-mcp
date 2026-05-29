@@ -12,14 +12,23 @@
 //! - [`embedding_methods`] — `embed_text`, `generate_sparse_vector`.
 //! - [`search_methods`] — `text_search`, `count_matches`.
 //! - [`graph_methods`] — `query_related`.
+//! - [`document_methods`] — `ingest_text` (DocumentService).
+//! - [`write_methods`] — `enqueue_item` (QueueWriteService); `upsert_rule_mirror`,
+//!   `delete_rule_mirror`, `upsert_scratchpad_mirror`, `delete_scratchpad_mirror`
+//!   (TrackingWriteService, fire-and-forget).
+//! - [`search_event_methods`] — `log_search_event`, `update_search_event`
+//!   (TrackingWriteService, fire-and-forget).
 
 pub mod client;
+pub mod document_methods;
 pub mod embedding_methods;
 pub mod graph_methods;
 pub mod project_methods;
 pub mod retry;
+pub mod search_event_methods;
 pub mod search_methods;
 pub mod system_methods;
 pub mod timeouts;
+pub mod write_methods;
 
 pub use client::{ClientError, DaemonClient};
