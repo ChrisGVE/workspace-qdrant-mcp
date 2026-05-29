@@ -234,6 +234,14 @@ services:
       # every CWD lookup returns "Could not detect project". Shared RW + WAL is
       # safe for a concurrent reader (better-sqlite3 opens with readonly:true).
       - memexd_db:/var/lib/memexd
+      # Overlay the editable global ignore on top of the named volume so the
+      # admin UI (served by THIS mcp container) reads/writes the SAME file the
+      # daemon uses. dirname(WQM_DATABASE_PATH) = /var/lib/memexd, which is the
+      # named volume here — its global.wqmignore is an empty 0-byte copy. Without
+      # this bind the admin UI shows a blank "Global index exclusions" panel and
+      # any Save writes to the dead volume copy, never reaching the daemon (which
+      # reads the bind). Mirrors the memexd service's global.wqmignore bind.
+      - ${WQM_STATE_DIR:-./state}/memexd/global.wqmignore:/var/lib/memexd/global.wqmignore
     environment:
       MCP_SERVER_MODE: http
       MCP_HTTP_HOST: 0.0.0.0
