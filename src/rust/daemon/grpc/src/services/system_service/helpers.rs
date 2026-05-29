@@ -69,20 +69,70 @@ impl SystemServiceImpl {
                 pair
             }
             Err(_elapsed) => {
+                // A 3s timeout is a transient condition. Record it as a real
+                // result (TemporarilyUnavailable) rather than None — otherwise
+                // a persistently-timing-out provider reads back as "probe
+                // pending" forever instead of surfacing the problem.
+                let result: Result<(), EmbeddingError> =
+                    Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: 0 });
                 let mut cache = self.embedding_probe_cache.lock().await;
                 cache.last_probe_at = Some(Instant::now());
-                cache.last_result = None;
-                ("unhealthy".to_string(), "timeout after 3s".to_string())
+                cache.last_result = Some(result);
+                ("degraded".to_string(), "probe timed out after 3s".to_string())
             }
         }
     }
 
+    /// Spawn a background task that periodically probes the embedding provider
+    /// and seeds `embedding_probe_cache`, so the `Health` RPC reports the
+    /// provider's real state instead of `probe pending` indefinitely. The
+    /// probe runs off the Health request path, so Health never blocks on it.
+    ///
+    /// Returns `None` when no dense provider is wired. The task runs for the
+    /// process lifetime; the returned handle may be dropped to detach it.
+    ///
+    /// Note: the core `ProviderHealthMonitor` also probes the provider (it
+    /// owns output-dim drift updates). This loop is the piece that feeds the
+    /// gRPC health cache — which the monitor cannot reach across the crate
+    /// boundary — so the two run independently.
+    pub(crate) fn spawn_embedding_health_probe_loop(
+        &self,
+        interval: Duration,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        let provider = Arc::clone(self.dense_provider.as_ref()?);
+        let cache = Arc::clone(&self.embedding_probe_cache);
+        Some(tokio::spawn(async move {
+            // `interval`'s first tick fires immediately, so the cache warms at
+            // startup rather than after one full interval.
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let result = match tokio::time::timeout(
+                    Duration::from_secs(3),
+                    provider.probe(),
+                )
+                .await
+                {
+                    Ok(r) => r,
+                    // Timeout → transient result, never None.
+                    Err(_) => {
+                        Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: 0 })
+                    }
+                };
+                let mut c = cache.lock().await;
+                c.last_probe_at = Some(Instant::now());
+                c.last_result = Some(result);
+            }
+        }))
+    }
+
     /// Build the `embedding_provider` ComponentHealth for the `Health` RPC
     /// from the cached probe result. The Health endpoint never blocks on a
-    /// network probe — fresh probes are issued by `ProviderHealthMonitor`
-    /// (background) or by `GetEmbeddingProviderStatus` (on-demand). Until
-    /// the cache is warm, the component status is `Degraded` with a
-    /// `probe pending` message.
+    /// network probe — the cache is seeded by the background probe loop
+    /// (`spawn_embedding_health_probe_loop`) and refreshed on-demand by
+    /// `GetEmbeddingProviderStatus`. Until the first background probe
+    /// completes, the component status is `Degraded` with a `probe pending`
+    /// message.
     pub(super) async fn get_embedding_provider_health(&self) -> ComponentHealth {
         let now = SystemTime::now();
 

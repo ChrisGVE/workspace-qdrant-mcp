@@ -180,3 +180,87 @@ async fn test_health_embedding_provider_probe_pending() {
         "Health must not issue a probe when the cache is empty"
     );
 }
+
+#[tokio::test]
+async fn test_background_probe_loop_seeds_health_cache() {
+    // The background loop is what turns "probe pending" into the provider's
+    // real state — without anyone calling GetEmbeddingProviderStatus.
+    let provider = StubProvider::new(|| Ok(()));
+    let svc = SystemServiceImpl::new()
+        .with_dense_provider(provider.clone() as Arc<dyn DenseProvider>)
+        .with_embedding_settings(settings_with(0));
+
+    // Baseline: empty cache reports `probe pending`.
+    let resp = svc.health(Request::new(())).await.unwrap().into_inner();
+    let comp = find_component(&resp.components, "embedding_provider").unwrap();
+    assert_eq!(comp.status, ServiceStatus::Degraded as i32);
+    assert!(comp.message.contains("probe pending"));
+
+    // Start the loop (first tick fires immediately) and wait for it to seed.
+    let _handle = svc
+        .spawn_embedding_health_probe_loop(std::time::Duration::from_secs(30))
+        .expect("loop must spawn when a provider is wired");
+
+    let mut became_healthy = false;
+    for _ in 0..100 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let resp = svc.health(Request::new(())).await.unwrap().into_inner();
+        let comp = find_component(&resp.components, "embedding_provider").unwrap();
+        if comp.status == ServiceStatus::Healthy as i32 {
+            assert!(comp.message.contains("Running"));
+            became_healthy = true;
+            break;
+        }
+    }
+    assert!(
+        became_healthy,
+        "background probe loop should seed the cache to Healthy"
+    );
+    assert!(provider.calls() >= 1, "the loop must have probed the provider");
+}
+
+#[tokio::test]
+async fn test_probe_timeout_records_degraded_not_pending() {
+    // A probe that never returns within the 3s timeout must leave a real
+    // (degraded) result in the cache, NOT None — otherwise Health would read
+    // back "probe pending" forever for a persistently-timing-out provider.
+    #[derive(Debug)]
+    struct SlowProvider;
+    #[async_trait]
+    impl DenseProvider for SlowProvider {
+        async fn embed(&self, _t: &[&str]) -> Result<Vec<DenseEmbedding>, EmbeddingError> {
+            Ok(Vec::new())
+        }
+        fn output_dim(&self) -> usize {
+            1536
+        }
+        fn provider_label(&self) -> &str {
+            "slow-stub"
+        }
+        fn metrics_label(&self) -> &'static str {
+            "openai"
+        }
+        async fn probe(&self) -> Result<(), EmbeddingError> {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            Ok(())
+        }
+    }
+
+    let svc = SystemServiceImpl::new()
+        .with_dense_provider(Arc::new(SlowProvider) as Arc<dyn DenseProvider>)
+        .with_embedding_settings(settings_with(0));
+
+    // Inline probe hits the 3s timeout and returns a degraded status.
+    let (status, _msg) = svc.probe_embedding_provider().await;
+    assert_eq!(status, "degraded");
+
+    // Crucially, the cache now holds a real result — Health no longer pends.
+    let resp = svc.health(Request::new(())).await.unwrap().into_inner();
+    let comp = find_component(&resp.components, "embedding_provider").unwrap();
+    assert_eq!(comp.status, ServiceStatus::Degraded as i32);
+    assert!(
+        !comp.message.contains("probe pending"),
+        "timeout must surface as degraded, not probe-pending; got: {}",
+        comp.message
+    );
+}
