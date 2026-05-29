@@ -32,10 +32,10 @@ mod types;
 
 // Public API
 pub use escaping::{escape_fts5_pattern, escape_like_pattern};
+pub use exact_search::context::attach_context_lines;
 pub use exact_search::search_exact;
 pub use regex_parser::extract_literals_from_regex;
 pub use regex_search::search_regex;
-pub use exact_search::context::attach_context_lines;
 pub use types::{RegexLiterals, SearchMatch, SearchOptions, SearchResults};
 
 // Crate-internal API (used by grep_search)

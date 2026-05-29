@@ -496,8 +496,8 @@ async fn scan_project_directory(
     // relative paths for enqueued subdirectories without re-querying the
     // database. `payload.project_root` originates from watch_folders.path
     // which is canonical by construction (handler-validated at registration).
-    let watch_folder_root = wqm_common::paths::CanonicalPath::from_user_input(&payload.project_root)
-        .map_err(|e| {
+    let watch_folder_root =
+        wqm_common::paths::CanonicalPath::from_user_input(&payload.project_root).map_err(|e| {
             UnifiedProcessorError::InvalidPayload(format!(
                 "project_root {} is not canonical: {}",
                 payload.project_root, e

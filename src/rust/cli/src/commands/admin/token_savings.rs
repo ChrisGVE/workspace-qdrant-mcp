@@ -173,11 +173,9 @@ fn open_state_db() -> Result<rusqlite::Connection> {
     if !db_path.exists() {
         anyhow::bail!("Database not found at {}", db_path.display());
     }
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .context("Failed to open state database")?;
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .context("Failed to open state database")?;
     conn.execute_batch("PRAGMA busy_timeout=5000;")
         .context("Failed to set busy_timeout")?;
     Ok(conn)

@@ -202,7 +202,10 @@ async fn test_unified_queue_enqueue_operation() {
 
     // Create file payload
     let payload = FilePayload {
-        file_path: wqm_common::paths::RelativePath::from_user_input("/tmp/test.txt".trim_start_matches('/')).unwrap(),
+        file_path: wqm_common::paths::RelativePath::from_user_input(
+            "/tmp/test.txt".trim_start_matches('/'),
+        )
+        .unwrap(),
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: Some(100),
@@ -261,7 +264,10 @@ async fn test_unified_queue_multiple_operations() {
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
     let payload1 = FilePayload {
-        file_path: wqm_common::paths::RelativePath::from_user_input("/tmp/ingest.txt".trim_start_matches('/')).unwrap(),
+        file_path: wqm_common::paths::RelativePath::from_user_input(
+            "/tmp/ingest.txt".trim_start_matches('/'),
+        )
+        .unwrap(),
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
@@ -281,7 +287,10 @@ async fn test_unified_queue_multiple_operations() {
         .expect("Failed to enqueue ingest");
 
     let payload2 = FilePayload {
-        file_path: wqm_common::paths::RelativePath::from_user_input("/tmp/update.txt".trim_start_matches('/')).unwrap(),
+        file_path: wqm_common::paths::RelativePath::from_user_input(
+            "/tmp/update.txt".trim_start_matches('/'),
+        )
+        .unwrap(),
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
@@ -301,7 +310,10 @@ async fn test_unified_queue_multiple_operations() {
         .expect("Failed to enqueue update");
 
     let payload3 = FilePayload {
-        file_path: wqm_common::paths::RelativePath::from_user_input("/tmp/delete.txt".trim_start_matches('/')).unwrap(),
+        file_path: wqm_common::paths::RelativePath::from_user_input(
+            "/tmp/delete.txt".trim_start_matches('/'),
+        )
+        .unwrap(),
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
@@ -344,7 +356,10 @@ async fn test_unified_queue_idempotency() {
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
     let payload = FilePayload {
-        file_path: wqm_common::paths::RelativePath::from_user_input("/tmp/idempotent.txt".trim_start_matches('/')).unwrap(),
+        file_path: wqm_common::paths::RelativePath::from_user_input(
+            "/tmp/idempotent.txt".trim_start_matches('/'),
+        )
+        .unwrap(),
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,

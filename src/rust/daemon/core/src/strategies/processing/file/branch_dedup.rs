@@ -67,9 +67,8 @@ pub(super) async fn try_branch_dedup(
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
 
     // ── 1. SQL lookup: does another branch have an entry for the same content? ──
-    let existing: Option<(String, String, i32, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT base_point, branch, chunk_count, file_type, language
+    let existing: Option<(String, String, i32, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT base_point, branch, chunk_count, file_type, language
              FROM tracked_files
              WHERE watch_folder_id = ?1
                AND relative_path = ?2
@@ -78,14 +77,14 @@ pub(super) async fn try_branch_dedup(
                AND base_point IS NOT NULL
              ORDER BY updated_at DESC
              LIMIT 1",
-        )
-        .bind(watch_folder_id)
-        .bind(relative_path)
-        .bind(&file_hash)
-        .bind(&item.branch)
-        .fetch_optional(&ctx.pool)
-        .await
-        .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("dedup lookup: {e}")))?;
+    )
+    .bind(watch_folder_id)
+    .bind(relative_path)
+    .bind(&file_hash)
+    .bind(&item.branch)
+    .fetch_optional(&ctx.pool)
+    .await
+    .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("dedup lookup: {e}")))?;
 
     let Some((old_base_point, old_branch, chunk_count, file_type, language)) = existing else {
         return Ok(None);
@@ -111,12 +110,8 @@ pub(super) async fn try_branch_dedup(
     }
 
     // ── 3. Re-upsert under new base_point + branch ──
-    let new_base_point = compute_base_point(
-        &item.tenant_id,
-        &item.branch,
-        relative_path,
-        &file_hash,
-    );
+    let new_base_point =
+        compute_base_point(&item.tenant_id, &item.branch, relative_path, &file_hash);
 
     let new_points = old_points
         .into_iter()
@@ -251,12 +246,7 @@ pub(super) async fn try_branch_dedup(
 
     info!(
         "branch_dedup hit: {} ({}→{}) skipped embed, copied {} chunks from old base_point {} → {}",
-        relative_path,
-        old_branch,
-        item.branch,
-        scrolled,
-        old_base_point,
-        new_base_point
+        relative_path, old_branch, item.branch, scrolled, old_base_point, new_base_point
     );
 
     // Suppress unused warnings on payload — kept in the signature to

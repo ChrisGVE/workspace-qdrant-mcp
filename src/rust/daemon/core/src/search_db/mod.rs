@@ -142,9 +142,7 @@ impl SearchDbManager {
     /// `NULL` branch is normalized to the literal string `"(none)"` so the
     /// gauge label is non-empty (Prometheus dislikes empty label values in
     /// aggregations) and matches the convention used elsewhere in the daemon.
-    pub async fn file_metadata_stats_by_tenant_branch(
-        &self,
-    ) -> Result<Vec<FileMetadataStats>> {
+    pub async fn file_metadata_stats_by_tenant_branch(&self) -> Result<Vec<FileMetadataStats>> {
         let rows: Vec<(String, Option<String>, i64, i64, i64)> = sqlx::query_as(
             "SELECT \
                  tenant_id, \
@@ -159,15 +157,15 @@ impl SearchDbManager {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(tenant_id, branch, file_count, total_bytes, skipped_count)| {
-                FileMetadataStats {
+            .map(
+                |(tenant_id, branch, file_count, total_bytes, skipped_count)| FileMetadataStats {
                     tenant_id,
                     branch: branch.unwrap_or_else(|| "(none)".to_string()),
                     file_count,
                     total_bytes,
                     skipped_count,
-                }
-            })
+                },
+            )
             .collect())
     }
 

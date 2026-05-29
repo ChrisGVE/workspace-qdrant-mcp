@@ -33,17 +33,9 @@ git commit -m "fix(mcp/rules): scope rule mutations by tenant"
 make -f Makefile.win fix-promote FIX_BRANCH=fix/rules-tenant-scope PUSH=true
 ```
 
-## Proteção da main
+## Branch de trabalho
 
-Agentes nunca devem fazer merge, commit, push autoral ou PR para `main`.
-
-Use:
-
-```powershell
-make -f Makefile.win no-main-pr
-```
-
-para validar a política. O target `pr` também é bloqueado de propósito.
+Trabalho de correção vai em `dev` (ou feature branch `fix/*` a partir de `dev`), nunca WIP direto na `main`. A `main` é a versão estável e só recebe promoções de `dev` (`make -f Makefile.win promote`), decisão humana/explícita. O `upstream` é fetch-only — o push para o upstream está desabilitado de propósito.
 
 ## Validação semântica rápida
 

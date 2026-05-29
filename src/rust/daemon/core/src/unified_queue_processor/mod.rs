@@ -117,10 +117,7 @@ impl UnifiedQueueProcessor {
     /// Returns an error if the embedding generator fails to initialize, rather
     /// than panicking — a failed embedding-provider init must not bring down the
     /// daemon's file watching, embedding, and gRPC subsystems together.
-    pub fn new(
-        pool: SqlitePool,
-        config: UnifiedProcessorConfig,
-    ) -> UnifiedProcessorResult<Self> {
+    pub fn new(pool: SqlitePool, config: UnifiedProcessorConfig) -> UnifiedProcessorResult<Self> {
         let document_processor = Arc::new(DocumentProcessor::new());
         let embedding_config = EmbeddingConfig {
             num_threads: Some(config.onnx_intra_threads),
@@ -286,7 +283,9 @@ impl UnifiedQueueProcessor {
             self.queue_manager.pool().clone(),
             Arc::new(self.queue_manager.clone()),
         );
-        if let Err(_existing) = crate::search_db::batch_writer::install_global_sender(sender.clone()) {
+        if let Err(_existing) =
+            crate::search_db::batch_writer::install_global_sender(sender.clone())
+        {
             tracing::warn!(
                 "FTS5 batch writer sender already installed — keeping the existing actor; \
                  this typically only happens when with_search_db is called more than once \

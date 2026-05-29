@@ -48,12 +48,11 @@ async fn check_and_finalize_on(
     conn: &mut SqliteConnection,
     queue_id: &str,
 ) -> QueueResult<QueueStatus> {
-    let row = sqlx::query(
-        "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1",
-    )
-    .bind(queue_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let row =
+        sqlx::query("SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1")
+            .bind(queue_id)
+            .fetch_optional(&mut *conn)
+            .await?;
 
     let Some(row) = row else {
         return Err(QueueError::InvalidOperation(format!(
@@ -82,14 +81,12 @@ async fn check_and_finalize_on(
     // Update overall status if resolved
     if overall == QueueStatus::Done || overall == QueueStatus::Failed {
         let now = timestamps::now_utc();
-        sqlx::query(
-            "UPDATE unified_queue SET status = ?1, updated_at = ?2 WHERE queue_id = ?3",
-        )
-        .bind(overall.to_string())
-        .bind(&now)
-        .bind(queue_id)
-        .execute(&mut *conn)
-        .await?;
+        sqlx::query("UPDATE unified_queue SET status = ?1, updated_at = ?2 WHERE queue_id = ?3")
+            .bind(overall.to_string())
+            .bind(&now)
+            .bind(queue_id)
+            .execute(&mut *conn)
+            .await?;
     }
 
     Ok(overall)

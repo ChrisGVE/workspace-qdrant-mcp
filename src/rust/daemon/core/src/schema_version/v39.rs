@@ -174,7 +174,10 @@ impl Migration for V39Migration {
         )
         .fetch_one(pool)
         .await?;
-        debug_assert!(new_sql.contains("'grep'"), "v39 rebuild left CHECK unchanged");
+        debug_assert!(
+            new_sql.contains("'grep'"),
+            "v39 rebuild left CHECK unchanged"
+        );
         debug_assert!(new_sql.contains(NEW_OP_CHECK) || new_sql.contains("'search_exact'"));
 
         info!("Migration v39 complete");

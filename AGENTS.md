@@ -8,52 +8,55 @@ Este fork existe para usar o `workspace-qdrant-mcp` como camada local de memóri
 
 Prioridades:
 
-1. manter `main` alinhada ao upstream original;
+1. manter `main` como versão estável/funcional do fork (upstream rastreado em `upstream-sync`);
 2. manter overlay Windows/Claude/Codex separado de correções upstreamáveis;
 3. corrigir bugs que afetam uso real em projetos;
 4. suportar vários projetos indexados e branches criadas por agentes;
 5. aumentar confiabilidade de serviço, observabilidade e atualização incremental;
 6. nunca commitar dados locais, bancos, segredos, logs ou artefatos gerados.
 
-## Regra absoluta sobre `main`
+## Modelo de branches e regra sobre `main`
 
-**Nunca faça merge, commit, push de trabalho, nem PR para `main`.**
+Modelo (GitFlow-lite, desde 2026-05-29):
 
-A `main` deste fork é somente espelho do upstream original. Ela só pode receber sincronização mecânica de `upstream/main`, preferencialmente por humano:
+- **`main` = versão estável/funcional do fork.** Linha principal. Recebe promoções de `dev` quando o trabalho está estável, e atualizações do upstream via `upstream-sync`. CI roda na `main`.
+- **`dev` = branch de trabalho ativa.** Todo desenvolvimento acontece aqui (ou em feature branches a partir de `dev`). CI roda em `dev` (`ci.yml: branches: [main, dev]`).
+- **`upstream-sync` = espelho limpo de `upstream/main`** (fetch-only; só fast-forward; nunca commitar nela).
+
+**Trabalho de agente vai em `dev` (ou feature branch a partir de `dev`), nunca WIP direto na `main`.** Promover `dev → main` é decisão do humano (ou pedido explícito): quando estável, via PR `--base main` ou merge.
+
+Proibido para agentes sem autorização explícita:
+
+- commitar WIP direto na `main` (use `dev`);
+- promover `dev → main` ou abrir PR `--base main` por conta própria;
+- abrir PR para o `upstream` (`ChrisGVE`) — o push para o upstream está desabilitado de propósito;
+- usar `git reset --hard`, `git clean -fd`, `stash`, rebase publicado ou force-push.
+
+Sincronizar com o upstream (sempre seguro; `fetch` não envia nada):
 
 ```powershell
 git fetch upstream
-git checkout main
-git merge --ff-only upstream/main
+git switch upstream-sync; git merge --ff-only upstream/main   # atualiza o espelho
+git switch dev; git merge upstream-sync                       # integra no trabalho
 ```
 
-Proibido para agentes:
-
-- `git merge <branch>` estando em `main`;
-- `git commit` estando em `main`;
-- `git push origin main` depois de qualquer trabalho local;
-- `gh pr create --base main` no fork;
-- abrir/sugerir/preparar PR para `main` do fork;
-- abrir PR upstream sem pedido explícito do usuário;
-- resolver conflitos colocando overlay/correções diretamente em `main`;
-- usar `git reset --hard`, `git clean -fd`, `stash`, rebase publicado ou force-push sem autorização explícita.
-
-Correções upstreamáveis nascem em `fix/*` a partir da `main`. Depois de validadas, podem ser promovidas para `fork/fixes` e `personal/use-in-projects`.
+> Branches legadas do fork-kit (`fork/overlay`, `fork/fixes`, `personal/use-in-projects`) são mantidas como fallback, mas não são mais a linha ativa. Os targets de branch do `Makefile.win` / `branch-flow.ps1` ainda implementam o modelo antigo de 4 camadas e estão pendentes de migração — prefira os comandos git acima.
 
 ## Dois tipos de branch: não confundir
 
 ### 1. Branches do fork do MCP
 
-Cadeia do fork `workspace-qdrant-mcp`:
+Branches do fork `workspace-qdrant-mcp`:
 
 ```text
-upstream/main -> main -> fork/overlay -> fork/fixes -> personal/use-in-projects
+upstream/main → upstream-sync        (espelho fetch-only)
+dev (trabalho, CI) → main (estável, CI)   [promover quando estável]
 ```
 
-- `main`: espelho limpo do upstream.
-- `fork/overlay`: Makefile, scripts Windows, docs, templates, `AGENTS.md`, `.ignore` e patches operacionais.
-- `fork/fixes`: overlay + correções usadas no fork.
-- `personal/use-in-projects`: branch diária para instalar/usar.
+- `main`: versão estável/funcional do fork. Linha principal.
+- `dev`: branch de trabalho ativa (com CI). Feature branches saem daqui.
+- `upstream-sync`: espelho limpo de `upstream/main` (fetch-only).
+- `fork/overlay`, `fork/fixes`, `personal/use-in-projects`: camadas legadas do fork-kit, mantidas como fallback (inativas).
 
 Registry local recomendado: `.wqm-fork/fork-branches.json`.
 
@@ -231,7 +234,7 @@ Comportamento obrigatório:
 ## Antes de alterar código
 
 1. Rode `git status --short --branch`.
-2. Confirme que não está na `main`.
+2. Para trabalho no fork, confirme que está em `dev` (ou feature branch a partir de `dev`), não na `main` — a `main` recebe só promoções estáveis.
 3. Confirme se está em branch do fork ou branch de projeto indexado.
 4. Para projeto indexado, registre `project`, `path`, `branch`, `baseBranch` e `returnBranch`.
 5. Não faça merge automático de volta à branch original.

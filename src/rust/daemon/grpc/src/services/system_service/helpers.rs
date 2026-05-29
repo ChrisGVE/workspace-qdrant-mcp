@@ -74,11 +74,16 @@ impl SystemServiceImpl {
                 // a persistently-timing-out provider reads back as "probe
                 // pending" forever instead of surfacing the problem.
                 let result: Result<(), EmbeddingError> =
-                    Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: 0 });
+                    Err(EmbeddingError::TemporarilyUnavailable {
+                        retry_after_secs: 0,
+                    });
                 let mut cache = self.embedding_probe_cache.lock().await;
                 cache.last_probe_at = Some(Instant::now());
                 cache.last_result = Some(result);
-                ("degraded".to_string(), "probe timed out after 3s".to_string())
+                (
+                    "degraded".to_string(),
+                    "probe timed out after 3s".to_string(),
+                )
             }
         }
     }
@@ -107,18 +112,14 @@ impl SystemServiceImpl {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
-                let result = match tokio::time::timeout(
-                    Duration::from_secs(3),
-                    provider.probe(),
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    // Timeout → transient result, never None.
-                    Err(_) => {
-                        Err(EmbeddingError::TemporarilyUnavailable { retry_after_secs: 0 })
-                    }
-                };
+                let result =
+                    match tokio::time::timeout(Duration::from_secs(3), provider.probe()).await {
+                        Ok(r) => r,
+                        // Timeout → transient result, never None.
+                        Err(_) => Err(EmbeddingError::TemporarilyUnavailable {
+                            retry_after_secs: 0,
+                        }),
+                    };
                 let mut c = cache.lock().await;
                 c.last_probe_at = Some(Instant::now());
                 c.last_result = Some(result);

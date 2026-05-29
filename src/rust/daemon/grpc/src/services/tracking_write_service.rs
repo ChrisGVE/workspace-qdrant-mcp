@@ -5,9 +5,9 @@
 
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::write_actor::{
-    DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData,
-    UpdateSearchEventData, UpdateSearchEventEconomyData, UpsertRuleMirrorData,
-    UpsertScratchpadMirrorData, WriteActorHandle,
+    DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData, UpdateSearchEventData,
+    UpdateSearchEventEconomyData, UpsertRuleMirrorData, UpsertScratchpadMirrorData,
+    WriteActorHandle,
 };
 
 use crate::proto::{

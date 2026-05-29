@@ -171,7 +171,10 @@ mod tests {
             "shape_mode",
             "tool_version",
         ] {
-            assert!(cols.iter().any(|c| c == expected), "missing column {expected}");
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column {expected}"
+            );
         }
 
         // Re-running is a no-op (does not error)

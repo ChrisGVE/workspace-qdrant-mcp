@@ -166,10 +166,7 @@ pub(super) async fn collect_regex_matches(
                 branch: row.get("branch"),
                 context_before: vec![],
                 context_after: vec![],
-                file_size: row
-                    .try_get::<Option<i64>, _>("size_bytes")
-                    .ok()
-                    .flatten(),
+                file_size: row.try_get::<Option<i64>, _>("size_bytes").ok().flatten(),
             });
             if matches.len() >= max_results {
                 truncated = true;

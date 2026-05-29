@@ -411,7 +411,10 @@ mod tests {
         // main.rs is eligible
         assert!(files.contains("main.rs"), "expected main.rs, got {files:?}");
         // vendors/ and *.zip are globally excluded
-        assert!(!files.iter().any(|f| f.contains("library.js")), "vendors/ should be excluded");
+        assert!(
+            !files.iter().any(|f| f.contains("library.js")),
+            "vendors/ should be excluded"
+        );
         assert!(!files.contains("archive.zip"), "*.zip should be excluded");
     }
 

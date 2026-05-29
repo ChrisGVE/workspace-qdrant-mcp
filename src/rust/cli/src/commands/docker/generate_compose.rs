@@ -430,7 +430,12 @@ control_port: 8800
     #[test]
     fn render_override_contains_hash_header_and_mandatory_port() {
         let cfg = cfg_with_mounts(vec![("/Users/chris/dev", "/Users/chris/dev")]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/etc/wqm/config.yaml"),
+            Path::new("/tmp/docker-compose.override.yaml"),
+        )
+        .unwrap();
         assert!(rendered.starts_with("# wqm-config-hash: "));
         assert!(rendered.contains("127.0.0.1:7799:7799"));
         assert!(rendered.contains("/Users/chris/dev:/Users/chris/dev"));
@@ -439,7 +444,12 @@ control_port: 8800
     #[test]
     fn render_override_emits_state_bind_mounts() {
         let cfg = cfg_with_mounts(vec![]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/etc/wqm/config.yaml"),
+            Path::new("/tmp/docker-compose.override.yaml"),
+        )
+        .unwrap();
         assert!(rendered.contains("~/.local/share/workspace-qdrant:/var/lib/wqm"));
         assert!(rendered.contains("~/.local/share/qdrant:/qdrant/storage"));
         assert!(rendered.contains("/etc/wqm/config.yaml:/etc/wqm/config.yaml:ro"));
@@ -449,7 +459,12 @@ control_port: 8800
     fn render_override_uses_custom_control_port() {
         let mut cfg = cfg_with_mounts(vec![]);
         cfg.control_port = Some(9000);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/etc/wqm/config.yaml"),
+            Path::new("/tmp/docker-compose.override.yaml"),
+        )
+        .unwrap();
         assert!(rendered.contains("127.0.0.1:9000:9000"));
     }
 
@@ -457,7 +472,12 @@ control_port: 8800
     fn render_override_host_network_skips_ports_section() {
         let mut cfg = cfg_with_mounts(vec![]);
         cfg.network_mode = Some("host".into());
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/etc/wqm/config.yaml"),
+            Path::new("/tmp/docker-compose.override.yaml"),
+        )
+        .unwrap();
         assert!(rendered.contains("network_mode: \"host\""));
         assert!(!rendered.contains("ports:"));
     }
@@ -524,7 +544,12 @@ control_port: 8800
             ("/Users/chris/dev", "/Users/chris/dev"),
             ("/Volumes/External/books", "/mnt/books"),
         ]);
-        let rendered = render_override_yaml(&cfg, Path::new("/etc/wqm/config.yaml"), Path::new("/tmp/docker-compose.override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/etc/wqm/config.yaml"),
+            Path::new("/tmp/docker-compose.override.yaml"),
+        )
+        .unwrap();
         // The hash header is a YAML comment, so the body is a single document.
         let parsed: serde_yaml_ng::Value =
             serde_yaml_ng::from_str(&rendered).expect("rendered override must parse as YAML");
@@ -547,7 +572,12 @@ control_port: 8800
     #[test]
     fn rendered_yaml_preserves_hash_for_check_round_trip() {
         let cfg = cfg_with_mounts(vec![("/a", "/a")]);
-        let rendered = render_override_yaml(&cfg, Path::new("/cfg.yaml"), Path::new("/tmp/override.yaml")).unwrap();
+        let rendered = render_override_yaml(
+            &cfg,
+            Path::new("/cfg.yaml"),
+            Path::new("/tmp/override.yaml"),
+        )
+        .unwrap();
         let recorded = extract_hash_header(&rendered).expect("hash present");
         let live = mount_section_hash(&cfg.mounts);
         assert_eq!(recorded, live);

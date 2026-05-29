@@ -29,7 +29,9 @@
 use std::time::Duration;
 use uuid::Uuid;
 
-use workspace_qdrant_core::storage::{MultiTenantConfig, StorageClient, StorageConfig, TransportMode};
+use workspace_qdrant_core::storage::{
+    MultiTenantConfig, StorageClient, StorageConfig, TransportMode,
+};
 
 fn test_storage_config() -> StorageConfig {
     StorageConfig {
@@ -54,8 +56,7 @@ fn test_storage_config() -> StorageConfig {
 /// the StorageClient talks gRPC but this test reads the schema over REST to
 /// stay decoupled from qdrant-client Rust SDK type changes.
 fn http_base_url() -> String {
-    std::env::var("TEST_QDRANT_HTTP_URL")
-        .unwrap_or_else(|_| "http://localhost:6333".to_string())
+    std::env::var("TEST_QDRANT_HTTP_URL").unwrap_or_else(|_| "http://localhost:6333".to_string())
 }
 
 /// Fetch the payload schema for a collection via Qdrant's REST API and return
@@ -127,7 +128,10 @@ async fn projects_payload_indexes_round_trip_through_qdrant() {
         indexed = indexed_payload_fields(&collection)
             .await
             .expect("indexed_payload_fields");
-        if expected_fields.iter().all(|f| indexed.iter().any(|i| i == f)) {
+        if expected_fields
+            .iter()
+            .all(|f| indexed.iter().any(|i| i == f))
+        {
             break;
         }
         tokio::time::sleep(Duration::from_millis(300)).await;

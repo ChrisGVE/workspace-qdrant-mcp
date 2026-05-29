@@ -422,9 +422,13 @@ async fn clean_queue_by_collection_deletes_matching() {
     use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_SCRATCHPAD};
     let now = wqm_common::timestamps::now_utc();
     // Insert items in different collections
-    for (i, col) in [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_SCRATCHPAD]
-        .iter()
-        .enumerate()
+    for (i, col) in [
+        COLLECTION_PROJECTS,
+        COLLECTION_LIBRARIES,
+        COLLECTION_SCRATCHPAD,
+    ]
+    .iter()
+    .enumerate()
     {
         sqlx::query(
             "INSERT INTO unified_queue \

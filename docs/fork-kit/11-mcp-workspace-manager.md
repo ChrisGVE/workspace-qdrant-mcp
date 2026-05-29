@@ -6,10 +6,10 @@ A ferramenta foi desenhada para permitir que Claude/Codex consultem e coordenem 
 
 ## Instalação do patch MCP
 
-Aplique em uma branch de fork, não na `main`:
+Aplique na branch de trabalho `dev`, não na `main`:
 
 ```powershell
-git checkout fork/fixes
+git checkout dev
 make -f Makefile.win mcp-manager-check
 make -f Makefile.win mcp-manager-apply
 make -f Makefile.win typecheck-ts

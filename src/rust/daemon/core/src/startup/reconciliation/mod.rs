@@ -541,14 +541,16 @@ pub async fn reconcile_all_ignore_rules(
     // Derive the global.wqmignore path from the database file's parent directory.
     // This resolves to `<data_dir>/global.wqmignore` (e.g. state/memexd/ on the host).
     // When `WQM_DATABASE_PATH` is not set we fall back to the XDG default.
-    let global_ignore_path: Option<std::path::PathBuf> =
-        wqm_common::paths::get_database_path()
-            .ok()
-            .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")));
+    let global_ignore_path: Option<std::path::PathBuf> = wqm_common::paths::get_database_path()
+        .ok()
+        .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")));
 
     if let Some(ref gip) = global_ignore_path {
         if gip.is_file() {
-            info!("[ignore_sync] Using global ignore rules from {}", gip.display());
+            info!(
+                "[ignore_sync] Using global ignore rules from {}",
+                gip.display()
+            );
         }
     }
 

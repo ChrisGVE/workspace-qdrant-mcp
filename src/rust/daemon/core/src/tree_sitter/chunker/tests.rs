@@ -287,7 +287,10 @@ fn test_text_chunk_fallback_line_numbers_contiguous() {
     // Chunks emitted by the line-by-line splitter must cover the
     // source with monotonically increasing, contiguous line ranges
     // (chunk[i].end_line + 1 == chunk[i+1].start_line).
-    let source = (1..=200).map(|i| format!("line {}", i)).collect::<Vec<_>>().join("\n");
+    let source = (1..=200)
+        .map(|i| format!("line {}", i))
+        .collect::<Vec<_>>()
+        .join("\n");
     let chunks = text_chunk_fallback(&source, &PathBuf::from("file.txt"), 50);
 
     assert!(chunks.len() > 1, "expected multiple chunks");
@@ -380,7 +383,10 @@ fn test_handle_oversized_chunks_mixed_batch_preserves_order() {
 
     // Everything between must be `big` fragments.
     let middle = &result[1..result.len() - 1];
-    assert!(!middle.is_empty(), "expected `big` to split into >=1 fragment");
+    assert!(
+        !middle.is_empty(),
+        "expected `big` to split into >=1 fragment"
+    );
     for frag in middle {
         assert_eq!(frag.symbol_name, "big");
         assert!(frag.is_fragment);
@@ -432,26 +438,42 @@ fn test_split_fragment_indices_sequential() {
     );
 
     let fragments = chunker.split_oversized_chunk(&chunk);
-    assert!(fragments.len() >= 3, "need multiple fragments to test ordering");
+    assert!(
+        fragments.len() >= 3,
+        "need multiple fragments to test ordering"
+    );
 
     let indices: Vec<usize> = fragments
         .iter()
         .map(|f| f.fragment_index.expect("set on fragments"))
         .collect();
     let expected: Vec<usize> = (0..fragments.len()).collect();
-    assert_eq!(indices, expected, "fragment indices must be 0..N sequential");
+    assert_eq!(
+        indices, expected,
+        "fragment indices must be 0..N sequential"
+    );
 
     // All fragments report the same total_fragments value.
     let totals: std::collections::HashSet<usize> = fragments
         .iter()
         .map(|f| f.total_fragments.expect("set on fragments"))
         .collect();
-    assert_eq!(totals.len(), 1, "total_fragments must agree across fragments");
+    assert_eq!(
+        totals.len(),
+        1,
+        "total_fragments must agree across fragments"
+    );
 
     // Later fragments never leak docstring/signature — those belong only
     // to the first fragment (regression for the as_fragment() logic).
     for frag in &fragments[1..] {
-        assert!(frag.docstring.is_none(), "non-first fragment leaked docstring");
-        assert!(frag.signature.is_none(), "non-first fragment leaked signature");
+        assert!(
+            frag.docstring.is_none(),
+            "non-first fragment leaked docstring"
+        );
+        assert!(
+            frag.signature.is_none(),
+            "non-first fragment leaked signature"
+        );
     }
 }

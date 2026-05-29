@@ -64,18 +64,18 @@ pub(crate) async fn fetch_indexing_progress(
     tenant_id: &str,
 ) -> IndexingProgress {
     let manager = QueueManager::new(pool.clone());
-    let (pending, in_progress, failed) = match manager.get_in_flight_counts_by_tenant(tenant_id).await
-    {
-        Ok(counts) => counts,
-        Err(e) => {
-            warn!(
-                tenant_id = %tenant_id,
-                error = %e,
-                "Failed to fetch in-flight queue counts for indexing progress"
-            );
-            (0, 0, 0)
-        }
-    };
+    let (pending, in_progress, failed) =
+        match manager.get_in_flight_counts_by_tenant(tenant_id).await {
+            Ok(counts) => counts,
+            Err(e) => {
+                warn!(
+                    tenant_id = %tenant_id,
+                    error = %e,
+                    "Failed to fetch in-flight queue counts for indexing progress"
+                );
+                (0, 0, 0)
+            }
+        };
 
     let done: i64 = match sqlx::query_scalar::<_, i64>(
         r#"
@@ -267,7 +267,8 @@ impl ProjectServiceImpl {
         };
 
         // Total count for the same filter (so the UI can show "showing N of M").
-        let mut count_sql = String::from("SELECT COUNT(*) FROM unified_queue WHERE status = 'failed'");
+        let mut count_sql =
+            String::from("SELECT COUNT(*) FROM unified_queue WHERE status = 'failed'");
         if tenant_filter.is_some() {
             count_sql.push_str(" AND tenant_id = ?1");
         }

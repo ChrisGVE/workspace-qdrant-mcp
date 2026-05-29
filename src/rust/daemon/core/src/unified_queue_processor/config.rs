@@ -153,7 +153,7 @@ impl Default for UnifiedProcessorConfig {
             // Age-based promotion in fairness dequeue (Unit 3 of audit issue #8):
             // prevents tenants whose pending items have low op-weight from being
             // starved indefinitely under multi-tenant fairness alternation.
-            age_promotion_warning_seconds: 300, // 5 minutes
+            age_promotion_warning_seconds: 300,  // 5 minutes
             age_promotion_critical_seconds: 900, // 15 minutes
             // Resource limits defaults (Task 504)
             inter_item_delay_ms: 50,

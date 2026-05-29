@@ -216,7 +216,10 @@ async fn test_background_probe_loop_seeds_health_cache() {
         became_healthy,
         "background probe loop should seed the cache to Healthy"
     );
-    assert!(provider.calls() >= 1, "the loop must have probed the provider");
+    assert!(
+        provider.calls() >= 1,
+        "the loop must have probed the provider"
+    );
 }
 
 #[tokio::test]

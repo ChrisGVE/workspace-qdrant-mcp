@@ -8,15 +8,20 @@
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{SpanExporter, WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::{
     runtime,
-    trace::{BatchSpanProcessor, Config, Sampler, TracerProvider},
+    trace::{Sampler, TracerProvider},
     Resource,
 };
 use std::env;
+use std::sync::OnceLock;
 use tracing::Subscriber;
 use tracing_subscriber::registry::LookupSpan;
+
+/// Holds the active tracer provider so [`shutdown_tracer`] can flush it on
+/// shutdown — opentelemetry 0.27 removed the global `shutdown_tracer_provider`.
+static GLOBAL_TRACER_PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
 
 /// OpenTelemetry configuration
 #[derive(Debug, Clone)]
@@ -107,9 +112,7 @@ impl OtelConfig {
 ///
 /// Returns a TracerProvider that can be used to get tracers for distributed tracing.
 /// If OTEL_EXPORTER_OTLP_ENDPOINT is set, uses OTLP exporter; otherwise uses a simple provider.
-pub fn init_tracer_provider(
-    config: &OtelConfig,
-) -> Result<TracerProvider, opentelemetry::trace::TraceError> {
+pub fn init_tracer_provider(config: &OtelConfig) -> anyhow::Result<TracerProvider> {
     let resource = Resource::new(vec![
         KeyValue::new("service.name", config.service_name.clone()),
         KeyValue::new("service.version", config.service_version.clone()),
@@ -123,10 +126,6 @@ pub fn init_tracer_provider(
         Sampler::TraceIdRatioBased(config.sampling_ratio)
     };
 
-    let trace_config = Config::default()
-        .with_sampler(sampler)
-        .with_resource(resource);
-
     if let Some(endpoint) = &config.otlp_endpoint {
         // Use OTLP exporter for production
         tracing::info!(
@@ -136,15 +135,15 @@ pub fn init_tracer_provider(
         );
         let exporter = match config.otlp_protocol.as_str() {
             "http/protobuf" | "http-protobuf" => {
-                let builder = opentelemetry_otlp::new_exporter()
-                    .http()
+                let builder = SpanExporter::builder()
+                    .with_http()
                     .with_endpoint(endpoint.clone());
                 let builder = if !config.otlp_headers.is_empty() {
                     builder.with_headers(config.otlp_headers.clone())
                 } else {
                     builder
                 };
-                builder.build_span_exporter()
+                builder.build()?
             }
             "grpc" => {
                 if !config.otlp_headers.is_empty() {
@@ -158,29 +157,27 @@ pub fn init_tracer_provider(
                         config.otlp_headers.len()
                     );
                 }
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
+                SpanExporter::builder()
+                    .with_tonic()
                     .with_endpoint(endpoint.clone())
-                    .build_span_exporter()
+                    .build()?
             }
             other => {
                 tracing::warn!(
                     "Unknown OTLP protocol '{}' requested; falling back to gRPC transport.",
                     other
                 );
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
+                SpanExporter::builder()
+                    .with_tonic()
                     .with_endpoint(endpoint.clone())
-                    .build_span_exporter()
+                    .build()?
             }
-        }
-        .map_err(|e| opentelemetry::trace::TraceError::Other(Box::new(e)))?;
-
-        let batch_processor = BatchSpanProcessor::builder(exporter, runtime::Tokio).build();
+        };
 
         let provider = TracerProvider::builder()
-            .with_span_processor(batch_processor)
-            .with_config(trace_config)
+            .with_batch_exporter(exporter, runtime::Tokio)
+            .with_sampler(sampler)
+            .with_resource(resource)
             .build();
 
         Ok(provider)
@@ -188,7 +185,10 @@ pub fn init_tracer_provider(
         // Use simple provider for development (no exporter)
         tracing::info!("Initializing OpenTelemetry with no exporter (development mode)");
 
-        let provider = TracerProvider::builder().with_config(trace_config).build();
+        let provider = TracerProvider::builder()
+            .with_sampler(sampler)
+            .with_resource(resource)
+            .build();
 
         Ok(provider)
     }
@@ -207,8 +207,10 @@ where
     match init_tracer_provider(config) {
         Ok(provider) => {
             let tracer = provider.tracer(config.service_name.clone());
-            // Set the global provider so spans are exported
-            opentelemetry::global::set_tracer_provider(provider);
+            // Set the global provider so spans are exported, and keep a handle
+            // so shutdown_tracer can flush it (0.27 dropped the global shutdown).
+            opentelemetry::global::set_tracer_provider(provider.clone());
+            let _ = GLOBAL_TRACER_PROVIDER.set(provider);
             Some(tracing_opentelemetry::layer().with_tracer(tracer))
         }
         Err(e) => {
@@ -220,7 +222,11 @@ where
 
 /// Shutdown OpenTelemetry and flush remaining traces
 pub fn shutdown_tracer() {
-    opentelemetry::global::shutdown_tracer_provider();
+    if let Some(provider) = GLOBAL_TRACER_PROVIDER.get() {
+        if let Err(e) = provider.shutdown() {
+            tracing::warn!("OpenTelemetry tracer provider shutdown error: {:?}", e);
+        }
+    }
     tracing::info!("OpenTelemetry tracer provider shut down");
 }
 

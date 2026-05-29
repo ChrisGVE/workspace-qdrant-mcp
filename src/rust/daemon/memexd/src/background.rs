@@ -285,9 +285,8 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
                         let git_remote_url: Option<String> = row.get("git_remote_url");
                         let document_count: i64 = row.get("document_count");
                         let point_count: i64 = row.get("point_count");
-                        let last_scan_epoch: Option<i64> = row
-                            .get::<Option<String>, _>("last_scan")
-                            .and_then(|value| {
+                        let last_scan_epoch: Option<i64> =
+                            row.get::<Option<String>, _>("last_scan").and_then(|value| {
                                 DateTime::parse_from_rfc3339(&value)
                                     .ok()
                                     .map(|dt| dt.timestamp())
@@ -485,9 +484,8 @@ pub fn start_file_metadata_exporter(search_db: Arc<SearchDbManager>) -> JoinHand
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         // Tracks every (tenant_id, branch) pair we've ever emitted so we can
         // zero-out gauges for pairs that vanish (deleted projects / branches).
-        let known: std::sync::Arc<
-            tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
-        > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
+        let known: std::sync::Arc<tokio::sync::Mutex<std::collections::HashSet<(String, String)>>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
 
         loop {
             interval.tick().await;

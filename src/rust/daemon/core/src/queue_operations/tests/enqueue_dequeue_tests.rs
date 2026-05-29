@@ -112,7 +112,16 @@ async fn test_dequeue_fifo_ordering() {
 
     // DESC direction -> FIFO (oldest first)
     let items = manager
-        .dequeue_unified(3, "test-worker", Some(300), None, None, Some(true), None, None)
+        .dequeue_unified(
+            3,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -170,7 +179,16 @@ async fn test_dequeue_lifo_ordering() {
 
     // ASC direction -> LIFO (newest first)
     let items = manager
-        .dequeue_unified(3, "test-worker", Some(300), None, None, Some(false), None, None)
+        .dequeue_unified(
+            3,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -221,7 +239,16 @@ async fn test_enqueue_dequeue_updates_prometheus_counters() {
     assert!(is_new);
 
     let items = manager
-        .dequeue_unified(10, "worker-metrics", Some(300), None, None, None, None, None)
+        .dequeue_unified(
+            10,
+            "worker-metrics",
+            Some(300),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(items.len(), 1);

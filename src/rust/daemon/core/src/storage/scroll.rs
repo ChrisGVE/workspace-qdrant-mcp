@@ -277,10 +277,7 @@ impl StorageClient {
                         .with_vectors(true);
 
                     self.client.scroll(builder).await.map_err(|e| {
-                        StorageError::Search(format!(
-                            "Scroll with filter+vectors failed: {}",
-                            e
-                        ))
+                        StorageError::Search(format!("Scroll with filter+vectors failed: {}", e))
                     })
                 }
             })

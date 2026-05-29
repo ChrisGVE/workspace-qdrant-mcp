@@ -21,9 +21,9 @@ use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
-use crate::watching_queue::WatchManager;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
+use crate::watching_queue::WatchManager;
 
 use queue::{enqueue_file_op, enqueue_progressive_scan};
 use reconcile::reconcile_flagged_files;

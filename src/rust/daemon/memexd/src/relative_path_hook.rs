@@ -60,8 +60,7 @@ async fn run(
 
     // Phase 3 is implicit — watchers already started their initial walk.
     // Wait for the walk to settle so the pending count is meaningful.
-    let initial_pending =
-        wait_for_walk_settle(&pool, WALK_SETTLE_DELAY, WALK_POLL_INTERVAL).await;
+    let initial_pending = wait_for_walk_settle(&pool, WALK_SETTLE_DELAY, WALK_POLL_INTERVAL).await;
 
     mark_initial_walk_complete(&pool, initial_pending).await?;
 
@@ -298,12 +297,8 @@ mod tests {
         let pool = fresh_pool().await;
         // Empty queue is already settled: two reads in a row both yield 0
         // (after seeing prev = -1, the second loop iteration matches).
-        let result = wait_for_walk_settle(
-            &pool,
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-        )
-        .await;
+        let result =
+            wait_for_walk_settle(&pool, Duration::from_millis(1), Duration::from_millis(1)).await;
         assert_eq!(result, 0);
     }
 
@@ -316,12 +311,8 @@ mod tests {
 
         // Queue is static, so the first two reads (after settle_delay) both
         // see depth=3 and the loop returns it.
-        let result = wait_for_walk_settle(
-            &pool,
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-        )
-        .await;
+        let result =
+            wait_for_walk_settle(&pool, Duration::from_millis(1), Duration::from_millis(1)).await;
         assert_eq!(result, 3);
     }
 
@@ -369,9 +360,7 @@ mod tests {
 
         assert_eq!(count_marker_rows(&pool).await, 0);
         assert!(
-            !is_relative_path_migration_in_progress(&pool)
-                .await
-                .unwrap(),
+            !is_relative_path_migration_in_progress(&pool).await.unwrap(),
             "marker deletion is the 'migration done' signal"
         );
     }
@@ -427,9 +416,7 @@ mod tests {
         // We exercise the public guard directly rather than `run` because
         // `run` requires a live StorageClient. The guard is the same
         // condition `run` checks first.
-        let in_progress = is_relative_path_migration_in_progress(&pool)
-            .await
-            .unwrap();
+        let in_progress = is_relative_path_migration_in_progress(&pool).await.unwrap();
         assert!(!in_progress);
 
         // Marker still doesn't exist (table is empty).

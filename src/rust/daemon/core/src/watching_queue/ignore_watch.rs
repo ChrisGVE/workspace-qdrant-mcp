@@ -141,10 +141,9 @@ async fn run_reconciliation(
 
     // Resolve the global ignore file at call time so any edits to it via the
     // admin UI are immediately reflected on the next reconciliation trigger.
-    let global_ignore_path: Option<std::path::PathBuf> =
-        wqm_common::paths::get_database_path()
-            .ok()
-            .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")));
+    let global_ignore_path: Option<std::path::PathBuf> = wqm_common::paths::get_database_path()
+        .ok()
+        .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")));
 
     match crate::startup::reconciliation::ignore_sync::reconcile_ignore_rules(
         project_root,

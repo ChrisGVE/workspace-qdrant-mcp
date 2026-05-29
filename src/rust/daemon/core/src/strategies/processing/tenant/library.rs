@@ -364,19 +364,18 @@ async fn enqueue_library_file(
         return Ok(FileEnqueueResult::Excluded);
     }
 
-    let library_root_canonical = match CanonicalPath::from_user_input(
-        &library_root.to_string_lossy(),
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(
-                "Library root {} failed canonical validation: {}",
-                library_root.display(),
-                e
-            );
-            return Ok(FileEnqueueResult::Error);
-        }
-    };
+    let library_root_canonical =
+        match CanonicalPath::from_user_input(&library_root.to_string_lossy()) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Library root {} failed canonical validation: {}",
+                    library_root.display(),
+                    e
+                );
+                return Ok(FileEnqueueResult::Error);
+            }
+        };
     let abs_canonical = match CanonicalPath::from_user_input(&abs_path) {
         Ok(a) => a,
         Err(e) => {
@@ -384,18 +383,19 @@ async fn enqueue_library_file(
             return Ok(FileEnqueueResult::Error);
         }
     };
-    let relative = match RelativePath::from_absolute_and_root(&abs_canonical, &library_root_canonical) {
-        Ok(r) => r,
-        Err(e) => {
-            warn!(
-                "File {} not under library root {} ({}); skipping",
-                abs_path,
-                library_root.display(),
-                e
-            );
-            return Ok(FileEnqueueResult::Error);
-        }
-    };
+    let relative =
+        match RelativePath::from_absolute_and_root(&abs_canonical, &library_root_canonical) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "File {} not under library root {} ({}); skipping",
+                    abs_path,
+                    library_root.display(),
+                    e
+                );
+                return Ok(FileEnqueueResult::Error);
+            }
+        };
 
     let file_payload = FilePayload {
         file_path: relative,
