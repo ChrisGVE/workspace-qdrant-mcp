@@ -4,6 +4,7 @@
 //! Domain-specific configs are organized into submodules and re-exported here.
 
 mod code_intelligence;
+mod concept;
 mod embedding;
 mod ingestion;
 mod integration;
@@ -14,6 +15,7 @@ mod url_ingestion;
 
 // Re-export all public types for backward compatibility
 pub use code_intelligence::{GrammarConfig, LspSettings};
+pub use concept::ConceptConfig;
 pub use embedding::{EmbeddingSettings, KeywordEmbedderConfig};
 pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
@@ -138,6 +140,9 @@ pub struct DaemonConfig {
     /// Per-extension ingestion size limits (Task 14)
     #[serde(default)]
     pub ingestion_limits: IngestionLimitsConfig,
+    /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC)
+    #[serde(default)]
+    pub concept: ConceptConfig,
     /// URL ingestion fetch limits and SSRF policy (T5).
     #[serde(default)]
     pub url_ingestion: UrlIngestionConfig,
@@ -189,6 +194,7 @@ impl From<&YamlConfig> for DaemonConfig {
             startup: StartupConfig::default(),
             daemon_endpoint: build_daemon_endpoint_config(yaml),
             ingestion_limits: IngestionLimitsConfig::default(),
+            concept: ConceptConfig::default(),
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
             control_port: None,
@@ -429,6 +435,9 @@ impl DaemonConfig {
         self.ingestion_limits
             .validate()
             .map_err(|e| format!("ingestion_limits: {e}"))?;
+        self.concept
+            .validate()
+            .map_err(|e| format!("concept: {e}"))?;
         self.auto_ingestion
             .validate()
             .map_err(|e| format!("auto_ingestion: {e}"))?;
