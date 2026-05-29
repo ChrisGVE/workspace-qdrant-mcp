@@ -68,6 +68,30 @@ pub fn stable_stringify(value: &Value) -> String {
 /// `serde_json::Number` may represent i64, u64, or f64.  JavaScript's single
 /// number type means `priority: 0` serializes as `0`, not `0.0`.  When the
 /// number is representable as an integer we emit it without a decimal point.
+///
+/// # Float fallback — latent divergence hazard
+///
+/// The MCP write-path payloads produced by this crate contain **no float
+/// values**: `priority` is always `i64`, and every `metadata` value that
+/// reaches this function is a JSON string emitted by the TypeScript MCP
+/// server.  Therefore the `f64` branch below is **not expected to be
+/// reached** during normal operation.
+///
+/// If it ever is reached (e.g. a caller passes a manually-constructed
+/// `serde_json::Value::Number` that is not representable as i64 or u64),
+/// `serde_json::Number::to_string()` is used as a best-effort fallback.
+/// **This diverges from JavaScript's `JSON.stringify` in two magnitude
+/// bands:**
+/// - `[1e20, 1e21)` — JS switches to exponential notation (`1e+20`);
+///   serde_json emits the full decimal mantissa.
+/// - Absolute values below `5e-7` — JS uses exponential notation (`5e-7`);
+///   serde_json may emit `0.0000005`.
+/// - Integers in `(i64::MAX, u64::MAX]` — the u64 branch above handles
+///   these correctly; they never reach the float path.
+///
+/// Porting JS's exact `Number.prototype.toString` float formatting is
+/// out-of-scope for the current task; if float payloads ever appear on
+/// the write-path, that parity work should be tracked as a follow-up.
 fn stringify_number(n: &serde_json::Number) -> String {
     // Try i64 first (negative integers), then u64 (large positive), then f64.
     if let Some(i) = n.as_i64() {
@@ -76,7 +100,16 @@ fn stringify_number(n: &serde_json::Number) -> String {
     if let Some(u) = n.as_u64() {
         return u.to_string();
     }
-    // Floating-point: use serde_json's Display which matches JS for finite values.
+    // Floating-point fallback: use serde_json's Display.
+    // See doc-comment above for known divergence bands vs JS JSON.stringify.
+    //
+    // LATENT HAZARD: if this branch is reached on the MCP write-path (which
+    // is not expected — all current payload numeric fields are i64/u64),
+    // the output MAY diverge from JS JSON.stringify in the bands documented
+    // above.  A debug_assert! here was considered but omitted because the
+    // stable_stringify function is also used in unit tests that exercise float
+    // formatting explicitly, and the assert would break those tests without
+    // providing correctness value on paths that never see production floats.
     n.to_string()
 }
 
