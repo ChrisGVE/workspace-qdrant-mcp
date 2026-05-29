@@ -7,8 +7,13 @@
 //!
 //! Resolution order (matches TS exactly):
 //! 1. `override_timeout` — caller-supplied one-shot ceiling.
-//! 2. `method_name` contains "search" (case-insensitive) → 10 s (2× default).
+//! 2. `method_name` is exactly `"search"` → 10 s (2× default).
 //! 3. Default 5 s.
+//!
+//! The TS `getMethodTimeout` uses an exact equality check
+//! (`methodName === 'search'`), NOT a substring match — so wire names that
+//! merely *contain* "search" (e.g. `resolveSearchScope`) stay at the 5 s
+//! default.  Matching that precisely is load-bearing for timeout parity.
 //!
 //! # Why `tokio::time::timeout`, not tonic deadline
 //!
@@ -46,7 +51,9 @@ pub fn resolve_timeout(method_name: &str, override_timeout: Option<Duration>) ->
     if let Some(d) = override_timeout {
         return d;
     }
-    if method_name.to_ascii_lowercase().contains("search") {
+    // Exact match only — mirrors TS `methodName === 'search'`.  Substring
+    // matches (e.g. "resolveSearchScope") must NOT be promoted to 10 s.
+    if method_name == "search" {
         return SEARCH_TIMEOUT;
     }
     DEFAULT_TIMEOUT
@@ -70,7 +77,7 @@ mod tests {
         assert_eq!(d, Duration::from_secs(1));
     }
 
-    // ── search methods get 10 s ──────────────────────────────────────────────
+    // ── only the exact wire name "search" gets 10 s ──────────────────────────
 
     #[test]
     fn exact_search_method_name() {
@@ -80,22 +87,29 @@ mod tests {
     }
 
     #[test]
-    fn text_search_method_name() {
-        // Contains "search" case-insensitively → 10 s
+    fn resolve_search_scope_stays_default() {
+        // Regression (parity): TS uses exact equality, so "resolveSearchScope"
+        // — though it contains "search" — resolves to the 5 s default, NOT 10 s.
+        let d = resolve_timeout("resolveSearchScope", None);
+        assert_eq!(d, DEFAULT_TIMEOUT);
+    }
+
+    #[test]
+    fn camelcase_text_search_string_is_not_the_wire_name() {
+        // The text-search RPC's wire name is "search" (10 s); the literal string
+        // "textSearch" is not "search", so it gets the default.
         let d = resolve_timeout("textSearch", None);
-        assert_eq!(d, Duration::from_secs(10));
+        assert_eq!(d, DEFAULT_TIMEOUT);
     }
 
     #[test]
-    fn search_uppercase() {
-        let d = resolve_timeout("Search", None);
-        assert_eq!(d, Duration::from_secs(10));
-    }
-
-    #[test]
-    fn search_mixed_case() {
-        let d = resolve_timeout("AdvancedSEARCHQuery", None);
-        assert_eq!(d, Duration::from_secs(10));
+    fn search_is_case_sensitive() {
+        // TS `=== 'search'` is case-sensitive: "Search" is not a match.
+        assert_eq!(resolve_timeout("Search", None), DEFAULT_TIMEOUT);
+        assert_eq!(
+            resolve_timeout("AdvancedSEARCHQuery", None),
+            DEFAULT_TIMEOUT
+        );
     }
 
     // ── non-search methods get 5 s ───────────────────────────────────────────
