@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use sqlx::Row;
 
+use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
@@ -218,6 +219,13 @@ async fn enqueue_ignore_ops(
 /// by .gitignore or .wqmignore). Returns relative path strings (relative
 /// to `project_root`), matching the post-v37 `tracked_files.relative_path`
 /// column format.
+///
+/// `hidden(false)` lets the walker descend into dotted paths so the
+/// `.github/` whitelist still works, but every candidate is then run
+/// through `should_exclude_file` — the same exclusion engine the file
+/// watcher and folder scanner use. Without this, `.git/` internals
+/// (objects, packs, submodule hook samples) are walked, flagged as
+/// "missing", and enqueued as file/add, flooding the queue.
 fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
@@ -237,6 +245,11 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
                 .unwrap_or(entry.path())
                 .to_string_lossy()
                 .to_string();
+            // Mirror the watcher/scanner exclusion policy so the eligible
+            // set matches what the rest of the pipeline will actually index.
+            if should_exclude_file(&rel) {
+                continue;
+            }
             files.insert(rel);
         }
     }
@@ -326,6 +339,33 @@ mod tests {
         assert!(files.iter().any(|f| f.ends_with("main.rs")));
         // dist/bundle.js should NOT be eligible
         assert!(!files.iter().any(|f| f.ends_with("bundle.js")));
+    }
+
+    #[test]
+    fn walk_eligible_files_excludes_git_internals() {
+        let root = tempfile::tempdir().unwrap();
+        // Simulate a real repo's .git internals (objects, packs, submodule hooks).
+        let objects = root.path().join(".git/objects/3c");
+        fs::create_dir_all(&objects).unwrap();
+        fs::write(objects.join("9b3dda0a7b0788f289fd1e2edc07306fea374b"), "x").unwrap();
+        let hooks = root.path().join(".git/modules/sub/hooks");
+        fs::create_dir_all(&hooks).unwrap();
+        fs::write(hooks.join("prepare-commit-msg.sample"), "#!/bin/sh").unwrap();
+        // A legitimate source file that MUST remain eligible.
+        let src = root.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("main.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path()).unwrap();
+
+        assert!(
+            files.iter().any(|f| f.ends_with("main.rs")),
+            "source files stay eligible"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains(".git/")),
+            ".git internals must never be eligible, got: {files:?}"
+        );
     }
 
     #[test]
