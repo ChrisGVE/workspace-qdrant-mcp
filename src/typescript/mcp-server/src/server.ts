@@ -248,7 +248,13 @@ export class WorkspaceQdrantMcpServer {
           path: this.httpOptions.path,
         });
       } else {
+        // test mode: run full session init (daemon + transport are mocked in
+        // tests) but do not bind a real stdio/http transport.
+        await initializeSession(this.sessionState, daemonClient, projectDetector, () =>
+          startHeartbeat(this.sessionState, () => sendHeartbeat(this.sessionState, daemonClient))
+        );
         logInfo('MCP server started', { mode: 'test' });
+        recordSessionStart();
       }
 
       this.isInitialized = true;
