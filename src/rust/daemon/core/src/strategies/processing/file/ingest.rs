@@ -939,7 +939,6 @@ mod tests {
     fn covers_topic_edge_has_depth_metadata() {
         let tenant = "t1";
         let file_path = "docs/guide.md";
-        let tag = "tax:machine-learning";
         let concept_label = "machine-learning";
 
         let concept_fields =

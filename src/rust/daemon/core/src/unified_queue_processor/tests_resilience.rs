@@ -9,7 +9,7 @@ mod tests {
     use crate::unified_queue_processor::error::UnifiedProcessorError;
     use crate::unified_queue_processor::UnifiedQueueProcessor;
     use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::{Executor, Row, SqlitePool};
+    use sqlx::{Executor, SqlitePool};
 
     async fn setup_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
