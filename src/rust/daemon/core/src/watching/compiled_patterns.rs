@@ -2,6 +2,7 @@
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use glob::Pattern;
 use lru::LruCache;
@@ -9,13 +10,23 @@ use lru::LruCache;
 use super::config::WatcherConfig;
 use super::WatchingError;
 
+/// LRU cache capacity for pattern match results.
+///
+/// Evaluated as a `const` so the nonzero invariant is checked at compile time
+/// rather than via a runtime `.unwrap()` — satisfying the panic-free protocol.
+const CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(10_000) {
+    Some(n) => n,
+    // 10_000 is a nonzero literal, so this arm is statically unreachable.
+    None => unreachable!(),
+};
+
 /// Compiled patterns for efficient matching with LRU cache
 #[derive(Debug)]
 pub(super) struct CompiledPatterns {
     include: Vec<Pattern>,
     exclude: Vec<Pattern>,
     /// LRU cache for pattern matching results (path -> should_process)
-    cache: std::sync::Mutex<LruCache<PathBuf, bool>>,
+    cache: Mutex<LruCache<PathBuf, bool>>,
 }
 
 impl CompiledPatterns {
@@ -33,7 +44,7 @@ impl CompiledPatterns {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Create LRU cache with 10K capacity for pattern match results
-        let cache = std::sync::Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap()));
+        let cache = Mutex::new(LruCache::new(CACHE_CAPACITY));
 
         Ok(Self {
             include,
@@ -42,10 +53,22 @@ impl CompiledPatterns {
         })
     }
 
+    /// Lock the match-result cache, recovering the guard if the mutex was
+    /// poisoned by a panicking thread.
+    ///
+    /// The cache is a non-critical performance accelerator: a poisoned lock
+    /// only means some other thread panicked mid-update, leaving the cache in
+    /// a logically valid (just possibly stale) state. Recovering the guard
+    /// keeps the file-watching hot path alive instead of cascading the panic
+    /// into every subsequent `should_process` call.
+    fn lock_cache(&self) -> MutexGuard<'_, LruCache<PathBuf, bool>> {
+        self.cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub(super) fn should_process(&self, path: &Path) -> bool {
         // Check cache first for fast path
         {
-            let mut cache_lock = self.cache.lock().unwrap();
+            let mut cache_lock = self.lock_cache();
             if let Some(&cached_result) = cache_lock.get(path) {
                 return cached_result;
             }
@@ -61,7 +84,7 @@ impl CompiledPatterns {
             || path_str.ends_with(".bak")
             || path_str.ends_with("~")
         {
-            let mut cache_lock = self.cache.lock().unwrap();
+            let mut cache_lock = self.lock_cache();
             cache_lock.push(path.to_path_buf(), false);
             return false;
         }
@@ -74,7 +97,7 @@ impl CompiledPatterns {
             || path_str.contains("/.svn/")
             || path_str.contains("/.pytest_cache/")
         {
-            let mut cache_lock = self.cache.lock().unwrap();
+            let mut cache_lock = self.lock_cache();
             cache_lock.push(path.to_path_buf(), false);
             return false;
         }
@@ -82,7 +105,7 @@ impl CompiledPatterns {
         // Fast-path filename checks for common system files
         if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
             if filename == ".DS_Store" || filename == "Thumbs.db" {
-                let mut cache_lock = self.cache.lock().unwrap();
+                let mut cache_lock = self.lock_cache();
                 cache_lock.push(path.to_path_buf(), false);
                 return false;
             }
@@ -92,7 +115,7 @@ impl CompiledPatterns {
         // Check exclude patterns first (more specific)
         for pattern in &self.exclude {
             if pattern.matches(&path_str) {
-                let mut cache_lock = self.cache.lock().unwrap();
+                let mut cache_lock = self.lock_cache();
                 cache_lock.push(path.to_path_buf(), false);
                 return false;
             }
@@ -100,7 +123,7 @@ impl CompiledPatterns {
 
         // If no include patterns, allow all
         if self.include.is_empty() {
-            let mut cache_lock = self.cache.lock().unwrap();
+            let mut cache_lock = self.lock_cache();
             cache_lock.push(path.to_path_buf(), true);
             return true;
         }
@@ -108,21 +131,21 @@ impl CompiledPatterns {
         // Check include patterns
         for pattern in &self.include {
             if pattern.matches(&path_str) {
-                let mut cache_lock = self.cache.lock().unwrap();
+                let mut cache_lock = self.lock_cache();
                 cache_lock.push(path.to_path_buf(), true);
                 return true;
             }
         }
 
         // No match, exclude by default
-        let mut cache_lock = self.cache.lock().unwrap();
+        let mut cache_lock = self.lock_cache();
         cache_lock.push(path.to_path_buf(), false);
         false
     }
 
     /// Get cache statistics for monitoring
     pub(super) fn cache_len(&self) -> usize {
-        self.cache.lock().unwrap().len()
+        self.lock_cache().len()
     }
 }
 
@@ -222,5 +245,30 @@ mod tests {
         p.should_process(Path::new("a.rs"));
         p.should_process(Path::new("b.tmp"));
         assert_eq!(p.cache_len(), 3);
+    }
+
+    #[test]
+    fn should_process_survives_poisoned_cache_lock() {
+        use std::sync::Arc;
+
+        // Poison the internal cache mutex from a panicking thread, then verify
+        // the hot path keeps working instead of cascading the panic.
+        let p = Arc::new(CompiledPatterns::new(&cfg(&["*.rs"], &["*.tmp"])).unwrap());
+
+        let poisoner = {
+            let p = Arc::clone(&p);
+            std::thread::spawn(move || {
+                let _guard = p.cache.lock().unwrap();
+                panic!("intentional panic to poison the cache mutex");
+            })
+        };
+        assert!(poisoner.join().is_err(), "poisoner thread should have panicked");
+        assert!(p.cache.is_poisoned(), "cache mutex should be poisoned");
+
+        // These calls would panic with a bare `.lock().unwrap()`; with
+        // poison recovery they succeed and continue caching.
+        assert!(p.should_process(Path::new("main.rs")));
+        assert!(!p.should_process(Path::new("scratch.tmp")));
+        assert_eq!(p.cache_len(), 2);
     }
 }
