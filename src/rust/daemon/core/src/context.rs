@@ -79,6 +79,22 @@ impl DiscoveryTracker {
         }
     }
 
+    /// Process-global shared tracker.
+    ///
+    /// Discovery dedup is inherently per-daemon-run, so all processing
+    /// contexts must share one instance. `ProcessingContext::new` is called
+    /// per queue item; a fresh per-item tracker meant `is_checked` always
+    /// returned false, so branch discovery re-ran a full-tree filesystem
+    /// scan for EVERY item — stalling the processor for minutes on large
+    /// tenants (119K-file library). Sharing one tracker makes discovery run
+    /// once per (watch_folder_id, branch) as intended.
+    pub fn global() -> Arc<DiscoveryTracker> {
+        static GLOBAL: std::sync::OnceLock<Arc<DiscoveryTracker>> = std::sync::OnceLock::new();
+        GLOBAL
+            .get_or_init(|| Arc::new(DiscoveryTracker::new()))
+            .clone()
+    }
+
     /// Returns true if this (watch_folder_id, branch) has already been checked.
     pub fn is_checked(&self, watch_folder_id: &str, branch: &str) -> bool {
         let set = self.checked.lock().expect("DiscoveryTracker poisoned");
@@ -223,7 +239,7 @@ impl ProcessingContext {
             tier2_tagger: None,
             branch_cache: Arc::new(BranchCache::new()),
             branch_locks: Arc::new(TenantBranchLocks::new()),
-            discovery_tracker: Arc::new(DiscoveryTracker::new()),
+            discovery_tracker: DiscoveryTracker::global(),
             keyword_embedding_generator: None,
         }
     }
@@ -309,6 +325,26 @@ mod tests {
             let _ = &ctx.discovery_tracker;
             let _ = &ctx.keyword_embedding_generator;
         }
+    }
+
+    #[test]
+    fn discovery_tracker_global_is_shared_and_persists() {
+        // The global tracker must be one shared instance so discovery dedup
+        // survives across per-item ProcessingContext construction.
+        let a = DiscoveryTracker::global();
+        let b = DiscoveryTracker::global();
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "global() must return the same instance"
+        );
+
+        a.mark_checked("watch-xyz", "main");
+        assert!(
+            b.is_checked("watch-xyz", "main"),
+            "a mark via one handle must be visible through another"
+        );
+        // Distinct (watch, branch) pairs remain independent.
+        assert!(!b.is_checked("watch-xyz", "dev"));
     }
 
     #[test]

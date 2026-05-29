@@ -519,17 +519,24 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
 
 pub mod ignore_sync;
 
-/// Reconcile ignore rules for all active projects at startup.
+/// Reconcile ignore rules for all enabled projects at startup.
 ///
 /// Iterates watch_folders with `collection = 'projects'` and `enabled = 1`,
-/// runs `ignore_sync::reconcile_ignore_rules` for each, and returns totals.
+/// **most-recently-active first** (`last_activity_at` desc, nulls last), runs
+/// `ignore_sync::reconcile_ignore_rules` for each, and returns totals.
+///
+/// Ordering matters: `is_active` is reset to 0 on every startup, so it cannot
+/// gate eligibility here. Reconciling by recency means a hot project's files
+/// are enqueued before a large, long-idle library's — so active work reaches
+/// the queue processor first instead of queueing behind a cold backlog.
 pub async fn reconcile_all_ignore_rules(
     pool: &SqlitePool,
     queue_manager: &std::sync::Arc<crate::queue_operations::QueueManager>,
 ) -> Result<ignore_sync::ReconcileStats, String> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT tenant_id, path FROM watch_folders \
-         WHERE collection = 'projects' AND enabled = 1",
+         WHERE collection = 'projects' AND enabled = 1 \
+         ORDER BY last_activity_at IS NULL, last_activity_at DESC",
     )
     .fetch_all(pool)
     .await

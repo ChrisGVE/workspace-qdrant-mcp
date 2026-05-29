@@ -55,8 +55,18 @@ impl DiscoveryScanner {
             project_root.display()
         );
 
-        // 1. Hash-scan filesystem
-        let fs_files = scan_filesystem(project_root)?;
+        // 1. Hash-scan filesystem.
+        //
+        // `scan_filesystem` is a synchronous WalkDir + per-file hashing pass
+        // that can take minutes on a large tree. Running it directly in this
+        // async fn blocks the worker thread without yield points, which both
+        // starves the runtime and prevents the per-item `tokio::time::timeout`
+        // guard from firing. Offload to the blocking pool so the worker stays
+        // cooperative and the timeout remains effective.
+        let root = project_root.to_path_buf();
+        let fs_files = tokio::task::spawn_blocking(move || scan_filesystem(&root))
+            .await
+            .map_err(|e| format!("branch discovery scan task failed: {e}"))??;
         info!(
             "Filesystem scan: {} files found for branch '{}'",
             fs_files.len(),
