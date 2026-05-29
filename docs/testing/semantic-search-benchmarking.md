@@ -34,6 +34,30 @@ and `recallAt10 ≥ 0.7`. 0 reasons → `good`, 1 → `mixed`, ≥2 → `poor`.
 
 ---
 
+## Re-test in-process — the `search_eval` MCP tool (preferred)
+
+For ad-hoc, agent-driven evaluation there is an MCP tool, `search_eval`, that
+runs the same harness **inside the MCP server** (real index + Qdrant) — no DB
+snapshot or host runner needed. Pass inline `cases` (or omit to use the bundled
+dataset when reachable):
+
+```jsonc
+search_eval({
+  projectId: "local_5288aa13ad6c",            // or rely on cwd auto-detect
+  cases: [
+    { query: "where is reciprocal rank fusion applied",
+      expectedFiles: ["src/typescript/mcp-server/src/tools/search-qdrant.ts"] }
+  ],
+  includeTopPaths: true                          // optional, to debug misses
+})
+```
+
+It returns per-mode `top1/top3/top10`, `recall@10`, `MRR`, `duplicateRate`,
+plus the verdict and per-query hit flags. It runs all three modes
+(semantic/hybrid/exact) per case. Use this for the fast measure→edit→measure
+loop on a small case set; use the host runner below for the full curated
+dataset and to (re)generate the committed `reports/semantic-search.json`.
+
 ## Re-test guide (host runner)
 
 The runner needs the daemon's real `memexd.db`, which lives in the
