@@ -18,7 +18,7 @@ use tracing::warn;
 
 use super::{
     EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport,
-    TraversalNode,
+    SymbolRow, TraversalNode,
 };
 
 /// Threshold after which a lock acquisition emits a `warn!` log.
@@ -264,6 +264,28 @@ impl<S: GraphStore> SharedGraphStore<S> {
         let guard = self.acquire_write("prune_orphans").await?;
         guard.prune_orphans(tenant_id).await
     }
+
+    /// Query a tenant's code-graph symbols (shared read lock).
+    pub async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
+        let guard = self.acquire_read("query_code_symbols").await?;
+        guard.query_code_symbols(tenant_id).await
+    }
+
+    /// Delete file-owned narrative nodes (exclusive lock).
+    pub async fn delete_narrative_nodes_by_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+    ) -> GraphDbResult<u64> {
+        let guard = self.acquire_write("delete_narrative_nodes_by_file").await?;
+        guard.delete_narrative_nodes_by_file(tenant_id, file_path).await
+    }
+
+    /// Query all edges of a given type (shared read lock).
+    pub async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {
+        let guard = self.acquire_read("query_edges_by_type").await?;
+        guard.query_edges_by_type(edge_type).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -364,6 +386,23 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
         edges: &[GraphEdge],
     ) -> GraphDbResult<()> {
         self.reingest_file(tenant_id, file_path, nodes, edges).await
+    }
+
+    async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
+        self.query_code_symbols(tenant_id).await
+    }
+
+    async fn delete_narrative_nodes_by_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+    ) -> GraphDbResult<u64> {
+        self.delete_narrative_nodes_by_file(tenant_id, file_path)
+            .await
+    }
+
+    async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {
+        self.query_edges_by_type(edge_type).await
     }
 }
 
