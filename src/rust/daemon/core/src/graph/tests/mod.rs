@@ -124,6 +124,14 @@ async fn test_store() -> SqliteGraphStore {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("CREATE INDEX idx_edges_source_type ON graph_edges(source_node_id, edge_type)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE INDEX idx_edges_target_type ON graph_edges(target_node_id, edge_type)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     SqliteGraphStore::new(pool)
 }

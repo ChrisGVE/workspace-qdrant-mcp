@@ -392,3 +392,67 @@ async fn test_total_cap() {
         .unwrap();
     assert_eq!(results.len(), 5, "total cap must bound result set to 5");
 }
+
+#[tokio::test]
+async fn test_supernode_query_under_budget() {
+    // PERF-5 worst case (scaled for CI): one ConceptNode with in-degree 1000
+    // (500 code symbols + 500 library sections). A 2-hop bidirectional
+    // traversal must complete well under the 100ms target with fan-out caps.
+    let store = test_store().await;
+    let concept = GraphNode::new(GLOBAL, "", "supernode", NodeType::ConceptNode);
+    store.upsert_nodes(&[concept.clone()]).await.unwrap();
+
+    let degree = 500usize;
+    let mut nodes = Vec::with_capacity(degree * 2);
+    let mut edge_recs = Vec::with_capacity(degree * 2);
+    let mut seed_id = String::new();
+    for i in 0..degree {
+        let code = GraphNode::new(TENANT_A, format!("c{i}.rs"), format!("s{i}"), NodeType::Function);
+        if i == 0 {
+            seed_id = code.node_id.clone();
+        }
+        let mut e = GraphEdge::new(
+            TENANT_A,
+            &code.node_id,
+            &concept.node_id,
+            EdgeType::ImplementsConcept,
+            "c.rs",
+        );
+        e.weight = 0.5;
+        edge_recs.push(e);
+        nodes.push(code);
+
+        let doc = GraphNode::new(LIB, format!("d{i}.md"), format!("sec{i}"), NodeType::LibrarySection);
+        let mut e2 = GraphEdge::new(LIB, &doc.node_id, &concept.node_id, EdgeType::CoversTopic, "d.md");
+        e2.weight = 0.5;
+        edge_recs.push(e2);
+        nodes.push(doc);
+    }
+    store.upsert_nodes(&nodes).await.unwrap();
+    store.insert_edges(&edge_recs).await.unwrap();
+
+    let start = std::time::Instant::now();
+    let results = store
+        .query_cross_boundary(TENANT_A, &seed_id, &edges(), 2, &[LIB.to_string()])
+        .await
+        .unwrap();
+    let elapsed = start.elapsed();
+
+    // Fan-out caps bound the output regardless of supernode degree.
+    assert!(
+        results.len() <= 50,
+        "total cap should bound output, got {}",
+        results.len()
+    );
+    // Wall-clock assertion only on optimized builds: debug builds are ~20x
+    // slower and would flap. The PERF-5 target (< 100ms, graphs < 50K nodes) is
+    // validated against the release profile and the criterion benchmark.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 100,
+        "supernode 2-hop traversal must stay under 100ms, took {}ms",
+        elapsed.as_millis()
+    );
+    let _ = elapsed;
+}
+
