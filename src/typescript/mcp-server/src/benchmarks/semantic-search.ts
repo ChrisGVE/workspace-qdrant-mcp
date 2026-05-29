@@ -8,7 +8,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { parse as parseYaml } from 'yaml';
 
@@ -302,21 +302,26 @@ export function normalizeBenchmarkPath(input: string, workspaceRoot?: string): s
   const trimmed = input.trim();
   if (trimmed.length === 0) return '';
 
-  let candidate = trimmed;
+  // Work in forward-slash space. node:path's resolve/relative are
+  // platform-specific (POSIX on Linux/CI) and mishandle Windows-style inputs
+  // like `C:\...`, so strip the workspace-root prefix by string comparison
+  // instead — identical behavior on every host.
+  const toPosix = (p: string): string => p.replace(/\\/g, '/');
+  const stripEnds = (p: string): string => p.replace(/^\.\/+/, '').replace(/\/+$/, '');
+
+  let candidate = stripEnds(toPosix(trimmed));
   if (workspaceRoot) {
-    const normalizedWorkspaceRoot = resolve(workspaceRoot);
-    const resolvedCandidate = isAbsolute(candidate)
-      ? resolve(candidate)
-      : resolve(normalizedWorkspaceRoot, candidate);
-    const relativePath = relative(normalizedWorkspaceRoot, resolvedCandidate);
-    if (relativePath.length > 0 && !relativePath.startsWith('..') && !isAbsolute(relativePath)) {
-      candidate = relativePath;
-    } else {
-      candidate = resolvedCandidate;
+    const root = stripEnds(toPosix(workspaceRoot.trim()));
+    if (root.length > 0) {
+      if (candidate === root) {
+        candidate = '';
+      } else if (candidate.startsWith(`${root}/`)) {
+        candidate = candidate.slice(root.length + 1);
+      }
     }
   }
 
-  return candidate.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
+  return candidate.replace(/^\/+/, '').replace(/^\.\/+/, '');
 }
 
 function extractResultPath(result: SearchResult): string | undefined {

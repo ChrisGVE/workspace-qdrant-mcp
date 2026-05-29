@@ -185,9 +185,10 @@ describe('WorkspaceQdrantMcpServer', () => {
     });
 
     it('should detect project from cwd', async () => {
-      // Create a project directory
+      // Create a project directory with a marker so findProjectRoot() detects it
       const projectPath = join(tempDir, 'my-project');
       mkdirSync(projectPath);
+      mkdirSync(join(projectPath, '.git'));
 
       // Resolve real path (handles macOS /private symlink)
       const realProjectPath = realpathSync(projectPath);
