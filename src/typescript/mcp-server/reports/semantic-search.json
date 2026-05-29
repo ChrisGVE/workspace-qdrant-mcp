@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T01:06:31.513Z",
+  "generatedAt": "2026-05-29T22:20:28.403Z",
   "workspaceRoot": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp",
   "dataset": {
     "name": "workspace-qdrant semantic search quality",
@@ -15,11 +15,10 @@
   },
   "config": {
     "workspaceRoot": "C:\\Users\\alber\\Documents\\repositorios\\workspace-qdrant-mcp",
-    "scope": "all",
-    "collection": "projects",
+    "projectId": "local_5288aa13ad6c",
     "limit": 10,
     "topK": 10,
-    "warmupRuns": 0,
+    "warmupRuns": 1,
     "iterations": 1,
     "modes": [
       "semantic",
@@ -33,27 +32,27 @@
     "modes": {
       "semantic": {
         "runs": 12,
-        "top1HitRate": 0,
-        "top3HitRate": 0,
-        "top10HitRate": 0,
-        "precisionAt10": 0,
-        "recallAt10": 0,
-        "mrr": 0,
+        "top1HitRate": 0.16666666666666666,
+        "top3HitRate": 0.5,
+        "top10HitRate": 0.8333333333333334,
+        "precisionAt10": 0.13333333333333333,
+        "recallAt10": 0.7083333333333334,
+        "mrr": 0.38634259259259257,
         "duplicateRate": 0,
-        "avgLatencyMs": 9.151025000000013,
-        "p95LatencyMs": 12.664815000000035
+        "avgLatencyMs": 45.703599999999994,
+        "p95LatencyMs": 72.03390499999995
       },
       "hybrid": {
         "runs": 12,
-        "top1HitRate": 0,
-        "top3HitRate": 0,
-        "top10HitRate": 0,
-        "precisionAt10": 0,
-        "recallAt10": 0,
-        "mrr": 0,
+        "top1HitRate": 0.08333333333333333,
+        "top3HitRate": 0.5,
+        "top10HitRate": 0.6666666666666666,
+        "precisionAt10": 0.075,
+        "recallAt10": 0.375,
+        "mrr": 0.28703703703703703,
         "duplicateRate": 0,
-        "avgLatencyMs": 11.934466666666689,
-        "p95LatencyMs": 28.782225000000004
+        "avgLatencyMs": 43.83688333333341,
+        "p95LatencyMs": 73.18663000000002
       },
       "exact": {
         "runs": 12,
@@ -64,21 +63,18 @@
         "recallAt10": 0,
         "mrr": 0,
         "duplicateRate": 0,
-        "avgLatencyMs": 3.35004166666666,
-        "p95LatencyMs": 9.802240000000005
+        "avgLatencyMs": 1.3306249999999598,
+        "p95LatencyMs": 1.4740849999999794
       }
     },
     "semanticVerdict": {
-      "grade": "poor",
+      "grade": "mixed",
       "reasons": [
-        "top-3 useful rate 0.0% is below 80.0%",
-        "recall@10 0.0% is below 70.0%",
-        "precision@10 0.0% is below 84.0%"
+        "top-3 useful rate 50.0% is below 80.0%"
       ],
       "thresholds": {
         "top3UsefulRate": 0.8,
-        "recallAt10": 0.7,
-        "precisionAt10": 0.84
+        "recallAt10": 0.7
       }
     },
     "rescueCounts": {
@@ -102,104 +98,279 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "How does the MCP server resolve projectId for project-scoped searches?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            15.794700000000034
+            64.78070000000002
           ],
-          "latencyMeanMs": 15.794700000000034,
-          "latencyMedianMs": 15.794700000000034,
-          "latencyP95Ms": 15.794700000000034,
-          "topResults": [],
+          "latencyMeanMs": 64.78070000000002,
+          "latencyMedianMs": 64.78070000000002,
+          "latencyP95Ms": 64.78070000000002,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "score": 0.70333627,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/server.ts",
+              "score": 0.581696856,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "score": 0.5398773133333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "docs/design/admin-behavioral-rules-handoff.md",
+              "score": 0.5317904,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "score": 0.52621023,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "score": 0.510272616,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/cli/src/commands/project/resolver.rs",
+              "score": 0.4938254533333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/common/src/project_id/types.rs",
+              "score": 0.4726308266666666,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/retrieve.ts",
+              "score": 0.4689296773333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/cli/src/commands/project/tests.rs",
+              "score": 0.4619374866666667,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
               "src/typescript/mcp-server/src/utils/project-detector.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
               "src/typescript/mcp-server/src/utils/project-detector.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
-            "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "src/typescript/mcp-server/src/server.ts",
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "src/rust/cli/src/commands/project/resolver.rs",
+              "src/rust/common/src/project_id/types.rs",
+              "src/typescript/mcp-server/src/tool-definitions/retrieve.ts",
+              "src/rust/cli/src/commands/project/tests.rs"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "src/typescript/mcp-server/src/server.ts",
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "src/rust/cli/src/commands/project/resolver.rs",
+              "src/rust/common/src/project_id/types.rs",
+              "src/typescript/mcp-server/src/tool-definitions/retrieve.ts",
+              "src/rust/cli/src/commands/project/tests.rs"
+            ],
+            "top1Hit": true,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 1,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 1
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "How does the MCP server resolve projectId for project-scoped searches?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            12.601800000000026
+            69.74829999999997
           ],
-          "latencyMeanMs": 12.601800000000026,
-          "latencyMedianMs": 12.601800000000026,
-          "latencyP95Ms": 12.601800000000026,
-          "topResults": [],
+          "latencyMeanMs": 69.74829999999997,
+          "latencyMedianMs": 69.74829999999997,
+          "latencyP95Ms": 69.74829999999997,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "docs/specs/08-api-reference.md",
+              "score": 0.026387470207694927,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "assets/rules.example.json",
+              "score": 0.02340736800106397,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "score": 0.02258064516129032,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/server.ts",
+              "score": 0.019791666666666666,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "score": 0.017948717948717947,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "docs/fork-kit/12-indexed-projects-agent-branches.md",
+              "score": 0.017708333333333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/cli/src/commands/project/resolver.rs",
+              "score": 0.017117117117117116,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "docs/design/admin-behavioral-rules-handoff.md",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "AGENTS.md",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "score": 0.01627906976744186,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
               "src/typescript/mcp-server/src/utils/project-detector.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
               "src/typescript/mcp-server/src/utils/project-detector.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "docs/specs/08-api-reference.md",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "src/typescript/mcp-server/src/server.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "docs/fork-kit/12-indexed-projects-agent-branches.md",
+              "src/rust/cli/src/commands/project/resolver.rs",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "AGENTS.md",
+              "src/typescript/mcp-server/src/tools/search-exact.ts"
+            ],
+            "topPaths": [
+              "docs/specs/08-api-reference.md",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/utils/project-detector.ts",
+              "src/typescript/mcp-server/src/server.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "docs/fork-kit/12-indexed-projects-agent-branches.md",
+              "src/rust/cli/src/commands/project/resolver.rs",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "AGENTS.md",
+              "src/typescript/mcp-server/src/tools/search-exact.ts"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 3,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.3333333333333333
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "How does the MCP server resolve projectId for project-scoped searches?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            18.821800000000053
+            1.5110999999999422
           ],
-          "latencyMeanMs": 18.821800000000053,
-          "latencyMedianMs": 18.821800000000053,
-          "latencyP95Ms": 18.821800000000053,
-          "topResults": [],
+          "latencyMeanMs": 1.5110999999999422,
+          "latencyMedianMs": 1.5110999999999422,
+          "latencyP95Ms": 1.5110999999999422,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
@@ -210,8 +381,12 @@
               "src/typescript/mcp-server/src/tools/search-helpers.ts",
               "src/typescript/mcp-server/src/utils/project-detector.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -237,61 +412,206 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            9.355400000000031
+            20.798099999999977
           ],
-          "latencyMeanMs": 9.355400000000031,
-          "latencyMedianMs": 9.355400000000031,
-          "latencyP95Ms": 9.355400000000031,
-          "topResults": [],
+          "latencyMeanMs": 20.798099999999977,
+          "latencyMedianMs": 20.798099999999977,
+          "latencyP95Ms": 20.798099999999977,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "score": 0.58408856,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "docs/specs/10-keyword-tag-extraction.md",
+              "score": 0.5592529470000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "score": 0.5421848960000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "score": 0.5065701300000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.502449744,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "score": 0.48827517200000004,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "assets/default_configuration.yaml",
+              "score": 0.47237486,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "score": 0.46614425000000004,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/source_diversity.rs",
+              "score": 0.46326864,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/embedding/bm25.rs",
+              "score": 0.45284742,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/rust/daemon/core/src/source_diversity.rs",
+              "src/rust/daemon/core/src/embedding/bm25.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/rust/daemon/core/src/source_diversity.rs",
+              "src/rust/daemon/core/src/embedding/bm25.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 8,
+            "precisionAt10": 0.1,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.125
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            9.708300000000008
+            39.87049999999999
           ],
-          "latencyMeanMs": 9.708300000000008,
-          "latencyMedianMs": 9.708300000000008,
-          "latencyP95Ms": 9.708300000000008,
-          "topResults": [],
+          "latencyMeanMs": 39.87049999999999,
+          "latencyMedianMs": 39.87049999999999,
+          "latencyP95Ms": 39.87049999999999,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "docs/reference/mcp-tools.md",
+              "score": 0.02361111111111111,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "score": 0.018032786885245903,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "docs/specs/10-keyword-tag-extraction.md",
+              "score": 0.017741935483870968,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "score": 0.01746031746031746,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/quasi_summary.rs",
+              "score": 0.01666666666666667,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "score": 0.016417910447761194,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/language_registry/providers/nvim_treesitter.rs",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.016216216216216217,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "docs/TROUBLESHOOTING.md",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "README.md",
+              "score": 0.015873015873015872,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
@@ -300,8 +620,30 @@
             "missingExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "docs/reference/mcp-tools.md",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/rust/daemon/core/src/keyword_extraction/quasi_summary.rs",
+              "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "src/rust/daemon/core/src/language_registry/providers/nvim_treesitter.rs",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "docs/TROUBLESHOOTING.md",
+              "README.md"
+            ],
+            "topPaths": [
+              "docs/reference/mcp-tools.md",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/rust/daemon/core/src/keyword_extraction/quasi_summary.rs",
+              "src/typescript/mcp-server/src/tools/search-expansion.ts",
+              "src/rust/daemon/core/src/language_registry/providers/nvim_treesitter.rs",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "docs/TROUBLESHOOTING.md",
+              "README.md"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -315,22 +657,29 @@
           "mode": "exact",
           "searchOptions": {
             "query": "Where are dense and keyword search results combined with reciprocal rank fusion?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            2.4225999999999885
+            1.3106000000000222
           ],
-          "latencyMeanMs": 2.4225999999999885,
-          "latencyMedianMs": 2.4225999999999885,
-          "latencyP95Ms": 2.4225999999999885,
-          "topResults": [],
+          "latencyMeanMs": 1.3106000000000222,
+          "latencyMedianMs": 1.3106000000000222,
+          "latencyP95Ms": 1.3106000000000222,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
@@ -339,8 +688,12 @@
             "missingExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -367,63 +720,208 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where is the Qdrant score threshold applied for semantic search?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            10.104000000000042
+            68.54319999999984
           ],
-          "latencyMeanMs": 10.104000000000042,
-          "latencyMedianMs": 10.104000000000042,
-          "latencyP95Ms": 10.104000000000042,
-          "topResults": [],
+          "latencyMeanMs": 68.54319999999984,
+          "latencyMedianMs": 68.54319999999984,
+          "latencyP95Ms": 68.54319999999984,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.5786007933333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts",
+              "score": 0.5187224,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "score": 0.5181240506666667,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "score": 0.5116044373333334,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "score": 0.50729886,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "score": 0.50420844,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "score": 0.5022405653333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "assets/default_configuration.yaml",
+              "score": 0.49456555,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "score": 0.489603248,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "score": 0.48043537933333336,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where is the Qdrant score threshold applied for semantic search?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.096099999999979
+            71.47960000000012
           ],
-          "latencyMeanMs": 8.096099999999979,
-          "latencyMedianMs": 8.096099999999979,
-          "latencyP95Ms": 8.096099999999979,
-          "topResults": [],
+          "latencyMeanMs": 71.47960000000012,
+          "latencyMedianMs": 71.47960000000012,
+          "latencyP95Ms": 71.47960000000012,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.020105820105820103,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "score": 0.01827956989247312,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "score": 0.017708333333333333,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "score": 0.017435897435897435,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "score": 0.016666666666666666,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/source_diversity.rs",
+              "score": 0.01642512077294686,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "assets/default_configuration.yaml",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "assets/grafana/queue_dashboard.json",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "score": 0.016239316239316237,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/proto/workspace_daemon.proto",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
@@ -434,8 +932,30 @@
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/rust/daemon/core/src/source_diversity.rs",
+              "assets/default_configuration.yaml",
+              "assets/grafana/queue_dashboard.json",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/proto/workspace_daemon.proto"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/rust/daemon/core/src/keyword_extraction/pipeline.rs",
+              "src/rust/daemon/core/src/source_diversity.rs",
+              "assets/default_configuration.yaml",
+              "assets/grafana/queue_dashboard.json",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/proto/workspace_daemon.proto"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -449,22 +969,29 @@
           "mode": "exact",
           "searchOptions": {
             "query": "Where is the Qdrant score threshold applied for semantic search?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.933499999999981
+            1.397599999999784
           ],
-          "latencyMeanMs": 1.933499999999981,
-          "latencyMedianMs": 1.933499999999981,
-          "latencyP95Ms": 1.933499999999981,
-          "topResults": [],
+          "latencyMeanMs": 1.397599999999784,
+          "latencyMedianMs": 1.397599999999784,
+          "latencyP95Ms": 1.397599999999784,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
@@ -475,8 +1002,12 @@
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/tests/tools/search-score-threshold.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -503,104 +1034,280 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where does the search tool attach graph context to results?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.097300000000018
+            68.77459999999996
           ],
-          "latencyMeanMs": 8.097300000000018,
-          "latencyMedianMs": 8.097300000000018,
-          "latencyP95Ms": 8.097300000000018,
-          "topResults": [],
+          "latencyMeanMs": 68.77459999999996,
+          "latencyMedianMs": 68.77459999999996,
+          "latencyP95Ms": 68.77459999999996,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "score": 0.7682414,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tools/search.ts",
+              "score": 0.6791021999999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "score": 0.668615474,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tools/search-types.ts",
+              "score": 0.655530736,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "score": 0.653671088,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "score": 0.6443666333333332,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "score": 0.5806739399999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "score": 0.5751916486666666,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/cli/src/commands/graph/mod.rs",
+              "score": 0.566370696,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/graph/mod.rs",
+              "score": 0.5574563266666667,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-graph-context.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-graph-context.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
-            "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "src/rust/cli/src/commands/graph/mod.rs",
+              "src/rust/daemon/core/src/graph/mod.rs"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "src/rust/cli/src/commands/graph/mod.rs",
+              "src/rust/daemon/core/src/graph/mod.rs"
+            ],
+            "top1Hit": true,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 1,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 1
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where does the search tool attach graph context to results?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            9.11099999999999
+            75.27299999999991
           ],
-          "latencyMeanMs": 9.11099999999999,
-          "latencyMedianMs": 9.11099999999999,
-          "latencyP95Ms": 9.11099999999999,
-          "topResults": [],
+          "latencyMeanMs": 75.27299999999991,
+          "latencyMedianMs": 75.27299999999991,
+          "latencyP95Ms": 75.27299999999991,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "docs/specs/14-future-development.md",
+              "score": 0.02844551282051282,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "score": 0.02473118279569892,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/tools/search.ts",
+              "score": 0.02222222222222222,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tools/search-types.ts",
+              "score": 0.021875,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "score": 0.021538461538461538,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "score": 0.021296296296296292,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "score": 0.020765027322404372,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "score": 0.01919191919191919,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/cli/src/commands/graph/mod.rs",
+              "score": 0.01890547263681592,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/graph/mod.rs",
+              "score": 0.018627450980392157,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-graph-context.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts"
+            ],
             "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "docs/specs/14-future-development.md",
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "src/rust/cli/src/commands/graph/mod.rs",
+              "src/rust/daemon/core/src/graph/mod.rs"
+            ],
+            "topPaths": [
+              "docs/specs/14-future-development.md",
+              "src/typescript/mcp-server/src/tools/search-graph-context.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-graph-context.test.ts",
+              "src/rust/daemon/grpc/src/services/graph_service/mod.rs",
+              "src/rust/daemon/core/src/graph/ladybug_store/mod.rs",
+              "src/rust/cli/src/commands/graph/mod.rs",
+              "src/rust/daemon/core/src/graph/mod.rs"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "Where does the search tool attach graph context to results?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.8811000000000604
+            1.378099999999904
           ],
-          "latencyMeanMs": 1.8811000000000604,
-          "latencyMedianMs": 1.8811000000000604,
-          "latencyP95Ms": 1.8811000000000604,
-          "topResults": [],
+          "latencyMeanMs": 1.378099999999904,
+          "latencyMedianMs": 1.378099999999904,
+          "latencyP95Ms": 1.378099999999904,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-graph-context.ts",
@@ -611,8 +1318,12 @@
               "src/typescript/mcp-server/src/tools/search-graph-context.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -631,7 +1342,7 @@
         "src/typescript/mcp-server/src/tools/rules.ts",
         "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
       ],
-      "bestMode": "semantic",
+      "bestMode": "hybrid",
       "semanticRescuedByHybridTop10": false,
       "semanticRescuedByExactTop10": false,
       "modes": {
@@ -639,104 +1350,281 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "How are project-scoped rules prevented from falling back to the global tenant?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.050799999999981
+            23.307199999999966
           ],
-          "latencyMeanMs": 8.050799999999981,
-          "latencyMedianMs": 8.050799999999981,
-          "latencyP95Ms": 8.050799999999981,
-          "topResults": [],
+          "latencyMeanMs": 23.307199999999966,
+          "latencyMedianMs": 23.307199999999966,
+          "latencyP95Ms": 23.307199999999966,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/cli/src/commands/rules/mod.rs",
+              "score": 0.595384174,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "score": 0.53060449,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/constants/tenants.ts",
+              "score": 0.5126712800000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "docs/design/admin-behavioral-rules-handoff.md",
+              "score": 0.499215167,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/cross_project_search.rs",
+              "score": 0.47341608600000007,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "assets/rules.example.json",
+              "score": 0.469509975,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/typescript/mcp-server/src/rule-seeder.ts",
+              "score": 0.464513324,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/startup/rules_backfill.rs",
+              "score": 0.43691046,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/grpc/src/services/project_service/deactivation.rs",
+              "score": 0.4355472000000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "score": 0.42888528,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/rules.ts",
               "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/rules.ts",
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts"
+            ],
+            "rawTopPaths": [
+              "src/rust/cli/src/commands/rules/mod.rs",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "src/typescript/mcp-server/src/constants/tenants.ts",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/rule-seeder.ts",
+              "src/rust/daemon/core/src/startup/rules_backfill.rs",
+              "src/rust/daemon/grpc/src/services/project_service/deactivation.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
+            "topPaths": [
+              "src/rust/cli/src/commands/rules/mod.rs",
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "src/typescript/mcp-server/src/constants/tenants.ts",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/rule-seeder.ts",
+              "src/rust/daemon/core/src/startup/rules_backfill.rs",
+              "src/rust/daemon/grpc/src/services/project_service/deactivation.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "How are project-scoped rules prevented from falling back to the global tenant?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.660000000000082
+            24.835200000000214
           ],
-          "latencyMeanMs": 7.660000000000082,
-          "latencyMedianMs": 7.660000000000082,
-          "latencyP95Ms": 7.660000000000082,
-          "topResults": [],
+          "latencyMeanMs": 24.835200000000214,
+          "latencyMedianMs": 24.835200000000214,
+          "latencyP95Ms": 24.835200000000214,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "score": 0.018055555555555554,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/cli/src/commands/rules/mod.rs",
+              "score": 0.018032786885245903,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/constants/tenants.ts",
+              "score": 0.017741935483870968,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/cli/src/tui/views/projects_data.rs",
+              "score": 0.017741935483870968,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "docs/design/admin-behavioral-rules-handoff.md",
+              "score": 0.01746031746031746,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/tests/utils/project-detector-current.test.ts",
+              "score": 0.01746031746031746,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/cross_project_search.rs",
+              "score": 0.0171875,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "assets/rules.example.json",
+              "score": 0.01666666666666667,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/typescript/mcp-server/src/rule-seeder.ts",
+              "score": 0.016417910447761194,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "assets/internal_configuration.yaml",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/rules.ts",
               "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/rules.ts",
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
-            "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/rules.ts"
+            ],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "src/rust/cli/src/commands/rules/mod.rs",
+              "src/typescript/mcp-server/src/constants/tenants.ts",
+              "src/rust/cli/src/tui/views/projects_data.rs",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/typescript/mcp-server/tests/utils/project-detector-current.test.ts",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/rule-seeder.ts",
+              "assets/internal_configuration.yaml"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts",
+              "src/rust/cli/src/commands/rules/mod.rs",
+              "src/typescript/mcp-server/src/constants/tenants.ts",
+              "src/rust/cli/src/tui/views/projects_data.rs",
+              "docs/design/admin-behavioral-rules-handoff.md",
+              "src/typescript/mcp-server/tests/utils/project-detector-current.test.ts",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "assets/rules.example.json",
+              "src/typescript/mcp-server/src/rule-seeder.ts",
+              "assets/internal_configuration.yaml"
+            ],
+            "top1Hit": true,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 1,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 1
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "How are project-scoped rules prevented from falling back to the global tenant?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.8239999999999554
+            1.3109999999999218
           ],
-          "latencyMeanMs": 1.8239999999999554,
-          "latencyMedianMs": 1.8239999999999554,
-          "latencyP95Ms": 1.8239999999999554,
-          "topResults": [],
+          "latencyMeanMs": 1.3109999999999218,
+          "latencyMedianMs": 1.3109999999999218,
+          "latencyP95Ms": 1.3109999999999218,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/rules.ts",
@@ -747,8 +1635,12 @@
               "src/typescript/mcp-server/src/tools/rules.ts",
               "src/typescript/mcp-server/tests/tools/rules-tenant-scope.test.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -775,104 +1667,281 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "How does the server report the active embedding provider?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.730199999999968
+            64.12149999999997
           ],
-          "latencyMeanMs": 8.730199999999968,
-          "latencyMedianMs": 8.730199999999968,
-          "latencyP95Ms": 8.730199999999968,
-          "topResults": [],
+          "latencyMeanMs": 64.12149999999997,
+          "latencyMedianMs": 64.12149999999997,
+          "latencyP95Ms": 64.12149999999997,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "score": 0.7535618639999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tools/embedding.ts",
+              "score": 0.6377348736,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "score": 0.5359330416,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "score": 0.5169945652000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "score": 0.508278738,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/grpc/src/services/system_service/tests/embedding_provider.rs",
+              "score": 0.49348922040000004,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "score": 0.487523466,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "score": 0.47978249600000006,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/config/embedding.rs",
+              "score": 0.4669100688000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/embedding/provider/openai.rs",
+              "score": 0.45861585000000005,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/embedding.ts",
               "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts"
+            ],
             "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/embedding.ts",
               "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "src/rust/daemon/grpc/src/services/system_service/tests/embedding_provider.rs",
+              "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "src/rust/daemon/core/src/config/embedding.rs",
+              "src/rust/daemon/core/src/embedding/provider/openai.rs"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "src/rust/daemon/grpc/src/services/system_service/tests/embedding_provider.rs",
+              "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "src/rust/daemon/core/src/config/embedding.rs",
+              "src/rust/daemon/core/src/embedding/provider/openai.rs"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "How does the server report the active embedding provider?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.342100000000073
+            36.94830000000002
           ],
-          "latencyMeanMs": 8.342100000000073,
-          "latencyMedianMs": 8.342100000000073,
-          "latencyP95Ms": 8.342100000000073,
-          "topResults": [],
+          "latencyMeanMs": 36.94830000000002,
+          "latencyMedianMs": 36.94830000000002,
+          "latencyP95Ms": 36.94830000000002,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "score": 0.021639344262295083,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tools/embedding.ts",
+              "score": 0.02129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "score": 0.019411764705882354,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "score": 0.018412698412698415,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "score": 0.018125000000000002,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "score": 0.01808219178082192,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "score": 0.017575757575757578,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/src/clients/grpc-types-messages-system-collection.ts",
+              "score": 0.017575757575757578,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "score": 0.0173134328358209,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/config/embedding.rs",
+              "score": 0.01681159420289855,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/embedding.ts",
               "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/embedding.ts"
+            ],
             "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/embedding.ts",
               "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "src/typescript/mcp-server/src/clients/grpc-types-messages-system-collection.ts",
+              "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "src/rust/daemon/core/src/config/embedding.rs"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/src/tool-definitions/embedding.ts",
+              "src/typescript/mcp-server/src/tools/embedding.ts",
+              "src/rust/daemon/core/src/embedding/provider/mod.rs",
+              "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "src/rust/patches/fastembed/src/text_embedding/mod.rs",
+              "src/rust/daemon/core/tests/embedding_provider_integration_tests.rs",
+              "src/rust/daemon/grpc/src/services/embedding_service.rs",
+              "src/typescript/mcp-server/src/clients/grpc-types-messages-system-collection.ts",
+              "src/rust/daemon/core/tests/file_ingestion_embedding_tests.rs",
+              "src/rust/daemon/core/src/config/embedding.rs"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "How does the server report the active embedding provider?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.744799999999941
+            1.4438000000000102
           ],
-          "latencyMeanMs": 1.744799999999941,
-          "latencyMedianMs": 1.744799999999941,
-          "latencyP95Ms": 1.744799999999941,
-          "topResults": [],
+          "latencyMeanMs": 1.4438000000000102,
+          "latencyMedianMs": 1.4438000000000102,
+          "latencyP95Ms": 1.4438000000000102,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/embedding.ts",
@@ -883,8 +1952,12 @@
               "src/typescript/mcp-server/src/tools/embedding.ts",
               "src/rust/daemon/core/src/embedding/provider/health_monitor.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -903,7 +1976,7 @@
         "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
         "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
       ],
-      "bestMode": "semantic",
+      "bestMode": "hybrid",
       "semanticRescuedByHybridTop10": false,
       "semanticRescuedByExactTop10": false,
       "modes": {
@@ -911,104 +1984,280 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where is the daemon health check timeout enforced during client bootstrap?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.430100000000039
+            65.14730000000009
           ],
-          "latencyMeanMs": 8.430100000000039,
-          "latencyMedianMs": 8.430100000000039,
-          "latencyP95Ms": 8.430100000000039,
-          "topResults": [],
+          "latencyMeanMs": 65.14730000000009,
+          "latencyMedianMs": 65.14730000000009,
+          "latencyP95Ms": 65.14730000000009,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/service_discovery/health.rs",
+              "score": 0.736765476,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "score": 0.604373935,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "score": 0.6009140399999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "score": 0.5906050700000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "score": 0.590448048,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/tests/utils/health-monitor-checks.test.ts",
+              "score": 0.5667234,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "score": 0.55969177,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/tests/clients/daemon-client.test.ts",
+              "score": 0.5553883559999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "score": 0.551009592,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/grpc/src/lib.rs",
+              "score": 0.548734263,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
               "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
               "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/service_discovery/health.rs",
+              "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "src/typescript/mcp-server/tests/utils/health-monitor-checks.test.ts",
+              "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "src/typescript/mcp-server/tests/clients/daemon-client.test.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/rust/daemon/grpc/src/lib.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/service_discovery/health.rs",
+              "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "src/typescript/mcp-server/tests/utils/health-monitor-checks.test.ts",
+              "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "src/typescript/mcp-server/tests/clients/daemon-client.test.ts",
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+              "src/rust/daemon/grpc/src/lib.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 5,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.2
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where is the daemon health check timeout enforced during client bootstrap?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.935699999999997
+            23.131200000000263
           ],
-          "latencyMeanMs": 7.935699999999997,
-          "latencyMedianMs": 7.935699999999997,
-          "latencyP95Ms": 7.935699999999997,
-          "topResults": [],
+          "latencyMeanMs": 23.131200000000263,
+          "latencyMedianMs": 23.131200000000263,
+          "latencyP95Ms": 23.131200000000263,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/service_discovery/health.rs",
+              "score": 0.019672131147540985,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "score": 0.019672131147540985,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "score": 0.017741935483870968,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "score": 0.01746031746031746,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "score": 0.01714285714285714,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "score": 0.016417910447761194,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "assets/internal_configuration.yaml",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/grpc/src/lib.rs",
+              "score": 0.015277777777777779,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/service_discovery/registry.rs",
+              "score": 0.014666666666666668,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/cli/src/commands/service/detect.rs",
+              "score": 0.014492753623188406,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
               "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [
+              "src/typescript/mcp-server/src/clients/daemon-client/connection.ts"
+            ],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/service_discovery/health.rs",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "assets/internal_configuration.yaml",
+              "src/rust/daemon/grpc/src/lib.rs",
+              "src/rust/daemon/core/src/service_discovery/registry.rs",
+              "src/rust/cli/src/commands/service/detect.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/service_discovery/health.rs",
+              "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts",
+              "src/typescript/mcp-server/src/utils/health-monitor.ts",
+              "src/rust/daemon/core/src/embedding/watchdog.rs",
+              "src/typescript/mcp-server/src/utils/daemon-check.ts",
+              "src/rust/daemon/core/src/lsp/lifecycle/restart.rs",
+              "assets/internal_configuration.yaml",
+              "src/rust/daemon/grpc/src/lib.rs",
+              "src/rust/daemon/core/src/service_discovery/registry.rs",
+              "src/rust/cli/src/commands/service/detect.rs"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "Where is the daemon health check timeout enforced during client bootstrap?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            2.1707000000000107
+            1.2451000000000931
           ],
-          "latencyMeanMs": 2.1707000000000107,
-          "latencyMedianMs": 2.1707000000000107,
-          "latencyP95Ms": 2.1707000000000107,
-          "topResults": [],
+          "latencyMeanMs": 1.2451000000000931,
+          "latencyMedianMs": 1.2451000000000931,
+          "latencyP95Ms": 1.2451000000000931,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
@@ -1019,8 +2268,12 @@
               "src/typescript/mcp-server/src/clients/daemon-client/connection.ts",
               "src/typescript/mcp-server/src/clients/daemon-client/system-methods.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1047,104 +2300,281 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where is watcher processing latency tracked in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            9.102899999999977
+            76.01749999999993
           ],
-          "latencyMeanMs": 9.102899999999977,
-          "latencyMedianMs": 9.102899999999977,
-          "latencyP95Ms": 9.102899999999977,
-          "topResults": [],
+          "latencyMeanMs": 76.01749999999993,
+          "latencyMedianMs": 76.01749999999993,
+          "latencyP95Ms": 76.01749999999993,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/watching/watcher.rs",
+              "score": 0.706214784,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "score": 0.6565461936,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "score": 0.648174012,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "score": 0.6288411040000002,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "score": 0.6187500320000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/config/processing.rs",
+              "score": 0.6079325472,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "score": 0.5998433364,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "score": 0.589677184,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/watching/telemetry.rs",
+              "score": 0.57128608,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/monitoring/metrics_helpers.rs",
+              "score": 0.570434988,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/watching/telemetry.rs",
               "src/rust/daemon/core/src/watching/watcher_processing.rs"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs"
+            ],
             "missingExpectedFiles": [
-              "src/rust/daemon/core/src/watching/telemetry.rs",
               "src/rust/daemon/core/src/watching/watcher_processing.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/watching/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "src/rust/daemon/core/src/config/processing.rs",
+              "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_helpers.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/watching/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "src/rust/daemon/core/src/config/processing.rs",
+              "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_helpers.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 9,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.1111111111111111
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where is watcher processing latency tracked in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.56759999999997
+            23.860499999999774
           ],
-          "latencyMeanMs": 7.56759999999997,
-          "latencyMedianMs": 7.56759999999997,
-          "latencyP95Ms": 7.56759999999997,
-          "topResults": [],
+          "latencyMeanMs": 23.860499999999774,
+          "latencyMedianMs": 23.860499999999774,
+          "latencyP95Ms": 23.860499999999774,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/watching/watcher.rs",
+              "score": 0.706214784,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "score": 0.6565461936,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "score": 0.648174012,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "score": 0.6288411040000002,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "score": 0.6187500320000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/config/processing.rs",
+              "score": 0.6079325472,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "score": 0.5998433364,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "score": 0.589677184,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/watching/telemetry.rs",
+              "score": 0.57128608,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/monitoring/metrics_helpers.rs",
+              "score": 0.570434988,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/watching/telemetry.rs",
               "src/rust/daemon/core/src/watching/watcher_processing.rs"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/rust/daemon/core/src/watching/telemetry.rs"
+            ],
             "missingExpectedFiles": [
-              "src/rust/daemon/core/src/watching/telemetry.rs",
               "src/rust/daemon/core/src/watching/watcher_processing.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/watching/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "src/rust/daemon/core/src/config/processing.rs",
+              "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_helpers.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/watching/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/file_watcher.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_core.rs",
+              "src/rust/daemon/core/src/adaptive_resources/manager.rs",
+              "src/rust/daemon/core/src/config/processing.rs",
+              "src/rust/daemon/core/src/watching/file_watcher/watcher.rs",
+              "src/rust/daemon/core/src/watching_queue/error_state.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/monitoring/metrics_helpers.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 9,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.1111111111111111
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "Where is watcher processing latency tracked in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.8683999999999514
+            1.4045999999998457
           ],
-          "latencyMeanMs": 1.8683999999999514,
-          "latencyMedianMs": 1.8683999999999514,
-          "latencyP95Ms": 1.8683999999999514,
-          "topResults": [],
+          "latencyMeanMs": 1.4045999999998457,
+          "latencyMedianMs": 1.4045999999998457,
+          "latencyP95Ms": 1.4045999999998457,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/watching/telemetry.rs",
@@ -1155,8 +2585,12 @@
               "src/rust/daemon/core/src/watching/telemetry.rs",
               "src/rust/daemon/core/src/watching/watcher_processing.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1183,22 +2617,83 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Where is queue throughput measured in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.439100000000053
+            18.205399999999827
           ],
-          "latencyMeanMs": 7.439100000000053,
-          "latencyMedianMs": 7.439100000000053,
-          "latencyP95Ms": 7.439100000000053,
-          "topResults": [],
+          "latencyMeanMs": 18.205399999999827,
+          "latencyMedianMs": 18.205399999999827,
+          "latencyP95Ms": 18.205399999999827,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "score": 0.780443342,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "score": 0.766265696,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/queue_types.rs",
+              "score": 0.7590692760000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "score": 0.71173592,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "score": 0.671818784,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "score": 0.6681866799999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/config/mod.rs",
+              "score": 0.662560128,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/benches/queue_processor_bench.rs",
+              "score": 0.66022404,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/processing/request_queue/types.rs",
+              "score": 0.644485632,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/mod.rs",
+              "score": 0.64186906,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
@@ -1209,8 +2704,30 @@
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
               "src/rust/daemon/core/src/processing/metrics.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "src/rust/daemon/core/src/queue_types.rs",
+              "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "src/rust/daemon/core/src/config/mod.rs",
+              "src/rust/daemon/core/benches/queue_processor_bench.rs",
+              "src/rust/daemon/core/src/processing/request_queue/types.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/mod.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "src/rust/daemon/core/src/queue_types.rs",
+              "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "src/rust/daemon/core/src/config/mod.rs",
+              "src/rust/daemon/core/benches/queue_processor_bench.rs",
+              "src/rust/daemon/core/src/processing/request_queue/types.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/mod.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1224,22 +2741,83 @@
           "mode": "hybrid",
           "searchOptions": {
             "query": "Where is queue throughput measured in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.086000000000013
+            40.502300000000105
           ],
-          "latencyMeanMs": 8.086000000000013,
-          "latencyMedianMs": 8.086000000000013,
-          "latencyP95Ms": 8.086000000000013,
-          "topResults": [],
+          "latencyMeanMs": 40.502300000000105,
+          "latencyMedianMs": 40.502300000000105,
+          "latencyP95Ms": 40.502300000000105,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "score": 0.022950819672131147,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "score": 0.021875,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/queue_types.rs",
+              "score": 0.021538461538461538,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "score": 0.019999999999999997,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/config/mod.rs",
+              "score": 0.019047619047619046,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "score": 0.017948717948717947,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "score": 0.017499999999999998,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/watching/telemetry.rs",
+              "score": 0.017391304347826087,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/fts_batch_processor/processor.rs",
+              "score": 0.016901408450704224,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/daemon/core/benches/queue_processor_bench.rs",
+              "score": 0.016867469879518072,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
@@ -1250,8 +2828,30 @@
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
               "src/rust/daemon/core/src/processing/metrics.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "src/rust/daemon/core/src/queue_types.rs",
+              "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "src/rust/daemon/core/src/config/mod.rs",
+              "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/fts_batch_processor/processor.rs",
+              "src/rust/daemon/core/benches/queue_processor_bench.rs"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/unified_queue_processor/config.rs",
+              "src/rust/daemon/core/src/queue_operations/mod.rs",
+              "src/rust/daemon/core/src/queue_types.rs",
+              "src/rust/daemon/core/src/processing/request_queue/queue.rs",
+              "src/rust/daemon/core/src/config/mod.rs",
+              "src/rust/daemon/core/src/watching_queue/throttle.rs",
+              "src/rust/daemon/core/src/unified_queue_processor/processing_loop/loop_core.rs",
+              "src/rust/daemon/core/src/watching/telemetry.rs",
+              "src/rust/daemon/core/src/fts_batch_processor/processor.rs",
+              "src/rust/daemon/core/benches/queue_processor_bench.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1265,22 +2865,29 @@
           "mode": "exact",
           "searchOptions": {
             "query": "Where is queue throughput measured in the daemon?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            2.2650999999999613
+            1.2640999999998712
           ],
-          "latencyMeanMs": 2.2650999999999613,
-          "latencyMedianMs": 2.2650999999999613,
-          "latencyP95Ms": 2.2650999999999613,
-          "topResults": [],
+          "latencyMeanMs": 1.2640999999998712,
+          "latencyMedianMs": 1.2640999999998712,
+          "latencyP95Ms": 1.2640999999998712,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
@@ -1291,8 +2898,12 @@
               "src/rust/daemon/core/src/unified_queue_processor/metrics.rs",
               "src/rust/daemon/core/src/processing/metrics.rs"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1319,22 +2930,83 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "Which document describes the next steps for semantic search quality and rerank?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.200300000000084
+            27.568900000000212
           ],
-          "latencyMeanMs": 8.200300000000084,
-          "latencyMedianMs": 8.200300000000084,
-          "latencyP95Ms": 8.200300000000084,
-          "topResults": [],
+          "latencyMeanMs": 27.568900000000212,
+          "latencyMedianMs": 27.568900000000212,
+          "latencyP95Ms": 27.568900000000212,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.6890207279999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "score": 0.575299284,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "score": 0.5509542,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "score": 0.5413302839999999,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "docs/specs/10-keyword-tag-extraction.md",
+              "score": 0.53717744,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "score": 0.5168574,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "assets/default_configuration.yaml",
+              "score": 0.5155399,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "score": 0.500905504,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "score": 0.48759326,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "docs/reference/mcp-tools.md",
+              "score": 0.46788067,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "docs/plans/2026-05-25-search-quality-next-steps.md",
@@ -1345,8 +3017,30 @@
               "docs/plans/2026-05-25-search-quality-next-steps.md",
               "docs/ci-cd-processes.md"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/reference/mcp-tools.md"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "assets/default_configuration.yaml",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/rust/daemon/core/src/keyword_extraction/keyword_selector.rs",
+              "docs/reference/mcp-tools.md"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1360,22 +3054,83 @@
           "mode": "hybrid",
           "searchOptions": {
             "query": "Which document describes the next steps for semantic search quality and rerank?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.027600000000007
+            38.45290000000023
           ],
-          "latencyMeanMs": 8.027600000000007,
-          "latencyMedianMs": 8.027600000000007,
-          "latencyP95Ms": 8.027600000000007,
-          "topResults": [],
+          "latencyMeanMs": 38.45290000000023,
+          "latencyMedianMs": 38.45290000000023,
+          "latencyP95Ms": 38.45290000000023,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "docs/specs/14-future-development.md",
+              "score": 0.025937081659973226,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "score": 0.019672131147540985,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-tag-component-filters.test.ts",
+              "score": 0.018032786885245903,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "score": 0.017910447761194027,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/proto/workspace_daemon.proto",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "docs/specs/10-keyword-tag-extraction.md",
+              "score": 0.015873015873015872,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "score": 0.015873015873015872,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "score": 0.015625,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "assets/default_configuration.yaml",
+              "score": 0.015384615384615385,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "docs/plans/2026-05-25-search-quality-next-steps.md",
@@ -1386,8 +3141,30 @@
               "docs/plans/2026-05-25-search-quality-next-steps.md",
               "docs/ci-cd-processes.md"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "docs/specs/14-future-development.md",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/tools/search-tag-component-filters.test.ts",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/rust/daemon/proto/workspace_daemon.proto",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "assets/default_configuration.yaml"
+            ],
+            "topPaths": [
+              "docs/specs/14-future-development.md",
+              "src/rust/daemon/core/src/keyword_extraction/semantic_rerank.rs",
+              "src/typescript/mcp-server/tests/tools/search-tag-component-filters.test.ts",
+              "src/typescript/mcp-server/tests/benchmarks/semantic-search.test.ts",
+              "src/rust/daemon/core/src/keyword_extraction/mod.rs",
+              "src/rust/daemon/proto/workspace_daemon.proto",
+              "docs/specs/10-keyword-tag-extraction.md",
+              "src/typescript/mcp-server/src/proto/workspace_daemon.proto",
+              "src/rust/daemon/core/src/keyword_extraction/tag_selector.rs",
+              "assets/default_configuration.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1401,22 +3178,29 @@
           "mode": "exact",
           "searchOptions": {
             "query": "Which document describes the next steps for semantic search quality and rerank?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.8478000000000065
+            1.1453999999998814
           ],
-          "latencyMeanMs": 1.8478000000000065,
-          "latencyMedianMs": 1.8478000000000065,
-          "latencyP95Ms": 1.8478000000000065,
-          "topResults": [],
+          "latencyMeanMs": 1.1453999999998814,
+          "latencyMedianMs": 1.1453999999998814,
+          "latencyP95Ms": 1.1453999999998814,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "docs/plans/2026-05-25-search-quality-next-steps.md",
@@ -1427,8 +3211,12 @@
               "docs/plans/2026-05-25-search-quality-next-steps.md",
               "docs/ci-cd-processes.md"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1455,104 +3243,280 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "How does the search tool choose semantic, hybrid, and exact modes?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            8.888699999999972
+            29.219700000000103
           ],
-          "latencyMeanMs": 8.888699999999972,
-          "latencyMedianMs": 8.888699999999972,
-          "latencyP95Ms": 8.888699999999972,
-          "topResults": [],
+          "latencyMeanMs": 29.219700000000103,
+          "latencyMedianMs": 29.219700000000103,
+          "latencyP95Ms": 29.219700000000103,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "score": 0.5669601674285715,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "docs/reference/mcp-tools.md",
+              "score": 0.5596448408571429,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "score": 0.5594089668571429,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "score": 0.5426743251428572,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/src/tools/search.ts",
+              "score": 0.5240368965714286,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/rust/daemon/core/src/text_search/types.rs",
+              "score": 0.5193872134285714,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "score": 0.4956999948571429,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/typescript/mcp-server/src/tools/search-types.ts",
+              "score": 0.49110475685714283,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/text_search/exact_search/search.rs",
+              "score": 0.48643479714285714,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/rust/cli/src/commands/search.rs",
+              "score": 0.4835476508571429,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search.ts",
               "src/typescript/mcp-server/src/tools/search-types.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search.ts",
               "src/typescript/mcp-server/src/tools/search-types.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/reference/mcp-tools.md",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/rust/daemon/core/src/text_search/types.rs",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/rust/daemon/core/src/text_search/exact_search/search.rs",
+              "src/rust/cli/src/commands/search.rs"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/reference/mcp-tools.md",
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/rust/daemon/core/src/text_search/types.rs",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/typescript/mcp-server/src/tools/search-types.ts",
+              "src/rust/daemon/core/src/text_search/exact_search/search.rs",
+              "src/rust/cli/src/commands/search.rs"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 5,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.2
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "How does the search tool choose semantic, hybrid, and exact modes?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            48.55830000000003
+            38.23530000000028
           ],
-          "latencyMeanMs": 48.55830000000003,
-          "latencyMedianMs": 48.55830000000003,
-          "latencyP95Ms": 48.55830000000003,
-          "topResults": [],
+          "latencyMeanMs": 38.23530000000028,
+          "latencyMedianMs": 38.23530000000028,
+          "latencyP95Ms": 38.23530000000028,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "score": 0.019501133786848073,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "score": 0.018901098901098902,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "score": 0.01865079365079365,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "docs/reference/mcp-tools.md",
+              "score": 0.01826697892271663,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/rust/daemon/core/src/text_search/types.rs",
+              "score": 0.017972350230414748,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/src/tools/search.ts",
+              "score": 0.017551020408163264,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/rust/cli/src/commands/search.rs",
+              "score": 0.016631130063965886,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/memexd/src/startup.rs",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "docs/specs/21-tree-sitter-roadmap.md",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "docs/specs/09-search-instrumentation.md",
+              "score": 0.015694164989939637,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search.ts",
               "src/typescript/mcp-server/src/tools/search-types.ts"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search.ts"
+            ],
             "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/search.ts",
               "src/typescript/mcp-server/src/tools/search-types.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/reference/mcp-tools.md",
+              "src/rust/daemon/core/src/text_search/types.rs",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/rust/cli/src/commands/search.rs",
+              "src/rust/daemon/memexd/src/startup.rs",
+              "docs/specs/21-tree-sitter-roadmap.md",
+              "docs/specs/09-search-instrumentation.md"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/src/benchmarks/semantic-search.ts",
+              "src/typescript/mcp-server/src/tool-definitions/search.ts",
+              "src/typescript/mcp-server/tests/tools/search-modes-and-scope.test.ts",
+              "docs/reference/mcp-tools.md",
+              "src/rust/daemon/core/src/text_search/types.rs",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/rust/cli/src/commands/search.rs",
+              "src/rust/daemon/memexd/src/startup.rs",
+              "docs/specs/21-tree-sitter-roadmap.md",
+              "docs/specs/09-search-instrumentation.md"
+            ],
             "top1Hit": false,
             "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top10Hit": true,
+            "firstRelevantRank": 6,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.16666666666666666
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "How does the search tool choose semantic, hybrid, and exact modes?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.595199999999977
+            1.3773000000001048
           ],
-          "latencyMeanMs": 1.595199999999977,
-          "latencyMedianMs": 1.595199999999977,
-          "latencyP95Ms": 1.595199999999977,
-          "topResults": [],
+          "latencyMeanMs": 1.3773000000001048,
+          "latencyMedianMs": 1.3773000000001048,
+          "latencyP95Ms": 1.3773000000001048,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search.ts",
@@ -1563,8 +3527,12 @@
               "src/typescript/mcp-server/src/tools/search.ts",
               "src/typescript/mcp-server/src/tools/search-types.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,
@@ -1591,104 +3559,280 @@
           "mode": "semantic",
           "searchOptions": {
             "query": "How does fallback search avoid broadening project scope across tenants?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "semantic"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.618799999999965
+            21.959100000000035
           ],
-          "latencyMeanMs": 7.618799999999965,
-          "latencyMedianMs": 7.618799999999965,
-          "latencyP95Ms": 7.618799999999965,
-          "topResults": [],
+          "latencyMeanMs": 21.959100000000035,
+          "latencyMedianMs": 21.959100000000035,
+          "latencyP95Ms": 21.959100000000035,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/rust/daemon/core/src/cross_project_search.rs",
+              "score": 0.6719627200000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "score": 0.6153621240000001,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "score": 0.5930684257142858,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "score": 0.525385692,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "score": 0.47854147142857145,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/src/tools/search.ts",
+              "score": 0.42143241771428575,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "score": 0.42005871514285714,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": "src/rust/daemon/core/src/text_search/exact_search/tests/glob_tests.rs",
+              "score": 0.4004755114285714,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/grpc/src/services/project_service/worktree.rs",
+              "score": 0.39308274942857147,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "src/typescript/mcp-server/src/tools/retrieve.ts",
+              "score": 0.3827033,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "matchedExpectedFiles": [],
-            "missingExpectedFiles": [
+            "matchedExpectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "missingExpectedFiles": [],
+            "rawTopPaths": [
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/rust/daemon/core/src/text_search/exact_search/tests/glob_tests.rs",
+              "src/rust/daemon/grpc/src/services/project_service/worktree.rs",
+              "src/typescript/mcp-server/src/tools/retrieve.ts"
+            ],
+            "topPaths": [
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "src/typescript/mcp-server/src/tools/search.ts",
+              "src/typescript/mcp-server/src/tools/search-helpers.ts",
+              "src/rust/daemon/core/src/text_search/exact_search/tests/glob_tests.rs",
+              "src/rust/daemon/grpc/src/services/project_service/worktree.rs",
+              "src/typescript/mcp-server/src/tools/retrieve.ts"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 2,
+            "precisionAt10": 0.2,
+            "recallAt10": 1,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.5
           }
         },
         "hybrid": {
           "mode": "hybrid",
           "searchOptions": {
             "query": "How does fallback search avoid broadening project scope across tenants?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 10,
             "mode": "hybrid"
           },
           "status": "ok",
-          "total": 0,
+          "total": 10,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            7.519100000000094
+            43.70550000000003
           ],
-          "latencyMeanMs": 7.519100000000094,
-          "latencyMedianMs": 7.519100000000094,
-          "latencyP95Ms": 7.519100000000094,
-          "topResults": [],
+          "latencyMeanMs": 43.70550000000003,
+          "latencyMedianMs": 43.70550000000003,
+          "latencyP95Ms": 43.70550000000003,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "score": 0.02004264392324094,
+              "collection": "projects"
+            },
+            {
+              "rank": 2,
+              "filePath": "src/rust/daemon/core/src/cross_project_search.rs",
+              "score": 0.019815668202764977,
+              "collection": "projects"
+            },
+            {
+              "rank": 3,
+              "filePath": "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "score": 0.01826697892271663,
+              "collection": "projects"
+            },
+            {
+              "rank": 4,
+              "filePath": "src/typescript/mcp-server/src/tools/search-exact.ts",
+              "score": 0.017142857142857144,
+              "collection": "projects"
+            },
+            {
+              "rank": 5,
+              "filePath": ".github/instructions/taskmaster.instructions.md",
+              "score": 0.01639344262295082,
+              "collection": "projects"
+            },
+            {
+              "rank": 6,
+              "filePath": "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "score": 0.01638095238095238,
+              "collection": "projects"
+            },
+            {
+              "rank": 7,
+              "filePath": "docs/deployment/docker.md",
+              "score": 0.016129032258064516,
+              "collection": "projects"
+            },
+            {
+              "rank": 8,
+              "filePath": ".github/instructions/dev_workflow.instructions.md",
+              "score": 0.015873015873015872,
+              "collection": "projects"
+            },
+            {
+              "rank": 9,
+              "filePath": "src/rust/daemon/core/src/keyword_extraction/structural_tags.rs",
+              "score": 0.015625,
+              "collection": "projects"
+            },
+            {
+              "rank": 10,
+              "filePath": "docs/reference/windows-installation.md",
+              "score": 0.015384615384615385,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "matchedExpectedFiles": [],
+            "matchedExpectedFiles": [
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts"
+            ],
             "missingExpectedFiles": [
-              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              ".github/instructions/taskmaster.instructions.md",
+              "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "docs/deployment/docker.md",
+              ".github/instructions/dev_workflow.instructions.md",
+              "src/rust/daemon/core/src/keyword_extraction/structural_tags.rs",
+              "docs/reference/windows-installation.md"
+            ],
+            "topPaths": [
+              "src/typescript/mcp-server/tests/tools/search-fallback-tenant.test.ts",
+              "src/rust/daemon/core/src/cross_project_search.rs",
+              "src/typescript/mcp-server/src/tools/search-qdrant.ts",
+              "src/typescript/mcp-server/src/tools/search-exact.ts",
+              ".github/instructions/taskmaster.instructions.md",
+              "src/typescript/mcp-server/tests/tools/search-exact-tenant.test.ts",
+              "docs/deployment/docker.md",
+              ".github/instructions/dev_workflow.instructions.md",
+              "src/rust/daemon/core/src/keyword_extraction/structural_tags.rs",
+              "docs/reference/windows-installation.md"
+            ],
             "top1Hit": false,
-            "top3Hit": false,
-            "top10Hit": false,
-            "precisionAt10": 0,
-            "recallAt10": 0,
+            "top3Hit": true,
+            "top10Hit": true,
+            "firstRelevantRank": 3,
+            "precisionAt10": 0.1,
+            "recallAt10": 0.5,
             "duplicateRate": 0,
-            "mrr": 0
+            "mrr": 0.3333333333333333
           }
         },
         "exact": {
           "mode": "exact",
           "searchOptions": {
             "query": "How does fallback search avoid broadening project scope across tenants?",
-            "scope": "all",
-            "limit": 0,
+            "scope": "project",
+            "limit": 1,
             "exact": true
           },
           "status": "ok",
-          "total": 0,
+          "total": 1,
           "collectionsSearched": [
             "projects"
           ],
           "latencySamplesMs": [
-            1.8255000000000337
+            1.1788000000001375
           ],
-          "latencyMeanMs": 1.8255000000000337,
-          "latencyMedianMs": 1.8255000000000337,
-          "latencyP95Ms": 1.8255000000000337,
-          "topResults": [],
+          "latencyMeanMs": 1.1788000000001375,
+          "latencyMedianMs": 1.1788000000001375,
+          "latencyP95Ms": 1.1788000000001375,
+          "topResults": [
+            {
+              "rank": 1,
+              "filePath": "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml",
+              "score": 1,
+              "collection": "projects"
+            }
+          ],
           "evaluation": {
             "expectedFiles": [
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
@@ -1699,8 +3843,12 @@
               "src/typescript/mcp-server/src/tools/search-qdrant.ts",
               "src/typescript/mcp-server/src/tools/search-helpers.ts"
             ],
-            "rawTopPaths": [],
-            "topPaths": [],
+            "rawTopPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
+            "topPaths": [
+              "run/desktop/mnt/host/c/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml"
+            ],
             "top1Hit": false,
             "top3Hit": false,
             "top10Hit": false,

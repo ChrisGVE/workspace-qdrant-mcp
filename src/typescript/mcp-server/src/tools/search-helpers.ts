@@ -296,7 +296,11 @@ function buildCollectionSearchParams(
     denseEmbedding: params.denseEmbedding,
     sparseVector: params.sparseVector,
     filter: buildFilter(filterParams),
-    limit: params.limit * 2,
+    // Fetch a wider candidate pool than we return: the path-relevance
+    // re-rank and same-file dedup both reach past the first `limit` cosine
+    // hits, so a precisely-named file ranked ~30th by raw similarity can
+    // still be promoted into the top-k.
+    limit: params.limit * 5,
     scoreThreshold: params.scoreThreshold,
   };
 }
@@ -373,6 +377,104 @@ function recordAndBuildResponse(
   return response;
 }
 
+/** Query words too generic to signal file relevance — dropped before
+ * path matching so "how/where/the/search" don't inflate every result. */
+const PATH_BOOST_STOPWORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'how', 'does', 'do', 'did',
+  'where', 'what', 'which', 'when', 'who', 'why', 'to', 'of', 'in', 'on', 'for',
+  'and', 'or', 'with', 'from', 'by', 'that', 'this', 'it', 'its', 'as', 'at',
+  'be', 'can', 'we', 'you', 'i', 'use', 'used', 'using', 'into', 'across',
+]);
+
+/** Multiplicative weight for the path-relevance re-rank. A result whose file
+ * path/symbol contains ALL query content-words gets +50%; partial overlap
+ * scales linearly. Multiplicative so it composes with any score scale
+ * (raw cosine ~0.4–0.6 for semantic, RRF ~0.01–0.03 for hybrid). */
+const PATH_BOOST_ALPHA = 0.8;
+
+/** Split a string into lowercase alphanumeric tokens (path separators,
+ * underscores, dashes, dots, and camelCase humps all break tokens). */
+function toTokens(text: string): string[] {
+  return text
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/** Content words from the query, used as the path-relevance signal. */
+function queryContentTokens(query: string): string[] {
+  return [...new Set(toTokens(query).filter((t) => t.length >= 3 && !PATH_BOOST_STOPWORDS.has(t)))];
+}
+
+/** Fraction of query content-words whose stem appears in the result's file
+ * path or symbol name. The path is a high-precision relevance signal a human
+ * reader uses first (e.g. "queue throughput metrics" → .../metrics.rs) and is
+ * orthogonal to the dense/sparse legs, which over-reward content-term magnets
+ * like a 2k-line config file or an adjacent subsystem. */
+function pathRelevance(queryTokens: string[], result: SearchResult): number {
+  if (queryTokens.length === 0) return 0;
+  const path =
+    (result.metadata['relative_path'] as string | undefined) ??
+    (result.metadata['file_path'] as string | undefined) ??
+    '';
+  const symbol = (result.metadata['chunk_symbol_name'] as string | undefined) ?? '';
+  const pathToks = new Set(toTokens(`${path} ${symbol}`));
+  let hits = 0;
+  for (const qt of queryTokens) {
+    if (pathToks.has(qt)) {
+      hits += 1;
+      continue;
+    }
+    // Stem-ish containment so "metrics"~"metric", "resolution"~"resolve".
+    for (const pt of pathToks) {
+      if (pt.length >= 4 && qt.length >= 4 && (pt.includes(qt) || qt.includes(pt))) {
+        hits += 1;
+        break;
+      }
+    }
+  }
+  return hits / queryTokens.length;
+}
+
+/** Re-score results in place by their path relevance to the query. */
+function applyPathRelevanceBoost(results: SearchResult[], query: string): void {
+  const queryTokens = queryContentTokens(query);
+  if (queryTokens.length === 0) return;
+  for (const result of results) {
+    const rel = pathRelevance(queryTokens, result);
+    if (rel > 0) result.score *= 1 + PATH_BOOST_ALPHA * rel;
+  }
+}
+
+/** Collapse multiple chunks of the same file into a single hit, keeping the
+ * highest-scored chunk. Input MUST already be sorted by score descending so
+ * the first occurrence per file is the best one.
+ *
+ * Without this, a large or repetitive file contributes several chunk-level
+ * hits that each consume a top-k slot — e.g. one query returned the same
+ * `watchdog.rs` four times in the top 6, crowding out other relevant files
+ * and tanking recall. Dense and sparse hits from the same file also collide.
+ * Identity is the per-file `document_id` (shared by every chunk of a file,
+ * and stable across branches) with path/id fallbacks for collections that
+ * don't carry it. Exact/FTS5 search has its own line-level path and never
+ * reaches this function. */
+function dedupeByFile(results: SearchResult[]): SearchResult[] {
+  const seen = new Set<string>();
+  const deduped: SearchResult[] = [];
+  for (const result of results) {
+    const key =
+      (result.metadata['document_id'] as string | undefined) ??
+      (result.metadata['relative_path'] as string | undefined) ??
+      (result.metadata['file_path'] as string | undefined) ??
+      result.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(result);
+  }
+  return deduped;
+}
+
 /** Fuse, sort, expand context, update event, and assemble the final response. */
 export async function finalizeResults(
   qdrantClient: QdrantClient,
@@ -381,8 +483,13 @@ export async function finalizeResults(
   params: FinalizeResultsParams
 ): Promise<SearchResponse> {
   const fusedResults = applyRRFFusion(params.allResults, params.mode);
+  // Promote results whose file path/symbol matches the query before ranking
+  // — surfaces the precisely-named file over content-term magnets.
+  applyPathRelevanceBoost(fusedResults, params.query);
   fusedResults.sort((a, b) => b.score - a.score);
-  const finalResults = fusedResults.slice(0, params.limit);
+  // Collapse same-file chunks BEFORE slicing so the top-k holds distinct
+  // files, not repeated chunks of one file.
+  const finalResults = dedupeByFile(fusedResults).slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
   if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);

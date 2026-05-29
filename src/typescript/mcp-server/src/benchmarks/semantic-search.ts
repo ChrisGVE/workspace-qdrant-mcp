@@ -20,10 +20,17 @@ export const SEMANTIC_SEARCH_BENCHMARK_MODES = ['semantic', 'hybrid', 'exact'] a
 
 export type BenchmarkMode = (typeof SEMANTIC_SEARCH_BENCHMARK_MODES)[number];
 
+// Verdict gates on the two INDEPENDENT known-item signals: recall@10
+// (did we surface the relevant files at all) and top-3 useful rate (are
+// they ranked high enough to be seen). precision@10 is intentionally NOT a
+// gate — with only 1–2 relevant files per query it is ≈ recall@10 ×
+// (meanExpected/10) ≈ recall × 0.19, i.e. a rescaled copy of recall, so
+// gating on both would double-count one signal (and the old 0.84 bar was
+// mathematically unreachable since precision@10 caps at ~0.19). It stays in
+// the reported metrics for visibility.
 export const DEFAULT_SEMANTIC_QUALITY_THRESHOLDS = {
   top3UsefulRate: 0.8,
   recallAt10: 0.7,
-  precisionAt10: 0.84,
 } as const;
 
 export interface SemanticSearchBenchmarkDatasetDefaults {
@@ -512,13 +519,6 @@ export function classifySemanticSearchQuality(
   if (summary.recallAt10 < thresholds.recallAt10) {
     reasons.push(
       `recall@10 ${formatPercent(summary.recallAt10)} is below ${formatPercent(thresholds.recallAt10)}`
-    );
-  }
-  if (summary.precisionAt10 < thresholds.precisionAt10) {
-    reasons.push(
-      `precision@10 ${formatPercent(summary.precisionAt10)} is below ${formatPercent(
-        thresholds.precisionAt10
-      )}`
     );
   }
 
