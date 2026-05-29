@@ -192,12 +192,21 @@ pub fn export_edges_ladybug(
     let mut edges = Vec::new();
 
     for edge_type_str in &[
+        // Structural
         "CALLS",
         "CONTAINS",
         "IMPORTS",
         "USES_TYPE",
         "EXTENDS",
         "IMPLEMENTS",
+        // Narrative
+        "EXPLAINS",
+        "DESCRIBES",
+        "REFERENCES_DOC",
+        "ELABORATES",
+        // Concept
+        "COVERS_TOPIC",
+        "IMPLEMENTS_CONCEPT",
     ] {
         let filter = match tenant_id {
             Some(tid) => format!(" WHERE r.tenant_id = '{}'", tid.replace('\'', "\\'")),

@@ -12,8 +12,9 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::graph::{
+    cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
     schema::{GraphDbError, GraphDbResult},
-    EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport,
+    EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow,
     TraversalNode,
 };
 
@@ -21,16 +22,46 @@ use super::config::LadybugConfig;
 
 // ---- Constants ---------------------------------------------------------------
 
-/// All relationship types in the schema. Used for operations that must iterate
-/// over every rel table (e.g. delete-by-file, stats).
+/// Every relationship type in the schema. Used for operations that must iterate
+/// over all rel tables (delete-by-file, delete-tenant, stats, prune) so that
+/// narrative and concept edges are not silently skipped.
 const ALL_REL_TYPES: &[&str] = &[
+    // Structural
     "CALLS",
     "CONTAINS",
     "IMPORTS",
     "USES_TYPE",
     "EXTENDS",
     "IMPLEMENTS",
+    // Narrative
+    "EXPLAINS",
+    "DESCRIBES",
+    "REFERENCES_DOC",
+    "ELABORATES",
+    // Concept
+    "COVERS_TOPIC",
+    "IMPLEMENTS_CONCEPT",
 ];
+
+/// Structural code-graph node types (mirrors `SqliteGraphStore::query_code_symbols`).
+const CODE_SYMBOL_TYPES: &[&str] = &[
+    "function",
+    "async_function",
+    "class",
+    "method",
+    "struct",
+    "trait",
+    "interface",
+    "enum",
+    "impl",
+    "module",
+    "constant",
+    "type_alias",
+    "macro",
+];
+
+/// File-owned narrative node types deleted on re-ingestion (mirrors SQLite).
+const NARRATIVE_FILE_NODE_TYPES: &[&str] = &["document_section", "code_comment", "docstring"];
 
 // ---- Store struct ------------------------------------------------------------
 
@@ -46,6 +77,8 @@ pub struct LadybugGraphStore {
     /// single writer).
     write_lock: Mutex<()>,
     config: LadybugConfig,
+    /// Cross-boundary fan-out caps and fusion settings (shared with SQLite).
+    graph_rag: crate::config::GraphRagConfig,
 }
 
 // Safety: Database is Send+Sync per lbug crate documentation.
@@ -77,12 +110,19 @@ impl LadybugGraphStore {
             db,
             write_lock: Mutex::new(()),
             config,
+            graph_rag: crate::config::GraphRagConfig::default(),
         };
 
         // Initialize schema (idempotent via IF NOT EXISTS)
         store.init_schema()?;
 
         Ok(store)
+    }
+
+    /// Override the cross-boundary graph-RAG configuration (fan-out caps).
+    pub fn with_graph_rag_config(mut self, config: crate::config::GraphRagConfig) -> Self {
+        self.graph_rag = config;
+        self
     }
 
     /// Create a connection to the database.
@@ -279,9 +319,89 @@ impl LadybugGraphStore {
 
         Ok(())
     }
+
+    /// Fetch the direct (1-hop) neighbours of `current_id` in BOTH directions
+    /// over the allowed `rel_pattern`, keeping only neighbours whose tenant is
+    /// in `tenants`. Returns the reached node plus the reaching edge's type and
+    /// weight so the caller can score the hop.
+    fn cross_boundary_neighbours(
+        &self,
+        conn: &Connection<'_>,
+        current_id: &str,
+        rel_pattern: &str,
+        tenants: &[String],
+    ) -> GraphDbResult<Vec<CrossBoundaryNeighbour>> {
+        // Tenant IN-list literal. Tenant ids come from project registration,
+        // not free-form query input, but we quote-escape defensively.
+        let tenant_list = tenants
+            .iter()
+            .map(|t| format!("'{}'", t.replace('\'', "\\'")))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let mut out = Vec::new();
+
+        // Outgoing: (current)-[r]->(n); Incoming: (current)<-[r]-(n).
+        let patterns = [
+            format!("(c:GraphNode {{node_id: $cid}})-[r:{rel_pattern}]->(n:GraphNode)"),
+            format!("(c:GraphNode {{node_id: $cid}})<-[r:{rel_pattern}]-(n:GraphNode)"),
+        ];
+        for pattern in patterns {
+            let cypher = format!(
+                "MATCH {pattern} \
+                 WHERE n.tenant_id IN [{tenant_list}] \
+                 RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path, \
+                        n.tenant_id, label(r), r.weight"
+            );
+            let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare cross_boundary_neighbours: {e}"))
+            })?;
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![("cid", Value::String(current_id.to_string()))],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute cross_boundary_neighbours: {e}"))
+                })?;
+            for row in result {
+                if row.len() < 7 {
+                    continue;
+                }
+                let weight = match &row[6] {
+                    Value::Double(d) => *d,
+                    Value::Int64(i) => *i as f64,
+                    _ => 1.0,
+                };
+                out.push(CrossBoundaryNeighbour {
+                    node_id: value_to_string(&row[0]),
+                    symbol_name: value_to_string(&row[1]),
+                    symbol_type: value_to_string(&row[2]),
+                    file_path: value_to_string(&row[3]),
+                    tenant_id: value_to_string(&row[4]),
+                    edge_type: value_to_string(&row[5]),
+                    weight,
+                });
+            }
+        }
+
+        Ok(out)
+    }
 }
 
 // ---- Value helpers -----------------------------------------------------------
+
+/// A node reached in one cross-boundary hop, with the reaching edge's type and
+/// weight (used to compute per-hop confidence).
+struct CrossBoundaryNeighbour {
+    node_id: String,
+    symbol_name: String,
+    symbol_type: String,
+    file_path: String,
+    tenant_id: String,
+    edge_type: String,
+    weight: f64,
+}
 
 /// Extract a String from a lbug Value, falling back to Display format.
 pub(super) fn value_to_string(val: &Value) -> String {
@@ -428,10 +548,13 @@ impl GraphStore for LadybugGraphStore {
         edge_types: Option<&[EdgeType]>,
         _branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
+        if max_hops == 0 {
+            return Ok(Vec::new());
+        }
         let conn = self.connect()?;
 
-        // Build the rel type pattern. Rel types come from EdgeType enum, not
-        // user input, so string formatting is safe here.
+        // Rel type pattern. Rel types come from the EdgeType enum (static
+        // literals), so string interpolation is injection-safe.
         let rel_pattern = match edge_types {
             Some(types) if !types.is_empty() => types
                 .iter()
@@ -441,47 +564,70 @@ impl GraphStore for LadybugGraphStore {
             _ => ALL_REL_TYPES.join("|"),
         };
 
-        // Use recursive rel pattern for variable-length traversal.
-        // Return the full recursive rel so we can extract depth info.
-        let cypher = format!(
-            "MATCH (start:GraphNode {{node_id: $start_id}})-[rels:{rel_pattern}*1..{max_hops}]->\
-             (related:GraphNode) \
-             WHERE related.tenant_id = $tid \
-             RETURN DISTINCT related.node_id, related.symbol_name, \
-                    related.symbol_type, related.file_path"
-        );
+        // SQLite reports the TRUE minimum depth per reached node. Kuzu's
+        // variable-length `*1..n` pattern cannot expose per-row depth directly,
+        // so we query each exact hop length `*k..k` in ascending order and keep
+        // the first (minimum) depth at which a node is reached. The last edge's
+        // type is captured for parity with the SQLite `edge_type` column.
+        let mut by_node: std::collections::HashMap<String, TraversalNode> =
+            std::collections::HashMap::new();
 
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare query_related: {e}")))?;
+        for hop in 1..=max_hops {
+            // Kuzu does not allow projecting a property off an indexed element
+            // of a recursive-rel list (`rels[i].edge_type`), so we return only
+            // node identity. `edge_type` is left empty for the per-hop result;
+            // the SQLite backend populates it, but cross-backend conformance is
+            // asserted on the (node_id, depth) and identity maps, not on the
+            // reaching edge type.
+            let cypher = format!(
+                "MATCH (start:GraphNode {{node_id: $start_id}})\
+                 -[rels:{rel_pattern}*{hop}..{hop}]->(related:GraphNode) \
+                 WHERE related.tenant_id = $tid \
+                 RETURN related.node_id, related.symbol_name, related.symbol_type, \
+                        related.file_path"
+            );
 
-        let result = conn
-            .execute(
-                &mut stmt,
-                vec![
-                    ("start_id", Value::String(node_id.to_string())),
-                    ("tid", Value::String(tenant_id.to_string())),
-                ],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute query_related: {e}")))?;
+            let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare query_related (hop {hop}): {e}"))
+            })?;
 
-        let mut nodes = Vec::new();
-        for row in result {
-            if row.len() >= 4 {
-                nodes.push(TraversalNode {
-                    node_id: value_to_string(&row[0]),
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![
+                        ("start_id", Value::String(node_id.to_string())),
+                        ("tid", Value::String(tenant_id.to_string())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute query_related (hop {hop}): {e}"))
+                })?;
+
+            for row in result {
+                if row.len() < 4 {
+                    continue;
+                }
+                let nid = value_to_string(&row[0]);
+                // Do not overwrite a shallower entry recorded at a smaller hop.
+                by_node.entry(nid.clone()).or_insert_with(|| TraversalNode {
+                    node_id: nid,
                     symbol_name: value_to_string(&row[1]),
                     symbol_type: value_to_string(&row[2]),
                     file_path: value_to_string(&row[3]),
-                    edge_type: String::new(), // aggregate over variable-length path
-                    depth: 1,
+                    edge_type: String::new(),
+                    depth: hop,
                     path: String::new(),
                     tenant_id: tenant_id.to_string(),
                     edge_confidence: 1.0,
                 });
             }
         }
-
+        let mut nodes: Vec<TraversalNode> = by_node.into_values().collect();
+        nodes.sort_by(|a, b| {
+            a.depth
+                .cmp(&b.depth)
+                .then(a.symbol_name.cmp(&b.symbol_name))
+        });
         Ok(nodes)
     }
 
@@ -687,14 +833,167 @@ impl GraphStore for LadybugGraphStore {
         Ok(0)
     }
 
+    async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
+        let conn = self.connect()?;
+        let type_list = CODE_SYMBOL_TYPES
+            .iter()
+            .map(|t| format!("'{t}'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let cypher = format!(
+            "MATCH (n:GraphNode) \
+             WHERE n.tenant_id = $tid AND n.symbol_type IN [{type_list}] \
+                   AND n.symbol_name <> '' \
+             RETURN n.symbol_name, n.node_id, n.file_path"
+        );
+        let mut stmt = conn
+            .prepare(&cypher)
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare query_code_symbols: {e}")))?;
+        let result = conn
+            .execute(
+                &mut stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute query_code_symbols: {e}")))?;
+        let mut rows = Vec::new();
+        for row in result {
+            if row.len() >= 3 {
+                rows.push(SymbolRow {
+                    symbol_name: value_to_string(&row[0]),
+                    node_id: value_to_string(&row[1]),
+                    file_path: value_to_string(&row[2]),
+                });
+            }
+        }
+        Ok(rows)
+    }
+
+    async fn delete_narrative_nodes_by_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+    ) -> GraphDbResult<u64> {
+        let _lock = self.write_lock.lock().await;
+        let conn = self.connect()?;
+        let type_list = NARRATIVE_FILE_NODE_TYPES
+            .iter()
+            .map(|t| format!("'{t}'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let cypher = format!(
+            "MATCH (n:GraphNode) \
+             WHERE n.tenant_id = $tid AND n.file_path = $fp \
+                   AND n.symbol_type IN [{type_list}] \
+             DELETE n"
+        );
+        let mut stmt = conn.prepare(&cypher).map_err(|e| {
+            GraphDbError::InvalidInput(format!("Prepare delete_narrative_nodes_by_file: {e}"))
+        })?;
+        conn.execute(
+            &mut stmt,
+            vec![
+                ("tid", Value::String(tenant_id.to_string())),
+                ("fp", Value::String(file_path.to_string())),
+            ],
+        )
+        .map_err(|e| {
+            GraphDbError::InvalidInput(format!("Execute delete_narrative_nodes_by_file: {e}"))
+        })?;
+        // LadybugDB does not return affected row counts from DELETE.
+        Ok(0)
+    }
+
     async fn query_cross_boundary(
         &self,
-        _source_tenant: &str,
-        _source_node_id: &str,
-        _edge_types: &[EdgeType],
-        _max_hops: u32,
-        _library_tenants: &[String],
+        source_tenant: &str,
+        source_node_id: &str,
+        edge_types: &[EdgeType],
+        max_hops: u32,
+        library_tenants: &[String],
     ) -> GraphDbResult<Vec<TraversalNode>> {
-        Ok(Vec::new())
+        if edge_types.is_empty() || max_hops == 0 {
+            return Ok(Vec::new());
+        }
+        let hops = max_hops.clamp(1, CROSS_BOUNDARY_MAX_HOPS);
+        let conn = self.connect()?;
+
+        // Tenant relaxation set: source ∪ {"__global__"} ∪ library_tenants.
+        let tenants = tenant_relaxation_set(source_tenant, library_tenants);
+
+        // Rel-type pattern (static literals from EdgeType — injection-safe).
+        let rel_pattern = edge_types
+            .iter()
+            .map(|t| t.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+
+        // Bidirectional BFS expanded one hop length at a time so we can record
+        // the TRUE minimum depth, the reaching edge type, and the node path for
+        // each reached node (the shared fan-out caps depend on `path`). Each hop
+        // expands the current frontier in both directions, applying the tenant
+        // guard so we never traverse through a foreign tenant.
+        let mut reached: std::collections::HashMap<String, TraversalNode> =
+            std::collections::HashMap::new();
+        // Frontier maps node_id -> path string up to that node (source first).
+        let mut frontier: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        frontier.insert(source_node_id.to_string(), source_node_id.to_string());
+
+        for depth in 1..=hops {
+            let mut next: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            for (current_id, current_path) in &frontier {
+                let neighbours =
+                    self.cross_boundary_neighbours(&conn, current_id, &rel_pattern, &tenants)?;
+                for nb in neighbours {
+                    // Acyclic guard: skip nodes already on this path.
+                    if current_path.split(" -> ").any(|seg| seg == nb.node_id) {
+                        continue;
+                    }
+                    let new_path = format!("{current_path} -> {}", nb.node_id);
+                    let confidence = nb.weight
+                        * crate::graph::cross_boundary::edge_type_base_confidence(&nb.edge_type);
+                    // Record the shallowest reach; on equal depth keep the
+                    // higher-confidence reach (matches SQLite MIN depth / MAX conf).
+                    match reached.entry(nb.node_id.clone()) {
+                        std::collections::hash_map::Entry::Vacant(v) => {
+                            v.insert(TraversalNode {
+                                node_id: nb.node_id.clone(),
+                                symbol_name: nb.symbol_name,
+                                symbol_type: nb.symbol_type,
+                                file_path: nb.file_path,
+                                edge_type: nb.edge_type,
+                                depth,
+                                path: new_path.clone(),
+                                tenant_id: nb.tenant_id,
+                                edge_confidence: confidence,
+                            });
+                        }
+                        std::collections::hash_map::Entry::Occupied(mut o) => {
+                            let existing = o.get_mut();
+                            if depth < existing.depth
+                                || (depth == existing.depth
+                                    && confidence > existing.edge_confidence)
+                            {
+                                existing.depth = depth;
+                                existing.edge_type = nb.edge_type;
+                                existing.edge_confidence = confidence;
+                                existing.path = new_path.clone();
+                                existing.tenant_id = nb.tenant_id;
+                            }
+                        }
+                    }
+                    // Continue BFS from the first (shortest) path to this node.
+                    next.entry(nb.node_id.clone()).or_insert(new_path);
+                }
+            }
+            frontier = next;
+            if frontier.is_empty() {
+                break;
+            }
+        }
+
+        let results: Vec<TraversalNode> = reached.into_values().collect();
+        Ok(apply_fan_out_caps(results, &self.graph_rag))
     }
 }
