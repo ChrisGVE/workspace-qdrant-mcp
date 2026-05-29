@@ -19,6 +19,7 @@ import {
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import { handleEmbedding } from './tools/embedding.js';
 import { handleWorkspaceIndex } from './tools/workspace-index.js';
+import { runSearchEval } from './tools/search-eval.js';
 import { ensureProjectFresh, registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
 import { withToolMetrics } from './telemetry/metrics.js';
 import mcpPublicConfig from './constants/mcp-public-config.json' with { type: 'json' };
@@ -61,8 +62,16 @@ async function routeTool(
   components: ServerComponents,
   sessionState: SessionState
 ): Promise<unknown> {
-  const { searchTool, retrieveTool, rulesTool, grepTool, listTool, healthMonitor, daemonClient } =
-    components;
+  const {
+    searchTool,
+    retrieveTool,
+    rulesTool,
+    grepTool,
+    listTool,
+    healthMonitor,
+    daemonClient,
+    projectDetector,
+  } = components;
   switch (toolName) {
     case 'search': {
       const searchResult = await searchTool.search(
@@ -84,6 +93,8 @@ async function routeTool(
       return handleEmbedding(args, daemonClient);
     case 'workspace_index':
       return handleWorkspaceIndex(args, daemonClient);
+    case 'search_eval':
+      return runSearchEval(searchTool, projectDetector, args);
     default:
       throw new Error(`Unexpected tool: ${toolName}`);
   }

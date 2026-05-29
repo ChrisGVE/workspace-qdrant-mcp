@@ -11,6 +11,7 @@ export { grepToolDefinition } from './grep.js';
 export { listToolDefinition } from './list.js';
 export { embeddingToolDefinition } from './embedding.js';
 export { workspaceIndexToolDefinition } from './workspace-index.js';
+export { searchEvalToolDefinition } from './search-eval.js';
 
 import { searchToolDefinition } from './search.js';
 import { retrieveToolDefinition } from './retrieve.js';
@@ -20,6 +21,7 @@ import { grepToolDefinition } from './grep.js';
 import { listToolDefinition } from './list.js';
 import { embeddingToolDefinition } from './embedding.js';
 import { workspaceIndexToolDefinition } from './workspace-index.js';
+import { searchEvalToolDefinition } from './search-eval.js';
 
 /**
  * Returns the full list of tool definitions for the ListTools MCP response
@@ -34,5 +36,6 @@ export function getToolDefinitions() {
     listToolDefinition,
     embeddingToolDefinition,
     workspaceIndexToolDefinition,
+    searchEvalToolDefinition,
   ];
 }

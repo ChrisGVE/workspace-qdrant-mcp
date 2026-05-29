@@ -10,7 +10,8 @@
     "workspace_index"
   ],
   "internalTools": [
-    "embedding"
+    "embedding",
+    "search_eval"
   ],
   "codex": {
     "startup_timeout_sec": 20,
