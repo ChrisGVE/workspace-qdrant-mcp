@@ -2,8 +2,13 @@
 #
 # OpenTelemetry Collector configuration for workspace-qdrant-mcp.
 #
-# Receives OTLP metrics from the MCP server (stdio mode pushes via OTLP HTTP),
-# batches them, exports to Prometheus (pull) and logs for diagnostics.
+# Receives OTLP metrics from the MCP server (stdio mode pushes via OTLP HTTP)
+# and OTLP traces from the memexd daemon, batches them, exports metrics to
+# Prometheus (pull) and forwards traces to Grafana Tempo.
+#
+# The traces pipeline both registers the OTLP /v1/traces route (so the daemon's
+# span exporter no longer gets 404s) and ships spans to Tempo, where Grafana's
+# Tempo datasource makes them queryable (Explore -> Tempo / TraceQL).
 #
 # Used by:
 #   - docker/compose/observability.yml  (self-contained stack)
@@ -31,6 +36,12 @@ exporters:
   debug:
     verbosity: detailed
 
+  # Forward traces to Grafana Tempo over OTLP gRPC (in-cluster, plaintext).
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
 service:
   telemetry:
     metrics:
@@ -40,3 +51,7 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [prometheus, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo]

@@ -470,6 +470,7 @@ stack-status:
 	@try { $$resp = Invoke-WebRequest -Uri "$(MCP_INIT_URL)" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host "/admin/init     [$$($$resp.StatusCode)] ok" } catch { Write-Host "/admin/init     [fail] $$($$_.Exception.Message)" }
 	@try { $$resp = Invoke-WebRequest -Uri "http://localhost:6333/collections" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host "qdrant          [$$($$resp.StatusCode)] ok" } catch { Write-Host "qdrant          [fail] $$($$_.Exception.Message)" }
 	@try { $$client = New-Object System.Net.Sockets.TcpClient; $$iar = $$client.BeginConnect("localhost", 50051, $$null, $$null); $$ok = $$iar.AsyncWaitHandle.WaitOne(2000, $$false); if ($$ok) { $$client.EndConnect($$iar); Write-Host "memexd gRPC     [ok] localhost:50051" } else { Write-Host "memexd gRPC     [timeout]" }; $$client.Close() } catch { Write-Host "memexd gRPC     [fail] $$($$_.Exception.Message)" }
+	@try { $$resp = Invoke-WebRequest -Uri "http://localhost:3200/ready" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host "tempo           [$$($$resp.StatusCode)] ready" } catch { Write-Host "tempo           [fail] $$($$_.Exception.Message)" }
 
 stack-logs:
 	@Set-Location "$(REPO)"; docker compose --env-file "$(COMPOSE_ENV_FILE)" -f "$(COMPOSE_FILE)" logs --tail 50 mcp memexd
