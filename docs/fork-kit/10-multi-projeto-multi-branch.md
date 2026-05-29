@@ -1,5 +1,7 @@
 # 10 — Gestão multi-projeto e multi-branch
 
+> ⚠️ **LEGADO (modelo antigo de 4 camadas).** O modelo atual do fork é `main` (estável) + `dev` (trabalho, com CI) + `upstream-sync` (espelho fetch-only) — veja `AGENTS.md` › "Modelo de branches e regra sobre `main`". Os targets `workspace-*` e o `branch-flow.ps1` descritos abaixo ainda assumem a cadeia antiga (`main` = espelho do upstream → overlay → fixes → use) e estão pendentes de migração.
+
 Este fork pode operar vários clones/projetos ao mesmo tempo. Cada projeto pode ter a cadeia:
 
 ```text

@@ -4,10 +4,10 @@ A ferramenta MCP `workspace_index` permite que Claude/Codex consultem e, com aut
 
 ## Instalação
 
-Aplique o patch no fork, de preferência em `fork/fixes`:
+Aplique o patch no fork, de preferência em `dev`:
 
 ```powershell
-git checkout fork/fixes
+git checkout dev
 make -f Makefile.win workspace-index-check
 make -f Makefile.win workspace-index-apply
 make -f Makefile.win typecheck-ts

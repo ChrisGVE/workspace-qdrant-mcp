@@ -15,10 +15,13 @@
 #   MCP_HTTP_PORT=6335
 #   LOG_DIR=C:\dev\workspace-qdrant-mcp\.wqm-fork\logs
 #
-# Fluxo de branches recomendado:
-#   upstream/main -> main -> fork/overlay -> fork/fixes -> personal/use-in-projects
+# Fluxo de branches recomendado (desde 2026-05-29):
+#   main = versao estavel | dev = trabalho (com CI) | upstream-sync = espelho fetch-only
+#   Trabalhe em dev; promova dev -> main quando estavel. Veja AGENTS.md.
 #
-# Politica: nunca fazer merge/commit/push autoral/PR diretamente para main.
+# LEGADO: os targets branch-help/sync-chain/fix-* abaixo ainda implementam a
+# cadeia antiga (main=espelho upstream -> overlay -> fixes -> use) e estao
+# pendentes de migracao. Ate la, prefira git direto, nao 'make sync-chain'.
 
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -ExecutionPolicy Bypass -Command

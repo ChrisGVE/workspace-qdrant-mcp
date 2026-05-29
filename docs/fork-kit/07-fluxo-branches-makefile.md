@@ -1,5 +1,7 @@
 # Fluxo de branches no Makefile
 
+> ⚠️ **LEGADO (modelo antigo de 4 camadas).** Desde 2026-05-29 o fork usa um modelo mais simples: **`main` = versão estável**, **`dev` = branch de trabalho (com CI)**, **`upstream-sync` = espelho fetch-only do upstream**; promover `dev → main` quando estável. Veja `AGENTS.md` › "Modelo de branches e regra sobre `main`". Os targets do `Makefile.win` e o `branch-flow.ps1` descritos abaixo ainda implementam a cadeia antiga (`main` = espelho do upstream → overlay → fixes → use) e estão **pendentes de migração** — até lá, prefira os comandos git diretos do `AGENTS.md`, não `make sync-chain`.
+
 Este fork usa uma cadeia de branches para separar upstream, overlay operacional, correções e uso diário.
 
 ```text

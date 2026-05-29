@@ -176,11 +176,11 @@ RUN --mount=type=cache,target=/build/target,sharing=locked \
 # ─────────────────────────────────────────────
 # Stage 2b: validate — local CI-parity gate (NOT part of the runtime image)
 #
-# Why this exists: work on `fork/fixes` gets no CI. `.github/workflows/ci.yml`
-# only runs on PRs to `main`/`dev`, and the local Windows build breaks on a
-# pre-existing winapi gate in storage/client.rs. This stage runs the SAME
-# clippy + test suite as the CI `rust` job, inside the Linux builder, so any
-# host can validate before merging into fork/fixes.
+# Why this exists: a fast LOCAL pre-check. Work lands on `dev`/`main`, which DO
+# get CI (`.github/workflows/ci.yml` runs on push/PR to `main`/`dev`), but the
+# local Windows-native build breaks on a pre-existing winapi gate in
+# storage/client.rs. This stage runs the SAME clippy + test suite as the CI
+# `rust` job, inside the Linux builder, so any host can validate before pushing.
 #
 #   docker build --target validate -f docker/Dockerfile.memexd .
 #   # or: scripts/validate.sh   (bash)   /   scripts/validate.ps1 (Windows)
@@ -210,8 +210,8 @@ COPY assets/ /assets/
 # single-container layout it is fragile and non-representative — the FTS5
 # trigram text-search tests (text_search::{exact,regex}_search) and the
 # timing-based adaptive_resources::idle_detection test fail for environment
-# reasons, not real regressions. Run the suite at true parity via a
-# `fork/fixes → main` PR, where CI checks it out in full with network.
+# reasons, not real regressions. CI runs the suite at true parity on the push
+# to `dev`/`main` (or the `dev → main` PR), checking it out in full with network.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/build/target,sharing=locked \

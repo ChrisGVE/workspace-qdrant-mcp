@@ -3,14 +3,15 @@
 #
 # Runs `cargo clippy -D warnings` (lib + bins + all test targets) plus the
 # production release build, inside the Linux builder container
-# (docker/Dockerfile.memexd `validate` stage). This exists because work on
-# `fork/fixes` gets no CI (ci.yml only runs on PRs to main/dev) and the local
-# Windows build breaks on a pre-existing winapi gate in storage/client.rs.
-# Use this before merging into fork/fixes.
+# (docker/Dockerfile.memexd `validate` stage). Work lands on `dev`/`main`,
+# which DO get CI (ci.yml runs on push/PR to main/dev). This gate is a FAST
+# LOCAL pre-check before pushing, plus a workaround for the local Windows
+# build, which breaks on a pre-existing winapi gate in storage/client.rs.
+# Run it before pushing `dev` or promoting `dev -> main`.
 #
 # The full `cargo test` suite is NOT run here (fragile in this flattened
-# container — FTS5/trigram + timing tests fail for env reasons). Run it at
-# true parity via a `fork/fixes -> main` PR (real CI, full checkout).
+# container — FTS5/trigram + timing tests fail for env reasons). CI runs it at
+# true parity on the `dev`/`main` push or the `dev -> main` PR (full checkout).
 #
 # Usage:
 #   scripts/validate.sh                 # run the full gate

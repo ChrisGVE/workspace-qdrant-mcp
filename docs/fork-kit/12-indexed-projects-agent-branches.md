@@ -2,7 +2,7 @@
 
 Este documento corrige a distinção entre:
 
-1. **branches do fork do MCP**: `main`, `fork/overlay`, `fork/fixes`, `personal/use-in-projects`;
+1. **branches do fork do MCP**: `main` (estável), `dev` (trabalho, com CI), `upstream-sync` (espelho fetch-only); `fork/overlay`, `fork/fixes`, `personal/use-in-projects` são legadas;
 2. **branches dos projetos indexados**: branches que Claude/Codex/agentes criam para trabalhar antes de voltar à branch original.
 
 ## Registry correto
