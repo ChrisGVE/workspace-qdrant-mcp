@@ -30,7 +30,7 @@ use tracing::{debug, error, info};
 use crate::server_types::SessionState;
 use crate::sqlite::manager::StateManager;
 
-use super::project_detect::{detect_project, ProjectInfo};
+use super::project_detect::{detect_branch, detect_project, ProjectInfo};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DaemonOps trait
@@ -321,6 +321,11 @@ fn apply_project_detection<DetectFn>(
         }
         None => {
             state.project_path = Some(cwd.to_path_buf());
+            // Parity: TS detectProjectForSession always sets currentBranch via
+            // detectCurrentBranch(projectRoot) — never null — even with no
+            // registered project (session-lifecycle.ts:45-47). Mirror that so
+            // the no-project path yields "default" rather than None.
+            state.current_branch = Some(detect_branch(cwd));
             debug!("No project detected; using cwd as project path");
         }
     }

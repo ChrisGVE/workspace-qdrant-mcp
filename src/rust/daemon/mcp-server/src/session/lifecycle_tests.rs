@@ -132,6 +132,13 @@ async fn sl1c_initialize_uses_cwd_when_no_project_detected() {
         Some(dir.path()),
         "project_path must fall back to cwd when no project detected"
     );
+    // Parity (session-lifecycle.ts:45-47): branch is always set, never None,
+    // even with no registered project. A non-git tempdir yields "default".
+    assert_eq!(
+        state.current_branch.as_deref(),
+        Some("default"),
+        "current_branch must be set even when no project is detected"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
