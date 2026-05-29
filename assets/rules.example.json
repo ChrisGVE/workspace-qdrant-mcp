@@ -1,13 +1,45 @@
 {
   "_note": [
-    "Behavioral-rules seed/template for workspace-qdrant-mcp.",
-    "Rules live in the daemon's `rules` Qdrant collection (host-bind state/qdrant/storage), NOT in git — so a volume loss or tenant change wipes them. This file is the versioned source of truth to RE-APPLY them.",
-    "Re-apply: for each entry, call the MCP `rules` tool with action=add, passing label/title/content/priority/scope/tags and your repo cwd (so project-scoped rules bind to the right tenant_id). See docs/runbooks/restore-rules-and-global-ignore.md.",
-    "These are PROJECT-scoped rules only. 7 canonical GLOBAL tool-usage rules also exist (search-first@100, grep-for-exact, scope-project, branch-default, no-proj-write, confirm-mut, agent-branch) — see them with `rules action=list scope=global`; they are NOT captured here.",
-    "Keep this file in sync whenever you add/change a behavioral rule. Last synced: 2026-05-29 (removed duplicate project search-first; the global @100 is canonical)."
+    "Behavioral-rules seed/template for workspace-qdrant-mcp — full recovery artifact.",
+    "Rules live in the daemon's `rules` Qdrant collection (host-bind state/qdrant/storage), NOT in git — a volume loss, `state/` wipe, or tenant change wipes them. This file is the versioned source of truth to RE-APPLY them.",
+    "Two scopes: GLOBAL rules apply to every project; PROJECT rules bind to a tenant_id (resolved from cwd). The default `rules action=list` is project-scoped — run `rules action=list scope=global` to see the global set.",
+    "Re-apply GLOBAL: for each entry in `global`, call MCP `rules` action=add with scope=global (cwd optional).",
+    "Re-apply PROJECT: for each entry in `project`, call MCP `rules` action=add with scope=project AND your repo cwd (so it binds to the right tenant_id).",
+    "Keep this file in sync whenever a rule is added/changed. Last synced: 2026-05-29."
   ],
-  "scope": "project",
-  "rules": [
+  "global": [
+    {
+      "label": "search-first",
+      "title": "Always search before answering",
+      "priority": 100,
+      "content": "For any question about this project's code, structure, or library docs, ALWAYS call the `search` tool before answering — do not rely on training data. Defaults: scope=\"project\", limit=10. Widen to scope=\"all\" or includeLibraries=true only after a project-scoped query comes back empty. Use mode=\"semantic\" for concept queries, mode=\"keyword\" or exact=true for known identifiers."
+    },
+    {
+      "label": "scope-project",
+      "content": "Start `search` calls with scope=\"project\" and a small limit (default 10). Widen to scope=\"all\" or includeLibraries=true only after the project-scoped query returns nothing useful. Never widen silently — the widened call is more expensive and noisier."
+    },
+    {
+      "label": "grep-for-exact",
+      "content": "For exact identifiers, regex, or known substrings, use the `grep` tool before `search` — it is faster and cheaper than `search` with exact=true. Reserve `search` for semantic discovery (concepts, intent, \"what does the code do around X\")."
+    },
+    {
+      "label": "branch-default",
+      "content": "`search` operates on the current branch of the current project by default. To compare or include other branches, pass branch=\"<name>\" or branch=\"*\" (all branches) explicitly. Never widen branch scope silently — results from stale branches will mislead reasoning."
+    },
+    {
+      "label": "no-proj-write",
+      "content": "Never call `store` targeting the `projects` collection — that collection is daemon-owned via file watching. Use `scratchpad` for ad-hoc notes, `libraries` only when the user explicitly asks, or `store` with type=\"project\" to register/activate a project directory."
+    },
+    {
+      "label": "confirm-mut",
+      "content": "Mutating `workspace_index` actions (add_project, start_agent_branch, finish_agent_branch, abandon_agent_branch, register_wqm, register_all_wqm, cleanup_orphans) require double opt-in: allowMutation:true in the call AND WQM_INDEX_MANAGER_ALLOW_MUTATION=1 in the server env. ALWAYS get explicit user confirmation before calling these — they affect persistent shared state across sessions. `sync_current_branch` is for git hooks only; agents must not call it directly."
+    },
+    {
+      "label": "agent-branch",
+      "content": "When creating an agent/feature branch (especially in a parallel worktree), register it via `workspace_index` with action=\"start_agent_branch\", passing branchName, purpose, createdBy, and useWorktree=true if applicable. Close out with finish_agent_branch (merged) or abandon_agent_branch (discarded) — never leave it dangling in the registry. This is a mutating action and requires double opt-in (see confirm-mut)."
+    }
+  ],
+  "project": [
     {
       "label": "look-then-write",
       "title": "Inspect daemon shared state before overwriting it",
@@ -27,7 +59,7 @@
       "title": "Query daemon SQLite via sidecar on the active volume",
       "priority": 8,
       "tags": ["daemon", "ops", "sqlite"],
-      "content": "Inspect/query the daemon's SQLite (memexd.db, queue/state) with a sidecar container mounting volume `workspace-qdrant-mcp_memexd_db` (RW + WAL = safe concurrent read with the live daemon). Gotchas: there are multiple memexd volumes — the compose-prefixed `workspace-qdrant-mcp_memexd_db` is live; bare `memexd_db` was a stale empty orphan (removed). The live Qdrant index is a HOST BIND at state/qdrant/storage (no qdrant volume). global.wqmignore is a host bind at state/memexd/, not inside the DB volume."
+      "content": "Inspect/query the daemon's SQLite (memexd.db, queue/state) with a sidecar container mounting volume `workspace-qdrant-mcp_memexd_db` (RW + WAL = safe concurrent read with the live daemon). Gotchas: the compose-prefixed `workspace-qdrant-mcp_memexd_db` is live; bare `memexd_db` was a stale empty orphan (removed). The live Qdrant index is a HOST BIND at state/qdrant/storage (no qdrant volume). global.wqmignore is a host bind at state/memexd/."
     },
     {
       "label": "validate-build",
@@ -41,7 +73,7 @@
       "title": "Edit global.wqmignore at host bind; use **/ dir prefixes",
       "priority": 6,
       "tags": ["ignore", "daemon", "config"],
-      "content": "The daemon's global ignore is the host-bind file state/memexd/global.wqmignore (read at reconcile; mounted at /var/lib/memexd/global.wqmignore in-container). APPEND, never truncate — it holds custom + worktree patterns. Directory patterns MUST use the `**/` prefix: the Rust `ignore` crate's add_ignore() anchors patterns at the file's parent dir, so `.claude/` alone won't match project-level (use `**/.claude/`). Worktrees and .claude/.codex/.agents are excluded by design (indexing them = ~98% noise). Canonical template: assets/global.wqmignore.example."
+      "content": "The daemon's global ignore is the host-bind file state/memexd/global.wqmignore (read at reconcile; mounted at /var/lib/memexd/global.wqmignore in BOTH the memexd and mcp containers). APPEND, never truncate — it holds custom + worktree patterns. Directory patterns MUST use the `**/` prefix: the Rust `ignore` crate's add_ignore() anchors patterns at the file's parent dir, so `.claude/` alone won't match project-level (use `**/.claude/`). Worktrees and .claude/.codex/.agents are excluded by design. Canonical template: assets/global.wqmignore.example."
     },
     {
       "label": "vitest-scoped",
