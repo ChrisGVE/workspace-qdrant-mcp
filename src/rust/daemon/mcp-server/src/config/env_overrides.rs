@@ -81,6 +81,43 @@ fn parse_port(s: &str) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
+// parse_int_prefix — mirrors JS parseInt(s, 10)
+// ---------------------------------------------------------------------------
+
+/// Parse the leading integer in a string, mirroring `parseInt(s, 10)` semantics.
+///
+/// Algorithm:
+///   1. Skip leading ASCII whitespace (space, tab, newline, etc.).
+///   2. Consume an optional leading `+` or `-` sign.
+///   3. Parse consecutive ASCII decimal digits.
+///   4. Ignore any trailing non-digit characters.
+///   5. Return `None` if no digit run was found (mirrors `NaN`).
+///
+/// This matches `parseInt("8080abc", 10)` → `8080` and
+/// `parseInt("  8080", 10)` → `8080`, which the TypeScript legacy port
+/// path relies on.  Unlike `parseGrpcEndpoint`, the TypeScript port-only
+/// path (`config.ts:140`) applies no upper-bound check after `parseInt`.
+fn parse_int_prefix(s: &str) -> Option<i64> {
+    let s = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    if s.is_empty() {
+        return None;
+    }
+    let (s, negative) = if let Some(rest) = s.strip_prefix('-') {
+        (rest, true)
+    } else if let Some(rest) = s.strip_prefix('+') {
+        (rest, false)
+    } else {
+        (s, false)
+    };
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let n: i64 = digits.parse().ok()?;
+    Some(if negative { -n } else { n })
+}
+
+// ---------------------------------------------------------------------------
 // apply_env_overrides
 // ---------------------------------------------------------------------------
 
@@ -114,8 +151,17 @@ pub fn apply_env_overrides(
         config.daemon.grpc_port = parsed.port;
     } else if let Some(port_str) = env_getter("WQM_DAEMON_PORT") {
         // Port-only override (legacy); only applied when no endpoint env is set.
-        if let Ok(p) = port_str.parse::<u16>() {
-            config.daemon.grpc_port = p;
+        // Uses parse_int_prefix to match JS parseInt(_, 10) leading-integer
+        // semantics: "8080abc" → 8080, "  8080" → 8080, no-digit-run → None.
+        // TS applies no upper-bound check on this path, but Rust grpc_port is u16
+        // and cannot represent 0, negative, or > 65535 values.
+        // PARITY DIVERGENCE (documented): TS assigns out-of-range WQM_DAEMON_PORT
+        // raw to a non-functional port; u16 cannot represent it, so we ignore
+        // out-of-range values.
+        if let Some(n) = parse_int_prefix(&port_str) {
+            if n >= 1 && n <= 65535 {
+                config.daemon.grpc_port = n as u16;
+            }
         }
     }
 

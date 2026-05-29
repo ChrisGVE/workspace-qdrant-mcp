@@ -22,6 +22,49 @@ pub use types::ServerConfig;
 
 use anyhow::{Context, Result};
 
+// ---------------------------------------------------------------------------
+// expand_path_ts — mirrors TS expandPath (config.ts:34-39)
+// ---------------------------------------------------------------------------
+
+/// Expand a bare leading `~` in a path, mirroring the TypeScript `expandPath`:
+///
+/// ```typescript
+/// function expandPath(path: string): string {
+///   if (path.startsWith('~')) {
+///     return join(homedir(), path.slice(1));
+///   }
+///   return path;
+/// }
+/// ```
+///
+/// Node `path.join(home, slice)` with `slice = path.slice(1)`:
+/// - `"~"`         → `home`              (slice is `""`)
+/// - `"~/x"`       → `home/x`           (slice is `"/x"`; leading `/` stripped)
+/// - `"~user/x"`   → `home/user/x`      (slice is `"user/x"`; no leading `/`)
+/// - `"~/"` (edge) → `home/`            (slice is `"/"`)
+///
+/// `$VAR` / `${VAR}` are NOT expanded (TS leaves them verbatim).
+fn expand_path_ts(path: &str) -> String {
+    if let Some(slice) = path.strip_prefix('~') {
+        let home = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("~"))
+            .to_string_lossy()
+            .into_owned();
+        if slice.is_empty() {
+            // bare "~" → home
+            home
+        } else if let Some(rest) = slice.strip_prefix('/') {
+            // "~/…" — Node join drops the leading '/' from slice (no double slash)
+            format!("{}/{}", home, rest)
+        } else {
+            // "~user/x" etc — Node join adds '/' between home and slice
+            format!("{}/{}", home, slice)
+        }
+    } else {
+        path.to_owned()
+    }
+}
+
 /// Load the server configuration.
 ///
 /// Equivalent to `loadConfig()` in the TypeScript implementation.
@@ -59,11 +102,13 @@ pub fn load_config_with_env(env_getter: &dyn Fn(&str) -> Option<String>) -> Resu
     // Step 3: apply environment variable overrides.
     config = apply_env_overrides(config, env_getter);
 
-    // Step 4: expand tilde / env-var prefixes in database.path (post-merge,
-    // post-env-override, matching TS `expandPath(config.database.path)`).
-    config.database.path = wqm_common::env_expand::expand_path(&config.database.path)
-        .to_string_lossy()
-        .into_owned();
+    // Step 4: expand a bare leading tilde in database.path, matching TS
+    // `expandPath(config.database.path)` (config.ts:34-39).
+    //
+    // TS expandPath ONLY handles a bare leading '~': no $VAR expansion, no
+    // ~user lookup.  wqm_common::env_expand::expand_path does more (shellexpand
+    // tilde + env vars), so we use the inline TS-equivalent instead.
+    config.database.path = expand_path_ts(&config.database.path);
 
     Ok(config)
 }
