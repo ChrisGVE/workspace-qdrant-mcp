@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::component_detection::ComponentMap;
-use crate::config::{IngestionLimitsConfig, UrlIngestionConfig};
+use crate::config::{ConceptConfig, IngestionLimitsConfig, UrlIngestionConfig};
 use crate::document_processor::DocumentProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::git::BranchCache;
@@ -182,6 +182,9 @@ pub struct ProcessingContext {
     /// after embedding generator and taxonomy YAML are available).
     pub tier2_tagger: Option<Arc<Tier2Tagger>>,
 
+    /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC).
+    pub concept_config: Arc<ConceptConfig>,
+
     /// TTL-based cache for resolving the current git branch from `.git/HEAD`.
     /// Shared across all file items so rapid successive items from the same
     /// project avoid repeated filesystem reads.
@@ -237,6 +240,7 @@ impl ProcessingContext {
             gitattributes_cache: Arc::new(RwLock::new(HashMap::new())),
             url_ingestion: Arc::new(UrlIngestionConfig::default()),
             tier2_tagger: None,
+            concept_config: Arc::new(ConceptConfig::default()),
             branch_cache: Arc::new(BranchCache::new()),
             branch_locks: Arc::new(TenantBranchLocks::new()),
             discovery_tracker: DiscoveryTracker::global(),
@@ -273,6 +277,12 @@ impl ProcessingContext {
     /// Attach a Tier 2 taxonomy tagger.
     pub fn with_tier2_tagger(mut self, tagger: Arc<Tier2Tagger>) -> Self {
         self.tier2_tagger = Some(tagger);
+        self
+    }
+
+    /// Override concept-edge emission thresholds.
+    pub fn with_concept_config(mut self, cfg: Arc<ConceptConfig>) -> Self {
+        self.concept_config = cfg;
         self
     }
 

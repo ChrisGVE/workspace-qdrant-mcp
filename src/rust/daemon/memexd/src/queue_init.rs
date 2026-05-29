@@ -340,6 +340,16 @@ pub async fn initialize(
     ));
     let mirror_storage = Arc::clone(&storage_client);
 
+    // Initialize the Tier-2 taxonomy tagger so concept-edge creation is live in
+    // the daemon. Embeds ~180 taxonomy terms once (cached by taxonomy hash +
+    // model). `None` if init fails → tagging + concept edges stay disabled.
+    let tier2_tagger = workspace_qdrant_core::tagging::startup::initialize_tier2_tagger(
+        &queue_pool,
+        &embedding_generator,
+    )
+    .await;
+    let concept_config = Arc::new(daemon_config.concept.clone());
+
     let uqp = build_core_processor(
         config,
         daemon_config,
@@ -361,6 +371,14 @@ pub async fn initialize(
 
     if let Some(kw_gen) = keyword_generator {
         uqp = uqp.with_keyword_embedding_generator(kw_gen);
+    }
+
+    uqp = uqp.with_concept_config(concept_config);
+    if let Some(tagger) = tier2_tagger {
+        info!("Tier-2 taxonomy tagger attached to queue processor (concept edges enabled)");
+        uqp = uqp.with_tier2_tagger(tagger);
+    } else {
+        warn!("Tier-2 taxonomy tagger unavailable; concept-edge creation disabled");
     }
 
     let (uqp, adaptive_shutdown_token, adaptive_state, queue_health) =

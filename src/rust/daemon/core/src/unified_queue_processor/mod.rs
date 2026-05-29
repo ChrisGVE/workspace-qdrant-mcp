@@ -110,6 +110,13 @@ pub struct UnifiedQueueProcessor {
 
     /// Optional dedicated local FastEmbed generator for keyword extraction.
     keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
+
+    /// Tier 2 taxonomy tagger for concept-edge classification (initialized at
+    /// daemon startup; `None` disables tagging + concept-edge creation).
+    tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
+
+    /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC).
+    concept_config: Arc<crate::config::ConceptConfig>,
 }
 
 impl UnifiedQueueProcessor {
@@ -180,6 +187,8 @@ impl UnifiedQueueProcessor {
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
             keyword_embedding_generator: None,
+            tier2_tagger: None,
+            concept_config: Arc::new(crate::config::ConceptConfig::default()),
         }
     }
 
@@ -242,6 +251,8 @@ impl UnifiedQueueProcessor {
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
             branch_locks: Arc::new(crate::context::TenantBranchLocks::new()),
             keyword_embedding_generator: None,
+            tier2_tagger: None,
+            concept_config: Arc::new(crate::config::ConceptConfig::default()),
         }
     }
 
@@ -254,6 +265,18 @@ impl UnifiedQueueProcessor {
     /// Set the grammar manager for dynamic tree-sitter grammar loading
     pub fn with_grammar_manager(mut self, manager: Arc<RwLock<GrammarManager>>) -> Self {
         self.grammar_manager = Some(manager);
+        self
+    }
+
+    /// Attach the Tier 2 taxonomy tagger (enables concept-edge creation).
+    pub fn with_tier2_tagger(mut self, tagger: Arc<crate::tagging::Tier2Tagger>) -> Self {
+        self.tier2_tagger = Some(tagger);
+        self
+    }
+
+    /// Override concept-edge emission thresholds.
+    pub fn with_concept_config(mut self, cfg: Arc<crate::config::ConceptConfig>) -> Self {
+        self.concept_config = cfg;
         self
     }
 
@@ -390,6 +413,8 @@ impl UnifiedQueueProcessor {
         let grammar_manager = self.grammar_manager.clone();
         let ingestion_limits = self.ingestion_limits.clone();
         let keyword_embedding_generator = self.keyword_embedding_generator.clone();
+        let tier2_tagger = self.tier2_tagger.clone();
+        let concept_config = self.concept_config.clone();
 
         if let Some(ref h) = queue_health {
             h.set_running(true);
@@ -418,6 +443,8 @@ impl UnifiedQueueProcessor {
             grammar_manager,
             ingestion_limits,
             keyword_embedding_generator,
+            tier2_tagger,
+            concept_config,
         ));
 
         self.task_handle = Some(task_handle);
@@ -449,6 +476,8 @@ impl UnifiedQueueProcessor {
         grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: Arc<IngestionLimitsConfig>,
         keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: Arc<crate::config::ConceptConfig>,
     ) {
         lexicon_manager.start_background_persister().await;
         if let Err(e) = lexicon_manager.cleanup_junk_terms().await {
@@ -480,6 +509,8 @@ impl UnifiedQueueProcessor {
             grammar_manager,
             ingestion_limits,
             keyword_embedding_generator,
+            tier2_tagger,
+            concept_config,
         )
         .await
         {

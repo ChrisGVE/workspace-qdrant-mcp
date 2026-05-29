@@ -56,6 +56,8 @@ impl UnifiedQueueProcessor {
         grammar_manager: Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: Arc<IngestionLimitsConfig>,
         keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: Arc<crate::config::ConceptConfig>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut resource_profile_rx = resource_profile_rx;
@@ -99,6 +101,8 @@ impl UnifiedQueueProcessor {
                 poll_interval,
                 metrics_log_interval,
                 &keyword_embedding_generator,
+                &tier2_tagger,
+                &concept_config,
             )
             .await
             {
@@ -136,6 +140,8 @@ impl UnifiedQueueProcessor {
         poll_interval: Duration,
         metrics_log_interval: ChronoDuration,
         keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: &Arc<crate::config::ConceptConfig>,
     ) -> bool {
         Self::apply_warmup_transition(config, warmup_state, embedding_semaphore, state);
         if cancellation_token.is_cancelled() {
@@ -183,6 +189,8 @@ impl UnifiedQueueProcessor {
             poll_interval,
             metrics_log_interval,
             keyword_embedding_generator,
+            tier2_tagger,
+            concept_config,
         )
         .await
         {
@@ -218,6 +226,8 @@ impl UnifiedQueueProcessor {
         poll_interval: Duration,
         metrics_log_interval: ChronoDuration,
         keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: &Arc<crate::config::ConceptConfig>,
     ) -> bool {
         let should_continue = Self::handle_dequeue_result(
             fairness_scheduler,
@@ -243,6 +253,8 @@ impl UnifiedQueueProcessor {
             state,
             poll_interval,
             keyword_embedding_generator,
+            tier2_tagger,
+            concept_config,
         )
         .await;
         if should_continue {
@@ -288,6 +300,8 @@ impl UnifiedQueueProcessor {
         state: &mut LoopState,
         poll_interval: Duration,
         keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: &Arc<crate::config::ConceptConfig>,
     ) -> bool {
         let effective_batch_size = if state.recovery_ramp_remaining > 0 {
             (config.batch_size / 4).max(1)
@@ -338,6 +352,8 @@ impl UnifiedQueueProcessor {
                     resource_profile_rx,
                     warmup_state,
                     keyword_embedding_generator,
+                    tier2_tagger,
+                    concept_config,
                 )
                 .await
             }
@@ -376,6 +392,8 @@ impl UnifiedQueueProcessor {
         resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         warmup_state: &Arc<WarmupState>,
         keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: &Arc<crate::config::ConceptConfig>,
     ) -> bool {
         state.maintenance_scheduler.cancel_active();
         state.idle_since = None;
@@ -409,6 +427,8 @@ impl UnifiedQueueProcessor {
             resource_profile_rx,
             warmup_state,
             keyword_embedding_generator,
+            tier2_tagger,
+            concept_config,
         )
         .await
         {

@@ -49,6 +49,8 @@ impl UnifiedQueueProcessor {
         grammar_manager: &Option<Arc<RwLock<GrammarManager>>>,
         ingestion_limits: &Arc<IngestionLimitsConfig>,
         keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+        tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+        concept_config: &Arc<crate::config::ConceptConfig>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -76,6 +78,10 @@ impl UnifiedQueueProcessor {
         ctx = ctx.with_ingestion_limits(Arc::clone(ingestion_limits));
         if let Some(kw_gen) = keyword_embedding_generator {
             ctx = ctx.with_keyword_embedding_generator(Arc::clone(kw_gen));
+        }
+        ctx = ctx.with_concept_config(Arc::clone(concept_config));
+        if let Some(tagger) = tier2_tagger {
+            ctx = ctx.with_tier2_tagger(Arc::clone(tagger));
         }
 
         match item.item_type {

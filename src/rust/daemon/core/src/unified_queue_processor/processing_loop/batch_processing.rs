@@ -51,6 +51,8 @@ struct BatchContext {
     metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
     queue_health: Option<Arc<QueueProcessorHealth>>,
     keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
+    tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
+    concept_config: Arc<crate::config::ConceptConfig>,
 }
 
 /// Process a non-empty batch of queue items concurrently.
@@ -80,6 +82,8 @@ pub(super) async fn process_batch(
     _resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
     _warmup_state: &Arc<WarmupState>,
     keyword_embedding_generator: &Option<Arc<EmbeddingGenerator>>,
+    tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
+    concept_config: &Arc<crate::config::ConceptConfig>,
 ) -> Result<HashSet<String>, ()> {
     let ctx = Arc::new(BatchContext {
         config: config.clone(),
@@ -99,6 +103,8 @@ pub(super) async fn process_batch(
         metrics: Arc::clone(metrics),
         queue_health: queue_health.clone(),
         keyword_embedding_generator: keyword_embedding_generator.clone(),
+        tier2_tagger: tier2_tagger.clone(),
+        concept_config: Arc::clone(concept_config),
     });
 
     let concurrency = config.max_concurrent_embeddings.max(1);
@@ -203,6 +209,8 @@ async fn process_single_item(item: UnifiedQueueItem, ctx: &BatchContext) -> Opti
             &ctx.grammar_manager,
             &ctx.ingestion_limits,
             &ctx.keyword_embedding_generator,
+            &ctx.tier2_tagger,
+            &ctx.concept_config,
         ),
     )
     .await;
