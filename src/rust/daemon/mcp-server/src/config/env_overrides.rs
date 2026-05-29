@@ -323,4 +323,92 @@ mod tests {
         assert_eq!(result.daemon.grpc_host, default.daemon.grpc_host);
         assert_eq!(result.daemon.grpc_port, default.daemon.grpc_port);
     }
+
+    // ------------------------------------------------------------------
+    // WQM_DAEMON_PORT: JS parseInt(_, 10) leading-integer semantics
+    //
+    // TS config.ts lines 139-144:
+    //   if (!endpointEnv && process.env['WQM_DAEMON_PORT']) {
+    //     const port = parseInt(process.env['WQM_DAEMON_PORT'], 10);
+    //     if (!isNaN(port)) {
+    //       result.daemon = { ...result.daemon, grpcPort: port };
+    //     }
+    //   }
+    //
+    // parseInt("8080abc", 10) → 8080  (trailing non-digits ignored)
+    // parseInt("  8080",  10) → 8080  (leading whitespace stripped)
+    // No upper-bound check in the legacy port path (unlike parseGrpcEndpoint
+    // which guards port > 65535). TS would assign 0 / -5 / 70000 to grpcPort
+    // as-is; Rust u16 cannot represent them — documented divergence.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn wqm_daemon_port_trailing_non_digits_accepted() {
+        // parseInt("8080abc", 10) → 8080; Rust must match.
+        let getter = env_from(&[("WQM_DAEMON_PORT", "8080abc")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, 8080);
+    }
+
+    #[test]
+    fn wqm_daemon_port_leading_whitespace_accepted() {
+        // parseInt("  8080", 10) → 8080; Rust must match.
+        let getter = env_from(&[("WQM_DAEMON_PORT", "  8080")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, 8080);
+    }
+
+    #[test]
+    fn wqm_daemon_port_valid_plain_number_still_works() {
+        // Regression guard: a plain valid port must still be accepted.
+        let getter = env_from(&[("WQM_DAEMON_PORT", "9999")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, 9999);
+    }
+
+    #[test]
+    fn wqm_daemon_port_zero_leaves_default() {
+        // parseInt("0", 10) → 0 (not NaN). TS would assign grpcPort = 0 (non-
+        // functional). Rust u16 can represent 0, but it is not a valid TCP port.
+        // PARITY DIVERGENCE (documented): TS assigns out-of-range WQM_DAEMON_PORT
+        // raw to a non-functional port; Rust ignores values <= 0.
+        let default_port = ServerConfig::default().daemon.grpc_port;
+        let getter = env_from(&[("WQM_DAEMON_PORT", "0")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, default_port);
+    }
+
+    #[test]
+    fn wqm_daemon_port_negative_leaves_default() {
+        // parseInt("-5", 10) → -5. TS assigns the non-functional value; Rust
+        // u16 cannot represent negatives.
+        // PARITY DIVERGENCE (documented): see wqm_daemon_port_zero_leaves_default.
+        let default_port = ServerConfig::default().daemon.grpc_port;
+        let getter = env_from(&[("WQM_DAEMON_PORT", "-5")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, default_port);
+    }
+
+    #[test]
+    fn wqm_daemon_port_out_of_u16_range_leaves_default() {
+        // parseInt("70000", 10) → 70000. TS assigns the non-functional value;
+        // Rust u16 cannot represent values > 65535.
+        // PARITY DIVERGENCE (documented): see wqm_daemon_port_zero_leaves_default.
+        let default_port = ServerConfig::default().daemon.grpc_port;
+        let getter = env_from(&[("WQM_DAEMON_PORT", "70000")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_port, default_port);
+    }
+
+    #[test]
+    fn wqm_daemon_port_precedence_endpoint_still_beats_trailing_garbage() {
+        // Endpoint vars must still win over WQM_DAEMON_PORT even with leading-int input.
+        let getter = env_from(&[
+            ("WQM_DAEMON_ENDPOINT", "ep-host:5555"),
+            ("WQM_DAEMON_PORT", "8080abc"),
+        ]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        assert_eq!(result.daemon.grpc_host, "ep-host");
+        assert_eq!(result.daemon.grpc_port, 5555);
+    }
 }

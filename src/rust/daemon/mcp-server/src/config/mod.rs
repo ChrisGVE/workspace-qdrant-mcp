@@ -155,6 +155,74 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
+    // expandPath parity: TS config.ts lines 34-39:
+    //   function expandPath(path: string): string {
+    //     if (path.startsWith('~')) {
+    //       return join(homedir(), path.slice(1));
+    //     }
+    //     return path;
+    //   }
+    // Node path.join(home, "/db.sqlite") → "<home>/db.sqlite"
+    // (Node join does NOT treat a leading-/ second arg as absolute root.)
+    // $VAR / ${VAR} are NOT expanded by TS expandPath — returned verbatim.
+    // ~user/x: startsWith('~') → join(home, "user/x") → "<home>/user/x"
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn tilde_slash_foo_expanded_to_home_foo() {
+        // "~/foo/db.sqlite" → "<home>/foo/db.sqlite"
+        let getter = env_from(&[("WQM_DATABASE_PATH", "~/foo/db.sqlite")]);
+        let config = load_config_with_env(&getter).expect("load");
+        let home = dirs::home_dir()
+            .expect("home dir")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(config.database.path, format!("{}/foo/db.sqlite", home));
+    }
+
+    #[test]
+    fn bare_tilde_expanded_to_home() {
+        // "~" → path.slice(1) = "" → join(home, "") = home
+        let getter = env_from(&[("WQM_DATABASE_PATH", "~")]);
+        let config = load_config_with_env(&getter).expect("load");
+        let home = dirs::home_dir()
+            .expect("home dir")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(config.database.path, home);
+    }
+
+    #[test]
+    fn dollar_var_in_path_not_expanded() {
+        // TS expandPath does NOT expand $VAR — returned verbatim.
+        // Use $HOME which is always set in process env, so wqm_common::env_expand
+        // would expand it but TS expandPath (and our inline logic) must not.
+        let getter = env_from(&[("WQM_DATABASE_PATH", "/data/$HOME/x")]);
+        let config = load_config_with_env(&getter).expect("load");
+        assert_eq!(
+            config.database.path, "/data/$HOME/x",
+            "TS expandPath does not expand $VAR; Rust must match"
+        );
+    }
+
+    #[test]
+    fn tilde_user_path_treated_as_home_relative() {
+        // TS: "~user/x".startsWith('~') → join(home, "user/x") → "<home>/user/x"
+        // (TS does NOT look up ~user's home — it just strips the leading ~.)
+        let getter = env_from(&[("WQM_DATABASE_PATH", "~user/x")]);
+        let config = load_config_with_env(&getter).expect("load");
+        let home = dirs::home_dir()
+            .expect("home dir")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            config.database.path,
+            format!("{}/user/x", home),
+            "~user/x: TS strips leading ~ and joins to home"
+        );
+    }
+
+    // ------------------------------------------------------------------
     // File-based merge (uses a real temp file)
     // ------------------------------------------------------------------
 
