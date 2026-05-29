@@ -112,8 +112,15 @@ pub struct UnifiedQueueProcessor {
 }
 
 impl UnifiedQueueProcessor {
-    /// Create a new unified queue processor
-    pub fn new(pool: SqlitePool, config: UnifiedProcessorConfig) -> Self {
+    /// Create a new unified queue processor.
+    ///
+    /// Returns an error if the embedding generator fails to initialize, rather
+    /// than panicking — a failed embedding-provider init must not bring down the
+    /// daemon's file watching, embedding, and gRPC subsystems together.
+    pub fn new(
+        pool: SqlitePool,
+        config: UnifiedProcessorConfig,
+    ) -> UnifiedProcessorResult<Self> {
         let document_processor = Arc::new(DocumentProcessor::new());
         let embedding_config = EmbeddingConfig {
             num_threads: Some(config.onnx_intra_threads),
@@ -126,7 +133,7 @@ impl UnifiedQueueProcessor {
         ));
         let embedding_generator = Arc::new(
             EmbeddingGenerator::new(embedding_config.clone(), dense_provider)
-                .expect("Failed to create embedding generator"),
+                .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?,
         );
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
@@ -157,7 +164,7 @@ impl UnifiedQueueProcessor {
         ));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
-        Self {
+        Ok(Self {
             queue_manager,
             config,
             fairness_scheduler,
@@ -181,7 +188,7 @@ impl UnifiedQueueProcessor {
             watch_refresh_signal: None,
             grammar_manager: None,
             ingestion_limits: Arc::new(IngestionLimitsConfig::default()),
-        }
+        })
     }
 
     /// Create with custom components
