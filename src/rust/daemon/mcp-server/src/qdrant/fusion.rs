@@ -111,7 +111,15 @@ impl TaggedResult {
     /// - Other:     `collection:tenant_id` (falls back to `collection:unknown`)
     pub fn source_key(&self) -> String {
         let collection = &self.collection;
-        if let Some(Value::String(lib)) = self.payload.get("library_name") {
+        // TS `libraryName ? ... : tenantId ?? 'unknown'` — an empty-string (or
+        // non-string) library_name is FALSY in JS and falls through to
+        // tenant_id, so treat empty/non-string library_name as absent.
+        if let Some(lib) = self
+            .payload
+            .get("library_name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
             return format!("{collection}:{lib}");
         }
         let tenant = self
@@ -391,3 +399,7 @@ pub fn point_to_tagged(
 #[cfg(test)]
 #[path = "fusion_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fusion_diversity_tests.rs"]
+mod diversity_tests;
