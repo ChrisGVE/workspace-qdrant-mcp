@@ -8,6 +8,7 @@ pub mod canonicalize;
 pub mod config;
 pub mod grpc;
 pub mod instructions;
+pub mod observability;
 pub mod server;
 pub mod server_types;
 pub mod tools;
