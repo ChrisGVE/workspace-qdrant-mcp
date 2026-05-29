@@ -136,9 +136,6 @@ mod tests {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    /// No-op sleep: returns immediately.  Used to keep tests fast.
-    async fn instant_sleep(_: Duration) {}
-
     /// Build a closure that fails with `code` for the first `fail_times` calls,
     /// then returns `Ok(())`.
     fn fail_n_times(

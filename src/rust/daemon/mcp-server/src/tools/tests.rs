@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::Value;
 
     use crate::tools::definitions::list_tools;
 
