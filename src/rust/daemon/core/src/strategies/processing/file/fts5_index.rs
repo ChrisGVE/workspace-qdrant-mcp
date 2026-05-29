@@ -21,9 +21,7 @@ use wqm_common::hashing::compute_content_hash;
 /// handle `search_status` for the queue item.
 pub(super) enum Fts5Outcome {
     /// File was processed inline; caller should flip `search_status=done`.
-    /// The inner bool mirrors the legacy `update_fts5_for_file` return: true
-    /// if anything was actually written, false if the file was skipped.
-    Inline(bool),
+    Inline,
     /// File was handed off to the global FTS5 batch writer. The batch
     /// actor takes responsibility for flipping `search_status` and
     /// finalizing the queue item — the caller MUST NOT touch
@@ -68,7 +66,7 @@ pub(super) async fn update_fts5_for_file_or_enqueue(
             file_hash,
         )
         .await
-        .map(Fts5Outcome::Inline);
+        .map(|_| Fts5Outcome::Inline);
     };
 
     // Batched path: do disk + hash + cache-lookup here so workers stay

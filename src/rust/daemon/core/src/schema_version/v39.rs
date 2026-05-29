@@ -151,7 +151,7 @@ impl Migration for V39Migration {
         // Recreate v12 indexes.
         use crate::search_events_schema::CREATE_SEARCH_EVENTS_INDEXES_SQL;
         for index_sql in CREATE_SEARCH_EVENTS_INDEXES_SQL {
-            sqlx::query(*index_sql).execute(pool).await?;
+            sqlx::query(index_sql).execute(pool).await?;
         }
         // Recreate v38 index + view.
         use crate::schema_version::v38::{
@@ -338,7 +338,7 @@ mod tests {
             .await
             .unwrap();
         for index_sql in crate::search_events_schema::CREATE_SEARCH_EVENTS_INDEXES_SQL {
-            sqlx::query(*index_sql).execute(&pool).await.unwrap();
+            sqlx::query(index_sql).execute(&pool).await.unwrap();
         }
 
         V39Migration.up(&pool).await.unwrap();

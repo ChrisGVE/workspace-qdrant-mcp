@@ -230,7 +230,7 @@ fn test_oversize_gate_no_split_when_under_budget() {
     assert_eq!(without_tk.len(), 1);
     assert!(!without_tk[0].is_fragment);
 
-    if let Some(tokenizer) = ModelTokenizer::from_model_cache(None).ok() {
+    if let Ok(tokenizer) = ModelTokenizer::from_model_cache(None) {
         let tk = Arc::new(tokenizer);
         let with_tk = handle_oversized_chunks(vec![chunk], "", 1000, Some(&tk));
         assert_eq!(with_tk.len(), 1);

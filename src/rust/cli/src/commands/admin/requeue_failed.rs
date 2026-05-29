@@ -197,7 +197,7 @@ fn truncate_msg(msg: &str) -> String {
         msg.to_string()
     } else {
         let mut truncated: String = msg.chars().take(MAX_LEN).collect();
-        truncated.push_str("…");
+        truncated.push('…');
         truncated
     }
 }

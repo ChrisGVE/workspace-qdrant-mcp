@@ -154,7 +154,7 @@ async fn handle_retry_skip(
                     // row at `in_progress` so check_and_finalize keeps the
                     // queue item alive until the actor flips it to Done.
                 }
-                Ok(fts5_index::Fts5Outcome::Inline(_) | fts5_index::Fts5Outcome::Skipped) => {
+                Ok(fts5_index::Fts5Outcome::Inline | fts5_index::Fts5Outcome::Skipped) => {
                     let _ = ctx
                         .queue_manager
                         .update_destination_status(&item.queue_id, "search", DestinationStatus::Done)
@@ -571,7 +571,7 @@ async fn update_search_index(
         .await
         {
             Ok(fts5_index::Fts5Outcome::Enqueued) => None,
-            Ok(fts5_index::Fts5Outcome::Inline(_) | fts5_index::Fts5Outcome::Skipped) => {
+            Ok(fts5_index::Fts5Outcome::Inline | fts5_index::Fts5Outcome::Skipped) => {
                 Some(DestinationStatus::Done)
             }
             Err(e) => {

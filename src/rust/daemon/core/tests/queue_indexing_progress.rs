@@ -119,5 +119,5 @@ async fn depth_by_tenant_status_excludes_done_and_groups_correctly() {
     assert_eq!(lookup.get(&("tenant_y".into(), "failed".into())), Some(&1));
     // Done rows must NOT appear (the Grafana gauge and the search-time
     // indexing block both treat `unified_queue` as in-flight only).
-    assert!(lookup.get(&("tenant_x".into(), "done".into())).is_none());
+    assert!(!lookup.contains_key(&("tenant_x".into(), "done".into())));
 }

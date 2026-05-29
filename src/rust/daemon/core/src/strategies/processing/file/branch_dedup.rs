@@ -45,9 +45,7 @@ use wqm_common::hashing::{compute_base_point, compute_content_hash, compute_poin
 /// Outcome of [`try_branch_dedup`] — `Some` means the dedup fast-path
 /// completed and the caller must return early; `None` means the file is
 /// novel and the normal ingest pipeline should run.
-pub(super) struct DedupHit {
-    pub file_id: i64,
-}
+pub(super) struct DedupHit;
 
 /// Scroll limit per dedup probe. Default chunk_count per file is bounded
 /// by the chunking config (typically <100); 256 keeps comfortable margin
@@ -265,7 +263,7 @@ pub(super) async fn try_branch_dedup(
     // mirror the normal ingest entry-point and ease future field reuse
     // (e.g. honoring payload.file_type override).
     let _ = payload;
-    Ok(Some(DedupHit { file_id }))
+    Ok(Some(DedupHit))
 }
 
 /// Translate a `RetrievedPoint` (with vectors) into a `DocumentPoint`
