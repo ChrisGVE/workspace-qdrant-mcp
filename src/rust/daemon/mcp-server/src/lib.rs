@@ -4,6 +4,7 @@
 //! It exposes the same 6 MCP tools (store, search, rules, retrieve, grep, list)
 //! over stdio and streamable-HTTP transports.
 
+pub mod config;
 pub mod server;
 pub mod server_types;
 
