@@ -1,7 +1,7 @@
 //! SQLite-backed graph store using recursive CTEs for traversal.
 
-use async_trait::async_trait;
 use crate::config::GraphRagConfig;
+use async_trait::async_trait;
 use sqlx::{Row, SqlitePool};
 use tracing::debug;
 use wqm_common::timestamps::now_utc;
@@ -11,11 +11,7 @@ use super::{
     ImpactNode, ImpactReport, SymbolRow, TraversalNode,
 };
 
-/// Tenant under which cross-boundary concept nodes are stored.
-pub(crate) const GLOBAL_TENANT: &str = "__global__";
-
-/// Maximum recursion depth supported by cross-boundary traversal.
-pub(crate) const CROSS_BOUNDARY_MAX_HOPS: u32 = 3;
+use super::cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS};
 
 /// SQLite-backed implementation of `GraphStore`.
 ///
@@ -568,12 +564,14 @@ impl GraphStore for SqliteGraphStore {
         );
         // Delete file-owned narrative nodes so re-ingestion does not leave
         // orphans when a heading or comment shifts (re-keying its node id).
-        // library_section (scoped by library_name), concept_node (global), and
-        // code-graph nodes are deliberately excluded by the type filter.
+        // library_section is scoped per-file (tenant_id == library_name for the
+        // libraries collection), so it is cleaned alongside the other narrative
+        // node types; concept_node (global) and code-graph nodes are
+        // deliberately excluded by the type filter.
         let deleted_nodes = sqlx::query(
             "DELETE FROM graph_nodes
              WHERE tenant_id = ?1 AND file_path = ?2
-               AND symbol_type IN ('document_section', 'code_comment', 'docstring')",
+               AND symbol_type IN ('document_section', 'library_section', 'code_comment', 'docstring')",
         )
         .bind(tenant_id)
         .bind(file_path)
@@ -671,7 +669,7 @@ impl GraphStore for SqliteGraphStore {
         let result = sqlx::query(
             "DELETE FROM graph_nodes
              WHERE tenant_id = ?1 AND file_path = ?2
-               AND symbol_type IN ('document_section', 'code_comment', 'docstring')",
+               AND symbol_type IN ('document_section', 'library_section', 'code_comment', 'docstring')",
         )
         .bind(tenant_id)
         .bind(file_path)
@@ -746,12 +744,7 @@ impl GraphStore for SqliteGraphStore {
         // Tenant relaxation set: source_tenant ∪ {"__global__"} ∪ library_tenants.
         // ConceptNodes live under "__global__", so it must always be included or
         // code→concept→code traversal returns nothing.
-        let mut tenants: Vec<String> = Vec::with_capacity(library_tenants.len() + 2);
-        tenants.push(source_tenant.to_string());
-        tenants.push(GLOBAL_TENANT.to_string());
-        for lt in library_tenants {
-            tenants.push(lt.clone());
-        }
+        let tenants = tenant_relaxation_set(source_tenant, library_tenants);
         // Bound parameters ?1=source_node_id, ?2=hops, then one per tenant.
         let tenant_placeholders = (0..tenants.len())
             .map(|i| format!("?{}", i + 3))
@@ -808,9 +801,22 @@ impl GraphStore for SqliteGraphStore {
             ORDER BY depth, n.symbol_name"
         );
 
-        let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, String, f64, String)>(&sql)
-            .bind(source_node_id)
-            .bind(hops);
+        let mut q = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                String,
+                String,
+                i64,
+                String,
+                f64,
+                String,
+            ),
+        >(&sql)
+        .bind(source_node_id)
+        .bind(hops);
         for tenant in &tenants {
             q = q.bind(tenant);
         }
@@ -837,81 +843,6 @@ impl GraphStore for SqliteGraphStore {
 
         Ok(apply_fan_out_caps(results, &self.graph_rag))
     }
-}
-
-/// Apply Rust-side fan-out caps to over-fetched cross-boundary results.
-///
-/// SQLite recursive CTEs cannot rank-limit per recursion level, so the CTE
-/// over-fetches and the caps are enforced here:
-/// 1. `max_per_hit`: keep top-K hop-1 (direct) expansions by `edge_confidence`.
-/// 2. `max_per_concept`: keep top-K nodes reached through any single
-///    ConceptNode by `edge_confidence` (tames concept supernodes).
-/// 3. `max_total`: keep the top-K nodes overall by `edge_confidence`.
-///
-/// Nodes are ranked by `edge_confidence` (desc), then by ascending depth and
-/// node_id for a stable order.
-fn apply_fan_out_caps(
-    mut nodes: Vec<TraversalNode>,
-    config: &GraphRagConfig,
-) -> Vec<TraversalNode> {
-    use std::collections::{HashMap, HashSet};
-
-    // Identify ConceptNodes present in the result set; concept hubs are always
-    // reachable (global tenant) so any concept on a surviving path appears here.
-    let concept_ids: HashSet<String> = nodes
-        .iter()
-        .filter(|n| n.symbol_type == "concept_node")
-        .map(|n| n.node_id.clone())
-        .collect();
-
-    // Stable ranking helper: higher confidence first, then shallower, then id.
-    let rank = |a: &TraversalNode, b: &TraversalNode| {
-        b.edge_confidence
-            .partial_cmp(&a.edge_confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.depth.cmp(&b.depth))
-            .then(a.node_id.cmp(&b.node_id))
-    };
-    nodes.sort_by(rank);
-
-    // (1) per-direct-hit cap: limit hop-1 nodes (the source's direct fan-out).
-    let mut direct_kept = 0usize;
-    // (2) per-concept cap: count survivors grouped by the last concept on path.
-    let mut per_concept: HashMap<String, usize> = HashMap::new();
-
-    let mut kept: Vec<TraversalNode> = Vec::with_capacity(nodes.len().min(config.max_total));
-    for node in nodes {
-        if kept.len() >= config.max_total {
-            break;
-        }
-        if node.depth == 1 {
-            if direct_kept >= config.max_per_hit {
-                continue;
-            }
-            direct_kept += 1;
-            kept.push(node);
-            continue;
-        }
-        // Deeper node: attribute it to the last ConceptNode on its path, if any.
-        let via_concept = node
-            .path
-            .split(" -> ")
-            .filter(|id| concept_ids.contains(*id))
-            .last()
-            .map(|id| id.to_string());
-        if let Some(concept) = via_concept {
-            let count = per_concept.entry(concept).or_insert(0);
-            if *count >= config.max_per_concept {
-                continue;
-            }
-            *count += 1;
-        }
-        kept.push(node);
-    }
-
-    // Restore depth-major ordering for callers that expect breadth order.
-    kept.sort_by(|a, b| a.depth.cmp(&b.depth).then(a.symbol_name.cmp(&b.symbol_name)));
-    kept
 }
 
 impl SqliteGraphStore {

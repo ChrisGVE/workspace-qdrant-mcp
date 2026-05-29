@@ -10,6 +10,7 @@
 //! `state.db` to avoid lock contention with queue processing.
 
 pub mod algorithms;
+mod cross_boundary;
 pub mod extractor;
 pub mod factory;
 pub mod migrator;
@@ -587,14 +588,20 @@ pub trait GraphStore: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Delete file-owned narrative nodes (document_section / code_comment /
-    /// docstring) for a file, so re-ingestion does not accumulate orphaned
-    /// narrative nodes when headings shift or comments move (re-keying ids).
+    /// Delete file-owned narrative nodes (document_section / library_section /
+    /// code_comment / docstring) for a file, so re-ingestion does not
+    /// accumulate orphaned narrative nodes when headings shift or comments move
+    /// (re-keying ids).
     ///
-    /// Must NOT delete `library_section` (scoped by library_name, not file),
-    /// `concept_node` (global, shared across files), or code-graph nodes.
-    /// Returns the number of nodes deleted. Default no-op for backends that
-    /// manage their own cleanup.
+    /// `library_section` nodes are deleted per-file like the others: for the
+    /// libraries collection `tenant_id == library_name`, so scoping by
+    /// (tenant_id, file_path) removes exactly the sections of the re-ingested
+    /// library document without touching sibling documents. A whole-library
+    /// rebuild is the uplift path (delete + re-ingest every file).
+    ///
+    /// Must NOT delete `concept_node` (global, shared across files) or
+    /// code-graph nodes. Returns the number of nodes deleted. Default no-op for
+    /// backends that manage their own cleanup.
     async fn delete_narrative_nodes_by_file(
         &self,
         tenant_id: &str,

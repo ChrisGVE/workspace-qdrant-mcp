@@ -407,6 +407,13 @@ async fn run_middle_phases(
     // empty result and a warning, never aborting ingestion (AC-A9). Its output
     // is threaded into the SAME graph reingest transaction as the code and
     // concept layers (a separate write would delete those edges).
+    // Library-collection files emit LibrarySection (not DocumentSection) nodes,
+    // scoped by library name (== tenant_id for the libraries collection).
+    let library_name = if item.collection == wqm_common::constants::COLLECTION_LIBRARIES {
+        Some(item.tenant_id.as_str())
+    } else {
+        None
+    };
     let t_narr = Instant::now();
     let narrative_result = match AssertUnwindSafe(narrative_phase::run(
         ctx,
@@ -416,6 +423,7 @@ async fn run_middle_phases(
         &document_content.raw_text,
         detected_language,
         detected_branch,
+        library_name,
         &points,
         &chunk_records,
     ))

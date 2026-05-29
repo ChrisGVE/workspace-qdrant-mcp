@@ -31,14 +31,34 @@ pub struct SectionSpan {
 }
 
 /// Extracts heading-delimited sections from markdown and text files.
+///
+/// When [`library_name`](Self::library_name) is set, sections are emitted as
+/// [`NodeType::LibrarySection`] nodes scoped by the library name (their node id
+/// hashes the library name rather than the tenant id); otherwise they are
+/// [`NodeType::DocumentSection`] nodes scoped by tenant. The two id schemes do
+/// not collide for the same file path + heading (see `compute_node_id_for_type`).
 pub struct SectionExtractor {
     heading_re: Regex,
+    /// `Some(name)` for library-collection documents → emit LibrarySection
+    /// nodes; `None` for project documents → emit DocumentSection nodes.
+    library_name: Option<String>,
 }
 
 impl SectionExtractor {
     pub fn new() -> Self {
         Self {
             heading_re: Regex::new(r"^#{1,6}\s+(.+)$").expect("heading regex is valid"),
+            library_name: None,
+        }
+    }
+
+    /// Construct an extractor that emits `LibrarySection` nodes scoped to
+    /// `library_name` when `Some`, or `DocumentSection` nodes when `None`
+    /// (identical to [`SectionExtractor::new`]).
+    pub fn for_library(library_name: Option<String>) -> Self {
+        Self {
+            heading_re: Regex::new(r"^#{1,6}\s+(.+)$").expect("heading regex is valid"),
+            library_name,
         }
     }
 
@@ -59,11 +79,18 @@ impl SectionExtractor {
         file_path: &str,
         content: &str,
     ) -> Vec<SectionSpan> {
+        let library_name = self.library_name.as_deref();
         match is_supported_extension(Path::new(file_path)) {
-            Some(FileKind::Markdown) => {
-                markdown_section_spans(tenant_id, file_path, content, &self.heading_re)
+            Some(FileKind::Markdown) => markdown_section_spans(
+                tenant_id,
+                file_path,
+                content,
+                &self.heading_re,
+                library_name,
+            ),
+            Some(FileKind::PlainText) => {
+                text_section_spans(tenant_id, file_path, content, library_name)
             }
-            Some(FileKind::PlainText) => text_section_spans(tenant_id, file_path, content),
             None => Vec::new(),
         }
     }
@@ -193,22 +220,38 @@ fn collect_text_paragraphs(content: &str) -> Vec<ParagraphEntry> {
     paragraphs
 }
 
-/// Compute the DocumentSection node id for a heading at `idx`/`start_line`.
-fn document_section_node_id(
+/// The [`NodeType`] a section is emitted as: `LibrarySection` when a library
+/// name is in scope, otherwise `DocumentSection`.
+fn section_node_type(library_name: Option<&str>) -> NodeType {
+    if library_name.is_some() {
+        NodeType::LibrarySection
+    } else {
+        NodeType::DocumentSection
+    }
+}
+
+/// Compute the section node id for a heading at `idx`/`start_line`.
+///
+/// With `library_name = Some(name)` this produces a `LibrarySection` id keyed
+/// by the library name (`compute_node_id_for_type` folds the name into the
+/// hash); with `None` it produces the tenant-scoped `DocumentSection` id. The
+/// two schemes never collide for the same file path + heading.
+fn section_node_id(
     tenant_id: &str,
     file_path: &str,
     heading_text: &str,
     idx: usize,
     start_line: usize,
+    library_name: Option<&str>,
 ) -> String {
     let fields = NodeIdFields {
         tenant_id,
         file_path,
         symbol_name: heading_text,
-        symbol_type: NodeType::DocumentSection,
+        symbol_type: section_node_type(library_name),
         section_index: Some(idx as u32),
         start_line: Some(start_line as u32),
-        library_name: None,
+        library_name,
     };
     compute_node_id_for_type(&fields)
 }
@@ -219,12 +262,20 @@ fn markdown_section_spans(
     file_path: &str,
     content: &str,
     heading_re: &Regex,
+    library_name: Option<&str>,
 ) -> Vec<SectionSpan> {
     collect_markdown_headings(content, heading_re)
         .iter()
         .enumerate()
         .map(|(idx, h)| SectionSpan {
-            node_id: document_section_node_id(tenant_id, file_path, &h.text, idx, h.start_line),
+            node_id: section_node_id(
+                tenant_id,
+                file_path,
+                &h.text,
+                idx,
+                h.start_line,
+                library_name,
+            ),
             start_line: h.start_line as u32,
             end_line: h.end_line as u32,
         })
@@ -232,12 +283,24 @@ fn markdown_section_spans(
 }
 
 /// Build plain-text `SectionSpan`s (pure; matches `extract` identities).
-fn text_section_spans(tenant_id: &str, file_path: &str, content: &str) -> Vec<SectionSpan> {
+fn text_section_spans(
+    tenant_id: &str,
+    file_path: &str,
+    content: &str,
+    library_name: Option<&str>,
+) -> Vec<SectionSpan> {
     collect_text_paragraphs(content)
         .iter()
         .enumerate()
         .map(|(idx, p)| SectionSpan {
-            node_id: document_section_node_id(tenant_id, file_path, &p.text, idx, p.start_line),
+            node_id: section_node_id(
+                tenant_id,
+                file_path,
+                &p.text,
+                idx,
+                p.start_line,
+                library_name,
+            ),
             start_line: p.start_line as u32,
             end_line: p.end_line as u32,
         })
@@ -250,14 +313,22 @@ fn extract_markdown_sections(
     file_path: &str,
     content: &str,
     heading_re: &Regex,
+    library_name: Option<&str>,
 ) -> Vec<GraphNode> {
+    let node_type = section_node_type(library_name);
     collect_markdown_headings(content, heading_re)
         .iter()
         .enumerate()
         .map(|(idx, h)| {
-            let mut node = GraphNode::new(tenant_id, file_path, &h.text, NodeType::DocumentSection);
-            node.node_id =
-                document_section_node_id(tenant_id, file_path, &h.text, idx, h.start_line);
+            let mut node = GraphNode::new(tenant_id, file_path, &h.text, node_type);
+            node.node_id = section_node_id(
+                tenant_id,
+                file_path,
+                &h.text,
+                idx,
+                h.start_line,
+                library_name,
+            );
             node.start_line = Some(h.start_line as u32);
             node.end_line = Some(h.end_line as u32);
             node
@@ -268,14 +339,26 @@ fn extract_markdown_sections(
 /// Extract sections from plain text using blank-line-separated paragraphs.
 ///
 /// The first non-empty line of each paragraph is used as the heading text.
-fn extract_text_sections(tenant_id: &str, file_path: &str, content: &str) -> Vec<GraphNode> {
+fn extract_text_sections(
+    tenant_id: &str,
+    file_path: &str,
+    content: &str,
+    library_name: Option<&str>,
+) -> Vec<GraphNode> {
+    let node_type = section_node_type(library_name);
     collect_text_paragraphs(content)
         .iter()
         .enumerate()
         .map(|(idx, p)| {
-            let mut node = GraphNode::new(tenant_id, file_path, &p.text, NodeType::DocumentSection);
-            node.node_id =
-                document_section_node_id(tenant_id, file_path, &p.text, idx, p.start_line);
+            let mut node = GraphNode::new(tenant_id, file_path, &p.text, node_type);
+            node.node_id = section_node_id(
+                tenant_id,
+                file_path,
+                &p.text,
+                idx,
+                p.start_line,
+                library_name,
+            );
             node.start_line = Some(p.start_line as u32);
             node.end_line = Some(p.end_line as u32);
             node
@@ -302,12 +385,13 @@ impl NarrativeExtractor for SectionExtractor {
         };
 
         let fp = file_path.to_string_lossy();
+        let library_name = self.library_name.as_deref();
 
         let nodes = match kind {
             FileKind::Markdown => {
-                extract_markdown_sections(tenant_id, &fp, content, &self.heading_re)
+                extract_markdown_sections(tenant_id, &fp, content, &self.heading_re, library_name)
             }
-            FileKind::PlainText => extract_text_sections(tenant_id, &fp, content),
+            FileKind::PlainText => extract_text_sections(tenant_id, &fp, content, library_name),
         };
 
         NarrativeExtractionResult {
@@ -588,5 +672,65 @@ more body.
             .section_spans("t1", "code.rs", "# Heading\nbody\n")
             .is_empty());
         assert!(ext.section_spans("t1", "data.json", "{}").is_empty());
+    }
+
+    // ── LibrarySection (task 13) ─────────────────────────────────────────
+
+    fn lib_extractor(name: &str) -> SectionExtractor {
+        SectionExtractor::for_library(Some(name.to_string()))
+    }
+
+    #[test]
+    fn test_library_extract_emits_library_section_nodes() {
+        let ext = lib_extractor("mylib");
+        let md = "## Functions\nbody\n\n## Types\nbody\n";
+        let result = run_extract(&ext, "mylib", "api.md", md);
+        assert_eq!(result.nodes.len(), 2);
+        for node in &result.nodes {
+            assert_eq!(node.symbol_type, NodeType::LibrarySection);
+            assert!(node.start_line.is_some());
+        }
+    }
+
+    #[test]
+    fn test_project_extract_still_emits_document_section() {
+        let ext = extractor();
+        let md = "## Functions\nbody\n";
+        let result = run_extract(&ext, "proj", "api.md", md);
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes[0].symbol_type, NodeType::DocumentSection);
+    }
+
+    #[test]
+    fn test_library_section_id_differs_from_document_section() {
+        // Collision avoidance: a project DocumentSection and a library
+        // LibrarySection for the same file path + heading must have distinct
+        // node ids (different id schemes: tenant vs library, type literal).
+        let proj = extractor();
+        let lib = lib_extractor("mylib");
+        let md = "## Getting Started\nbody\n";
+
+        let proj_node = &run_extract(&proj, "proj", "README.md", md).nodes[0];
+        let lib_node = &run_extract(&lib, "mylib", "README.md", md).nodes[0];
+
+        assert_ne!(proj_node.node_id, lib_node.node_id);
+        assert_eq!(proj_node.symbol_type, NodeType::DocumentSection);
+        assert_eq!(lib_node.symbol_type, NodeType::LibrarySection);
+    }
+
+    #[test]
+    fn test_library_section_spans_ids_match_extract() {
+        // The spans (used as COVERS_TOPIC edge sources) must equal the
+        // LibrarySection node ids that extract assigns.
+        let ext = lib_extractor("mylib");
+        let md = "## Alpha\nbody\n\n## Beta\nbody\n";
+        let extracted = run_extract(&ext, "mylib", "api.md", md);
+        let spans = ext.section_spans("mylib", "api.md", md);
+
+        assert_eq!(extracted.nodes.len(), spans.len());
+        for (node, span) in extracted.nodes.iter().zip(spans.iter()) {
+            assert_eq!(node.symbol_type, NodeType::LibrarySection);
+            assert_eq!(node.node_id, span.node_id);
+        }
     }
 }

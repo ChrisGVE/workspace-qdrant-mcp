@@ -9,6 +9,15 @@
 //!
 //! Failure isolation: callers wrap [`run`] so any extractor error yields an
 //! empty result and a warning — narrative extraction must never abort ingest.
+//!
+//! Library documents (the `libraries` collection, where `tenant_id` is the
+//! library name) emit `LibrarySection` nodes instead of `DocumentSection`.
+//!
+//! MIGRATION NOTE: libraries ingested before this version carry no
+//! `LibrarySection` / `REFERENCES_DOC` graph elements. Once the knowledge graph
+//! is enabled, an existing library must be *uplifted* — delete the whole
+//! library and re-ingest every file — to populate them. Normal incremental
+//! re-ingest only refreshes the files it touches (per-file scope).
 
 use std::path::Path;
 
@@ -36,6 +45,7 @@ use crate::tagging::Tier2Tagger;
 /// each DocumentSection node by classifying the overlap-weighted mean of the
 /// chunk vectors that fall within the section's line range (reusing existing
 /// chunk vectors — no extra embedding). They share the reingest transaction.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run(
     ctx: &ProcessingContext,
     tenant_id: &str,
@@ -44,6 +54,7 @@ pub(super) async fn run(
     content: &str,
     language: Option<&str>,
     branch: &str,
+    library_name: Option<&str>,
     points: &[crate::storage::DocumentPoint],
     chunk_records: &[super::chunk_embed::ChunkRecord],
 ) -> NarrativeExtractionResult {
@@ -66,13 +77,18 @@ pub(super) async fn run(
 
     // SectionExtractor is the single source of section identity; capture its
     // spans so ExplainsExtractor attaches edges to the same section node ids.
-    let section_extractor = SectionExtractor::new();
+    // For library-collection files (`library_name = Some`) the sections are
+    // LibrarySection nodes scoped by library name, so the spans (and thus the
+    // COVERS_TOPIC edge sources below) carry the LibrarySection node ids.
+    let section_extractor = SectionExtractor::for_library(library_name.map(str::to_string));
     let section_spans = section_extractor.section_spans(tenant_id, relative_path, content);
 
     // Ordered extractors: sections first (already captured), then explains
     // (context-aware), then comments + references (context-free).
     let extractors: Vec<Box<dyn NarrativeExtractor>> = vec![
-        Box::new(SectionExtractor::new()),
+        Box::new(SectionExtractor::for_library(
+            library_name.map(str::to_string),
+        )),
         Box::new(ExplainsExtractor::with_context(
             section_spans.clone(),
             automaton,
@@ -126,8 +142,11 @@ pub(super) async fn run(
 ///
 /// For each section span, classify the overlap-weighted mean of the chunk
 /// vectors falling within the section's line range against the Tier-2 taxonomy
-/// and emit a weighted COVERS_TOPIC edge from the **DocumentSection** node (not
-/// the File node) to each matching ConceptNode, carrying section-depth metadata.
+/// and emit a weighted COVERS_TOPIC edge from the **section** node — a
+/// DocumentSection for project files, a LibrarySection for library files (not
+/// the File node) — to each matching ConceptNode, carrying section-depth
+/// metadata. The source id comes from the section spans, which already reflect
+/// the correct section node type.
 /// Reuses existing chunk vectors (no extra embedding). A section overlapping no
 /// chunks produces no edge.
 #[allow(clippy::too_many_arguments)]

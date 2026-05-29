@@ -475,10 +475,17 @@ mod param_validation {
 // ── NarrativeQuery handler tests ──────────────────────────────────
 
 mod narrative_query {
+    use std::path::Path;
+
     use tonic::Request;
+    use workspace_qdrant_core::config::NarrativeConfig;
     use workspace_qdrant_core::graph::{
-        create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType,
+        create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType, SymbolRow,
     };
+    use workspace_qdrant_core::narrative::explains::ExplainsExtractor;
+    use workspace_qdrant_core::narrative::sections::SectionExtractor;
+    use workspace_qdrant_core::narrative::symbol_index::SymbolAutomaton;
+    use workspace_qdrant_core::narrative::{run_narrative_pipeline, NarrativeExtractor};
 
     use crate::proto::graph_service_server::GraphService;
     use crate::proto::narrative_query_request::QueryTarget;
@@ -1021,6 +1028,86 @@ mod narrative_query {
         assert_eq!(resp.nodes[0].symbol_name, "hop_end_doc");
         assert_eq!(resp.nodes[0].depth, 2);
     }
+
+    // ── INT-A5: pipeline ingest → narrative_query RPC (CLI query path) ──
+    //
+    // `wqm graph narrative --symbol X` invokes the NarrativeQuery RPC handler
+    // exercised here. This test feeds narrative produced by the real extraction
+    // pipeline (not hand-seeded edges) through the store the GraphService wraps,
+    // then asserts the RPC returns populated results — i.e. the section that
+    // EXPLAINS the queried symbol. The CLI layer over the RPC is a thin
+    // presenter and is not daemon-spawned in unit tests.
+    #[tokio::test]
+    async fn int_a5_pipeline_narrative_is_queryable_by_symbol() {
+        let (service, _tmp) = test_graph_service().await;
+        let tenant = "narr-a5";
+        let rel = "docs/README.md";
+
+        // Seed a real code symbol so EXPLAINS resolves to a genuine node id.
+        let func = GraphNode::new(tenant, "src/lib.rs", "process", NodeType::Function);
+        {
+            let guard = service.graph_store.read().await.unwrap();
+            guard.upsert_nodes(&[func.clone()]).await.unwrap();
+        }
+
+        // Build the automaton from the persisted symbols and run the section +
+        // explains pipeline over a doc that references `process` (≥2 mentions).
+        let symbols: Vec<SymbolRow> = {
+            let guard = service.graph_store.read().await.unwrap();
+            guard.query_code_symbols(tenant).await.unwrap()
+        };
+        let automaton = SymbolAutomaton::build(&symbols, 4);
+        let readme = "# Processing\n\nThe process method drives ingestion. \
+                      Call process for every file.\n";
+        let section_extractor = SectionExtractor::new();
+        let spans = section_extractor.section_spans(tenant, rel, readme);
+        let extractors: Vec<Box<dyn NarrativeExtractor>> = vec![
+            Box::new(SectionExtractor::new()),
+            Box::new(ExplainsExtractor::with_context(
+                spans,
+                automaton,
+                NarrativeConfig::default(),
+            )),
+        ];
+        let result =
+            run_narrative_pipeline(tenant, Path::new(rel), readme, None, "main", &extractors).await;
+        assert!(
+            result
+                .edges
+                .iter()
+                .any(|e| e.edge_type == EdgeType::Explains),
+            "pipeline should produce an EXPLAINS edge to the seeded symbol"
+        );
+
+        {
+            let guard = service.graph_store.read().await.unwrap();
+            guard
+                .reingest_file(tenant, rel, &result.nodes, &result.edges)
+                .await
+                .unwrap();
+        }
+
+        // The CLI's narrative-by-symbol query returns the explaining section.
+        let req = make_request(
+            tenant,
+            Some(QueryTarget::SymbolName("process".into())),
+            vec![],
+            2,
+            50,
+        );
+        let resp = service.narrative_query(req).await.unwrap().into_inner();
+        assert!(
+            resp.total_found >= 1,
+            "narrative_query by symbol must return the pipeline-produced section"
+        );
+        assert!(
+            resp.nodes
+                .iter()
+                .any(|n| n.symbol_type == "document_section" && n.edge_type == "EXPLAINS"),
+            "expected a document_section reached via an EXPLAINS edge, got {:?}",
+            resp.nodes
+        );
+    }
 }
 
 // ── QueryCrossBoundary handler validation + end-to-end ──────────────
@@ -1115,9 +1202,27 @@ mod cross_boundary {
             .unwrap();
         store
             .insert_edges(&[
-                GraphEdge::new("proj_a", &code_a.node_id, &concept.node_id, EdgeType::ImplementsConcept, "a.rs"),
-                GraphEdge::new("lib_x", &lib.node_id, &concept.node_id, EdgeType::CoversTopic, "b.md"),
-                GraphEdge::new("proj_b", &code_b.node_id, &concept.node_id, EdgeType::ImplementsConcept, "b.rs"),
+                GraphEdge::new(
+                    "proj_a",
+                    &code_a.node_id,
+                    &concept.node_id,
+                    EdgeType::ImplementsConcept,
+                    "a.rs",
+                ),
+                GraphEdge::new(
+                    "lib_x",
+                    &lib.node_id,
+                    &concept.node_id,
+                    EdgeType::CoversTopic,
+                    "b.md",
+                ),
+                GraphEdge::new(
+                    "proj_b",
+                    &code_b.node_id,
+                    &concept.node_id,
+                    EdgeType::ImplementsConcept,
+                    "b.rs",
+                ),
             ])
             .await
             .unwrap();
@@ -1131,9 +1236,18 @@ mod cross_boundary {
             .into_inner();
 
         let ids: Vec<&str> = resp.nodes.iter().map(|n| n.node_id.as_str()).collect();
-        assert!(ids.contains(&concept.node_id.as_str()), "reaches concept: {ids:?}");
-        assert!(ids.contains(&lib.node_id.as_str()), "reaches library: {ids:?}");
-        assert!(!ids.contains(&code_b.node_id.as_str()), "excludes proj_b: {ids:?}");
+        assert!(
+            ids.contains(&concept.node_id.as_str()),
+            "reaches concept: {ids:?}"
+        );
+        assert!(
+            ids.contains(&lib.node_id.as_str()),
+            "reaches library: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&code_b.node_id.as_str()),
+            "excludes proj_b: {ids:?}"
+        );
         // Every node carries tenant + non-zero confidence.
         for n in &resp.nodes {
             assert!(!n.tenant_id.is_empty());

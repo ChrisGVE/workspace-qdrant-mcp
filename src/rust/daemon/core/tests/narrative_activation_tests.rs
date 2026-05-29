@@ -23,6 +23,7 @@ use std::path::Path;
 use workspace_qdrant_core::config::NarrativeConfig;
 use workspace_qdrant_core::graph::{EdgeType, GraphStore, NodeType, SymbolRow};
 use workspace_qdrant_core::narrative::explains::ExplainsExtractor;
+use workspace_qdrant_core::narrative::references::ReferencesExtractor;
 use workspace_qdrant_core::narrative::sections::SectionExtractor;
 use workspace_qdrant_core::narrative::symbol_index::SymbolAutomaton;
 use workspace_qdrant_core::narrative::{run_narrative_pipeline, NarrativeExtractor};
@@ -158,11 +159,7 @@ async fn int_a2_reingest_removes_stale_narrative_without_touching_code() {
 
     let chunks = build_rust_file_chunks();
     ingest_file_chunks(&store, &chunks, TENANT, "src/processor.rs").await;
-    let code_nodes_before = store
-        .query_code_symbols(TENANT)
-        .await
-        .unwrap()
-        .len();
+    let code_nodes_before = store.query_code_symbols(TENANT).await.unwrap().len();
     assert!(code_nodes_before > 0);
 
     let rel = "docs/README.md";
@@ -191,10 +188,7 @@ async fn int_a2_reingest_removes_stale_narrative_without_touching_code() {
     // The OLD "Processing Pipeline" section node must be gone (deleted by the
     // reingest narrative-node cleanup), proving no orphan accumulation.
     let stats = store.stats(Some(TENANT), None).await.unwrap();
-    let doc_section_count = *stats
-        .nodes_by_type
-        .get("document_section")
-        .unwrap_or(&0);
+    let doc_section_count = *stats.nodes_by_type.get("document_section").unwrap_or(&0);
     assert_eq!(
         doc_section_count, 2,
         "expected exactly 2 document_section nodes after re-ingest, got {doc_section_count}"
@@ -278,4 +272,100 @@ async fn int_a4_no_symbols_yields_no_explains_but_sections_remain() {
         .filter(|e| e.edge_type == EdgeType::Explains)
         .count();
     assert_eq!(explains, 0, "no symbols → no EXPLAINS edges");
+}
+
+/// Run the library narrative pipeline (LibrarySection sections + references)
+/// for a `libraries`-collection document, where `tenant_id == library_name`.
+async fn run_library_narrative(
+    library: &str,
+    rel_path: &str,
+    content: &str,
+    branch: &str,
+) -> workspace_qdrant_core::narrative::NarrativeExtractionResult {
+    let extractors: Vec<Box<dyn NarrativeExtractor>> = vec![
+        Box::new(SectionExtractor::for_library(Some(library.to_string()))),
+        Box::new(ReferencesExtractor::new()),
+    ];
+    run_narrative_pipeline(
+        library,
+        Path::new(rel_path),
+        content,
+        None,
+        branch,
+        &extractors,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn int_a6_library_sections_scoped_and_per_file_reingest() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = create_factory_store(dir.path()).await;
+    // For the libraries collection the tenant id is the library name.
+    let lib = "test_lib";
+
+    // intro.md (2 headings, one internal link) + guide.md (1 heading).
+    let intro = "# Intro\n\nSee the [guide](./guide.md) for details.\n\n# Setup\n\nsetup body\n";
+    let guide = "# Guide\n\nguide body\n";
+
+    let r_intro = run_library_narrative(lib, "intro.md", intro, "main").await;
+    // Sections are LibrarySection nodes, scoped (node id keyed on library name).
+    assert_eq!(
+        r_intro
+            .nodes
+            .iter()
+            .filter(|n| n.symbol_type == NodeType::LibrarySection)
+            .count(),
+        2,
+        "intro.md → 2 LibrarySection nodes"
+    );
+    store
+        .reingest_file(lib, "intro.md", &r_intro.nodes, &r_intro.edges)
+        .await
+        .unwrap();
+
+    let r_guide = run_library_narrative(lib, "guide.md", guide, "main").await;
+    store
+        .reingest_file(lib, "guide.md", &r_guide.nodes, &r_guide.edges)
+        .await
+        .unwrap();
+
+    // 3 LibrarySection nodes total (Intro, Setup, Guide); zero DocumentSection.
+    let stats = store.stats(Some(lib), None).await.unwrap();
+    assert_eq!(
+        *stats.nodes_by_type.get("library_section").unwrap_or(&0),
+        3,
+        "Intro + Setup + Guide"
+    );
+    assert_eq!(
+        *stats.nodes_by_type.get("document_section").unwrap_or(&0),
+        0,
+        "library docs must not emit DocumentSection nodes"
+    );
+
+    // Library-internal REFERENCES_DOC edge from intro.md → guide.md.
+    let refs = store
+        .query_edges_by_type(EdgeType::ReferencesDoc)
+        .await
+        .unwrap();
+    assert!(
+        refs.iter().any(|e| e.source_file == "intro.md"),
+        "expected a REFERENCES_DOC edge sourced from intro.md"
+    );
+
+    // Per-file re-ingest: drop the Setup heading from intro.md. The deletion is
+    // file-scoped, so guide.md's LibrarySection must survive (siblings intact).
+    let intro2 = "# Intro\n\nbody only\n";
+    let r2 = run_library_narrative(lib, "intro.md", intro2, "main").await;
+    store
+        .reingest_file(lib, "intro.md", &r2.nodes, &r2.edges)
+        .await
+        .unwrap();
+
+    let stats2 = store.stats(Some(lib), None).await.unwrap();
+    assert_eq!(
+        *stats2.nodes_by_type.get("library_section").unwrap_or(&0),
+        2,
+        "intro.md re-ingest drops Setup (1 left) and leaves guide.md untouched (1)"
+    );
 }
