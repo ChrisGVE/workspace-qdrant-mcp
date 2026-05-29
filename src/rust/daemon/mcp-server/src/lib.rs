@@ -9,6 +9,7 @@ pub mod config;
 pub mod grpc;
 pub mod instructions;
 pub mod observability;
+pub mod qdrant;
 pub mod server;
 pub mod server_types;
 pub mod sqlite;
