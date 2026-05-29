@@ -72,12 +72,23 @@ pub(super) async fn embed_chunks(
     let embedding_start = std::time::Instant::now();
     let idf_epoch = ctx.lexicon_manager.corpus_size(&item.collection).await;
 
+    // Split any chunk that exceeds the active provider's input budget so a
+    // single overlong chunk never triggers an HTTP 400 from the remote
+    // embedder. No-op for providers without a caller-side limit (FastEmbed).
+    let max_input_chars = ctx.embedding_generator.max_input_chars();
+    let chunks = split_oversized_chunks(&document_content.chunks, max_input_chars);
+    if chunks.len() != document_content.chunks.len() {
+        info!(
+            "Split {} oversized chunk(s) into {} sub-chunks (budget {} chars) for {}",
+            chunks.len() - document_content.chunks.len(),
+            chunks.len(),
+            max_input_chars,
+            file_path.display()
+        );
+    }
+
     // Batch-embed all chunk texts in one provider call.
-    let chunk_texts: Vec<String> = document_content
-        .chunks
-        .iter()
-        .map(|c| c.content.clone())
-        .collect();
+    let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
 
     let _permit = ctx
         .embedding_semaphore
@@ -107,12 +118,7 @@ pub(super) async fn embed_chunks(
     let mut points = Vec::new();
     let mut chunk_records = Vec::new();
 
-    for (chunk_idx, (chunk, embedding_result)) in document_content
-        .chunks
-        .iter()
-        .zip(batch_results)
-        .enumerate()
-    {
+    for (chunk_idx, (chunk, embedding_result)) in chunks.iter().zip(batch_results).enumerate() {
         let mut point_payload = build_chunk_payload(
             &chunk.content,
             chunk.chunk_index,
@@ -398,6 +404,177 @@ async fn assemble_chunk_output(
         },
         lsp_status,
         treesitter_status,
+    }
+}
+
+/// Split any chunk whose content exceeds `max_chars` into sub-chunks that
+/// each fit the budget, renumbering `chunk_index` sequentially so payloads
+/// and point IDs stay consistent. Sub-chunks inherit the parent's metadata
+/// (line range, symbol) plus a `split_part = "i/n"` marker. `usize::MAX`
+/// (no provider limit) returns the chunks unchanged.
+fn split_oversized_chunks(chunks: &[crate::TextChunk], max_chars: usize) -> Vec<crate::TextChunk> {
+    if max_chars == usize::MAX {
+        return chunks.to_vec();
+    }
+
+    let mut out: Vec<crate::TextChunk> = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        if chunk.content.chars().count() <= max_chars {
+            out.push(chunk.clone());
+            continue;
+        }
+
+        let pieces = split_text_on_budget(&chunk.content, max_chars);
+        let n = pieces.len();
+        let mut char_cursor = chunk.start_char;
+        for (i, piece) in pieces.into_iter().enumerate() {
+            let piece_chars = piece.chars().count();
+            let mut metadata = chunk.metadata.clone();
+            metadata.insert("split_part".to_string(), format!("{}/{}", i + 1, n));
+            out.push(crate::TextChunk {
+                content: piece,
+                chunk_index: 0, // renumbered below
+                start_char: char_cursor,
+                end_char: char_cursor + piece_chars,
+                metadata,
+            });
+            char_cursor += piece_chars;
+        }
+    }
+
+    for (i, chunk) in out.iter_mut().enumerate() {
+        chunk.chunk_index = i;
+    }
+    out
+}
+
+/// Split `content` into pieces of at most `max_chars` characters, preferring
+/// line boundaries. A single line longer than `max_chars` is hard-split on
+/// UTF-8 char boundaries. Always returns at least one piece.
+fn split_text_on_budget(content: &str, max_chars: usize) -> Vec<String> {
+    debug_assert!(max_chars > 0);
+    let mut pieces: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_chars = 0usize;
+
+    // `split_inclusive` keeps the trailing '\n' with each line so the
+    // reassembled content is byte-identical to the original (no data loss).
+    for line in content.split_inclusive('\n') {
+        let line_chars = line.chars().count();
+
+        if line_chars > max_chars {
+            if !current.is_empty() {
+                pieces.push(std::mem::take(&mut current));
+                current_chars = 0;
+            }
+            pieces.extend(hard_split_chars(line, max_chars));
+            continue;
+        }
+
+        if current_chars + line_chars > max_chars && !current.is_empty() {
+            pieces.push(std::mem::take(&mut current));
+            current_chars = 0;
+        }
+        current.push_str(line);
+        current_chars += line_chars;
+    }
+
+    if !current.is_empty() {
+        pieces.push(current);
+    }
+    if pieces.is_empty() {
+        pieces.push(String::new());
+    }
+    pieces
+}
+
+/// Hard-split a string into `max_chars`-character pieces on char boundaries.
+fn hard_split_chars(s: &str, max_chars: usize) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut buf = String::new();
+    let mut count = 0usize;
+    for ch in s.chars() {
+        buf.push(ch);
+        count += 1;
+        if count == max_chars {
+            pieces.push(std::mem::take(&mut buf));
+            count = 0;
+        }
+    }
+    if !buf.is_empty() {
+        pieces.push(buf);
+    }
+    pieces
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn chunk(content: &str, idx: usize) -> crate::TextChunk {
+        crate::TextChunk {
+            content: content.to_string(),
+            chunk_index: idx,
+            start_char: 0,
+            end_char: content.chars().count(),
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn no_limit_returns_chunks_unchanged() {
+        let chunks = vec![chunk("a".repeat(100_000).as_str(), 0)];
+        let out = split_oversized_chunks(&chunks, usize::MAX);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].content.chars().count(), 100_000);
+    }
+
+    #[test]
+    fn small_chunks_pass_through() {
+        let chunks = vec![chunk("hello", 0), chunk("world", 1)];
+        let out = split_oversized_chunks(&chunks, 100);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].content, "hello");
+    }
+
+    #[test]
+    fn oversized_chunk_is_split_under_budget_without_loss() {
+        let body = (0..50)
+            .map(|i| format!("line number {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let original = body.clone();
+        let chunks = vec![chunk(&body, 0)];
+
+        let out = split_oversized_chunks(&chunks, 40);
+
+        assert!(out.len() > 1, "expected the oversized chunk to be split");
+        for (i, c) in out.iter().enumerate() {
+            assert!(
+                c.content.chars().count() <= 40,
+                "piece {i} exceeds budget: {} chars",
+                c.content.chars().count()
+            );
+            assert_eq!(c.chunk_index, i, "chunk_index must be renumbered");
+            assert!(c.metadata.contains_key("split_part"));
+        }
+        // Reassembly is lossless.
+        let rejoined: String = out.iter().map(|c| c.content.as_str()).collect();
+        assert_eq!(rejoined, original);
+    }
+
+    #[test]
+    fn single_long_line_is_hard_split_on_char_boundaries() {
+        // Multi-byte chars must never be split mid-codepoint.
+        let line = "あ".repeat(100); // no newlines, 100 chars
+        let pieces = split_text_on_budget(&line, 30);
+        assert!(pieces.len() >= 4);
+        for p in &pieces {
+            assert!(p.chars().count() <= 30);
+        }
+        let rejoined: String = pieces.concat();
+        assert_eq!(rejoined, line);
     }
 }
 

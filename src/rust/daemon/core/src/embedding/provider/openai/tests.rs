@@ -54,6 +54,7 @@ fn build_provider(server: &MockServer, env_var: &str) -> OpenAiCompatibleProvide
         1536,
         env_var,
         Duration::from_secs(60),
+        8192,
     )
     .expect("provider construction must succeed when env var is set")
 }
@@ -79,6 +80,7 @@ async fn test_openai_new_is_nonblocking() {
         1536,
         &var,
         Duration::from_secs(60),
+        8192,
     )
     .expect("new must not perform any network I/O");
     assert_eq!(provider.output_dim(), 1536);
@@ -239,6 +241,7 @@ async fn test_openai_embed_texts_chunked_by_batch_size() {
         1,
         &var,
         Duration::from_secs(60),
+        8192,
     )
     .unwrap();
     let result = provider
@@ -260,6 +263,7 @@ async fn test_openai_output_dim_from_config() {
         1536,
         &var,
         Duration::from_secs(60),
+        8192,
     )
     .unwrap();
     assert_eq!(provider.output_dim(), 1536);
@@ -287,6 +291,7 @@ async fn test_openai_probe_updates_output_dim_on_mismatch() {
         1536,
         &var,
         Duration::from_secs(60),
+        8192,
     )
     .unwrap();
     assert_eq!(provider.output_dim(), 1536);
@@ -364,6 +369,7 @@ async fn test_api_key_absent_returns_init_error() {
         1536,
         &var,
         Duration::from_secs(60),
+        8192,
     );
     match result {
         Err(EmbeddingError::InitializationError { .. }) => {}
@@ -384,6 +390,7 @@ async fn test_api_key_not_in_tracing_or_debug_output() {
         1536,
         &var,
         Duration::from_secs(60),
+        8192,
     )
     .unwrap();
     let dbg = format!("{provider:?}");
@@ -413,6 +420,7 @@ async fn test_metrics_label_cardinality() {
             1536,
             &var,
             Duration::from_secs(60),
+            8192,
         )
         .unwrap();
         assert_eq!(provider.metrics_label(), *expected, "url={url}");

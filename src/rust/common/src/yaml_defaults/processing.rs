@@ -114,6 +114,7 @@ pub struct YamlEmbeddingConfig {
     pub api_key_env_var: String,
     pub output_dim: usize,
     pub health_probe_cache_secs: u64,
+    pub max_input_tokens: usize,
     pub keyword_embedder: YamlKeywordEmbedderConfig,
 }
 
@@ -150,6 +151,7 @@ impl Default for YamlEmbeddingConfig {
             api_key_env_var: "OPENAI_API_KEY".to_string(),
             output_dim: 1536,
             health_probe_cache_secs: 60,
+            max_input_tokens: 8192,
             keyword_embedder: YamlKeywordEmbedderConfig::default(),
         }
     }

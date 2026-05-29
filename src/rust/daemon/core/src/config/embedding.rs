@@ -31,6 +31,14 @@ fn default_output_dim() -> usize {
     1536
 }
 
+fn default_max_input_tokens() -> usize {
+    // text-embedding-3-* and most OpenAI-compatible endpoints reject inputs
+    // longer than 8192 tokens with HTTP 400. The ingestion layer splits
+    // oversized chunks below a char budget derived from this value before
+    // embedding, so requests never exceed the cap.
+    8192
+}
+
 fn default_health_probe_cache_secs() -> u64 {
     60
 }
@@ -139,6 +147,12 @@ pub struct EmbeddingSettings {
     #[serde(default = "default_health_probe_cache_secs")]
     pub health_probe_cache_secs: u64,
 
+    /// Maximum input length, in tokens, the remote provider accepts per text.
+    /// Chunks whose estimated token count exceeds this are split before
+    /// embedding (no effect for `fastembed`, which truncates locally).
+    #[serde(default = "default_max_input_tokens")]
+    pub max_input_tokens: usize,
+
     /// Optional dedicated local FastEmbed provider for keyword extraction.
     #[serde(default)]
     pub keyword_embedder: KeywordEmbedderConfig,
@@ -156,6 +170,7 @@ impl Default for EmbeddingSettings {
             api_key_env_var: default_api_key_env_var(),
             output_dim: default_output_dim(),
             health_probe_cache_secs: default_health_probe_cache_secs(),
+            max_input_tokens: default_max_input_tokens(),
             keyword_embedder: KeywordEmbedderConfig::default(),
         }
     }
@@ -188,6 +203,13 @@ impl EmbeddingSettings {
         if self.provider == "openai_compatible" && self.remote_batch_size == 0 {
             return Err(
                 "embedding.remote_batch_size must be greater than 0 for openai_compatible provider"
+                    .to_string(),
+            );
+        }
+
+        if self.provider == "openai_compatible" && self.max_input_tokens == 0 {
+            return Err(
+                "embedding.max_input_tokens must be greater than 0 for openai_compatible provider"
                     .to_string(),
             );
         }

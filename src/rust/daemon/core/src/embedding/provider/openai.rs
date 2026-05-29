@@ -55,7 +55,15 @@ pub struct OpenAiCompatibleProvider {
     pub(super) provider_label_value: String,
     pub(super) probe_cache: Mutex<Option<(Instant, Result<(), Arc<EmbeddingError>>)>>,
     pub(super) probe_cache_ttl: Duration,
+    /// Char budget for a single input, derived from the model's token cap.
+    pub(super) max_input_chars: usize,
 }
+
+/// Conservative lower bound on characters-per-token for cl100k/o200k BPE on
+/// the code + prose this index holds. English averages ~4 and code ~3.3, so
+/// assuming 3 keeps the derived char budget safely under the token cap while
+/// avoiding needless over-splitting of normal-sized chunks.
+const MIN_CHARS_PER_TOKEN: usize = 3;
 
 impl std::fmt::Debug for OpenAiCompatibleProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -83,6 +91,7 @@ impl OpenAiCompatibleProvider {
         expected_output_dim: usize,
         api_key_env_var: &str,
         probe_cache_ttl: Duration,
+        max_input_tokens: usize,
     ) -> Result<Self, EmbeddingError> {
         let raw_key =
             std::env::var(api_key_env_var).map_err(|_| EmbeddingError::InitializationError {
@@ -116,6 +125,7 @@ impl OpenAiCompatibleProvider {
             provider_label_value,
             probe_cache: Mutex::new(None),
             probe_cache_ttl,
+            max_input_chars: max_input_tokens.saturating_mul(MIN_CHARS_PER_TOKEN),
         })
     }
 
@@ -165,6 +175,10 @@ impl DenseProvider for OpenAiCompatibleProvider {
 
     fn output_dim(&self) -> usize {
         self.output_dim.load(Ordering::Relaxed)
+    }
+
+    fn max_input_chars(&self) -> usize {
+        self.max_input_chars
     }
 
     fn provider_label(&self) -> &str {

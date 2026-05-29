@@ -348,6 +348,13 @@ embedding:
   # Format: Integer ≥ 0
   health_probe_cache_secs: 60
 
+  # max_input_tokens: Maximum input length (tokens) the remote provider accepts per text
+  # Purpose: Chunks whose estimated size exceeds this are split before embedding so
+  # requests never hit the provider's HTTP 400 "maximum input length" error.
+  # No effect for provider: fastembed (truncates locally). 8192 matches text-embedding-3-*.
+  # Format: Integer > 0
+  max_input_tokens: 8192
+
   # enable_sparse_vectors: Hybrid search capability activation
   # Purpose: Enables generation of sparse keyword vectors alongside dense semantic vectors
   # Search improvement: Combines semantic similarity with exact keyword matching

@@ -297,6 +297,7 @@ fn build_embedding_settings(yaml: &YamlConfig) -> EmbeddingSettings {
         api_key_env_var: yaml.embedding.api_key_env_var.clone(),
         output_dim: yaml.embedding.output_dim,
         health_probe_cache_secs: yaml.embedding.health_probe_cache_secs,
+        max_input_tokens: yaml.embedding.max_input_tokens,
         keyword_embedder: KeywordEmbedderConfig {
             enabled: yaml.embedding.keyword_embedder.enabled,
             num_threads: yaml.embedding.keyword_embedder.num_threads,
