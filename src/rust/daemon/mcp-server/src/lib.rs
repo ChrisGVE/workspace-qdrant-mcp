@@ -1,8 +1,8 @@
 //! workspace-qdrant MCP server — Rust implementation.
 //!
 //! This crate provides a drop-in replacement for the TypeScript MCP server.
-//! It exposes the same 6 MCP tools (store, search, rules, retrieve, grep, list)
-//! over stdio and streamable-HTTP transports.
+//! It exposes the same 7 MCP tools (search, retrieve, rules, store, grep, list,
+//! embedding) over stdio and streamable-HTTP transports.
 
 pub mod canonicalize;
 pub mod config;
@@ -10,6 +10,7 @@ pub mod grpc;
 pub mod instructions;
 pub mod server;
 pub mod server_types;
+pub mod tools;
 
 /// Generated gRPC client stubs from workspace_daemon.proto.
 ///
