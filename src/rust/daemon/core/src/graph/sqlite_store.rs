@@ -7,7 +7,7 @@ use wqm_common::timestamps::now_utc;
 
 use super::{
     is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
-    ImpactNode, ImpactReport, TraversalNode,
+    ImpactNode, ImpactReport, SymbolRow, TraversalNode,
 };
 
 /// SQLite-backed implementation of `GraphStore`.
@@ -543,6 +543,25 @@ impl GraphStore for SqliteGraphStore {
             file_path,
             tenant_id
         );
+        // Delete file-owned narrative nodes so re-ingestion does not leave
+        // orphans when a heading or comment shifts (re-keying its node id).
+        // library_section (scoped by library_name), concept_node (global), and
+        // code-graph nodes are deliberately excluded by the type filter.
+        let deleted_nodes = sqlx::query(
+            "DELETE FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path = ?2
+               AND symbol_type IN ('document_section', 'code_comment', 'docstring')",
+        )
+        .bind(tenant_id)
+        .bind(file_path)
+        .execute(&mut *tx)
+        .await?;
+        debug!(
+            "reingest_file: deleted {} old narrative nodes for {} in tenant {}",
+            deleted_nodes.rows_affected(),
+            file_path,
+            tenant_id
+        );
         for node in nodes {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
@@ -595,6 +614,47 @@ impl GraphStore for SqliteGraphStore {
             tenant_id
         );
         Ok(())
+    }
+
+    async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
+        // Structural (code) node types only — exclude narrative + concept nodes.
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT symbol_name, node_id, file_path
+             FROM graph_nodes
+             WHERE tenant_id = ?1
+               AND symbol_type IN ('function', 'async_function', 'class', 'method',
+                   'struct', 'trait', 'interface', 'enum', 'impl', 'module',
+                   'constant', 'type_alias', 'macro')
+               AND symbol_name != ''",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(symbol_name, node_id, file_path)| SymbolRow {
+                symbol_name,
+                node_id,
+                file_path,
+            })
+            .collect())
+    }
+
+    async fn delete_narrative_nodes_by_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+    ) -> GraphDbResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path = ?2
+               AND symbol_type IN ('document_section', 'code_comment', 'docstring')",
+        )
+        .bind(tenant_id)
+        .bind(file_path)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {

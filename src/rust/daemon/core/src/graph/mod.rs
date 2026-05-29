@@ -406,6 +406,17 @@ impl GraphEdge {
     }
 }
 
+/// A resolved code-graph symbol: its name plus the real node identity it was
+/// stored under. Returned by [`GraphStore::query_code_symbols`] so narrative
+/// EXPLAINS resolution can target an existing node id directly rather than
+/// recomputing one from guessed fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolRow {
+    pub symbol_name: String,
+    pub node_id: String,
+    pub file_path: String,
+}
+
 /// A node encountered during graph traversal, with path context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraversalNode {
@@ -554,6 +565,35 @@ pub trait GraphStore: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Query distinct code-graph symbol names for a tenant, returning each
+    /// symbol's real `node_id` and `file_path` so callers can target the
+    /// existing node directly.
+    ///
+    /// Only structural (code) node types are returned — narrative and concept
+    /// nodes are excluded. Backends that cannot support this return an empty
+    /// vec by default (narrative EXPLAINS resolution then yields no edges).
+    async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
+        let _ = tenant_id;
+        Ok(Vec::new())
+    }
+
+    /// Delete file-owned narrative nodes (document_section / code_comment /
+    /// docstring) for a file, so re-ingestion does not accumulate orphaned
+    /// narrative nodes when headings shift or comments move (re-keying ids).
+    ///
+    /// Must NOT delete `library_section` (scoped by library_name, not file),
+    /// `concept_node` (global, shared across files), or code-graph nodes.
+    /// Returns the number of nodes deleted. Default no-op for backends that
+    /// manage their own cleanup.
+    async fn delete_narrative_nodes_by_file(
+        &self,
+        tenant_id: &str,
+        file_path: &str,
+    ) -> GraphDbResult<u64> {
+        let _ = (tenant_id, file_path);
+        Ok(0)
+    }
+
     /// Atomically re-ingest a file: delete old edges, upsert nodes, insert new
     /// edges — all within a single transaction. On error the database remains
     /// unchanged (all-or-nothing).
@@ -570,6 +610,8 @@ pub trait GraphStore: Send + Sync {
         edges: &[GraphEdge],
     ) -> GraphDbResult<()> {
         self.delete_edges_by_file(tenant_id, file_path).await?;
+        self.delete_narrative_nodes_by_file(tenant_id, file_path)
+            .await?;
         self.upsert_nodes(nodes).await?;
         self.insert_edges(edges).await?;
         Ok(())
