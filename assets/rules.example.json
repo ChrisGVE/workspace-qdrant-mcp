@@ -48,6 +48,27 @@
       "priority": 5,
       "tags": ["typescript", "test"],
       "content": "Run a single MCP-server test with `cd src/typescript/mcp-server && npx vitest run <file-substring>`. Do NOT use `npm --prefix ... exec -- vitest --root ...` — the positional path filter is dropped and the entire ~859-test suite runs (and crashes on the server-http-transport teardown with a stack-overflow). Typecheck with `npx tsc --noEmit` from the mcp-server dir."
+    },
+    {
+      "label": "search-first",
+      "title": "Use workspace-qdrant search/grep for codebase, not memory",
+      "priority": 8,
+      "tags": ["tools", "search", "mcp"],
+      "content": "For any question about THIS codebase, project structure, or library docs, call the workspace-qdrant `search` (semantic/hybrid) or `grep` (exact/regex) tools FIRST — do not answer from training data. Use `search` for concepts, `grep` for known identifiers/strings, `list` (format=summary first) to explore layout, `retrieve` when you already have a document ID. Widen scope=all / includeLibraries only after a project-scoped query returns nothing."
+    },
+    {
+      "label": "mcp-pass-cwd",
+      "title": "Always pass cwd (or projectId) to workspace-qdrant tools",
+      "priority": 7,
+      "tags": ["tools", "mcp", "windows"],
+      "content": "The MCP server runs over HTTP (dockerized) and CANNOT observe your working directory. Always pass `cwd` (absolute path) — or an explicit `projectId` — to `search`, `grep`, `list`, `retrieve`, and `rules`. Omitting both yields \"Could not detect project\" (the Windows/9P mount makes path-based detection fail: client sends C:\\..., daemon registered /run/desktop/mnt/host/c/...)."
+    },
+    {
+      "label": "worktree-tools",
+      "title": "On worktrees: local Read/Grep; MCP search against main",
+      "priority": 6,
+      "tags": ["tools", "worktree", "search"],
+      "content": "Git worktrees (.claude/worktrees/, parallel agent worktrees) are NOT indexed by design (excluded in global.wqmignore — indexing them is ~98% noise). So inside a worktree, read its own files with the native Read/Grep tools, and use workspace-qdrant `search`/`grep` (MCP) only against the main canonical index. Merging back to main re-indexes via the file watcher."
     }
   ]
 }
