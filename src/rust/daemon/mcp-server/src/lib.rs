@@ -12,6 +12,7 @@ pub mod observability;
 pub mod qdrant;
 pub mod server;
 pub mod server_types;
+pub mod session;
 pub mod sqlite;
 pub mod tools;
 
