@@ -1,6 +1,7 @@
 //! SQLite-backed graph store using recursive CTEs for traversal.
 
 use async_trait::async_trait;
+use crate::config::GraphRagConfig;
 use sqlx::{Row, SqlitePool};
 use tracing::debug;
 use wqm_common::timestamps::now_utc;
@@ -23,12 +24,24 @@ pub(crate) const CROSS_BOUNDARY_MAX_HOPS: u32 = 3;
 #[derive(Clone)]
 pub struct SqliteGraphStore {
     pool: SqlitePool,
+    /// Cross-boundary fan-out caps and fusion settings.
+    graph_rag: GraphRagConfig,
 }
 
 impl SqliteGraphStore {
-    /// Create a new store from an existing connection pool.
+    /// Create a new store from an existing connection pool, using default
+    /// cross-boundary graph-RAG caps.
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            graph_rag: GraphRagConfig::default(),
+        }
+    }
+
+    /// Override the cross-boundary graph-RAG configuration (fan-out caps).
+    pub fn with_graph_rag_config(mut self, config: GraphRagConfig) -> Self {
+        self.graph_rag = config;
+        self
     }
 
     /// Get a reference to the pool (for advanced queries in tests).
@@ -822,8 +835,83 @@ impl GraphStore for SqliteGraphStore {
             )
             .collect();
 
-        Ok(results)
+        Ok(apply_fan_out_caps(results, &self.graph_rag))
     }
+}
+
+/// Apply Rust-side fan-out caps to over-fetched cross-boundary results.
+///
+/// SQLite recursive CTEs cannot rank-limit per recursion level, so the CTE
+/// over-fetches and the caps are enforced here:
+/// 1. `max_per_hit`: keep top-K hop-1 (direct) expansions by `edge_confidence`.
+/// 2. `max_per_concept`: keep top-K nodes reached through any single
+///    ConceptNode by `edge_confidence` (tames concept supernodes).
+/// 3. `max_total`: keep the top-K nodes overall by `edge_confidence`.
+///
+/// Nodes are ranked by `edge_confidence` (desc), then by ascending depth and
+/// node_id for a stable order.
+fn apply_fan_out_caps(
+    mut nodes: Vec<TraversalNode>,
+    config: &GraphRagConfig,
+) -> Vec<TraversalNode> {
+    use std::collections::{HashMap, HashSet};
+
+    // Identify ConceptNodes present in the result set; concept hubs are always
+    // reachable (global tenant) so any concept on a surviving path appears here.
+    let concept_ids: HashSet<String> = nodes
+        .iter()
+        .filter(|n| n.symbol_type == "concept_node")
+        .map(|n| n.node_id.clone())
+        .collect();
+
+    // Stable ranking helper: higher confidence first, then shallower, then id.
+    let rank = |a: &TraversalNode, b: &TraversalNode| {
+        b.edge_confidence
+            .partial_cmp(&a.edge_confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.depth.cmp(&b.depth))
+            .then(a.node_id.cmp(&b.node_id))
+    };
+    nodes.sort_by(rank);
+
+    // (1) per-direct-hit cap: limit hop-1 nodes (the source's direct fan-out).
+    let mut direct_kept = 0usize;
+    // (2) per-concept cap: count survivors grouped by the last concept on path.
+    let mut per_concept: HashMap<String, usize> = HashMap::new();
+
+    let mut kept: Vec<TraversalNode> = Vec::with_capacity(nodes.len().min(config.max_total));
+    for node in nodes {
+        if kept.len() >= config.max_total {
+            break;
+        }
+        if node.depth == 1 {
+            if direct_kept >= config.max_per_hit {
+                continue;
+            }
+            direct_kept += 1;
+            kept.push(node);
+            continue;
+        }
+        // Deeper node: attribute it to the last ConceptNode on its path, if any.
+        let via_concept = node
+            .path
+            .split(" -> ")
+            .filter(|id| concept_ids.contains(*id))
+            .last()
+            .map(|id| id.to_string());
+        if let Some(concept) = via_concept {
+            let count = per_concept.entry(concept).or_insert(0);
+            if *count >= config.max_per_concept {
+                continue;
+            }
+            *count += 1;
+        }
+        kept.push(node);
+    }
+
+    // Restore depth-major ordering for callers that expect breadth order.
+    kept.sort_by(|a, b| a.depth.cmp(&b.depth).then(a.symbol_name.cmp(&b.symbol_name)));
+    kept
 }
 
 impl SqliteGraphStore {

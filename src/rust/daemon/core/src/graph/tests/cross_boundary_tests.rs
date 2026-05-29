@@ -275,3 +275,120 @@ async fn test_empty_edge_types_or_zero_hops_returns_empty() {
         .unwrap()
         .is_empty());
 }
+
+#[tokio::test]
+async fn test_per_hit_cap_limits_direct_expansions() {
+    use crate::config::GraphRagConfig;
+    let store = test_store().await.with_graph_rag_config(GraphRagConfig {
+        max_per_hit: 3,
+        ..Default::default()
+    });
+
+    // One source symbol implementing 10 distinct concepts (10 direct hop-1 hits).
+    let src = GraphNode::new(TENANT_A, "s.rs", "src_fn", NodeType::Function);
+    store.upsert_nodes(&[src.clone()]).await.unwrap();
+    for i in 0..10 {
+        let c = GraphNode::new(GLOBAL, "", format!("c{i}"), NodeType::ConceptNode);
+        store.upsert_nodes(&[c.clone()]).await.unwrap();
+        insert_weighted_edge(
+            &store,
+            TENANT_A,
+            &src.node_id,
+            &c.node_id,
+            EdgeType::ImplementsConcept,
+            0.5 + (i as f64) * 0.01,
+        )
+        .await;
+    }
+
+    let results = store
+        .query_cross_boundary(TENANT_A, &src.node_id, &edges(), 1, &[])
+        .await
+        .unwrap();
+    let hop1 = results.iter().filter(|n| n.depth == 1).count();
+    assert_eq!(hop1, 3, "per-hit cap should keep only 3 direct expansions");
+}
+
+#[tokio::test]
+async fn test_per_concept_cap_limits_supernode_fanout() {
+    use crate::config::GraphRagConfig;
+    let store = test_store().await.with_graph_rag_config(GraphRagConfig {
+        max_per_concept: 4,
+        max_total: 50,
+        ..Default::default()
+    });
+
+    let concept = GraphNode::new(GLOBAL, "", "hub", NodeType::ConceptNode);
+    let src = GraphNode::new(TENANT_A, "s.rs", "seed", NodeType::Function);
+    store
+        .upsert_nodes(&[concept.clone(), src.clone()])
+        .await
+        .unwrap();
+    insert_weighted_edge(
+        &store,
+        TENANT_A,
+        &src.node_id,
+        &concept.node_id,
+        EdgeType::ImplementsConcept,
+        0.9,
+    )
+    .await;
+
+    // 20 other symbols all implementing the same concept (reverse fan-out at hop 2).
+    for i in 0..20 {
+        let n = GraphNode::new(TENANT_A, format!("o{i}.rs"), format!("o{i}"), NodeType::Function);
+        store.upsert_nodes(&[n.clone()]).await.unwrap();
+        insert_weighted_edge(
+            &store,
+            TENANT_A,
+            &n.node_id,
+            &concept.node_id,
+            EdgeType::ImplementsConcept,
+            0.5,
+        )
+        .await;
+    }
+
+    let results = store
+        .query_cross_boundary(TENANT_A, &src.node_id, &edges(), 2, &[])
+        .await
+        .unwrap();
+    let via_hub = results.iter().filter(|n| n.depth == 2).count();
+    assert!(
+        via_hub <= 4,
+        "per-concept cap should bound hop-2 fan-out to 4, got {via_hub}"
+    );
+}
+
+#[tokio::test]
+async fn test_total_cap() {
+    use crate::config::GraphRagConfig;
+    let store = test_store().await.with_graph_rag_config(GraphRagConfig {
+        max_per_hit: 100,
+        max_per_concept: 100,
+        max_total: 5,
+        ..Default::default()
+    });
+
+    let src = GraphNode::new(TENANT_A, "s.rs", "seed", NodeType::Function);
+    store.upsert_nodes(&[src.clone()]).await.unwrap();
+    for i in 0..12 {
+        let c = GraphNode::new(GLOBAL, "", format!("c{i}"), NodeType::ConceptNode);
+        store.upsert_nodes(&[c.clone()]).await.unwrap();
+        insert_weighted_edge(
+            &store,
+            TENANT_A,
+            &src.node_id,
+            &c.node_id,
+            EdgeType::ImplementsConcept,
+            0.5,
+        )
+        .await;
+    }
+
+    let results = store
+        .query_cross_boundary(TENANT_A, &src.node_id, &edges(), 1, &[])
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 5, "total cap must bound result set to 5");
+}

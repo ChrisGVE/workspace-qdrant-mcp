@@ -6,6 +6,7 @@
 mod code_intelligence;
 mod concept;
 mod embedding;
+mod graph_rag;
 mod ingestion;
 mod narrative;
 mod integration;
@@ -18,6 +19,7 @@ mod url_ingestion;
 pub use code_intelligence::{GrammarConfig, LspSettings};
 pub use concept::ConceptConfig;
 pub use embedding::{EmbeddingSettings, KeywordEmbedderConfig};
+pub use graph_rag::GraphRagConfig;
 pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
 pub use narrative::NarrativeConfig;
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
@@ -145,6 +147,9 @@ pub struct DaemonConfig {
     /// Concept-edge emission thresholds (IMPLEMENTS_CONCEPT / COVERS_TOPIC)
     #[serde(default)]
     pub concept: ConceptConfig,
+    /// Cross-boundary graph-RAG traversal caps and fusion (search.graph_rag.*)
+    #[serde(default)]
+    pub graph_rag: GraphRagConfig,
     /// Narrative extraction thresholds and safety limits.
     #[serde(default)]
     pub narrative: NarrativeConfig,
@@ -200,6 +205,7 @@ impl From<&YamlConfig> for DaemonConfig {
             daemon_endpoint: build_daemon_endpoint_config(yaml),
             ingestion_limits: IngestionLimitsConfig::default(),
             concept: ConceptConfig::default(),
+            graph_rag: GraphRagConfig::default(),
             narrative: NarrativeConfig::default(),
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
@@ -444,6 +450,9 @@ impl DaemonConfig {
         self.concept
             .validate()
             .map_err(|e| format!("concept: {e}"))?;
+        self.graph_rag
+            .validate()
+            .map_err(|e| format!("graph_rag: {e}"))?;
         self.narrative
             .validate()
             .map_err(|e| format!("narrative: {e}"))?;
