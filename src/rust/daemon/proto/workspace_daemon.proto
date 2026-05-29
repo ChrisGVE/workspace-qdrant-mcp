@@ -662,6 +662,9 @@ service GraphService {
 
     // Query narrative nodes linked to code symbols or concepts
     rpc NarrativeQuery(NarrativeQueryRequest) returns (NarrativeQueryResponse);
+
+    // Cross-boundary RAG traversal across tenants via concept/narrative edges
+    rpc QueryCrossBoundary(QueryCrossBoundaryRequest) returns (QueryCrossBoundaryResponse);
 }
 
 // QueryRelated Request
@@ -691,6 +694,23 @@ message TraversalNodeProto {
     string path = 7;                              // [non-path] Traversal path description
     string tenant_id = 8;                         // Tenant of the reached node
     double edge_confidence = 9;                   // Confidence of reaching edge (1.0 = structural)
+}
+
+// QueryCrossBoundary Request
+message QueryCrossBoundaryRequest {
+    string source_tenant = 1;                     // Querying project tenant_id
+    string source_node_id = 2;                    // Node ID to traverse from
+    repeated string edge_types = 3;               // Concept/narrative edge filter
+    uint32 max_hops = 4;                          // Traversal depth (clamped 1-3)
+    repeated string library_tenants = 5;          // Library tenants to relax in
+    bool two_sided_confidence = 6;                // Require both-side concept edges
+}
+
+// QueryCrossBoundary Response
+message QueryCrossBoundaryResponse {
+    repeated TraversalNodeProto nodes = 1;        // Reached cross-boundary nodes
+    uint32 total = 2;                             // Total nodes returned
+    int64 query_time_ms = 3;                      // Query execution time in ms
 }
 
 // ImpactAnalysis Request

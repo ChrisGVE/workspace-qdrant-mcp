@@ -12,8 +12,8 @@ use crate::proto::{
     BetweennessResponse, CommunityRequest, CommunityResponse, FindPathRequest, FindPathResponse,
     GraphMigrateRequest, GraphMigrateResponse, GraphStatsRequest, GraphStatsResponse,
     ImpactAnalysisRequest, ImpactAnalysisResponse, ImpactNodeProto, NarrativeQueryRequest,
-    NarrativeQueryResponse, PageRankRequest, PageRankResponse, QueryRelatedRequest,
-    QueryRelatedResponse, TraversalNodeProto,
+    NarrativeQueryResponse, PageRankRequest, PageRankResponse, QueryCrossBoundaryRequest,
+    QueryCrossBoundaryResponse, QueryRelatedRequest, QueryRelatedResponse, TraversalNodeProto,
 };
 use crate::validation::extract_relative_path;
 
@@ -503,5 +503,105 @@ impl GraphService for GraphServiceImpl {
         );
 
         Ok(Response::new(NarrativeQueryResponse { nodes, total_found }))
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "GraphService.query_cross_boundary"))]
+    async fn query_cross_boundary(
+        &self,
+        request: Request<QueryCrossBoundaryRequest>,
+    ) -> Result<Response<QueryCrossBoundaryResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.source_tenant.is_empty() {
+            return Err(Status::invalid_argument("source_tenant is required"));
+        }
+        if req.source_node_id.is_empty() {
+            return Err(Status::invalid_argument("source_node_id is required"));
+        }
+
+        // Hard cap 3, default 2. Reject 0 and >=4 explicitly.
+        if req.max_hops == 0 || req.max_hops > 3 {
+            return Err(Status::invalid_argument(
+                "max_hops must be between 1 and 3",
+            ));
+        }
+        let max_hops = req.max_hops;
+
+        // `two_sided_confidence` is a precision gate over the fused candidate
+        // set (require both the code-side IMPLEMENTS_CONCEPT and the doc-side
+        // COVERS_TOPIC to clear the confidence floor). It is applied at the MCP
+        // fusion layer, which sees the vector candidates alongside the graph
+        // expansion; the daemon traversal returns the full bidirectional set and
+        // carries per-edge `edge_confidence` so the fusion layer can enforce it.
+        let _two_sided_confidence = req.two_sided_confidence;
+
+        // Edge types must parse; an empty list yields no traversal.
+        let mut edge_types = Vec::with_capacity(req.edge_types.len());
+        for t in &req.edge_types {
+            match EdgeType::from_str(t) {
+                Some(et) => edge_types.push(et),
+                None => {
+                    return Err(Status::invalid_argument(format!("unknown edge type: {}", t)));
+                }
+            }
+        }
+
+        debug!(
+            "GraphService.QueryCrossBoundary: tenant={} node={} hops={} \
+             edge_types={:?} library_tenants={:?} two_sided={}",
+            req.source_tenant,
+            req.source_node_id,
+            max_hops,
+            edge_types,
+            req.library_tenants,
+            req.two_sided_confidence
+        );
+
+        let start = std::time::Instant::now();
+
+        let result = self
+            .graph_store
+            .query_cross_boundary(
+                &req.source_tenant,
+                &req.source_node_id,
+                &edge_types,
+                max_hops,
+                &req.library_tenants,
+            )
+            .await;
+
+        match result {
+            Ok(nodes) => {
+                let query_time_ms = start.elapsed().as_millis() as i64;
+                let total = nodes.len() as u32;
+                let proto_nodes: Vec<TraversalNodeProto> = nodes
+                    .into_iter()
+                    .map(|n| TraversalNodeProto {
+                        node_id: n.node_id,
+                        symbol_name: n.symbol_name,
+                        symbol_type: n.symbol_type,
+                        file_path: n.file_path,
+                        edge_type: n.edge_type,
+                        depth: n.depth,
+                        path: n.path,
+                        tenant_id: n.tenant_id,
+                        edge_confidence: n.edge_confidence,
+                    })
+                    .collect();
+
+                Ok(Response::new(QueryCrossBoundaryResponse {
+                    nodes: proto_nodes,
+                    total,
+                    query_time_ms,
+                }))
+            }
+            Err(e) => {
+                error!("GraphService.QueryCrossBoundary failed: {}", e);
+                Err(Status::internal(format!(
+                    "Cross-boundary query failed: {}",
+                    e
+                )))
+            }
+        }
     }
 }

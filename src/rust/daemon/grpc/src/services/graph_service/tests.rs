@@ -1022,3 +1022,123 @@ mod narrative_query {
         assert_eq!(resp.nodes[0].depth, 2);
     }
 }
+
+// ── QueryCrossBoundary handler validation + end-to-end ──────────────
+
+mod cross_boundary {
+    use tonic::Request;
+    use workspace_qdrant_core::graph::{
+        create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType,
+    };
+
+    use crate::proto::graph_service_server::GraphService;
+    use crate::proto::QueryCrossBoundaryRequest;
+    use crate::services::GraphServiceImpl;
+
+    async fn test_graph_service() -> (GraphServiceImpl, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
+        (GraphServiceImpl::new(store), tmp)
+    }
+
+    fn req(tenant: &str, node: &str, hops: u32) -> QueryCrossBoundaryRequest {
+        QueryCrossBoundaryRequest {
+            source_tenant: tenant.to_string(),
+            source_node_id: node.to_string(),
+            edge_types: vec!["IMPLEMENTS_CONCEPT".to_string(), "COVERS_TOPIC".to_string()],
+            max_hops: hops,
+            library_tenants: vec![],
+            two_sided_confidence: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rejects_zero_hops() {
+        let (svc, _tmp) = test_graph_service().await;
+        let r = svc
+            .query_cross_boundary(Request::new(req("proj_a", "node1", 0)))
+            .await;
+        let status = r.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_rejects_four_hops() {
+        let (svc, _tmp) = test_graph_service().await;
+        let r = svc
+            .query_cross_boundary(Request::new(req("proj_a", "node1", 4)))
+            .await;
+        let status = r.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_accepts_max_hops_three() {
+        let (svc, _tmp) = test_graph_service().await;
+        let r = svc
+            .query_cross_boundary(Request::new(req("proj_a", "node1", 3)))
+            .await;
+        assert!(r.is_ok(), "max_hops=3 must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_requires_source_tenant() {
+        let (svc, _tmp) = test_graph_service().await;
+        let r = svc
+            .query_cross_boundary(Request::new(req("", "node1", 2)))
+            .await;
+        assert_eq!(r.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_rejects_unknown_edge_type() {
+        let (svc, _tmp) = test_graph_service().await;
+        let mut request = req("proj_a", "node1", 2);
+        request.edge_types = vec!["NONSENSE".to_string()];
+        let r = svc.query_cross_boundary(Request::new(request)).await;
+        assert_eq!(r.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn test_end_to_end_reaches_global_concept_and_library() {
+        let (svc, tmp) = test_graph_service().await;
+
+        // Seed via the underlying store using a separate handle to the same db.
+        let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
+        let code_a = GraphNode::new("proj_a", "a.rs", "fn_a", NodeType::Function);
+        let concept = GraphNode::new("__global__", "", "caching", NodeType::ConceptNode);
+        let lib = GraphNode::new("lib_x", "b.md", "lib_sec", NodeType::LibrarySection);
+        let code_b = GraphNode::new("proj_b", "b.rs", "fn_b", NodeType::Function);
+        store
+            .upsert_nodes(&[code_a.clone(), concept.clone(), lib.clone(), code_b.clone()])
+            .await
+            .unwrap();
+        store
+            .insert_edges(&[
+                GraphEdge::new("proj_a", &code_a.node_id, &concept.node_id, EdgeType::ImplementsConcept, "a.rs"),
+                GraphEdge::new("lib_x", &lib.node_id, &concept.node_id, EdgeType::CoversTopic, "b.md"),
+                GraphEdge::new("proj_b", &code_b.node_id, &concept.node_id, EdgeType::ImplementsConcept, "b.rs"),
+            ])
+            .await
+            .unwrap();
+
+        let mut request = req("proj_a", &code_a.node_id, 2);
+        request.library_tenants = vec!["lib_x".to_string()];
+        let resp = svc
+            .query_cross_boundary(Request::new(request))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let ids: Vec<&str> = resp.nodes.iter().map(|n| n.node_id.as_str()).collect();
+        assert!(ids.contains(&concept.node_id.as_str()), "reaches concept: {ids:?}");
+        assert!(ids.contains(&lib.node_id.as_str()), "reaches library: {ids:?}");
+        assert!(!ids.contains(&code_b.node_id.as_str()), "excludes proj_b: {ids:?}");
+        // Every node carries tenant + non-zero confidence.
+        for n in &resp.nodes {
+            assert!(!n.tenant_id.is_empty());
+            assert!(n.edge_confidence > 0.0);
+        }
+        assert_eq!(resp.total as usize, resp.nodes.len());
+    }
+}
