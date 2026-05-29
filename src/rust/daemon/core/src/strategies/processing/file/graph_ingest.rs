@@ -13,7 +13,10 @@ use crate::TextChunk;
 /// Performs:
 /// 1. Delete old edges for this file (cleanup from previous ingestion)
 /// 2. Extract new nodes/edges from chunk metadata
-/// 3. Upsert nodes + insert edges in a single write-lock hold
+/// 3. Merge caller-supplied concept nodes/edges (IMPLEMENTS_CONCEPT) so they
+///    share the file's single delete-then-insert transaction and are cleaned
+///    up on re-ingestion (their `source_file` is this file's relative path).
+/// 4. Upsert nodes + insert edges in a single write-lock hold
 ///
 /// All graph errors are logged and swallowed — graph failures must never
 /// block the main ingestion pipeline.
@@ -23,13 +26,23 @@ pub(super) async fn ingest_graph_edges(
     file_path: &str,
     chunks: &[TextChunk],
     branch: Option<&str>,
+    concept_nodes: Vec<crate::graph::GraphNode>,
+    concept_edges: Vec<crate::graph::GraphEdge>,
 ) {
     let Some(ref graph_store) = ctx.graph_store else {
         return; // Graph not initialized — skip silently
     };
 
-    let ExtractionResult { nodes, edges } =
-        extract_edges_from_text_chunks(chunks, tenant_id, file_path, branch);
+    let ExtractionResult {
+        mut nodes,
+        mut edges,
+    } = extract_edges_from_text_chunks(chunks, tenant_id, file_path, branch);
+
+    // Merge concept nodes/edges into the same reingest transaction. ConceptNodes
+    // are global (upserted, never deleted); concept edges carry source_file =
+    // this file's relative path so the reingest DELETE cleans up stale ones.
+    nodes.extend(concept_nodes);
+    edges.extend(concept_edges);
 
     if nodes.is_empty() && edges.is_empty() {
         return;

@@ -380,15 +380,29 @@ async fn run_middle_phases(
     // Phase 2b: Tier 2 taxonomy tagging (after embedding, before keyword extraction)
     run_tier2_tagging(ctx, &mut points, timings).await;
 
-    // Phase 2c: IMPLEMENTS_CONCEPT edges (after tagging, before graph extraction)
+    // Phase 2c: build symbol-granular IMPLEMENTS_CONCEPT nodes/edges. These are
+    // NOT written here; they are merged into the Phase 4 graph `reingest_file`
+    // transaction so the single delete-then-insert covers code + concept edges
+    // (using relative_path as source_file → cleaned up on re-ingestion).
+    let (concept_nodes, concept_edges) = match &ctx.tier2_tagger {
+        Some(tagger) => build_implements_concept_edges(
+            tagger,
+            &ctx.concept_config,
+            &item.tenant_id,
+            relative_path,
+            detected_branch,
+            &points,
+            &chunk_records,
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
+    // taxonomy_tags retained for Phase 2d COVERS_TOPIC (narrative files).
     let taxonomy_tags: Vec<String> = points
         .first()
         .and_then(|p| p.payload.get("taxonomy_tags"))
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
-    if !taxonomy_tags.is_empty() {
-        create_concept_edges(ctx, &item.tenant_id, file_path, &taxonomy_tags).await;
-    }
 
     // Phase 2d: COVERS_TOPIC edges for narrative files (markdown/text only)
     if !taxonomy_tags.is_empty() && is_narrative_file(file_path) {
@@ -402,7 +416,8 @@ async fn run_middle_phases(
         .await;
     }
 
-    // Phases 3-4: keyword extraction + graph edges
+    // Phases 3-4: keyword extraction + graph edges (concept nodes/edges merged
+    // into the graph reingest transaction).
     run_keyword_and_graph_phases(
         ctx,
         item,
@@ -414,6 +429,8 @@ async fn run_middle_phases(
         &mut points,
         timings,
         detected_branch,
+        concept_nodes,
+        concept_edges,
     )
     .await;
 
@@ -521,64 +538,132 @@ async fn run_tier2_tagging(
     );
 }
 
-/// Create IMPLEMENTS_CONCEPT edges from code symbols to ConceptNodes.
+/// Build symbol-granular IMPLEMENTS_CONCEPT edges with confidence weights.
 ///
-/// For each Tier 2 taxonomy match, ensures a global ConceptNode exists
-/// and creates edges from file-level code symbols to it.
-async fn create_concept_edges(
-    ctx: &ProcessingContext,
+/// For each code symbol chunk (function/method/class/struct/trait/…), classify
+/// that symbol's OWN dense vector against the Tier-2 taxonomy and emit an edge
+/// from the symbol node to each matching global ConceptNode, weighted by the
+/// classification cosine. No extra embedding is performed — existing chunk
+/// vectors are reused.
+///
+/// Returns `(concept_nodes, edges)` to be merged into the file's graph
+/// `reingest_file` transaction (see [`graph_ingest::ingest_graph_edges`]), so
+/// the single delete-then-insert covers code and concept edges together and
+/// concept edges are cleaned up on re-ingestion.
+///
+/// Node IDs MUST match the graph extractor exactly: source = `compute_node_id(
+/// tenant, relative_path, symbol_name, node_type)` where `node_type` is derived
+/// from the chunk's `chunk_type` display string (matching
+/// `extractor::node_type_from_display_name`). Using the lossy tracked
+/// `ChunkType` would orphan async functions, constants, type aliases and macros.
+fn build_implements_concept_edges(
+    tagger: &crate::tagging::Tier2Tagger,
+    concept_config: &crate::config::ConceptConfig,
     tenant_id: &str,
-    file_path: &std::path::Path,
-    taxonomy_tags: &[String],
-) {
+    relative_path: &str,
+    detected_branch: &str,
+    points: &[crate::storage::DocumentPoint],
+    chunk_records: &[chunk_embed::ChunkRecord],
+) -> (Vec<crate::graph::GraphNode>, Vec<crate::graph::GraphEdge>) {
     use crate::graph::{
-        compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
+        compute_node_id, compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields,
+        NodeType,
     };
+    use std::collections::HashMap;
 
-    let Some(ref graph_store) = ctx.graph_store else {
-        return;
-    };
+    let min_confidence = concept_config.min_confidence;
+    let max_per_unit = concept_config.max_per_unit;
 
-    if taxonomy_tags.is_empty() {
-        return;
+    // Group chunk vectors by their symbol node id. Split sub-chunks share a
+    // symbol_name + chunk_type, so they collapse onto a single node id; their
+    // vectors are mean-aggregated below (no extra embedding).
+    let mut groups: HashMap<String, Vec<Vec<f32>>> = HashMap::new();
+
+    for (point, record) in points.iter().zip(chunk_records.iter()) {
+        // Symbol name must be present and non-empty.
+        let Some(symbol_name) = record.symbol_name.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        // Derive node_type from the display string carried in the payload
+        // (build_chunk_payload prefixes chunk metadata with `chunk_`). This
+        // matches the graph extractor exactly; the lossy tracked ChunkType
+        // would orphan async functions / constants / type aliases / macros.
+        let Some(chunk_type_str) = point
+            .payload
+            .get("chunk_chunk_type")
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        let Some(node_type) = crate::graph::extractor::node_type_from_display_name(chunk_type_str)
+        else {
+            continue; // preamble / text / unknown → not a symbol node
+        };
+        if point.dense_vector.is_empty() {
+            continue;
+        }
+
+        let node_id = compute_node_id(tenant_id, relative_path, symbol_name, node_type);
+        groups
+            .entry(node_id)
+            .or_default()
+            .push(point.dense_vector.clone());
     }
 
-    let mut concept_nodes = Vec::new();
+    if groups.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut concept_nodes: HashMap<String, GraphNode> = HashMap::new();
     let mut edges = Vec::new();
-    let file_path_str: String = file_path.to_string_lossy().into_owned();
 
-    for tag in taxonomy_tags {
-        let concept_label = tag.strip_prefix("tax:").unwrap_or(tag);
-        let concept_fields =
-            NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
-        let concept_id = compute_node_id_for_type(&concept_fields);
+    for (symbol_node_id, vectors) in &groups {
+        let Some(symbol_embedding) = aggregate_document_embedding(vectors) else {
+            continue;
+        };
 
-        let mut node = GraphNode::new("__global__", "", concept_label, NodeType::ConceptNode);
-        node.node_id = concept_id.clone();
-        concept_nodes.push(node);
+        // Classify this symbol's vector; apply the concept threshold + cap.
+        let mut matches = tagger.classify(&symbol_embedding);
+        matches.retain(|m| m.score >= min_confidence);
+        matches.truncate(max_per_unit);
 
-        let file_node_id = crate::graph::compute_node_id(
-            tenant_id,
-            &file_path_str,
-            &file_path_str,
-            NodeType::File,
+        for m in matches {
+            let concept_label = m.category.as_str();
+            let concept_fields =
+                NodeIdFields::new("__global__", "", concept_label, NodeType::ConceptNode);
+            let concept_id = compute_node_id_for_type(&concept_fields);
+
+            concept_nodes.entry(concept_id.clone()).or_insert_with(|| {
+                let mut node =
+                    GraphNode::new("__global__", "", concept_label, NodeType::ConceptNode);
+                node.node_id = concept_id.clone();
+                node
+            });
+
+            let mut edge = GraphEdge::new(
+                tenant_id,
+                symbol_node_id.clone(),
+                concept_id.clone(),
+                EdgeType::ImplementsConcept,
+                relative_path,
+            )
+            .with_branch(detected_branch);
+            edge.weight = m.score;
+            edges.push(edge);
+        }
+    }
+
+    if !edges.is_empty() {
+        debug!(
+            "IMPLEMENTS_CONCEPT: {} symbol→concept edges across {} symbols, {} concepts for {}",
+            edges.len(),
+            groups.len(),
+            concept_nodes.len(),
+            relative_path,
         );
-
-        edges.push(GraphEdge::new(
-            tenant_id,
-            &file_node_id,
-            &concept_id,
-            EdgeType::ImplementsConcept,
-            &file_path_str,
-        ));
     }
 
-    if let Err(e) = graph_store.upsert_nodes(&concept_nodes).await {
-        tracing::warn!("Failed to upsert ConceptNodes: {e}");
-    }
-    if let Err(e) = graph_store.insert_edges(&edges).await {
-        tracing::warn!("Failed to insert IMPLEMENTS_CONCEPT edges: {e}");
-    }
+    (concept_nodes.into_values().collect(), edges)
 }
 
 /// Check whether a file is a narrative document (markdown or plain text).
@@ -717,6 +802,8 @@ async fn run_keyword_and_graph_phases(
     points: &mut [crate::storage::DocumentPoint],
     timings: &mut Vec<PhaseTiming>,
     detected_branch: &str,
+    concept_nodes: Vec<crate::graph::GraphNode>,
+    concept_edges: Vec<crate::graph::GraphEdge>,
 ) {
     if matches!(
         item.op,
@@ -749,6 +836,8 @@ async fn run_keyword_and_graph_phases(
         relative_path,
         &document_content.chunks,
         Some(detected_branch),
+        concept_nodes,
+        concept_edges,
     )
     .await;
     timings.push(PhaseTiming {
@@ -1058,5 +1147,188 @@ mod tests {
         for edge in &edges {
             assert_eq!(edge.depth_level(), Some(DepthLevel::Introductory));
         }
+    }
+
+    // ── INT-E1: symbol-granular IMPLEMENTS_CONCEPT edges ───────────
+
+    use crate::storage::DocumentPoint;
+    use crate::tagging::{TaxonomyEntry, Tier2Config, Tier2Tagger};
+    use std::collections::HashMap as StdHashMap;
+
+    fn mk_point(chunk_type: &str, vec: Vec<f32>) -> DocumentPoint {
+        let mut payload: StdHashMap<String, serde_json::Value> = StdHashMap::new();
+        payload.insert(
+            "chunk_chunk_type".to_string(),
+            serde_json::json!(chunk_type),
+        );
+        DocumentPoint {
+            id: "point".to_string(),
+            dense_vector: vec,
+            sparse_vector: None,
+            payload,
+        }
+    }
+
+    fn mk_record(symbol: &str) -> chunk_embed::ChunkRecord {
+        chunk_embed::ChunkRecord {
+            point_id: "point".to_string(),
+            chunk_index: 0,
+            content_hash: "hash".to_string(),
+            chunk_type: None,
+            symbol_name: Some(symbol.to_string()),
+            start_line: Some(1),
+            end_line: Some(2),
+        }
+    }
+
+    /// Tagger with one term in category `machine-learning`, embedded as the
+    /// unit vector `[1, 0, 0]` so cosine similarity is exactly computable.
+    fn mk_tagger() -> Tier2Tagger {
+        let entries = vec![TaxonomyEntry {
+            term: "machine learning".to_string(),
+            category: "machine-learning".to_string(),
+        }];
+        let embeddings = vec![vec![1.0_f32, 0.0, 0.0]];
+        Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default())
+    }
+
+    #[test]
+    fn implements_concept_edge_source_is_symbol_not_file() {
+        let tagger = mk_tagger();
+        let cfg = crate::config::ConceptConfig::default();
+        let tenant = "t1";
+        let rel = "src/model.rs";
+
+        // One matching symbol (cosine 1.0) and one non-matching (cosine 0.0).
+        let points = vec![
+            mk_point("function", vec![1.0, 0.0, 0.0]),
+            mk_point("function", vec![0.0, 1.0, 0.0]),
+        ];
+        let records = vec![mk_record("train_model"), mk_record("unrelated")];
+
+        let (nodes, edges) =
+            build_implements_concept_edges(&tagger, &cfg, tenant, rel, "main", &points, &records);
+
+        // Exactly one edge: only the matching symbol clears the threshold.
+        assert_eq!(edges.len(), 1, "sub-threshold symbol must be absent");
+        let edge = &edges[0];
+
+        // Source is the symbol node, NOT the File node.
+        let symbol_id = compute_node_id(tenant, rel, "train_model", NodeType::Function);
+        let file_id = compute_node_id(tenant, rel, rel, NodeType::File);
+        assert_eq!(edge.source_node_id, symbol_id);
+        assert_ne!(edge.source_node_id, file_id);
+        assert_eq!(edge.edge_type, EdgeType::ImplementsConcept);
+
+        // Target is the global ConceptNode for the matched category.
+        let concept_id = compute_node_id_for_type(&NodeIdFields::new(
+            "__global__",
+            "",
+            "machine-learning",
+            NodeType::ConceptNode,
+        ));
+        assert_eq!(edge.target_node_id, concept_id);
+
+        // Weight is the symbol-chunk cosine (≈ 1.0), not a document mean.
+        assert!(
+            (edge.weight - 1.0).abs() < 1e-6,
+            "weight should equal symbol cosine, got {}",
+            edge.weight
+        );
+
+        // Branch propagated; ConceptNode emitted.
+        assert_eq!(edge.branch.as_deref(), Some("main"));
+        assert!(nodes.iter().any(|n| n.node_id == concept_id));
+    }
+
+    #[test]
+    fn implements_concept_handles_async_function_display_string() {
+        // Regression: tracked ChunkType has no AsyncFunction, so deriving the
+        // node type from the display string (not the lossy tracked type) is
+        // required or async-fn symbols would orphan.
+        let tagger = mk_tagger();
+        let cfg = crate::config::ConceptConfig::default();
+        let tenant = "t1";
+        let rel = "src/fetch.rs";
+
+        let points = vec![mk_point("async_function", vec![1.0, 0.0, 0.0])];
+        let records = vec![mk_record("fetch_data")];
+
+        let (_nodes, edges) =
+            build_implements_concept_edges(&tagger, &cfg, tenant, rel, "main", &points, &records);
+
+        assert_eq!(edges.len(), 1);
+        let expected = compute_node_id(tenant, rel, "fetch_data", NodeType::AsyncFunction);
+        assert_eq!(edges[0].source_node_id, expected);
+    }
+
+    #[test]
+    fn implements_concept_dedups_split_subchunks_per_symbol() {
+        // Two points sharing symbol_name + chunk_type (e.g. an oversized symbol
+        // split into sub-chunks) collapse onto one node → one edge per concept.
+        let tagger = mk_tagger();
+        let cfg = crate::config::ConceptConfig::default();
+        let points = vec![
+            mk_point("function", vec![1.0, 0.0, 0.0]),
+            mk_point("function", vec![1.0, 0.0, 0.0]),
+        ];
+        let records = vec![mk_record("big_fn"), mk_record("big_fn")];
+
+        let (_nodes, edges) = build_implements_concept_edges(
+            &tagger, &cfg, "t1", "src/a.rs", "main", &points, &records,
+        );
+        assert_eq!(edges.len(), 1, "split sub-chunks must dedup to one edge");
+    }
+
+    #[test]
+    fn implements_concept_skips_non_symbol_chunks() {
+        let tagger = mk_tagger();
+        let cfg = crate::config::ConceptConfig::default();
+        // Text/preamble chunks and records without a symbol name yield nothing.
+        let points = vec![
+            mk_point("text", vec![1.0, 0.0, 0.0]),
+            mk_point("preamble", vec![1.0, 0.0, 0.0]),
+        ];
+        let mut empty_symbol = mk_record("");
+        empty_symbol.symbol_name = None;
+        let records = vec![mk_record("ignored_text"), empty_symbol];
+
+        let (nodes, edges) = build_implements_concept_edges(
+            &tagger, &cfg, "t1", "src/a.rs", "main", &points, &records,
+        );
+        assert!(edges.is_empty());
+        assert!(nodes.is_empty());
+    }
+
+    #[test]
+    fn implements_concept_respects_max_per_unit_cap() {
+        // Two taxonomy terms in distinct categories, both matching strongly.
+        let entries = vec![
+            TaxonomyEntry {
+                term: "a".to_string(),
+                category: "cat-a".to_string(),
+            },
+            TaxonomyEntry {
+                term: "b".to_string(),
+                category: "cat-b".to_string(),
+            },
+        ];
+        let embeddings = vec![vec![1.0_f32, 0.0, 0.0], vec![0.9839_f32, 0.1789, 0.0]];
+        let tagger = Tier2Tagger::from_precomputed(entries, embeddings, Tier2Config::default());
+        let cfg = crate::config::ConceptConfig {
+            min_confidence: 0.35,
+            max_per_unit: 1,
+        };
+
+        let points = vec![mk_point("function", vec![1.0, 0.0, 0.0])];
+        let records = vec![mk_record("f")];
+        let (_n, edges) = build_implements_concept_edges(
+            &tagger, &cfg, "t1", "src/a.rs", "main", &points, &records,
+        );
+        assert_eq!(
+            edges.len(),
+            1,
+            "max_per_unit cap must bound edges per symbol"
+        );
     }
 }

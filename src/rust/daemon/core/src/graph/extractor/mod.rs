@@ -342,7 +342,7 @@ fn maybe_edge_with_branch(edge: GraphEdge, branch: Option<&str>) -> GraphEdge {
 }
 
 /// Convert a `ChunkType::display_name()` string back to `NodeType`.
-fn node_type_from_display_name(name: &str) -> Option<NodeType> {
+pub(crate) fn node_type_from_display_name(name: &str) -> Option<NodeType> {
     match name {
         "function" => Some(NodeType::Function),
         "async_function" => Some(NodeType::AsyncFunction),
