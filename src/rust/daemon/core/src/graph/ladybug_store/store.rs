@@ -61,7 +61,15 @@ const CODE_SYMBOL_TYPES: &[&str] = &[
 ];
 
 /// File-owned narrative node types deleted on re-ingestion (mirrors SQLite).
-const NARRATIVE_FILE_NODE_TYPES: &[&str] = &["document_section", "code_comment", "docstring"];
+/// `library_section` is included so library-document re-ingest is cleaned
+/// per-file on this backend too (tenant_id == library_name for libraries),
+/// matching `SqliteGraphStore`'s delete filter.
+const NARRATIVE_FILE_NODE_TYPES: &[&str] = &[
+    "document_section",
+    "library_section",
+    "code_comment",
+    "docstring",
+];
 
 // ---- Store struct ------------------------------------------------------------
 
@@ -938,6 +946,37 @@ impl GraphStore for LadybugGraphStore {
         let mut frontier: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         frontier.insert(source_node_id.to_string(), source_node_id.to_string());
+
+        // Seed-ownership guard (parity with SQLite): only traverse when the
+        // source node belongs to the relaxation set (source_tenant ∪
+        // __global__ ∪ library_tenants); otherwise a foreign seed could reach
+        // __global__ / library nodes and bypass tenant scoping. Concept and
+        // library seeds remain valid. The per-hop query guards reached nodes.
+        {
+            let tenant_list = tenants
+                .iter()
+                .map(|t| format!("'{}'", t.replace('\'', "\\'")))
+                .collect::<Vec<_>>()
+                .join(",");
+            let cypher = format!(
+                "MATCH (n:GraphNode {{node_id: $id}}) \
+                 WHERE n.tenant_id IN [{tenant_list}] RETURN n.node_id"
+            );
+            let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare cross_boundary seed guard: {e}"))
+            })?;
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![("id", Value::String(source_node_id.to_string()))],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute cross_boundary seed guard: {e}"))
+                })?;
+            if result.into_iter().next().is_none() {
+                return Ok(Vec::new());
+            }
+        }
 
         for depth in 1..=hops {
             let mut next: std::collections::HashMap<String, String> =

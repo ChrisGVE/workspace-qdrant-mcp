@@ -476,3 +476,38 @@ async fn test_supernode_query_under_budget() {
     );
     let _ = elapsed;
 }
+
+/// Seed-ownership guard: a caller may not start a cross-boundary traversal from
+/// a node it does not own. Seeding from a foreign node id under a different
+/// `source_tenant` must yield no results, even though that node is connected to
+/// global/library nodes — otherwise tenant scoping could be bypassed.
+#[tokio::test]
+async fn test_seed_guard_rejects_foreign_source_node() {
+    let store = test_store().await;
+    let (_code_a, _doc_a, _concept, _lib, code_b) = build_cross_domain(&store).await;
+
+    // code_b belongs to project_b. A request claiming source_tenant=project_a
+    // must not be able to seed from it.
+    let forged = store
+        .query_cross_boundary(TENANT_A, &code_b.node_id, &edges(), 3, &[LIB.to_string()])
+        .await
+        .unwrap();
+    assert!(
+        forged.is_empty(),
+        "forged foreign source node must yield no results, got {:?}",
+        forged
+            .iter()
+            .map(|n| n.node_id.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    // The legitimate owner (project_b) can traverse from the same node.
+    let owned = store
+        .query_cross_boundary(TENANT_B, &code_b.node_id, &edges(), 2, &[])
+        .await
+        .unwrap();
+    assert!(
+        !owned.is_empty(),
+        "legitimate owner should reach the global concept from its own node"
+    );
+}

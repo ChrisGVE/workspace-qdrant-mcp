@@ -745,11 +745,17 @@ impl GraphStore for SqliteGraphStore {
         // ConceptNodes live under "__global__", so it must always be included or
         // code→concept→code traversal returns nothing.
         let tenants = tenant_relaxation_set(source_tenant, library_tenants);
-        // Bound parameters ?1=source_node_id, ?2=hops, then one per tenant.
+        // Bound parameters ?1=source_node_id, ?2=hops, ?3..=one per tenant, and
+        // a final placeholder for source_tenant used by the seed-ownership guard.
         let tenant_placeholders = (0..tenants.len())
             .map(|i| format!("?{}", i + 3))
             .collect::<Vec<_>>()
             .join(",");
+        // Seed-ownership guard: traversal may only START from a node inside the
+        // relaxation set (source_tenant ∪ __global__ ∪ library_tenants). Without
+        // it a caller could seed from a foreign node id and reach
+        // __global__ / library nodes, bypassing tenant scoping. Concept and
+        // library seeds remain valid because those tenants are in the set.
 
         // Per-edge-type base confidence (Feature E weight × per-type base is
         // applied in Rust; the CTE carries weight × base per reaching edge).
@@ -763,6 +769,10 @@ impl GraphStore for SqliteGraphStore {
         let sql = format!(
             "WITH RECURSIVE traverse(node_id, depth, path, edge_type, conf) AS (
                 SELECT ?1, 0, ?1, '', 1.0
+                WHERE EXISTS (
+                    SELECT 1 FROM graph_nodes
+                    WHERE node_id = ?1 AND tenant_id IN ({tenant_placeholders})
+                )
                 UNION ALL
                 SELECT n.node_id, t.depth + 1,
                        t.path || ' -> ' || n.node_id,
@@ -787,18 +797,26 @@ impl GraphStore for SqliteGraphStore {
                   AND e.edge_type IN ({type_list})
                   AND INSTR(t.path, n.node_id) = 0
                   AND (n.tenant_id IN ({tenant_placeholders}))
+            ),
+            ranked AS (
+                SELECT t.node_id, t.depth, t.path, t.edge_type, t.conf,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY t.node_id
+                           ORDER BY t.depth ASC, t.conf DESC, t.path ASC
+                       ) AS rn
+                FROM traverse t
+                WHERE t.depth > 0
             )
             SELECT n.node_id, n.symbol_name, n.symbol_type, n.file_path,
                    n.tenant_id,
-                   MIN(t.depth) AS depth,
-                   MAX(t.edge_type) AS edge_type,
-                   MAX(t.conf) AS edge_confidence,
-                   t.path
-            FROM traverse t
-            JOIN graph_nodes n ON n.node_id = t.node_id
-            WHERE t.depth > 0
-            GROUP BY t.node_id
-            ORDER BY depth, n.symbol_name"
+                   r.depth AS depth,
+                   r.edge_type AS edge_type,
+                   r.conf AS edge_confidence,
+                   r.path AS path
+            FROM ranked r
+            JOIN graph_nodes n ON n.node_id = r.node_id
+            WHERE r.rn = 1
+            ORDER BY r.depth, n.symbol_name"
         );
 
         let mut q = sqlx::query_as::<
