@@ -371,3 +371,42 @@ fn filter_extension() {
     assert_eq!(v["stats"]["files"], 1);
     assert_eq!(v["listing"].as_str().unwrap(), "b.toml");
 }
+
+// ---------------------------------------------------------------------------
+// § 28  from_args format whitelist
+// ---------------------------------------------------------------------------
+
+/// TS buildListOptions (list.ts:31) whitelists format to "tree|summary|flat";
+/// any other value is NOT set (field omitted → default "tree" is used).
+/// Rust must match: unrecognized format values must be dropped, not echoed.
+#[test]
+fn list_input_from_args_accepts_valid_formats() {
+    use serde_json::{json, Map, Value};
+
+    for fmt in &["tree", "summary", "flat"] {
+        let mut args: Map<String, Value> = Map::new();
+        args.insert("format".to_string(), json!(fmt));
+        let input = ListInput::from_args(&args);
+        assert_eq!(
+            input.format.as_deref(),
+            Some(*fmt),
+            "valid format '{fmt}' must be kept"
+        );
+    }
+}
+
+#[test]
+fn list_input_from_args_drops_invalid_format() {
+    use serde_json::{json, Map, Value};
+
+    for invalid in &["json", "csv", "TREE", "Summary", "list", ""] {
+        let mut args: Map<String, Value> = Map::new();
+        args.insert("format".to_string(), json!(invalid));
+        let input = ListInput::from_args(&args);
+        assert!(
+            input.format.is_none(),
+            "invalid format '{invalid}' must be dropped (got {:?})",
+            input.format
+        );
+    }
+}

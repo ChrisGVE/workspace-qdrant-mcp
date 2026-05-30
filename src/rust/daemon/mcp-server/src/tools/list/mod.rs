@@ -76,9 +76,13 @@ impl ListInput {
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
             depth: args.get("depth").and_then(|v| v.as_u64()).map(|v| v as u32),
+            // Whitelist format values to match TS buildListOptions (list.ts:31):
+            // only "tree", "summary", "flat" are accepted; anything else is
+            // dropped so the tool falls back to the "tree" default.
             format: args
                 .get("format")
                 .and_then(|v| v.as_str())
+                .filter(|&f| matches!(f, "tree" | "summary" | "flat"))
                 .map(str::to_string),
             file_type: args
                 .get("fileType")
