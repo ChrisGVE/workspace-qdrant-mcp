@@ -1,0 +1,43 @@
+# docker/tempo/tempo.yml
+#
+# Grafana Tempo - single-binary trace backend for the workspace-qdrant-mcp
+# observability stack.
+#
+# Receives OTLP traces from the otel-collector (traces pipeline) and stores them
+# locally so the memexd daemon's spans become queryable in Grafana via the Tempo
+# datasource (Explore -> Tempo / TraceQL).
+#
+# Mount path inside container: /etc/tempo.yml
+# Data volume:                 /var/tempo (workspace-qdrant-mcp_tempo_data)
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  # Flush blocks promptly so traces show up quickly in a low-volume dev stack.
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # Local dev retention: keep two days of traces, then compact away.
+    block_retention: 48h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

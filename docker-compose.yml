@@ -337,6 +337,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - tempo
     environment:
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
@@ -361,6 +362,8 @@ services:
     container_name: wqm-otel-collector
     <<: *restart
     logging: *default-logging
+    depends_on:
+      - tempo
     command: ["--config=/etc/otel-collector-config.yml"]
     volumes:
       - ./docker/otel/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
@@ -369,6 +372,28 @@ services:
       - "${OTEL_HTTP_PORT:-4318}:4318"
     expose:
       - "8888"
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  # ───────────────────────────────────────────────
+  # Tempo - distributed trace backend (stores memexd daemon spans)
+  # ───────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: wqm-tempo
+    <<: *restart
+    logging: *default-logging
+    # Run as root like loki: named volumes are root-owned on creation and
+    # Tempo's non-root image (uid 10001) otherwise cannot write the WAL.
+    user: "0"
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./docker/tempo/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "${TEMPO_PORT:-3200}:3200"
     networks:
       - workspace-network
     labels:
@@ -491,6 +516,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  tempo_data:
   hf_tei_data:
   # Daemon SQLite databases. Named volume (ext4 in WSL2 VM) instead of
   # bind-mount because Docker Desktop's 9P/drvfs filesystem cannot satisfy
