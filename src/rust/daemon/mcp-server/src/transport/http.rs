@@ -57,6 +57,7 @@ use rmcp::transport::streamable_http_server::{
 use tokio::sync::Mutex;
 
 use crate::grpc::client::DaemonClient;
+use crate::observability::health_monitor::{HealthState, SharedHealthState};
 use crate::observability::metrics::{
     record_http_auth_failure, record_http_rate_limited, record_http_request,
 };
@@ -161,6 +162,9 @@ pub async fn serve_http(
     let qdrant_arc: Arc<QdrantReadClient> = Arc::new(qdrant);
     let state_arc: Arc<SharedStateManager> = Arc::new(SharedStateManager::new(state));
     let session_arc: Arc<Mutex<SessionState>> = Arc::new(Mutex::new(session));
+    // Default optimistic health state; a background health monitor can be wired
+    // in later by passing an Arc<RwLock<HealthState>> from a StartedHealthMonitor.
+    let health_arc: SharedHealthState = Arc::new(std::sync::RwLock::new(HealthState::initial()));
 
     let ct = shutdown_token.clone();
     let rmcp_cfg = StreamableHttpServerConfig::default()
@@ -185,6 +189,7 @@ pub async fn serve_http(
                         Arc::clone(&qdrant_arc),
                         Arc::clone(&state_arc),
                         Arc::clone(&session_arc),
+                        Arc::clone(&health_arc),
                     ))
                 }
             },

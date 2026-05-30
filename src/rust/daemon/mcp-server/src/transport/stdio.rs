@@ -29,6 +29,7 @@ use rmcp::{serve_server, transport::io::stdio};
 use secrecy::SecretString;
 
 use crate::grpc::client::DaemonClient;
+use crate::observability::health_monitor::{HealthState, SharedHealthState};
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
 use crate::session::lifecycle::cleanup_session;
@@ -43,11 +44,14 @@ use crate::tools::ToolsHandler;
 ///
 /// # Arguments
 ///
-/// * `daemon`   — gRPC client to the memexd daemon (may be disconnected).
-/// * `qdrant`   — read-only Qdrant client.
-/// * `state`    — SQLite state manager (may be in degraded mode).
-/// * `session`  — pre-populated session state (from `initialize_session`).
-/// * `hb_handle` — optional heartbeat `AbortHandle` to cancel on shutdown.
+/// * `daemon`       — gRPC client to the memexd daemon (may be disconnected).
+/// * `qdrant`       — read-only Qdrant client.
+/// * `state`        — SQLite state manager (may be in degraded mode).
+/// * `session`      — pre-populated session state (from `initialize_session`).
+/// * `hb_handle`    — optional heartbeat `AbortHandle` to cancel on shutdown.
+/// * `health_state` — optional shared health state from a running
+///   [`HealthMonitorBuilder`](crate::observability::health_monitor::HealthMonitorBuilder).
+///   When `None` a default optimistic (healthy) state is used.
 ///
 /// # Steps
 ///
@@ -67,8 +71,13 @@ pub async fn serve_stdio(
     state: StateManager,
     session: SessionState,
     hb_handle: Option<AbortHandle>,
+    health_state: Option<SharedHealthState>,
 ) -> anyhow::Result<()> {
-    let handler = ToolsHandler::new(daemon, qdrant, state, session);
+    let health_state = health_state.unwrap_or_else(|| {
+        use std::sync::RwLock;
+        std::sync::Arc::new(RwLock::new(HealthState::initial()))
+    });
+    let handler = ToolsHandler::new(daemon, qdrant, state, session, health_state);
 
     // Grab Arc handles for post-serve cleanup.
     let daemon_arc = handler.daemon();

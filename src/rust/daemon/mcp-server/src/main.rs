@@ -127,7 +127,7 @@ async fn run_stdio() -> anyhow::Result<()> {
     // Run the serve loop; no heartbeat handle at this stage (heartbeat is
     // started post-handshake inside the session lifecycle).
     let serve_result = tokio::select! {
-        result = serve_stdio(daemon, qdrant, state, session, None) => result,
+        result = serve_stdio(daemon, qdrant, state, session, None, None) => result,
         _ = async {
             let _ = shutdown_rx.await;
         } => {

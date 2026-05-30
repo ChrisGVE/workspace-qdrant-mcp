@@ -28,6 +28,7 @@ use tracing::debug;
 use rmcp::model::CallToolResult;
 
 use crate::grpc::client::DaemonClient;
+use crate::observability::health_monitor::{augment_search_results, SharedHealthState};
 use crate::observability::metrics::record_tool_call;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
@@ -70,11 +71,17 @@ pub const KNOWN_TOOLS: &[&str] = &[
 /// shared reference.  `state` is a [`SharedStateManager`] (`Send + Sync`)
 /// rather than a bare `&StateManager` so that the dispatch future satisfies
 /// the `Send` bound required by `rmcp::ServerHandler`.
+///
+/// `health_state` is the [`SharedHealthState`] from the background health
+/// monitor.  The search arm uses it to call [`augment_search_results`],
+/// mirroring `healthMonitor.augmentSearchResults(...)` in
+/// `tool-dispatcher.ts:66`.
 pub struct DispatchContext<'a> {
     pub daemon: &'a mut DaemonClient,
     pub qdrant: &'a QdrantReadClient,
     pub state: &'a SharedStateManager,
     pub session: &'a mut SessionState,
+    pub health_state: &'a SharedHealthState,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,6 +154,42 @@ pub async fn dispatch_tool(
     result
 }
 
+/// Augment the text payload of a search `CallToolResult` with health metadata.
+///
+/// Mirrors `healthMonitor.augmentSearchResults({ success: true, ...searchResult })`
+/// at tool-dispatcher.ts:66.
+///
+/// - Parses the pretty-JSON text from the first content block.
+/// - Calls [`augment_search_results`] which inserts `"health": {...}` only when
+///   the system is uncertain.
+/// - Re-serialises back to pretty JSON and updates the content block in place.
+/// - If the health state RwLock is poisoned, or if JSON round-trip fails, the
+///   original result is returned unchanged (defensive — should never occur).
+fn apply_health_augmentation(
+    mut result: CallToolResult,
+    health_state: &SharedHealthState,
+) -> CallToolResult {
+    let state_guard = match health_state.read() {
+        Ok(g) => g,
+        Err(_) => return result,
+    };
+    // Only augment when there is content and it is text.
+    if let Some(item) = result.content.first_mut() {
+        if let Some(text_content) = item.raw.as_text() {
+            let original = text_content.text.as_str();
+            if let Ok(json_val) = serde_json::from_str::<Value>(original) {
+                let augmented = augment_search_results(&state_guard, json_val);
+                if let Ok(pretty) = serde_json::to_string_pretty(&augmented) {
+                    // Replace in-place via ok_text round-trip.
+                    use rmcp::model::Content;
+                    *item = Content::text(pretty);
+                }
+            }
+        }
+    }
+    result
+}
+
 /// Route a validated tool name to its handler.
 ///
 /// Mirrors `routeTool` in tool-dispatcher.ts:53-83.
@@ -160,7 +203,10 @@ async fn route_tool(
     match name {
         "search" => {
             // search_tool handles its own error wrapping.
-            search_tool(args, ctx.daemon, ctx.qdrant, ctx.state, ctx.session).await
+            let raw = search_tool(args, ctx.daemon, ctx.qdrant, ctx.state, ctx.session).await;
+            // Augment with health metadata when system is uncertain
+            // (mirrors tool-dispatcher.ts:66: healthMonitor.augmentSearchResults({success:true,...})).
+            apply_health_augmentation(raw, ctx.health_state)
         }
         "retrieve" => {
             let input = RetrieveInput::from_args(args);

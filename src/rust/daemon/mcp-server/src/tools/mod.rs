@@ -62,6 +62,7 @@ use rmcp::{
 
 use crate::grpc::client::DaemonClient;
 use crate::instructions::INSTRUCTIONS;
+use crate::observability::health_monitor::SharedHealthState;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::{server_version_string, SessionState, SERVER_NAME};
 use crate::sqlite::{SharedStateManager, StateManager};
@@ -83,6 +84,7 @@ pub use definitions::list_tools;
 /// | `qdrant`         | `Arc<QdrantReadClient>`     | `Send + Sync`, read-only            |
 /// | `state`          | `Arc<SharedStateManager>`   | `Send + Sync` std-Mutex wrapper     |
 /// | `session`        | `Arc<Mutex<SessionState>>`  | mutably accessed per call           |
+/// | `health_state`   | `SharedHealthState`         | background health monitor state     |
 ///
 /// `SharedStateManager` wraps `StateManager` (which contains a non-`Sync`
 /// `rusqlite::Connection`) in a `std::sync::Mutex`, making it `Send + Sync`.
@@ -93,21 +95,29 @@ pub struct ToolsHandler {
     qdrant: Arc<QdrantReadClient>,
     state: Arc<SharedStateManager>,
     session: Arc<Mutex<SessionState>>,
+    health_state: SharedHealthState,
 }
 
 impl ToolsHandler {
     /// Create a new handler with all runtime dependencies.
+    ///
+    /// `health_state` is the [`SharedHealthState`] produced by a running
+    /// [`HealthMonitorBuilder`](crate::observability::health_monitor::HealthMonitorBuilder).
+    /// Pass a default optimistic state (`Arc::new(RwLock::new(...))`) when no
+    /// background monitor is running (e.g., in tests).
     pub fn new(
         daemon: DaemonClient,
         qdrant: QdrantReadClient,
         state: StateManager,
         session: SessionState,
+        health_state: SharedHealthState,
     ) -> Self {
         Self {
             daemon: Arc::new(Mutex::new(daemon)),
             qdrant: Arc::new(qdrant),
             state: Arc::new(SharedStateManager::new(state)),
             session: Arc::new(Mutex::new(session)),
+            health_state,
         }
     }
 
@@ -137,12 +147,14 @@ impl ToolsHandler {
         qdrant: Arc<QdrantReadClient>,
         state: Arc<SharedStateManager>,
         session: Arc<Mutex<SessionState>>,
+        health_state: SharedHealthState,
     ) -> Self {
         Self {
             daemon,
             qdrant,
             state,
             session,
+            health_state,
         }
     }
 }
@@ -172,6 +184,7 @@ impl ServerHandler for ToolsHandler {
         let qdrant = Arc::clone(&self.qdrant);
         let state = Arc::clone(&self.state);
         let session = Arc::clone(&self.session);
+        let health_state = Arc::clone(&self.health_state);
 
         async move {
             // `request.name` is `Cow<'static, str>` — `.as_ref()` gives `&str`.
@@ -191,6 +204,7 @@ impl ServerHandler for ToolsHandler {
                 qdrant: &qdrant,
                 state: &state,
                 session: &mut session_guard,
+                health_state: &health_state,
             };
 
             Ok(dispatch_tool(&name, &args, &mut ctx).await)
