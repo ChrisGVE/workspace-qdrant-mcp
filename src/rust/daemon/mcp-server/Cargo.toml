@@ -29,6 +29,14 @@ rmcp = { version = "1.7", features = [
 
 # HTTP server — pinned to match rmcp's dev-dependency versions to avoid skew.
 axum = { version = "0.8", features = ["http1", "tokio"] }
+# TLS termination via axum-server.  Use tls-rustls-no-provider so we supply our
+# own crypto provider (ring, already in the graph via tonic) rather than pulling
+# in the heavy aws-lc-sys build.
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+# rustls 0.23 with ring provider — matches tokio-rustls 0.26 already in graph.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+rcgen = "0.13"
 # Low-level body utilities used to adapt rmcp's BoxBody → axum Body.
 http-body-util = "0.1"
 # tower::Service trait (for calling StreamableHttpService directly).
