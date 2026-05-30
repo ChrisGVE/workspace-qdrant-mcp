@@ -32,7 +32,7 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::graph_context::{expand_graph_context, GraphQueryDaemon};
 use super::options::{SearchOptions, DEFAULT_EXPANSION_WEIGHT};
-use super::types::{SearchMode, SearchResponse, SearchResult};
+use super::types::{SearchMode, SearchResponse, SearchResult, SearchScope};
 
 pub use super::flow_collect::{
     build_provenance, expand_parent_context, search_collection, tagged_to_search_result,
@@ -207,60 +207,108 @@ where
     let scope = opts.scope;
     let mode = opts.mode;
 
-    // Phase 1: Generate dense + sparse embeddings.
-    let (dense_embedding, mut sparse_vector) = match generate_embeddings(daemon, opts).await {
+    // Phase 1: Generate embeddings + optional tag expansion.
+    let (dense_embedding, sparse_vector) = match embed_and_expand(
+        daemon,
+        opts,
+        expansion_keywords,
+        enable_tag_expansion,
+        mode,
+    )
+    .await
+    {
         Ok(pair) => pair,
         Err(_) => {
-            // Mirrors `recordDaemonFallback('search', reason)` in TS.
-            // Reason 'embed_failed': daemon unreachable or embedding RPC error.
             record_daemon_fallback("search", "embed_failed");
             return fallback_search(qdrant, opts, &collections, project_id).await;
         }
     };
 
-    // Phase 1b: Tag-basket sparse expansion (search-expansion.ts:50-77).
-    // `expansion_keywords` was pre-computed synchronously by the caller
-    // (before any `.await`) so the future stays `Send`.
-    // Expanded keywords merged at DEFAULT_EXPANSION_WEIGHT (0.5) — see expansion.rs:112-123.
+    // Phase 2: Fan-out per-collection search.
+    let all_tagged = search_all_collections(
+        qdrant,
+        &collections,
+        opts,
+        mode,
+        &dense_embedding,
+        &sparse_vector,
+        project_id,
+    )
+    .await;
+
+    // Phases 3-6: Fuse, rank, diversify, slice, convert.
+    let (mut results, diversity_score) = finalize_results(all_tagged, opts, mode, &collections);
+
+    // Phases 7-8: Context enrichment.
+    enrich_results(daemon, qdrant, opts, &mut results).await;
+
+    build_response(results, opts, scope, mode, collections, diversity_score)
+}
+
+/// Phase 1: Generate dense + sparse embeddings, then optionally expand sparse
+/// with tag-basket keywords (Phase 1b, search-expansion.ts:50-77).
+async fn embed_and_expand<D>(
+    daemon: &mut D,
+    opts: &SearchOptions,
+    expansion_keywords: Vec<String>,
+    enable_tag_expansion: bool,
+    mode: SearchMode,
+) -> Result<(Option<Vec<f32>>, Option<HashMap<u32, f32>>), ()>
+where
+    D: EmbedDaemon,
+{
+    let (dense, mut sparse) = generate_embeddings(daemon, opts).await?;
+
+    // Phase 1b: tag-basket sparse expansion.
     if enable_tag_expansion
-        && sparse_vector.is_some()
+        && sparse.is_some()
         && (mode == SearchMode::Hybrid || mode == SearchMode::Keyword)
         && !expansion_keywords.is_empty()
     {
-        let sv = sparse_vector.take().unwrap();
+        let sv = sparse.take().unwrap();
         if let Ok(exp_sv) = daemon
             .generate_sparse_vector(&expansion_keywords.join(" "))
             .await
         {
-            sparse_vector = Some(super::expansion::merge_sparse_vectors(
+            sparse = Some(super::expansion::merge_sparse_vectors(
                 &sv,
                 &exp_sv,
                 DEFAULT_EXPANSION_WEIGHT,
             ));
         } else {
-            sparse_vector = Some(sv);
+            sparse = Some(sv);
         }
     }
+    Ok((dense, sparse))
+}
 
-    // Phase 2: Fan-out per-collection search.
-    // TS `searchCollection` never throws: each leg (dense/sparse) has its own
-    // try/catch and returns [] on failure.  `searchAllCollections` only sets
-    // status='uncertain' when `searchCollection` ITSELF throws (collection-level
-    // error), not on per-leg failures.  Since our `search_collection` always
-    // returns a Vec (swallowing leg errors), we mirror TS: no collection can
-    // fail here, so `status` always stays 'ok' after this phase.
+/// Phase 2: Fan-out search across all target collections.
+///
+/// Each call to `search_collection` swallows per-leg errors (TS parity).
+async fn search_all_collections<Q>(
+    qdrant: &Q,
+    collections: &[String],
+    opts: &SearchOptions,
+    mode: SearchMode,
+    dense: &Option<Vec<f32>>,
+    sparse: &Option<HashMap<u32, f32>>,
+    project_id: Option<&str>,
+) -> Vec<TaggedResult>
+where
+    Q: SearchQdrant,
+{
     let mut all_tagged: Vec<TaggedResult> = Vec::new();
     let search_limit = (opts.limit * 2) as u64;
 
-    for coll in &collections {
+    for coll in collections {
         let filter_params = search_filter_params(coll, opts, project_id);
         let filter = build_filter(&filter_params);
         let leg = search_collection(
             qdrant,
             coll,
             mode,
-            dense_embedding.as_deref(),
-            sparse_vector.as_ref(),
+            dense.as_deref(),
+            sparse.as_ref(),
             filter,
             search_limit,
             opts.score_threshold,
@@ -268,9 +316,17 @@ where
         .await;
         all_tagged.extend(leg);
     }
+    all_tagged
+}
 
+/// Phases 3–6: RRF fusion → sort → diversity → slice → convert to SearchResult.
+fn finalize_results(
+    all_tagged: Vec<TaggedResult>,
+    opts: &SearchOptions,
+    mode: SearchMode,
+    collections: &[String],
+) -> (Vec<SearchResult>, Option<f64>) {
     // Phase 3: RRF fusion (hybrid only) → sort by score desc.
-    // CRITICAL: do NOT apply score threshold after fusion (scratchpad note).
     let fused = if mode == SearchMode::Hybrid {
         apply_rrf_fusion(&all_tagged)
     } else {
@@ -291,32 +347,50 @@ where
         (sorted, None)
     };
 
-    // Phase 5: Slice to limit.
-    let sliced: Vec<TaggedResult> = diverse_results.into_iter().take(opts.limit).collect();
+    // Phase 5-6: Slice to limit and convert.
+    let results: Vec<SearchResult> = diverse_results
+        .into_iter()
+        .take(opts.limit)
+        .map(tagged_to_search_result)
+        .collect();
 
-    // Phase 6: Convert to SearchResult.
-    let mut results: Vec<SearchResult> = sliced.into_iter().map(tagged_to_search_result).collect();
+    (results, diversity_score)
+}
 
-    // Phase 7: Parent context expansion.
+/// Phases 7–8: Parent context and graph context enrichment.
+async fn enrich_results<D, Q>(
+    daemon: &mut D,
+    qdrant: &Q,
+    opts: &SearchOptions,
+    results: &mut Vec<SearchResult>,
+) where
+    D: EmbedDaemon + GraphQueryDaemon,
+    Q: SearchQdrant,
+{
     if opts.expand_context {
-        expand_parent_context(qdrant, &mut results).await;
+        expand_parent_context(qdrant, results).await;
     }
-
-    // Phase 8: Per-result graph context enrichment.
     if opts.include_graph_context {
         // DEFERRED (task 30 follow-up, GitHub #80): expandAndFuseWithGraph
-        // (graph-expansion fusion pass before diversity re-ranking) is not yet implemented.
-        // Only expandGraphContext (post-slice per-result enrichment) runs here.
-        // TS executes `expandAndFuseWithGraph` BEFORE diversity + slice
-        // (`finalizeResults` in search-helpers.ts:313-315), allowing graph-expanded
-        // results to participate in diversity scoring. Track as GitHub issue.
-        expand_graph_context(daemon, &mut results).await;
+        // (graph-expansion fusion pass before diversity re-ranking) is not yet
+        // implemented.  Only expandGraphContext (post-slice per-result enrichment)
+        // runs here.  TS executes `expandAndFuseWithGraph` BEFORE diversity +
+        // slice (`finalizeResults` in search-helpers.ts:313-315), allowing
+        // graph-expanded results to participate in diversity scoring.
+        expand_graph_context(daemon, results).await;
     }
+}
 
+/// Assemble the final SearchResponse from pipeline outputs.
+fn build_response(
+    results: Vec<SearchResult>,
+    opts: &SearchOptions,
+    scope: SearchScope,
+    mode: SearchMode,
+    collections: Vec<String>,
+    diversity_score: Option<f64>,
+) -> SearchResponse {
     let total = results.len();
-    // Leg failures are swallowed in `search_collection` (matching TS behaviour),
-    // so status is always 'ok' (None) after a successful pipeline run.
-    let (status, status_reason) = (None::<String>, None::<String>);
     let mut resp = SearchResponse {
         results,
         total,
@@ -324,8 +398,8 @@ where
         mode,
         scope,
         collections_searched: collections,
-        status,
-        status_reason,
+        status: None,
+        status_reason: None,
         branch: None,
         diversity_score,
     };

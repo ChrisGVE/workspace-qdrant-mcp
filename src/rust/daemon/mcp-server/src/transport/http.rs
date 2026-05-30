@@ -154,59 +154,24 @@ pub async fn serve_http(
     // ── 2. Require token ────────────────────────────────────────────────────
     require_auth(&auth_cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // ── 3. Resolve TLS — fail-loud if env is set but config is invalid ───────
+    // ── 3. Resolve TLS ───────────────────────────────────────────────────────
     let tls_cfg = tls_config_from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // ── 4. Build rmcp StreamableHttpService ─────────────────────────────────
-    let daemon_arc: Arc<Mutex<DaemonClient>> = Arc::new(Mutex::new(daemon));
-    let qdrant_arc: Arc<QdrantReadClient> = Arc::new(qdrant);
-    let state_arc: Arc<SharedStateManager> = Arc::new(SharedStateManager::new(state));
-    let session_arc: Arc<Mutex<SessionState>> = Arc::new(Mutex::new(session));
-    // Default optimistic health state; a background health monitor can be wired
-    // in later by passing an Arc<RwLock<HealthState>> from a StartedHealthMonitor.
-    let health_arc: SharedHealthState = Arc::new(std::sync::RwLock::new(HealthState::initial()));
-
-    let ct = shutdown_token.clone();
-    let rmcp_cfg = StreamableHttpServerConfig::default()
-        .with_stateful_mode(true)
-        .with_cancellation_token(ct.child_token())
-        .with_allowed_hosts(vec![
-            http_cfg.host.clone(),
-            "localhost".to_string(),
-            "127.0.0.1".to_string(),
-        ]);
-
-    let mcp_service: StreamableHttpService<ToolsHandler, LocalSessionManager> =
-        StreamableHttpService::new(
-            {
-                let daemon_arc = Arc::clone(&daemon_arc);
-                let qdrant_arc = Arc::clone(&qdrant_arc);
-                let state_arc = Arc::clone(&state_arc);
-                let session_arc = Arc::clone(&session_arc);
-                move || {
-                    Ok(ToolsHandler::from_arcs(
-                        Arc::clone(&daemon_arc),
-                        Arc::clone(&qdrant_arc),
-                        Arc::clone(&state_arc),
-                        Arc::clone(&session_arc),
-                        Arc::clone(&health_arc),
-                    ))
-                }
-            },
-            Arc::new(LocalSessionManager::default()),
-            rmcp_cfg,
-        );
-
-    // ── 5. Build middleware state ────────────────────────────────────────────
-    let mw = MiddlewareState {
-        auth: auth_cfg,
-        cors: cors_cfg,
-        limiter: Arc::new(SlidingWindowLimiter::with_config(rate_cfg)),
-    };
+    // ── 4-5. Build rmcp service + middleware ─────────────────────────────────
+    let (mcp_service, mw) = build_mcp_service(
+        daemon,
+        qdrant,
+        state,
+        session,
+        &http_cfg,
+        auth_cfg,
+        cors_cfg,
+        rate_cfg,
+        &shutdown_token,
+    );
 
     // ── 6. Assemble axum router ──────────────────────────────────────────────
     let mcp_path = http_cfg.mcp_path.clone();
-
     let router = Router::new()
         .route("/healthz", get(healthz_route))
         .fallback(move |req: Request<Body>| {
@@ -217,6 +182,81 @@ pub async fn serve_http(
         });
 
     // ── 7. Bind + serve ──────────────────────────────────────────────────────
+    bind_and_serve(router, &http_cfg, tls_cfg, shutdown_token).await?;
+    info!("MCP HTTP transport stopped");
+    Ok(())
+}
+
+/// Build the rmcp `StreamableHttpService` and `MiddlewareState`.
+///
+/// Extracted from `serve_http` for size compliance.
+fn build_mcp_service(
+    daemon: DaemonClient,
+    qdrant: QdrantReadClient,
+    state: StateManager,
+    session: SessionState,
+    http_cfg: &HttpConfig,
+    auth_cfg: AuthConfig,
+    cors_cfg: CorsConfig,
+    rate_cfg: RateLimitConfig,
+    shutdown_token: &CancellationToken,
+) -> (
+    StreamableHttpService<ToolsHandler, LocalSessionManager>,
+    MiddlewareState,
+) {
+    let daemon_arc: Arc<Mutex<DaemonClient>> = Arc::new(Mutex::new(daemon));
+    let qdrant_arc: Arc<QdrantReadClient> = Arc::new(qdrant);
+    let state_arc: Arc<SharedStateManager> = Arc::new(SharedStateManager::new(state));
+    let session_arc: Arc<Mutex<SessionState>> = Arc::new(Mutex::new(session));
+    let health_arc: SharedHealthState = Arc::new(std::sync::RwLock::new(HealthState::initial()));
+
+    let rmcp_cfg = StreamableHttpServerConfig::default()
+        .with_stateful_mode(true)
+        .with_cancellation_token(shutdown_token.child_token())
+        .with_allowed_hosts(vec![
+            http_cfg.host.clone(),
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+        ]);
+
+    let mcp_service = StreamableHttpService::new(
+        {
+            let daemon_arc = Arc::clone(&daemon_arc);
+            let qdrant_arc = Arc::clone(&qdrant_arc);
+            let state_arc = Arc::clone(&state_arc);
+            let session_arc = Arc::clone(&session_arc);
+            move || {
+                Ok(ToolsHandler::from_arcs(
+                    Arc::clone(&daemon_arc),
+                    Arc::clone(&qdrant_arc),
+                    Arc::clone(&state_arc),
+                    Arc::clone(&session_arc),
+                    Arc::clone(&health_arc),
+                ))
+            }
+        },
+        Arc::new(LocalSessionManager::default()),
+        rmcp_cfg,
+    );
+
+    let mw = MiddlewareState {
+        auth: auth_cfg,
+        cors: cors_cfg,
+        limiter: Arc::new(SlidingWindowLimiter::with_config(rate_cfg)),
+    };
+
+    (mcp_service, mw)
+}
+
+/// Bind the TCP listener and drive the serve loop.
+///
+/// Extracted from `serve_http` for size compliance.
+async fn bind_and_serve(
+    router: Router,
+    http_cfg: &HttpConfig,
+    tls_cfg: Option<crate::transport::tls::TlsConfig>,
+    shutdown_token: CancellationToken,
+) -> anyhow::Result<()> {
     let bind_addr: std::net::SocketAddr = format!("{}:{}", http_cfg.host, http_cfg.port)
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid bind address: {e}"))?;
@@ -225,19 +265,14 @@ pub async fn serve_http(
 
     match tls_cfg {
         Some(ref cfg) => {
-            // TLS env configured — terminate TLS via axum-server.
             let rustls_server_cfg = build_rustls_server_config(cfg)
                 .map_err(|e| anyhow::anyhow!("TLS configuration error: {e}"))?;
             let rustls_cfg = RustlsConfig::from_config(rustls_server_cfg);
-
             info!(
-                host = %http_cfg.host,
-                port = http_cfg.port,
-                path = %http_cfg.mcp_path,
-                tls = true,
+                host = %http_cfg.host, port = http_cfg.port,
+                path = %http_cfg.mcp_path, tls = true,
                 "MCP HTTP transport listening (TLS)"
             );
-
             axum_server::bind_rustls(bind_addr, rustls_cfg)
                 .handle(build_axum_server_handle(shutdown_token))
                 .serve(make_svc)
@@ -245,15 +280,11 @@ pub async fn serve_http(
                 .map_err(|e| anyhow::anyhow!("MCP HTTPS serve error: {e}"))?;
         }
         None => {
-            // No TLS env — plain TCP.
             info!(
-                host = %http_cfg.host,
-                port = http_cfg.port,
-                path = %http_cfg.mcp_path,
-                tls = false,
+                host = %http_cfg.host, port = http_cfg.port,
+                path = %http_cfg.mcp_path, tls = false,
                 "MCP HTTP transport listening (plaintext)"
             );
-
             axum_server::bind(bind_addr)
                 .handle(build_axum_server_handle(shutdown_token))
                 .serve(make_svc)
@@ -261,8 +292,6 @@ pub async fn serve_http(
                 .map_err(|e| anyhow::anyhow!("MCP HTTP serve error: {e}"))?;
         }
     }
-
-    info!("MCP HTTP transport stopped");
     Ok(())
 }
 
