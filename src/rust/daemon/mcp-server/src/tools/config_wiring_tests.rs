@@ -1,9 +1,10 @@
 //! Integration-style unit tests verifying that `ServerConfig` is correctly
 //! wired into `ToolsHandler` end-to-end.
 //!
-//! Specifically: `WQM_RULES_DEDUP_THRESHOLD` → `load_config_with_env` →
-//! `ServerConfig.rules.duplication_threshold` → `ToolsHandler::new_with_config`
-//! → `ToolsHandler.rules_dup_threshold` → `DispatchContext.rules_dup_threshold`.
+//! Specifically: `ServerConfig.rules.duplication_threshold` (from the config
+//! file) → `ToolsHandler::new_with_config` → `ToolsHandler.rules_dup_threshold`
+//! → `DispatchContext.rules_dup_threshold`. (Parity: there is intentionally NO
+//! env override for the threshold — TS sources it from config only.)
 //!
 //! This guards against the regression found in codex audit Round-2 where the
 //! config module + env overrides existed and were unit-tested in isolation but
@@ -30,14 +31,13 @@ use crate::tools::ToolsHandler;
 /// Build a minimal (degraded) set of deps suitable for a unit test.
 #[tokio::test]
 async fn handler_stores_rules_dup_threshold_from_config() {
-    // 1. Load config with the threshold env var injected hermetically.
-    let getter = |key: &str| -> Option<String> {
-        match key {
-            "WQM_RULES_DEDUP_THRESHOLD" => Some("0.42".to_string()),
-            _ => None,
-        }
-    };
-    let config = load_config_with_env(&getter).expect("config load");
+    // 1. A config whose rules section carries the threshold (as it would after
+    //    loading a config file with `rules.duplication_threshold` set).
+    let mut config = crate::config::ServerConfig::default();
+    config
+        .rules
+        .get_or_insert_with(Default::default)
+        .duplication_threshold = Some(0.42);
 
     // 2. Extract the threshold from config — same code as main.rs run_stdio.
     let rules_dup_threshold = config.rules.as_ref().and_then(|r| r.duplication_threshold);
@@ -45,7 +45,7 @@ async fn handler_stores_rules_dup_threshold_from_config() {
     assert_eq!(
         rules_dup_threshold,
         Some(0.42),
-        "config must carry the env-overridden threshold"
+        "config must carry the file-configured threshold"
     );
 
     // 3. Construct a ToolsHandler via new_with_config — same as transport layer.

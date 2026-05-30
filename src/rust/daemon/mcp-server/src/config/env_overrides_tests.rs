@@ -292,40 +292,20 @@ fn wqm_daemon_port_precedence_endpoint_still_beats_trailing_garbage() {
 }
 
 // ------------------------------------------------------------------
-// WQM_RULES_DEDUP_THRESHOLD
+// Rules duplication threshold: NOT an env override (TS parity)
 // ------------------------------------------------------------------
 
 #[test]
-fn rules_dedup_threshold_set_from_env() {
-    // WQM_RULES_DEDUP_THRESHOLD=0.85 must set config.rules.duplication_threshold.
+fn rules_dedup_threshold_is_not_an_env_override() {
+    // Parity: TS has no env var for the rules duplication threshold — it comes
+    // from the loaded config only. Setting WQM_RULES_DEDUP_THRESHOLD must have
+    // NO effect on the merged config (the field stays at its config-file value,
+    // here the default None).
     let getter = env_from(&[("WQM_RULES_DEDUP_THRESHOLD", "0.85")]);
-    let result = apply_env_overrides(ServerConfig::default(), &getter);
-    let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
-    assert_eq!(threshold, Some(0.85_f64));
-}
-
-#[test]
-fn rules_dedup_threshold_ignored_when_out_of_range() {
-    // Values outside (0.0, 1.0] must be ignored (keep default = None).
-    for bad in ["0.0", "1.1", "-0.5", "2.0"] {
-        let pairs = [("WQM_RULES_DEDUP_THRESHOLD", bad)];
-        let getter = env_from(&pairs);
-        let result = apply_env_overrides(ServerConfig::default(), &getter);
-        let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
-        assert!(
-            threshold.is_none(),
-            "out-of-range value '{bad}' must not set threshold; got {threshold:?}"
-        );
-    }
-}
-
-#[test]
-fn rules_dedup_threshold_absent_when_env_not_set() {
-    let getter = env_from(&[]);
     let result = apply_env_overrides(ServerConfig::default(), &getter);
     let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
     assert!(
         threshold.is_none(),
-        "unset env must leave duplication_threshold as None"
+        "WQM_RULES_DEDUP_THRESHOLD must NOT override the threshold; got {threshold:?}"
     );
 }

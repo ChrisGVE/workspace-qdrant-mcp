@@ -165,16 +165,11 @@ pub fn apply_env_overrides(
         }
     }
 
-    // Rules config: WQM_RULES_DEDUP_THRESHOLD overrides rules.duplicationThreshold.
-    // Mirrors TS server-factory.ts:52: `config.rules?.duplicationThreshold`.
-    if let Some(val_str) = env_getter("WQM_RULES_DEDUP_THRESHOLD") {
-        if let Ok(val) = val_str.parse::<f64>() {
-            if val > 0.0 && val <= 1.0 {
-                let rules = config.rules.get_or_insert_with(Default::default);
-                rules.duplication_threshold = Some(val);
-            }
-        }
-    }
+    // Note: the rules duplication threshold is intentionally NOT an env
+    // override. TS resolves `config.rules?.duplicationThreshold` from the loaded
+    // config only (config.ts applyEnvironmentOverrides has no such env var), so a
+    // Rust-only `WQM_RULES_DEDUP_THRESHOLD` would diverge from the TS server. The
+    // value flows from the config file via `ServerConfig.rules.duplication_threshold`.
 
     config
 }
