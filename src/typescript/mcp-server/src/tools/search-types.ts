@@ -56,6 +56,10 @@ export interface SearchOptions {
   contextLines?: number;
   /** When true, fetch 1-hop graph context for code symbol results */
   includeGraphContext?: boolean;
+  /** Cross-encoder rerank of the top candidates (default: true for
+   *  semantic/hybrid). Set false to skip the reranker (lower latency, weaker
+   *  top-k ordering). */
+  rerank?: boolean;
   /** Per-hit text cap (in chars). Content longer than this is truncated
    *  with a marker pointing to retrieve() for the full chunk. Defaults
    *  to {@link DEFAULT_MAX_BYTES_PER_HIT}. Set to 0 to disable truncation. */

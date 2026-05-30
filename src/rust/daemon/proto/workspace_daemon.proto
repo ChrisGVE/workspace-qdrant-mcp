@@ -138,6 +138,24 @@ service EmbeddingService {
 
     // Generate sparse vector (BM25-style) from text
     rpc GenerateSparseVector(SparseVectorRequest) returns (SparseVectorResponse);
+
+    // Rerank candidate documents against a query with a cross-encoder.
+    rpc Rerank(RerankRequest) returns (RerankResponse);
+}
+
+message RerankRequest {
+    string query = 1;                             // Query to score documents against
+    repeated string documents = 2;                // Candidate texts to rerank
+    optional uint32 top_k = 3;                    // Return only top K (0/absent = all)
+}
+message RerankResponse {
+    repeated RerankResult results = 1;            // Sorted by score descending
+    bool success = 2;
+    string error_message = 3;
+}
+message RerankResult {
+    uint32 index = 1;                             // Index into request.documents
+    float score = 2;                              // Cross-encoder relevance score
 }
 
 // -----------------------------------------------------------------------------

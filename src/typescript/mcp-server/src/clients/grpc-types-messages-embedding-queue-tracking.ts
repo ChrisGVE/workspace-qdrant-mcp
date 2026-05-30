@@ -26,6 +26,23 @@ export interface SparseVectorResponse {
   error_message?: string;
 }
 
+export interface RerankRequest {
+  query: string;
+  documents: string[];
+  top_k?: number;
+}
+
+export interface RerankResult {
+  index: number;
+  score: number;
+}
+
+export interface RerankResponse {
+  results: RerankResult[];
+  success: boolean;
+  error_message?: string;
+}
+
 // ── QueueWriteService ──
 
 export interface EnqueueItemRequest {

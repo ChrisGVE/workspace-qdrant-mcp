@@ -19,12 +19,13 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
+use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
 use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::BM25;
 
 use crate::proto::{
     embedding_service_server::EmbeddingService, EmbedTextRequest, EmbedTextResponse,
-    SparseVectorRequest, SparseVectorResponse,
+    RerankRequest, RerankResponse, RerankResult, SparseVectorRequest, SparseVectorResponse,
 };
 
 /// Default cache size (number of entries)
@@ -62,6 +63,8 @@ pub struct EmbeddingServiceImpl {
     dense_provider: Arc<dyn DenseProvider>,
     cache: Arc<TokioMutex<LruCache<u64, Vec<f32>>>>,
     bm25: Arc<TokioRwLock<BM25>>,
+    /// Cross-encoder reranker (lazy-initialised on first Rerank call).
+    reranker: Arc<TokioMutex<Option<TextRerank>>>,
 }
 
 impl EmbeddingServiceImpl {
@@ -73,7 +76,43 @@ impl EmbeddingServiceImpl {
             dense_provider,
             cache: Arc::new(TokioMutex::new(LruCache::new(cache_size))),
             bm25: Arc::new(TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))),
+            reranker: Arc::new(TokioMutex::new(None)),
         }
+    }
+
+    /// Rerank `documents` against `query` with a cross-encoder, returning
+    /// `(index, score)` pairs sorted by score descending. Lazy-loads the BGE
+    /// reranker on first call (~280MB download).
+    async fn rerank_internal(
+        &self,
+        query: &str,
+        documents: Vec<String>,
+    ) -> Result<Vec<(usize, f32)>, Status> {
+        if documents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut guard = self.reranker.lock().await;
+        if guard.is_none() {
+            info!("Initializing cross-encoder reranker (first call, ~280MB download)...");
+            let model = TextRerank::try_new(
+                RerankInitOptions::new(RerankerModel::BGERerankerBase)
+                    .with_show_download_progress(true),
+            )
+            .map_err(|e| {
+                error!("Reranker init failed: {:?}", e);
+                Status::internal(format!("Reranker init failed: {}", e))
+            })?;
+            *guard = Some(model);
+            info!("Cross-encoder reranker initialized");
+        }
+        let model = guard.as_mut().unwrap();
+        let results = model
+            .rerank(query.to_string(), documents, false, None)
+            .map_err(|e| {
+                error!("Rerank failed: {:?}", e);
+                Status::internal(format!("Rerank failed: {}", e))
+            })?;
+        Ok(results.into_iter().map(|r| (r.index, r.score)).collect())
     }
 
     /// Compute a hash of the input text for cache lookup.
@@ -253,6 +292,49 @@ impl EmbeddingService for EmbeddingServiceImpl {
                 Ok(Response::new(SparseVectorResponse {
                     indices_values: HashMap::new(),
                     vocab_size: 0,
+                    success: false,
+                    error_message: e.message().to_string(),
+                }))
+            }
+        }
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "EmbeddingService.rerank"))]
+    async fn rerank(
+        &self,
+        request: Request<RerankRequest>,
+    ) -> Result<Response<RerankResponse>, Status> {
+        let req = request.into_inner();
+        if req.query.trim().is_empty() {
+            return Err(Status::invalid_argument("query cannot be empty"));
+        }
+        let doc_count = req.documents.len();
+        let top_k = req.top_k;
+        match self.rerank_internal(&req.query, req.documents).await {
+            Ok(mut ranked) => {
+                if let Some(k) = top_k {
+                    if k > 0 {
+                        ranked.truncate(k as usize);
+                    }
+                }
+                let results = ranked
+                    .into_iter()
+                    .map(|(index, score)| RerankResult {
+                        index: index as u32,
+                        score,
+                    })
+                    .collect();
+                debug!("Rerank: scored {} documents", doc_count);
+                Ok(Response::new(RerankResponse {
+                    results,
+                    success: true,
+                    error_message: String::new(),
+                }))
+            }
+            Err(e) => {
+                error!("Rerank failed: {:?}", e);
+                Ok(Response::new(RerankResponse {
+                    results: Vec::new(),
                     success: false,
                     error_message: e.message().to_string(),
                 }))

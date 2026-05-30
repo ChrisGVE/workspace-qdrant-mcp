@@ -10,6 +10,8 @@ import type {
   EmbedTextResponse,
   SparseVectorRequest,
   SparseVectorResponse,
+  RerankRequest,
+  RerankResponse,
   TextSearchRequest,
   TextSearchResponse,
   TextSearchCountResponse,
@@ -81,6 +83,17 @@ export class DaemonClientService extends DaemonClientSystem {
         'generateSparseVector',
         request,
         this.getMethodTimeout('generateSparseVector')
+      )
+    );
+  }
+
+  async rerank(request: RerankRequest): Promise<RerankResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.embeddingClient,
+        'rerank',
+        request,
+        this.getMethodTimeout('rerank')
       )
     );
   }

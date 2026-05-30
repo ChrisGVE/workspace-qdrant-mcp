@@ -41,6 +41,8 @@ import type {
   EmbedTextResponse,
   SparseVectorRequest,
   SparseVectorResponse,
+  RerankRequest,
+  RerankResponse,
   TextSearchRequest,
   TextSearchResponse,
   TextSearchCountResponse,
@@ -188,6 +190,10 @@ export interface EmbeddingServiceClient {
   generateSparseVector(
     request: SparseVectorRequest,
     callback: (error: Error | null, response: SparseVectorResponse) => void
+  ): void;
+  rerank(
+    request: RerankRequest,
+    callback: (error: Error | null, response: RerankResponse) => void
   ): void;
 }
 

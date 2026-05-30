@@ -475,6 +475,58 @@ function dedupeByFile(results: SearchResult[]): SearchResult[] {
   return deduped;
 }
 
+/** How many top deduped candidates to send to the cross-encoder reranker.
+ * Cross-encoder scoring is O(pool) CPU work, so we cap the pool — the relevant
+ * file is almost always within the top ~30 of the bi-encoder + path-boost order
+ * even when it isn't in the top-k. */
+const RERANK_POOL = 30;
+
+/** Re-order the top candidates with the daemon's cross-encoder reranker.
+ *
+ * The bi-encoder (dense) + path-boost order gets a relevant file into the pool
+ * but often not the top-k; a cross-encoder scores each (query, chunk) pair
+ * jointly — a much stronger relevance signal — to promote the right file into
+ * the top-k. Best-effort: on any daemon/model error the pre-rerank order stands
+ * (the model also lazy-loads on first call, so the first search pays a one-time
+ * warm-up). Input MUST be sorted/deduped; output is the reranked pool followed
+ * by any untouched tail. */
+async function rerankResults(
+  daemonClient: DaemonClient,
+  query: string,
+  results: SearchResult[],
+  limit: number
+): Promise<SearchResult[]> {
+  if (results.length <= 1) return results;
+  const poolSize = Math.min(results.length, Math.max(limit, RERANK_POOL));
+  const pool = results.slice(0, poolSize);
+  const documents = pool.map((r) => (r.content ?? '').slice(0, 4000));
+  try {
+    const resp = await daemonClient.rerank({ query, documents });
+    if (!resp.success || resp.results.length === 0) return results;
+    const returned = new Set<number>();
+    const reordered: SearchResult[] = [];
+    for (const rr of resp.results) {
+      if (rr.index < 0 || rr.index >= pool.length || returned.has(rr.index)) continue;
+      const item = pool[rr.index];
+      if (!item) continue;
+      returned.add(rr.index);
+      // Overwrite score with the cross-encoder score so the final ordering and
+      // the surfaced score reflect the reranker's judgment.
+      item.score = rr.score;
+      reordered.push(item);
+    }
+    // Defensive: keep any pool items the reranker didn't score, then the tail
+    // beyond the pool — so we never drop a candidate.
+    const leftover = pool.filter((_, i) => !returned.has(i));
+    return [...reordered, ...leftover, ...results.slice(poolSize)];
+  } catch (err) {
+    logDebug('Rerank failed; using pre-rerank order', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return results;
+  }
+}
+
 /** Fuse, sort, expand context, update event, and assemble the final response. */
 export async function finalizeResults(
   qdrantClient: QdrantClient,
@@ -484,12 +536,21 @@ export async function finalizeResults(
 ): Promise<SearchResponse> {
   const fusedResults = applyRRFFusion(params.allResults, params.mode);
   // Promote results whose file path/symbol matches the query before ranking
-  // — surfaces the precisely-named file over content-term magnets.
+  // — surfaces the precisely-named file over content-term magnets, and shapes
+  // which candidates enter the rerank pool below.
   applyPathRelevanceBoost(fusedResults, params.query);
   fusedResults.sort((a, b) => b.score - a.score);
-  // Collapse same-file chunks BEFORE slicing so the top-k holds distinct
-  // files, not repeated chunks of one file.
-  const finalResults = dedupeByFile(fusedResults).slice(0, params.limit);
+  // Collapse same-file chunks BEFORE reranking/slicing so the pool holds
+  // distinct files, not repeated chunks of one file.
+  const deduped = dedupeByFile(fusedResults);
+  // Cross-encoder rerank of the top candidates (best-effort; disable with
+  // `rerank: false`). Promotes the precisely-relevant file into the top-k
+  // beyond what the bi-encoder + path-boost order achieves.
+  const ranked =
+    params.options.rerank === false
+      ? deduped
+      : await rerankResults(daemonClient, params.query, deduped, params.limit);
+  const finalResults = ranked.slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
   if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);

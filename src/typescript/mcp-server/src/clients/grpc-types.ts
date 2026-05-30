@@ -61,6 +61,9 @@ export {
   type EmbedTextResponse,
   type SparseVectorRequest,
   type SparseVectorResponse,
+  type RerankRequest,
+  type RerankResponse,
+  type RerankResult,
   // TextSearchService
   type TextSearchRequest,
   type TextSearchResponse,
