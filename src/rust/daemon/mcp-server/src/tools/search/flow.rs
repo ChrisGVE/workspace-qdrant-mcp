@@ -22,6 +22,7 @@ use std::collections::HashMap;
 // pre-computed by the caller (search_tool) synchronously before any await,
 // then passed as an owned Vec<String> so the future remains Send.
 
+use crate::observability::metrics::record_daemon_fallback;
 use crate::qdrant::client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 use crate::qdrant::filters::{build_filter, determine_collections, FilterParams};
 use crate::qdrant::fusion::{
@@ -210,6 +211,9 @@ where
     let (dense_embedding, mut sparse_vector) = match generate_embeddings(daemon, opts).await {
         Ok(pair) => pair,
         Err(_) => {
+            // Mirrors `recordDaemonFallback('search', reason)` in TS.
+            // Reason 'embed_failed': daemon unreachable or embedding RPC error.
+            record_daemon_fallback("search", "embed_failed");
             return fallback_search(qdrant, opts, &collections, project_id).await;
         }
     };
