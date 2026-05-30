@@ -53,7 +53,12 @@ where
     let dense_threshold = score_threshold as f32;
     let sparse_threshold = (score_threshold * 0.5) as f32;
 
-    let dense_result =
+    // Dense and sparse legs run concurrently (mirrors TS `Promise.all` in
+    // `search-qdrant.ts:153`). Issuing them sequentially doubled search latency
+    // (two serial Qdrant gRPC round-trips) — see GitHub #83. `tokio::join!`
+    // polls both on the same task; the shared `&Q` / `&filter` borrows are
+    // immutable so concurrent polling is sound.
+    let dense_fut = async {
         if (mode == SearchMode::Hybrid || mode == SearchMode::Semantic) && dense.is_some() {
             qdrant
                 .search_dense(
@@ -67,9 +72,10 @@ where
                 .map_err(|e| e.to_string())
         } else {
             Ok(vec![])
-        };
+        }
+    };
 
-    let sparse_result =
+    let sparse_fut = async {
         if (mode == SearchMode::Hybrid || mode == SearchMode::Keyword) && sparse.is_some() {
             let sv = sparse.unwrap();
             let mut entries: Vec<(u32, f32)> = sv.iter().map(|(&k, &v)| (k, v)).collect();
@@ -92,15 +98,30 @@ where
             }
         } else {
             Ok(vec![])
-        };
+        }
+    };
+
+    let (dense_result, sparse_result) = tokio::join!(dense_fut, sparse_fut);
 
     // Leg failures are silently swallowed: TS `searchDense`/`searchSparse` each
     // have their own try/catch returning [] on failure.  `searchCollection` in TS
     // never throws — it just combines the two (possibly empty) arrays.
     // Mirror that: use the results from whichever legs succeeded.
-    let dense_pts = dense_result.unwrap_or_default();
-    let sparse_pts = sparse_result.unwrap_or_default();
+    combine_legs(
+        collection,
+        dense_result.unwrap_or_default(),
+        sparse_result.unwrap_or_default(),
+    )
+}
 
+/// Tag and concatenate the dense (`Semantic`) and sparse (`Keyword`) leg points.
+///
+/// Mirrors the array concatenation in TS `searchCollection`.
+fn combine_legs(
+    collection: &str,
+    dense_pts: Vec<crate::qdrant::client::QdrantPoint>,
+    sparse_pts: Vec<crate::qdrant::client::QdrantPoint>,
+) -> Vec<TaggedResult> {
     let mut combined: Vec<TaggedResult> = Vec::new();
     combined.extend(
         dense_pts
@@ -112,7 +133,6 @@ where
             .into_iter()
             .map(|p| point_to_tagged(p, collection.to_string(), SearchType::Keyword)),
     );
-
     combined
 }
 
