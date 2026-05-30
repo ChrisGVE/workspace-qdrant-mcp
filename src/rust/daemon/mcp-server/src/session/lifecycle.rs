@@ -408,5 +408,8 @@ pub fn default_detect_fn(cwd: &std::path::Path, sm: &StateManager) -> Option<Pro
 }
 
 #[cfg(test)]
+#[path = "lifecycle_test_support.rs"]
+mod lifecycle_test_support;
+#[cfg(test)]
 #[path = "lifecycle_tests.rs"]
 mod tests;
