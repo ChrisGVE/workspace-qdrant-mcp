@@ -14,6 +14,9 @@ mod asserts;
 #[path = "parity/gen_stable_stringify.rs"]
 mod gen_stable_stringify;
 
+#[path = "parity/gen_stable_stringify_2.rs"]
+mod gen_stable_stringify_2;
+
 #[path = "parity/gen_idempotency.rs"]
 mod gen_idempotency;
 
@@ -22,3 +25,24 @@ mod gen_parse_int;
 
 #[path = "parity/gen_expand_path.rs"]
 mod gen_expand_path;
+
+#[path = "parity/error_asserts.rs"]
+mod error_asserts;
+
+#[path = "parity/gen_err_rules_action.rs"]
+mod gen_err_rules_action;
+
+#[path = "parity/gen_err_unknown_tool.rs"]
+mod gen_err_unknown_tool;
+
+#[path = "parity/gen_err_url_validate.rs"]
+mod gen_err_url_validate;
+
+#[path = "parity/gen_err_store_inband.rs"]
+mod gen_err_store_inband;
+
+#[path = "parity/gen_err_scratchpad_inband.rs"]
+mod gen_err_scratchpad_inband;
+
+#[path = "parity/gen_err_grep_inband.rs"]
+mod gen_err_grep_inband;

@@ -1,0 +1,55 @@
+[
+  {
+    "name": "content_missing",
+    "opts": {},
+    "expected": {
+      "success": false,
+      "message": "content is required when type is \"scratchpad\"",
+      "collection": "scratchpad"
+    }
+  },
+  {
+    "name": "content_null",
+    "opts": {
+      "content": null
+    },
+    "expected": {
+      "success": false,
+      "message": "content is required when type is \"scratchpad\"",
+      "collection": "scratchpad"
+    }
+  },
+  {
+    "name": "content_empty",
+    "opts": {
+      "content": ""
+    },
+    "expected": {
+      "success": false,
+      "message": "content is required when type is \"scratchpad\"",
+      "collection": "scratchpad"
+    }
+  },
+  {
+    "name": "content_ws",
+    "opts": {
+      "content": "   "
+    },
+    "expected": {
+      "success": false,
+      "message": "content is required when type is \"scratchpad\"",
+      "collection": "scratchpad"
+    }
+  },
+  {
+    "name": "content_tab",
+    "opts": {
+      "content": "\t\n"
+    },
+    "expected": {
+      "success": false,
+      "message": "content is required when type is \"scratchpad\"",
+      "collection": "scratchpad"
+    }
+  }
+]
