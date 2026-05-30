@@ -456,32 +456,7 @@ fn filter_language() {
 }
 
 // ---------------------------------------------------------------------------
-// § 7  Filter: extension
-// ---------------------------------------------------------------------------
-
-#[test]
-fn filter_extension() {
-    let db = TestDb::new();
-    db.insert_project("wid-ext", "t-ext", "/p");
-    db.insert_file("f1", "wid-ext", "a.rs", None, Some("rs"), 0, "[]", None);
-    db.insert_file("f2", "wid-ext", "b.toml", None, Some("toml"), 0, "[]", None);
-
-    let session = session_with_project("t-ext");
-    let v = call_list(
-        &db,
-        ListInput {
-            extension: Some("toml".to_string()),
-            format: Some("flat".to_string()),
-            ..Default::default()
-        },
-        &session,
-    );
-
-    assert_eq!(v["stats"]["files"], 1);
-    assert_eq!(v["listing"].as_str().unwrap(), "b.toml");
-}
-
-// ---------------------------------------------------------------------------
+// § 7  Filter: extension — moved to list_tests_part5.rs
 // § 8–§11 and § 12–§23: split into sibling files to keep each under 500 lines
 // ---------------------------------------------------------------------------
 

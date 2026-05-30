@@ -345,3 +345,29 @@ fn list_tool_extracted_helpers_happy_path() {
     // projectPath is populated
     assert_eq!(v["projectPath"].as_str().unwrap(), "/proj/hp");
 }
+
+// ---------------------------------------------------------------------------
+// § 7  Filter: extension (moved from list_tests.rs)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn filter_extension() {
+    let db = TestDb::new();
+    db.insert_project("wid-ext", "t-ext", "/p");
+    db.insert_file("f1", "wid-ext", "a.rs", None, Some("rs"), 0, "[]", None);
+    db.insert_file("f2", "wid-ext", "b.toml", None, Some("toml"), 0, "[]", None);
+
+    let session = session_with_project("t-ext");
+    let v = call_list(
+        &db,
+        ListInput {
+            extension: Some("toml".to_string()),
+            format: Some("flat".to_string()),
+            ..Default::default()
+        },
+        &session,
+    );
+
+    assert_eq!(v["stats"]["files"], 1);
+    assert_eq!(v["listing"].as_str().unwrap(), "b.toml");
+}
