@@ -175,8 +175,6 @@ fn decode_cursor(cursor: &str) -> Option<String> {
 
 // ---------------------------------------------------------------------------
 // Stats builder
-// ---------------------------------------------------------------------------
-
 fn build_list_stats(
     page_files: &[TrackedFileEntry],
     submodules: &[SubmoduleEntry],
@@ -217,10 +215,7 @@ struct ProjectIds {
     project_path: Option<String>,
 }
 
-/// Resolve project_id + watch_folder_id + project_path from input + session.
-///
-/// Returns `Err(CallToolResult)` (an early-exit error response) when the
-/// project cannot be identified or is absent from the DB.
+/// Resolve project_id + watch_folder_id + project_path; returns early error on failure.
 fn resolve_project_ids(
     input: &ListInput,
     state: &SessionState,
@@ -399,22 +394,16 @@ fn assemble_response(
 // Core tool function
 // ---------------------------------------------------------------------------
 
-/// Execute the `list` tool.
+/// Execute the `list` MCP tool (sync — SQLite reads only, no async I/O).
 ///
 /// Mirrors `ListFilesTool.list()` in list-files/index.ts.
-/// Synchronous — reads from SQLite only, no async I/O.
-/// Execute the `list` MCP tool.
-///
-/// Accepts a [`SharedStateManager`] (`Send + Sync`) so the dispatcher can
-/// call it from an async context without Send issues.  The mutex is locked
-/// once at the top and held for the entire (synchronous) function — there
-/// are no `.await` points so no deadlock risk.
+/// Takes [`SharedStateManager`] (`Send + Sync`) so callers in async context
+/// satisfy `Send`.  Mutex is locked once and held for the entire function.
 pub fn list_tool(
     input: ListInput,
     sqlite: &SharedStateManager,
     state: &SessionState,
 ) -> CallToolResult {
-    // Lock once — held for the duration of this sync function.
     let sqlite_guard = sqlite.lock();
     let sqlite: &crate::sqlite::manager::StateManager = &sqlite_guard;
 

@@ -15,6 +15,7 @@ pub mod server_types;
 pub mod session;
 pub mod sqlite;
 pub mod tools;
+pub mod transport;
 
 /// Generated gRPC client stubs from workspace_daemon.proto.
 ///

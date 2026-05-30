@@ -73,7 +73,12 @@ impl QdrantReadClient {
     /// (via `expose_secret()`) when building the underlying Qdrant config.
     /// It is never written to logs or debug output.
     pub fn new(url: String, api_key: Option<SecretString>) -> Self {
-        let mut config = QdrantConfig::from_url(&url);
+        let mut config = QdrantConfig::from_url(&url)
+            // Disable the Qdrant version-compatibility check to avoid the
+            // client printing to stdout when the server is unreachable.  In
+            // stdio-mode the MCP protocol owns stdout; any extraneous writes
+            // break JSON-RPC framing (AC-T2 stdout purity).
+            .skip_compatibility_check();
         if let Some(ref key) = api_key {
             config = config.api_key(key.expose_secret());
         }
