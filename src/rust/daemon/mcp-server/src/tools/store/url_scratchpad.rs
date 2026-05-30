@@ -29,15 +29,19 @@ pub fn validate_url(raw: &str) -> Result<(), String> {
     let scheme_end = trimmed
         .find("://")
         .ok_or_else(|| "url is malformed (failed to parse)".to_string())?;
-    let scheme = &trimmed[..scheme_end];
+    let scheme_raw = &trimmed[..scheme_end];
     // Scheme must be non-empty and consist only of valid chars (alpha+digit+'-'+'+')
-    if scheme.is_empty()
-        || !scheme
+    if scheme_raw.is_empty()
+        || !scheme_raw
             .chars()
             .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-' || c == '+')
     {
         return Err("url is malformed (failed to parse)".to_string());
     }
+    // Canonicalize scheme to lowercase: TS `new URL(...)` normalizes protocol to
+    // lowercase (so "HTTP://x" has `protocol === 'http:'` and is accepted).
+    // Mirror that by lowercasing before comparison.
+    let scheme = scheme_raw.to_ascii_lowercase();
     // Non-http(s) scheme — error uses `<scheme>:` (parsed.protocol includes colon, not `://`)
     // store-handlers.ts:40: `url must use http:// or https:// (got ${parsed.protocol})`
     if scheme != "http" && scheme != "https" {

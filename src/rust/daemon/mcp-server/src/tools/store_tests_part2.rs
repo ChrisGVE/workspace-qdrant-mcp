@@ -276,6 +276,49 @@ fn validate_url_https_ok() {
     assert!(validate_url("https://example.com/path").is_ok());
 }
 
+#[test]
+fn validate_url_uppercase_http_accepted() {
+    // TS `new URL(...)` normalizes protocol to lowercase, so "HTTP://x"
+    // has protocol === 'http:' and is accepted.  Rust must match this.
+    assert!(
+        validate_url("HTTP://example.com").is_ok(),
+        "HTTP:// (uppercase) must be accepted like http://"
+    );
+}
+
+#[test]
+fn validate_url_uppercase_https_accepted() {
+    // Similarly "HTTPS://x" must be accepted.
+    assert!(
+        validate_url("HTTPS://example.com/path").is_ok(),
+        "HTTPS:// (uppercase) must be accepted like https://"
+    );
+}
+
+#[test]
+fn validate_url_mixed_case_scheme_accepted() {
+    // Mixed-case scheme "Http://" must also be accepted.
+    assert!(
+        validate_url("Http://example.com").is_ok(),
+        "Http:// (mixed case) must be accepted"
+    );
+}
+
+#[test]
+fn validate_url_uppercase_non_http_rejected_with_lowercase_message() {
+    // "FTP://x" must be rejected; the error message must use the lowercase
+    // scheme (matching TS parsed.protocol which is always lowercase).
+    let err = validate_url("FTP://example.com").unwrap_err();
+    assert!(
+        err.contains("ftp:"),
+        "error message must cite lowercase scheme 'ftp:'; got: {err}"
+    );
+    assert!(
+        !err.contains("FTP:"),
+        "error message must NOT use uppercase 'FTP:'; got: {err}"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // scratchpad metadata source marker
 // ─────────────────────────────────────────────────────────────────────────────
