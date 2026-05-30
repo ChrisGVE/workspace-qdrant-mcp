@@ -72,7 +72,13 @@ impl QdrantReadClient {
     /// The `api_key` is consumed as a [`SecretString`] and is only exposed
     /// (via `expose_secret()`) when building the underlying Qdrant config.
     /// It is never written to logs or debug output.
+    ///
+    /// The `url` is REST-style (`:6333`, the TypeScript server's convention);
+    /// it is translated to the gRPC port (`:6334`) via
+    /// [`grpc_endpoint`](super::endpoint::grpc_endpoint) because the
+    /// `qdrant_client` crate speaks gRPC, not REST.
     pub fn new(url: String, api_key: Option<SecretString>) -> Self {
+        let url = super::endpoint::grpc_endpoint(&url);
         let mut config = QdrantConfig::from_url(&url)
             // Disable the Qdrant version-compatibility check to avoid the
             // client printing to stdout when the server is unreachable.  In

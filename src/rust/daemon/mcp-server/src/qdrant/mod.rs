@@ -7,6 +7,9 @@
 //!   The API key is stored as `secrecy::SecretString` and never exposed via
 //!   Debug/Display output.
 //!
+//! - `endpoint` — [`grpc_endpoint`]: translates a REST-style Qdrant URL
+//!   (`:6333`) to the gRPC port (`:6334`) the `qdrant_client` crate requires.
+//!
 //! - `filters` — [`build_filter`]: builds a `qdrant_client::qdrant::Filter`
 //!   from typed search parameters, mirroring `search-filters.ts`.
 //!
@@ -17,10 +20,12 @@
 //! guard on their unit tests so the test suite stays hermetic.
 
 pub mod client;
+pub mod endpoint;
 pub mod filters;
 pub mod fusion;
 
 pub use client::QdrantReadClient;
+pub use endpoint::grpc_endpoint;
 pub use filters::{build_filter, extract_glob_prefix, FilterParams};
 pub use fusion::{
     apply_rrf_fusion, apply_score_threshold, diversify_results, DiversityConfig,
