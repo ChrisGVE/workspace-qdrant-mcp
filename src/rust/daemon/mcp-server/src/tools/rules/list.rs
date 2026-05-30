@@ -100,9 +100,12 @@ fn point_to_rule_item(point: &crate::qdrant::client::QdrantRetrievedPoint) -> Ru
         .and_then(|v| v.as_str())
         .map(str::to_string);
 
+    // Guard: TS `if (tagsStr)` (rules-list.ts:46-47) — empty-string tags field
+    // yields NO tags. An empty string split yields `[""]` without this guard.
     let tags = payload
         .get("tags")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_string).collect::<Vec<_>>());
 
     let priority = payload.get("priority").and_then(|v| v.as_i64());
@@ -119,9 +122,9 @@ fn point_to_rule_item(point: &crate::qdrant::client::QdrantRetrievedPoint) -> Ru
 
     RuleItem {
         id: point.id.clone(),
-        label,
         content,
         scope,
+        label,
         project_id,
         title,
         tags,
@@ -305,15 +308,14 @@ where
                 .map(str::to_string);
             // round to 3 decimals: (score * 1000.0).round() / 1000.0 — rules.ts:153
             let similarity = (pt.score * 1000.0).round() / 1000.0;
+            // TS `findSimilarRules` (rules.ts:147-154) maps hits to exactly
+            // { id, content, scope, label, title, similarity } — no projectId.
             RuleItem {
                 id: pt.id.clone(),
-                label,
                 content: content_str,
                 scope: scope_str,
-                project_id: payload
-                    .get(FIELD_PROJECT_ID)
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
+                label,
+                project_id: None,
                 title,
                 tags: None,
                 priority: None,

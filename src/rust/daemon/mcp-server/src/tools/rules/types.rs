@@ -101,20 +101,29 @@ impl RulesInput {
 //
 // success → action → label? → rules? → similar_rules? → message? →
 // fallback_mode? → queue_id?
+//
+// RuleItem field order (pointToRule, rules-list.ts:35-54):
+// id → content → scope → label? → projectId? → title? → tags? →
+// priority? → createdAt? → updatedAt? → similarity?
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A single rule in a list or duplicate result.
 ///
-/// Mirrors TS `Rule` interface (rules-types.ts:13-24).
-/// Field order: id → label? → content → scope → projectId? → title? → tags? →
-/// priority? → createdAt? → updatedAt?
+/// Mirrors TS `Rule` interface (rules-types.ts:13-24) and the key-emit order of
+/// `pointToRule` in rules-list.ts:35-54:
+///   id → content → scope → label? → projectId? → title? → tags? →
+///   priority? → createdAt? → updatedAt? → similarity?
+///
+/// `content` and `scope` come BEFORE `label` — matches the order in which
+/// `pointToRule` assigns them (lines 37-38 assign content+scope unconditionally,
+/// then label at line 41 conditionally).
 #[derive(Debug, Serialize)]
 pub struct RuleItem {
     pub id: String,
-    #[serde(rename = "label", skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
     pub content: String,
     pub scope: String,
+    #[serde(rename = "label", skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(rename = "projectId", skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

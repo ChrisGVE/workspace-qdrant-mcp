@@ -1,14 +1,15 @@
 //! `add_rule`, `update_rule`, `remove_rule` mutations for the rules tool.
 //!
-//! ## add_rule — dup-check BEFORE add (FIX 2)
+//! ## add_rule execution order (mirrors rules.ts:65-93, rules-mutations.ts:25-42)
 //!
-//! If `content` is non-empty, `find_similar_rules` is called first.
-//! When duplicates are found the function returns early with:
-//! `{success:false, action:'add', similar_rules:[…],
-//!   message:"Found N similar rule(s). Review before adding to avoid duplication."}`
-//! (rules.ts:83-90).
-//!
-//! Only when no duplicates are found does the function proceed to `ingest_text`.
+//! 1. Extract content (required).
+//! 2. Run dup-check via `find_similar_rules` **before** label/tenant checks —
+//!    TS runs the dup-check at the `execute()` level (rules.ts:71-91) which is
+//!    called before `addRule` (rules-mutations.ts:25-42), so a duplicate add
+//!    with a bad label/scope still returns the dup-refusal, not a validation error.
+//! 3. Check label (required).
+//! 4. Resolve tenant.
+//! 5. Ingest or queue.
 
 use rmcp::model::CallToolResult;
 
@@ -28,6 +29,55 @@ use super::types::{RulesInput, RulesResponse};
 //            with dup-check prepended from rules.ts:68-93
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Run the duplicate-detection step. Returns `Some(refusal)` when ≥1 similar
+/// rule is found (the add must NOT proceed), `None` to allow the add. Mirrors
+/// the `findSimilarRules` + refusal branch in rules.ts:71-91.
+async fn add_dup_refusal<D, Q>(
+    input: &RulesInput,
+    daemon: &mut D,
+    qdrant: &Q,
+    content: &str,
+    session_project_id: Option<&str>,
+    duplication_threshold: f64,
+) -> Option<CallToolResult>
+where
+    D: RulesDaemon,
+    Q: RulesQdrant,
+{
+    let dup_scope: &str = input.scope.as_str();
+    let dup_pid: Option<&str> = input
+        .project_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or(session_project_id);
+    let duplicates = find_similar_rules(
+        daemon,
+        qdrant,
+        content,
+        dup_scope,
+        dup_pid,
+        duplication_threshold,
+    )
+    .await;
+
+    if duplicates.is_empty() {
+        return None;
+    }
+    let count = duplicates.len();
+    Some(ok_text(&RulesResponse {
+        success: false,
+        action: "add".to_string(),
+        label: None,
+        rules: None,
+        similar_rules: Some(duplicates),
+        message: Some(format!(
+            "Found {count} similar rule(s). Review before adding to avoid duplication."
+        )),
+        fallback_mode: None,
+        queue_id: None,
+    }))
+}
+
 pub async fn add_rule<D, Q>(
     input: RulesInput,
     daemon: &mut D,
@@ -39,6 +89,7 @@ where
     D: RulesDaemon,
     Q: RulesQdrant,
 {
+    // 1. Content required
     let content = match input.content.as_deref() {
         Some(c) if !c.trim().is_empty() => c,
         _ => {
@@ -48,6 +99,25 @@ where
             ));
         }
     };
+
+    // 2. Dup-check BEFORE label/tenant checks — rules.ts:71-91 runs this at
+    //    the execute() level before delegating to addRule (rules-mutations.ts).
+    //    Scope uses the raw input scope so an unresolvable-project add with
+    //    duplicates still returns the dup-refusal.
+    if let Some(refusal) = add_dup_refusal(
+        &input,
+        daemon,
+        qdrant,
+        content,
+        session_project_id,
+        duplication_threshold,
+    )
+    .await
+    {
+        return refusal;
+    }
+
+    // 3. Label required
     let label = match input.label.as_deref() {
         Some(l) if !l.trim().is_empty() => l.trim(),
         _ => {
@@ -59,6 +129,19 @@ where
         }
     };
 
+    // 4-5. Resolve tenant, then persist (ingest-first with queue fallback).
+    add_persist(&input, daemon, content, label, session_project_id).await
+}
+
+/// Resolve tenant, build metadata, and persist the rule via `ingest_text`
+/// (direct path) with a queue fallback. Mirrors rules-mutation-helpers.ts:189-218.
+async fn add_persist<D: RulesDaemon>(
+    input: &RulesInput,
+    daemon: &mut D,
+    content: &str,
+    label: &str,
+    session_project_id: Option<&str>,
+) -> CallToolResult {
     let resolved_tenant = match resolve_tenant(
         &input.scope,
         input.project_id.as_deref(),
@@ -69,35 +152,6 @@ where
     };
     let tenant_id_str: Option<&str> = resolved_tenant.as_deref();
 
-    // ── FIX 2: duplicate detection BEFORE add (rules.ts:71-91) ───────────────
-    // Only run when content is non-empty (already guaranteed above).
-    let dup_scope: &str = input.scope.as_str();
-    let duplicates = find_similar_rules(
-        daemon,
-        qdrant,
-        content,
-        dup_scope,
-        tenant_id_str,
-        duplication_threshold,
-    )
-    .await;
-
-    if !duplicates.is_empty() {
-        let count = duplicates.len();
-        return ok_text(&RulesResponse {
-            success: false,
-            action: "add".to_string(),
-            label: None,
-            rules: None,
-            similar_rules: Some(duplicates),
-            message: Some(format!(
-                "Found {count} similar rule(s). Review before adding to avoid duplication."
-            )),
-            fallback_mode: None,
-            queue_id: None,
-        });
-    }
-
     let metadata = build_add_metadata(
         label,
         &input.scope,
@@ -107,7 +161,6 @@ where
         input.priority,
     );
 
-    // Try ingest_text first (direct path) — rules-mutation-helpers.ts:189-209
     let doc_id = uuid::Uuid::new_v4().to_string(); // ADD: randomUUID()
     let result = daemon
         .ingest_text(
@@ -121,7 +174,64 @@ where
 
     match result {
         Ok(true) => {
-            // Direct ingest succeeded
+            on_add_ingest_success(daemon, label, content, &input.scope, tenant_id_str).await
+        }
+        Ok(false) | Err((true, _)) => queue_add_fallback(daemon, label, content, input).await,
+        Err((false, e)) => error_text(&format!("Failed to add rule: {e}")),
+    }
+}
+
+/// Called when ingest succeeded directly — upsert mirror and return success.
+async fn on_add_ingest_success<D: RulesDaemon>(
+    daemon: &mut D,
+    label: &str,
+    content: &str,
+    scope: &str,
+    tenant_id_str: Option<&str>,
+) -> CallToolResult {
+    upsert_mirror(daemon, label, content, scope, tenant_id_str).await;
+    ok_text(&RulesResponse {
+        success: true,
+        action: "add".to_string(),
+        label: Some(label.to_string()),
+        rules: None,
+        similar_rules: None,
+        message: Some("Rule added successfully".to_string()),
+        fallback_mode: None,
+        queue_id: None,
+    })
+}
+
+/// Queue fallback for add — soft failure or connectivity error.
+///
+/// Mirrors `buildAddQueueOp` + `persistAddRule` fallback path in
+/// rules-mutation-helpers.ts:200-209.
+async fn queue_add_fallback<D: RulesDaemon>(
+    daemon: &mut D,
+    label: &str,
+    content: &str,
+    input: &RulesInput,
+) -> CallToolResult {
+    let tenant_id_str: Option<&str> = input.project_id.as_deref().filter(|s| !s.is_empty());
+    let tags_ref: Option<Vec<&str>> = input
+        .tags
+        .as_deref()
+        .map(|ts| ts.iter().map(String::as_str).collect());
+    let queue_result = queue_rule_op(
+        daemon,
+        "add",
+        label,
+        Some(content),
+        &input.scope,
+        tenant_id_str,
+        input.title.as_deref(),
+        tags_ref,
+        input.priority,
+    )
+    .await;
+    match queue_result {
+        Err(e) => error_text(&format!("Failed to queue rule: {e}")),
+        Ok(queue_id) => {
             upsert_mirror(daemon, label, content, &input.scope, tenant_id_str).await;
             ok_text(&RulesResponse {
                 success: true,
@@ -129,47 +239,11 @@ where
                 label: Some(label.to_string()),
                 rules: None,
                 similar_rules: None,
-                message: Some("Rule added successfully".to_string()),
-                fallback_mode: None,
-                queue_id: None,
+                message: Some("Rule queued for processing".to_string()),
+                fallback_mode: Some("unified_queue".to_string()),
+                queue_id: Some(queue_id),
             })
         }
-        Ok(false) | Err((true, _)) => {
-            // Soft failure or connectivity error → queue fallback
-            let tags_ref: Option<Vec<&str>> = input
-                .tags
-                .as_deref()
-                .map(|ts| ts.iter().map(String::as_str).collect());
-            let queue_result = queue_rule_op(
-                daemon,
-                "add",
-                label,
-                Some(content),
-                &input.scope,
-                tenant_id_str,
-                input.title.as_deref(),
-                tags_ref,
-                input.priority,
-            )
-            .await;
-            match queue_result {
-                Err(e) => error_text(&format!("Failed to queue rule: {e}")),
-                Ok(queue_id) => {
-                    upsert_mirror(daemon, label, content, &input.scope, tenant_id_str).await;
-                    ok_text(&RulesResponse {
-                        success: true,
-                        action: "add".to_string(),
-                        label: Some(label.to_string()),
-                        rules: None,
-                        similar_rules: None,
-                        message: Some("Rule queued for processing".to_string()),
-                        fallback_mode: Some("unified_queue".to_string()),
-                        queue_id: Some(queue_id),
-                    })
-                }
-            }
-        }
-        Err((false, e)) => error_text(&format!("Failed to add rule: {e}")),
     }
 }
 
@@ -238,6 +312,64 @@ where
 
     match result {
         Ok(true) => {
+            on_update_ingest_success(daemon, label, content, &input.scope, tenant_id_str).await
+        }
+        Ok(false) | Err((true, _)) => queue_update_fallback(daemon, label, content, &input).await,
+        Err((false, e)) => error_text(&format!("Failed to update rule: {e}")),
+    }
+}
+
+/// Called when update ingest succeeded directly — upsert mirror and return success.
+async fn on_update_ingest_success<D: RulesDaemon>(
+    daemon: &mut D,
+    label: &str,
+    content: &str,
+    scope: &str,
+    tenant_id_str: Option<&str>,
+) -> CallToolResult {
+    upsert_mirror(daemon, label, content, scope, tenant_id_str).await;
+    ok_text(&RulesResponse {
+        success: true,
+        action: "update".to_string(),
+        label: Some(label.to_string()),
+        rules: None,
+        similar_rules: None,
+        message: Some("Rule updated successfully".to_string()),
+        fallback_mode: None,
+        queue_id: None,
+    })
+}
+
+/// Queue fallback for update — soft failure or connectivity error.
+///
+/// Mirrors `buildUpdateQueueOp` + `persistUpdateRule` fallback path in
+/// rules-mutation-helpers.ts:284-303.
+async fn queue_update_fallback<D: RulesDaemon>(
+    daemon: &mut D,
+    label: &str,
+    content: &str,
+    input: &RulesInput,
+) -> CallToolResult {
+    let tenant_id_str: Option<&str> = input.project_id.as_deref().filter(|s| !s.is_empty());
+    let tags_ref: Option<Vec<&str>> = input
+        .tags
+        .as_deref()
+        .map(|ts| ts.iter().map(String::as_str).collect());
+    let queue_result = queue_rule_op(
+        daemon,
+        "update",
+        label,
+        Some(content),
+        &input.scope,
+        tenant_id_str,
+        input.title.as_deref(),
+        tags_ref,
+        input.priority,
+    )
+    .await;
+    match queue_result {
+        Err(e) => error_text(&format!("Failed to queue rule update: {e}")),
+        Ok(queue_id) => {
             upsert_mirror(daemon, label, content, &input.scope, tenant_id_str).await;
             ok_text(&RulesResponse {
                 success: true,
@@ -245,46 +377,11 @@ where
                 label: Some(label.to_string()),
                 rules: None,
                 similar_rules: None,
-                message: Some("Rule updated successfully".to_string()),
-                fallback_mode: None,
-                queue_id: None,
+                message: Some("Rule update queued for processing".to_string()),
+                fallback_mode: Some("unified_queue".to_string()),
+                queue_id: Some(queue_id),
             })
         }
-        Ok(false) | Err((true, _)) => {
-            let tags_ref: Option<Vec<&str>> = input
-                .tags
-                .as_deref()
-                .map(|ts| ts.iter().map(String::as_str).collect());
-            let queue_result = queue_rule_op(
-                daemon,
-                "update",
-                label,
-                Some(content),
-                &input.scope,
-                tenant_id_str,
-                input.title.as_deref(),
-                tags_ref,
-                input.priority,
-            )
-            .await;
-            match queue_result {
-                Err(e) => error_text(&format!("Failed to queue rule update: {e}")),
-                Ok(queue_id) => {
-                    upsert_mirror(daemon, label, content, &input.scope, tenant_id_str).await;
-                    ok_text(&RulesResponse {
-                        success: true,
-                        action: "update".to_string(),
-                        label: Some(label.to_string()),
-                        rules: None,
-                        similar_rules: None,
-                        message: Some("Rule update queued for processing".to_string()),
-                        fallback_mode: Some("unified_queue".to_string()),
-                        queue_id: Some(queue_id),
-                    })
-                }
-            }
-        }
-        Err((false, e)) => error_text(&format!("Failed to update rule: {e}")),
     }
 }
 

@@ -748,16 +748,18 @@ fn connectivity_error_non_connectivity_false() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RuleItem field order
+// Fix 1 — RuleItem field order: id→content→scope→label?→projectId?→…→similarity?
+// TS `pointToRule` (rules-list.ts:35-54) emits content+scope unconditionally
+// (lines 37-38) then label conditionally (line 41) — label AFTER scope.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn rule_item_field_order_in_list() {
     let item = RuleItem {
         id: "r1".to_string(),
-        label: None,
         content: "c".to_string(),
         scope: "global".to_string(),
+        label: None,
         project_id: None,
         title: None,
         tags: None,
@@ -771,6 +773,79 @@ fn rule_item_field_order_in_list() {
         top_level_keys(&text),
         vec!["id", "content", "scope", "createdAt", "updatedAt"]
     );
+}
+
+#[test]
+fn rule_item_field_order_with_all_optional_fields() {
+    // content and scope come before label — mirrors pointToRule key order
+    let item = RuleItem {
+        id: "r2".to_string(),
+        content: "Always use tracing".to_string(),
+        scope: "project".to_string(),
+        label: Some("use-tracing".to_string()),
+        project_id: Some("proj-001".to_string()),
+        title: Some("Tracing rule".to_string()),
+        tags: Some(vec!["rust".to_string()]),
+        priority: Some(5),
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+        similarity: None,
+    };
+    let text = serde_json::to_string_pretty(&item).unwrap();
+    let keys = top_level_keys(&text);
+    // content and scope appear before label
+    let content_pos = keys.iter().position(|k| k == "content").unwrap();
+    let scope_pos = keys.iter().position(|k| k == "scope").unwrap();
+    let label_pos = keys.iter().position(|k| k == "label").unwrap();
+    assert!(
+        content_pos < label_pos,
+        "content ({content_pos}) must come before label ({label_pos})"
+    );
+    assert!(
+        scope_pos < label_pos,
+        "scope ({scope_pos}) must come before label ({label_pos})"
+    );
+    // Full order assertion
+    assert_eq!(
+        keys,
+        vec![
+            "id",
+            "content",
+            "scope",
+            "label",
+            "projectId",
+            "title",
+            "tags",
+            "priority",
+            "createdAt",
+            "updatedAt"
+        ]
+    );
+}
+
+#[test]
+fn rule_item_similarity_field_is_last() {
+    // similarity field appears after all other optional fields
+    let item = RuleItem {
+        id: "s1".to_string(),
+        content: "c".to_string(),
+        scope: "global".to_string(),
+        label: Some("lbl".to_string()),
+        project_id: None,
+        title: None,
+        tags: None,
+        priority: None,
+        created_at: None,
+        updated_at: None,
+        similarity: Some(0.857),
+    };
+    let text = serde_json::to_string_pretty(&item).unwrap();
+    let keys = top_level_keys(&text);
+    assert_eq!(keys.last().unwrap(), "similarity");
+    // content before label
+    let content_pos = keys.iter().position(|k| k == "content").unwrap();
+    let label_pos = keys.iter().position(|k| k == "label").unwrap();
+    assert!(content_pos < label_pos);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

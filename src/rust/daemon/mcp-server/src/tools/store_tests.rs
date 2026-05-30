@@ -96,10 +96,15 @@ impl StoreDaemon for MockStoreDaemon {
         &mut self,
         path: &str,
         name: &str,
+        git_remote: Option<&str>,
     ) -> Result<ProjectRegisterResult, String> {
         self.calls.lock().unwrap().push(Call {
             method: "register_project".to_string(),
-            args: vec![path.to_string(), name.to_string()],
+            args: vec![
+                path.to_string(),
+                name.to_string(),
+                git_remote.unwrap_or("").to_string(),
+            ],
         });
         self.register_result.clone()
     }

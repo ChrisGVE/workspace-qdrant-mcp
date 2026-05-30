@@ -35,6 +35,8 @@
 //!   and library — per TS field names.
 //! - `fallback_mode` is always `"unified_queue"` in library result.
 
+use std::path::Path;
+
 use rmcp::model::CallToolResult;
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -43,6 +45,8 @@ use wqm_common::constants::{COLLECTION_SCRATCHPAD, TENANT_GLOBAL};
 use wqm_common::timestamps::now_utc;
 
 use crate::canonicalize::payload_builders::build_store_payload;
+use crate::canonicalize::stable_stringify::stable_stringify;
+use crate::session::project_detect::{find_git_root, get_git_remote_url};
 use crate::tools::envelope::{error_text, ok_text};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +64,7 @@ pub trait StoreDaemon {
         &mut self,
         path: &str,
         name: &str,
+        git_remote: Option<&str>,
     ) -> impl std::future::Future<Output = Result<ProjectRegisterResult, String>> + Send;
 
     /// Enqueue an item into the unified queue.
@@ -108,13 +113,14 @@ impl StoreDaemon for crate::grpc::DaemonClient {
         &mut self,
         path: &str,
         name: &str,
+        git_remote: Option<&str>,
     ) -> Result<ProjectRegisterResult, String> {
         use crate::proto::RegisterProjectRequest;
         let req = RegisterProjectRequest {
             path: path.to_string(),
             project_id: String::new(),
             name: Some(name.to_string()),
-            git_remote: None,
+            git_remote: git_remote.map(str::to_string),
             register_if_new: true,
             priority: Some("high".to_string()),
         };
@@ -379,7 +385,14 @@ where
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Handle store type=project — mirrors `registerProjectFromTool` in
-/// session-lifecycle.ts:182-213.
+/// session-lifecycle.ts:198-211.
+///
+/// Key steps that mirror the TS implementation (lines 198-202, 210-211):
+/// - `resolved_path = find_git_root(path) ?? path`  (line 198)
+/// - `name` defaults to the basename of `resolved_path`  (line 199)
+/// - `git_remote = get_git_remote_url(resolved_path)`  (line 200)
+/// - Register `resolved_path` (not the raw input path)  (line 202)
+/// - Build success message from `resolved_path`  (lines 210-211)
 ///
 /// Throws (returns error_text) if `path` is missing or daemon is not connected,
 /// matching the TS throw semantics (tool-dispatcher.ts:106-109).
@@ -392,7 +405,7 @@ async fn store_project<D>(
 where
     D: StoreDaemon,
 {
-    let path = match input.path.as_deref() {
+    let raw_path = match input.path.as_deref() {
         Some(p) if !p.is_empty() => p.to_string(),
         _ => return error_text("path is required for store type \"project\""),
     };
@@ -401,21 +414,38 @@ where
         return error_text("Daemon is not connected — cannot register project");
     }
 
-    // name defaults to last segment of path — session-lifecycle.ts:200
+    // Resolve to git root when available — session-lifecycle.ts:198
+    let resolved_path = find_git_root(Path::new(&raw_path))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or(raw_path);
+
+    // name defaults to basename of resolved path — session-lifecycle.ts:199
     let name = input
         .name
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or("unknown"))
+        .unwrap_or_else(|| {
+            Path::new(&resolved_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+        })
         .to_string();
 
-    match daemon.register_project(&path, &name).await {
+    // git_remote from resolved path — session-lifecycle.ts:200
+    let git_remote = get_git_remote_url(Path::new(&resolved_path));
+
+    match daemon
+        .register_project(&resolved_path, &name, git_remote.as_deref())
+        .await
+    {
         Err(e) => error_text(&e),
         Ok(resp) => {
+            // message built from resolved_path — session-lifecycle.ts:210-211
             let message = if resp.newly_registered {
-                format!("Project registered and activated: {path}")
+                format!("Project registered and activated: {resolved_path}")
             } else {
-                format!("Project already registered and activated: {path}")
+                format!("Project already registered and activated: {resolved_path}")
             };
             ok_text(&StoreProjectResult {
                 success: true,
@@ -429,28 +459,39 @@ where
 }
 
 /// Validate a URL string — mirrors `validateUrlInput` in store-handlers.ts:27-52.
+///
+/// Error messages match TS byte-for-byte:
+/// - empty/non-string  → `"url is required when type is \"url\""` (line 29)
+/// - parse failure     → `"url is malformed (failed to parse)"` (line 36)
+/// - non-http(s) scheme → `"url must use http:// or https:// (got <scheme>:)"` (line 40)
+///   Note: the suffix is `<scheme>:` (e.g. `ftp:`), NOT `ftp://`.
+///   `parsed.protocol` in JS includes the colon but not `//`.
 fn validate_url(raw: &str) -> Result<(), String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err("url is required when type is \"url\"".to_string());
     }
-    // Basic scheme check — we parse protocol manually (no URL crate dep needed)
-    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-        return Err(format!(
-            "url must use http:// or https:// (got {})",
-            if let Some(idx) = trimmed.find("://") {
-                &trimmed[..idx + 3]
-            } else {
-                trimmed
-            }
-        ));
+    // Attempt to parse as a URL (mirrors `new URL(trimmed)` in TS — line 33-36).
+    // We extract scheme and host manually to avoid a url-crate dependency.
+    let scheme_end = trimmed
+        .find("://")
+        .ok_or_else(|| "url is malformed (failed to parse)".to_string())?;
+    let scheme = &trimmed[..scheme_end];
+    // Scheme must be non-empty and consist only of valid chars (alpha+digit+'-'+'+')
+    if scheme.is_empty()
+        || !scheme
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-' || c == '+')
+    {
+        return Err("url is malformed (failed to parse)".to_string());
     }
-    // Extract hostname from the URL
-    let after_scheme = if let Some(rest) = trimmed.strip_prefix("https://") {
-        rest
-    } else {
-        trimmed.strip_prefix("http://").unwrap_or(trimmed)
-    };
+    // Non-http(s) scheme — error uses `<scheme>:` (parsed.protocol includes colon, not `://`)
+    // store-handlers.ts:40: `url must use http:// or https:// (got ${parsed.protocol})`
+    if scheme != "http" && scheme != "https" {
+        return Err(format!("url must use http:// or https:// (got {scheme}:)"));
+    }
+    // Extract hostname
+    let after_scheme = &trimmed[scheme_end + 3..];
     let host = after_scheme.split('/').next().unwrap_or("");
     // Remove port if present
     let host = host.split(':').next().unwrap_or(host);
@@ -464,6 +505,10 @@ fn validate_url(raw: &str) -> Result<(), String> {
 }
 
 /// Build the URL queue payload — mirrors `buildUrlPayload` in store-handlers.ts:55-68.
+///
+/// Uses `stable_stringify` (sorted-key canonical JSON) so the byte sequence
+/// matches the TypeScript write path (queue-operations.ts:36-47, :100) and the
+/// daemon computes the same idempotency key.
 fn build_url_payload(url: &str, library_name: Option<&str>, title: Option<&str>) -> String {
     let mut map = Map::new();
     map.insert("url".to_string(), Value::String(url.trim().to_string()));
@@ -479,7 +524,7 @@ fn build_url_payload(url: &str, library_name: Option<&str>, title: Option<&str>)
     if let Some(t) = title {
         map.insert("title".to_string(), Value::String(t.to_string()));
     }
-    serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+    stable_stringify(&Value::Object(map))
 }
 
 /// Handle store type=url — mirrors `storeUrl` in store-handlers.ts:78-121.
@@ -550,6 +595,10 @@ where
 
 /// Build the scratchpad queue payload — mirrors `buildScratchpadPayload`
 /// in store-handlers.ts:150-158.
+///
+/// Uses `stable_stringify` (sorted-key canonical JSON) so the byte sequence
+/// matches the TypeScript write path (queue-operations.ts:36-47, :100) and the
+/// daemon computes the same idempotency key.
 fn build_scratchpad_payload(content: &str, title: Option<&str>, tags: &[String]) -> String {
     let mut map = Map::new();
     map.insert(
@@ -569,7 +618,7 @@ fn build_scratchpad_payload(content: &str, title: Option<&str>, tags: &[String])
         let arr: Vec<Value> = tags.iter().map(|s| Value::String(s.clone())).collect();
         map.insert("tags".to_string(), Value::Array(arr));
     }
-    serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+    stable_stringify(&Value::Object(map))
 }
 
 /// Handle store type=scratchpad — mirrors `storeScratchpad` in
