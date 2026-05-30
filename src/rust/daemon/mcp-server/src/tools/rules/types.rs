@@ -7,16 +7,43 @@ use serde::Serialize;
 /// Reproduce JS template-literal coercion of the raw `action` value for the
 /// "Invalid rules action: <x>" error, so the message matches the TS server
 /// byte-for-byte: absent → "undefined", null → "null", bool/number → their JS
-/// string form, string → itself.
+/// string form, string → itself, array → element `String()`s joined by ",",
+/// object → "[object Object]".
 fn js_coerce_action(v: Option<&serde_json::Value>) -> String {
     match v {
         None => "undefined".to_string(),
-        Some(serde_json::Value::Null) => "null".to_string(),
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(serde_json::Value::Bool(b)) => b.to_string(),
-        Some(serde_json::Value::Number(n)) => n.to_string(),
-        // Arrays/objects are not valid actions; best-effort stringification.
-        Some(other) => other.to_string(),
+        Some(value) => js_string(value),
+    }
+}
+
+/// Mirror JS `String(value)` / template-literal `${value}` coercion for the
+/// JSON value kinds an `action` argument can carry.
+///
+/// - `null` → "null"
+/// - bool → "true"/"false"
+/// - number → JS numeric string (matches serde for finite integers/decimals)
+/// - string → itself
+/// - array → each element `String()`-coerced, joined by "," (JS
+///   `Array.prototype.toString`); `null` elements become "" (JS treats
+///   null/undefined array elements as empty)
+/// - object → "[object Object]"
+fn js_string(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                // JS renders null/undefined array elements as the empty string.
+                Value::Null => String::new(),
+                other => js_string(other),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_string(),
     }
 }
 
