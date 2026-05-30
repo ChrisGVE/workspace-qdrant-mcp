@@ -121,17 +121,22 @@ fn resolve_cwd_project_id_longest_prefix_picks_deeper_markerless_tenant() {
     use crate::sqlite::{SharedStateManager, StateManager};
     use crate::tools::search::resolve_cwd_project_id_locked;
 
-    // Two registered projects, one nested inside the other, where the deeper
-    // one has NO filesystem project marker (registration accepts raw paths).
-    // cwd-direct longest-prefix matching must resolve a cwd under the nested
-    // project to the DEEPER tenant — never the ancestor. A marker-based
-    // project-root walk would skip the markerless nested dir and resolve the
-    // wrong (ancestor) tenant. Regression guard for GitHub #83 (audit R2).
+    // Two registered projects, one nested inside the other. The ANCESTOR has a
+    // filesystem project marker (`Cargo.toml`); the deeper one does NOT
+    // (registration accepts raw, marker-less paths). cwd-direct longest-prefix
+    // matching must resolve a cwd under the nested project to the DEEPER tenant.
+    //
+    // The ancestor marker is load-bearing for this guard: under the OLD
+    // marker-based `find_project_root(cwd)` approach the walk would climb past
+    // the markerless `sandbox` to `repo`, look up `repo`, and return the WRONG
+    // ancestor tenant `T_ROOT` — failing this test. cwd-direct resolves
+    // `T_NEST`. Regression guard for GitHub #83 (audit R2/R3).
     let dir = tempfile::TempDir::new().unwrap();
     let root = dir.path().join("repo");
-    let nest = root.join("sandbox"); // deliberately NO marker file created
+    let nest = root.join("sandbox"); // deliberately NO marker file created here
     let cwd = nest.join("src");
     std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::write(root.join("Cargo.toml"), b"[package]\n").unwrap(); // ancestor marker
 
     let db_path = dir.path().join("state.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
