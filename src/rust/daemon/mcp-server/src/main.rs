@@ -23,7 +23,7 @@
 //! tokio SIGINT / SIGTERM handlers trigger graceful shutdown; the transport
 //! layer calls `cleanup_session` after the serve loop exits.
 
-use mcp_server::config::load_config;
+use mcp_server::config::{load_config, ServerConfig};
 use mcp_server::grpc::client::DaemonClient;
 use mcp_server::observability::logging::init_logging;
 use mcp_server::observability::metrics_http::serve_metrics;
@@ -60,6 +60,23 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Construct the daemon gRPC client from config, degrading gracefully.
+///
+/// A malformed configured endpoint must NOT crash the server — TS catches the
+/// connect failure and continues disconnected (session-lifecycle.ts:63-74).
+/// On an invalid config endpoint we log and fall back to the default localhost
+/// client (lazy-connect, so an unreachable daemon is handled by degraded mode).
+fn build_daemon_client(config: &ServerConfig) -> anyhow::Result<DaemonClient> {
+    match DaemonClient::from_config(config) {
+        Ok(c) => Ok(c),
+        Err(e) => {
+            warn!(error = %e, "Invalid daemon endpoint in config; falling back to default endpoint");
+            DaemonClient::connect_default()
+                .map_err(|e2| anyhow::anyhow!("daemon client construction failed: {e2}"))
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stdio runner
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,12 +101,7 @@ async fn run_stdio() -> anyhow::Result<()> {
 
     // Connect daemon gRPC channel using config host/port (lazy — no TCP handshake
     // at construction).  Mirrors TS `DaemonClient::from_config` pattern.
-    let daemon = DaemonClient::from_config(&config).unwrap_or_else(|e| {
-        warn!(error = %e, "Failed to create DaemonClient; continuing in degraded mode");
-        // Panic is safe here: from_config only fails on a malformed URI —
-        // which would be a programming error with an invalid hostname/port.
-        panic!("Unexpected DaemonClient construction error: {e}")
-    });
+    let daemon = build_daemon_client(&config)?;
 
     // Fresh session — project detection and daemon registration happen inside
     // initialize_session, which is called by serve_stdio after the MCP
@@ -175,10 +187,7 @@ async fn run_http() -> anyhow::Result<()> {
     let qdrant = build_qdrant_client_from_config(&config);
 
     // Connect daemon gRPC channel using config host/port (lazy).
-    let daemon = DaemonClient::from_config(&config).unwrap_or_else(|e| {
-        warn!(error = %e, "Failed to create DaemonClient; continuing in degraded mode");
-        panic!("Unexpected DaemonClient construction error: {e}")
-    });
+    let daemon = build_daemon_client(&config)?;
 
     let session = mcp_server::server_types::SessionState::new();
 
