@@ -12,58 +12,17 @@
 
 mod env_overrides;
 mod merge;
+mod path_expand;
 mod search_paths;
 mod types;
 
-pub use env_overrides::{apply_env_overrides, parse_grpc_endpoint, GrpcEndpoint};
+pub use env_overrides::{apply_env_overrides, parse_grpc_endpoint, parse_int_prefix, GrpcEndpoint};
 pub use merge::{merge_yaml_over_defaults, parse_yaml_partial};
+pub use path_expand::{expand_path_ts, expand_path_ts_with_home};
 pub use search_paths::{config_search_paths, find_config_file};
 pub use types::ServerConfig;
 
 use anyhow::{Context, Result};
-
-// ---------------------------------------------------------------------------
-// expand_path_ts — mirrors TS expandPath (config.ts:34-39)
-// ---------------------------------------------------------------------------
-
-/// Expand a bare leading `~` in a path, mirroring the TypeScript `expandPath`:
-///
-/// ```typescript
-/// function expandPath(path: string): string {
-///   if (path.startsWith('~')) {
-///     return join(homedir(), path.slice(1));
-///   }
-///   return path;
-/// }
-/// ```
-///
-/// Node `path.join(home, slice)` with `slice = path.slice(1)`:
-/// - `"~"`         → `home`              (slice is `""`)
-/// - `"~/x"`       → `home/x`           (slice is `"/x"`; leading `/` stripped)
-/// - `"~user/x"`   → `home/user/x`      (slice is `"user/x"`; no leading `/`)
-/// - `"~/"` (edge) → `home/`            (slice is `"/"`)
-///
-/// `$VAR` / `${VAR}` are NOT expanded (TS leaves them verbatim).
-fn expand_path_ts(path: &str) -> String {
-    if let Some(slice) = path.strip_prefix('~') {
-        let home = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("~"))
-            .to_string_lossy()
-            .into_owned();
-        if slice.is_empty() {
-            // bare "~" → home
-            home
-        } else if let Some(rest) = slice.strip_prefix('/') {
-            // "~/…" — Node join drops the leading '/' from slice (no double slash)
-            format!("{}/{}", home, rest)
-        } else {
-            // "~user/x" etc — Node join adds '/' between home and slice
-            format!("{}/{}", home, slice)
-        }
-    } else {
-        path.to_owned()
-    }
-}
 
 /// Load the server configuration.
 ///

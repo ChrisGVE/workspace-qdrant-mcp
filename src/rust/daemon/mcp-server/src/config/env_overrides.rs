@@ -97,7 +97,10 @@ fn parse_port(s: &str) -> u16 {
 /// `parseInt("  8080", 10)` → `8080`, which the TypeScript legacy port
 /// path relies on.  Unlike `parseGrpcEndpoint`, the TypeScript port-only
 /// path (`config.ts:140`) applies no upper-bound check after `parseInt`.
-fn parse_int_prefix(s: &str) -> Option<i64> {
+///
+/// `pub` so the TS↔Rust parity corpus suite (`tests/parity_corpus.rs`) can
+/// drive it directly against `parseInt(s, 10)` golden values.
+pub fn parse_int_prefix(s: &str) -> Option<i64> {
     let s = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
     if s.is_empty() {
         return None;
