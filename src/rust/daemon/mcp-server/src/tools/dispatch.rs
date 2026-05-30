@@ -80,6 +80,12 @@ pub struct DispatchContext<'a> {
 /// Mirrors `sendHeartbeat(sessionState, daemonClient)` called at the top of
 /// `dispatchToolCall` in tool-dispatcher.ts:93.
 async fn fire_heartbeat(daemon: &mut DaemonClient, session: &SessionState) {
+    // TS sendHeartbeat (session-lifecycle.ts:239) returns early unless BOTH a
+    // project_id is set AND the daemon is currently connected — mirror that
+    // guard so we don't fire a doomed RPC while disconnected.
+    if !session.daemon_connected {
+        return;
+    }
     if let Some(project_id) = session.project_id.as_deref() {
         use crate::proto::HeartbeatRequest;
         let req = HeartbeatRequest {
