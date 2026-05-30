@@ -476,10 +476,12 @@ async fn run_keyword_and_graph_phases(
     }
 
     let t0 = Instant::now();
+    let abs_file_path = file_path.to_string_lossy();
     graph_ingest::ingest_graph_edges(
         ctx,
         &item.tenant_id,
         relative_path,
+        &abs_file_path,
         &document_content.chunks,
     )
     .await;

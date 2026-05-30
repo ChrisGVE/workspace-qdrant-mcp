@@ -8,6 +8,38 @@ use chrono::Utc;
 use super::super::*;
 use crate::lsp::{Language, ServerStatus};
 
+use super::super::enrichment::symbol_column_in_line;
+
+#[test]
+fn symbol_column_resolves_real_offset() {
+    // Regression guard for the column-0 bug: enrichment must query at the
+    // symbol's real column, not the start of the line.
+    assert_eq!(symbol_column_in_line("pub fn add(a: i32) {", "add"), 7);
+    assert_eq!(symbol_column_in_line("    def compute(self):", "compute"), 8);
+    assert_eq!(symbol_column_in_line("class Widget:", "Widget"), 6);
+    // First column when the symbol leads the line.
+    assert_eq!(symbol_column_in_line("add()", "add"), 0);
+}
+
+#[test]
+fn symbol_column_handles_missing_and_empty() {
+    // Missing symbol → fall back to column 0.
+    assert_eq!(symbol_column_in_line("pub fn other() {}", "add"), 0);
+    // Empty symbol name → 0 (no crash).
+    assert_eq!(symbol_column_in_line("pub fn add() {}", ""), 0);
+}
+
+#[test]
+fn symbol_column_uses_utf16_units() {
+    // LSP positions are UTF-16 code units. A 4-byte emoji (1 UTF-16 surrogate
+    // pair = 2 code units) before the symbol must count as 2, not 4 (bytes)
+    // and not 1 (char).
+    let line = "// 😀 fn add";
+    let col = symbol_column_in_line(line, "add");
+    // "// " = 3, emoji = 2 (UTF-16), " fn " = 4 → 9
+    assert_eq!(col, 9);
+}
+
 #[tokio::test]
 async fn test_enrich_chunk_increments_metrics() {
     let config = ProjectLspConfig::default();

@@ -20,6 +20,7 @@
 //! - [`metrics`]: Usage metrics and statistics
 
 mod activity;
+mod call_hierarchy;
 mod enrichment;
 mod health;
 mod imports;
@@ -43,7 +44,11 @@ use super::{Language, LspConfig, LspError, ServerInstance, ServerStatus};
 use crate::config::LspSettings;
 
 // Re-export public types from submodules for backward compatibility
+pub use call_hierarchy::ResolvedCall;
 pub use metrics::ProjectLspStats;
+// Crate-internal helpers reused by the ingestion graph pass.
+pub(crate) use call_hierarchy::resolved_call_edges;
+pub(crate) use enrichment::symbol_column_in_line;
 
 // NOTE: StateManager and persistence removed as part of 3-table SQLite compliance.
 // The LanguageServerManager now operates entirely in-memory without SQLite persistence.
@@ -427,6 +432,8 @@ impl LanguageServerManager {
             ),
             (Language::Go, vec!["gopls"]),
             (Language::Java, vec!["jdtls"]),
+            (Language::Dart, vec!["dart"]),
+            (Language::R, vec!["R"]),
             (Language::C, vec!["clangd", "ccls"]),
             (Language::Cpp, vec!["clangd", "ccls"]),
             (Language::Ruby, vec!["ruby-lsp", "solargraph"]),

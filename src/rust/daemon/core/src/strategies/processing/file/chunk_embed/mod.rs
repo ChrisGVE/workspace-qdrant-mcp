@@ -16,6 +16,7 @@ use tracing::{debug, info};
 
 use crate::context::ProcessingContext;
 use crate::lsp::EnrichmentStatus;
+use crate::monitoring::METRICS;
 use crate::tracked_files_schema::{self, ChunkType as TrackedChunkType, ProcessingStatus};
 use crate::unified_queue_processor::UnifiedProcessorError;
 use crate::unified_queue_schema::UnifiedQueueItem;
@@ -304,9 +305,11 @@ async fn apply_lsp_enrichment(
                 "lsp_enrichment_status".to_string(),
                 serde_json::json!("pending"),
             );
+            METRICS.inc_lsp_enrichment("pending");
             // Keep lsp_status as None so tracked_files reflects incomplete state
             ProcessingStatus::None
         } else {
+            METRICS.inc_lsp_enrichment(enrichment.enrichment_status.as_str());
             lsp_payload::add_lsp_enrichment_to_payload(point_payload, &enrichment);
             ProcessingStatus::Done
         }
@@ -316,6 +319,7 @@ async fn apply_lsp_enrichment(
             "lsp_enrichment_status".to_string(),
             serde_json::json!("skipped"),
         );
+        METRICS.inc_lsp_enrichment("skipped");
         ProcessingStatus::Skipped
     }
 }

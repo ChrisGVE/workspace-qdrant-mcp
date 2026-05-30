@@ -10,6 +10,7 @@ use crate::lsp::Language;
 
 impl LanguageServerManager {
     /// Resolve imports in a file
+    #[tracing::instrument(name = "lsp.resolve_imports", skip_all, fields(file = %file.display()))]
     pub async fn resolve_imports(&self, file: &Path) -> ProjectLspResult<Vec<ResolvedImport>> {
         {
             let mut metrics = self.metrics.write().await;

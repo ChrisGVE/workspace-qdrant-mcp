@@ -8,6 +8,23 @@ use super::{
 };
 use crate::lsp::Language;
 
+/// Compute the UTF-16 column (LSP position encoding) of `symbol` within
+/// `line_text`, or 0 if the symbol is empty or not present.
+///
+/// LSP positions count UTF-16 code units, so the column is the UTF-16 length
+/// of the text preceding the symbol's first occurrence. For ASCII identifiers
+/// this equals the byte offset. Kept as a free, pure function so it can be
+/// unit-tested without process or filesystem setup.
+pub(crate) fn symbol_column_in_line(line_text: &str, symbol: &str) -> u32 {
+    if symbol.is_empty() {
+        return 0;
+    }
+    match line_text.find(symbol) {
+        Some(byte_idx) => line_text[..byte_idx].encode_utf16().count() as u32,
+        None => 0,
+    }
+}
+
 impl LanguageServerManager {
     /// Check if an LSP server is ready for a given file in a project.
     ///
@@ -33,25 +50,53 @@ impl LanguageServerManager {
     ///
     /// This is the main entry point for queue processor integration.
     /// Returns enrichment data or gracefully degrades if LSP unavailable.
+    ///
+    /// Emits a `lsp.enrich_chunk` tracing span carrying the real project,
+    /// file, resolved language, and final enrichment status — exported to
+    /// OTLP/Tempo when the daemon runs with tracing enabled.
+    #[tracing::instrument(
+        name = "lsp.enrich_chunk",
+        skip_all,
+        fields(
+            project_id = %project_id,
+            file = %file.display(),
+            line = start_line,
+            language = tracing::field::Empty,
+            enrichment_status = tracing::field::Empty,
+        )
+    )]
     pub async fn enrich_chunk(
         &self,
         project_id: &str,
         file: &Path,
-        _symbol_name: &str,
+        symbol_name: &str,
         start_line: u32,
         _end_line: u32,
         _is_project_active: bool,
     ) -> LspEnrichment {
+        let span = tracing::Span::current();
+        let language = file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension)
+            .map(|l| l.identifier().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        span.record("language", language.as_str());
+
         {
             let mut metrics = self.metrics.write().await;
             metrics.total_enrichment_queries += 1;
         }
 
-        if !self.is_server_ready_for_file(project_id, file).await {
-            return self.skipped_enrichment(file).await;
-        }
+        let result = if !self.is_server_ready_for_file(project_id, file).await {
+            self.skipped_enrichment(file).await
+        } else {
+            self.perform_enrichment(project_id, file, start_line, symbol_name)
+                .await
+        };
 
-        self.perform_enrichment(project_id, file, start_line).await
+        span.record("enrichment_status", result.enrichment_status.as_str());
+        result
     }
 
     /// Return a skipped enrichment when the server is not ready
@@ -90,14 +135,28 @@ impl LanguageServerManager {
         project_id: &str,
         file: &Path,
         start_line: u32,
+        symbol_name: &str,
     ) -> LspEnrichment {
         // Touch last_enrichment_at for idle eviction tracking
         self.touch_enrichment_time(project_id, file).await;
 
+        // Resolve the symbol's column on its declaration line. Querying at
+        // column 0 (the previous behavior) points at the start of the line —
+        // usually a keyword like `pub`/`def` — so the server returns no
+        // references or hover even when the symbol is fully indexed.
+        let column = match tokio::fs::read_to_string(file).await {
+            Ok(content) => content
+                .lines()
+                .nth(start_line as usize)
+                .map(|line| symbol_column_in_line(line, symbol_name))
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
+
         let mut errors: Vec<String> = Vec::new();
         let mut successes = 0;
 
-        let references = match self.get_references(file, start_line, 0).await {
+        let references = match self.get_references(file, start_line, column).await {
             Ok(refs) => {
                 successes += 1;
                 refs
@@ -109,7 +168,7 @@ impl LanguageServerManager {
             }
         };
 
-        let type_info = match self.get_type_info(file, start_line, 0).await {
+        let type_info = match self.get_type_info(file, start_line, column).await {
             Ok(info) => {
                 successes += 1;
                 info
@@ -192,6 +251,11 @@ impl LanguageServerManager {
     }
 
     /// Get references for a symbol at a specific position
+    #[tracing::instrument(
+        name = "lsp.references",
+        skip_all,
+        fields(file = %file.display(), line, column)
+    )]
     pub async fn get_references(
         &self,
         file: &Path,
@@ -272,6 +336,11 @@ impl LanguageServerManager {
     }
 
     /// Get type information for a symbol at a specific position
+    #[tracing::instrument(
+        name = "lsp.type_info",
+        skip_all,
+        fields(file = %file.display(), line, column)
+    )]
     pub async fn get_type_info(
         &self,
         file: &Path,
