@@ -3,7 +3,6 @@
 //! Mirrors `SearchOptions` from `search-types.ts` and `SearchTool.search()`
 //! from `search.ts`.
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::types::{SearchMode, SearchScope};

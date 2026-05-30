@@ -27,7 +27,7 @@ async fn add_rule_connectivity_error_falls_back_to_queue() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(true));
     assert_eq!(j["fallback_mode"], json!("unified_queue"));
@@ -44,7 +44,7 @@ async fn add_rule_hard_ingest_error_returns_error_text() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     assert_eq!(result.is_error, Some(true));
     assert!(extract_text(&result).contains("Failed to add rule"));
 }
@@ -56,7 +56,7 @@ async fn add_rule_missing_content_returns_in_band_error() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "add", "label": "l" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(false));
     assert_eq!(j["action"], json!("add"));
@@ -70,7 +70,7 @@ async fn add_rule_missing_label_returns_in_band_error() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "add", "content": "c" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(false));
     assert!(j["message"].as_str().unwrap().contains("Label is required"));
@@ -83,7 +83,7 @@ async fn add_rule_project_scope_no_project_id_returns_error() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "add", "label": "l", "content": "c" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(false));
     assert!(j["message"]
@@ -106,6 +106,7 @@ async fn add_rule_project_scope_uses_session_project_id() {
         &reader,
         &qdrant,
         Some("session-proj-001"),
+        None,
     )
     .await;
     let j = extract_json(&result);
@@ -122,7 +123,7 @@ async fn add_rule_global_scope_uses_tenant_global() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let ingest = daemon.last_ingest().unwrap();
     assert_eq!(ingest.tenant_id, "global");
 }
@@ -135,7 +136,7 @@ async fn add_rule_result_field_order() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let text = extract_text(&result);
     assert_eq!(
         top_level_keys(text),
@@ -151,7 +152,7 @@ async fn add_rule_enqueue_metadata_is_mcp_rules_tool() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let enq = daemon.last_enqueue().unwrap();
     assert!(enq.metadata_json.contains("mcp_rules_tool"));
 }
@@ -172,7 +173,7 @@ async fn update_rule_uses_label_as_doc_id() {
         "scope": "global"
     }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let ingest = daemon.last_ingest().unwrap();
     assert_eq!(ingest.document_id, "my-rule");
 }
@@ -189,7 +190,7 @@ async fn update_rule_success_via_direct_ingest() {
         "scope": "global"
     }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(true));
     assert_eq!(j["action"], json!("update"));
@@ -205,7 +206,7 @@ async fn update_rule_missing_label_returns_error() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "update", "content": "c" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(false));
     assert_eq!(j["action"], json!("update"));
@@ -223,7 +224,7 @@ async fn update_rule_connectivity_fallback_enqueues() {
         "scope": "global"
     }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["fallback_mode"], json!("unified_queue"));
     assert_eq!(daemon.enqueue_call_count(), 1);
@@ -246,7 +247,7 @@ async fn remove_rule_success_queues_delete_and_deletes_mirror() {
         "scope": "global"
     }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(true));
     assert_eq!(j["action"], json!("remove"));
@@ -267,7 +268,7 @@ async fn remove_rule_missing_label_returns_error() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "remove" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(false));
     assert_eq!(j["action"], json!("remove"));
@@ -281,7 +282,7 @@ async fn remove_rule_enqueue_failure_returns_error_text() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "remove", "label": "l", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     assert_eq!(result.is_error, Some(true));
     assert!(extract_text(&result).contains("queue offline"));
 }
@@ -293,7 +294,7 @@ async fn remove_rule_no_mirror_delete_on_enqueue_failure() {
     let qdrant = MockRulesQdrant::no_duplicates();
     let args = make_args(json!({ "action": "remove", "label": "l", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     assert_eq!(daemon.mirror_call_count("delete"), 0);
 }
 
@@ -461,9 +462,71 @@ async fn add_queue_fallback_uses_text_item_type_and_rules_collection() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let enq = daemon.last_enqueue().unwrap();
     assert_eq!(enq.item_type, "text");
     assert_eq!(enq.collection, "rules");
     assert_eq!(enq.branch, "main");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// config_dup_threshold: operator override (finding #12)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn add_rule_config_threshold_blocks_when_score_above_threshold() {
+    // find_similar_rules only runs the dup-check when embed_response is non-empty.
+    // With config_dup_threshold=0.01 and a Qdrant match at score 0.9 (>= 0.01),
+    // the add must be blocked.
+    let mut daemon = MockRulesDaemon {
+        embed_response: vec![0.1_f32, 0.2_f32, 0.3_f32], // non-empty → dup-check runs
+        ..MockRulesDaemon::ingest_ok()
+    };
+    let reader = MockRulesReader::empty();
+    // Qdrant returns a point with score 0.9 — above the 0.01 threshold.
+    let qdrant = MockRulesQdrant::with_duplicates(vec![(
+        "dup-id".to_string(),
+        0.9_f32,
+        "similar content".to_string(),
+    )]);
+    let args = make_args(
+        json!({ "action": "add", "label": "l", "content": "similar", "scope": "global" }),
+    );
+    let input = RulesInput::from_args(&args).unwrap();
+    // config_dup_threshold = 0.01 → score 0.9 >= 0.01 → duplicate detected → blocked.
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, Some(0.01)).await;
+    let j = extract_json(&result);
+    assert!(
+        !j["success"].as_bool().unwrap_or(true),
+        "score 0.9 >= config threshold 0.01 must block the add; got: {j}"
+    );
+}
+
+#[tokio::test]
+async fn add_rule_config_threshold_allows_when_score_below_threshold() {
+    // With config_dup_threshold = 0.99 and a Qdrant match at score 0.5,
+    // the application filter (pt.score >= threshold) drops the "duplicate"
+    // since 0.5 < 0.99 → empty duplicates list → add proceeds.
+    let mut daemon = MockRulesDaemon {
+        embed_response: vec![0.1_f32, 0.2_f32], // non-empty → dup-check runs
+        ..MockRulesDaemon::ingest_ok()
+    };
+    let reader = MockRulesReader::empty();
+    let qdrant = MockRulesQdrant::with_duplicates(vec![(
+        "low-score-id".to_string(),
+        0.5_f32, // below config threshold → filtered out
+        "somewhat similar".to_string(),
+    )]);
+    let args = make_args(
+        json!({ "action": "add", "label": "l2", "content": "new content", "scope": "global" }),
+    );
+    let input = RulesInput::from_args(&args).unwrap();
+    // config_dup_threshold = 0.99 → score 0.5 < 0.99 → filtered out → add proceeds.
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, Some(0.99)).await;
+    let j = extract_json(&result);
+    assert_eq!(
+        j["success"],
+        json!(true),
+        "score 0.5 below config threshold 0.99 must allow the add; got: {j}"
+    );
 }

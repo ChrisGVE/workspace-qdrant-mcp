@@ -247,6 +247,31 @@ impl MockRulesQdrant {
             search_result: Ok(Vec::new()),
         }
     }
+
+    /// Return a list of near-duplicate points from search.
+    /// Each entry is (id, score, content) mirroring a real QdrantPoint.
+    pub(super) fn with_duplicates(dups: Vec<(String, f32, String)>) -> Self {
+        let points = dups
+            .into_iter()
+            .map(|(id, score, content)| {
+                let mut payload = std::collections::HashMap::new();
+                payload.insert("content".to_string(), serde_json::Value::String(content));
+                payload.insert(
+                    "label".to_string(),
+                    serde_json::Value::String("dup-label".to_string()),
+                );
+                crate::qdrant::client::QdrantPoint {
+                    id,
+                    score: score.into(),
+                    payload,
+                }
+            })
+            .collect();
+        Self {
+            scroll_result: Ok(Vec::new()),
+            search_result: Ok(points),
+        }
+    }
 }
 
 impl RulesQdrant for MockRulesQdrant {
@@ -371,7 +396,7 @@ async fn add_rule_success_via_ingest() {
         "scope": "global"
     }));
     let input = RulesInput::from_args(&args).unwrap();
-    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let result = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     assert!(result.is_error.is_none());
     let j = extract_json(&result);
     assert_eq!(j["success"], json!(true));
@@ -392,7 +417,7 @@ async fn add_rule_ingest_uses_random_uuid_as_doc_id() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     let ingest = daemon.last_ingest().unwrap();
     // ADD: document_id is a UUID (36-char string), NOT the label
     assert_ne!(ingest.document_id, "l");
@@ -407,7 +432,7 @@ async fn add_rule_calls_upsert_mirror_on_direct_success() {
     let args =
         make_args(json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }));
     let input = RulesInput::from_args(&args).unwrap();
-    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None).await;
+    let _ = rules_tool(input, &mut daemon, &reader, &qdrant, None, None).await;
     assert_eq!(daemon.mirror_call_count("upsert"), 1);
     let calls = daemon.mirror_calls.lock().unwrap();
     let mc = calls.iter().find(|c| c.method == "upsert").unwrap();

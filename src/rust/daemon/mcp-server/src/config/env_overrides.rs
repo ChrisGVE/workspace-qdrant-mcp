@@ -165,6 +165,17 @@ pub fn apply_env_overrides(
         }
     }
 
+    // Rules config: WQM_RULES_DEDUP_THRESHOLD overrides rules.duplicationThreshold.
+    // Mirrors TS server-factory.ts:52: `config.rules?.duplicationThreshold`.
+    if let Some(val_str) = env_getter("WQM_RULES_DEDUP_THRESHOLD") {
+        if let Ok(val) = val_str.parse::<f64>() {
+            if val > 0.0 && val <= 1.0 {
+                let rules = config.rules.get_or_insert_with(Default::default);
+                rules.duplication_threshold = Some(val);
+            }
+        }
+    }
+
     config
 }
 
@@ -456,5 +467,44 @@ mod tests {
         let result = apply_env_overrides(ServerConfig::default(), &getter);
         assert_eq!(result.daemon.grpc_host, "ep-host");
         assert_eq!(result.daemon.grpc_port, 5555);
+    }
+
+    // ------------------------------------------------------------------
+    // WQM_RULES_DEDUP_THRESHOLD
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn rules_dedup_threshold_set_from_env() {
+        // WQM_RULES_DEDUP_THRESHOLD=0.85 must set config.rules.duplication_threshold.
+        let getter = env_from(&[("WQM_RULES_DEDUP_THRESHOLD", "0.85")]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
+        assert_eq!(threshold, Some(0.85_f64));
+    }
+
+    #[test]
+    fn rules_dedup_threshold_ignored_when_out_of_range() {
+        // Values outside (0.0, 1.0] must be ignored (keep default = None).
+        for bad in ["0.0", "1.1", "-0.5", "2.0"] {
+            let pairs = [("WQM_RULES_DEDUP_THRESHOLD", bad)];
+            let getter = env_from(&pairs);
+            let result = apply_env_overrides(ServerConfig::default(), &getter);
+            let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
+            assert!(
+                threshold.is_none(),
+                "out-of-range value '{bad}' must not set threshold; got {threshold:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rules_dedup_threshold_absent_when_env_not_set() {
+        let getter = env_from(&[]);
+        let result = apply_env_overrides(ServerConfig::default(), &getter);
+        let threshold = result.rules.as_ref().and_then(|r| r.duplication_threshold);
+        assert!(
+            threshold.is_none(),
+            "unset env must leave duplication_threshold as None"
+        );
     }
 }

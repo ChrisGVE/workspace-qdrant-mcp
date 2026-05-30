@@ -82,6 +82,11 @@ pub struct DispatchContext<'a> {
     pub state: &'a SharedStateManager,
     pub session: &'a mut SessionState,
     pub health_state: &'a SharedHealthState,
+    /// Optional duplication threshold for the rules tool.
+    ///
+    /// Mirrors `config.rules?.duplicationThreshold` from TS server-factory.ts:52.
+    /// When `None`, the rules tool uses `DEFAULT_DUPLICATION_THRESHOLD`.
+    pub rules_dup_threshold: Option<f64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,7 +237,15 @@ async fn route_tool(
                 Err(e) => return error_text(&e),
             };
             let session_project_id = ctx.session.project_id.as_deref();
-            rules_tool(input, ctx.daemon, ctx.state, ctx.qdrant, session_project_id).await
+            rules_tool(
+                input,
+                ctx.daemon,
+                ctx.state,
+                ctx.qdrant,
+                session_project_id,
+                ctx.rules_dup_threshold,
+            )
+            .await
         }
         "store" => {
             let session_project_id = ctx.session.project_id.as_deref();

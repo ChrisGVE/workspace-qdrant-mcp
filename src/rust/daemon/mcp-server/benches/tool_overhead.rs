@@ -47,7 +47,7 @@ use mcp_server::tools::envelope::{error_text, ok_text, unknown_tool};
 use mcp_server::tools::grep::GrepInput;
 use mcp_server::tools::list::ListInput;
 use mcp_server::tools::retrieve::RetrieveInput;
-use mcp_server::tools::search::{SearchInput, SearchMode, SearchResponse, SearchScope};
+use mcp_server::tools::search::{SearchMode, SearchOptions, SearchResponse, SearchScope};
 
 // ---------------------------------------------------------------------------
 // Representative fixtures
@@ -214,9 +214,9 @@ fn bench_input_parsing(c: &mut Criterion) {
         &s_args,
         |b, a| {
             b.iter(|| {
-                let input: SearchInput =
-                    serde_json::from_value(serde_json::Value::Object(a.clone()))
-                        .unwrap_or_default();
+                // Use parse_args (permissive manual extraction) rather than serde
+                // deserialization — SearchInput no longer derives Deserialize.
+                let input = SearchOptions::parse_args(a).unwrap_or_default();
                 std::hint::black_box(input);
             });
         },

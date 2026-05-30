@@ -298,7 +298,7 @@ async fn fix1_list_uses_qdrant_primary_path() {
     let r = PaReader::with(vec![mirror_row("m-1", "Mirror rule", "global")]);
     let input =
         RulesInput::from_args(&args(json!({ "action": "list", "scope": "global" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(true));
     let rules = j["rules"].as_array().unwrap();
@@ -316,7 +316,7 @@ async fn fix1_list_qdrant_ok_message_exact_ts_string() {
     let r = PaReader::empty();
     let input =
         RulesInput::from_args(&args(json!({ "action": "list", "scope": "global" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["message"], json!("Found 0 rule(s)"));
     assert_eq!(j["success"], json!(true));
@@ -333,7 +333,7 @@ async fn fix1_list_qdrant_error_mirror_fallback_message() {
     ]);
     let input =
         RulesInput::from_args(&args(json!({ "action": "list", "scope": "global" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(true));
     assert_eq!(
@@ -352,7 +352,7 @@ async fn fix1_list_qdrant_error_mirror_empty_returns_failure() {
     let r = PaReader::empty();
     let input =
         RulesInput::from_args(&args(json!({ "action": "list", "scope": "global" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(false));
     let msg = j["message"].as_str().unwrap();
@@ -367,7 +367,7 @@ async fn fix1_list_prefers_qdrant_over_mirror_when_both_available() {
     let q = PaQdrant::scroll_ok(pts);
     let r = PaReader::with(vec![mirror_row("m-x", "Mirror X", "global")]);
     let input = RulesInput::from_args(&args(json!({ "action": "list" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     let rules = j["rules"].as_array().unwrap();
     assert_eq!(rules.len(), 2);
@@ -381,7 +381,7 @@ async fn fix1_list_field_order_qdrant_success() {
     let q = PaQdrant::scroll_ok(vec![]);
     let r = PaReader::empty();
     let input = RulesInput::from_args(&args(json!({ "action": "list" }))).unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     assert_eq!(
         top_keys(get_text(&res)),
         vec!["success", "action", "rules", "message"]
@@ -394,7 +394,7 @@ async fn fix1_list_does_not_call_ingest_or_enqueue() {
     let q = PaQdrant::scroll_ok(vec![]);
     let r = PaReader::empty();
     let input = RulesInput::from_args(&args(json!({ "action": "list" }))).unwrap();
-    let _ = rules_tool(input, &mut d, &r, &q, None).await;
+    let _ = rules_tool(input, &mut d, &r, &q, None, None).await;
     assert_eq!(d.ingest_count(), 0);
 }
 

@@ -24,7 +24,7 @@ async fn fix2_empty_embedding_skips_dup_check_and_proceeds() {
         json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }),
     ))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(true));
     // embed was still called (we always call it)
@@ -45,7 +45,7 @@ async fn fix2_with_embedding_no_duplicates_proceeds_to_add() {
         json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }),
     ))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(true));
     assert_eq!(j["message"], json!("Rule added successfully"));
@@ -64,7 +64,7 @@ async fn fix2_duplicate_found_returns_refusal_not_add() {
         "action": "add", "label": "new", "content": "Similar content", "scope": "global"
     })))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     // Must be refusal (rules.ts:84-90)
     assert_eq!(j["success"], json!(false));
@@ -88,7 +88,7 @@ async fn fix2_refusal_message_exact_ts_string() {
         "action": "add", "label": "l", "content": "c", "scope": "global"
     })))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(
         j["message"].as_str().unwrap(),
@@ -108,7 +108,7 @@ async fn fix2_similarity_rounded_to_3_decimals() {
         "action": "add", "label": "l", "content": "c", "scope": "global"
     })))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     let similar = j["similar_rules"].as_array().unwrap();
     let sim = similar[0]["similarity"].as_f64().unwrap();
@@ -125,7 +125,7 @@ async fn fix2_search_error_allows_add_to_proceed() {
         "action": "add", "label": "l", "content": "c", "scope": "global"
     })))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     let j = get_json(&res);
     assert_eq!(j["success"], json!(true));
     assert_eq!(d.ingest_count(), 1);
@@ -142,7 +142,7 @@ async fn fix2_refusal_field_order() {
         "action": "add", "label": "l", "content": "c", "scope": "global"
     })))
     .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
     assert_eq!(
         top_keys(get_text(&res)),
         vec!["success", "action", "similar_rules", "message"]

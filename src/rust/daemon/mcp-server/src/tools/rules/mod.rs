@@ -46,22 +46,26 @@ use mutations::{add_rule, remove_rule, update_rule};
 ///
 /// Dispatches by `action`.  An invalid `action` returns `error_text` matching
 /// the TS dispatcher throw semantics (tool-dispatcher.ts:106-109).
+///
+/// `config_dup_threshold`: optional operator-supplied duplication threshold,
+/// mirroring `config.rules?.duplicationThreshold` in TS server-factory.ts:52.
+/// When `None`, falls back to `DEFAULT_DUPLICATION_THRESHOLD` (0.7).
 pub async fn rules_tool<D, R, Q>(
     input: RulesInput,
     daemon: &mut D,
     reader: &R,
     qdrant: &Q,
     session_project_id: Option<&str>,
+    config_dup_threshold: Option<f64>,
 ) -> CallToolResult
 where
     D: RulesDaemon,
     R: RulesReader,
     Q: RulesQdrant,
 {
-    // Read duplication threshold from config if present, else default.
-    // (In the test harness the constant is always DEFAULT_DUPLICATION_THRESHOLD.
-    //  Production wiring reads from ServerConfig in the call-site dispatcher.)
-    let dup_threshold = DEFAULT_DUPLICATION_THRESHOLD;
+    // Use operator config if supplied, else fall back to the default.
+    // Mirrors TS: `this.duplicationThreshold = config.duplicationThreshold ?? DEFAULT`.
+    let dup_threshold = config_dup_threshold.unwrap_or(DEFAULT_DUPLICATION_THRESHOLD);
 
     match input.action.as_str() {
         "add" => add_rule(input, daemon, qdrant, session_project_id, dup_threshold).await,

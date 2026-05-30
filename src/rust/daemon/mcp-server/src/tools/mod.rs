@@ -96,6 +96,9 @@ pub struct ToolsHandler {
     state: Arc<SharedStateManager>,
     session: Arc<Mutex<SessionState>>,
     health_state: SharedHealthState,
+    /// Optional duplication threshold override for the rules tool.
+    /// Sourced from `WQM_RULES_DEDUP_THRESHOLD` env var via `ServerConfig`.
+    rules_dup_threshold: Option<f64>,
 }
 
 impl ToolsHandler {
@@ -112,12 +115,25 @@ impl ToolsHandler {
         session: SessionState,
         health_state: SharedHealthState,
     ) -> Self {
+        Self::new_with_config(daemon, qdrant, state, session, health_state, None)
+    }
+
+    /// Create a handler with an optional rules duplication threshold override.
+    pub fn new_with_config(
+        daemon: DaemonClient,
+        qdrant: QdrantReadClient,
+        state: StateManager,
+        session: SessionState,
+        health_state: SharedHealthState,
+        rules_dup_threshold: Option<f64>,
+    ) -> Self {
         Self {
             daemon: Arc::new(Mutex::new(daemon)),
             qdrant: Arc::new(qdrant),
             state: Arc::new(SharedStateManager::new(state)),
             session: Arc::new(Mutex::new(session)),
             health_state,
+            rules_dup_threshold,
         }
     }
 
@@ -149,12 +165,25 @@ impl ToolsHandler {
         session: Arc<Mutex<SessionState>>,
         health_state: SharedHealthState,
     ) -> Self {
+        Self::from_arcs_with_config(daemon, qdrant, state, session, health_state, None)
+    }
+
+    /// Create a handler from already-Arc-wrapped deps, with config overrides.
+    pub fn from_arcs_with_config(
+        daemon: Arc<Mutex<DaemonClient>>,
+        qdrant: Arc<QdrantReadClient>,
+        state: Arc<SharedStateManager>,
+        session: Arc<Mutex<SessionState>>,
+        health_state: SharedHealthState,
+        rules_dup_threshold: Option<f64>,
+    ) -> Self {
         Self {
             daemon,
             qdrant,
             state,
             session,
             health_state,
+            rules_dup_threshold,
         }
     }
 }
@@ -205,6 +234,7 @@ impl ServerHandler for ToolsHandler {
                 state: &state,
                 session: &mut session_guard,
                 health_state: &health_state,
+                rules_dup_threshold: self.rules_dup_threshold,
             };
 
             Ok(dispatch_tool(&name, &args, &mut ctx).await)
