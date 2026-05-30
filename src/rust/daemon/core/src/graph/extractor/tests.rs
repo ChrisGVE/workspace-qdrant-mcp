@@ -234,6 +234,105 @@ fn test_extract_edges_uses_type() {
 }
 
 #[test]
+fn test_calls_skip_turbofish_artifacts() {
+    use crate::TextChunk;
+    use std::collections::HashMap;
+
+    // A body with `foo()` and a turbofish call `bar::<String, _>()`. When the
+    // call extractor splits the turbofish argument list, it leaks the fragments
+    // `<String` and `_>` into the call list alongside the real `foo`. Only the
+    // valid identifier `foo` should become a CALLS target.
+    let mut meta = HashMap::new();
+    meta.insert("chunk_type".to_string(), "function".to_string());
+    meta.insert("symbol_name".to_string(), "caller".to_string());
+    meta.insert("language".to_string(), "rust".to_string());
+    meta.insert("calls".to_string(), "foo,<String, _>".to_string());
+
+    let chunk = TextChunk {
+        content: "fn caller() { foo(); bar::<String, _>(); }".to_string(),
+        chunk_index: 0,
+        start_char: 0,
+        end_char: 0,
+        metadata: meta,
+    };
+
+    let result = extract_edges_from_text_chunks(&[chunk], "t1", "src/lib.rs");
+
+    let call_targets: Vec<&str> = result
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeType::Calls)
+        .filter_map(|e| {
+            result
+                .nodes
+                .iter()
+                .find(|n| n.node_id == e.target_node_id)
+                .map(|n| n.symbol_name.as_str())
+        })
+        .collect();
+    assert_eq!(
+        call_targets,
+        vec!["foo"],
+        "only `foo` should be a CALLS target, not `<String` or `_>`"
+    );
+
+    // Belt-and-suspenders: no graph node should carry a generic-fragment artifact.
+    assert!(
+        result
+            .nodes
+            .iter()
+            .all(|n| !n.symbol_name.contains('<') && !n.symbol_name.contains('>')),
+        "no graph node should contain `<` or `>`"
+    );
+}
+
+#[test]
+fn test_semantic_calls_skip_turbofish_artifacts() {
+    // Same guarantee on the SemanticChunk path: artifacts in `chunk.calls`
+    // never become edge targets.
+    let mut chunk = SemanticChunk::new(
+        ChunkType::Function,
+        "caller",
+        "fn caller() { foo(); bar::<String, _>(); }",
+        1,
+        3,
+        "rust",
+        "src/main.rs",
+    );
+    chunk.calls = vec!["foo".to_string(), "<String".to_string(), "_>".to_string()];
+
+    let result = extract_edges(&[chunk], "t1", "src/main.rs");
+
+    let call_targets: Vec<&str> = result
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeType::Calls)
+        .filter_map(|e| {
+            result
+                .nodes
+                .iter()
+                .find(|n| n.node_id == e.target_node_id)
+                .map(|n| n.symbol_name.as_str())
+        })
+        .collect();
+    assert_eq!(call_targets, vec!["foo"]);
+}
+
+#[test]
+fn test_is_valid_symbol_name_rejects_generic_fragments() {
+    assert!(is_valid_symbol_name("foo"));
+    assert!(is_valid_symbol_name("HashMap"));
+    assert!(is_valid_symbol_name("_private"));
+    assert!(is_valid_symbol_name("std::vec::Vec")); // `::`-qualified accepted
+
+    assert!(!is_valid_symbol_name("<String"));
+    assert!(!is_valid_symbol_name("_>"));
+    assert!(!is_valid_symbol_name("<String, _>"));
+    assert!(!is_valid_symbol_name("foo::")); // trailing empty segment
+    assert!(!is_valid_symbol_name(""));
+}
+
+#[test]
 fn test_extract_edges_imports_from_preamble() {
     let chunk = SemanticChunk::new(
         ChunkType::Preamble,

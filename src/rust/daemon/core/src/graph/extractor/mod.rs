@@ -48,7 +48,9 @@ fn extract_chunk_edges(
 
     for call in &chunk.calls {
         let (_qualifier, callee_name) = parse_qualified_name(call);
-        if callee_name.is_empty() {
+        if !is_valid_symbol_name(&callee_name) {
+            // Skip tree-sitter artifacts like `<String` / `_>` that leak from
+            // a turbofish/generic argument list (e.g. `query::<String, _>(...)`).
             continue;
         }
         let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
@@ -66,6 +68,9 @@ fn extract_chunk_edges(
     if let Some(ref sig) = chunk.signature {
         let type_refs = extract_type_references(sig, &chunk.language);
         for type_name in type_refs {
+            if !is_valid_symbol_name(&type_name) {
+                continue;
+            }
             let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
             let edge = GraphEdge::new(
                 tenant_id,
@@ -227,7 +232,9 @@ fn add_calls_edges(
                 continue;
             }
             let (_qualifier, callee_name) = parse_qualified_name(call);
-            if callee_name.is_empty() {
+            if !is_valid_symbol_name(&callee_name) {
+                // Skip tree-sitter artifacts like `<String` / `_>` that leak from
+                // a turbofish/generic argument list (e.g. `query::<String, _>(...)`).
                 continue;
             }
             let callee_stub = GraphNode::stub(tenant_id, &callee_name, NodeType::Function);
@@ -255,6 +262,9 @@ fn add_uses_type_edges(
     if let Some(sig) = meta.get("signature") {
         let type_refs = extract_type_references(sig, language);
         for type_name in type_refs {
+            if !is_valid_symbol_name(&type_name) {
+                continue;
+            }
             let type_stub = GraphNode::stub(tenant_id, &type_name, NodeType::Struct);
             let edge = GraphEdge::new(
                 tenant_id,
@@ -267,6 +277,30 @@ fn add_uses_type_edges(
             result.edges.push(edge);
         }
     }
+}
+
+/// Reject parser artifacts before they become graph nodes or edge targets.
+///
+/// Tree-sitter call extraction can leak fragments of a generic/turbofish
+/// argument list into the call list — e.g. `query::<String, _>(...)` can yield
+/// `<String` and `_>` instead of `query`. Those are not real symbols, so we
+/// only emit a CALLS/USES_TYPE stub when the derived name is a plain identifier
+/// or a `::`-qualified path of identifiers.
+fn is_valid_symbol_name(name: &str) -> bool {
+    !name.is_empty() && name.split("::").all(is_plain_identifier)
+}
+
+/// True if `seg` is a single identifier: starts with a letter or `_`, followed
+/// only by letters, digits, or `_`. Unicode letters/digits are accepted so that
+/// non-ASCII identifiers are not dropped; the point is to reject characters like
+/// `<`, `>`, and `,` that mark generic-argument artifacts.
+fn is_plain_identifier(seg: &str) -> bool {
+    let mut chars = seg.chars();
+    match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Convert a `ChunkType::display_name()` string back to `NodeType`.

@@ -51,16 +51,14 @@ pub fn extract_function_calls(node: &Node, source: &str) -> Vec<String> {
                     .or_else(|| node.child(0))
                 {
                     let name = node_text(&callee, source);
-                    // Extract just the function name (not the full path)
-                    let clean_name = name
-                        .rsplit("::")
-                        .next()
-                        .unwrap_or(name)
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(name);
-                    if !clean_name.is_empty() && !calls.contains(&clean_name.to_string()) {
-                        calls.push(clean_name.to_string());
+                    // Reduce the callee expression to its bare function name.
+                    // Generic/turbofish arguments are stripped first, so a call
+                    // like `foo::<String, _>()` yields `foo` rather than the
+                    // type-argument fragments `<String` / `_>`.
+                    if let Some(clean_name) = clean_callee_name(name) {
+                        if !calls.contains(&clean_name) {
+                            calls.push(clean_name);
+                        }
                     }
                 }
             }
@@ -77,4 +75,85 @@ pub fn extract_function_calls(node: &Node, source: &str) -> Vec<String> {
 
     visit(node, source, &mut calls, &mut cursor);
     calls
+}
+
+/// Reduce a callee expression to its bare function name.
+///
+/// Strips balanced generic/turbofish argument lists (`foo::<T>` → `foo`,
+/// `Vec::<u8>::new` → `new`) and qualifier paths (`a::b::c` → `c`,
+/// `obj.method` → `method`). Returns `None` when nothing identifier-like
+/// remains. Stripping generics here keeps type-argument fragments such as
+/// `<String` or `_>` (and the comma between them) out of the call list at the
+/// source, rather than relying on a downstream filter to discard them.
+fn clean_callee_name(name: &str) -> Option<String> {
+    let stripped = strip_generic_args(name);
+    let after_colons = stripped.rsplit("::").find(|s| !s.is_empty()).unwrap_or("");
+    let base = after_colons
+        .rsplit('.')
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .trim();
+    if base.is_empty() {
+        None
+    } else {
+        Some(base.to_string())
+    }
+}
+
+/// Remove balanced `<...>` generic/turbofish sections from a callee expression.
+///
+/// Characters inside angle brackets (including the commas that separate type
+/// arguments) are dropped; everything at bracket depth zero is kept. Nesting is
+/// handled so `Foo<Bar<Baz>>::method` collapses cleanly.
+fn strip_generic_args(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut depth: u32 = 0;
+    for ch in s.chars() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clean_callee_name, strip_generic_args};
+
+    #[test]
+    fn strip_generics_removes_balanced_sections() {
+        assert_eq!(strip_generic_args("foo::<String, _>"), "foo::");
+        assert_eq!(strip_generic_args("Vec::<u8>::new"), "Vec::::new");
+        assert_eq!(strip_generic_args("Foo<Bar<Baz>>::method"), "Foo::method");
+        assert_eq!(strip_generic_args("plain"), "plain");
+    }
+
+    #[test]
+    fn clean_callee_strips_turbofish() {
+        // The turbofish must not leak `<String` / `_>` into the call list.
+        assert_eq!(clean_callee_name("foo::<String, _>").as_deref(), Some("foo"));
+        assert_eq!(clean_callee_name("query::<String, _>").as_deref(), Some("query"));
+    }
+
+    #[test]
+    fn clean_callee_keeps_last_segment() {
+        assert_eq!(clean_callee_name("println").as_deref(), Some("println"));
+        assert_eq!(
+            clean_callee_name("std::collections::HashMap::new").as_deref(),
+            Some("new")
+        );
+        assert_eq!(clean_callee_name("Vec::<u8>::new").as_deref(), Some("new"));
+        assert_eq!(clean_callee_name("self.process").as_deref(), Some("process"));
+        assert_eq!(clean_callee_name("obj.method::<T>").as_deref(), Some("method"));
+    }
+
+    #[test]
+    fn clean_callee_rejects_pure_generic() {
+        // A callee that is nothing but a (mangled) generic list has no name.
+        assert_eq!(clean_callee_name("<String, _>"), None);
+        assert_eq!(clean_callee_name(""), None);
+    }
 }
