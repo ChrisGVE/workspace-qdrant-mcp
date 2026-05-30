@@ -23,6 +23,8 @@ use crate::qdrant::client::{QdrantPoint, QdrantRetrievedPoint};
 // Pull in sibling test modules.
 #[path = "search_tests_fallback.rs"]
 mod fallback_tests;
+#[path = "search_tests_m3_m4_m5.rs"]
+mod m3_m4_m5_tests;
 #[path = "search_tests_score.rs"]
 mod score_tests;
 
@@ -213,6 +215,7 @@ pub(super) fn opts_hybrid(query: &str, limit: usize) -> SearchOptions {
         context_lines: 0,
         include_graph_context: false,
         diverse: false,
+        limit_explicit: false,
     }
 }
 

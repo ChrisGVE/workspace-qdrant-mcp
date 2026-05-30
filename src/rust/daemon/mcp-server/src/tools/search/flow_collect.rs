@@ -23,7 +23,12 @@ use super::types::{ParentContext, Provenance, SearchMode, SearchResult};
 
 /// Search one collection: dense + sparse legs concurrently.
 ///
-/// Mirrors `searchCollection` in `search-qdrant.ts:149-158`.
+/// Mirrors `searchCollection` in `search-qdrant.ts:149-158` and
+/// `searchAllCollections` in `search-helpers.ts:242-252`.
+///
+/// Returns `Err(error_message)` when at least one leg fails (M3 fix): the
+/// caller uses this to set `status='uncertain'` and
+/// `status_reason='Some collections unavailable: <msg>'`.
 /// Score threshold applied at query level: dense = threshold, sparse = threshold * 0.5.
 /// (Matches TS `search-qdrant.ts:105` and `:135`.)
 pub async fn search_collection<Q>(
@@ -35,14 +40,14 @@ pub async fn search_collection<Q>(
     filter: Option<qdrant_client::qdrant::Filter>,
     limit: u64,
     score_threshold: f64,
-) -> Vec<TaggedResult>
+) -> Result<Vec<TaggedResult>, String>
 where
     Q: SearchQdrant,
 {
     let dense_threshold = score_threshold as f32;
     let sparse_threshold = (score_threshold * 0.5) as f32;
 
-    let dense_fut = async {
+    let dense_result =
         if (mode == SearchMode::Hybrid || mode == SearchMode::Semantic) && dense.is_some() {
             qdrant
                 .search_dense(
@@ -53,38 +58,46 @@ where
                     filter.clone(),
                 )
                 .await
-                .unwrap_or_default()
+                .map_err(|e| e.to_string())
         } else {
-            vec![]
-        }
-    };
+            Ok(vec![])
+        };
 
-    let sparse_fut = async {
+    let sparse_result =
         if (mode == SearchMode::Hybrid || mode == SearchMode::Keyword) && sparse.is_some() {
             let sv = sparse.unwrap();
             let mut entries: Vec<(u32, f32)> = sv.iter().map(|(&k, &v)| (k, v)).collect();
             entries.sort_unstable_by_key(|(k, _)| *k);
             let (indices, values): (Vec<u32>, Vec<f32>) = entries.into_iter().unzip();
             if indices.is_empty() {
-                return vec![];
+                Ok(vec![])
+            } else {
+                qdrant
+                    .search_sparse(
+                        collection,
+                        indices,
+                        values,
+                        limit,
+                        Some(sparse_threshold),
+                        filter.clone(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())
             }
-            qdrant
-                .search_sparse(
-                    collection,
-                    indices,
-                    values,
-                    limit,
-                    Some(sparse_threshold),
-                    filter.clone(),
-                )
-                .await
-                .unwrap_or_default()
         } else {
-            vec![]
-        }
-    };
+            Ok(vec![])
+        };
 
-    let (dense_pts, sparse_pts) = tokio::join!(dense_fut, sparse_fut);
+    // M3: collect any leg-level error message; results from failed legs are empty.
+    let leg_error = dense_result
+        .as_ref()
+        .err()
+        .cloned()
+        .or_else(|| sparse_result.as_ref().err().cloned());
+
+    let dense_pts = dense_result.unwrap_or_default();
+    let sparse_pts = sparse_result.unwrap_or_default();
+
     let mut combined: Vec<TaggedResult> = Vec::new();
     combined.extend(
         dense_pts
@@ -96,7 +109,12 @@ where
             .into_iter()
             .map(|p| point_to_tagged(p, collection.to_string(), SearchType::Keyword)),
     );
-    combined
+
+    if let Some(err) = leg_error {
+        Err(err)
+    } else {
+        Ok(combined)
+    }
 }
 
 // ---------------------------------------------------------------------------
