@@ -125,6 +125,26 @@ impl ToolsHandler {
     pub fn state(&self) -> Arc<SharedStateManager> {
         Arc::clone(&self.state)
     }
+
+    /// Create a handler from already-Arc-wrapped shared dependencies.
+    ///
+    /// Used by the HTTP transport factory closure where a single
+    /// `Arc<Mutex<DaemonClient>>` and `Arc<SharedStateManager>` must be
+    /// shared across all per-session `ToolsHandler` instances (those types are
+    /// not `Clone`).
+    pub fn from_arcs(
+        daemon: Arc<Mutex<DaemonClient>>,
+        qdrant: Arc<QdrantReadClient>,
+        state: Arc<SharedStateManager>,
+        session: Arc<Mutex<SessionState>>,
+    ) -> Self {
+        Self {
+            daemon,
+            qdrant,
+            state,
+            session,
+        }
+    }
 }
 
 impl ServerHandler for ToolsHandler {

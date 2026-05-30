@@ -27,6 +27,15 @@ rmcp = { version = "1.7", features = [
     "macros",
 ] }
 
+# HTTP server — pinned to match rmcp's dev-dependency versions to avoid skew.
+axum = { version = "0.8", features = ["http1", "tokio"] }
+# Low-level body utilities used to adapt rmcp's BoxBody → axum Body.
+http-body-util = "0.1"
+# tower::Service trait (for calling StreamableHttpService directly).
+tower-service = "0.3"
+# CancellationToken for graceful shutdown.
+tokio-util = { workspace = true }
+
 # Qdrant client (pinned to match workspace usage in daemon/core + daemon/grpc)
 qdrant-client = "1.17"
 
@@ -63,6 +72,13 @@ secrecy = { workspace = true }
 # Base64 for pagination cursor encoding (next_token)
 base64 = "0.22"
 
+# Constant-time comparison (token auth)
+subtle = "2"
+# Hex encoding (token digest)
+hex = "0.4"
+# Lazy statics (Prometheus metrics)
+once_cell = { workspace = true }
+
 # Observability
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
@@ -76,6 +92,8 @@ tempfile = { workspace = true }
 serial_test = { workspace = true }
 tokio-test = { workspace = true }
 wiremock = { workspace = true }
+# For tower::ServiceExt::oneshot used in http transport tests.
+tower = { version = "0.5", features = ["util"] }
 
 [features]
 # Gates integration tests that require a live daemon + Qdrant

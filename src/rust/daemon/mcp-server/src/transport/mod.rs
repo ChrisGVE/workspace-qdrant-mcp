@@ -10,8 +10,14 @@
 //!
 //! ## HTTP transport (task 32)
 //!
-//! Not yet implemented.  The `serve_http` placeholder is intentionally left
-//! as a `todo!()` stub — it does NOT compile unless the `serve_http` call
-//! site is reached at runtime (cfg-guarded in `main.rs`).
+//! [`http::serve_http`] assembles the axum router, applies CORS/rate-limit/auth
+//! middleware, and drives the rmcp `StreamableHttpService` on the configured
+//! bind address.  `/healthz` is unauthenticated.
 
+pub mod auth;
+pub mod cors;
+pub mod health;
+pub mod http;
+pub mod rate_limit;
 pub mod stdio;
+pub mod tls;

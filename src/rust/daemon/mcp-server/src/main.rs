@@ -27,7 +27,9 @@ use mcp_server::grpc::client::DaemonClient;
 use mcp_server::observability::logging::init_logging;
 use mcp_server::server_types::{ServerMode, BUILD_NUMBER, SERVER_NAME, SERVER_VERSION_BASE};
 use mcp_server::sqlite::StateManager;
+use mcp_server::transport::http::serve_http;
 use mcp_server::transport::stdio::{build_qdrant_client, serve_stdio};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,14 +54,7 @@ async fn main() -> anyhow::Result<()> {
 
     match mode {
         ServerMode::Stdio => run_stdio().await,
-        ServerMode::Http => {
-            // Task 32: streamable-HTTP transport.
-            // This branch is intentionally left here (not dead-code) so the
-            // binary can be built for HTTP without linker errors.  The actual
-            // wiring lands in task 32 — do NOT remove this branch.
-            warn!("HTTP transport not yet implemented; falling back to stdio");
-            run_stdio().await
-        }
+        ServerMode::Http => run_http().await,
     }
 }
 
@@ -141,6 +136,61 @@ async fn run_stdio() -> anyhow::Result<()> {
     };
 
     serve_result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP runner
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn run_http() -> anyhow::Result<()> {
+    // Open SQLite (read-only, degraded-mode safe).
+    let state = StateManager::open();
+
+    // Build Qdrant read client.
+    let qdrant = build_qdrant_client();
+
+    // Connect daemon gRPC channel (lazy).
+    let daemon = DaemonClient::connect_default().unwrap_or_else(|e| {
+        warn!(error = %e, "Failed to create DaemonClient; continuing in degraded mode");
+        panic!("Unexpected DaemonClient construction error: {e}")
+    });
+
+    let session = mcp_server::server_types::SessionState::new();
+
+    // Build a CancellationToken that fires on SIGINT / SIGTERM.
+    let shutdown_token = CancellationToken::new();
+
+    {
+        let ct = shutdown_token.clone();
+        tokio::spawn(async move {
+            if let Err(e) = tokio::signal::ctrl_c().await {
+                warn!(error = %e, "ctrl_c signal handler error");
+                return;
+            }
+            info!("Received SIGINT — initiating graceful shutdown (HTTP)");
+            ct.cancel();
+        });
+    }
+
+    #[cfg(unix)]
+    {
+        let ct = shutdown_token.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(error = %e, "SIGTERM signal handler setup failed");
+                    return;
+                }
+            };
+            sigterm.recv().await;
+            info!("Received SIGTERM — initiating graceful shutdown (HTTP)");
+            ct.cancel();
+        });
+    }
+
+    serve_http(daemon, qdrant, state, session, shutdown_token).await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
