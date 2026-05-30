@@ -21,7 +21,7 @@ use super::*;
 // Compact mocks (self-contained for this test module)
 // ─────────────────────────────────────────────────────────────────────────────
 
-struct PaDaemon {
+pub(super) struct PaDaemon {
     pub ingest_result: Result<bool, (bool, String)>,
     pub embed_response: Vec<f32>,
     pub ingest_count: Arc<Mutex<usize>>,
@@ -29,7 +29,7 @@ struct PaDaemon {
 }
 
 impl PaDaemon {
-    fn ok_no_embed() -> Self {
+    pub(super) fn ok_no_embed() -> Self {
         Self {
             ingest_result: Ok(true),
             embed_response: Vec::new(),
@@ -38,7 +38,7 @@ impl PaDaemon {
         }
     }
 
-    fn ok_with_embed(v: Vec<f32>) -> Self {
+    pub(super) fn ok_with_embed(v: Vec<f32>) -> Self {
         Self {
             ingest_result: Ok(true),
             embed_response: v,
@@ -47,11 +47,11 @@ impl PaDaemon {
         }
     }
 
-    fn ingest_count(&self) -> usize {
+    pub(super) fn ingest_count(&self) -> usize {
         *self.ingest_count.lock().unwrap()
     }
 
-    fn embed_count(&self) -> usize {
+    pub(super) fn embed_count(&self) -> usize {
         *self.embed_count.lock().unwrap()
     }
 }
@@ -101,16 +101,16 @@ impl RulesDaemon for PaDaemon {
     }
 }
 
-struct PaReader {
+pub(super) struct PaReader {
     pub rows: Vec<RulesMirrorEntry>,
 }
 
 impl PaReader {
-    fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self { rows: Vec::new() }
     }
 
-    fn with(rows: Vec<RulesMirrorEntry>) -> Self {
+    pub(super) fn with(rows: Vec<RulesMirrorEntry>) -> Self {
         Self { rows }
     }
 }
@@ -126,7 +126,7 @@ impl RulesReader for PaReader {
     }
 }
 
-struct PaQdrant {
+pub(super) struct PaQdrant {
     pub scroll_result: Result<Vec<QdrantRetrievedPoint>, String>,
     pub search_result: Result<Vec<QdrantPoint>, String>,
     pub scroll_count: Arc<Mutex<u32>>,
@@ -134,7 +134,7 @@ struct PaQdrant {
 }
 
 impl PaQdrant {
-    fn scroll_ok(pts: Vec<QdrantRetrievedPoint>) -> Self {
+    pub(super) fn scroll_ok(pts: Vec<QdrantRetrievedPoint>) -> Self {
         Self {
             scroll_result: Ok(pts),
             search_result: Ok(Vec::new()),
@@ -143,7 +143,7 @@ impl PaQdrant {
         }
     }
 
-    fn scroll_err(msg: &str) -> Self {
+    pub(super) fn scroll_err(msg: &str) -> Self {
         Self {
             scroll_result: Err(msg.to_string()),
             search_result: Ok(Vec::new()),
@@ -152,7 +152,7 @@ impl PaQdrant {
         }
     }
 
-    fn search_ok(pts: Vec<QdrantPoint>) -> Self {
+    pub(super) fn search_ok(pts: Vec<QdrantPoint>) -> Self {
         Self {
             scroll_result: Ok(Vec::new()),
             search_result: Ok(pts),
@@ -161,7 +161,7 @@ impl PaQdrant {
         }
     }
 
-    fn search_err(msg: &str) -> Self {
+    pub(super) fn search_err(msg: &str) -> Self {
         Self {
             scroll_result: Ok(Vec::new()),
             search_result: Err(msg.to_string()),
@@ -170,7 +170,7 @@ impl PaQdrant {
         }
     }
 
-    fn no_duplicates() -> Self {
+    pub(super) fn no_duplicates() -> Self {
         Self {
             scroll_result: Ok(Vec::new()),
             search_result: Ok(Vec::new()),
@@ -179,11 +179,11 @@ impl PaQdrant {
         }
     }
 
-    fn scroll_count(&self) -> u32 {
+    pub(super) fn scroll_count(&self) -> u32 {
         *self.scroll_count.lock().unwrap()
     }
 
-    fn search_count(&self) -> u32 {
+    pub(super) fn search_count(&self) -> u32 {
         *self.search_count.lock().unwrap()
     }
 }
@@ -214,11 +214,11 @@ impl RulesQdrant for PaQdrant {
 // Test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn args(obj: Value) -> Map<String, Value> {
+pub(super) fn args(obj: Value) -> Map<String, Value> {
     obj.as_object().unwrap().clone()
 }
 
-fn get_json(r: &rmcp::model::CallToolResult) -> Value {
+pub(super) fn get_json(r: &rmcp::model::CallToolResult) -> Value {
     let text = r
         .content
         .first()
@@ -231,7 +231,7 @@ fn get_json(r: &rmcp::model::CallToolResult) -> Value {
     serde_json::from_str(text).unwrap()
 }
 
-fn get_text(r: &rmcp::model::CallToolResult) -> &str {
+pub(super) fn get_text(r: &rmcp::model::CallToolResult) -> &str {
     r.content
         .first()
         .unwrap()
@@ -242,7 +242,7 @@ fn get_text(r: &rmcp::model::CallToolResult) -> &str {
         .as_str()
 }
 
-fn top_keys(text: &str) -> Vec<String> {
+pub(super) fn top_keys(text: &str) -> Vec<String> {
     text.lines()
         .filter(|l| l.starts_with("  \"") && !l.starts_with("   "))
         .filter_map(|l| {
@@ -252,7 +252,7 @@ fn top_keys(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn mirror_row(id: &str, text: &str, scope: &str) -> RulesMirrorEntry {
+pub(super) fn mirror_row(id: &str, text: &str, scope: &str) -> RulesMirrorEntry {
     RulesMirrorEntry {
         rule_id: id.to_string(),
         rule_text: text.to_string(),
@@ -263,7 +263,7 @@ fn mirror_row(id: &str, text: &str, scope: &str) -> RulesMirrorEntry {
     }
 }
 
-fn qdrant_pt(id: &str, content: &str, score: f64) -> QdrantPoint {
+pub(super) fn qdrant_pt(id: &str, content: &str, score: f64) -> QdrantPoint {
     let mut p = HashMap::new();
     p.insert("content".to_string(), Value::String(content.to_string()));
     p.insert("scope".to_string(), Value::String("global".to_string()));
@@ -274,7 +274,7 @@ fn qdrant_pt(id: &str, content: &str, score: f64) -> QdrantPoint {
     }
 }
 
-fn qdrant_retrieved(id: &str, content: &str) -> QdrantRetrievedPoint {
+pub(super) fn qdrant_retrieved(id: &str, content: &str) -> QdrantRetrievedPoint {
     let mut p = HashMap::new();
     p.insert("content".to_string(), Value::String(content.to_string()));
     p.insert("scope".to_string(), Value::String("global".to_string()));
@@ -399,155 +399,9 @@ async fn fix1_list_does_not_call_ingest_or_enqueue() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX 2 — add runs findSimilarRules dup-check before persisting
-// (mirrors rules.ts:68-93 + rules.ts:119-158)
+// FIX 2 + constant — split into sibling to keep this file under 500 lines
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tokio::test]
-async fn fix2_empty_embedding_skips_dup_check_and_proceeds() {
-    // embed returns [] → dup-check skipped → add proceeds
-    let mut d = PaDaemon::ok_no_embed();
-    let q = PaQdrant::no_duplicates();
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(
-        json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }),
-    ))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    assert_eq!(j["success"], json!(true));
-    // embed was still called (we always call it)
-    assert_eq!(d.embed_count(), 1);
-    // but no Qdrant search was issued (embed returned empty → short-circuit)
-    assert_eq!(q.search_count(), 0);
-    // ingest did run
-    assert_eq!(d.ingest_count(), 1);
-}
-
-#[tokio::test]
-async fn fix2_with_embedding_no_duplicates_proceeds_to_add() {
-    // embed returns vector, search returns empty → no dups → add proceeds
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    let q = PaQdrant::no_duplicates();
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(
-        json!({ "action": "add", "label": "l", "content": "c", "scope": "global" }),
-    ))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    assert_eq!(j["success"], json!(true));
-    assert_eq!(j["message"], json!("Rule added successfully"));
-    assert_eq!(q.search_count(), 1);
-    assert_eq!(d.ingest_count(), 1);
-}
-
-#[tokio::test]
-async fn fix2_duplicate_found_returns_refusal_not_add() {
-    // embed returns vector, search returns a high-score hit → refusal
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    let dup = qdrant_pt("dup-id", "Existing rule", 0.85);
-    let q = PaQdrant::search_ok(vec![dup]);
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(json!({
-        "action": "add", "label": "new", "content": "Similar content", "scope": "global"
-    })))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    // Must be refusal (rules.ts:84-90)
-    assert_eq!(j["success"], json!(false));
-    assert_eq!(j["action"], json!("add"));
-    // ingest must NOT have been called
-    assert_eq!(d.ingest_count(), 0);
-    // similar_rules must be present with the duplicate
-    let similar = j["similar_rules"].as_array().unwrap();
-    assert_eq!(similar.len(), 1);
-    assert_eq!(similar[0]["id"], json!("dup-id"));
-}
-
-#[tokio::test]
-async fn fix2_refusal_message_exact_ts_string() {
-    // rules.ts:88: "Found N similar rule(s). Review before adding to avoid duplication."
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    let dups = vec![qdrant_pt("d1", "r1", 0.9), qdrant_pt("d2", "r2", 0.8)];
-    let q = PaQdrant::search_ok(dups);
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(json!({
-        "action": "add", "label": "l", "content": "c", "scope": "global"
-    })))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    assert_eq!(
-        j["message"].as_str().unwrap(),
-        "Found 2 similar rule(s). Review before adding to avoid duplication."
-    );
-}
-
-#[tokio::test]
-async fn fix2_similarity_rounded_to_3_decimals() {
-    // rules.ts:153: Math.round(point.score * 1000) / 1000
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    // score 0.85678 → should round to 0.857
-    let pt = qdrant_pt("id1", "content", 0.85678);
-    let q = PaQdrant::search_ok(vec![pt]);
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(json!({
-        "action": "add", "label": "l", "content": "c", "scope": "global"
-    })))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    let similar = j["similar_rules"].as_array().unwrap();
-    let sim = similar[0]["similarity"].as_f64().unwrap();
-    assert!((sim - 0.857).abs() < 1e-9, "expected 0.857, got {sim}");
-}
-
-#[tokio::test]
-async fn fix2_search_error_allows_add_to_proceed() {
-    // Any embed/search error → allow add (rules.ts:155-158)
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    let q = PaQdrant::search_err("Qdrant down");
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(json!({
-        "action": "add", "label": "l", "content": "c", "scope": "global"
-    })))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    let j = get_json(&res);
-    assert_eq!(j["success"], json!(true));
-    assert_eq!(d.ingest_count(), 1);
-}
-
-#[tokio::test]
-async fn fix2_refusal_field_order() {
-    // Refusal field order: success → action → similar_rules → message
-    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
-    let pt = qdrant_pt("d1", "dup", 0.9);
-    let q = PaQdrant::search_ok(vec![pt]);
-    let r = PaReader::empty();
-    let input = RulesInput::from_args(&args(json!({
-        "action": "add", "label": "l", "content": "c", "scope": "global"
-    })))
-    .unwrap();
-    let res = rules_tool(input, &mut d, &r, &q, None).await;
-    assert_eq!(
-        top_keys(get_text(&res)),
-        vec!["success", "action", "similar_rules", "message"]
-    );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DEFAULT_DUPLICATION_THRESHOLD constant
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn default_duplication_threshold_is_0_7() {
-    // Mirrors `DEFAULT_DUPLICATION_THRESHOLD = 0.7` in rules.ts:32
-    use super::list::DEFAULT_DUPLICATION_THRESHOLD;
-    assert!(
-        (DEFAULT_DUPLICATION_THRESHOLD - 0.7).abs() < f64::EPSILON,
-        "expected 0.7, got {DEFAULT_DUPLICATION_THRESHOLD}"
-    );
-}
+#[cfg(test)]
+#[path = "parity_tests_part2.rs"]
+mod part2;
