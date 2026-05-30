@@ -115,8 +115,13 @@ pub async fn search_tool(
     };
 
     let current_branch = session.current_branch.as_deref();
-    let opts = SearchOptions::from_input(input, current_branch);
+    let mut opts = SearchOptions::from_input(input, current_branch);
     let project_id = resolve_project_id(&opts, session);
+    // Thread the resolved project_id (which includes the session fallback) back
+    // into opts so that exact search (which reads opts.project_id directly) also
+    // benefits from the session fallback.  Mirrors TS search-exact.ts which
+    // calls `this.resolveProjectId()` to obtain the fallback.
+    opts.project_id = project_id.clone();
 
     // Pre-compute expansion keywords synchronously BEFORE any `.await`.
     // This keeps the future `Send` by ensuring no `&Connection` is held
