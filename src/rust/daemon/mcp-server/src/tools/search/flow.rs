@@ -295,8 +295,8 @@ where
 
     // Phase 8: Per-result graph context enrichment.
     if opts.include_graph_context {
-        // DEFERRED (task 30 follow-up): S1 — expandAndFuseWithGraph (graph-expansion
-        // fusion pass before diversity re-ranking) is not yet implemented.
+        // DEFERRED (task 30 follow-up, GitHub #80): expandAndFuseWithGraph
+        // (graph-expansion fusion pass before diversity re-ranking) is not yet implemented.
         // Only expandGraphContext (post-slice per-result enrichment) runs here.
         // TS executes `expandAndFuseWithGraph` BEFORE diversity + slice
         // (`finalizeResults` in search-helpers.ts:313-315), allowing graph-expanded

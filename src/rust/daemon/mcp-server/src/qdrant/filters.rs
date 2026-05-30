@@ -191,7 +191,7 @@ fn build_must_not_conditions(params: &FilterParams) -> Vec<Condition> {
 /// DEFERRED comment in `flow.rs`.
 fn build_project_condition(params: &FilterParams) -> Option<Condition> {
     if params.scope == "group" {
-        // DEFERRED (task 30 follow-up): S3 — full group/all scope via resolveSearchScope,
+        // DEFERRED (task 30 follow-up, GitHub #81): full group/all scope via resolveSearchScope,
         // including relevance decay (applyRelevanceDecay) and base_points/basePointsDegraded.
         // Until resolveSearchScope is wired, group_tenant_ids must be pre-populated by the
         // caller. Empty/None is handled gracefully (returns None → no tenant filter).
