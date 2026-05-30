@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::options::SearchOptions;
+use super::options::{SearchOptions, DEFAULT_EXACT_LIMIT};
 use super::types::{SearchMode, SearchResponse, SearchResult};
 use crate::proto::TextSearchRequest;
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -72,18 +72,18 @@ fn map_exact_results(matches: Vec<crate::proto::TextSearchMatch>) -> Vec<SearchR
             if let Some(ref b) = m.branch {
                 metadata.insert("branch".to_string(), Value::String(b.clone()));
             }
-            if !m.context_before.is_empty() {
-                metadata.insert(
-                    "context_before".to_string(),
-                    Value::Array(m.context_before.into_iter().map(Value::String).collect()),
-                );
-            }
-            if !m.context_after.is_empty() {
-                metadata.insert(
-                    "context_after".to_string(),
-                    Value::Array(m.context_after.into_iter().map(Value::String).collect()),
-                );
-            }
+            // M4: always emit context_before/context_after (even empty []).
+            // TS `mapExactResults` always includes both keys (search-exact.ts:55-63);
+            // JSON.stringify keeps `[]`. Omitting them when empty causes byte mismatch
+            // for contextLines=0.
+            metadata.insert(
+                "context_before".to_string(),
+                Value::Array(m.context_before.into_iter().map(Value::String).collect()),
+            );
+            metadata.insert(
+                "context_after".to_string(),
+                Value::Array(m.context_after.into_iter().map(Value::String).collect()),
+            );
             metadata.insert(
                 "_search_type".to_string(),
                 Value::String("exact".to_string()),
@@ -181,13 +181,20 @@ where
 /// Build the TextSearchRequest from SearchOptions.
 ///
 /// Mirrors `buildExactSearchRequest` in `search-exact.ts:68-101`.
+/// M5: when caller did not specify limit, exact mode uses `DEFAULT_EXACT_LIMIT` (100).
+/// TS: `max_results: options.limit ?? 100` (search-exact.ts:95).
 fn build_text_search_request(opts: &SearchOptions, tenant_id: Option<String>) -> TextSearchRequest {
+    let max_results = if opts.limit_explicit {
+        opts.limit
+    } else {
+        DEFAULT_EXACT_LIMIT
+    };
     TextSearchRequest {
         pattern: opts.query.clone(),
         regex: false,
         case_sensitive: true,
         context_lines: opts.context_lines as i32,
-        max_results: opts.limit as i32,
+        max_results: max_results as i32,
         tenant_id,
         branch: opts.branch.clone(),
         path_glob: opts.path_glob.clone(),

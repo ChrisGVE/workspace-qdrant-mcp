@@ -15,6 +15,10 @@ use super::types::{SearchMode, SearchScope};
 /// Default result limit — `DEFAULT_LIMIT = 10` in `search-types.ts`.
 pub const DEFAULT_LIMIT: usize = 10;
 
+/// Default max_results for exact (FTS5) mode when caller did not specify limit.
+/// Mirrors TS `buildExactSearchRequest`: `options.limit ?? 100` (search-exact.ts:95).
+pub const DEFAULT_EXACT_LIMIT: usize = 100;
+
 /// Default score threshold applied at the Qdrant query level only —
 /// `DEFAULT_SCORE_THRESHOLD = 0.3` in `search-types.ts`.
 ///
@@ -95,6 +99,10 @@ pub struct SearchOptions {
     pub context_lines: usize,
     pub include_graph_context: bool,
     pub diverse: bool,
+    /// True when the caller explicitly passed a `limit` value.
+    /// Used by exact mode to default to `DEFAULT_EXACT_LIMIT` (100)
+    /// instead of `DEFAULT_LIMIT` (10) when unset.
+    pub limit_explicit: bool,
 }
 
 impl SearchOptions {
@@ -104,6 +112,7 @@ impl SearchOptions {
     pub fn from_input(input: SearchInput, current_branch: Option<&str>) -> Self {
         // Branch: use explicit branch from input, or fall back to session's current branch.
         let branch = input.branch.or_else(|| current_branch.map(str::to_string));
+        let limit_explicit = input.limit.is_some();
         Self {
             query: input.query,
             collection: input.collection,
@@ -126,6 +135,7 @@ impl SearchOptions {
             context_lines: input.context_lines.unwrap_or(0),
             include_graph_context: input.include_graph_context.unwrap_or(false),
             diverse: input.diverse.unwrap_or(true),
+            limit_explicit,
         }
     }
 
