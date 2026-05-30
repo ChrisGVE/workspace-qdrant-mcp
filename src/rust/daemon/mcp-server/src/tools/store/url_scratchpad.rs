@@ -104,14 +104,22 @@ where
         return ok_text(&result);
     }
 
-    let library_name = input.library_name.as_deref();
+    // TS: `libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL`
+    // (store-handlers.ts:92) — whitespace-only libraryName trims to '' which
+    // is falsy, so it falls back to projectId/global.  Mirror by treating a
+    // trimmed-empty libraryName as absent before tenant resolution.
+    let library_name = input
+        .library_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let collection = if library_name.is_some() {
         wqm_common::constants::COLLECTION_LIBRARIES.to_string()
     } else {
         COLLECTION_SCRATCHPAD.to_string()
     };
     let tenant_id = library_name
-        .map(|l| l.trim().to_string())
+        .map(str::to_string)
         .or_else(|| session_project_id.map(str::to_string))
         .unwrap_or_else(|| TENANT_GLOBAL.to_string());
 

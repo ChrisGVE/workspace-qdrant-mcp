@@ -346,3 +346,47 @@ async fn url_metadata_source_is_mcp_store_url() {
     let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
     assert!(enqueue_args[6].contains("mcp_store_url"));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// url tenant resolution: whitespace-only libraryName
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn url_whitespace_library_name_falls_back_to_session_project_id() {
+    // TS: `libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL`
+    // A whitespace-only libraryName trims to '' (falsy) → falls back to
+    // sessionState.projectId.  Rust must match this behaviour.
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "url",
+        "url": "https://example.com",
+        "libraryName": "   "  // whitespace only
+    }));
+    let input = StoreInput::from_args(&args, Some("session-project-123"));
+    let _ = store_tool(input, &mut daemon, Some("session-project-123"), true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    // tenant_id is arg index 2
+    assert_eq!(
+        enqueue_args[2], "session-project-123",
+        "whitespace-only libraryName must fall back to session project_id"
+    );
+}
+
+#[tokio::test]
+async fn url_whitespace_library_name_falls_back_to_global_when_no_session() {
+    // When libraryName is whitespace AND no session project_id, tenant = TENANT_GLOBAL.
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "url",
+        "url": "https://example.com",
+        "libraryName": "  "  // whitespace only, no session
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    let expected_global = wqm_common::constants::TENANT_GLOBAL;
+    assert_eq!(
+        enqueue_args[2], expected_global,
+        "whitespace-only libraryName with no session must fall back to TENANT_GLOBAL"
+    );
+}
