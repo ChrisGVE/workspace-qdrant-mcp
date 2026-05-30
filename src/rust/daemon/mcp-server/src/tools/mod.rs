@@ -11,6 +11,7 @@ pub mod grep;
 pub mod list;
 pub mod retrieve;
 pub mod rules;
+pub mod search;
 pub mod store;
 #[cfg(test)]
 mod tests;
