@@ -15,7 +15,7 @@ use crate::qdrant::client::{QdrantPoint, QdrantRetrievedPoint};
 use crate::sqlite::rules_mirror::RulesMirrorEntry;
 
 use super::traits::{RulesDaemon, RulesQdrant, RulesReader};
-use super::types::{RuleItem, RulesInput};
+use super::types::RulesInput;
 use super::*;
 
 // ─────────────────────────────────────────────────────────────────────────────

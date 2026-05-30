@@ -23,7 +23,7 @@ struct Call {
 pub(super) struct MockStoreDaemon {
     pub register_result: Result<ProjectRegisterResult, String>,
     pub enqueue_result: Result<String, String>,
-    pub calls: Arc<Mutex<Vec<Call>>>,
+    calls: Arc<Mutex<Vec<Call>>>,
 }
 
 impl MockStoreDaemon {
