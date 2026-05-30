@@ -339,13 +339,10 @@ impl LadybugGraphStore {
         rel_pattern: &str,
         tenants: &[String],
     ) -> GraphDbResult<Vec<CrossBoundaryNeighbour>> {
-        // Tenant IN-list literal. Tenant ids come from project registration,
-        // not free-form query input, but we quote-escape defensively.
-        let tenant_list = tenants
-            .iter()
-            .map(|t| format!("'{}'", t.replace('\'', "\\'")))
-            .collect::<Vec<_>>()
-            .join(",");
+        // Parameterized tenant IN-list: `[$t0,$t1,...]` with one bound param per
+        // tenant, so tenant ids are never interpolated into the query text
+        // (no Cypher string-literal escaping pitfalls).
+        let (tenant_list, tenant_names) = tenant_param_list(tenants.len());
 
         let mut out = Vec::new();
 
@@ -357,21 +354,21 @@ impl LadybugGraphStore {
         for pattern in patterns {
             let cypher = format!(
                 "MATCH {pattern} \
-                 WHERE n.tenant_id IN [{tenant_list}] \
+                 WHERE n.tenant_id IN {tenant_list} \
                  RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path, \
                         n.tenant_id, label(r), r.weight"
             );
             let mut stmt = conn.prepare(&cypher).map_err(|e| {
                 GraphDbError::InvalidInput(format!("Prepare cross_boundary_neighbours: {e}"))
             })?;
-            let result = conn
-                .execute(
-                    &mut stmt,
-                    vec![("cid", Value::String(current_id.to_string()))],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute cross_boundary_neighbours: {e}"))
-                })?;
+            let mut params: Vec<(&str, Value)> = Vec::with_capacity(tenants.len() + 1);
+            params.push(("cid", Value::String(current_id.to_string())));
+            for (name, tenant) in tenant_names.iter().zip(tenants.iter()) {
+                params.push((name.as_str(), Value::String(tenant.clone())));
+            }
+            let result = conn.execute(&mut stmt, params).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute cross_boundary_neighbours: {e}"))
+            })?;
             for row in result {
                 if row.len() < 7 {
                     continue;
@@ -395,6 +392,25 @@ impl LadybugGraphStore {
 
         Ok(out)
     }
+}
+
+/// Build a parameterized Cypher tenant IN-list. Returns the bracketed fragment
+/// `[$t0,$t1,...]` and the matching parameter names (`t0`, `t1`, ...), so tenant
+/// ids are bound as parameters rather than interpolated into the query text.
+/// This avoids Cypher string-literal escaping pitfalls (e.g. a tenant id
+/// containing a quote or backslash). Callers bind `Value::String(tenant)` under
+/// each returned name in order.
+fn tenant_param_list(count: usize) -> (String, Vec<String>) {
+    let names: Vec<String> = (0..count).map(|i| format!("t{i}")).collect();
+    let fragment = format!(
+        "[{}]",
+        names
+            .iter()
+            .map(|n| format!("${n}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    (fragment, names)
 }
 
 // ---- Value helpers -----------------------------------------------------------
@@ -953,26 +969,22 @@ impl GraphStore for LadybugGraphStore {
         // __global__ / library nodes and bypass tenant scoping. Concept and
         // library seeds remain valid. The per-hop query guards reached nodes.
         {
-            let tenant_list = tenants
-                .iter()
-                .map(|t| format!("'{}'", t.replace('\'', "\\'")))
-                .collect::<Vec<_>>()
-                .join(",");
+            let (tenant_list, tenant_names) = tenant_param_list(tenants.len());
             let cypher = format!(
                 "MATCH (n:GraphNode {{node_id: $id}}) \
-                 WHERE n.tenant_id IN [{tenant_list}] RETURN n.node_id"
+                 WHERE n.tenant_id IN {tenant_list} RETURN n.node_id"
             );
             let mut stmt = conn.prepare(&cypher).map_err(|e| {
                 GraphDbError::InvalidInput(format!("Prepare cross_boundary seed guard: {e}"))
             })?;
-            let result = conn
-                .execute(
-                    &mut stmt,
-                    vec![("id", Value::String(source_node_id.to_string()))],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute cross_boundary seed guard: {e}"))
-                })?;
+            let mut params: Vec<(&str, Value)> = Vec::with_capacity(tenants.len() + 1);
+            params.push(("id", Value::String(source_node_id.to_string())));
+            for (name, tenant) in tenant_names.iter().zip(tenants.iter()) {
+                params.push((name.as_str(), Value::String(tenant.clone())));
+            }
+            let result = conn.execute(&mut stmt, params).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute cross_boundary seed guard: {e}"))
+            })?;
             if result.into_iter().next().is_none() {
                 return Ok(Vec::new());
             }
