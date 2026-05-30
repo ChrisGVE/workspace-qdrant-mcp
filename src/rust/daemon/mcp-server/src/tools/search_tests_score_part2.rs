@@ -68,3 +68,50 @@ fn parse_args_known_mode_and_scope_parsed_correctly() {
     assert_eq!(input.mode, Some(SearchMode::Semantic));
     assert_eq!(input.scope, Some(SearchScope::All));
 }
+
+// ---------------------------------------------------------------------------
+// resolve_project_id precedence (GitHub #83): explicit > session > cwd-detect
+// ---------------------------------------------------------------------------
+
+#[test]
+fn resolve_project_id_precedence_explicit_then_session_then_cwd() {
+    use crate::server_types::SessionState;
+    use crate::sqlite::{SharedStateManager, StateManager};
+    use crate::tools::search::resolve_project_id;
+
+    // Degraded state manager (path does not exist → no SQLite connection), so
+    // the cwd-detection fallback resolves no tenant and returns None.
+    let state = SharedStateManager::new(StateManager::open_at(
+        "/nonexistent/wqm-resolve-project-id-test.db",
+    ));
+
+    let opts = crate::tools::search::options::SearchOptions {
+        project_id: Some("explicit-pid".to_string()),
+        ..super::super::opts_hybrid("q", 5)
+    };
+    let mut session = SessionState::new();
+    session.project_id = Some("session-pid".to_string());
+
+    // 1. Explicit opts.project_id wins over session and cwd.
+    assert_eq!(
+        resolve_project_id(&opts, &session, &state),
+        Some("explicit-pid".to_string())
+    );
+
+    // 2. No explicit id → session.project_id is used.
+    let opts_no_explicit = crate::tools::search::options::SearchOptions {
+        project_id: None,
+        ..super::super::opts_hybrid("q", 5)
+    };
+    assert_eq!(
+        resolve_project_id(&opts_no_explicit, &session, &state),
+        Some("session-pid".to_string())
+    );
+
+    // 3. Neither explicit nor session → cwd detection (degraded → None).
+    let empty_session = SessionState::new();
+    assert_eq!(
+        resolve_project_id(&opts_no_explicit, &empty_session, &state),
+        None
+    );
+}

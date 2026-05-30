@@ -116,7 +116,7 @@ pub async fn search_tool(
 
     let current_branch = session.current_branch.as_deref();
     let mut opts = SearchOptions::from_input(input, current_branch);
-    let project_id = resolve_project_id(&opts, session);
+    let project_id = resolve_project_id(&opts, session, state);
     // Thread the resolved project_id (which includes the session fallback) back
     // into opts so that exact search (which reads opts.project_id directly) also
     // benefits from the session fallback.  Mirrors TS search-exact.ts which
@@ -182,11 +182,43 @@ pub async fn search_tool(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve the effective project_id: explicit override > session project_id.
-fn resolve_project_id(opts: &SearchOptions, session: &SessionState) -> Option<String> {
-    opts.project_id
-        .clone()
-        .or_else(|| session.project_id.clone())
+/// Resolve the effective project_id: explicit override > session project_id >
+/// cwd-based project detection.
+///
+/// Mirrors TS `resolveProjectContext` (`search-helpers.ts`): when no explicit
+/// `projectId` is supplied it falls back to detecting the current project from
+/// `process.cwd()` via the project detector. Without this fallback every search
+/// runs with no tenant filter, which (a) loses project isolation and (b) forces
+/// the tag-expansion query into an unindexed full scan of the `tags` table
+/// (GitHub #83 — the dominant search-latency cost).
+///
+/// The registry lookup takes a short synchronous SQLite lock that is dropped
+/// before this function returns — no guard is held across any `.await`.
+fn resolve_project_id(
+    opts: &SearchOptions,
+    session: &SessionState,
+    state: &SharedStateManager,
+) -> Option<String> {
+    if let Some(p) = opts.project_id.clone() {
+        return Some(p);
+    }
+    if let Some(p) = session.project_id.clone() {
+        return Some(p);
+    }
+    detect_project_id_from_cwd(state)
+}
+
+/// Detect the current project's tenant id from the process working directory.
+///
+/// Mirrors `projectDetector.getProjectInfo(process.cwd())` in TS. Returns the
+/// registered tenant id (`watch_folders` longest-prefix match) or `None` when
+/// the cwd is not inside a known project.
+fn detect_project_id_from_cwd(state: &SharedStateManager) -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let guard = state.lock();
+    let info = crate::session::detect_project(&cwd, &guard)?;
+    // guard dropped at end of scope — never held across an await.
+    info.project_id
 }
 
 /// Fire-and-forget: log pre-search event via daemon.
