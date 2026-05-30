@@ -566,6 +566,50 @@ pub fn start_lsp_metrics_collector(
     })
 }
 
+/// Spawn the graph stub-edge resolver (120-second loop).
+///
+/// Tree-sitter emits name-only "stub" callee/import targets (empty file_path)
+/// that never match the callee's real node — so the raw call graph is 100%
+/// dangling. This task periodically repoints each resolvable stub edge to the
+/// real project symbol of the same name (see
+/// `GraphStore::resolve_stub_edges`), turning the dangling baseline into a
+/// usable intra-project relationship graph for PageRank/communities/impact.
+/// Stdlib/external names (no project node) stay dangling and are excluded.
+///
+/// Runs periodically (not per-file) so it stays O(dangling) per tenant and
+/// converges as indexing settles. It also heals the *existing* graph in place,
+/// so no reindex is required to benefit.
+pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStore) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
+        info!("Graph stub-edge resolver started (120s interval)");
+        loop {
+            interval.tick().await;
+            // Enumerate tenants present in the graph. The read guard is dropped
+            // before resolve_stub_edges (which takes the write lock) to avoid
+            // self-deadlock on the shared store's RwLock.
+            let tenants: Vec<String> = {
+                let guard = graph_store.read().await;
+                sqlx::query_scalar("SELECT DISTINCT tenant_id FROM graph_edges")
+                    .fetch_all(guard.pool())
+                    .await
+                    .unwrap_or_default()
+            };
+            for tenant in tenants {
+                match graph_store.resolve_stub_edges(&tenant).await {
+                    Ok(n) if n > 0 => {
+                        info!(tenant = %tenant, repointed = n, "Graph stub resolver repointed edges")
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!(tenant = %tenant, error = %e, "Graph stub resolution failed")
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Spawn all periodic background tasks and return their handles.
 pub fn spawn_all(
     pool: &SqlitePool,

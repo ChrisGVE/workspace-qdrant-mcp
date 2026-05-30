@@ -343,6 +343,22 @@ pub trait GraphStore: Send + Sync {
 
     /// Delete orphaned nodes (nodes with no edges).
     async fn prune_orphans(&self, tenant_id: &str) -> GraphDbResult<u64>;
+
+    /// Resolve dangling "stub" edges to real symbol nodes by name.
+    ///
+    /// Tree-sitter emits name-only stub callees/targets with an empty
+    /// `file_path` (a node_id that never matches the callee's real node).
+    /// This pass repoints each such edge to a real node with the same
+    /// `symbol_name` when an unambiguous match exists (same-file preference,
+    /// then unique-in-tenant), recomputing the edge_id, and prunes the
+    /// now-orphaned stub nodes. Stdlib/external names (no project node)
+    /// stay dangling and are naturally excluded from the resolved graph.
+    ///
+    /// Default impl is a no-op for backends that don't produce stub edges.
+    /// Returns the number of edges repointed.
+    async fn resolve_stub_edges(&self, _tenant_id: &str) -> GraphDbResult<u64> {
+        Ok(0)
+    }
 }
 
 /// Compute deterministic node ID from its identifying fields.

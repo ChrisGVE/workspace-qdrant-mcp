@@ -116,6 +116,12 @@ impl<S: GraphStore> SharedGraphStore<S> {
         let guard = self.inner.write().await;
         guard.prune_orphans(tenant_id).await
     }
+
+    /// Resolve dangling stub edges to real nodes by name (exclusive lock).
+    pub async fn resolve_stub_edges(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        let guard = self.inner.write().await;
+        guard.resolve_stub_edges(tenant_id).await
+    }
 }
 
 #[cfg(test)]
@@ -304,6 +310,72 @@ mod tests {
             let results = handle.await.unwrap();
             assert_eq!(results.len(), 1);
         }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_stub_edges_by_name() {
+        use super::super::{EdgeType, NodeType};
+        let store = test_shared_store().await;
+
+        // Real caller (a.rs) + real callee (b.rs) + a name-only stub "callee".
+        let caller = GraphNode::new(T, "a.rs", "caller", NodeType::Function);
+        let callee = GraphNode::new(T, "b.rs", "callee", NodeType::Function);
+        let stub = GraphNode::stub(T, "callee", NodeType::Function);
+        store
+            .upsert_nodes(&[caller.clone(), callee.clone(), stub.clone()])
+            .await
+            .unwrap();
+        // Dangling: caller -> stub("callee").
+        let dangling = GraphEdge::new(T, &caller.node_id, &stub.node_id, EdgeType::Calls, "a.rs");
+        store.insert_edges(&[dangling]).await.unwrap();
+
+        // Unmatched external stub ("println") — no project node — stays dangling.
+        let ext = GraphNode::stub(T, "println", NodeType::Function);
+        store.upsert_nodes(&[ext.clone()]).await.unwrap();
+        let ext_edge = GraphEdge::new(T, &caller.node_id, &ext.node_id, EdgeType::Calls, "a.rs");
+        store.insert_edges(&[ext_edge]).await.unwrap();
+
+        let repointed = store.resolve_stub_edges(T).await.unwrap();
+        assert_eq!(repointed, 1, "only the matchable stub edge repoints");
+
+        // Edge now reaches the REAL callee in b.rs.
+        let related = store.query_related(T, &caller.node_id, 1, None).await.unwrap();
+        assert!(
+            related.iter().any(|n| n.file_path == "b.rs"),
+            "resolved edge should target the real callee node in b.rs"
+        );
+
+        // Matched stub is pruned; the unmatched external stub remains.
+        let guard = store.read().await;
+        let stub_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM graph_nodes WHERE tenant_id = ?1 AND file_path = ''",
+        )
+        .bind(T)
+        .fetch_one(guard.pool())
+        .await
+        .unwrap();
+        assert_eq!(stub_count, 1, "matched stub pruned; 'println' stub remains");
+    }
+
+    #[tokio::test]
+    async fn test_resolve_stub_edges_skips_ambiguous() {
+        use super::super::{EdgeType, NodeType};
+        let store = test_shared_store().await;
+
+        // Two real nodes named "new" in different files → ambiguous.
+        let caller = GraphNode::new(T, "a.rs", "caller", NodeType::Function);
+        let new_a = GraphNode::new(T, "x.rs", "new", NodeType::Function);
+        let new_b = GraphNode::new(T, "y.rs", "new", NodeType::Function);
+        let stub = GraphNode::stub(T, "new", NodeType::Function);
+        store
+            .upsert_nodes(&[caller.clone(), new_a, new_b, stub.clone()])
+            .await
+            .unwrap();
+        let dangling = GraphEdge::new(T, &caller.node_id, &stub.node_id, EdgeType::Calls, "a.rs");
+        store.insert_edges(&[dangling]).await.unwrap();
+
+        let repointed = store.resolve_stub_edges(T).await.unwrap();
+        assert_eq!(repointed, 0, "ambiguous name (2 defining files) must not repoint");
     }
 
     #[tokio::test]

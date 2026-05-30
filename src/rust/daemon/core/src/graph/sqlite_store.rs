@@ -6,8 +6,8 @@ use tracing::debug;
 use wqm_common::timestamps::now_utc;
 
 use super::{
-    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
-    ImpactReport, TraversalNode,
+    compute_edge_id, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
+    ImpactNode, ImpactReport, TraversalNode,
 };
 
 /// SQLite-backed implementation of `GraphStore`.
@@ -372,6 +372,134 @@ impl GraphStore for SqliteGraphStore {
         let count = result.rows_affected();
         debug!("Pruned {} orphaned nodes for tenant {}", count, tenant_id);
         Ok(count)
+    }
+
+    async fn resolve_stub_edges(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        use std::collections::HashMap;
+
+        // 1. All dangling edges: target is a stub node (empty file_path).
+        let dangling = sqlx::query(
+            "SELECT e.edge_id, e.source_node_id, e.edge_type, e.source_file,
+                    e.weight, e.metadata_json, t.symbol_name AS target_name
+             FROM graph_edges e
+             JOIN graph_nodes t ON e.target_node_id = t.node_id
+             WHERE e.tenant_id = ?1 AND (t.file_path IS NULL OR t.file_path = '')",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if dangling.is_empty() {
+            return Ok(0);
+        }
+
+        // 2. Real candidate nodes (resolved file_path, not file-typed), indexed
+        //    by symbol_name -> [(node_id, file_path)].
+        let real_rows = sqlx::query(
+            "SELECT node_id, symbol_name, file_path FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path <> '' AND symbol_type <> 'file'",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for r in &real_rows {
+            let name: String = r.get("symbol_name");
+            let nid: String = r.get("node_id");
+            let fp: String = r.get("file_path");
+            by_name.entry(name).or_default().push((nid, fp));
+        }
+
+        // 3. Repoint each resolvable dangling edge to its real node.
+        let now = now_utc();
+        let mut repointed: u64 = 0;
+        let mut tx = self.pool.begin().await?;
+        for d in &dangling {
+            let target_name: String = d.get("target_name");
+            let Some(candidates) = by_name.get(&target_name) else {
+                continue; // external/stdlib — no project node with this name.
+            };
+            let source_file: String = d.get("source_file");
+            // Prefer a definition in the caller's own file; else require a
+            // unique tenant-wide match. Ambiguous (>1 file) names are skipped.
+            let chosen: Option<&String> = candidates
+                .iter()
+                .find(|(_, fp)| *fp == source_file)
+                .map(|(nid, _)| nid)
+                .or_else(|| {
+                    if candidates.len() == 1 {
+                        Some(&candidates[0].0)
+                    } else {
+                        None
+                    }
+                });
+            let Some(new_target) = chosen else {
+                continue;
+            };
+            let source_node_id: String = d.get("source_node_id");
+            // Skip self-loops (e.g. direct recursion) — they don't add
+            // relationship signal and skew centrality measures.
+            if &source_node_id == new_target {
+                continue;
+            }
+            let edge_type_str: String = d.get("edge_type");
+            let Some(edge_type) = EdgeType::from_str(&edge_type_str) else {
+                continue;
+            };
+            let old_edge_id: String = d.get("edge_id");
+            let weight: f64 = d.get("weight");
+            let metadata_json: Option<String> = d.get("metadata_json");
+            let new_edge_id = compute_edge_id(&source_node_id, new_target, edge_type);
+
+            sqlx::query(
+                "INSERT OR IGNORE INTO graph_edges
+                    (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
+                     source_file, weight, metadata_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&new_edge_id)
+            .bind(tenant_id)
+            .bind(&source_node_id)
+            .bind(new_target)
+            .bind(edge_type.as_str())
+            .bind(&source_file)
+            .bind(weight)
+            .bind(&metadata_json)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query("DELETE FROM graph_edges WHERE edge_id = ?1 AND tenant_id = ?2")
+                .bind(&old_edge_id)
+                .bind(tenant_id)
+                .execute(&mut *tx)
+                .await?;
+            repointed += 1;
+        }
+        tx.commit().await?;
+
+        // 4. Drop stub nodes that no longer have any edges.
+        sqlx::query(
+            "DELETE FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path = ''
+               AND node_id NOT IN (
+                   SELECT source_node_id FROM graph_edges WHERE tenant_id = ?1
+                   UNION
+                   SELECT target_node_id FROM graph_edges WHERE tenant_id = ?1
+               )",
+        )
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await?;
+
+        debug!(
+            "Resolved {} stub edges for tenant {} ({} dangling examined)",
+            repointed,
+            tenant_id,
+            dangling.len()
+        );
+        Ok(repointed)
     }
 }
 
