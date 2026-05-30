@@ -240,5 +240,77 @@
     "present": true,
     "url": "jdbc://db",
     "expected": "url must use http:// or https:// (got jdbc:)"
+  },
+  {
+    "name": "bare_http_no_host",
+    "present": true,
+    "url": "http://",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "bare_https_no_host",
+    "present": true,
+    "url": "https://",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "mailto_scheme",
+    "present": true,
+    "url": "mailto:a@b",
+    "expected": "url must use http:// or https:// (got mailto:)"
+  },
+  {
+    "name": "http_single_slash",
+    "present": true,
+    "url": "http:/x",
+    "expected": "OK"
+  },
+  {
+    "name": "https_single_slash",
+    "present": true,
+    "url": "https:/host/path",
+    "expected": "OK"
+  },
+  {
+    "name": "embedded_space_host",
+    "present": true,
+    "url": "http://a b.com",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "scheme_only_http",
+    "present": true,
+    "url": "http:",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "scheme_only_colon_text",
+    "present": true,
+    "url": "http:example",
+    "expected": "OK"
+  },
+  {
+    "name": "backslash_host",
+    "present": true,
+    "url": "http://exa\\mple.com",
+    "expected": "OK"
+  },
+  {
+    "name": "tab_in_host",
+    "present": true,
+    "url": "http://ex\tample.com",
+    "expected": "OK"
+  },
+  {
+    "name": "unicode_host",
+    "present": true,
+    "url": "http://exámple.com",
+    "expected": "OK"
+  },
+  {
+    "name": "ipv6_host",
+    "present": true,
+    "url": "http://[::1]:8080/p",
+    "expected": "OK"
   }
 ]

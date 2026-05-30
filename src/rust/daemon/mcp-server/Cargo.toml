@@ -47,6 +47,9 @@ tokio-util = { workspace = true }
 # Qdrant client (pinned to match workspace usage in daemon/core + daemon/grpc)
 qdrant-client = "1.17"
 
+# WHATWG URL parser — matches TS `new URL()` for store-url validation parity
+url = "2.5"
+
 # gRPC client stack (workspace versions)
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 prost = "0.13"

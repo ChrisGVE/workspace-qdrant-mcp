@@ -29,25 +29,24 @@ element `String()`s joined by "," (null elements → ""), object →
 "[object Object]". The Rust `js_coerce_action` was fixed to mirror this exactly
 (it previously emitted serde-JSON reprs like `["add"]` / `{}`).
 
-## Known divergence (documented, not asserted)
+## URL validation: WHATWG-exact (no divergence)
 
-`validate_url` in the Rust port uses a **manual** (non-WHATWG) URL parser to
-avoid a `url`-crate dependency, while TS uses `new URL()`. They agree on the
-operative inputs (clean http/https URLs, empty/whitespace, clearly non-http
-schemes written with `://`). They diverge on WHATWG-boundary inputs, e.g.:
+`validate_url` uses the `url` crate — the same WHATWG URL Standard that JS
+`new URL()` implements — so it matches TS byte-for-byte on the accept/reject
+decision AND the error message, including the boundary inputs that an earlier
+manual parser got wrong. The corpus captures **every** input directly from TS
+with **no exclusions**:
 
-| input | TS `new URL` | Rust manual parser |
-|-------|--------------|--------------------|
-| `http://` | malformed | "url has empty hostname" |
-| `mailto:a@b` | "must use http(s) (got mailto:)" | malformed (no `://`) |
-| `http:/x` | OK (host `x`) | malformed (no `://`) |
-| `http://a b.com` | malformed | OK |
+| input | TS `new URL` / Rust `url` crate (identical) |
+|-------|---------------------------------------------|
+| `http://` | "url is malformed (failed to parse)" |
+| `mailto:a@b` | "url must use http:// or https:// (got mailto:)" |
+| `http:/x` | OK (special-scheme single-slash → host `x`) |
+| `http://a b.com` | "url is malformed (failed to parse)" |
+| `http://...` | "url has invalid hostname (dots/whitespace only)" |
 
-These rows are **excluded** from `url_validate.json` (the harness recomputes the
-Rust parser inline and drops any input where the two disagree) rather than
-silently "agreeing with Rust". This is a real, pre-existing parser limitation,
-not introduced here — flagged for follow-up if WHATWG-exact URL validation is
-required.
+(The earlier manual `://`-split parser diverged on these; replacing it with the
+`url` crate closed the gap — see commit history.)
 
 ## Provenance / regeneration
 

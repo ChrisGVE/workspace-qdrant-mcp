@@ -202,3 +202,63 @@ async fn euv_valid_numeric_subpath() {
 async fn euv_scheme_jdbc() {
     assert_url_validate("scheme_jdbc").await;
 }
+
+#[tokio::test]
+async fn euv_bare_http_no_host() {
+    assert_url_validate("bare_http_no_host").await;
+}
+
+#[tokio::test]
+async fn euv_bare_https_no_host() {
+    assert_url_validate("bare_https_no_host").await;
+}
+
+#[tokio::test]
+async fn euv_mailto_scheme() {
+    assert_url_validate("mailto_scheme").await;
+}
+
+#[tokio::test]
+async fn euv_http_single_slash() {
+    assert_url_validate("http_single_slash").await;
+}
+
+#[tokio::test]
+async fn euv_https_single_slash() {
+    assert_url_validate("https_single_slash").await;
+}
+
+#[tokio::test]
+async fn euv_embedded_space_host() {
+    assert_url_validate("embedded_space_host").await;
+}
+
+#[tokio::test]
+async fn euv_scheme_only_http() {
+    assert_url_validate("scheme_only_http").await;
+}
+
+#[tokio::test]
+async fn euv_scheme_only_colon_text() {
+    assert_url_validate("scheme_only_colon_text").await;
+}
+
+#[tokio::test]
+async fn euv_backslash_host() {
+    assert_url_validate("backslash_host").await;
+}
+
+#[tokio::test]
+async fn euv_tab_in_host() {
+    assert_url_validate("tab_in_host").await;
+}
+
+#[tokio::test]
+async fn euv_unicode_host() {
+    assert_url_validate("unicode_host").await;
+}
+
+#[tokio::test]
+async fn euv_ipv6_host() {
+    assert_url_validate("ipv6_host").await;
+}

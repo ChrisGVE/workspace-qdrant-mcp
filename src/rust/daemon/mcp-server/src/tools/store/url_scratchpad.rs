@@ -13,49 +13,37 @@ use crate::tools::envelope::ok_text;
 
 /// Validate a URL string — mirrors `validateUrlInput` in store-handlers.ts:27-52.
 ///
-/// Error messages match TS byte-for-byte:
+/// Uses the WHATWG `url` crate (the same standard `new URL()` implements) so
+/// the accept/reject decision and the error message match TypeScript
+/// byte-for-byte, including boundary inputs (`http:/x`, `http://a b.com`,
+/// `mailto:a@b`, bare `http://`). The branch ORDER mirrors the TS source
+/// exactly — parse, then protocol, then hostname:
 /// - empty/non-string  → `"url is required when type is \"url\""` (line 29)
 /// - parse failure     → `"url is malformed (failed to parse)"` (line 36)
 /// - non-http(s) scheme → `"url must use http:// or https:// (got <scheme>:)"` (line 40)
-///   Note: the suffix is `<scheme>:` (e.g. `ftp:`), NOT `ftp://`.
-///   `parsed.protocol` in JS includes the colon but not `//`.
+///   The suffix is `<scheme>:` (e.g. `ftp:`): `parsed.protocol` includes the
+///   colon but not `//`, and `Url::scheme()` is already lowercased like JS.
+/// - empty hostname     → `"url has empty hostname"` (line 47)
+/// - dots/whitespace-only hostname → `"url has invalid hostname (dots/whitespace only)"` (line 50)
 pub fn validate_url(raw: &str) -> Result<(), String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err("url is required when type is \"url\"".to_string());
     }
-    // Attempt to parse as a URL (mirrors `new URL(trimmed)` in TS — line 33-36).
-    // We extract scheme and host manually to avoid a url-crate dependency.
-    let scheme_end = trimmed
-        .find("://")
-        .ok_or_else(|| "url is malformed (failed to parse)".to_string())?;
-    let scheme_raw = &trimmed[..scheme_end];
-    // Scheme must be non-empty and consist only of valid chars (alpha+digit+'-'+'+')
-    if scheme_raw.is_empty()
-        || !scheme_raw
-            .chars()
-            .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-' || c == '+')
-    {
-        return Err("url is malformed (failed to parse)".to_string());
-    }
-    // Canonicalize scheme to lowercase: TS `new URL(...)` normalizes protocol to
-    // lowercase (so "HTTP://x" has `protocol === 'http:'` and is accepted).
-    // Mirror that by lowercasing before comparison.
-    let scheme = scheme_raw.to_ascii_lowercase();
-    // Non-http(s) scheme — error uses `<scheme>:` (parsed.protocol includes colon, not `://`)
-    // store-handlers.ts:40: `url must use http:// or https:// (got ${parsed.protocol})`
+    // Mirror `new URL(trimmed)` — WHATWG parsing, lowercased scheme/host.
+    let parsed =
+        url::Url::parse(trimmed).map_err(|_| "url is malformed (failed to parse)".to_string())?;
+    let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
         return Err(format!("url must use http:// or https:// (got {scheme}:)"));
     }
-    // Extract hostname
-    let after_scheme = &trimmed[scheme_end + 3..];
-    let host = after_scheme.split('/').next().unwrap_or("");
-    // Remove port if present
-    let host = host.split(':').next().unwrap_or(host);
+    // `parsed.hostname` in JS (no userinfo, no port); empty for hostless URLs.
+    let host = parsed.host_str().unwrap_or("");
     if host.is_empty() {
         return Err("url has empty hostname".to_string());
     }
-    if host.chars().all(|c| c == '.' || c == ' ') {
+    // TS: `/^[.\s]+$/.test(host)` — host composed solely of dots/whitespace.
+    if host.chars().all(|c| c == '.' || c.is_whitespace()) {
         return Err("url has invalid hostname (dots/whitespace only)".to_string());
     }
     Ok(())
