@@ -242,6 +242,13 @@ pub(super) fn opts_project_with_id(query: &str, pid: &str) -> SearchOptions {
     }
 }
 
+pub(super) fn opts_keyword(query: &str, limit: usize) -> SearchOptions {
+    SearchOptions {
+        mode: SearchMode::Keyword,
+        ..opts_hybrid(query, limit)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // AC-S1: Hybrid — embed + sparse legs both fire, RRF fusion produces results
 // ---------------------------------------------------------------------------

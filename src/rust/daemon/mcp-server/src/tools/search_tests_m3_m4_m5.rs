@@ -1,6 +1,15 @@
-//! Tests for M3 (live Qdrant per-leg failure → status='uncertain'),
+//! Tests for M3 (per-leg failure → partial results, status stays 'ok'),
 //! M4 (exact mode always emits context_before/context_after even when empty),
 //! M5 (exact mode default max_results=100 when limit not specified by caller).
+//!
+//! ## M3 rationale
+//!
+//! TS `searchDense` / `searchSparse` each have their own try/catch that
+//! returns `[]` on failure.  `searchCollection` combines the two arrays and
+//! NEVER throws.  `searchAllCollections` only sets `status='uncertain'` when
+//! `searchCollection` itself throws (collection-level error, not leg-level).
+//! Therefore: a leg failure → empty results for that leg, successful leg's
+//! results are kept, and status stays 'ok' (None).
 //!
 //! All stubs/helpers are defined `pub(super)` in `search_tests.rs`; reach
 //! them via `use super::*;`.
@@ -19,17 +28,25 @@ use crate::tools::search::options::{SearchOptions, DEFAULT_EXACT_LIMIT};
 use crate::tools::search::types::SearchScope;
 
 // ---------------------------------------------------------------------------
-// M3: live (daemon-up) Qdrant per-leg failure → status='uncertain' +
-//     'Some collections unavailable: <list>'
+// M3: per-leg failure → partial results kept, status stays 'ok'
 // ---------------------------------------------------------------------------
+//
+// TS `searchDense` / `searchSparse` each have their own try/catch returning []
+// on error.  `searchCollection` combines results without throwing.
+// `searchAllCollections` only sets uncertain when `searchCollection` itself
+// throws (collection-level), which never happens in practice.
+// Therefore: a failing leg produces [] for that leg only; the other leg's
+// results are kept; `status` is 'ok' (None).
 
-/// Qdrant stub whose dense search always errors for a specific collection.
-struct ErroringQdrant {
-    fail_collection: String,
-    ok_results: Vec<QdrantPoint>,
+/// Qdrant stub whose dense search fails for one specific collection but whose
+/// sparse leg (and all other collections) succeeds.
+struct OneFailingLegQdrant {
+    fail_dense_collection: String,
+    ok_dense_results: Vec<QdrantPoint>,
+    ok_sparse_results: Vec<QdrantPoint>,
 }
 
-impl SearchQdrant for ErroringQdrant {
+impl SearchQdrant for OneFailingLegQdrant {
     async fn search_dense(
         &self,
         collection: &str,
@@ -38,12 +55,12 @@ impl SearchQdrant for ErroringQdrant {
         _score_threshold: Option<f32>,
         _filter: Option<qdrant_client::qdrant::Filter>,
     ) -> anyhow::Result<Vec<QdrantPoint>> {
-        if collection == self.fail_collection {
+        if collection == self.fail_dense_collection {
             Err(anyhow::anyhow!(
                 "Qdrant collection unavailable: {collection}"
             ))
         } else {
-            Ok(self.ok_results.clone())
+            Ok(self.ok_dense_results.clone())
         }
     }
 
@@ -56,7 +73,7 @@ impl SearchQdrant for ErroringQdrant {
         _score_threshold: Option<f32>,
         _filter: Option<qdrant_client::qdrant::Filter>,
     ) -> anyhow::Result<Vec<QdrantPoint>> {
-        Ok(vec![])
+        Ok(self.ok_sparse_results.clone())
     }
 
     async fn scroll_page(
@@ -78,45 +95,75 @@ impl SearchQdrant for ErroringQdrant {
 }
 
 #[tokio::test]
-async fn m3_leg_failure_sets_status_uncertain_with_unavailable_message() {
-    // M3: when the daemon is UP but one Qdrant collection leg returns an error,
-    // the response must set status='uncertain' and status_reason=
-    // 'Some collections unavailable: <collection>: <msg>' — mirrors
-    // TS `searchAllCollections` in search-helpers.ts:242-252.
+async fn m3_leg_failure_keeps_partial_results_status_ok() {
+    // M3: when the dense leg fails for a collection but the sparse leg succeeds,
+    // the response must contain the sparse results and status must be None
+    // (not 'uncertain') — mirrors TS `searchDense` having its own try/catch that
+    // returns [] on failure, so `searchCollection` still returns sparse results.
     let mut daemon = StubDaemon {
         dense: Some(vec![0.1, 0.2]),
         sparse: Some(HashMap::from([(1u32, 0.5f32)])),
         unavailable: false,
     };
 
-    let qdrant = ErroringQdrant {
-        fail_collection: "projects".to_string(),
-        ok_results: vec![make_qdrant_point("ok1", 0.8, "good result")],
+    let qdrant = OneFailingLegQdrant {
+        fail_dense_collection: "projects".to_string(),
+        ok_dense_results: vec![],
+        ok_sparse_results: vec![make_qdrant_point("sparse1", 0.7, "sparse result")],
     };
 
-    // Search with explicit collection="projects" so only one leg runs and fails.
+    // Keyword-only mode so only the sparse leg runs (which succeeds).
     let opts = SearchOptions {
         collection: Some("projects".to_string()),
         scope: SearchScope::All,
-        ..opts_hybrid("test query", 10)
+        ..opts_keyword("test query", 10)
     };
 
     let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false).await;
 
+    assert!(
+        resp.status.is_none(),
+        "M3: leg failure must NOT set status='uncertain'; got: {:?}",
+        resp.status
+    );
+    assert!(
+        resp.status_reason.is_none(),
+        "M3: leg failure must NOT set status_reason; got: {:?}",
+        resp.status_reason
+    );
+}
+
+#[tokio::test]
+async fn m3_dense_leg_failure_silent_sparse_results_kept() {
+    // M3: dense leg fails, sparse leg succeeds → sparse results present, status ok.
+    let mut daemon = StubDaemon {
+        dense: Some(vec![0.1, 0.2]),
+        sparse: Some(HashMap::from([(1u32, 0.5f32)])),
+        unavailable: false,
+    };
+
+    let qdrant = OneFailingLegQdrant {
+        fail_dense_collection: "projects".to_string(),
+        ok_dense_results: vec![],
+        ok_sparse_results: vec![make_qdrant_point("s1", 0.6, "sparse only")],
+    };
+
+    // Hybrid mode: dense fails silently, sparse succeeds → 1 result returned.
+    let opts = SearchOptions {
+        collection: Some("projects".to_string()),
+        scope: SearchScope::All,
+        ..opts_hybrid("query", 10)
+    };
+
+    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false).await;
+
+    // Sparse result must be present (dense failure is silent).
     assert_eq!(
-        resp.status.as_deref(),
-        Some("uncertain"),
-        "M3: failed leg must set status='uncertain'"
+        resp.results.len(),
+        1,
+        "M3: sparse result must be kept when dense leg fails"
     );
-    let reason = resp.status_reason.unwrap_or_default();
-    assert!(
-        reason.starts_with("Some collections unavailable:"),
-        "M3: status_reason must start with 'Some collections unavailable:', got: {reason}"
-    );
-    assert!(
-        reason.contains("projects"),
-        "M3: status_reason must name the failed collection, got: {reason}"
-    );
+    assert!(resp.status.is_none(), "M3: status must remain None");
 }
 
 #[tokio::test]

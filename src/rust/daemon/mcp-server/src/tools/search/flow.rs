@@ -243,16 +243,19 @@ where
     }
 
     // Phase 2: Fan-out per-collection search.
-    // M3: track per-leg failures to set status='uncertain' +
-    //     'Some collections unavailable: <list>' (mirrors search-helpers.ts:242-252).
+    // TS `searchCollection` never throws: each leg (dense/sparse) has its own
+    // try/catch and returns [] on failure.  `searchAllCollections` only sets
+    // status='uncertain' when `searchCollection` ITSELF throws (collection-level
+    // error), not on per-leg failures.  Since our `search_collection` always
+    // returns a Vec (swallowing leg errors), we mirror TS: no collection can
+    // fail here, so `status` always stays 'ok' after this phase.
     let mut all_tagged: Vec<TaggedResult> = Vec::new();
     let search_limit = (opts.limit * 2) as u64;
-    let mut failed_collections: Vec<String> = Vec::new();
 
     for coll in &collections {
         let filter_params = search_filter_params(coll, opts, project_id);
         let filter = build_filter(&filter_params);
-        match search_collection(
+        let leg = search_collection(
             qdrant,
             coll,
             mode,
@@ -262,11 +265,8 @@ where
             search_limit,
             opts.score_threshold,
         )
-        .await
-        {
-            Ok(leg) => all_tagged.extend(leg),
-            Err(err) => failed_collections.push(format!("{coll}: {err}")),
-        }
+        .await;
+        all_tagged.extend(leg);
     }
 
     // Phase 3: RRF fusion (hybrid only) → sort by score desc.
@@ -314,17 +314,9 @@ where
     }
 
     let total = results.len();
-    // M3: when ≥1 leg failed, set status='uncertain' + 'Some collections unavailable: <list>'
-    // to match TS `searchAllCollections` in `search-helpers.ts:242-252`.
-    let (status, status_reason) = if failed_collections.is_empty() {
-        (None, None)
-    } else {
-        let msg = format!(
-            "Some collections unavailable: {}",
-            failed_collections.join(", ")
-        );
-        (Some("uncertain".to_string()), Some(msg))
-    };
+    // Leg failures are swallowed in `search_collection` (matching TS behaviour),
+    // so status is always 'ok' (None) after a successful pipeline run.
+    let (status, status_reason) = (None::<String>, None::<String>);
     let mut resp = SearchResponse {
         results,
         total,

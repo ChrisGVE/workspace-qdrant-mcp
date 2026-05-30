@@ -26,9 +26,15 @@ use super::types::{ParentContext, Provenance, SearchMode, SearchResult};
 /// Mirrors `searchCollection` in `search-qdrant.ts:149-158` and
 /// `searchAllCollections` in `search-helpers.ts:242-252`.
 ///
-/// Returns `Err(error_message)` when at least one leg fails (M3 fix): the
-/// caller uses this to set `status='uncertain'` and
-/// `status_reason='Some collections unavailable: <msg>'`.
+/// Each leg (`searchDense` / `searchSparse` in TS) has its own `try/catch`
+/// that returns `[]` on failure — `searchCollection` itself NEVER throws.
+/// `searchAllCollections` sets `status='uncertain'` only when `searchCollection`
+/// *itself* throws (a collection-level error, not a leg-level error).
+///
+/// This function mirrors that: leg failures are silently swallowed (empty
+/// results for that leg), and `Ok(combined)` is returned in all cases.
+/// Only a collection-level panic (which cannot happen here) would be `Err`.
+///
 /// Score threshold applied at query level: dense = threshold, sparse = threshold * 0.5.
 /// (Matches TS `search-qdrant.ts:105` and `:135`.)
 pub async fn search_collection<Q>(
@@ -40,7 +46,7 @@ pub async fn search_collection<Q>(
     filter: Option<qdrant_client::qdrant::Filter>,
     limit: u64,
     score_threshold: f64,
-) -> Result<Vec<TaggedResult>, String>
+) -> Vec<TaggedResult>
 where
     Q: SearchQdrant,
 {
@@ -88,13 +94,10 @@ where
             Ok(vec![])
         };
 
-    // M3: collect any leg-level error message; results from failed legs are empty.
-    let leg_error = dense_result
-        .as_ref()
-        .err()
-        .cloned()
-        .or_else(|| sparse_result.as_ref().err().cloned());
-
+    // Leg failures are silently swallowed: TS `searchDense`/`searchSparse` each
+    // have their own try/catch returning [] on failure.  `searchCollection` in TS
+    // never throws — it just combines the two (possibly empty) arrays.
+    // Mirror that: use the results from whichever legs succeeded.
     let dense_pts = dense_result.unwrap_or_default();
     let sparse_pts = sparse_result.unwrap_or_default();
 
@@ -110,11 +113,7 @@ where
             .map(|p| point_to_tagged(p, collection.to_string(), SearchType::Keyword)),
     );
 
-    if let Some(err) = leg_error {
-        Err(err)
-    } else {
-        Ok(combined)
-    }
+    combined
 }
 
 // ---------------------------------------------------------------------------
