@@ -84,7 +84,9 @@ pub(super) async fn run(
     let section_spans = section_extractor.section_spans(tenant_id, relative_path, content);
 
     // Ordered extractors: sections first (already captured), then explains
-    // (context-aware), then comments + references (context-free).
+    // (context-aware), then comments (also context-aware: resolves comment→
+    // symbol EXPLAINS to real nodes via the same automaton), then references.
+    let comment_extractor = CommentExtractor::with_context(automaton.clone());
     let extractors: Vec<Box<dyn NarrativeExtractor>> = vec![
         Box::new(SectionExtractor::for_library(
             library_name.map(str::to_string),
@@ -94,7 +96,7 @@ pub(super) async fn run(
             automaton,
             (**cfg).clone(),
         )),
-        Box::new(CommentExtractor),
+        Box::new(comment_extractor),
         Box::new(ReferencesExtractor::new()),
     ];
 

@@ -3,7 +3,10 @@
 /// Parses source files line-by-line to identify contiguous comment blocks
 /// (3+ lines minimum). Each qualifying block becomes a `CodeComment` graph
 /// node. When a function/method signature appears within 5 lines after the
-/// block, an `Explains` edge links the comment to a stub `Function` node.
+/// block AND that symbol resolves to exactly one real code-graph node (via the
+/// tenant symbol automaton), an `Explains` edge links the comment to that real
+/// node. Unknown or ambiguous symbols are dropped — never stubbed — so the
+/// narrative layer carries no dangling EXPLAINS targets.
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -12,6 +15,7 @@ use crate::graph::{
     compute_node_id_for_type, EdgeType, GraphEdge, GraphNode, NodeIdFields, NodeType,
 };
 
+use super::symbol_index::SymbolAutomaton;
 use super::{NarrativeExtractionResult, NarrativeExtractor};
 
 /// Minimum number of contiguous comment lines to form a `CodeComment` node.
@@ -248,7 +252,40 @@ fn find_nearby_symbol<'a>(lines: &[&'a str], end_line_idx: usize, prefix: &str) 
     None
 }
 
-pub struct CommentExtractor;
+/// Extracts `CodeComment` nodes and (when resolvable) real-target `Explains`
+/// edges from source comments.
+///
+/// Construct with [`CommentExtractor::with_context`] to supply the tenant
+/// symbol automaton used to resolve a comment's nearby symbol to a real
+/// code-graph node id. [`CommentExtractor::new`] yields an extractor with an
+/// empty automaton, which still emits `CodeComment` nodes but no EXPLAINS edges
+/// (every symbol resolves to "unknown").
+pub struct CommentExtractor {
+    symbol_automaton: SymbolAutomaton,
+}
+
+impl CommentExtractor {
+    /// Context-free extractor: emits `CodeComment` nodes only (no EXPLAINS).
+    pub fn new() -> Self {
+        Self {
+            symbol_automaton: SymbolAutomaton::empty(),
+        }
+    }
+
+    /// Extractor that resolves comment→symbol EXPLAINS edges against the
+    /// tenant's real code symbols via `automaton`.
+    pub fn with_context(automaton: SymbolAutomaton) -> Self {
+        Self {
+            symbol_automaton: automaton,
+        }
+    }
+}
+
+impl Default for CommentExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
 impl NarrativeExtractor for CommentExtractor {
@@ -301,19 +338,21 @@ impl NarrativeExtractor for CommentExtractor {
 
             result.nodes.push(node);
 
-            // Try to link to a nearby symbol.
+            // Link to a nearby symbol ONLY when it resolves to exactly one real
+            // code-graph node. Unknown/ambiguous names are dropped (never
+            // stubbed), so EXPLAINS targets are always genuine graph_nodes ids.
             let end_idx = block.end_line as usize; // end_line is 1-based, so this is the 0-based index past the block
             if let Some(symbol_name) = find_nearby_symbol(&lines, end_idx, prefix.as_str()) {
-                let symbol_node = GraphNode::stub(tenant_id, symbol_name, NodeType::Function);
-                let edge = GraphEdge::new(
-                    tenant_id,
-                    &node_id,
-                    &symbol_node.node_id,
-                    EdgeType::Explains,
-                    file_path_str.as_ref(),
-                );
-                result.nodes.push(symbol_node);
-                result.edges.push(edge);
+                if let Some(target_node_id) = self.symbol_automaton.resolve_unique(symbol_name) {
+                    let edge = GraphEdge::new(
+                        tenant_id,
+                        &node_id,
+                        target_node_id.to_string(),
+                        EdgeType::Explains,
+                        file_path_str.as_ref(),
+                    );
+                    result.edges.push(edge);
+                }
             }
         }
 
@@ -330,10 +369,18 @@ mod tests {
         PathBuf::from(s)
     }
 
-    // 1. Rust file with 4-line `//` comment block above `fn foo()` -> 1 CodeComment + 1 Explains edge
-    #[tokio::test]
-    async fn rust_comment_block_with_function() {
-        let content = "\
+    fn automaton_with(name: &str, node_id: &str) -> SymbolAutomaton {
+        SymbolAutomaton::build(
+            &[crate::graph::SymbolRow {
+                symbol_name: name.to_string(),
+                node_id: node_id.to_string(),
+                file_path: "src/main.rs".to_string(),
+            }],
+            3,
+        )
+    }
+
+    const RUST_COMMENT_FN: &str = "\
 // This is a comment
 // that spans multiple
 // lines describing
@@ -342,31 +389,82 @@ fn foo() {
     println!(\"hello\");
 }
 ";
-        let extractor = CommentExtractor;
+
+    // 1a. Without context (empty automaton): CodeComment node only, NO EXPLAINS
+    // edge and NO stub node — unresolved symbols are dropped, not stubbed.
+    #[tokio::test]
+    async fn rust_comment_block_no_context_drops_explains() {
+        let extractor = CommentExtractor::new();
         let result = extractor
-            .extract("t1", &path("src/main.rs"), content, Some("rust"))
+            .extract("t1", &path("src/main.rs"), RUST_COMMENT_FN, Some("rust"))
             .await;
 
-        assert_eq!(
-            result.nodes.len(),
-            2,
-            "expected CodeComment + stub Function"
+        assert_eq!(result.nodes.len(), 1, "expected only the CodeComment node");
+        assert_eq!(result.nodes[0].symbol_type, NodeType::CodeComment);
+        assert!(
+            result.edges.is_empty(),
+            "no EXPLAINS edge without a resolvable real symbol (no stubs)"
         );
-        assert_eq!(result.edges.len(), 1, "expected 1 Explains edge");
+        // No node is a Function stub.
+        assert!(result
+            .nodes
+            .iter()
+            .all(|n| n.symbol_type != NodeType::Function));
+    }
 
+    // 1b. With context: the nearby `foo` resolves to a real code node, so a
+    // single EXPLAINS edge targets that real node id (no stub node emitted).
+    #[tokio::test]
+    async fn rust_comment_block_resolves_real_symbol() {
+        let extractor = CommentExtractor::with_context(automaton_with("foo", "real-foo-node"));
+        let result = extractor
+            .extract("t1", &path("src/main.rs"), RUST_COMMENT_FN, Some("rust"))
+            .await;
+
+        assert_eq!(result.nodes.len(), 1, "only the CodeComment node, no stub");
         let comment_node = &result.nodes[0];
         assert_eq!(comment_node.symbol_type, NodeType::CodeComment);
         assert_eq!(comment_node.start_line, Some(1));
         assert_eq!(comment_node.end_line, Some(4));
 
-        let symbol_node = &result.nodes[1];
-        assert_eq!(symbol_node.symbol_type, NodeType::Function);
-        assert_eq!(symbol_node.symbol_name, "foo");
-
+        assert_eq!(result.edges.len(), 1, "expected 1 EXPLAINS edge");
         let edge = &result.edges[0];
         assert_eq!(edge.edge_type, EdgeType::Explains);
         assert_eq!(edge.source_node_id, comment_node.node_id);
-        assert_eq!(edge.target_node_id, symbol_node.node_id);
+        assert_eq!(
+            edge.target_node_id, "real-foo-node",
+            "EXPLAINS must target the real resolved node id"
+        );
+    }
+
+    // 1c. With context but an ambiguous symbol (two nodes share the name): the
+    // edge is dropped rather than guessing.
+    #[tokio::test]
+    async fn rust_comment_block_ambiguous_symbol_drops_edge() {
+        let automaton = SymbolAutomaton::build(
+            &[
+                crate::graph::SymbolRow {
+                    symbol_name: "foo".to_string(),
+                    node_id: "foo-a".to_string(),
+                    file_path: "a.rs".to_string(),
+                },
+                crate::graph::SymbolRow {
+                    symbol_name: "foo".to_string(),
+                    node_id: "foo-b".to_string(),
+                    file_path: "b.rs".to_string(),
+                },
+            ],
+            3,
+        );
+        let extractor = CommentExtractor::with_context(automaton);
+        let result = extractor
+            .extract("t1", &path("src/main.rs"), RUST_COMMENT_FN, Some("rust"))
+            .await;
+        assert_eq!(result.nodes.len(), 1);
+        assert!(
+            result.edges.is_empty(),
+            "ambiguous symbol → drop the edge (never stub or guess)"
+        );
     }
 
     // 2. Python file with 3-line `#` comment block -> 1 CodeComment node
@@ -378,7 +476,7 @@ fn foo() {
 # connection parameters
 DATABASE_URL = \"sqlite:///db.sqlite\"
 ";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::new();
         let result = extractor
             .extract("t1", &path("config.py"), content, Some("python"))
             .await;
@@ -401,7 +499,7 @@ DATABASE_URL = \"sqlite:///db.sqlite\"
 // only two lines
 fn bar() {}
 ";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::new();
         let result = extractor
             .extract("t1", &path("src/lib.rs"), content, Some("rust"))
             .await;
@@ -423,7 +521,7 @@ let w = 4;
 let q = 5;
 fn distant() {}
 ";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::new();
         let result = extractor
             .extract("t1", &path("src/far.rs"), content, Some("rust"))
             .await;
@@ -436,7 +534,7 @@ fn distant() {}
     #[tokio::test]
     async fn no_language_returns_empty() {
         let content = "Just some text\nwith no code\n";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::new();
         let result = extractor
             .extract("t1", &path("notes.txt"), content, None)
             .await;
@@ -454,14 +552,16 @@ fn distant() {}
 def add(a, b):
     return a + b
 ";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::with_context(automaton_with("add", "py-add"));
         let result = extractor
             .extract("t1", &path("math.py"), content, Some("python"))
             .await;
 
-        assert_eq!(result.nodes.len(), 2);
+        // CodeComment node only (no stub); EXPLAINS targets the real `add` node.
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes[0].symbol_type, NodeType::CodeComment);
         assert_eq!(result.edges.len(), 1);
-        assert_eq!(result.nodes[1].symbol_name, "add");
+        assert_eq!(result.edges[0].target_node_id, "py-add");
     }
 
     // Additional: Lua with `--` comments
@@ -475,21 +575,22 @@ function setup()
     print('ready')
 end
 ";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::with_context(automaton_with("setup", "lua-setup"));
         let result = extractor
             .extract("t1", &path("init.lua"), content, Some("lua"))
             .await;
 
-        assert_eq!(result.nodes.len(), 2);
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes[0].symbol_type, NodeType::CodeComment);
         assert_eq!(result.edges.len(), 1);
-        assert_eq!(result.nodes[1].symbol_name, "setup");
+        assert_eq!(result.edges[0].target_node_id, "lua-setup");
     }
 
     // Additional: Unknown language returns empty
     #[tokio::test]
     async fn unknown_language_returns_empty() {
         let content = "// some comment\n// more\n// and more\nfn test() {}\n";
-        let extractor = CommentExtractor;
+        let extractor = CommentExtractor::new();
         let result = extractor
             .extract("t1", &path("file.xyz"), content, Some("brainfuck"))
             .await;
@@ -511,16 +612,39 @@ fn first() {}
 // three lines
 fn second() {}
 ";
-        let extractor = CommentExtractor;
+        let automaton = SymbolAutomaton::build(
+            &[
+                crate::graph::SymbolRow {
+                    symbol_name: "first".to_string(),
+                    node_id: "n-first".to_string(),
+                    file_path: "src/multi.rs".to_string(),
+                },
+                crate::graph::SymbolRow {
+                    symbol_name: "second".to_string(),
+                    node_id: "n-second".to_string(),
+                    file_path: "src/multi.rs".to_string(),
+                },
+            ],
+            3,
+        );
+        let extractor = CommentExtractor::with_context(automaton);
         let result = extractor
             .extract("t1", &path("src/multi.rs"), content, Some("rust"))
             .await;
 
-        // 2 CodeComment nodes + 2 stub Function nodes
-        assert_eq!(result.nodes.len(), 4);
+        // 2 CodeComment nodes (no stubs) + 2 EXPLAINS edges to the real symbols.
+        assert_eq!(result.nodes.len(), 2);
+        assert!(result
+            .nodes
+            .iter()
+            .all(|n| n.symbol_type == NodeType::CodeComment));
         assert_eq!(result.edges.len(), 2);
-        assert_eq!(result.nodes[1].symbol_name, "first");
-        assert_eq!(result.nodes[3].symbol_name, "second");
+        let targets: Vec<&str> = result
+            .edges
+            .iter()
+            .map(|e| e.target_node_id.as_str())
+            .collect();
+        assert!(targets.contains(&"n-first") && targets.contains(&"n-second"));
     }
 
     // Unit tests for helper functions
