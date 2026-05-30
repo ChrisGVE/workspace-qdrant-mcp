@@ -115,3 +115,52 @@ fn resolve_project_id_precedence_explicit_then_session_then_cwd() {
         None
     );
 }
+
+#[test]
+fn resolve_cwd_project_id_resolves_subdir_to_registered_tenant() {
+    use crate::sqlite::{SharedStateManager, StateManager};
+    use crate::tools::search::resolve_cwd_project_id_locked;
+    use std::fs;
+
+    // Build a project root with a marker, a registered watch_folders row, and a
+    // nested subdir. Resolving from the subdir must longest-prefix-match the
+    // registered root tenant (the positive cwd-detection path for #83).
+    let dir = tempfile::TempDir::new().unwrap();
+    let root = dir.path().to_path_buf();
+    fs::write(root.join("Cargo.toml"), b"[package]\n").unwrap();
+    let subdir = root.join("crates").join("inner");
+    fs::create_dir_all(&subdir).unwrap();
+
+    let db_path = root.join("state.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE watch_folders (
+             tenant_id TEXT NOT NULL,
+             path TEXT NOT NULL,
+             collection TEXT NOT NULL DEFAULT 'projects'
+         )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES (?1, ?2, 'projects')",
+        rusqlite::params!["tid_cwd", root.to_str().unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = SharedStateManager::new(StateManager::open_at(&db_path));
+
+    // From the registered root.
+    assert_eq!(
+        resolve_cwd_project_id_locked(&root, &state),
+        Some("tid_cwd".to_string())
+    );
+    // From a nested subdir → longest-prefix match resolves to the same tenant.
+    assert_eq!(
+        resolve_cwd_project_id_locked(&subdir, &state),
+        Some("tid_cwd".to_string())
+    );
+    // From an unrelated dir → no match.
+    let other = tempfile::TempDir::new().unwrap();
+    assert_eq!(resolve_cwd_project_id_locked(other.path(), &state), None);
+}

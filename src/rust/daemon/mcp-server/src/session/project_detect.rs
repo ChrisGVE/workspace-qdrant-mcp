@@ -218,7 +218,10 @@ pub fn detect_project(cwd: &Path, state_manager: &StateManager) -> Option<Projec
 ///
 /// Uses the `watch_folders` table (collection = 'projects'), longest-prefix
 /// match. Returns `None` when the database is degraded or no match found.
-fn lookup_project_id(state_manager: &StateManager, project_root: &Path) -> Option<String> {
+///
+/// Exposed `pub` so the search tool can resolve a tenant from cwd without the
+/// git-remote / branch work that `detect_project` also performs (GitHub #83).
+pub fn lookup_project_id(state_manager: &StateManager, project_root: &Path) -> Option<String> {
     let conn = state_manager.connection()?;
     let path_str = project_root.to_str()?;
 

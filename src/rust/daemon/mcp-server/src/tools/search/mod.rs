@@ -213,12 +213,27 @@ fn resolve_project_id(
 /// Mirrors `projectDetector.getProjectInfo(process.cwd())` in TS. Returns the
 /// registered tenant id (`watch_folders` longest-prefix match) or `None` when
 /// the cwd is not inside a known project.
+///
+/// The project-root walk is filesystem-only and runs OUTSIDE the SQLite lock;
+/// the lock is held only for the registry lookup itself. Unlike
+/// [`crate::session::detect_project`] this deliberately skips the git-remote /
+/// branch reads — search only needs the tenant id.
 fn detect_project_id_from_cwd(state: &SharedStateManager) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
+    resolve_cwd_project_id_locked(&cwd, state)
+}
+
+/// Resolve a tenant id for `cwd`, acquiring the SQLite lock only for the lookup.
+fn resolve_cwd_project_id_locked(
+    cwd: &std::path::Path,
+    state: &SharedStateManager,
+) -> Option<String> {
+    // Filesystem-only project-root walk — no lock needed.
+    let root = crate::session::find_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
     let guard = state.lock();
-    let info = crate::session::detect_project(&cwd, &guard)?;
-    // guard dropped at end of scope — never held across an await.
-    info.project_id
+    // guard dropped at end of scope — never held across an await, and not held
+    // during the filesystem walk above.
+    crate::session::lookup_project_id(&guard, &root)
 }
 
 /// Fire-and-forget: log pre-search event via daemon.
