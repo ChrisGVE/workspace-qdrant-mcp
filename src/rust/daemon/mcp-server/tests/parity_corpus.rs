@@ -16,3 +16,9 @@ mod gen_stable_stringify;
 
 #[path = "parity/gen_idempotency.rs"]
 mod gen_idempotency;
+
+#[path = "parity/gen_parse_int.rs"]
+mod gen_parse_int;
+
+#[path = "parity/gen_expand_path.rs"]
+mod gen_expand_path;

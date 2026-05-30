@@ -15,6 +15,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use mcp_server::canonicalize::stable_stringify::stable_stringify;
+use mcp_server::config::{expand_path_ts_with_home, parse_int_prefix};
 use wqm_common::hashing::generate_idempotency_key;
 use wqm_common::queue_types::{ItemType, QueueOperation};
 
@@ -83,5 +84,41 @@ pub fn assert_idempotency(name: &str) {
     assert_eq!(
         key, expected_key,
         "idempotency[{name}] key mismatch\n  actual:   {key}\n  expected: {expected_key}"
+    );
+}
+
+/// `parse_int_prefix(input)` matches JS `parseInt(input, 10)`.
+///
+/// The corpus `expected` is the JS result; a JSON `null` means JS `NaN`, which
+/// Rust represents as `None`.
+pub fn assert_parse_int(name: &str) {
+    let c = case("parse_int", name);
+    let input = expect_str(&c, "input");
+    let actual = parse_int_prefix(input);
+    let expected: Option<i64> = match &c["expected"] {
+        Value::Null => None,
+        Value::Number(n) => Some(
+            n.as_i64()
+                .unwrap_or_else(|| panic!("parse_int[{name}]: expected must be an i64")),
+        ),
+        other => panic!("parse_int[{name}]: expected must be number or null, got {other}"),
+    };
+    assert_eq!(
+        actual, expected,
+        "parse_int[{name}] mismatch for input {input:?}\n  actual:   {actual:?}\n  expected: {expected:?}"
+    );
+}
+
+/// `expand_path_ts_with_home(input, home)` matches TS `expandPath(input)`
+/// (Node `path.join(home, input.slice(1))`) for the corpus's fixed home.
+pub fn assert_expand_path(name: &str) {
+    let c = case("expand_path", name);
+    let input = expect_str(&c, "input");
+    let home = expect_str(&c, "home");
+    let actual = expand_path_ts_with_home(input, home);
+    let expected = expect_str(&c, "expected");
+    assert_eq!(
+        actual, expected,
+        "expand_path[{name}] mismatch for input {input:?}\n  actual:   {actual}\n  expected: {expected}"
     );
 }
