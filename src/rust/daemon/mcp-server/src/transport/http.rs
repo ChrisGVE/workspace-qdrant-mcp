@@ -326,8 +326,11 @@ async fn handle_request(
     }
 
     // ── 4. Route ─────────────────────────────────────────────────────────────
+    // TS mcp-http-server.ts:192: `if (urlPath !== mcpPath)` — exact match only.
+    // rmcp uses Mcp-Session-Id headers (not URL sub-paths) for session routing,
+    // so the wildcard suffix is not required for rmcp session handling.
     let path_no_query = path.split('?').next().unwrap_or(&path);
-    if path_no_query != mcp_path && !path_no_query.starts_with(&format!("{mcp_path}/")) {
+    if path_no_query != mcp_path {
         record_http_request(Some(&path), 404, &mcp_path);
         return Response::builder()
             .status(StatusCode::NOT_FOUND)

@@ -358,3 +358,60 @@ async fn bearer_wrong_token_returns_invalid_token_body() {
         "wrong token must return 'Invalid token', got: {body_str}"
     );
 }
+
+// ── Exact-path routing (TS parity for finding #9) ─────────────────────────
+
+#[tokio::test]
+async fn mcp_subpath_returns_404() {
+    // TS mcp-http-server.ts:192: `if (urlPath !== mcpPath)` — exact match only.
+    // A request to /mcp/anything must be 404'd, not forwarded to rmcp.
+    let app = make_test_router(Some(TEST_TOKEN), 100);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp/session-id-abc")
+        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "sub-path /mcp/session-id-abc must return 404 (exact match only)"
+    );
+}
+
+#[tokio::test]
+async fn mcp_exact_path_passes_auth_returns_200() {
+    // Sanity: the exact /mcp path must still be accepted.
+    let app = make_test_router(Some(TEST_TOKEN), 100);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "/mcp exact path must return 200"
+    );
+}
+
+#[tokio::test]
+async fn mcp_subpath_with_query_returns_404() {
+    // /mcp/foo?bar must also be 404 — query-stripping happens before path check.
+    let app = make_test_router(Some(TEST_TOKEN), 100);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/mcp/foo?session=1")
+        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "/mcp/foo?session=1 must return 404"
+    );
+}
