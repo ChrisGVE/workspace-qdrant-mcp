@@ -7,7 +7,9 @@
 
 use super::*;
 
-use crate::tools::search::flow_fallback::{f001_refusal_reason, fallback_search};
+use crate::tools::search::flow_fallback::{
+    f001_refusal_reason, fallback_search, project_id_is_unresolved,
+};
 use crate::tools::search::types::{SearchMode, SearchScope};
 
 // ---------------------------------------------------------------------------
@@ -325,5 +327,135 @@ async fn fallback_search_response_fields_populated() {
     assert_eq!(
         resp.results[0].score, 0.5,
         "fallback results score is always 0.5"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M1 (SECURITY F-001): scope=project + unresolved project_id → ALL collections
+// refused — not just "projects"/"scratchpad".
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn m1_f001_project_scope_unresolved_refuses_all_collections_including_libraries() {
+    // M1 fix: when scope=Project and project_id=None, EVERY collection in the
+    // list is refused — the old code only refused "projects"/"scratchpad" which
+    // allowed "libraries" and "rules" legs to leak.
+    let opts = SearchOptions {
+        scope: SearchScope::Project,
+        project_id: None,
+        include_libraries: true,
+        ..opts_hybrid("sensitive query", 10)
+    };
+    let scroll_pt = make_retrieved_point("leak1", "sensitive query leak data");
+    let qdrant = StubQdrant {
+        scroll_results: vec![scroll_pt],
+        ..Default::default()
+    };
+    // Both projects and libraries are included (include_libraries=true).
+    let collections = vec!["projects".to_string(), "libraries".to_string()];
+
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
+
+    // F-001: BOTH collections refused — zero results, uncertain status.
+    assert_eq!(
+        resp.results.len(),
+        0,
+        "M1: libraries leg must also be refused when project_id unresolved"
+    );
+    assert_eq!(resp.status.as_deref(), Some("uncertain"));
+    let reason = resp.status_reason.unwrap_or_default();
+    assert!(
+        reason.contains("Refused collections: projects, libraries"),
+        "M1: F-001 string must list both refused collections, got: {reason}"
+    );
+}
+
+#[tokio::test]
+async fn m1_f001_explicit_rules_collection_refused_when_scope_project_unresolved() {
+    // M1: even an explicit collection="rules" is refused when scope=project, project_id=None.
+    let opts = SearchOptions {
+        scope: SearchScope::Project,
+        project_id: None,
+        ..opts_hybrid("rules query", 10)
+    };
+    let qdrant = StubQdrant::default();
+    let collections = vec!["rules".to_string()];
+
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
+
+    assert_eq!(
+        resp.results.len(),
+        0,
+        "M1: rules collection must be refused"
+    );
+    let reason = resp.status_reason.unwrap_or_default();
+    assert!(
+        reason.contains("Refused collections: rules"),
+        "M1: F-001 reason must cite the refused rules collection, got: {reason}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M2 (SECURITY F-001): empty/whitespace project_id treated as unresolved.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m2_project_id_is_unresolved_none() {
+    assert!(project_id_is_unresolved(None), "None must be unresolved");
+}
+
+#[test]
+fn m2_project_id_is_unresolved_empty_string() {
+    assert!(
+        project_id_is_unresolved(Some("")),
+        "empty string must be unresolved (mirrors TS !currentProjectId)"
+    );
+}
+
+#[test]
+fn m2_project_id_is_unresolved_whitespace_only() {
+    assert!(
+        project_id_is_unresolved(Some("   ")),
+        "whitespace-only must be unresolved"
+    );
+}
+
+#[test]
+fn m2_project_id_non_empty_is_resolved() {
+    assert!(
+        !project_id_is_unresolved(Some("tenant_abc")),
+        "non-empty string must be resolved"
+    );
+}
+
+#[tokio::test]
+async fn m2_f001_empty_project_id_refuses_scroll_with_exact_f001_string() {
+    // M2: project_id=Some("") must be treated as unresolved — refuses the scroll
+    // and emits the exact F-001 status string; tenant scroll must NOT execute.
+    let opts = SearchOptions {
+        scope: SearchScope::Project,
+        project_id: Some(String::new()), // empty string — must count as unresolved
+        ..opts_hybrid("secure", 10)
+    };
+    let scroll_pt = make_retrieved_point("s1", "secure secret data");
+    let qdrant = StubQdrant {
+        scroll_results: vec![scroll_pt],
+        ..Default::default()
+    };
+    let collections = vec!["projects".to_string()];
+
+    let resp = fallback_search(&qdrant, &opts, &collections, Some("")).await;
+
+    assert_eq!(
+        resp.results.len(),
+        0,
+        "M2: empty project_id must refuse scroll — tenant scroll must NOT execute"
+    );
+    assert_eq!(resp.status.as_deref(), Some("uncertain"));
+    let expected = f001_refusal_reason(&collections);
+    assert_eq!(
+        resp.status_reason.as_deref(),
+        Some(expected.as_str()),
+        "M2: must emit exact F-001 string for empty project_id"
     );
 }

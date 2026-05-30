@@ -56,8 +56,13 @@ where
     let fetch_limit = (opts.limit * 3) as u32;
 
     for coll in collections {
-        let is_project_coll = coll.as_str() == "projects" || coll.as_str() == "scratchpad";
-        if scope == SearchScope::Project && is_project_coll && project_id.is_none() {
+        // M1 (SECURITY F-001): refuse the collection when scope=Project AND project_id is
+        // unresolved, for ALL collections — not just "projects"/"scratchpad". This matches
+        // TS `buildFallbackFilter` which returns null for every collection whenever
+        // `scope === 'project' && !context.currentProjectId` (search-qdrant.ts:333-337).
+        // M2 (SECURITY F-001): treat project_id that is None OR empty/whitespace-only as
+        // unresolved. Mirrors TS `!currentProjectId` (empty string is falsy → refuse).
+        if scope == SearchScope::Project && project_id_is_unresolved(project_id) {
             refused.push(coll.clone());
             continue;
         }
@@ -99,6 +104,17 @@ where
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Returns true when the project_id should be treated as unresolved.
+///
+/// Mirrors TS `!currentProjectId` (empty string is falsy — M2 fix).
+/// Both `None` and `Some("")` / `Some("   ")` are considered unresolved.
+pub(super) fn project_id_is_unresolved(project_id: Option<&str>) -> bool {
+    match project_id {
+        None => true,
+        Some(s) => s.trim().is_empty(),
+    }
+}
+
 pub(super) fn fallback_filter_params<'a>(
     collection: &'a str,
     opts: &'a SearchOptions,
@@ -107,7 +123,10 @@ pub(super) fn fallback_filter_params<'a>(
     FilterParams {
         collection: collection.to_string(),
         scope: opts.scope.as_str().to_string(),
-        project_id: project_id.map(str::to_string),
+        // M2: treat empty/whitespace project_id as unresolved (mirrors TS !currentProjectId).
+        project_id: project_id
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string),
         group_tenant_ids: None,
         branch: opts.branch.clone(),
         file_type: opts.file_type.clone(),
