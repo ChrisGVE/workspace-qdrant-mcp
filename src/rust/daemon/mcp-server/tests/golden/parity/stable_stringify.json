@@ -631,5 +631,193 @@
       "100": 1
     },
     "expected": "{\"1\":4,\"100\":1,\"11\":5,\"20\":2,\"3\":3}"
+  },
+  {
+    "name": "array_empty_objects",
+    "value": [
+      {},
+      {},
+      {}
+    ],
+    "expected": "[{},{},{}]"
+  },
+  {
+    "name": "array_empty_arrays",
+    "value": [
+      [],
+      [],
+      []
+    ],
+    "expected": "[[],[],[]]"
+  },
+  {
+    "name": "object_value_is_array_of_objects",
+    "value": {
+      "a": [
+        {
+          "z": 1
+        },
+        {
+          "y": 2
+        }
+      ]
+    },
+    "expected": "{\"a\":[{\"z\":1},{\"y\":2}]}"
+  },
+  {
+    "name": "deeply_unsorted_keys",
+    "value": {
+      "d": 1,
+      "a": 1,
+      "c": 1,
+      "b": 1,
+      "e": 1
+    },
+    "expected": "{\"a\":1,\"b\":1,\"c\":1,\"d\":1,\"e\":1}"
+  },
+  {
+    "name": "long_key",
+    "value": {
+      "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk": "v"
+    },
+    "expected": "{\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\":\"v\"}"
+  },
+  {
+    "name": "key_with_quote",
+    "value": {
+      "a\"b": 1,
+      "c": 2
+    },
+    "expected": "{\"a\\\"b\":1,\"c\":2}"
+  },
+  {
+    "name": "key_with_backslash",
+    "value": {
+      "a\\b": 1,
+      "c": 2
+    },
+    "expected": "{\"a\\\\b\":1,\"c\":2}"
+  },
+  {
+    "name": "key_with_newline",
+    "value": {
+      "a\nb": 1,
+      "c": 2
+    },
+    "expected": "{\"a\\nb\":1,\"c\":2}"
+  },
+  {
+    "name": "value_string_with_slash",
+    "value": {
+      "path": "/a/b/c",
+      "url": "http://x"
+    },
+    "expected": "{\"path\":\"/a/b/c\",\"url\":\"http://x\"}"
+  },
+  {
+    "name": "negative_floats_array",
+    "value": [
+      -1.5,
+      0,
+      -100.25
+    ],
+    "expected": "[-1.5,0,-100.25]"
+  },
+  {
+    "name": "scientific_notation_value",
+    "value": {
+      "n": 6.022e+23
+    },
+    "expected": "{\"n\":6.022e+23}"
+  },
+  {
+    "name": "tiny_exponent_value",
+    "value": {
+      "n": 1.6e-19
+    },
+    "expected": "{\"n\":1.6e-19}"
+  },
+  {
+    "name": "object_with_emoji_key_and_value",
+    "value": {
+      "🔑": "🔒",
+      "a": "b"
+    },
+    "expected": "{\"a\":\"b\",\"🔑\":\"🔒\"}"
+  },
+  {
+    "name": "nested_unicode_keys",
+    "value": {
+      "outer": {
+        "café": 1,
+        "δ": 2
+      }
+    },
+    "expected": "{\"outer\":{\"café\":1,\"δ\":2}}"
+  },
+  {
+    "name": "array_of_mixed_unicode",
+    "value": [
+      "café",
+      "日本",
+      "👋",
+      "Ω"
+    ],
+    "expected": "[\"café\",\"日本\",\"👋\",\"Ω\"]"
+  },
+  {
+    "name": "object_bool_and_null_mix",
+    "value": {
+      "t": true,
+      "f": false,
+      "n": null,
+      "z": 0
+    },
+    "expected": "{\"f\":false,\"n\":null,\"t\":true,\"z\":0}"
+  },
+  {
+    "name": "triple_nested_arrays",
+    "value": [
+      [
+        [
+          1
+        ]
+      ],
+      [
+        [
+          2,
+          3
+        ]
+      ],
+      [
+        []
+      ]
+    ],
+    "expected": "[[[1]],[[2,3]],[[]]]"
+  },
+  {
+    "name": "object_keys_case_collision",
+    "value": {
+      "aB": 1,
+      "Ab": 2,
+      "AB": 3,
+      "ab": 4
+    },
+    "expected": "{\"AB\":3,\"Ab\":2,\"aB\":1,\"ab\":4}"
+  },
+  {
+    "name": "single_unicode_char",
+    "value": "λ",
+    "expected": "\"λ\""
+  },
+  {
+    "name": "array_with_empty_strings",
+    "value": [
+      "",
+      "",
+      "x",
+      ""
+    ],
+    "expected": "[\"\",\"\",\"x\",\"\"]"
   }
 ]

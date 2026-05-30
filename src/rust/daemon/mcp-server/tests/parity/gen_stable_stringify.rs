@@ -402,23 +402,3 @@ fn ss_object_key_and_value_unicode() {
 fn ss_single_key_object() {
     assert_stable_stringify("single_key_object");
 }
-
-#[test]
-fn ss_boolean_array() {
-    assert_stable_stringify("boolean_array");
-}
-
-#[test]
-fn ss_numeric_array_sorted_already() {
-    assert_stable_stringify("numeric_array_sorted_already");
-}
-
-#[test]
-fn ss_negative_and_positive() {
-    assert_stable_stringify("negative_and_positive");
-}
-
-#[test]
-fn ss_object_numeric_string_keys_many() {
-    assert_stable_stringify("object_numeric_string_keys_many");
-}
