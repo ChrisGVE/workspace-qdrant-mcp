@@ -42,8 +42,12 @@ pub const DEFAULT_MAX_EXPANDED_KEYWORDS: usize = 10;
 ///
 /// All fields are optional to match the TS interface; defaults are applied
 /// in [`SearchOptions::from_input`].
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+///
+/// NOTE: `mode` and `scope` are stored as `Option<String>` internally so that
+/// unrecognized enum values are silently dropped (matching TS
+/// `buildSearchOptions` which only sets them when the value is recognised).
+/// Conversion to typed enums happens in [`SearchOptions::from_input`].
+#[derive(Debug, Clone, Default)]
 pub struct SearchInput {
     pub query: String,
     pub collection: Option<String>,
@@ -139,12 +143,97 @@ impl SearchOptions {
         }
     }
 
-    /// Extract a Value map from a JSON object of tool arguments.
+    /// Parse raw MCP tool arguments into a `SearchInput`.
     ///
-    /// Returns `Err` if the value is not an object or is missing the required
-    /// `query` field.
+    /// Matches the permissive TS `buildSearchOptions` (tool-builders/search.ts):
+    /// - `query` defaults to `""` when absent (TS line 130: `?? ''`).
+    /// - `mode` and `scope` are ONLY set when the value is a recognised string;
+    ///   unknown values are silently dropped (not an error).
+    /// - All other fields are extracted permissively (wrong type → None).
     pub fn parse_args(args: &serde_json::Map<String, Value>) -> Result<SearchInput, String> {
-        serde_json::from_value(Value::Object(args.clone()))
-            .map_err(|e| format!("search: invalid arguments: {e}"))
+        // query: defaults to "" when absent (TS: `(args?.['query'] as string) ?? ''`)
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // mode: only set when value is a recognised string
+        let mode = args.get("mode").and_then(|v| v.as_str()).and_then(|s| {
+            match s {
+                "hybrid" => Some(SearchMode::Hybrid),
+                "semantic" => Some(SearchMode::Semantic),
+                "keyword" => Some(SearchMode::Keyword),
+                _ => None, // unrecognized → silently dropped (TS behaviour)
+            }
+        });
+
+        // scope: only set when value is a recognised string
+        let scope = args.get("scope").and_then(|v| v.as_str()).and_then(|s| {
+            match s {
+                "project" => Some(SearchScope::Project),
+                "group" => Some(SearchScope::Group),
+                "all" => Some(SearchScope::All),
+                _ => None, // unrecognized → silently dropped (TS behaviour)
+            }
+        });
+
+        Ok(SearchInput {
+            query,
+            collection: args
+                .get("collection")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            mode,
+            limit: args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize),
+            score_threshold: args.get("scoreThreshold").and_then(|v| v.as_f64()),
+            scope,
+            branch: args
+                .get("branch")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            file_type: args
+                .get("fileType")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            project_id: args
+                .get("projectId")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            library_name: args
+                .get("libraryName")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            library_path: args
+                .get("libraryPath")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            include_libraries: args.get("includeLibraries").and_then(|v| v.as_bool()),
+            tag: args.get("tag").and_then(|v| v.as_str()).map(str::to_string),
+            tags: args.get("tags").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.as_str().map(str::to_string))
+                    .collect()
+            }),
+            expand_context: args.get("expandContext").and_then(|v| v.as_bool()),
+            path_glob: args
+                .get("pathGlob")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            component: args
+                .get("component")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            exact: args.get("exact").and_then(|v| v.as_bool()),
+            context_lines: args
+                .get("contextLines")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize),
+            include_graph_context: args.get("includeGraphContext").and_then(|v| v.as_bool()),
+            diverse: args.get("diverse").and_then(|v| v.as_bool()),
+        })
     }
 }
