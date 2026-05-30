@@ -4,8 +4,9 @@
 //!
 //! Each renderer returns `(listing_string, rendered_count)`.
 
-use crate::sqlite::tracked_files::TrackedFileEntry;
+use crate::sqlite::tracked_files::{SubmoduleEntry, TrackedFileEntry};
 
+use super::tree::build_tree;
 use super::types::FolderNode;
 
 // ---------------------------------------------------------------------------
@@ -288,4 +289,27 @@ pub fn render_flat(files: &[TrackedFileEntry], limit: u32) -> (String, usize) {
     }
 
     (lines.join("\n"), count)
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch helper (used by list_tool in mod.rs)
+// ---------------------------------------------------------------------------
+
+/// Dispatch to the correct renderer based on the `format` string.
+///
+/// Returns `(listing_string, rendered_count)`.
+pub(super) fn render_files(
+    files: &[TrackedFileEntry],
+    submodules: &[SubmoduleEntry],
+    base_path: &str,
+    format: &str,
+    depth: u32,
+    limit: u32,
+) -> (String, usize) {
+    let root = build_tree(files, submodules, base_path);
+    match format {
+        "summary" => render_summary(&root, depth, limit),
+        "flat" => render_flat(files, limit),
+        _ => render_tree(&root, depth, limit),
+    }
 }

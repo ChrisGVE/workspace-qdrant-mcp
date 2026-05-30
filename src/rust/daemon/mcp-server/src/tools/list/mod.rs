@@ -36,7 +36,7 @@ use crate::sqlite::tracked_files::{
 use crate::sqlite::{project_queries, SharedStateManager};
 use crate::tools::envelope::ok_text;
 
-use renderers::{render_flat, render_summary, render_tree};
+use renderers::render_files;
 use tree::{build_tree, count_folders};
 use types::{
     ComponentSummary, ListResponse, ListStats, DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT,
@@ -472,26 +472,6 @@ pub fn list_tool(
         component_summaries,
     );
     ok_text(&response)
-}
-
-// ---------------------------------------------------------------------------
-// Internal: dispatch to the right renderer
-// ---------------------------------------------------------------------------
-
-fn render_files(
-    files: &[TrackedFileEntry],
-    submodules: &[SubmoduleEntry],
-    base_path: &str,
-    format: &str,
-    depth: u32,
-    limit: u32,
-) -> (String, usize) {
-    let root = build_tree(files, submodules, base_path);
-    match format {
-        "summary" => render_summary(&root, depth, limit),
-        "flat" => render_flat(files, limit),
-        _ => render_tree(&root, depth, limit),
-    }
 }
 
 // ---------------------------------------------------------------------------

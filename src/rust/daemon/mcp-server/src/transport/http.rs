@@ -69,11 +69,11 @@ use crate::transport::tls::{build_rustls_server_config, tls_config_from_env};
 
 use super::health::healthz_response;
 
+#[path = "http_middleware.rs"]
 mod http_middleware;
-use http_middleware::{
-    adapt_response, check_auth, check_rate_limit, extract_client_ip, forward_to_rmcp,
-    unauthorized_response,
-};
+use http_middleware::{adapt_response, check_auth, check_rate_limit, forward_to_rmcp};
+#[cfg(test)]
+use http_middleware::{extract_client_ip, unauthorized_response};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Defaults

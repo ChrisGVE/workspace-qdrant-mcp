@@ -13,7 +13,7 @@ use crate::observability::metrics::{
     record_http_auth_failure, record_http_rate_limited, record_http_request,
 };
 use crate::transport::auth::{check_bearer, AuthConfig, BearerOutcome};
-use crate::transport::cors::{add_cors_response_headers, CorsConfig};
+use crate::transport::cors::add_cors_response_headers;
 use crate::transport::rate_limit::SlidingWindowLimiter;
 
 use crate::tools::ToolsHandler;
