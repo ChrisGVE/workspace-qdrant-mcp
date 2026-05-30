@@ -18,4 +18,4 @@ pub use lifecycle::{
 };
 
 pub use heartbeat::start_heartbeat;
-pub use project_detect::{detect_project, find_project_root, lookup_project_id, ProjectInfo};
+pub use project_detect::{detect_project, lookup_project_id, ProjectInfo};

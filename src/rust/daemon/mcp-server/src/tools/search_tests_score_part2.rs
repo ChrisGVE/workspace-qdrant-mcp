@@ -117,21 +117,23 @@ fn resolve_project_id_precedence_explicit_then_session_then_cwd() {
 }
 
 #[test]
-fn resolve_cwd_project_id_resolves_subdir_to_registered_tenant() {
+fn resolve_cwd_project_id_longest_prefix_picks_deeper_markerless_tenant() {
     use crate::sqlite::{SharedStateManager, StateManager};
     use crate::tools::search::resolve_cwd_project_id_locked;
-    use std::fs;
 
-    // Build a project root with a marker, a registered watch_folders row, and a
-    // nested subdir. Resolving from the subdir must longest-prefix-match the
-    // registered root tenant (the positive cwd-detection path for #83).
+    // Two registered projects, one nested inside the other, where the deeper
+    // one has NO filesystem project marker (registration accepts raw paths).
+    // cwd-direct longest-prefix matching must resolve a cwd under the nested
+    // project to the DEEPER tenant — never the ancestor. A marker-based
+    // project-root walk would skip the markerless nested dir and resolve the
+    // wrong (ancestor) tenant. Regression guard for GitHub #83 (audit R2).
     let dir = tempfile::TempDir::new().unwrap();
-    let root = dir.path().to_path_buf();
-    fs::write(root.join("Cargo.toml"), b"[package]\n").unwrap();
-    let subdir = root.join("crates").join("inner");
-    fs::create_dir_all(&subdir).unwrap();
+    let root = dir.path().join("repo");
+    let nest = root.join("sandbox"); // deliberately NO marker file created
+    let cwd = nest.join("src");
+    std::fs::create_dir_all(&cwd).unwrap();
 
-    let db_path = root.join("state.db");
+    let db_path = dir.path().join("state.db");
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     conn.execute_batch(
         "CREATE TABLE watch_folders (
@@ -142,25 +144,30 @@ fn resolve_cwd_project_id_resolves_subdir_to_registered_tenant() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES (?1, ?2, 'projects')",
-        rusqlite::params!["tid_cwd", root.to_str().unwrap()],
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_ROOT', ?1, 'projects')",
+        rusqlite::params![root.to_str().unwrap()],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_NEST', ?1, 'projects')",
+        rusqlite::params![nest.to_str().unwrap()],
     )
     .unwrap();
     drop(conn);
 
     let state = SharedStateManager::new(StateManager::open_at(&db_path));
 
-    // From the registered root.
+    // cwd under the markerless nested project → deeper tenant.
+    assert_eq!(
+        resolve_cwd_project_id_locked(&cwd, &state),
+        Some("T_NEST".to_string())
+    );
+    // The registered root itself → root tenant.
     assert_eq!(
         resolve_cwd_project_id_locked(&root, &state),
-        Some("tid_cwd".to_string())
+        Some("T_ROOT".to_string())
     );
-    // From a nested subdir → longest-prefix match resolves to the same tenant.
-    assert_eq!(
-        resolve_cwd_project_id_locked(&subdir, &state),
-        Some("tid_cwd".to_string())
-    );
-    // From an unrelated dir → no match.
+    // An unrelated dir → no match.
     let other = tempfile::TempDir::new().unwrap();
     assert_eq!(resolve_cwd_project_id_locked(other.path(), &state), None);
 }
