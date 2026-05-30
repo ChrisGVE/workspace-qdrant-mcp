@@ -246,15 +246,13 @@ fn wqm_daemon_port_valid_plain_number_still_works() {
 }
 
 #[test]
-fn wqm_daemon_port_zero_leaves_default() {
-    // parseInt("0", 10) → 0 (not NaN). TS would assign grpcPort = 0 (non-
-    // functional). Rust u16 can represent 0, but it is not a valid TCP port.
-    // PARITY DIVERGENCE (documented): TS assigns out-of-range WQM_DAEMON_PORT
-    // raw to a non-functional port; Rust ignores values <= 0.
-    let default_port = ServerConfig::default().daemon.grpc_port;
+fn wqm_daemon_port_zero_is_honored() {
+    // parseInt("0", 10) → 0. TS assigns grpcPort = 0 (a non-functional port).
+    // u16 CAN represent 0, so Rust honors it too — matching TS rather than
+    // silently keeping the default (fixes the round-4 LOW parity finding).
     let getter = env_from(&[("WQM_DAEMON_PORT", "0")]);
     let result = apply_env_overrides(ServerConfig::default(), &getter);
-    assert_eq!(result.daemon.grpc_port, default_port);
+    assert_eq!(result.daemon.grpc_port, 0);
 }
 
 #[test]

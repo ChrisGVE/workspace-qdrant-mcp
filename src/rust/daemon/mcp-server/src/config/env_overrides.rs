@@ -153,13 +153,16 @@ pub fn apply_env_overrides(
         // Port-only override (legacy); only applied when no endpoint env is set.
         // Uses parse_int_prefix to match JS parseInt(_, 10) leading-integer
         // semantics: "8080abc" → 8080, "  8080" → 8080, no-digit-run → None.
-        // TS applies no upper-bound check on this path, but Rust grpc_port is u16
-        // and cannot represent 0, negative, or > 65535 values.
-        // PARITY DIVERGENCE (documented): TS assigns out-of-range WQM_DAEMON_PORT
-        // raw to a non-functional port; u16 cannot represent it, so we ignore
-        // out-of-range values.
+        // TS applies no range check on this path. We honor any u16-representable
+        // value INCLUDING 0 (TS would also set port 0 → a non-functional port),
+        // so a malformed `WQM_DAEMON_PORT=0` yields the same effective endpoint
+        // as TS rather than silently keeping the default.
+        // PARITY DIVERGENCE (documented, type-level only): values outside the
+        // u16 range (negative or > 65535) cannot be represented by `grpc_port:
+        // u16`; TS would store them raw to a non-functional port. Such pathological
+        // values are ignored here.
         if let Some(n) = parse_int_prefix(&port_str) {
-            if n >= 1 && n <= 65535 {
+            if (0..=65535).contains(&n) {
                 config.daemon.grpc_port = n as u16;
             }
         }
