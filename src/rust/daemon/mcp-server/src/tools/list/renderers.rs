@@ -4,11 +4,28 @@
 //!
 //! Each renderer returns `(listing_string, rendered_count)`.
 
-use std::collections::BTreeMap;
-
 use crate::sqlite::tracked_files::TrackedFileEntry;
 
 use super::types::FolderNode;
+
+// ---------------------------------------------------------------------------
+// Ordering helper
+// ---------------------------------------------------------------------------
+
+/// Case-insensitive name comparator for children and files.
+///
+/// Primary key: `name.to_lowercase()` (approximates `localeCompare` for ASCII
+/// mixed-case — interleaves uppercase/lowercase like `apple`, `Apple`, `Zebra`).
+/// Stable tiebreak: original name bytes (handles identical-case-fold pairs).
+///
+/// Residual divergence from JS `localeCompare`: non-ASCII accent collation
+/// (e.g. `é` vs `e`) is NOT implemented — full ICU ordering is out of scope.
+/// The golden-suite task 33 normalises any remaining divergence.
+fn name_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
+}
 
 // ---------------------------------------------------------------------------
 // Tree renderer
@@ -33,9 +50,13 @@ fn walk_tree(
 ) -> bool {
     let prefix = "  ".repeat(indent);
 
-    // BTreeMap already iterates in sorted key order — matches `.sort((a,b) =>
-    // a[0].localeCompare(b[0]))` in TS.
-    for child in node.children.values() {
+    // Sort children case-insensitively to approximate `localeCompare` in TS.
+    // (Primary: lowercase; stable tiebreak: original bytes.  Non-ASCII accent
+    //  order may still diverge from JS — golden-suite task 33 normalises.)
+    let mut child_keys: Vec<&String> = node.children.keys().collect();
+    child_keys.sort_by(|a, b| name_cmp(a, b));
+    for key in &child_keys {
+        let child = &node.children[*key];
         if state.count >= limit as usize {
             return false;
         }
@@ -69,9 +90,9 @@ fn walk_tree(
         }
     }
 
-    // Files sorted by name — mirrors `.sort((a,b) => a.name.localeCompare(b.name))`.
+    // Files sorted case-insensitively to approximate `localeCompare` in TS.
     let mut sorted_files = node.files.clone();
-    sorted_files.sort_by(|a, b| a.name.cmp(&b.name));
+    sorted_files.sort_by(|a, b| name_cmp(&a.name, &b.name));
     for file in &sorted_files {
         if state.count >= limit as usize {
             return false;
@@ -115,12 +136,16 @@ fn walk_summary(
     limit: u32,
     state: &mut WalkState,
 ) -> bool {
-    for (name, child) in &node.children {
+    // Sort children case-insensitively to approximate `localeCompare` in TS.
+    let mut child_keys: Vec<&String> = node.children.keys().collect();
+    child_keys.sort_by(|a, b| name_cmp(a, b));
+    for name in &child_keys {
+        let child = &node.children[*name];
         if state.count >= limit as usize {
             return false;
         }
         let child_path = if chain_prefix.is_empty() {
-            name.clone()
+            (*name).clone()
         } else {
             format!("{chain_prefix}{name}")
         };
@@ -187,20 +212,26 @@ pub fn render_summary(root: &FolderNode, max_depth: u32, limit: u32) -> (String,
 
 /// Aggregate extension counts across a subtree (excluding submodule children).
 ///
-/// Mirrors `aggregateExtensions` in renderers.ts lines 105-120.
-fn aggregate_extensions(node: &FolderNode) -> BTreeMap<String, usize> {
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+/// Returns an insertion-ordered list of `(extension, count)` pairs — mirrors
+/// the `Map` (insertion-ordered) built by `aggregateExtensions` in
+/// renderers.ts lines 105-120.
+fn aggregate_extensions(node: &FolderNode) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
     aggregate_extensions_inner(node, &mut counts);
     counts
 }
 
-fn aggregate_extensions_inner(node: &FolderNode, counts: &mut BTreeMap<String, usize>) {
+fn aggregate_extensions_inner(node: &FolderNode, counts: &mut Vec<(String, usize)>) {
     for file in &node.files {
         let key = file
             .extension
             .clone()
             .unwrap_or_else(|| "other".to_string());
-        *counts.entry(key).or_insert(0) += 1;
+        if let Some(entry) = counts.iter_mut().find(|(k, _)| *k == key) {
+            entry.1 += 1;
+        } else {
+            counts.push((key, 1));
+        }
     }
     for child in node.children.values() {
         if child.submodule.is_none() {
@@ -212,20 +243,22 @@ fn aggregate_extensions_inner(node: &FolderNode, counts: &mut BTreeMap<String, u
 /// Format the extension summary string.
 ///
 /// Mirrors `formatExtensionSummary` in renderers.ts lines 122-139.
-fn format_extension_summary(total_files: usize, ext_counts: &BTreeMap<String, usize>) -> String {
+/// Sorts by count descending only (stable) — equal-count extensions keep
+/// first-seen (insertion/traversal) order, matching the TS `Map` + stable sort.
+fn format_extension_summary(total_files: usize, ext_counts: &[(String, usize)]) -> String {
     if total_files == 0 {
         return "(empty)".to_string();
     }
 
-    // Sort by count descending, show top 4.
-    let mut sorted: Vec<(&String, &usize)> = ext_counts.iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    // Sort by count descending only; stable sort preserves first-seen order for equal counts.
+    let mut sorted: Vec<(&String, usize)> = ext_counts.iter().map(|(k, v)| (k, *v)).collect();
+    sorted.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
 
     let shown = &sorted[..sorted.len().min(4)];
     let mut parts: Vec<String> = shown.iter().map(|(ext, n)| format!("{n} {ext}")).collect();
 
     if sorted.len() > 4 {
-        let shown_total: usize = shown.iter().map(|(_, n)| **n).sum();
+        let shown_total: usize = shown.iter().map(|(_, n)| n).sum();
         let remaining = total_files.saturating_sub(shown_total);
         if remaining > 0 {
             parts.push(format!("{remaining} other"));
