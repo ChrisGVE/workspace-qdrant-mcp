@@ -15,6 +15,16 @@ import type {
   TextSearchCountResponse,
   QueryRelatedRequest,
   QueryRelatedResponse,
+  ImpactAnalysisRequest,
+  ImpactAnalysisResponse,
+  PageRankRequest,
+  PageRankResponse,
+  GraphStatsRequest,
+  GraphStatsResponse,
+  CommunityRequest,
+  CommunityResponse,
+  BetweennessRequest,
+  BetweennessResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
   RetryAllResponse,
@@ -109,6 +119,61 @@ export class DaemonClientService extends DaemonClientSystem {
         'queryRelated',
         request,
         this.getMethodTimeout('queryRelated')
+      )
+    );
+  }
+
+  async impactAnalysis(request: ImpactAnalysisRequest): Promise<ImpactAnalysisResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'impactAnalysis',
+        request,
+        this.getMethodTimeout('impactAnalysis')
+      )
+    );
+  }
+
+  async computePageRank(request: PageRankRequest): Promise<PageRankResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'computePageRank',
+        request,
+        this.getMethodTimeout('computePageRank')
+      )
+    );
+  }
+
+  async detectCommunities(request: CommunityRequest): Promise<CommunityResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'detectCommunities',
+        request,
+        this.getMethodTimeout('detectCommunities')
+      )
+    );
+  }
+
+  async getGraphStats(request: GraphStatsRequest): Promise<GraphStatsResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'getGraphStats',
+        request,
+        this.getMethodTimeout('getGraphStats')
+      )
+    );
+  }
+
+  async computeBetweenness(request: BetweennessRequest): Promise<BetweennessResponse> {
+    return this.callWithRetry(() =>
+      grpcUnaryWithTimeout(
+        this.graphClient,
+        'computeBetweenness',
+        request,
+        this.getMethodTimeout('computeBetweenness')
       )
     );
   }

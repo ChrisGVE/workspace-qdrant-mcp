@@ -46,6 +46,16 @@ import type {
   TextSearchCountResponse,
   QueryRelatedRequest,
   QueryRelatedResponse,
+  ImpactAnalysisRequest,
+  ImpactAnalysisResponse,
+  PageRankRequest,
+  PageRankResponse,
+  GraphStatsRequest,
+  GraphStatsResponse,
+  CommunityRequest,
+  CommunityResponse,
+  BetweennessRequest,
+  BetweennessResponse,
   EnqueueItemRequest,
   EnqueueItemResponse,
   RetryAllResponse,
@@ -196,6 +206,26 @@ export interface GraphServiceClient {
   queryRelated(
     request: QueryRelatedRequest,
     callback: (error: Error | null, response: QueryRelatedResponse) => void
+  ): void;
+  impactAnalysis(
+    request: ImpactAnalysisRequest,
+    callback: (error: Error | null, response: ImpactAnalysisResponse) => void
+  ): void;
+  computePageRank(
+    request: PageRankRequest,
+    callback: (error: Error | null, response: PageRankResponse) => void
+  ): void;
+  detectCommunities(
+    request: CommunityRequest,
+    callback: (error: Error | null, response: CommunityResponse) => void
+  ): void;
+  getGraphStats(
+    request: GraphStatsRequest,
+    callback: (error: Error | null, response: GraphStatsResponse) => void
+  ): void;
+  computeBetweenness(
+    request: BetweennessRequest,
+    callback: (error: Error | null, response: BetweennessResponse) => void
   ): void;
 }
 

@@ -76,7 +76,7 @@ bearer_token_env_var = "MCP_HTTP_TOKEN"
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 required = true
-enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index"]
+enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index", "graph"]
 ```
 
 Use o mesmo valor de `MCP_HTTP_TOKEN` que você colocou em `docker/.env` para o stack Docker.

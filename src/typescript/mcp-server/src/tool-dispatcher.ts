@@ -19,6 +19,7 @@ import {
 import { storeUrl, storeScratchpad } from './store-handlers.js';
 import { handleEmbedding } from './tools/embedding.js';
 import { handleWorkspaceIndex } from './tools/workspace-index.js';
+import { handleGraph } from './tools/graph.js';
 import { runSearchEval } from './tools/search-eval.js';
 import { ensureProjectFresh, registerProjectFromTool, sendHeartbeat } from './session-lifecycle.js';
 import { withToolMetrics } from './telemetry/metrics.js';
@@ -93,6 +94,8 @@ async function routeTool(
       return handleEmbedding(args, daemonClient);
     case 'workspace_index':
       return handleWorkspaceIndex(args, daemonClient);
+    case 'graph':
+      return handleGraph(args, daemonClient);
     case 'search_eval':
       return runSearchEval(searchTool, projectDetector, args);
     default:

@@ -5,9 +5,9 @@ args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescri
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 required = true
-enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index"]
+enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index", "graph"]
 
 [mcp_servers.workspace-qdrant.env]
 QDRANT_URL = "http://localhost:6333"
-WQM_DAEMON_ENDPOINT = "http://localhost:55151"
+WQM_DAEMON_ENDPOINT = "http://localhost:50051"
 # END workspace-qdrant-fork-kit

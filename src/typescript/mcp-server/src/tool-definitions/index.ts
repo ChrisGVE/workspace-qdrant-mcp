@@ -12,6 +12,7 @@ export { listToolDefinition } from './list.js';
 export { embeddingToolDefinition } from './embedding.js';
 export { workspaceIndexToolDefinition } from './workspace-index.js';
 export { searchEvalToolDefinition } from './search-eval.js';
+export { graphToolDefinition } from './graph.js';
 
 import { searchToolDefinition } from './search.js';
 import { retrieveToolDefinition } from './retrieve.js';
@@ -22,6 +23,7 @@ import { listToolDefinition } from './list.js';
 import { embeddingToolDefinition } from './embedding.js';
 import { workspaceIndexToolDefinition } from './workspace-index.js';
 import { searchEvalToolDefinition } from './search-eval.js';
+import { graphToolDefinition } from './graph.js';
 
 /**
  * Returns the full list of tool definitions for the ListTools MCP response
@@ -37,5 +39,6 @@ export function getToolDefinitions() {
     embeddingToolDefinition,
     workspaceIndexToolDefinition,
     searchEvalToolDefinition,
+    graphToolDefinition,
   ];
 }
