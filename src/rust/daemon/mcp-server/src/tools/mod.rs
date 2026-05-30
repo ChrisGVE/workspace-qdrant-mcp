@@ -8,6 +8,7 @@ pub mod definitions;
 pub mod embedding;
 pub mod envelope;
 pub mod grep;
+pub mod list;
 pub mod retrieve;
 pub mod rules;
 pub mod store;

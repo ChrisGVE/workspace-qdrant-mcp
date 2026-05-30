@@ -60,6 +60,9 @@ rusqlite = { workspace = true }
 # Secrets (avoid Debug leaks for tokens/api-keys)
 secrecy = { workspace = true }
 
+# Base64 for pagination cursor encoding (next_token)
+base64 = "0.22"
+
 # Observability
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
