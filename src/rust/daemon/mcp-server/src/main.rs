@@ -25,6 +25,7 @@
 
 use mcp_server::grpc::client::DaemonClient;
 use mcp_server::observability::logging::init_logging;
+use mcp_server::observability::metrics_http::serve_metrics;
 use mcp_server::server_types::{ServerMode, BUILD_NUMBER, SERVER_NAME, SERVER_VERSION_BASE};
 use mcp_server::sqlite::StateManager;
 use mcp_server::transport::http::serve_http;
@@ -188,6 +189,13 @@ async fn run_http() -> anyhow::Result<()> {
             info!("Received SIGTERM — initiating graceful shutdown (HTTP)");
             ct.cancel();
         });
+    }
+
+    // Spawn the metrics HTTP server alongside the MCP server.
+    // Non-fatal on bind failure (the warning is already logged inside serve_metrics).
+    // Mirrors the TS `startMetricsServer()` call in `src/index.ts` (HTTP mode only).
+    if let Err(e) = serve_metrics(shutdown_token.child_token()).await {
+        warn!(error = %e, "Metrics server failed to start; continuing without metrics endpoint");
     }
 
     serve_http(daemon, qdrant, state, session, shutdown_token).await
