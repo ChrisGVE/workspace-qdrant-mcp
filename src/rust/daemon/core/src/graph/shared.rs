@@ -17,8 +17,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use super::{
-    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport,
-    SymbolRow, TraversalNode,
+    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport, SymbolRow,
+    TraversalNode,
 };
 
 /// Threshold after which a lock acquisition emits a `warn!` log.
@@ -285,7 +285,9 @@ impl<S: GraphStore> SharedGraphStore<S> {
         file_path: &str,
     ) -> GraphDbResult<u64> {
         let guard = self.acquire_write("delete_narrative_nodes_by_file").await?;
-        guard.delete_narrative_nodes_by_file(tenant_id, file_path).await
+        guard
+            .delete_narrative_nodes_by_file(tenant_id, file_path)
+            .await
     }
 
     /// Query all edges of a given type (shared read lock).

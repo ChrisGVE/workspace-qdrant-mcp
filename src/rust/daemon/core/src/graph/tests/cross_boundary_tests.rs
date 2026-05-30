@@ -336,7 +336,12 @@ async fn test_per_concept_cap_limits_supernode_fanout() {
 
     // 20 other symbols all implementing the same concept (reverse fan-out at hop 2).
     for i in 0..20 {
-        let n = GraphNode::new(TENANT_A, format!("o{i}.rs"), format!("o{i}"), NodeType::Function);
+        let n = GraphNode::new(
+            TENANT_A,
+            format!("o{i}.rs"),
+            format!("o{i}"),
+            NodeType::Function,
+        );
         store.upsert_nodes(&[n.clone()]).await.unwrap();
         insert_weighted_edge(
             &store,
@@ -407,7 +412,12 @@ async fn test_supernode_query_under_budget() {
     let mut edge_recs = Vec::with_capacity(degree * 2);
     let mut seed_id = String::new();
     for i in 0..degree {
-        let code = GraphNode::new(TENANT_A, format!("c{i}.rs"), format!("s{i}"), NodeType::Function);
+        let code = GraphNode::new(
+            TENANT_A,
+            format!("c{i}.rs"),
+            format!("s{i}"),
+            NodeType::Function,
+        );
         if i == 0 {
             seed_id = code.node_id.clone();
         }
@@ -422,8 +432,19 @@ async fn test_supernode_query_under_budget() {
         edge_recs.push(e);
         nodes.push(code);
 
-        let doc = GraphNode::new(LIB, format!("d{i}.md"), format!("sec{i}"), NodeType::LibrarySection);
-        let mut e2 = GraphEdge::new(LIB, &doc.node_id, &concept.node_id, EdgeType::CoversTopic, "d.md");
+        let doc = GraphNode::new(
+            LIB,
+            format!("d{i}.md"),
+            format!("sec{i}"),
+            NodeType::LibrarySection,
+        );
+        let mut e2 = GraphEdge::new(
+            LIB,
+            &doc.node_id,
+            &concept.node_id,
+            EdgeType::CoversTopic,
+            "d.md",
+        );
         e2.weight = 0.5;
         edge_recs.push(e2);
         nodes.push(doc);
@@ -455,4 +476,3 @@ async fn test_supernode_query_under_budget() {
     );
     let _ = elapsed;
 }
-
