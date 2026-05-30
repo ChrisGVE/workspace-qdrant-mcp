@@ -11,8 +11,8 @@
 //!
 //! # Injectability
 //! All daemon I/O is abstracted behind the [`DaemonOps`] trait so unit tests
-//! can inject a [`MockDaemonOps`] without a live gRPC connection.
-//! Project detection is injectable via a closure (`detect_fn`) parameter.
+//! can inject a mock (defined in `lifecycle_tests.rs`) without a live gRPC
+//! connection.  Project detection is injectable via a closure (`detect_fn`).
 //!
 //! # TS divergences
 //! - TS `cleanup` calls `healthMonitor.stop()` — the Rust server has no
@@ -39,7 +39,7 @@ use super::project_detect::{detect_branch, detect_project, ProjectInfo};
 /// Abstraction over the daemon gRPC operations needed by the session lifecycle.
 ///
 /// Production code uses `DaemonClient` (via the blanket impl below).
-/// Tests inject [`MockDaemonOps`].
+/// Tests inject a mock (defined in `lifecycle_tests.rs`).
 pub trait DaemonOps {
     /// Health-check — used to verify the daemon is reachable.
     /// Mirrors TS `daemonClient.connect()`.
@@ -145,97 +145,6 @@ impl DaemonOps for DaemonClient {
             .await
             .map(|_| ())
             .map_err(|e| e.to_string())
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MockDaemonOps — test double
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Test double for [`DaemonOps`].
-///
-/// Configure `health_ok`, `register_response`, and `heartbeat_ok` before
-/// the test.  Call counts are recorded in `health_calls`, `register_calls`,
-/// `heartbeat_calls`, and `deprioritize_calls`.
-#[cfg(test)]
-#[derive(Debug)]
-pub struct MockDaemonOps {
-    pub health_ok: bool,
-    pub register_response: Option<RegisterResponse>,
-    pub heartbeat_ok: bool,
-    pub deprioritize_ok: bool,
-    pub health_calls: u32,
-    pub register_calls: u32,
-    pub heartbeat_calls: u32,
-    pub deprioritize_calls: u32,
-}
-
-#[cfg(test)]
-impl MockDaemonOps {
-    pub fn new() -> Self {
-        Self {
-            health_ok: true,
-            register_response: Some(RegisterResponse {
-                project_id: "mock-proj-id".to_string(),
-                is_worktree: false,
-                watch_path: None,
-                is_active: true,
-                created: false,
-            }),
-            heartbeat_ok: true,
-            deprioritize_ok: true,
-            health_calls: 0,
-            register_calls: 0,
-            heartbeat_calls: 0,
-            deprioritize_calls: 0,
-        }
-    }
-}
-
-#[cfg(test)]
-impl DaemonOps for MockDaemonOps {
-    async fn health(&mut self) -> Result<(), String> {
-        self.health_calls += 1;
-        if self.health_ok {
-            Ok(())
-        } else {
-            Err("mock: health failed".to_string())
-        }
-    }
-
-    async fn register_project(
-        &mut self,
-        _path: &str,
-        _project_id: &str,
-        _name: &str,
-        _git_remote: Option<&str>,
-    ) -> Result<RegisterResponse, String> {
-        self.register_calls += 1;
-        self.register_response
-            .clone()
-            .ok_or_else(|| "mock: register failed".to_string())
-    }
-
-    async fn heartbeat(&mut self, _project_id: &str) -> Result<bool, String> {
-        self.heartbeat_calls += 1;
-        if self.heartbeat_ok {
-            Ok(true)
-        } else {
-            Err("mock: heartbeat failed".to_string())
-        }
-    }
-
-    async fn deprioritize_project(
-        &mut self,
-        _project_id: &str,
-        _watch_path: Option<&str>,
-    ) -> Result<(), String> {
-        self.deprioritize_calls += 1;
-        if self.deprioritize_ok {
-            Ok(())
-        } else {
-            Err("mock: deprioritize failed".to_string())
-        }
     }
 }
 
