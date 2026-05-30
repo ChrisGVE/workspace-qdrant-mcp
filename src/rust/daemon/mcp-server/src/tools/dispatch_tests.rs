@@ -1,12 +1,14 @@
 //! Unit tests for `tools/dispatch.rs`.
 //!
 //! All tests are hermetic — no live gRPC / Qdrant / SQLite.
-//! The unknown-tool path and store-subtype routing are verified here.
+//! The unknown-tool path, store-subtype routing, and metrics instrumentation
+//! are verified here.
 
 #[cfg(test)]
 mod tests {
     use serde_json::{Map, Value};
 
+    use crate::observability::metrics::{record_tool_call, TOOL_DURATION, TOOL_INVOCATIONS};
     use crate::tools::dispatch::KNOWN_TOOLS;
     use crate::tools::envelope::unknown_tool;
 
@@ -94,6 +96,62 @@ mod tests {
         // as library (matching TS dispatchStore: only 3 explicit branches + default).
         let store_type = extract_store_type(&args);
         assert_eq!(store_type, "weird_type"); // raw value passed through
+    }
+
+    // ── metrics instrumentation ────────────────────────────────────────────────
+    //
+    // These tests verify that `record_tool_call` (called inside `dispatch_tool`
+    // after `route_tool` returns) increments the Prometheus counters as expected.
+    // We call `record_tool_call` directly rather than driving `dispatch_tool`
+    // end-to-end (which would require live gRPC / Qdrant / SQLite deps).
+
+    #[test]
+    fn record_tool_call_increments_success_counter() {
+        // Initialise the counters so they exist in the registry.
+        let _ = &*TOOL_INVOCATIONS;
+        let _ = &*TOOL_DURATION;
+
+        let before = TOOL_INVOCATIONS
+            .with_label_values(&["search", "success"])
+            .get();
+        record_tool_call("search", "success", 0.1);
+        let after = TOOL_INVOCATIONS
+            .with_label_values(&["search", "success"])
+            .get();
+        assert_eq!(after, before + 1.0, "success counter must increment by 1");
+    }
+
+    #[test]
+    fn record_tool_call_increments_error_counter() {
+        let _ = &*TOOL_INVOCATIONS;
+        let _ = &*TOOL_DURATION;
+
+        let before = TOOL_INVOCATIONS
+            .with_label_values(&["retrieve", "error"])
+            .get();
+        record_tool_call("retrieve", "error", 0.05);
+        let after = TOOL_INVOCATIONS
+            .with_label_values(&["retrieve", "error"])
+            .get();
+        assert_eq!(after, before + 1.0, "error counter must increment by 1");
+    }
+
+    #[test]
+    fn record_tool_call_observes_duration_histogram() {
+        let _ = &*TOOL_DURATION;
+
+        let before = TOOL_DURATION
+            .with_label_values(&["grep"])
+            .get_sample_count();
+        record_tool_call("grep", "success", 0.25);
+        let after = TOOL_DURATION
+            .with_label_values(&["grep"])
+            .get_sample_count();
+        assert_eq!(
+            after,
+            before + 1,
+            "duration histogram sample count must increment"
+        );
     }
 
     // ── helper ─────────────────────────────────────────────────────────────────

@@ -16,6 +16,11 @@
 //! - `store` subtypes: "project" / "url" / "scratchpad" / default-library
 //!   (tool-dispatcher.ts:37-43, dispatchStore).
 //! - Heartbeat is fire-and-forget — failures must NOT propagate.
+//! - Metrics instrumentation mirrors `withToolMetrics` in `telemetry/metrics.ts:129-141`.
+//!   `status="success"` when `is_error != Some(true)`; `status="error"` otherwise.
+//!   Duration is measured with `std::time::Instant` (monotonic, not wall-clock).
+
+use std::time::Instant;
 
 use serde_json::{Map, Value};
 use tracing::debug;
@@ -23,6 +28,7 @@ use tracing::debug;
 use rmcp::model::CallToolResult;
 
 use crate::grpc::client::DaemonClient;
+use crate::observability::metrics::record_tool_call;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
 use crate::sqlite::SharedStateManager;
@@ -106,8 +112,12 @@ async fn fire_heartbeat(daemon: &mut DaemonClient, session: &SessionState) {
 /// Steps (mirrors `dispatchToolCall` in tool-dispatcher.ts):
 /// 1. Fire heartbeat — fire-and-forget, no latency impact.
 /// 2. Reject unknown names → `unknown_tool` envelope.
-/// 3. Route to the 7 handlers.
-/// 4. Wrap handler panics / errors in `error_text`.
+/// 3. Route to the 7 handlers, wrapped in Prometheus instrumentation that
+///    mirrors `withToolMetrics(toolName, fn)` in `telemetry/metrics.ts:129-141`:
+///    - records `wqm_mcp_tool_invocations_total{tool, status="success"|"error"}`
+///    - observes `wqm_mcp_tool_duration_seconds{tool}`
+///    - `status="error"` when `result.is_error == Some(true)` (in-band errors);
+///      exceptions/panics never reach here because handlers return `CallToolResult`.
 ///
 /// `args` is the raw JSON `arguments` object from the MCP request (may be
 /// empty; never null after our normalisation in `ToolsHandler::call_tool`).
@@ -124,8 +134,17 @@ pub async fn dispatch_tool(
         return unknown_tool(name);
     }
 
-    // 3. Route.
-    route_tool(name, args, ctx).await
+    // 3. Route with metrics instrumentation (mirrors withToolMetrics).
+    let t = Instant::now();
+    let result = route_tool(name, args, ctx).await;
+    let elapsed = t.elapsed().as_secs_f64();
+    let status = if result.is_error == Some(true) {
+        "error"
+    } else {
+        "success"
+    };
+    record_tool_call(name, status, elapsed);
+    result
 }
 
 /// Route a validated tool name to its handler.
