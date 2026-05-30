@@ -83,8 +83,10 @@ pub fn extract_glob_prefix(glob: &str) -> &str {
 /// Returns `None` when no conditions are needed (caller should omit the
 /// filter argument entirely so Qdrant does an unfiltered scan).
 ///
-/// Panics with a descriptive message when `scope == "group"` but
-/// `group_tenant_ids` is empty — this matches the TypeScript error throw.
+/// When `scope == "group"` but `group_tenant_ids` is empty or absent,
+/// the tenant filter is silently omitted (returns `None` for the project
+/// condition). This avoids a panic on a code path reachable at runtime.
+/// Full group-scope handling via `resolveSearchScope` is deferred.
 pub fn build_filter(params: &FilterParams) -> Option<Filter> {
     let must = build_must_conditions(params);
     let must_not = build_must_not_conditions(params);
@@ -180,13 +182,23 @@ fn build_must_not_conditions(params: &FilterParams) -> Vec<Condition> {
 // ── Individual condition builders (mirror TS private functions) ───────────────
 
 /// Mirrors `buildProjectCondition` in `search-filters.ts`.
+///
+/// PANIC FIX (S3 partial): when group scope reaches here with empty/missing
+/// tenant ids, return `None` (skip the tenant filter) instead of panicking.
+/// A panic is never acceptable in production. The TS equivalent throws, but
+/// Rust must not abort via `panic!` on a code path reachable at runtime.
+/// Full group-scope resolution via `resolveSearchScope` is deferred — see
+/// DEFERRED comment in `flow.rs`.
 fn build_project_condition(params: &FilterParams) -> Option<Condition> {
     if params.scope == "group" {
+        // DEFERRED (task 30 follow-up): S3 — full group/all scope via resolveSearchScope,
+        // including relevance decay (applyRelevanceDecay) and base_points/basePointsDegraded.
+        // Until resolveSearchScope is wired, group_tenant_ids must be pre-populated by the
+        // caller. Empty/None is handled gracefully (returns None → no tenant filter).
         let ids = params
             .group_tenant_ids
             .as_deref()
-            .filter(|ids| !ids.is_empty())
-            .unwrap_or_else(|| panic!("Group scope requires non-empty tenant ID set"));
+            .filter(|ids| !ids.is_empty())?; // returns None gracefully when empty/missing
         return Some(Condition::matches(field::TENANT_ID, ids.to_vec()));
     }
     if params.scope != "project" {

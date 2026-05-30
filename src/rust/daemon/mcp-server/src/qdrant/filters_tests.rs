@@ -103,15 +103,30 @@ fn group_scope_with_ids_adds_match_any_must() {
 }
 
 #[test]
-#[should_panic(expected = "Group scope requires non-empty tenant ID set")]
-fn group_scope_empty_ids_panics() {
+fn group_scope_empty_ids_returns_none_gracefully() {
+    // PANIC FIX: previously panicked with "Group scope requires non-empty tenant ID set".
+    // Now returns None gracefully instead of aborting — a panic is never acceptable at runtime.
+    // Full group-scope resolution via resolveSearchScope is DEFERRED (task 30 follow-up).
     let params = FilterParams {
         collection: COLLECTION_PROJECTS.to_string(),
         scope: "group".to_string(),
         group_tenant_ids: Some(vec![]),
         ..Default::default()
     };
-    let _ = build_filter(&params);
+    // Must NOT panic; returns None (no tenant filter added).
+    assert!(build_filter(&params).is_none());
+}
+
+#[test]
+fn group_scope_no_ids_returns_none_gracefully() {
+    // PANIC FIX: group scope with group_tenant_ids=None also returns None gracefully.
+    let params = FilterParams {
+        collection: COLLECTION_PROJECTS.to_string(),
+        scope: "group".to_string(),
+        group_tenant_ids: None,
+        ..Default::default()
+    };
+    assert!(build_filter(&params).is_none());
 }
 
 // ── branch filter ─────────────────────────────────────────────────────────────
