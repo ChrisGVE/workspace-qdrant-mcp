@@ -76,6 +76,16 @@ impl Default for GraphConfig {
 pub async fn create_sqlite_graph_store(
     db_dir: &Path,
 ) -> GraphDbResult<SharedGraphStore<SqliteGraphStore>> {
+    create_sqlite_graph_store_with_rag(db_dir, &crate::config::GraphRagConfig::default()).await
+}
+
+/// Like [`create_sqlite_graph_store`] but applies operator-configured
+/// cross-boundary fan-out caps (`search.graph_rag.*`) to the store before it is
+/// wrapped. The plain constructor delegates here with defaults.
+pub async fn create_sqlite_graph_store_with_rag(
+    db_dir: &Path,
+    graph_rag: &crate::config::GraphRagConfig,
+) -> GraphDbResult<SharedGraphStore<SqliteGraphStore>> {
     let graph_db_path = db_dir.join(super::GRAPH_DB_FILENAME);
     info!(
         "Initializing SQLite graph store at: {}",
@@ -83,17 +93,20 @@ pub async fn create_sqlite_graph_store(
     );
 
     let manager = GraphDbManager::new(&graph_db_path).await?;
-    let store = SqliteGraphStore::new(manager.pool().clone());
+    let store =
+        SqliteGraphStore::new(manager.pool().clone()).with_graph_rag_config(graph_rag.clone());
     Ok(SharedGraphStore::new(store))
 }
 
 /// Create a LadybugDB-backed shared graph store.
 ///
-/// Only available when compiled with the `ladybug` feature flag.
+/// Only available when compiled with the `ladybug` feature flag. Applies the
+/// operator-configured cross-boundary fan-out caps (`search.graph_rag.*`).
 #[cfg(feature = "ladybug")]
 pub async fn create_ladybug_graph_store(
     db_dir: &Path,
     config: &GraphConfig,
+    graph_rag: &crate::config::GraphRagConfig,
 ) -> GraphDbResult<SharedGraphStore<super::LadybugGraphStore>> {
     use super::ladybug_store::{LadybugConfig, LadybugGraphStore};
 
@@ -109,7 +122,7 @@ pub async fn create_ladybug_graph_store(
         max_num_threads: config.max_threads,
     };
 
-    let store = LadybugGraphStore::new(lb_config)?;
+    let store = LadybugGraphStore::new(lb_config)?.with_graph_rag_config(graph_rag.clone());
     Ok(SharedGraphStore::new(store))
 }
 

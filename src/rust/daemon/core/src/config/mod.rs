@@ -8,8 +8,8 @@ mod concept;
 mod embedding;
 mod graph_rag;
 mod ingestion;
-mod narrative;
 mod integration;
+mod narrative;
 mod observability;
 mod processing;
 mod resource_limits;
@@ -21,8 +21,8 @@ pub use concept::ConceptConfig;
 pub use embedding::{EmbeddingSettings, KeywordEmbedderConfig};
 pub use graph_rag::GraphRagConfig;
 pub use ingestion::{AutoIngestionConfig, IngestionLimitsConfig};
-pub use narrative::NarrativeConfig;
 pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
+pub use narrative::NarrativeConfig;
 pub use observability::{
     LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, OtlpExportConfig,
     OtlpProtocol, PrometheusExportConfig, TelemetryConfig,
@@ -545,6 +545,8 @@ pub struct Config {
     pub resource_limits: ResourceLimitsConfig,
     /// Code-relationship graph backend selection (`graph.*`).
     pub graph: crate::graph::GraphConfig,
+    /// Cross-boundary graph-RAG traversal fan-out caps (`search.graph_rag.*`).
+    pub graph_rag: GraphRagConfig,
 }
 
 impl From<DaemonConfig> for Config {
@@ -565,6 +567,7 @@ impl From<DaemonConfig> for Config {
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
             resource_limits: daemon_config.resource_limits,
             graph: daemon_config.graph,
+            graph_rag: daemon_config.graph_rag,
         }
     }
 }
@@ -588,6 +591,7 @@ impl Config {
             queue_backpressure_threshold: Some(1000),
             resource_limits: ResourceLimitsConfig::default(),
             graph: crate::graph::GraphConfig::default(),
+            graph_rag: GraphRagConfig::default(),
         }
     }
 

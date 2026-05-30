@@ -130,11 +130,12 @@ pub async fn init_graph_db(config: &Config, queue_pool: &SqlitePool) -> GraphSto
     use workspace_qdrant_core::graph::{factory, GraphBackend};
 
     let db_path = get_state_db_path(queue_pool);
-    let db_dir = config
-        .graph
-        .db_dir
-        .clone()
-        .unwrap_or_else(|| db_path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf());
+    let db_dir = config.graph.db_dir.clone().unwrap_or_else(|| {
+        db_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .to_path_buf()
+    });
 
     // Fail fast with a clear message if the configured backend is not
     // compiled in (e.g. `ladybug` without the feature flag).
@@ -144,26 +145,30 @@ pub async fn init_graph_db(config: &Config, queue_pool: &SqlitePool) -> GraphSto
     }
 
     match config.graph.backend {
-        GraphBackend::Sqlite => match factory::create_sqlite_graph_store(&db_dir).await {
-            Ok(store) => {
-                info!(
-                    "Graph database initialized (SQLite backend, version {})",
-                    workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
-                );
-                GraphStores {
-                    processing: Some(Arc::new(store.clone())),
-                    service: Some(store),
+        GraphBackend::Sqlite => {
+            match factory::create_sqlite_graph_store_with_rag(&db_dir, &config.graph_rag).await {
+                Ok(store) => {
+                    info!(
+                        "Graph database initialized (SQLite backend, version {})",
+                        workspace_qdrant_core::graph::GRAPH_SCHEMA_VERSION
+                    );
+                    GraphStores {
+                        processing: Some(Arc::new(store.clone())),
+                        service: Some(store),
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Graph database initialization failed: {} (graph features disabled)",
+                        e
+                    );
+                    GraphStores::default()
                 }
             }
-            Err(e) => {
-                warn!(
-                    "Graph database initialization failed: {} (graph features disabled)",
-                    e
-                );
-                GraphStores::default()
-            }
-        },
-        GraphBackend::Ladybug => init_ladybug_graph_db(&db_dir, &config.graph).await,
+        }
+        GraphBackend::Ladybug => {
+            init_ladybug_graph_db(&db_dir, &config.graph, &config.graph_rag).await
+        }
     }
 }
 
@@ -172,9 +177,14 @@ pub async fn init_graph_db(config: &Config, queue_pool: &SqlitePool) -> GraphSto
 async fn init_ladybug_graph_db(
     db_dir: &std::path::Path,
     graph_config: &workspace_qdrant_core::graph::GraphConfig,
+    graph_rag: &workspace_qdrant_core::config::GraphRagConfig,
 ) -> GraphStores {
-    match workspace_qdrant_core::graph::factory::create_ladybug_graph_store(db_dir, graph_config)
-        .await
+    match workspace_qdrant_core::graph::factory::create_ladybug_graph_store(
+        db_dir,
+        graph_config,
+        graph_rag,
+    )
+    .await
     {
         Ok(store) => {
             info!("Graph database initialized (LadybugDB backend); GraphService analytics/migration are SQLite-only and disabled");
@@ -200,6 +210,7 @@ async fn init_ladybug_graph_db(
 async fn init_ladybug_graph_db(
     _db_dir: &std::path::Path,
     _graph_config: &workspace_qdrant_core::graph::GraphConfig,
+    _graph_rag: &workspace_qdrant_core::config::GraphRagConfig,
 ) -> GraphStores {
     warn!("LadybugDB backend requested but the 'ladybug' feature is not enabled (graph features disabled)");
     GraphStores::default()

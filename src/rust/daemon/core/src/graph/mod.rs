@@ -26,7 +26,9 @@ mod tests;
 
 #[cfg(feature = "ladybug")]
 pub use factory::create_ladybug_graph_store;
-pub use factory::{create_sqlite_graph_store, GraphBackend, GraphConfig};
+pub use factory::{
+    create_sqlite_graph_store, create_sqlite_graph_store_with_rag, GraphBackend, GraphConfig,
+};
 #[cfg(feature = "ladybug")]
 pub use ladybug_store::{LadybugConfig, LadybugGraphStore};
 pub use schema::{
