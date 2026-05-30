@@ -35,10 +35,23 @@ pub(super) async fn ensure_grammar_available(
     let grammar_mgr = ctx.grammar_manager.as_ref()?;
     let language = detect_language_with_overrides(file_path, relative_path, overrides)?;
 
-    // If the language has a statically compiled grammar, don't use the dynamic
-    // provider. The static path is faster and avoids memory corruption from
-    // ABI mismatches between cached .dylib grammars and the linked tree-sitter.
-    if crate::tree_sitter::is_language_supported(language) {
+    // If the language has a *statically compiled* grammar, don't use the dynamic
+    // provider — the static path is faster and avoids ABI mismatches.
+    //
+    // BUG FIX: this previously checked `is_language_supported(language)`, which
+    // returns true for any language KNOWN TO THE DOWNLOADABLE REGISTRY (the 44
+    // bundled languages) — NOT for languages with a statically compiled grammar.
+    // In the v0.1.3 dynamic-grammar architecture the static set is empty
+    // (`get_static_language` always returns None, `SUPPORTED_LANGUAGES = &[]`),
+    // so the old check short-circuited to `return None` for EVERY registry
+    // language. The chunker then ran with no static grammar AND no dynamic
+    // provider → parse failed → silent text fallback for ALL code, and the
+    // dynamic download below became unreachable dead code. Result: the
+    // code-relationship graph never received symbol nodes/edges.
+    //
+    // Check the real static predicate instead. It is always false today, so we
+    // always proceed to dynamic loading/download — which is the intended path.
+    if crate::tree_sitter::parser::get_static_language(language).is_some() {
         return None;
     }
 
