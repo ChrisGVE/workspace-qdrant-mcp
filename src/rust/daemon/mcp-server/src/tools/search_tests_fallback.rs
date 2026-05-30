@@ -36,7 +36,7 @@ async fn ac_s4_daemon_down_triggers_fallback_search() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         &opts_hybrid("fallback content", 10),
         Some("tenant_abc"),
         false,
@@ -80,7 +80,7 @@ async fn ac_s4b_daemon_down_no_match_still_degraded() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         // query "alpha beta" won't match "unrelated content"
         &opts_hybrid("alpha beta", 10),
         Some("tenant_abc"),

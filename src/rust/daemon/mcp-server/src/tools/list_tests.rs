@@ -10,7 +10,7 @@ use rusqlite::{params, Connection};
 use tempfile::TempDir;
 
 use crate::server_types::SessionState;
-use crate::sqlite::StateManager;
+use crate::sqlite::{SharedStateManager, StateManager};
 // DEFAULT_DEPTH / MAX_DEPTH / DEFAULT_LIMIT / MAX_LIMIT are used in part3 (§12 constants tests).
 use crate::tools::list::{list_tool, ListInput};
 
@@ -81,8 +81,8 @@ impl TestDb {
         Connection::open(&self.path).unwrap()
     }
 
-    fn state_manager(&self) -> StateManager {
-        StateManager::open_at(&self.path)
+    fn state_manager(&self) -> SharedStateManager {
+        SharedStateManager::new(StateManager::open_at(&self.path))
     }
 
     fn insert_project(&self, watch_id: &str, tenant_id: &str, proj_path: &str) {
@@ -170,7 +170,7 @@ fn session_with_branch(project_id: &str, branch: &str) -> SessionState {
 // ---------------------------------------------------------------------------
 
 fn call_list(db: &TestDb, input: ListInput, session: &SessionState) -> serde_json::Value {
-    let mgr = db.state_manager();
+    let mgr = db.state_manager(); // SharedStateManager
     let result = list_tool(input, &mgr, session);
     // Content = Annotated<RawContent>; .raw is the RawContent enum; .as_text() gives &RawTextContent.
     let text = result

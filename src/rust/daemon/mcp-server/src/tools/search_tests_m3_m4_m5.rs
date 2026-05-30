@@ -101,7 +101,7 @@ async fn m3_leg_failure_sets_status_uncertain_with_unavailable_message() {
         ..opts_hybrid("test query", 10)
     };
 
-    let resp = run_search_pipeline(&mut daemon, &qdrant, None, &opts, None, false).await;
+    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false).await;
 
     assert_eq!(
         resp.status.as_deref(),
@@ -135,7 +135,7 @@ async fn m3_all_legs_succeed_no_uncertain_status() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         &opts_hybrid("test", 10),
         None,
         false,

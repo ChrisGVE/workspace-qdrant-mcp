@@ -33,7 +33,7 @@ use crate::sqlite::tracked_files::{
     count_tracked_files, list_project_components, list_submodules, list_tracked_files,
     ComponentEntry, ListTrackedFilesOptions, SubmoduleEntry, TrackedFileEntry,
 };
-use crate::sqlite::{project_queries, StateManager};
+use crate::sqlite::{project_queries, SharedStateManager};
 use crate::tools::envelope::ok_text;
 
 use renderers::{render_flat, render_summary, render_tree};
@@ -224,7 +224,7 @@ struct ProjectIds {
 fn resolve_project_ids(
     input: &ListInput,
     state: &SessionState,
-    sqlite: &StateManager,
+    sqlite: &crate::sqlite::manager::StateManager,
     base_path: &str,
     format: &str,
 ) -> Result<ProjectIds, CallToolResult> {
@@ -403,7 +403,21 @@ fn assemble_response(
 ///
 /// Mirrors `ListFilesTool.list()` in list-files/index.ts.
 /// Synchronous — reads from SQLite only, no async I/O.
-pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) -> CallToolResult {
+/// Execute the `list` MCP tool.
+///
+/// Accepts a [`SharedStateManager`] (`Send + Sync`) so the dispatcher can
+/// call it from an async context without Send issues.  The mutex is locked
+/// once at the top and held for the entire (synchronous) function — there
+/// are no `.await` points so no deadlock risk.
+pub fn list_tool(
+    input: ListInput,
+    sqlite: &SharedStateManager,
+    state: &SessionState,
+) -> CallToolResult {
+    // Lock once — held for the duration of this sync function.
+    let sqlite_guard = sqlite.lock();
+    let sqlite: &crate::sqlite::manager::StateManager = &sqlite_guard;
+
     let format = input.format.as_deref().unwrap_or("tree");
     let depth = input
         .depth

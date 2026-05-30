@@ -18,7 +18,9 @@
 
 use std::collections::HashMap;
 
-use rusqlite::Connection;
+// rusqlite::Connection is no longer imported here — expansion keywords are
+// pre-computed by the caller (search_tool) synchronously before any await,
+// then passed as an owned Vec<String> so the future remains Send.
 
 use crate::qdrant::client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 use crate::qdrant::filters::{build_filter, determine_collections, FilterParams};
@@ -177,10 +179,17 @@ impl SearchQdrant for QdrantReadClient {
 /// Mirrors `searchAllCollections` + `finalizeResults` in `search-helpers.ts`.
 /// `D` must implement both `EmbedDaemon` and `GraphQueryDaemon` to avoid
 /// double-borrow when the same `DaemonClient` is used for both phases.
+/// Run the hybrid / semantic / keyword search pipeline.
+///
+/// `expansion_keywords` replaces the former `conn: Option<&Connection>` to keep
+/// the future `Send`.  Callers must pre-compute expansion keywords synchronously
+/// (via [`super::expansion::collect_expansion_keywords`] while holding the
+/// SQLite lock) and pass the result here.  An empty `Vec` is equivalent to
+/// `None` — no tag-basket expansion is performed.
 pub async fn run_search_pipeline<D, Q>(
     daemon: &mut D,
     qdrant: &Q,
-    conn: Option<&Connection>,
+    expansion_keywords: Vec<String>,
     opts: &SearchOptions,
     project_id: Option<&str>,
     enable_tag_expansion: bool,
@@ -206,28 +215,24 @@ where
     };
 
     // Phase 1b: Tag-basket sparse expansion (search-expansion.ts:50-77).
+    // `expansion_keywords` was pre-computed synchronously by the caller
+    // (before any `.await`) so the future stays `Send`.
     // Expanded keywords merged at DEFAULT_EXPANSION_WEIGHT (0.5) — see expansion.rs:112-123.
     if enable_tag_expansion
         && sparse_vector.is_some()
         && (mode == SearchMode::Hybrid || mode == SearchMode::Keyword)
+        && !expansion_keywords.is_empty()
     {
         let sv = sparse_vector.take().unwrap();
-        let keywords = super::expansion::collect_expansion_keywords(
-            conn,
-            &opts.query,
-            &collections,
-            project_id,
-        );
-        if !keywords.is_empty() {
-            if let Ok(exp_sv) = daemon.generate_sparse_vector(&keywords.join(" ")).await {
-                sparse_vector = Some(super::expansion::merge_sparse_vectors(
-                    &sv,
-                    &exp_sv,
-                    DEFAULT_EXPANSION_WEIGHT,
-                ));
-            } else {
-                sparse_vector = Some(sv);
-            }
+        if let Ok(exp_sv) = daemon
+            .generate_sparse_vector(&expansion_keywords.join(" "))
+            .await
+        {
+            sparse_vector = Some(super::expansion::merge_sparse_vectors(
+                &sv,
+                &exp_sv,
+                DEFAULT_EXPANSION_WEIGHT,
+            ));
         } else {
             sparse_vector = Some(sv);
         }

@@ -268,7 +268,7 @@ async fn ac_s1_hybrid_mode_fires_both_legs() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         &opts_with_mode("test query", SearchMode::Hybrid),
         None,
         false,
@@ -356,7 +356,7 @@ async fn ac_s2_semantic_mode_dense_only() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         &opts_with_mode("semantic query", SearchMode::Semantic),
         None,
         false,
@@ -425,7 +425,7 @@ async fn ac_s3_keyword_mode_sparse_only() {
     let resp = run_search_pipeline(
         &mut daemon,
         &qdrant,
-        None,
+        Vec::new(),
         &opts_with_mode("keyword query", SearchMode::Keyword),
         None,
         false,

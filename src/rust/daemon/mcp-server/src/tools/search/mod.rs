@@ -34,7 +34,7 @@ use serde_json::Value;
 use crate::grpc::client::DaemonClient;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
-use crate::sqlite::manager::StateManager;
+use crate::sqlite::SharedStateManager;
 use crate::tools::envelope::{error_text, ok_text};
 
 pub use self::options::{SearchInput, SearchOptions, DEFAULT_SCORE_THRESHOLD};
@@ -72,9 +72,8 @@ impl exact::ExactSearchDaemon for DaemonClient {
     fn text_search(
         &mut self,
         request: crate::proto::TextSearchRequest,
-    ) -> impl std::future::Future<
-        Output = Result<crate::proto::TextSearchResponse, tonic::Status>,
-    > + Send {
+    ) -> impl std::future::Future<Output = Result<crate::proto::TextSearchResponse, tonic::Status>> + Send
+    {
         DaemonClient::text_search(self, request)
     }
 }
@@ -83,9 +82,8 @@ impl graph_context::GraphQueryDaemon for DaemonClient {
     fn query_related(
         &mut self,
         request: crate::proto::QueryRelatedRequest,
-    ) -> impl std::future::Future<
-        Output = Result<crate::proto::QueryRelatedResponse, tonic::Status>,
-    > + Send {
+    ) -> impl std::future::Future<Output = Result<crate::proto::QueryRelatedResponse, tonic::Status>>
+           + Send {
         DaemonClient::query_related(self, request)
     }
 }
@@ -99,11 +97,16 @@ impl graph_context::GraphQueryDaemon for DaemonClient {
 /// Dispatches to `search_exact` or `run_search_pipeline` based on `opts.exact`.
 /// Fire-and-forget `log_search_event` / `update_search_event` are wired via
 /// `daemon` (task 16 methods) — errors swallowed, no effect on output.
+///
+/// # Send contract
+/// `state: &SharedStateManager` is `Send + Sync`.  All SQLite access
+/// (expansion keyword pre-computation) happens synchronously before the first
+/// `.await`, so no `Connection` reference is held across any await point.
 pub async fn search_tool(
     args: &serde_json::Map<String, Value>,
     daemon: &mut DaemonClient,
     qdrant: &QdrantReadClient,
-    state: &StateManager,
+    state: &SharedStateManager,
     session: &SessionState,
 ) -> CallToolResult {
     let input = match SearchOptions::parse_args(args) {
@@ -113,6 +116,28 @@ pub async fn search_tool(
 
     let current_branch = session.current_branch.as_deref();
     let opts = SearchOptions::from_input(input, current_branch);
+    let project_id = resolve_project_id(&opts, session);
+
+    // Pre-compute expansion keywords synchronously BEFORE any `.await`.
+    // This keeps the future `Send` by ensuring no `&Connection` is held
+    // across any await point (see SharedStateManager docs).
+    let expansion_keywords: Vec<String> = if !opts.exact {
+        let collections = crate::qdrant::filters::determine_collections(
+            opts.collection.as_deref(),
+            opts.scope.as_str(),
+            opts.include_libraries,
+        );
+        let guard = state.lock();
+        expansion::collect_expansion_keywords(
+            guard.connection(),
+            &opts.query,
+            &collections,
+            project_id.as_deref(),
+        )
+        // guard dropped here — no Connection reference crosses an await
+    } else {
+        Vec::new()
+    };
 
     // Fire-and-forget pre-search event (errors swallowed).
     let event_id = uuid::Uuid::new_v4().to_string();
@@ -123,15 +148,13 @@ pub async fn search_tool(
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
 
-    let project_id = resolve_project_id(&opts, session);
-
     let response = if opts.exact {
         exact::search_exact(daemon, &opts).await
     } else {
         flow::run_search_pipeline(
             daemon,
             qdrant,
-            state.connection(),
+            expansion_keywords,
             &opts,
             project_id.as_deref(),
             true, // enable_tag_expansion

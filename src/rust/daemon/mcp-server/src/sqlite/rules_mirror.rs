@@ -13,6 +13,9 @@ use rusqlite::{params, Connection};
 
 use wqm_common::constants::TENANT_GLOBAL;
 
+use crate::sqlite::manager::StateManager;
+use crate::tools::rules::RulesReader;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -75,6 +78,40 @@ pub fn list_rules(
             tracing::warn!("list_rules query failed: {e}");
             Vec::new()
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RulesReader impl for StateManager
+// ---------------------------------------------------------------------------
+
+/// Implement [`RulesReader`] for [`StateManager`] so the dispatcher can pass
+/// the shared SQLite handle directly to `rules_tool` without an extra wrapper.
+impl RulesReader for StateManager {
+    fn list_from_mirror(
+        &self,
+        scope: Option<&str>,
+        tenant_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<RulesMirrorEntry> {
+        list_rules(self.connection(), scope, tenant_id, limit)
+    }
+}
+
+/// Implement [`RulesReader`] for [`crate::sqlite::SharedStateManager`].
+///
+/// `SharedStateManager` wraps `StateManager` in a `std::sync::Mutex`,
+/// making it `Send + Sync`.  Locking here is always synchronous (no await
+/// held), so there is no deadlock risk.
+impl RulesReader for crate::sqlite::SharedStateManager {
+    fn list_from_mirror(
+        &self,
+        scope: Option<&str>,
+        tenant_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<RulesMirrorEntry> {
+        let guard = self.lock();
+        list_rules(guard.connection(), scope, tenant_id, limit)
     }
 }
 

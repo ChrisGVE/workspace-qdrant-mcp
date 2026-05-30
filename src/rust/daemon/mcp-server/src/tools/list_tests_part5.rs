@@ -255,13 +255,15 @@ fn extension_summary_equal_count_keeps_first_seen_order() {
         list_submodules, list_tracked_files, ListTrackedFilesOptions,
     };
     let mgr = db.state_manager();
-    let conn = mgr.connection();
+    let mgr_guard = mgr.lock();
+    let conn = mgr_guard.connection();
     let opts = ListTrackedFilesOptions {
         watch_folder_id: "wid-ext2".to_string(),
         ..Default::default()
     };
     let files = list_tracked_files(conn, &opts);
     let subs = list_submodules(conn, "wid-ext2");
+    drop(mgr_guard); // release before any potential await (none here, but follow contract)
     let root = build_tree(&files, &subs, "");
 
     // render_summary with depth=1 so the root's children are shown with their
