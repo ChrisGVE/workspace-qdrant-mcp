@@ -23,6 +23,8 @@
 //! - **C/C++**: `clangd`, `ccls`
 //! - **Go**: `gopls`
 //! - **Java**: `jdtls`
+//! - **Dart/Flutter**: `dart` (language-server --lsp)
+//! - **R**: `R` (r-languageserver package)
 //! - **And more extensibly**
 //!
 //! # Usage Example
@@ -67,8 +69,10 @@ pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
 pub use project_manager::{
     EnrichmentStatus, LanguageServerManager, LspEnrichment, ProjectLanguageKey, ProjectLspConfig,
     ProjectLspError, ProjectLspResult, ProjectLspStats, ProjectServerState, Reference,
-    ResolvedImport, TypeInfo,
+    ResolvedCall, ResolvedImport, TypeInfo,
 };
+// Crate-internal helpers for the ingestion-time LSP call-resolution pass.
+pub(crate) use project_manager::{resolved_call_edges, symbol_column_in_line};
 
 /// Main errors that can occur in the LSP subsystem
 #[derive(Error, Debug)]
@@ -141,6 +145,8 @@ pub enum Language {
     Json,
     Go,
     Java,
+    Dart,
+    R,
     C,
     Cpp,
     Ruby,
@@ -166,6 +172,8 @@ impl Language {
             Language::Json => "json",
             Language::Go => "go",
             Language::Java => "java",
+            Language::Dart => "dart",
+            Language::R => "r",
             Language::C => "c",
             Language::Cpp => "cpp",
             Language::Ruby => "ruby",
@@ -202,6 +210,8 @@ impl Language {
             "json" => Language::Json,
             "go" => Language::Go,
             "java" => Language::Java,
+            "dart" => Language::Dart,
+            "r" => Language::R,
             "c" => Language::C,
             "cpp" => Language::Cpp,
             "ruby" => Language::Ruby,
@@ -245,6 +255,8 @@ impl Language {
             Language::Json => &["json"],
             Language::Go => &["go"],
             Language::Java => &["java"],
+            Language::Dart => &["dart"],
+            Language::R => &["r", "rmd", "rnw"],
             Language::C => &["c", "h"],
             Language::Cpp => &["cpp", "cc", "cxx", "hpp", "hxx"],
             Language::Ruby => &["rb"],

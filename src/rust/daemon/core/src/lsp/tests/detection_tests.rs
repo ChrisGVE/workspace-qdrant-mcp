@@ -24,6 +24,31 @@ fn test_lsp_server_detector() {
     // Note: Server template details are private implementation
 }
 
+#[test]
+fn test_dart_and_r_servers_registered() {
+    let detector = LspServerDetector::new();
+
+    // Dart server (covers Flutter too) must be a known server.
+    assert!(detector.is_known_server("dart"));
+    let dart_servers = detector.get_servers_for_language(&Language::Dart);
+    assert!(!dart_servers.is_empty(), "Dart must map to a server");
+    assert!(dart_servers.contains(&"dart"));
+
+    // R language server.
+    assert!(detector.is_known_server("R"));
+    let r_servers = detector.get_servers_for_language(&Language::R);
+    assert!(!r_servers.is_empty(), "R must map to a server");
+    assert!(r_servers.contains(&"R"));
+
+    // C/C++ and Java (bundled this session) remain mapped.
+    assert!(detector
+        .get_servers_for_language(&Language::C)
+        .contains(&"clangd"));
+    assert!(detector
+        .get_servers_for_language(&Language::Java)
+        .contains(&"jdtls"));
+}
+
 #[tokio::test]
 async fn test_lsp_server_detection() {
     let detector = LspServerDetector::new();

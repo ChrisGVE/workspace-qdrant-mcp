@@ -31,6 +31,25 @@ fn test_lsp_config_creation() {
 }
 
 #[test]
+fn test_dart_and_r_language_configs() {
+    let config = LspConfig::default();
+
+    // Dart config present with the `dart` server preferred.
+    let dart = config
+        .language_configs
+        .get(&Language::Dart)
+        .expect("Dart language config must exist");
+    assert_eq!(dart.preferred_servers.first().map(String::as_str), Some("dart"));
+
+    // R config present with the `R` interpreter server preferred.
+    let r = config
+        .language_configs
+        .get(&Language::R)
+        .expect("R language config must exist");
+    assert_eq!(r.preferred_servers.first().map(String::as_str), Some("R"));
+}
+
+#[test]
 fn test_config_validation() {
     let mut config = LspConfig::default();
 

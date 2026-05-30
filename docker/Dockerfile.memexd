@@ -21,6 +21,13 @@ ARG BUILDKIT_INLINE_CACHE=1
 ARG RUST_ANALYZER_VERSION=2026-05-18
 ARG GOPLS_VERSION=0.19.1
 
+# Additional LSP binary versions — pinned for reproducible builds.
+# Dart:  dart language-server --lsp covers both Dart and Flutter projects.
+# JDTLS: Eclipse JDT Language Server for Java (requires JRE at runtime).
+ARG DART_VERSION=3.7.2
+ARG JDTLS_VERSION=1.45.0
+ARG JDTLS_DATE=202504251455
+
 # ─────────────────────────────────────────────
 # Stage 1: ONNX Runtime downloader
 # Resolves the correct platform asset before the main build so the large
@@ -267,6 +274,69 @@ RUN mkdir -p /out \
     && go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
 
 # ─────────────────────────────────────────────
+# Stage 3c: Dart SDK download
+# `dart language-server --lsp` is the canonical LSP entry-point for both
+# Dart and Flutter projects (the Dart analyzer handles Flutter analysis).
+# We download the full SDK because the dart binary loads snapshot files
+# from the SDK at runtime; a lone binary would fail to start.
+# ─────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM debian:${DEBIAN_CODENAME}-slim AS dart-download
+
+ARG TARGETPLATFORM
+ARG DART_VERSION
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Best-effort: always create /opt/dart-sdk so the runtime COPY succeeds even if
+# the download fails (the daemon gracefully handles an absent `dart` binary).
+RUN set -ux; \
+    mkdir -p /opt/dart-sdk/bin; \
+    case "${TARGETPLATFORM}" in \
+        linux/amd64) DART_ARCH="x64"   ;; \
+        linux/arm64) DART_ARCH="arm64" ;; \
+        *) DART_ARCH="" ;; \
+    esac; \
+    if [ -n "${DART_ARCH}" ] && curl --fail --silent --show-error --location \
+        "https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-linux-${DART_ARCH}-release.zip" \
+        -o /tmp/dart-sdk.zip; then \
+        unzip -q /tmp/dart-sdk.zip -d /opt && rm /tmp/dart-sdk.zip && chmod +x /opt/dart-sdk/bin/dart; \
+    else \
+        echo "WARNING: Dart SDK download failed (non-fatal) — Dart/Flutter LSP unavailable."; \
+    fi
+
+# ─────────────────────────────────────────────
+# Stage 3d: Eclipse JDT Language Server download
+# Platform-independent JAR bundle; only one architecture/OS variant needed.
+# The jdtls wrapper script (written in the runtime stage) locates the
+# versioned equinox launcher JAR and invokes java with the right flags.
+# ─────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM debian:${DEBIAN_CODENAME}-slim AS jdtls-download
+
+ARG JDTLS_VERSION
+ARG JDTLS_DATE
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Best-effort: always create /opt/jdtls so the runtime COPY succeeds even if the
+# milestone URL is unavailable (the daemon gracefully handles an absent jdtls).
+RUN set -ux; \
+    mkdir -p /opt/jdtls; \
+    if curl --fail --silent --show-error --location \
+        "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz" \
+        -o /tmp/jdtls.tar.gz; then \
+        tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls && rm /tmp/jdtls.tar.gz; \
+    else \
+        echo "WARNING: JDTLS download failed (non-fatal) — Java LSP unavailable until the milestone URL is fixed."; \
+    fi
+
+# ─────────────────────────────────────────────
 # Stage 4: Runtime image
 # ─────────────────────────────────────────────
 FROM debian:${DEBIAN_CODENAME}-slim AS runtime
@@ -298,6 +368,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         python3 \
         python3-yaml \
+        python3-pip \
+        clangd \
+        default-jre-headless \
+        r-base \
+        gcc \
+        g++ \
+        libc6-dev \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${UID} memexd \
     && useradd --uid ${UID} --gid ${UID} --create-home --shell /usr/sbin/nologin memexd \
@@ -328,11 +405,54 @@ RUN npm install --global --omit=dev \
         typescript@5.7.2 \
     && npm cache clean --force
 
+# pylsp — Python LSP fallback alongside pyright.
+# Uses --break-system-packages because this is a container (no system pip
+# isolation needed). The [all] extra includes rope, autopep8, pyflakes, etc.
+# Non-fatal: pyright already covers Python; a flaky PyPI must not break the image.
+RUN pip3 install --no-cache-dir --break-system-packages \
+        python-lsp-server[all]==1.12.2 \
+    || echo "WARNING: pylsp install failed (non-fatal) — pyright remains the Python LSP."
+
+# R language server — CRAN package into the system R library.
+# Non-fatal: `languageserver` compiles native deps (xml2/curl/openssl) that need
+# build-essential + the matching -dev headers. Those are intentionally NOT in
+# this slim runtime image, so the install is best-effort here; the build must
+# not block on it. Full R LSP support is a follow-up (dedicated build stage that
+# compiles the R package tree and copies the library in).
+RUN Rscript --no-save --no-restore -e \
+    "install.packages('languageserver', repos='https://cloud.r-project.org', quiet=TRUE)" \
+    || echo "WARNING: R languageserver install failed (non-fatal) — R LSP unavailable until a build stage is added."
+
 # Copy the native LSPs into /usr/local/bin so the daemon can spawn them by
 # name. `rust-analyzer` comes from the prebuilt release archive;
 # `gopls` is compiled from source in the gopls-build stage.
 COPY --from=rust-analyzer-download /opt/lsp/bin/rust-analyzer /usr/local/bin/rust-analyzer
 COPY --from=gopls-build /out/gopls /usr/local/bin/gopls
+
+# Dart SDK — dart language-server --lsp handles Dart and Flutter.
+COPY --from=dart-download /opt/dart-sdk /opt/dart-sdk
+RUN ln -s /opt/dart-sdk/bin/dart /usr/local/bin/dart
+
+# JDT Language Server — Java LSP via Eclipse.
+COPY --from=jdtls-download /opt/jdtls /opt/jdtls
+# Wrapper resolves the versioned equinox launcher JAR at container start.
+# config_linux is the platform-specific configuration directory shipped
+# in the JDTLS tarball alongside config_mac and config_win.
+RUN printf '#!/bin/sh\n\
+JAR="$(ls /opt/jdtls/plugins/org.eclipse.equinox.launcher_*.jar 2>/dev/null | head -1)"\n\
+exec java \\\n\
+    -Declipse.application=org.eclipse.jdt.ls.core.id1 \\\n\
+    -Dosgi.bundles.defaultStartLevel=4 \\\n\
+    -Declipse.product=org.eclipse.jdt.ls.core.product \\\n\
+    -noverify \\\n\
+    -Xmx1G \\\n\
+    --add-modules=ALL-SYSTEM \\\n\
+    --add-opens java.base/java.util=ALL-UNNAMED \\\n\
+    --add-opens java.base/java.lang=ALL-UNNAMED \\\n\
+    -jar "${JAR}" \\\n\
+    -configuration /opt/jdtls/config_linux \\\n\
+    "$@"\n' > /usr/local/bin/jdtls \
+    && chmod +x /usr/local/bin/jdtls
 
 LABEL org.opencontainers.image.title="memexd" \
       org.opencontainers.image.description="workspace-qdrant-mcp Rust daemon" \

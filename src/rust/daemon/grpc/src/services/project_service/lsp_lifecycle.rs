@@ -27,6 +27,8 @@ fn all_lsp_languages() -> Vec<Language> {
         Language::C,
         Language::Cpp,
         Language::Java,
+        Language::Dart,
+        Language::R,
     ]
 }
 

@@ -23,6 +23,8 @@ pub(crate) fn build_known_servers() -> HashMap<&'static str, ServerTemplate> {
     register_c_cpp_servers(&mut servers);
     register_go_servers(&mut servers);
     register_java_servers(&mut servers);
+    register_dart_servers(&mut servers);
+    register_r_servers(&mut servers);
     register_ruby_servers(&mut servers);
     register_php_servers(&mut servers);
     register_shell_servers(&mut servers);
@@ -423,6 +425,72 @@ fn register_shell_servers(servers: &mut HashMap<&'static str, ServerTemplate>) {
                 references: true,
                 document_symbol: true,
                 document_highlight: true,
+                diagnostics: true,
+                ..Default::default()
+            },
+            priority: 1,
+            version_args: &["--version"],
+        },
+    );
+}
+
+/// Register Dart LSP server templates
+///
+/// `dart language-server --lsp` is the canonical LSP entry-point for both
+/// Dart and Flutter projects; it is part of the Dart SDK binary.
+fn register_dart_servers(servers: &mut HashMap<&'static str, ServerTemplate>) {
+    servers.insert(
+        "dart",
+        ServerTemplate {
+            executable: "dart",
+            languages: &[Language::Dart],
+            capabilities: ServerCapabilities {
+                text_document_sync: true,
+                completion: true,
+                hover: true,
+                signature_help: true,
+                definition: true,
+                references: true,
+                document_highlight: true,
+                document_symbol: true,
+                workspace_symbol: true,
+                code_action: true,
+                document_formatting: true,
+                rename: true,
+                folding_range: true,
+                selection_range: true,
+                diagnostics: true,
+                ..Default::default()
+            },
+            priority: 1,
+            version_args: &["--version"],
+        },
+    );
+}
+
+/// Register R LSP server templates
+///
+/// The R language server is an R package (r-languageserver) started via
+/// `R --slave -e "languageserver::run()"` rather than a standalone binary.
+/// The daemon detects the "R" executable in PATH and launches it with the
+/// appropriate arguments.
+fn register_r_servers(servers: &mut HashMap<&'static str, ServerTemplate>) {
+    servers.insert(
+        "R",
+        ServerTemplate {
+            executable: "R",
+            languages: &[Language::R],
+            capabilities: ServerCapabilities {
+                text_document_sync: true,
+                completion: true,
+                hover: true,
+                signature_help: true,
+                definition: true,
+                references: true,
+                document_symbol: true,
+                workspace_symbol: true,
+                document_formatting: true,
+                rename: true,
                 diagnostics: true,
                 ..Default::default()
             },

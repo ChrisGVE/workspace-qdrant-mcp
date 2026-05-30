@@ -29,6 +29,22 @@ fn test_language_enumeration() {
 }
 
 #[test]
+fn test_dart_and_r_language_support() {
+    // Dart: .dart files → Language::Dart
+    assert_eq!(Language::from_id("dart"), Language::Dart);
+    assert_eq!(Language::Dart.identifier(), "dart");
+    assert!(Language::Dart.extensions().contains(&"dart"));
+    assert!(Language::Dart.has_lsp_support());
+
+    // R: .r/.R/.Rmd files → Language::R
+    assert_eq!(Language::from_id("r"), Language::R);
+    assert_eq!(Language::R.identifier(), "r");
+    assert!(Language::R.extensions().contains(&"r"));
+    assert!(Language::R.extensions().contains(&"rmd"));
+    assert!(Language::R.has_lsp_support());
+}
+
+#[test]
 fn test_language_has_lsp_support() {
     // Languages with LSP server support
     assert!(Language::Python.has_lsp_support());
@@ -42,6 +58,8 @@ fn test_language_has_lsp_support() {
 
     // Programming languages that could have LSP servers
     assert!(Language::Java.has_lsp_support());
+    assert!(Language::Dart.has_lsp_support());
+    assert!(Language::R.has_lsp_support());
     assert!(Language::Ruby.has_lsp_support());
     assert!(Language::Php.has_lsp_support());
     assert!(Language::Shell.has_lsp_support());

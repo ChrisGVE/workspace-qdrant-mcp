@@ -63,6 +63,8 @@ pub fn default_language_configs() -> HashMap<Language, LanguageConfig> {
     configs.insert(Language::C, c_config());
     configs.insert(Language::Cpp, cpp_config());
     configs.insert(Language::Java, java_config());
+    configs.insert(Language::Dart, dart_config());
+    configs.insert(Language::R, r_config());
     configs.insert(Language::Ruby, ruby_config());
     configs.insert(Language::Php, php_config());
     configs.insert(Language::Shell, shell_config());
@@ -219,6 +221,36 @@ fn java_config() -> LanguageConfig {
         file_patterns: vec!["*.java".to_string()],
         enabled_features: extended_features(),
         startup_timeout_override: Some(Duration::from_secs(90)),
+        ..LanguageConfig::default()
+    }
+}
+
+fn dart_config() -> LanguageConfig {
+    LanguageConfig {
+        // `dart language-server --lsp` is the canonical server for both Dart
+        // and Flutter projects.  The binary ships inside the Dart SDK.
+        preferred_servers: vec!["dart".to_string()],
+        file_patterns: vec!["*.dart".to_string()],
+        enabled_features: extended_features(),
+        startup_timeout_override: Some(Duration::from_secs(45)),
+        ..LanguageConfig::default()
+    }
+}
+
+fn r_config() -> LanguageConfig {
+    LanguageConfig {
+        // r-languageserver is invoked via the R interpreter:
+        //   R --slave -e "languageserver::run()"
+        // The daemon detects the "R" executable in PATH.
+        preferred_servers: vec!["R".to_string()],
+        file_patterns: vec![
+            "*.r".to_string(),
+            "*.R".to_string(),
+            "*.Rmd".to_string(),
+            "*.Rnw".to_string(),
+        ],
+        enabled_features: standard_features(),
+        startup_timeout_override: Some(Duration::from_secs(45)),
         ..LanguageConfig::default()
     }
 }

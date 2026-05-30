@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time::timeout;
@@ -17,6 +18,47 @@ use uuid::Uuid;
 use crate::lsp::{DetectedServer, JsonRpcClient, Language, LspConfig, LspResult};
 
 use super::{HealthMetrics, RestartPolicy, ServerMetadata, ServerStatus};
+
+/// Pure mapping from a server name to the command-line arguments needed to
+/// launch it in LSP/stdio mode.
+///
+/// Separated from [`ServerInstance::configure_server_args`] so the
+/// server-specific launch contract can be unit-tested without spawning a
+/// process. An empty slice means "spawn with no extra args" (the server
+/// speaks LSP over stdio by default).
+///
+/// IMPORTANT: every server registered in
+/// [`crate::lsp::detection::registry`] must have a correct entry here. A
+/// missing entry falls through to the `--stdio` default, which is wrong for
+/// servers launched via a subcommand (Dart) or an interpreter (R).
+pub(crate) fn server_launch_args(server_name: &str) -> &'static [&'static str] {
+    match server_name {
+        // Pure stdio servers: LSP over stdin/stdout, no flags required.
+        // `jdtls` is launched via our wrapper script which injects all the
+        // java/equinox flags and uses stdio by default.
+        "rust-analyzer" | "ruff-lsp" | "pylsp" | "gopls" | "jdtls" => &[],
+
+        // Node-based servers that require an explicit stdio flag.
+        "typescript-language-server" | "pyright-langserver" => &["--stdio"],
+
+        // clangd: enable background indexing + clang-tidy diagnostics.
+        "clangd" => &["--background-index", "--clang-tidy"],
+
+        // bash-language-server is launched via its `start` subcommand.
+        "bash-language-server" => &["start"],
+
+        // Dart SDK: `dart language-server` speaks LSP over stdio by default
+        // and covers both Dart and Flutter projects.
+        "dart" => &["language-server"],
+
+        // R language server is an R package launched through the interpreter.
+        // `--slave` (kept for pre-4.0 compatibility) silences the banner.
+        "R" => &["--slave", "--no-save", "--no-restore", "-e", "languageserver::run()"],
+
+        // Unknown servers: assume the common `--stdio` convention.
+        _ => &["--stdio"],
+    }
+}
 
 /// A running LSP server instance
 pub struct ServerInstance {
@@ -97,6 +139,22 @@ impl ServerInstance {
             debug!("LSP server {} started with PID {}", self.metadata.name, pid);
         }
 
+        // Drain stderr in a background task. The server's stderr is piped but
+        // never consumed by the RPC client; without an active reader a verbose
+        // server (e.g. rust-analyzer logs heavily on startup) fills the OS pipe
+        // buffer (~64 KB) and BLOCKS on its next stderr write — deadlocking
+        // before it can answer `initialize`. Draining to debug logs both
+        // prevents that deadlock and surfaces server-side errors.
+        if let Some(stderr) = child.stderr.take() {
+            let server_name = self.metadata.name.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    debug!(server = %server_name, "lsp stderr: {}", line);
+                }
+            });
+        }
+
         // Connect RPC client to the process
         if let Some(stdout) = child.stdout.take() {
             if let Some(stdin) = child.stdin.take() {
@@ -149,20 +207,9 @@ impl ServerInstance {
 
     /// Configure server-specific command line arguments
     fn configure_server_args(&self, command: &mut Command) {
-        match self.metadata.name.as_str() {
-            "rust-analyzer" | "ruff-lsp" | "pylsp" | "gopls" => {
-                // These servers use stdio by default
-            }
-            "typescript-language-server" => {
-                command.args(["--stdio"]);
-            }
-            "clangd" => {
-                command.args(["--background-index", "--clang-tidy"]);
-            }
-            _ => {
-                // Default to stdio for unknown servers
-                command.args(["--stdio"]);
-            }
+        let args = server_launch_args(&self.metadata.name);
+        if !args.is_empty() {
+            command.args(args);
         }
     }
 
@@ -315,6 +362,60 @@ impl Clone for ServerInstance {
 mod tests {
     use super::*;
     use crate::lsp::detection::ServerCapabilities;
+
+    #[test]
+    fn test_stdio_servers_take_no_extra_args() {
+        // rust-analyzer / pylsp / gopls speak LSP over stdio with no flags.
+        assert!(server_launch_args("rust-analyzer").is_empty());
+        assert!(server_launch_args("pylsp").is_empty());
+        assert!(server_launch_args("ruff-lsp").is_empty());
+        assert!(server_launch_args("gopls").is_empty());
+        // jdtls is wrapped; the wrapper supplies every java flag itself.
+        assert!(server_launch_args("jdtls").is_empty());
+    }
+
+    #[test]
+    fn test_node_servers_require_stdio_flag() {
+        assert_eq!(server_launch_args("typescript-language-server"), &["--stdio"]);
+        assert_eq!(server_launch_args("pyright-langserver"), &["--stdio"]);
+    }
+
+    #[test]
+    fn test_clangd_enables_background_index() {
+        assert_eq!(
+            server_launch_args("clangd"),
+            &["--background-index", "--clang-tidy"]
+        );
+    }
+
+    #[test]
+    fn test_dart_uses_language_server_subcommand() {
+        // Regression guard: Dart must NOT fall through to the `--stdio`
+        // default — `dart --stdio` is not a valid invocation.
+        let args = server_launch_args("dart");
+        assert_eq!(args, &["language-server"]);
+        assert!(!args.contains(&"--stdio"));
+    }
+
+    #[test]
+    fn test_r_launches_via_interpreter() {
+        // Regression guard: R must run the languageserver package through the
+        // interpreter, not be invoked with `--stdio`.
+        let args = server_launch_args("R");
+        assert!(args.contains(&"-e"));
+        assert!(args.contains(&"languageserver::run()"));
+        assert!(!args.contains(&"--stdio"));
+    }
+
+    #[test]
+    fn test_bash_language_server_uses_start_subcommand() {
+        assert_eq!(server_launch_args("bash-language-server"), &["start"]);
+    }
+
+    #[test]
+    fn test_unknown_server_falls_back_to_stdio() {
+        assert_eq!(server_launch_args("some-future-lsp"), &["--stdio"]);
+    }
 
     #[tokio::test]
     async fn test_server_instance_is_alive_no_process() {

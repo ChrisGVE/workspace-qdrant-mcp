@@ -90,6 +90,9 @@ fn text_document_capabilities() -> serde_json::Value {
         },
         "documentSymbol": {
             "dynamicRegistration": false
+        },
+        "callHierarchy": {
+            "dynamicRegistration": false
         }
     })
 }
