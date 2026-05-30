@@ -125,7 +125,16 @@ fn point_to_document(point: QdrantRetrievedPoint) -> RetrievedDocument {
 /// Execute the `retrieve` tool.
 ///
 /// Mirrors `RetrieveTool.retrieve()` in retrieve.ts. Daemon-independent.
-pub async fn retrieve_tool<Q>(input: RetrieveInput, qdrant: &Q) -> CallToolResult
+///
+/// `session_project_id` is the fallback project ID from session state,
+/// mirroring `projectId ?? (await this.resolveProjectId())` in TS retrieve.ts:124.
+/// When the caller does not supply `projectId` in the tool arguments but a
+/// session project is registered, the session ID is used instead of refusing.
+pub async fn retrieve_tool<Q>(
+    input: RetrieveInput,
+    qdrant: &Q,
+    session_project_id: Option<&str>,
+) -> CallToolResult
 where
     Q: RetrieveQdrant,
 {
@@ -133,8 +142,15 @@ where
     let coll_name = collection_name(coll);
 
     // F-002 / F-011: resolve project scope up front for projects + scratchpad.
+    // TS: `projectId ?? (await this.resolveProjectId())` (retrieve.ts:124).
+    // The Rust equivalent of resolveProjectId() is session_project_id —
+    // resolved once at session init; use it as the fallback when input.project_id
+    // is absent.
     let resolved_project_id = if coll == "projects" || coll == "scratchpad" {
-        input.project_id.clone()
+        input
+            .project_id
+            .clone()
+            .or_else(|| session_project_id.map(str::to_string))
     } else {
         None
     };

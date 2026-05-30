@@ -96,7 +96,7 @@ async fn by_id_projects_no_project_id_returns_unresolved() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert!(resp
@@ -115,7 +115,7 @@ async fn by_id_libraries_no_library_name_returns_unresolved() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert!(resp
@@ -139,7 +139,7 @@ async fn by_id_rules_no_scope_succeeds() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert_eq!(resp.documents.len(), 1);
@@ -163,7 +163,7 @@ async fn by_id_returns_single_document() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert_eq!(resp.documents.len(), 1);
@@ -188,7 +188,7 @@ async fn by_id_metadata_excludes_content_and_vectors() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     let meta = resp.documents[0].metadata.as_object().unwrap();
     // 'content' must be excluded
@@ -219,7 +219,7 @@ async fn by_id_wrong_tenant_returns_not_found() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     // Must NOT expose the foreign document
     assert!(!resp.success);
@@ -240,7 +240,7 @@ async fn by_id_not_found_returns_error() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert!(resp
@@ -262,7 +262,7 @@ async fn by_filter_projects_no_project_id_returns_unresolved() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert!(resp
@@ -280,7 +280,7 @@ async fn by_filter_libraries_no_library_name_returns_unresolved() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
 }
@@ -293,7 +293,7 @@ async fn by_filter_rules_no_scope_succeeds() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert!(resp.documents.is_empty());
@@ -319,7 +319,7 @@ async fn by_filter_has_more_when_limit_plus_1_returned() {
         limit: 2,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert_eq!(resp.has_more, Some(true));
@@ -341,7 +341,7 @@ async fn by_filter_no_has_more_when_exact_limit_returned() {
         limit: 2,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert_eq!(resp.has_more, Some(false));
     assert_eq!(resp.documents.len(), 2);
@@ -360,7 +360,7 @@ async fn by_filter_fewer_than_limit_no_has_more() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert_eq!(resp.has_more, Some(false));
     assert_eq!(resp.documents.len(), 1);

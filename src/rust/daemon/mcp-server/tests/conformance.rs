@@ -400,7 +400,7 @@ async fn retrieve_unresolved_scope_projects() {
     args.insert("collection".to_string(), json!("projects"));
     let input = RetrieveInput::from_args(&args);
     let qdrant = RetrieveNotFound;
-    let result = retrieve_tool(input, &qdrant).await;
+    let result = retrieve_tool(input, &qdrant, None).await;
     let actual: Value = serde_json::from_str(content_text(&result)).expect("valid json");
     let mut actual_n = actual.clone();
     let mut golden_n = golden.clone();
@@ -416,7 +416,7 @@ async fn retrieve_unresolved_scope_scratchpad() {
     args.insert("collection".to_string(), json!("scratchpad"));
     let input = RetrieveInput::from_args(&args);
     let qdrant = RetrieveNotFound;
-    let result = retrieve_tool(input, &qdrant).await;
+    let result = retrieve_tool(input, &qdrant, None).await;
     let actual: Value = serde_json::from_str(content_text(&result)).expect("valid json");
     let mut actual_n = actual.clone();
     let mut golden_n = golden.clone();

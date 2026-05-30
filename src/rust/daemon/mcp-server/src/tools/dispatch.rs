@@ -223,7 +223,8 @@ async fn route_tool(
         }
         "retrieve" => {
             let input = RetrieveInput::from_args(args);
-            retrieve_tool(input, ctx.qdrant).await
+            let session_project_id = ctx.session.project_id.as_deref();
+            retrieve_tool(input, ctx.qdrant, session_project_id).await
         }
         "rules" => {
             let input = match RulesInput::from_args(args) {

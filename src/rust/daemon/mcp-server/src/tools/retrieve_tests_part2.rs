@@ -23,7 +23,7 @@ async fn collection_not_found_normalised_to_success_empty() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(
         resp.success,
@@ -47,7 +47,7 @@ async fn collection_doesnt_exist_normalised_to_success_empty() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
 }
@@ -63,7 +63,7 @@ async fn qdrant_down_returns_failure() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert!(resp
@@ -88,7 +88,7 @@ async fn retrieve_is_daemon_independent() {
         ..Default::default()
     };
     // Should complete without touching any gRPC endpoint
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
 }
@@ -147,7 +147,7 @@ async fn golden_success_has_more_is_camel_case() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         text.contains("\"hasMore\""),
@@ -178,7 +178,7 @@ async fn by_id_not_found_json_has_no_has_more_key() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         !text.contains("\"hasMore\""),
@@ -200,7 +200,7 @@ async fn by_id_error_json_has_no_has_more_key() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         !text.contains("\"hasMore\""),
@@ -223,7 +223,7 @@ async fn by_id_success_json_has_has_more_key() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         text.contains("\"hasMore\""),
@@ -243,7 +243,7 @@ async fn by_filter_error_json_has_no_has_more_key() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         !text.contains("\"hasMore\""),
@@ -260,7 +260,7 @@ async fn by_filter_success_json_has_has_more_key() {
         limit: 10,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let text = result_text(&r);
     assert!(
         text.contains("\"hasMore\""),
@@ -290,7 +290,7 @@ async fn by_filter_with_nonzero_offset_succeeds() {
         offset: 5, // non-zero — mirrors TS `if (offset > 0) scrollRequest.offset = offset`
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert_eq!(resp.documents.len(), 1);
@@ -311,8 +311,57 @@ async fn by_filter_with_zero_offset_succeeds() {
         offset: 0,
         ..Default::default()
     };
-    let r = retrieve_tool(input, &qdrant).await;
+    let r = retrieve_tool(input, &qdrant, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
     assert_eq!(resp.documents.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Session project_id fallback (TS parity: projectId ?? resolveProjectId())
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn retrieve_uses_session_project_id_when_input_project_id_absent() {
+    // TS: resolvedProjectId = projectId ?? (await this.resolveProjectId())
+    // When input has no projectId but session_project_id is provided, it must
+    // be used as the fallback so the scroll succeeds.
+    let points = vec![make_point("d1", "content", "proj-from-session")];
+    let qdrant = StubQdrant {
+        scroll_points: points,
+        ..Default::default()
+    };
+    let input = RetrieveInput {
+        collection: "projects".to_string(),
+        project_id: None, // absent — must fall back to session
+        limit: 10,
+        offset: 0,
+        ..Default::default()
+    };
+    let r = retrieve_tool(input, &qdrant, Some("proj-from-session")).await;
+    let resp = parse_response(&r);
+    assert!(
+        resp.success,
+        "retrieve must succeed when session_project_id supplies the fallback; got: {resp:?}"
+    );
+}
+
+#[tokio::test]
+async fn retrieve_refuses_when_no_project_id_and_no_session() {
+    // When both input.project_id and session_project_id are None, retrieve must
+    // refuse with an unresolved-tenant response — matching TS F-011.
+    let qdrant = StubQdrant::default();
+    let input = RetrieveInput {
+        collection: "projects".to_string(),
+        project_id: None,
+        limit: 10,
+        offset: 0,
+        ..Default::default()
+    };
+    let r = retrieve_tool(input, &qdrant, None).await;
+    let resp = parse_response(&r);
+    assert!(
+        !resp.success,
+        "retrieve must refuse when no project_id and no session_project_id"
+    );
 }
