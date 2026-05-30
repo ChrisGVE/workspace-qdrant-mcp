@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "documents": [],
+  "total": 0,
+  "hasMore": false,
+  "message": "Cannot retrieve from \"scratchpad\" without a resolvable scope. Pass `projectId` (for projects) or `libraryName` (for libraries), or run from a registered project directory."
+}
