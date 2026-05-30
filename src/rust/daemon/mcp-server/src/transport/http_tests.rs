@@ -92,6 +92,9 @@ async fn middleware_only_handler(
         BearerOutcome::InvalidToken => {
             return unauthorized_response("Invalid token");
         }
+        BearerOutcome::NotConfigured => {
+            return unauthorized_response("Server is not configured for authentication");
+        }
     }
 
     // 4. Route
@@ -202,4 +205,156 @@ async fn wrong_token_returns_401() {
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ── MUST-FIX 2: Rate-limit uses socket IP, not X-Forwarded-For ───────────────
+
+/// Two requests with different spoofed XFF headers but the same socket address
+/// (both have no ConnectInfo extension → "unknown") share one rate-limit bucket.
+/// The limiter must enforce the limit using the socket key, not the XFF value.
+#[tokio::test]
+async fn rate_limit_ignores_xff_uses_socket_addr() {
+    // Limit = 1 so the second request from the same effective IP is denied.
+    let auth = AuthConfig::new(Some(TEST_TOKEN.to_string()));
+    let cors = CorsConfig::default();
+    let limiter = Arc::new(SlidingWindowLimiter::new(
+        RateLimitConfig { max_per_window: 1 },
+        std::time::Duration::from_secs(60),
+    ));
+    let mcp_path = "/mcp".to_string();
+    let mw = MiddlewareState {
+        auth,
+        cors,
+        limiter,
+    };
+
+    let app = Router::new()
+        .route("/healthz", get(healthz_route))
+        .fallback(move |req: Request<Body>| {
+            let mw = mw.clone();
+            let path = mcp_path.clone();
+            async move { middleware_only_handler(req, mw, path).await }
+        });
+
+    // First request: unique spoofed XFF — passes rate-limit (→ 401 no auth).
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("X-Forwarded-For", "10.0.0.1")
+        .body(Body::empty())
+        .unwrap();
+    let resp1 = app.clone().oneshot(req1).await.unwrap();
+    assert_eq!(
+        resp1.status(),
+        StatusCode::UNAUTHORIZED,
+        "first request: should pass rate-limit (hit auth)"
+    );
+
+    // Second request: different spoofed XFF — must STILL be rate-limited
+    // because the socket addr ("unknown") is the same.
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("X-Forwarded-For", "10.0.0.2") // different IP in XFF
+        .body(Body::empty())
+        .unwrap();
+    let resp2 = app.clone().oneshot(req2).await.unwrap();
+    assert_eq!(
+        resp2.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "second request: different XFF but same socket → must be rate-limited"
+    );
+}
+
+/// extract_client_ip with no ConnectInfo extension returns "unknown".
+/// Two calls with no extension share the same "unknown" key.
+#[test]
+fn extract_client_ip_no_connect_info_returns_unknown() {
+    let req = Request::builder().uri("/mcp").body(()).unwrap();
+    let (parts, _) = req.into_parts();
+    assert_eq!(extract_client_ip(&parts), "unknown");
+}
+
+/// extract_client_ip strips the IPv4-mapped ::ffff: prefix so dual-stack
+/// and v4 sockets share the same rate-limit bucket.
+#[test]
+fn extract_client_ip_strips_ipv4_mapped_prefix() {
+    // Simulate ConnectInfo carrying ::ffff:1.2.3.4 (dual-stack listener).
+    use axum::extract::ConnectInfo;
+    use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+
+    // ::ffff:1.2.3.4 as a SocketAddrV6
+    let ipv4_mapped: IpAddr = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x0102, 0x0304));
+    let socket_addr = SocketAddr::new(ipv4_mapped, 12345);
+
+    let mut req = Request::builder().uri("/mcp").body(()).unwrap();
+    req.extensions_mut()
+        .insert(ConnectInfo::<SocketAddr>(socket_addr));
+    let (parts, _) = req.into_parts();
+
+    let ip = extract_client_ip(&parts);
+    // Must be the plain v4 address, not the ::ffff: form.
+    assert_eq!(ip, "1.2.3.4", "::ffff: prefix must be stripped; got: {ip}");
+}
+
+/// A pure IPv4 socket address must not be mangled.
+#[test]
+fn extract_client_ip_pure_v4_unchanged() {
+    use axum::extract::ConnectInfo;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 5678);
+    let mut req = Request::builder().uri("/mcp").body(()).unwrap();
+    req.extensions_mut()
+        .insert(ConnectInfo::<SocketAddr>(socket_addr));
+    let (parts, _) = req.into_parts();
+
+    let ip = extract_client_ip(&parts);
+    assert_eq!(ip, "1.2.3.4");
+}
+
+// ── SHOULD-FIX 3: not_configured vs invalid_token ────────────────────────────
+
+/// When the server has no token configured and the client sends a Bearer
+/// header, the response body must be 'Server is not configured for
+/// authentication' (mirrors auth-middleware.ts:163-166).
+#[tokio::test]
+async fn bearer_with_no_server_token_returns_not_configured_body() {
+    // token = None → server is unconfigured.
+    let app = make_test_router(None, 100);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("Authorization", "Bearer some-token-abcdefgh")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), 256).await.unwrap();
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert_eq!(
+        body_str, "Server is not configured for authentication",
+        "body must distinguish not_configured from invalid_token; got: {body_str}"
+    );
+}
+
+/// When the server HAS a token configured and the client sends the wrong one,
+/// the response body must be 'Invalid token' (not the not_configured message).
+#[tokio::test]
+async fn bearer_wrong_token_returns_invalid_token_body() {
+    let app = make_test_router(Some(TEST_TOKEN), 100);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("Authorization", "Bearer wrong-token-value-here")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = to_bytes(resp.into_body(), 256).await.unwrap();
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert_eq!(
+        body_str, "Invalid token",
+        "wrong token must return 'Invalid token', got: {body_str}"
+    );
 }
