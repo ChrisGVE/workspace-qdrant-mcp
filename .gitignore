@@ -138,3 +138,9 @@ large_code.sh
 
 # Git cleanup artifacts
 affected_commits.txt
+
+# AI workflow files (not published)
+/CLAUDE.md
+/.github/instructions/
+/handover.md
+/code_audit.md
