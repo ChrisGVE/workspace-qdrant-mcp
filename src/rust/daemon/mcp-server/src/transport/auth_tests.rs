@@ -168,11 +168,19 @@ fn check_bearer_malformed_header() {
 }
 
 #[test]
-fn check_bearer_no_configured_token() {
-    // AuthConfig with None token always returns InvalidToken if header is present.
+fn check_bearer_no_configured_token_returns_not_configured() {
+    // AuthConfig with None token returns NotConfigured when a Bearer header is
+    // present — mirrors auth-middleware.ts:163-166 ("not_configured" branch).
     let cfg = AuthConfig::new(None);
     let outcome = check_bearer(Some("Bearer some-token-12345678"), &cfg);
-    assert_eq!(outcome, BearerOutcome::InvalidToken);
+    assert_eq!(outcome, BearerOutcome::NotConfigured);
+}
+
+#[test]
+fn check_bearer_not_configured_distinct_from_invalid_token() {
+    // NotConfigured and InvalidToken must be different variants so the HTTP
+    // layer can emit different bodies / metrics.
+    assert_ne!(BearerOutcome::NotConfigured, BearerOutcome::InvalidToken);
 }
 
 #[test]

@@ -95,6 +95,10 @@ pub enum BearerOutcome {
     MissingHeader,
     /// Header present but token does not match.
     InvalidToken,
+    /// Header present but server has no token configured.
+    ///
+    /// Mirrors the `not_configured` branch in `auth-middleware.ts:163-166`.
+    NotConfigured,
 }
 
 /// Check the `Authorization: Bearer <token>` header against the configured secret.
@@ -107,7 +111,7 @@ pub fn check_bearer(header: Option<&str>, config: &AuthConfig) -> BearerOutcome 
         None => return BearerOutcome::MissingHeader,
     };
     match &config.token {
-        None => BearerOutcome::InvalidToken,
+        None => BearerOutcome::NotConfigured,
         Some(secret) => {
             if constant_time_equals(presented.as_bytes(), secret.expose_secret().as_bytes()) {
                 BearerOutcome::Authorized
