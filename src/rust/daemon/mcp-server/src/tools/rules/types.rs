@@ -4,6 +4,22 @@
 
 use serde::Serialize;
 
+/// Reproduce JS template-literal coercion of the raw `action` value for the
+/// "Invalid rules action: <x>" error, so the message matches the TS server
+/// byte-for-byte: absent → "undefined", null → "null", bool/number → their JS
+/// string form, string → itself.
+fn js_coerce_action(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None => "undefined".to_string(),
+        Some(serde_json::Value::Null) => "null".to_string(),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Bool(b)) => b.to_string(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        // Arrays/objects are not valid actions; best-effort stringification.
+        Some(other) => other.to_string(),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Input
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,7 +52,13 @@ impl RulesInput {
     pub fn from_args(args: &serde_json::Map<String, serde_json::Value>) -> Result<Self, String> {
         let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
         if !matches!(action, "add" | "update" | "remove" | "list") {
-            return Err(format!("Invalid rules action: {action}"));
+            // Match TS `Invalid rules action: ${action}` (rules.ts:21) where the
+            // raw value is JS-coerced — an ABSENT key stringifies to "undefined",
+            // null to "null", etc. (the Rust empty-string default diverged here).
+            return Err(format!(
+                "Invalid rules action: {}",
+                js_coerce_action(args.get("action"))
+            ));
         }
 
         let content = args
