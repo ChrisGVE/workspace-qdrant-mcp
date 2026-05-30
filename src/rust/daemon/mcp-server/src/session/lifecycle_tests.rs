@@ -6,6 +6,7 @@
 //! - SL3: Heartbeat failure sets `daemon_connected = false`.
 //! - SL4: `cleanup_session` is idempotent (second call is a no-op).
 
+use serial_test::serial;
 use tempfile::TempDir;
 
 use crate::server_types::SessionState;
@@ -21,6 +22,7 @@ use super::lifecycle_test_support::{fixed_detect, no_project_detect, MockDaemonO
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// SL1a — `initialize_session` always assigns a fresh session UUID.
+#[serial]
 #[tokio::test]
 async fn sl1a_initialize_assigns_session_id() {
     let dir = TempDir::new().unwrap();
@@ -52,6 +54,7 @@ async fn sl1a_initialize_assigns_session_id() {
 }
 
 /// SL1b — when a project is detected, `project_id` is set on the state.
+#[serial]
 #[tokio::test]
 async fn sl1b_initialize_sets_project_id_when_detected() {
     let dir = TempDir::new().unwrap();
@@ -84,6 +87,7 @@ async fn sl1b_initialize_sets_project_id_when_detected() {
 }
 
 /// SL1c — when no project is detected, `project_path` falls back to `cwd`.
+#[serial]
 #[tokio::test]
 async fn sl1c_initialize_uses_cwd_when_no_project_detected() {
     let dir = TempDir::new().unwrap();
@@ -120,6 +124,7 @@ async fn sl1c_initialize_uses_cwd_when_no_project_detected() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// SL2a — health succeeds → `daemon_connected = true`.
+#[serial]
 #[tokio::test]
 async fn sl2a_initialize_sets_daemon_connected_on_health_ok() {
     let dir = TempDir::new().unwrap();
@@ -145,6 +150,7 @@ async fn sl2a_initialize_sets_daemon_connected_on_health_ok() {
 }
 
 /// SL2b — health fails → `daemon_connected = false`.
+#[serial]
 #[tokio::test]
 async fn sl2b_initialize_sets_daemon_disconnected_on_health_fail() {
     let dir = TempDir::new().unwrap();
@@ -170,6 +176,7 @@ async fn sl2b_initialize_sets_daemon_disconnected_on_health_fail() {
 }
 
 /// SL2c — `start_hb_fn` is called exactly once on success.
+#[serial]
 #[tokio::test]
 async fn sl2c_start_hb_fn_called_on_daemon_connected() {
     use std::sync::{
@@ -206,6 +213,7 @@ async fn sl2c_start_hb_fn_called_on_daemon_connected() {
 }
 
 /// SL2d — `start_hb_fn` is NOT called when health fails.
+#[serial]
 #[tokio::test]
 async fn sl2d_start_hb_fn_not_called_when_health_fails() {
     use std::sync::{
@@ -249,6 +257,7 @@ async fn sl2d_start_hb_fn_not_called_when_health_fails() {
 /// Uses `heartbeat_loop` (pub(crate)) with a very short interval and a
 /// heartbeat_fn that always returns an error.  After one tick the shared
 /// state must have `daemon_connected = false`.
+#[serial]
 #[tokio::test]
 async fn sl3_heartbeat_failure_sets_daemon_disconnected() {
     use std::sync::{Arc, Mutex};
@@ -286,6 +295,7 @@ async fn sl3_heartbeat_failure_sets_daemon_disconnected() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// SL4a — first cleanup marks `cleaned = true`.
+#[serial]
 #[tokio::test]
 async fn sl4a_cleanup_sets_cleaned_flag() {
     let mut state = SessionState::new();
@@ -298,6 +308,7 @@ async fn sl4a_cleanup_sets_cleaned_flag() {
 }
 
 /// SL4b — second cleanup call is a no-op (deprioritize called at most once).
+#[serial]
 #[tokio::test]
 async fn sl4b_cleanup_is_idempotent() {
     let mut state = SessionState::new();
@@ -320,6 +331,7 @@ async fn sl4b_cleanup_is_idempotent() {
 }
 
 /// SL4c — cleanup calls deprioritize exactly once when connected with a project.
+#[serial]
 #[tokio::test]
 async fn sl4c_cleanup_calls_deprioritize_when_connected() {
     let mut state = SessionState::new();
@@ -336,6 +348,7 @@ async fn sl4c_cleanup_calls_deprioritize_when_connected() {
 }
 
 /// SL4d — cleanup does NOT call deprioritize when daemon is not connected.
+#[serial]
 #[tokio::test]
 async fn sl4d_cleanup_skips_deprioritize_when_not_connected() {
     let mut state = SessionState::new();
@@ -356,6 +369,7 @@ async fn sl4d_cleanup_skips_deprioritize_when_not_connected() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `register_project` — project_id is applied from daemon response.
+#[serial]
 #[tokio::test]
 async fn register_project_applies_project_id_from_daemon() {
     let dir = TempDir::new().unwrap();
@@ -381,6 +395,7 @@ async fn register_project_applies_project_id_from_daemon() {
 }
 
 /// `register_project` — worktree flag and watch_path are applied.
+#[serial]
 #[tokio::test]
 async fn register_project_applies_worktree_and_watch_path() {
     let dir = TempDir::new().unwrap();
@@ -407,6 +422,7 @@ async fn register_project_applies_worktree_and_watch_path() {
 }
 
 /// `register_project` — no-op when project_path is None.
+#[serial]
 #[tokio::test]
 async fn register_project_noop_when_no_project_path() {
     let mut state = SessionState::new();
@@ -422,6 +438,7 @@ async fn register_project_noop_when_no_project_path() {
 }
 
 /// `register_project` — inactive project is not registered but no error.
+#[serial]
 #[tokio::test]
 async fn register_project_inactive_project_skips_apply() {
     let dir = TempDir::new().unwrap();
