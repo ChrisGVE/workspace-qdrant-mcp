@@ -20,14 +20,14 @@ struct Call {
 }
 
 #[derive(Debug)]
-struct MockStoreDaemon {
+pub(super) struct MockStoreDaemon {
     pub register_result: Result<ProjectRegisterResult, String>,
     pub enqueue_result: Result<String, String>,
     pub calls: Arc<Mutex<Vec<Call>>>,
 }
 
 impl MockStoreDaemon {
-    fn ok(queue_id: &str) -> Self {
+    pub(super) fn ok(queue_id: &str) -> Self {
         Self {
             register_result: Ok(ProjectRegisterResult {
                 project_id: "proj-abc123".to_string(),
@@ -39,7 +39,7 @@ impl MockStoreDaemon {
         }
     }
 
-    fn new_registered(queue_id: &str) -> Self {
+    pub(super) fn new_registered(queue_id: &str) -> Self {
         Self {
             register_result: Ok(ProjectRegisterResult {
                 project_id: "proj-new001".to_string(),
@@ -51,7 +51,7 @@ impl MockStoreDaemon {
         }
     }
 
-    fn fail_enqueue(msg: &str) -> Self {
+    pub(super) fn fail_enqueue(msg: &str) -> Self {
         Self {
             register_result: Ok(ProjectRegisterResult {
                 project_id: "p".to_string(),
@@ -63,7 +63,7 @@ impl MockStoreDaemon {
         }
     }
 
-    fn fail_register(msg: &str) -> Self {
+    pub(super) fn fail_register(msg: &str) -> Self {
         Self {
             register_result: Err(msg.to_string()),
             enqueue_result: Ok("q1".to_string()),
@@ -71,7 +71,7 @@ impl MockStoreDaemon {
         }
     }
 
-    fn call_count(&self, method: &str) -> usize {
+    pub(super) fn call_count(&self, method: &str) -> usize {
         self.calls
             .lock()
             .unwrap()
@@ -80,7 +80,7 @@ impl MockStoreDaemon {
             .count()
     }
 
-    fn last_call_args(&self, method: &str) -> Option<Vec<String>> {
+    pub(super) fn last_call_args(&self, method: &str) -> Option<Vec<String>> {
         self.calls
             .lock()
             .unwrap()
@@ -161,7 +161,7 @@ impl StoreDaemon for MockStoreDaemon {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
+pub(super) fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
     result
         .content
         .first()
@@ -173,7 +173,7 @@ fn extract_text(result: &rmcp::model::CallToolResult) -> &str {
         .as_str()
 }
 
-fn extract_json(result: &rmcp::model::CallToolResult) -> Value {
+pub(super) fn extract_json(result: &rmcp::model::CallToolResult) -> Value {
     serde_json::from_str(extract_text(result)).unwrap()
 }
 
@@ -181,7 +181,7 @@ fn extract_json(result: &rmcp::model::CallToolResult) -> Value {
 /// JSON object by scanning lines that start with exactly two spaces followed
 /// by a quoted key. This avoids re-parsing into `serde_json::Value` which
 /// uses BTreeMap (alphabetical) when compiled without `preserve_order`.
-fn top_level_keys(text: &str) -> Vec<String> {
+pub(super) fn top_level_keys(text: &str) -> Vec<String> {
     text.lines()
         .filter(|l| l.starts_with("  \"") && !l.starts_with("   "))
         .filter_map(|l| {
@@ -191,7 +191,7 @@ fn top_level_keys(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn make_args(obj: Value) -> Map<String, Value> {
+pub(super) fn make_args(obj: Value) -> Map<String, Value> {
     obj.as_object().unwrap().clone()
 }
 
@@ -414,296 +414,8 @@ async fn url_enqueue_failure_returns_in_band_error() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// store type=scratchpad
+// scratchpad, library, generate_document_id, validate_url — split into sibling
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tokio::test]
-async fn scratchpad_missing_content_returns_error_json() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "type": "scratchpad" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(false));
-    assert!(j["message"]
-        .as_str()
-        .unwrap()
-        .contains("content is required"));
-    assert!(result.is_error.is_none());
-}
-
-#[tokio::test]
-async fn scratchpad_success_enqueues_text_item() {
-    let mut daemon = MockStoreDaemon::ok("scratchpad-q1");
-    let args = make_args(json!({
-        "type": "scratchpad",
-        "content": "My idea for a new feature",
-        "title": "Feature Idea"
-    }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, Some("proj-123"), true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(true));
-    assert_eq!(j["queue_id"], json!("scratchpad-q1"));
-    assert_eq!(j["collection"], json!("scratchpad"));
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert_eq!(enqueue_args[0], "text");
-    assert_eq!(enqueue_args[3], "scratchpad");
-    assert_eq!(enqueue_args[2], "proj-123");
-}
-
-#[tokio::test]
-async fn scratchpad_calls_mirror_upsert_on_success() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({
-        "type": "scratchpad",
-        "content": "test note",
-        "tags": ["rust"]
-    }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, Some("proj-456"), true).await;
-    // Mirror upsert should have been called exactly once
-    assert_eq!(daemon.call_count("upsert_scratchpad_mirror"), 1);
-    let mirror_args = daemon.last_call_args("upsert_scratchpad_mirror").unwrap();
-    // args: scratchpad_id, content, title, tags, tenant_id
-    assert_eq!(mirror_args[1], "test note");
-    assert_eq!(mirror_args[4], "proj-456");
-}
-
-#[tokio::test]
-async fn scratchpad_no_mirror_on_enqueue_failure() {
-    let mut daemon = MockStoreDaemon::fail_enqueue("timeout");
-    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, None, true).await;
-    assert_eq!(daemon.call_count("upsert_scratchpad_mirror"), 0);
-}
-
-#[tokio::test]
-async fn scratchpad_global_tenant_when_no_session_project() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, None, true).await;
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert_eq!(enqueue_args[2], "global");
-}
-
-#[tokio::test]
-async fn scratchpad_result_field_order_no_queue_id_on_error() {
-    let mut daemon = MockStoreDaemon::fail_enqueue("fail");
-    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    // queue_id must be absent on failure
-    assert!(j.get("queue_id").is_none());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// store type=library (default)
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn library_missing_content_returns_error_json() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "libraryName": "my-lib" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(false));
-    assert!(j["message"]
-        .as_str()
-        .unwrap()
-        .contains("Content is required"));
-}
-
-#[tokio::test]
-async fn library_missing_library_name_returns_error_json() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "content": "some content" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(false));
-    assert!(j["message"]
-        .as_str()
-        .unwrap()
-        .contains("libraryName is required"));
-}
-
-#[tokio::test]
-async fn library_success_enqueues_tenant_item() {
-    let mut daemon = MockStoreDaemon::ok("lib-q1");
-    let args = make_args(json!({
-        "content": "Reference content here",
-        "libraryName": "rust-docs"
-    }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(true));
-    assert_eq!(j["collection"], json!("libraries"));
-    assert_eq!(j["fallback_mode"], json!("unified_queue"));
-    assert_eq!(j["queue_id"], json!("lib-q1"));
-    // documentId must be present and 32 chars
-    let doc_id = j["documentId"].as_str().unwrap();
-    assert_eq!(doc_id.len(), 32);
-
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert_eq!(enqueue_args[0], "tenant");
-    assert_eq!(enqueue_args[1], "add");
-    assert_eq!(enqueue_args[2], "rust-docs");
-    assert_eq!(enqueue_args[3], "libraries");
-}
-
-#[tokio::test]
-async fn library_result_field_order() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let text = extract_text(&result);
-    // success → documentId → collection → message → fallback_mode → queue_id
-    assert_eq!(
-        top_level_keys(text),
-        vec![
-            "success",
-            "documentId",
-            "collection",
-            "message",
-            "fallback_mode",
-            "queue_id"
-        ]
-    );
-}
-
-#[tokio::test]
-async fn library_error_result_no_document_id() {
-    let mut daemon = MockStoreDaemon::fail_enqueue("err");
-    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert!(j.get("documentId").is_none());
-    assert!(j.get("queue_id").is_none());
-}
-
-#[tokio::test]
-async fn library_metadata_source_marker_is_mcp_store_tool() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, None, true).await;
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    // metadata_json is last arg
-    assert!(enqueue_args[6].contains("mcp_store_tool"));
-}
-
-#[tokio::test]
-async fn library_for_project_uses_session_project_id() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "content": "c", "forProject": true }));
-    let input = StoreInput::from_args(&args, Some("proj-xyz"));
-    let result = store_tool(input, &mut daemon, Some("proj-xyz"), true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(true));
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert_eq!(enqueue_args[2], "proj-xyz");
-}
-
-#[tokio::test]
-async fn library_for_project_without_session_id_returns_error() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "content": "c", "forProject": true }));
-    let input = StoreInput::from_args(&args, None);
-    let result = store_tool(input, &mut daemon, None, true).await;
-    let j = extract_json(&result);
-    assert_eq!(j["success"], json!(false));
-    assert!(j["message"].as_str().unwrap().contains("No active project"));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// generate_document_id
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn document_id_is_32_hex_chars() {
-    let id = generate_document_id("hello world", "my-tenant");
-    assert_eq!(id.len(), 32);
-    assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-}
-
-#[test]
-fn document_id_is_deterministic() {
-    let id1 = generate_document_id("content", "tenant");
-    let id2 = generate_document_id("content", "tenant");
-    assert_eq!(id1, id2);
-}
-
-#[test]
-fn document_id_differs_by_content() {
-    let id1 = generate_document_id("content A", "tenant");
-    let id2 = generate_document_id("content B", "tenant");
-    assert_ne!(id1, id2);
-}
-
-#[test]
-fn document_id_differs_by_tenant() {
-    let id1 = generate_document_id("content", "tenant-A");
-    let id2 = generate_document_id("content", "tenant-B");
-    assert_ne!(id1, id2);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// validate_url
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn validate_url_empty_fails() {
-    assert!(validate_url("").is_err());
-    assert!(validate_url("   ").is_err());
-}
-
-#[test]
-fn validate_url_non_http_scheme_fails() {
-    assert!(validate_url("ftp://example.com").is_err());
-}
-
-#[test]
-fn validate_url_http_ok() {
-    assert!(validate_url("http://example.com").is_ok());
-}
-
-#[test]
-fn validate_url_https_ok() {
-    assert!(validate_url("https://example.com/path").is_ok());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// scratchpad metadata source marker
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn scratchpad_metadata_source_is_mcp_store_scratchpad() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, None, true).await;
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert!(enqueue_args[6].contains("mcp_store_scratchpad"));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// url metadata source marker
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn url_metadata_source_is_mcp_store_url() {
-    let mut daemon = MockStoreDaemon::ok("q1");
-    let args = make_args(json!({ "type": "url", "url": "https://example.com" }));
-    let input = StoreInput::from_args(&args, None);
-    let _ = store_tool(input, &mut daemon, None, true).await;
-    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
-    assert!(enqueue_args[6].contains("mcp_store_url"));
-}
+#[path = "store_tests_part2.rs"]
+mod part2;
