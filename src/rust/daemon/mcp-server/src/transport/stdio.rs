@@ -44,14 +44,16 @@ use crate::tools::ToolsHandler;
 ///
 /// # Arguments
 ///
-/// * `daemon`       — gRPC client to the memexd daemon (may be disconnected).
-/// * `qdrant`       — read-only Qdrant client.
-/// * `state`        — SQLite state manager (may be in degraded mode).
-/// * `session`      — pre-populated session state (from `initialize_session`).
-/// * `hb_handle`    — optional heartbeat `AbortHandle` to cancel on shutdown.
-/// * `health_state` — optional shared health state from a running
+/// * `daemon`              — gRPC client to the memexd daemon (may be disconnected).
+/// * `qdrant`              — read-only Qdrant client.
+/// * `state`               — SQLite state manager (may be in degraded mode).
+/// * `session`             — pre-populated session state (from `initialize_session`).
+/// * `hb_handle`           — optional heartbeat `AbortHandle` to cancel on shutdown.
+/// * `health_state`        — optional shared health state from a running
 ///   [`HealthMonitorBuilder`](crate::observability::health_monitor::HealthMonitorBuilder).
 ///   When `None` a default optimistic (healthy) state is used.
+/// * `rules_dup_threshold` — optional duplication threshold from loaded config,
+///   mirrors `config.rules?.duplicationThreshold` from TS `server-factory.ts:52`.
 ///
 /// # Steps
 ///
@@ -72,12 +74,20 @@ pub async fn serve_stdio(
     session: SessionState,
     hb_handle: Option<AbortHandle>,
     health_state: Option<SharedHealthState>,
+    rules_dup_threshold: Option<f64>,
 ) -> anyhow::Result<()> {
     let health_state = health_state.unwrap_or_else(|| {
         use std::sync::RwLock;
         std::sync::Arc::new(RwLock::new(HealthState::initial()))
     });
-    let handler = ToolsHandler::new(daemon, qdrant, state, session, health_state);
+    let handler = ToolsHandler::new_with_config(
+        daemon,
+        qdrant,
+        state,
+        session,
+        health_state,
+        rules_dup_threshold,
+    );
 
     // Grab Arc handles for post-serve cleanup.
     let daemon_arc = handler.daemon();
@@ -117,17 +127,18 @@ pub async fn serve_stdio(
 // Qdrant client builder
 // ---------------------------------------------------------------------------
 
-/// Build a `QdrantReadClient` from environment variables or defaults.
+/// Build a `QdrantReadClient` from a loaded `ServerConfig`.
 ///
-/// Reads `QDRANT_URL` (default: `http://localhost:6333`) and `QDRANT_API_KEY`.
-/// Called from `main` before passing the client to `serve_stdio`.
-pub fn build_qdrant_client() -> QdrantReadClient {
-    let url = std::env::var("QDRANT_URL")
-        .unwrap_or_else(|_| wqm_common::constants::DEFAULT_QDRANT_URL.to_string());
-    let api_key = std::env::var("QDRANT_API_KEY")
-        .ok()
-        .map(|s| SecretString::new(s.into_boxed_str()));
-    QdrantReadClient::new(url, api_key)
+/// Uses `config.qdrant.url` and `config.qdrant.api_key`, which already
+/// incorporate env-override precedence (QDRANT_URL / QDRANT_API_KEY).
+/// Mirrors TS `src/index.ts:106`: `new QdrantClient({ url, apiKey })`.
+pub fn build_qdrant_client_from_config(config: &crate::config::ServerConfig) -> QdrantReadClient {
+    let api_key = config
+        .qdrant
+        .api_key
+        .as_deref()
+        .map(|s| SecretString::new(s.to_string().into_boxed_str()));
+    QdrantReadClient::new(config.qdrant.url.clone(), api_key)
 }
 
 // ---------------------------------------------------------------------------
@@ -138,23 +149,24 @@ pub fn build_qdrant_client() -> QdrantReadClient {
 mod tests {
     use super::*;
 
-    /// Verify that `build_qdrant_client` uses the default URL when the
-    /// environment variable is absent (exercising the fallback path).
+    /// Verify that `build_qdrant_client_from_config` constructs a client
+    /// without panicking, using the URL and optional API key from a config.
     #[test]
-    fn build_qdrant_client_uses_default_url() {
-        // Remove env var to ensure default path is exercised.
-        // We cannot assert the URL directly (it's hidden inside the inner Arc)
-        // but the call must not panic.
-        let _client = {
-            let prev = std::env::var("QDRANT_URL").ok();
-            // SAFETY: tests run in-process; unsetting env is not thread-safe in
-            // general, but this module test runs serially and only reads env.
-            unsafe { std::env::remove_var("QDRANT_URL") };
-            let c = build_qdrant_client();
-            if let Some(v) = prev {
-                unsafe { std::env::set_var("QDRANT_URL", v) };
-            }
-            c
-        };
+    fn build_qdrant_client_from_config_uses_config_url() {
+        let mut config = crate::config::ServerConfig::default();
+        config.qdrant.url = "http://localhost:6333".to_string();
+        config.qdrant.api_key = None;
+        // Must not panic.
+        let _client = build_qdrant_client_from_config(&config);
+    }
+
+    /// Verify that `build_qdrant_client_from_config` passes through an API key.
+    #[test]
+    fn build_qdrant_client_from_config_with_api_key() {
+        let mut config = crate::config::ServerConfig::default();
+        config.qdrant.url = "http://remote-qdrant:6333".to_string();
+        config.qdrant.api_key = Some("test-api-key".to_string());
+        // Must not panic.
+        let _client = build_qdrant_client_from_config(&config);
     }
 }

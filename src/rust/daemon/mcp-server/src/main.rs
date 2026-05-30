@@ -23,13 +23,14 @@
 //! tokio SIGINT / SIGTERM handlers trigger graceful shutdown; the transport
 //! layer calls `cleanup_session` after the serve loop exits.
 
+use mcp_server::config::load_config;
 use mcp_server::grpc::client::DaemonClient;
 use mcp_server::observability::logging::init_logging;
 use mcp_server::observability::metrics_http::serve_metrics;
 use mcp_server::server_types::{ServerMode, BUILD_NUMBER, SERVER_NAME, SERVER_VERSION_BASE};
 use mcp_server::sqlite::StateManager;
 use mcp_server::transport::http::serve_http;
-use mcp_server::transport::stdio::{build_qdrant_client, serve_stdio};
+use mcp_server::transport::stdio::{build_qdrant_client_from_config, serve_stdio};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -64,17 +65,29 @@ async fn main() -> anyhow::Result<()> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn run_stdio() -> anyhow::Result<()> {
-    // Open SQLite (degraded-mode safe — read-only, no daemon required).
-    let state = StateManager::open();
+    // Load server config (file → env overrides → tilde expand).
+    // Mirrors TS `loadConfig()` in `src/index.ts:106`.
+    let config = load_config().unwrap_or_else(|e| {
+        warn!(error = %e, "Config load failed; falling back to defaults");
+        mcp_server::config::ServerConfig::default()
+    });
 
-    // Build Qdrant read client from environment (QDRANT_URL / QDRANT_API_KEY).
-    let qdrant = build_qdrant_client();
+    // Extract rules duplication threshold from config before config is moved.
+    // Mirrors TS `config.rules?.duplicationThreshold` in `server-factory.ts:52`.
+    let rules_dup_threshold = config.rules.as_ref().and_then(|r| r.duplication_threshold);
 
-    // Connect daemon gRPC channel (lazy — no TCP handshake at construction).
-    let daemon = DaemonClient::connect_default().unwrap_or_else(|e| {
+    // Open SQLite at the config-resolved path (degraded-mode safe — read-only).
+    let state = StateManager::open_at(&config.database.path);
+
+    // Build Qdrant read client from config (URL + API key already resolved).
+    let qdrant = build_qdrant_client_from_config(&config);
+
+    // Connect daemon gRPC channel using config host/port (lazy — no TCP handshake
+    // at construction).  Mirrors TS `DaemonClient::from_config` pattern.
+    let daemon = DaemonClient::from_config(&config).unwrap_or_else(|e| {
         warn!(error = %e, "Failed to create DaemonClient; continuing in degraded mode");
-        // Panic is safe here: connect_default only fails on a malformed
-        // URI constant — which would be a programming error.
+        // Panic is safe here: from_config only fails on a malformed URI —
+        // which would be a programming error with an invalid hostname/port.
         panic!("Unexpected DaemonClient construction error: {e}")
     });
 
@@ -127,7 +140,7 @@ async fn run_stdio() -> anyhow::Result<()> {
     // Run the serve loop; no heartbeat handle at this stage (heartbeat is
     // started post-handshake inside the session lifecycle).
     let serve_result = tokio::select! {
-        result = serve_stdio(daemon, qdrant, state, session, None, None) => result,
+        result = serve_stdio(daemon, qdrant, state, session, None, None, rules_dup_threshold) => result,
         _ = async {
             let _ = shutdown_rx.await;
         } => {
@@ -144,14 +157,25 @@ async fn run_stdio() -> anyhow::Result<()> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn run_http() -> anyhow::Result<()> {
-    // Open SQLite (read-only, degraded-mode safe).
-    let state = StateManager::open();
+    // Load server config (file → env overrides → tilde expand).
+    // Mirrors TS `loadConfig()` in `src/index.ts:106`.
+    let config = load_config().unwrap_or_else(|e| {
+        warn!(error = %e, "Config load failed; falling back to defaults");
+        mcp_server::config::ServerConfig::default()
+    });
 
-    // Build Qdrant read client.
-    let qdrant = build_qdrant_client();
+    // Extract rules duplication threshold from config.
+    // Mirrors TS `config.rules?.duplicationThreshold` in `server-factory.ts:52`.
+    let rules_dup_threshold = config.rules.as_ref().and_then(|r| r.duplication_threshold);
 
-    // Connect daemon gRPC channel (lazy).
-    let daemon = DaemonClient::connect_default().unwrap_or_else(|e| {
+    // Open SQLite at the config-resolved path (degraded-mode safe — read-only).
+    let state = StateManager::open_at(&config.database.path);
+
+    // Build Qdrant read client from config (URL + API key already resolved).
+    let qdrant = build_qdrant_client_from_config(&config);
+
+    // Connect daemon gRPC channel using config host/port (lazy).
+    let daemon = DaemonClient::from_config(&config).unwrap_or_else(|e| {
         warn!(error = %e, "Failed to create DaemonClient; continuing in degraded mode");
         panic!("Unexpected DaemonClient construction error: {e}")
     });
@@ -198,7 +222,15 @@ async fn run_http() -> anyhow::Result<()> {
         warn!(error = %e, "Metrics server failed to start; continuing without metrics endpoint");
     }
 
-    serve_http(daemon, qdrant, state, session, shutdown_token).await
+    serve_http(
+        daemon,
+        qdrant,
+        state,
+        session,
+        shutdown_token,
+        rules_dup_threshold,
+    )
+    .await
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -136,6 +136,9 @@ struct MiddlewareState {
 /// 3. Binds the TCP listener on `host:port` — with TLS when env vars are set.
 /// 4. Drives the serve loop until `shutdown_token` is cancelled.
 ///
+/// `rules_dup_threshold` threads the config-loaded duplication threshold into
+/// every per-session [`ToolsHandler`], mirroring TS `server-factory.ts:52`.
+///
 /// # Errors
 ///
 /// Returns `Err` when the token is missing/short, TLS config is invalid, the
@@ -146,6 +149,7 @@ pub async fn serve_http(
     state: StateManager,
     session: SessionState,
     shutdown_token: CancellationToken,
+    rules_dup_threshold: Option<f64>,
 ) -> anyhow::Result<()> {
     // ── 1. Load all configs ──────────────────────────────────────────────────
     let http_cfg = HttpConfig::from_env();
@@ -171,6 +175,7 @@ pub async fn serve_http(
         cors_cfg,
         rate_cfg,
         &shutdown_token,
+        rules_dup_threshold,
     );
 
     // ── 6. Assemble axum router ──────────────────────────────────────────────
@@ -193,6 +198,9 @@ pub async fn serve_http(
 /// Build the rmcp `StreamableHttpService` and `MiddlewareState`.
 ///
 /// Extracted from `serve_http` for size compliance.
+///
+/// `rules_dup_threshold` is threaded into every per-session [`ToolsHandler`]
+/// via [`ToolsHandler::from_arcs_with_config`], mirroring TS `server-factory.ts:52`.
 fn build_mcp_service(
     daemon: DaemonClient,
     qdrant: QdrantReadClient,
@@ -203,6 +211,7 @@ fn build_mcp_service(
     cors_cfg: CorsConfig,
     rate_cfg: RateLimitConfig,
     shutdown_token: &CancellationToken,
+    rules_dup_threshold: Option<f64>,
 ) -> (
     StreamableHttpService<ToolsHandler, LocalSessionManager>,
     MiddlewareState,
@@ -229,12 +238,13 @@ fn build_mcp_service(
             let state_arc = Arc::clone(&state_arc);
             let session_arc = Arc::clone(&session_arc);
             move || {
-                Ok(ToolsHandler::from_arcs(
+                Ok(ToolsHandler::from_arcs_with_config(
                     Arc::clone(&daemon_arc),
                     Arc::clone(&qdrant_arc),
                     Arc::clone(&state_arc),
                     Arc::clone(&session_arc),
                     Arc::clone(&health_arc),
+                    rules_dup_threshold,
                 ))
             }
         },
