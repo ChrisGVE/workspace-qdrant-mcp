@@ -431,3 +431,27 @@ pub(super) fn create_file_metadata_metrics(
         fts5_skipped_files_total,
     )
 }
+
+/// LSP subsystem metrics
+///
+/// Returns `(lsp_server_state, lsp_enrichments_total)`.
+///
+/// - `lsp_server_state{language}` — 1 if the server for that language is
+///   running in at least one project, 0 otherwise. Updated by the LSP
+///   metrics background task.
+/// - `lsp_enrichments_total{status}` — cumulative count of LSP enrichment
+///   attempts; status values mirror [`EnrichmentStatus`]: success, partial,
+///   failed, skipped. Incremented inline by the chunk-embed pipeline.
+pub(super) fn create_lsp_metrics() -> (IntGaugeVec, IntCounterVec) {
+    let lsp_server_state = int_gauge_vec(
+        "lsp_server_state",
+        "LSP server running state per language (1=running, 0=stopped/absent)",
+        &["language"],
+    );
+    let lsp_enrichments_total = int_counter_vec(
+        "lsp_enrichments_total",
+        "Cumulative LSP chunk enrichment attempts by outcome status",
+        &["status"],
+    );
+    (lsp_server_state, lsp_enrichments_total)
+}

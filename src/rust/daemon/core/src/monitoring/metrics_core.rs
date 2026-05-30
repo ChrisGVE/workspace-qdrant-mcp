@@ -13,9 +13,10 @@ use prometheus::{
 
 use super::metrics_factories::{
     create_dependency_metrics, create_file_metadata_metrics, create_indexed_project_metrics,
-    create_per_tenant_eta_metric, create_per_tenant_indexing_metric, create_queue_metrics,
-    create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
-    create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
+    create_lsp_metrics, create_per_tenant_eta_metric, create_per_tenant_indexing_metric,
+    create_queue_metrics, create_session_metrics, create_system_metrics,
+    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
+    create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -216,6 +217,21 @@ pub struct DaemonMetrics {
     /// `fts5_skipped_files_count` (which is a current snapshot and can go
     /// down when files shrink below the cap and get re-ingested).
     pub fts5_skipped_files_total: IntCounterVec,
+
+    // ── LSP observability ─────────────────────────────────────────────────
+    /// Running state per language: 1 = at least one server running, 0 = none.
+    /// Labels: language
+    pub lsp_server_state: IntGaugeVec,
+
+    /// Cumulative LSP enrichment attempts by outcome.
+    /// Labels: status (success, partial, failed, skipped, pending)
+    pub lsp_enrichments_total: IntCounterVec,
+
+    /// Number of language server binaries detected in PATH at last scan.
+    pub lsp_available_languages: IntGauge,
+
+    /// Number of LSP server instances currently running across all projects.
+    pub lsp_active_servers: IntGauge,
 }
 
 /// Intermediate struct holding all created metrics before registration.
@@ -265,6 +281,10 @@ struct CreatedMetrics {
     indexed_files_total_bytes: IntGaugeVec,
     fts5_skipped_files_count: IntGaugeVec,
     fts5_skipped_files_total: IntCounterVec,
+    lsp_server_state: IntGaugeVec,
+    lsp_enrichments_total: IntCounterVec,
+    lsp_available_languages: IntGauge,
+    lsp_active_servers: IntGauge,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -328,6 +348,20 @@ fn create_all_metrics() -> CreatedMetrics {
         fts5_skipped_files_total,
     ) = create_file_metadata_metrics();
 
+    let (lsp_server_state, lsp_enrichments_total) = create_lsp_metrics();
+
+    let lsp_available_languages = IntGauge::new(
+        "memexd_lsp_available_languages",
+        "Language server binaries detected in PATH at last scan",
+    )
+    .expect("metric can be created");
+
+    let lsp_active_servers = IntGauge::new(
+        "memexd_lsp_active_servers",
+        "LSP server instances currently running across all projects",
+    )
+    .expect("metric can be created");
+
     CreatedMetrics {
         active_sessions,
         total_sessions,
@@ -374,6 +408,10 @@ fn create_all_metrics() -> CreatedMetrics {
         indexed_files_total_bytes,
         fts5_skipped_files_count,
         fts5_skipped_files_total,
+        lsp_server_state,
+        lsp_enrichments_total,
+        lsp_available_languages,
+        lsp_active_servers,
     }
 }
 
@@ -427,6 +465,10 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.indexed_files_total_bytes.clone()),
             Box::new(m.fts5_skipped_files_count.clone()),
             Box::new(m.fts5_skipped_files_total.clone()),
+            Box::new(m.lsp_server_state.clone()),
+            Box::new(m.lsp_enrichments_total.clone()),
+            Box::new(m.lsp_available_languages.clone()),
+            Box::new(m.lsp_active_servers.clone()),
         ],
     );
 }
@@ -485,6 +527,10 @@ impl DaemonMetrics {
             indexed_files_total_bytes: m.indexed_files_total_bytes,
             fts5_skipped_files_count: m.fts5_skipped_files_count,
             fts5_skipped_files_total: m.fts5_skipped_files_total,
+            lsp_server_state: m.lsp_server_state,
+            lsp_enrichments_total: m.lsp_enrichments_total,
+            lsp_available_languages: m.lsp_available_languages,
+            lsp_active_servers: m.lsp_active_servers,
         }
     }
 
@@ -574,6 +620,36 @@ impl DaemonMetrics {
         self.grpc_request_duration_seconds
             .with_label_values(&[service, method])
             .observe(duration.as_secs_f64());
+    }
+
+    // ── LSP helpers ───────────────────────────────────────────────────────
+
+    /// Increment the LSP enrichment counter for one chunk outcome.
+    ///
+    /// Called inline by the chunk-embed pipeline when an enrichment attempt
+    /// completes (or is skipped). `status` should be one of: `"success"`,
+    /// `"partial"`, `"failed"`, `"skipped"`, `"pending"`.
+    pub fn inc_lsp_enrichment(&self, status: &str) {
+        self.lsp_enrichments_total
+            .with_label_values(&[status])
+            .inc();
+    }
+
+    /// Set the running state for a language (1 = running, 0 = stopped).
+    ///
+    /// Called by the LSP metrics background task every 30 s.
+    pub fn set_lsp_server_state(&self, language: &str, running: bool) {
+        self.lsp_server_state
+            .with_label_values(&[language])
+            .set(if running { 1 } else { 0 });
+    }
+
+    /// Update the language-availability and active-server snapshot gauges.
+    ///
+    /// Called by the LSP metrics background task every 30 s.
+    pub fn set_lsp_snapshot(&self, available_languages: i64, active_servers: i64) {
+        self.lsp_available_languages.set(available_languages);
+        self.lsp_active_servers.set(active_servers);
     }
 
     /// Encode all metrics in Prometheus text format

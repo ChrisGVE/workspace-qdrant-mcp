@@ -53,4 +53,19 @@ impl LanguageServerManager {
         let available = self.available_servers.read().await;
         available.keys().cloned().collect()
     }
+
+    /// Get languages that have at least one actively running server instance.
+    ///
+    /// Used by the Prometheus metrics background task to populate the
+    /// `memexd_lsp_server_state` gauge per language.
+    pub async fn active_languages(&self) -> Vec<Language> {
+        let servers = self.servers.read().await;
+        let mut seen = std::collections::HashSet::new();
+        for (key, state) in servers.iter() {
+            if state.is_active {
+                seen.insert(key.language.clone());
+            }
+        }
+        seen.into_iter().collect()
+    }
 }

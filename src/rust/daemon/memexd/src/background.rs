@@ -16,7 +16,7 @@ use workspace_qdrant_core::config::PrometheusExportConfig;
 use workspace_qdrant_core::search_db::SearchDbManager;
 use workspace_qdrant_core::{
     check_git_state_changes, check_remote_url_changes, metrics_history, poll_pause_state,
-    processing_timings, MetricsServer, METRICS,
+    processing_timings, LanguageServerManager, MetricsServer, METRICS,
 };
 
 /// Handles for all background tasks so the orchestrator can abort them on shutdown.
@@ -27,6 +27,9 @@ pub struct BackgroundHandles {
     pub metrics_maint_handle: JoinHandle<()>,
     pub grpc_handle: Option<JoinHandle<()>>,
     pub metrics_handle: Option<JoinHandle<()>>,
+    /// Handle for the LSP Prometheus metrics poller.  `None` when LSP is
+    /// disabled or when the manager could not be initialized.
+    pub lsp_metrics_handle: Option<JoinHandle<()>>,
 }
 
 /// Start the Prometheus metrics endpoint when `config.enabled` is true.
@@ -518,6 +521,51 @@ pub fn start_file_metadata_exporter(search_db: Arc<SearchDbManager>) -> JoinHand
     handle
 }
 
+/// Spawn the LSP Prometheus metrics collector (30-second polling loop).
+///
+/// Every tick it reads `LanguageServerManager::stats()` /
+/// `available_languages()` / `active_languages()` and pushes the snapshot
+/// into the global `METRICS` gauges.  The task is fire-and-forget during
+/// normal operation; `abort_background_tasks` stops it on shutdown.
+pub fn start_lsp_metrics_collector(
+    lsp_manager: Arc<tokio::sync::RwLock<LanguageServerManager>>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        info!("LSP metrics collector started (30s interval)");
+        loop {
+            interval.tick().await;
+            let mgr = lsp_manager.read().await;
+
+            let stats = mgr.stats().await;
+            let available = mgr.available_languages().await;
+            let active = mgr.active_languages().await;
+
+            METRICS.set_lsp_snapshot(
+                available.len() as i64,
+                stats.active_servers as i64,
+            );
+
+            // Mark all detected-available languages as their running state.
+            let active_set: std::collections::HashSet<&str> =
+                active.iter().map(|l| l.identifier()).collect();
+
+            for lang in &available {
+                METRICS.set_lsp_server_state(
+                    lang.identifier(),
+                    active_set.contains(lang.identifier()),
+                );
+            }
+
+            debug!(
+                available = available.len(),
+                active_servers = stats.active_servers,
+                "LSP metrics snapshot updated"
+            );
+        }
+    })
+}
+
 /// Spawn all periodic background tasks and return their handles.
 pub fn spawn_all(
     pool: &SqlitePool,
@@ -546,7 +594,8 @@ pub fn spawn_all(
         pause_poll_handle,
         metrics_collect_handle,
         metrics_maint_handle,
-        grpc_handle: None, // Filled in later by grpc_setup
+        grpc_handle: None,      // Filled in later by grpc_setup
         metrics_handle,
+        lsp_metrics_handle: None, // Filled in after Phase 4 (LSP manager init)
     }
 }

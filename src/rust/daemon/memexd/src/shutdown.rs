@@ -126,6 +126,9 @@ pub fn abort_background_tasks(
         metrics.abort();
         info!("Metrics server stopped");
     }
+    if let Some(lsp_metrics) = handles.lsp_metrics_handle {
+        lsp_metrics.abort();
+    }
 
     // Flush any buffered OTLP spans before the process exits.
     workspace_qdrant_core::tracing_otel::shutdown_tracer();

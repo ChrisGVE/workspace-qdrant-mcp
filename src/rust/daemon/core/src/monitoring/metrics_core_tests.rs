@@ -260,3 +260,62 @@ fn encode_contains_dependency_metric_names() {
     assert!(out.contains("memexd_sqlite_query_duration_seconds"));
     assert!(out.contains("memexd_qdrant_request_duration_seconds"));
 }
+
+#[test]
+fn lsp_enrichment_counter_increments_per_status() {
+    let m = DaemonMetrics::new();
+    m.inc_lsp_enrichment("success");
+    m.inc_lsp_enrichment("success");
+    m.inc_lsp_enrichment("failed");
+    m.inc_lsp_enrichment("skipped");
+    m.inc_lsp_enrichment("pending");
+    m.inc_lsp_enrichment("partial");
+
+    assert_eq!(
+        m.lsp_enrichments_total
+            .with_label_values(&["success"])
+            .get(),
+        2
+    );
+    for status in ["failed", "skipped", "pending", "partial"] {
+        assert_eq!(
+            m.lsp_enrichments_total.with_label_values(&[status]).get(),
+            1,
+            "status {status} should have 1 enrichment"
+        );
+    }
+}
+
+#[test]
+fn lsp_server_state_and_snapshot_gauges() {
+    let m = DaemonMetrics::new();
+    m.set_lsp_server_state("rust", true);
+    m.set_lsp_server_state("dart", true);
+    m.set_lsp_server_state("go", false);
+    m.set_lsp_snapshot(7, 2);
+
+    assert_eq!(m.lsp_server_state.with_label_values(&["rust"]).get(), 1);
+    assert_eq!(m.lsp_server_state.with_label_values(&["dart"]).get(), 1);
+    assert_eq!(m.lsp_server_state.with_label_values(&["go"]).get(), 0);
+    assert_eq!(m.lsp_available_languages.get(), 7);
+    assert_eq!(m.lsp_active_servers.get(), 2);
+
+    // A language flipping running→stopped must update in place, not append.
+    m.set_lsp_server_state("dart", false);
+    assert_eq!(m.lsp_server_state.with_label_values(&["dart"]).get(), 0);
+}
+
+#[test]
+fn encode_contains_lsp_metric_names() {
+    let m = DaemonMetrics::new();
+    m.inc_lsp_enrichment("success");
+    m.set_lsp_server_state("rust", true);
+    m.set_lsp_snapshot(8, 7);
+    let out = m.encode().expect("encode ok");
+    assert!(out.contains("memexd_lsp_enrichments_total"));
+    assert!(out.contains("memexd_lsp_server_state"));
+    assert!(out.contains("memexd_lsp_available_languages"));
+    assert!(out.contains("memexd_lsp_active_servers"));
+    // Label wiring sanity: the language label is present in the exposition.
+    assert!(out.contains("language=\"rust\""));
+}

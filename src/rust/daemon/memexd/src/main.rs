@@ -133,6 +133,11 @@ async fn run_daemon(
     );
     // Phase 4: LSP manager
     let lsp_manager = grpc_setup::init_lsp_manager(&daemon_config).await;
+    // Start LSP metrics collector now that the manager is ready.
+    if let Some(mgr) = &lsp_manager {
+        bg_handles.lsp_metrics_handle =
+            Some(background::start_lsp_metrics_collector(Arc::clone(mgr)));
+    }
     let watch_refresh_signal = Arc::new(Notify::new());
 
     // Phase 5: IPC + Queue processor
