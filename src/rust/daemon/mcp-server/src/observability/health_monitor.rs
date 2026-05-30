@@ -125,7 +125,7 @@ pub trait QdrantProbe: Send + Sync + 'static {
 /// Builder for a health monitor.  Mirrors the TS `new HealthMonitor(config,
 /// daemonClient)` followed by `monitor.start()`.
 ///
-/// ```rust,ignore
+/// ```text
 /// let monitor = HealthMonitorBuilder::new(daemon_probe, qdrant_probe).build();
 /// // monitor.state() gives the Arc<RwLock<HealthState>>
 /// // Drop monitor to stop background task.
