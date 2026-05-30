@@ -33,6 +33,9 @@
 //! bookkeeping) and are therefore guarded by `tokio::sync::Mutex` so that
 //! `call_tool`'s `&self` receiver can obtain exclusive access.
 
+#[cfg(test)]
+#[path = "config_wiring_tests.rs"]
+mod config_wiring_tests;
 pub mod definitions;
 pub mod dispatch;
 pub mod embedding;
