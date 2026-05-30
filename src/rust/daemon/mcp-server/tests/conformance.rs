@@ -19,19 +19,19 @@
 //! retrieve by id, rules mutations, grep results, store enqueue/register,
 //! list from live SQLite.
 //!
-//! Parity divergence: `rules/err_missing_action` — TS emits
-//! `"Invalid rules action: undefined"` (JS undefined coercion); Rust emits
-//! `"Invalid rules action: "` (empty string for absent key). The golden
-//! captures the TS form; the test asserts only the error prefix.
+//! Note: the absent-`action` error now matches TS byte-for-byte — Rust
+//! reproduces the JS `undefined` coercion (`js_coerce_action`), so the
+//! `rules/err_missing_action` golden is asserted by exact equality.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module imports
 // ─────────────────────────────────────────────────────────────────────────────
 mod normalizer;
-
-use std::path::Path;
+mod support;
 
 use serde_json::{json, Value};
+
+use support::{assert_error_envelope, content_text, load_golden};
 
 use mcp_server::tools::embedding::{
     embedding_tool, EmbeddingProviderFields, EmbeddingStatusProvider,
@@ -45,62 +45,6 @@ use mcp_server::tools::search::types::{SearchMode, SearchResponse, SearchScope};
 use mcp_server::tools::store::{store_tool, ProjectRegisterResult, StoreDaemon, StoreInput};
 
 use normalizer::normalize;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: extract inner result text from a CallToolResult
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn content_text(r: &rmcp::model::CallToolResult) -> &str {
-    r.content
-        .first()
-        .expect("content must not be empty")
-        .raw
-        .as_text()
-        .expect("content must be text")
-        .text
-        .as_str()
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: load and parse a golden fixture
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Load a golden fixture by path relative to `tests/golden/`.
-fn load_golden(rel: &str) -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/golden")
-        .join(rel)
-        .with_extension("json");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read golden {}: {e}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("failed to parse golden {}: {e}", path.display()))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: assert error-envelope parity
-//
-// Error envelope goldens have shape { "is_error": true, "text": "Error: ..." }
-// or { "is_error": true, "text": "Unknown tool: ..." }.
-//
-// The conformance test verifies:
-//   (a) Rust result has is_error = Some(true)
-//   (b) The content text matches the golden's `text` field
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn assert_error_envelope(result: &rmcp::model::CallToolResult, golden: &Value) {
-    assert_eq!(
-        result.is_error,
-        Some(true),
-        "error envelope: expected is_error=true"
-    );
-    let golden_text = golden["text"].as_str().expect("golden.text must be string");
-    let actual_text = content_text(result);
-    assert_eq!(
-        actual_text, golden_text,
-        "error envelope text mismatch\n  actual:   {actual_text:?}\n  expected: {golden_text:?}"
-    );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stubs for injectable traits
@@ -224,22 +168,16 @@ fn rules_err_invalid_action() {
     assert_error_envelope(&result, &golden);
 }
 
-/// Documented parity divergence:
-/// TS: `"Invalid rules action: undefined"` (JS `undefined` coercion)
-/// Rust: `"Invalid rules action: "` (empty string for absent key)
-/// The golden encodes the TS value; this test only verifies the error envelope
-/// prefix, not the exact trailing token.
+/// Absent `action` key: TS coerces `undefined` → `"undefined"` in the error
+/// (rules.ts:21). Rust now matches byte-for-byte (js_coerce_action), so this
+/// asserts exact equality against the golden.
 #[test]
-fn rules_err_missing_action_prefix() {
+fn rules_err_missing_action() {
+    let golden = load_golden("rules/err_missing_action");
     let args = json!({});
     let err = RulesInput::from_args(args.as_object().unwrap()).unwrap_err();
     let result = error_text(&err);
-    assert_eq!(result.is_error, Some(true));
-    let text = content_text(&result);
-    assert!(
-        text.starts_with("Error: Invalid rules action:"),
-        "expected 'Error: Invalid rules action:' prefix, got: {text:?}"
-    );
+    assert_error_envelope(&result, &golden);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
