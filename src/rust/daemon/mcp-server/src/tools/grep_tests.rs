@@ -117,6 +117,26 @@ async fn empty_pattern_returns_in_band_no_is_error_flag() {
     assert!(r.is_error.is_none());
 }
 
+#[tokio::test]
+async fn empty_pattern_latency_is_zero() {
+    // TS grep.ts:132 returns grepError('Search pattern is required', 0) with
+    // LITERAL zero latency — the timer is not started until after the guard.
+    // Mirror: latency_ms must be 0 for missing-pattern errors.
+    let input = GrepInput {
+        pattern: String::new(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        ..Default::default()
+    };
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let resp = parse_response(&r);
+    assert_eq!(
+        resp.latency_ms, 0,
+        "missing-pattern error must have latency_ms=0 (TS returns literal 0)"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Tenant ID resolution
 // ---------------------------------------------------------------------------

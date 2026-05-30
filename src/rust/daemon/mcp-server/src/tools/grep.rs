@@ -209,15 +209,18 @@ pub async fn grep_tool<D>(
 where
     D: GrepDaemon,
 {
-    let start = Instant::now();
-
-    // Pattern is required — grep.ts:132
+    // Pattern is required — grep.ts:132.
+    // TS returns `grepError('Search pattern is required', 0)` BEFORE starting
+    // the timer (line 132 precedes `const startTime = Date.now()` at line 134).
+    // Mirror: check pattern BEFORE creating the timer; use literal 0 latency.
     if input.pattern.is_empty() {
         return ok_text(&grep_error(
             "Search pattern is required".to_string(),
-            elapsed_ms(start),
+            0, // TS: grepError(..., 0) — literal zero, timer not yet started
         ));
     }
+
+    let start = Instant::now();
 
     // Resolve tenant_id for scope=project — grep.ts:137-145
     let tenant_id: Option<String> = if input.scope == "project" {
