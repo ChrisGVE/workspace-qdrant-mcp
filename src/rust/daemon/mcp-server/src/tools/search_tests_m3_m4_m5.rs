@@ -470,32 +470,6 @@ async fn exact_mode_with_project_id_in_opts_sends_tenant() {
     );
 }
 
-#[tokio::test]
-async fn exact_mode_without_project_id_returns_unresolved() {
-    // When opts.project_id is None AND scope=Project, exact mode must return an
-    // unresolved response (not attempt RPC).  This verifies the guard is intact.
-    let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let mut daemon = TenantCapturingExactDaemon {
-        captured_tenant: captured.clone(),
-    };
-
-    let opts = SearchOptions {
-        exact: true,
-        project_id: None, // absent — unresolved
-        scope: SearchScope::Project,
-        ..opts_hybrid("fn main", 10)
-    };
-
-    let resp = search_exact(&mut daemon, &opts).await;
-
-    // No RPC should fire (daemon not called).
-    assert!(
-        captured.lock().unwrap().is_none(),
-        "no RPC must fire when tenant is unresolved"
-    );
-    assert_eq!(
-        resp.status.as_deref(),
-        Some("uncertain"),
-        "unresolved exact mode must set status='uncertain'"
-    );
-}
+// exact_mode_without_project_id_returns_unresolved — split to sibling for size compliance
+#[path = "search_tests_m3_m4_m5_part2.rs"]
+mod part2;
