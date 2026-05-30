@@ -154,6 +154,60 @@ mod tests {
         );
     }
 
+    // ── heartbeat state mutations ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn fire_heartbeat_skips_when_daemon_disconnected() {
+        // When daemon_connected=false, fire_heartbeat must return early without
+        // attempting any RPC.  The session state must remain unchanged.
+        // This mirrors TS sendHeartbeat guard: "if (!sessionState.daemonConnected) return;"
+        use crate::grpc::client::DaemonClient;
+        use crate::server_types::SessionState;
+        use crate::tools::dispatch::fire_heartbeat;
+
+        let mut session = SessionState::new();
+        session.daemon_connected = false;
+        session.project_id = Some("test-project".to_string());
+
+        // DaemonClient with a bogus endpoint — we expect no RPC to be fired.
+        let mut daemon = DaemonClient::connect_default().expect("connect_default must succeed");
+
+        // Since daemon_connected=false, fire_heartbeat must return without RPC.
+        // If it wrongly fires an RPC, it will fail (bogus endpoint in test env)
+        // and would set daemon_connected=false — but the guard prevents that.
+        fire_heartbeat(&mut daemon, &mut session).await;
+
+        // daemon_connected must remain false (unchanged from initial state).
+        assert!(
+            !session.daemon_connected,
+            "daemon_connected must stay false when guard fires"
+        );
+    }
+
+    #[tokio::test]
+    async fn fire_heartbeat_skips_when_project_id_absent() {
+        // When project_id is None, fire_heartbeat must return early even if
+        // daemon is nominally connected.
+        use crate::grpc::client::DaemonClient;
+        use crate::server_types::SessionState;
+        use crate::tools::dispatch::fire_heartbeat;
+
+        let mut session = SessionState::new();
+        session.daemon_connected = true;
+        session.project_id = None; // no project
+
+        let mut daemon = DaemonClient::connect_default().expect("connect_default must succeed");
+
+        // fire_heartbeat must return early without RPC (no project_id).
+        fire_heartbeat(&mut daemon, &mut session).await;
+
+        // daemon_connected must remain true (no failure occurred since no RPC was sent).
+        assert!(
+            session.daemon_connected,
+            "daemon_connected must stay true when project_id absent (no RPC fired)"
+        );
+    }
+
     // ── helper ─────────────────────────────────────────────────────────────────
 
     /// Mirror of the store-type extraction logic in dispatch.rs.

@@ -88,11 +88,16 @@ pub struct DispatchContext<'a> {
 // Fire-and-forget heartbeat helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Send one heartbeat tick, swallowing any error.
+/// Send one heartbeat tick.
 ///
 /// Mirrors `sendHeartbeat(sessionState, daemonClient)` called at the top of
 /// `dispatchToolCall` in tool-dispatcher.ts:93.
-async fn fire_heartbeat(daemon: &mut DaemonClient, session: &SessionState) {
+///
+/// On heartbeat failure TS sets `sessionState.daemonConnected = false` and
+/// records `logDaemonStatus(false, { reason: 'heartbeat_failed' })`
+/// (session-lifecycle.ts:254-258).  We mirror that by flipping
+/// `session.daemon_connected = false` on any RPC error.
+pub(crate) async fn fire_heartbeat(daemon: &mut DaemonClient, session: &mut SessionState) {
     // TS sendHeartbeat (session-lifecycle.ts:239) returns early unless BOTH a
     // project_id is set AND the daemon is currently connected — mirror that
     // guard so we don't fire a doomed RPC while disconnected.
@@ -104,9 +109,16 @@ async fn fire_heartbeat(daemon: &mut DaemonClient, session: &SessionState) {
         let req = HeartbeatRequest {
             project_id: project_id.to_string(),
         };
-        // Fire-and-forget — ignore result just like TS sendHeartbeat.
-        let _ = DaemonClient::heartbeat(daemon, req).await;
-        debug!("heartbeat sent (fire-and-forget)");
+        match DaemonClient::heartbeat(daemon, req).await {
+            Ok(_) => {
+                debug!("heartbeat sent (fire-and-forget)");
+            }
+            Err(_) => {
+                // Mirror TS session-lifecycle.ts:254-258: mark daemon disconnected.
+                session.daemon_connected = false;
+                debug!("heartbeat failed — daemon_connected set to false");
+            }
+        }
     }
 }
 
@@ -135,6 +147,7 @@ pub async fn dispatch_tool(
 ) -> CallToolResult {
     // 1. Heartbeat — fire and forget (tool-dispatcher.ts:93).
     fire_heartbeat(ctx.daemon, ctx.session).await;
+    // Note: fire_heartbeat may have flipped ctx.session.daemon_connected=false.
 
     // 2. Unknown-tool check (tool-dispatcher.ts:95-97).
     if !KNOWN_TOOLS.contains(&name) {
