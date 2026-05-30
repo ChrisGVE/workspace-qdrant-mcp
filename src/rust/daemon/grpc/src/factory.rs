@@ -54,7 +54,14 @@ impl GrpcServer {
                 "GrpcServer requires a DenseProvider — call .with_dense_provider(...) before start()".to_string(),
             )
         })?;
-        let embedding_service = EmbeddingServiceImpl::new(dense_provider);
+        // Pass the writable model cache dir (same one the dense provider uses)
+        // so the lazy reranker download lands somewhere writable instead of the
+        // CWD-relative `.fastembed_cache` default.
+        let model_cache_dir = self
+            .embedding_settings
+            .as_ref()
+            .and_then(|s| s.model_cache_dir.clone());
+        let embedding_service = EmbeddingServiceImpl::new(dense_provider, model_cache_dir);
         let project_service = self.build_project_service(&storage_client).await;
 
         self.log_startup_info();

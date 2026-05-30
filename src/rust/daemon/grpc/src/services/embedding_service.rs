@@ -13,6 +13,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
@@ -65,11 +66,23 @@ pub struct EmbeddingServiceImpl {
     bm25: Arc<TokioRwLock<BM25>>,
     /// Cross-encoder reranker (lazy-initialised on first Rerank call).
     reranker: Arc<TokioMutex<Option<TextRerank>>>,
+    /// Writable cache directory for the reranker ONNX model download.
+    /// Mirrors the dense/sparse providers' `model_cache_dir`; without it
+    /// fastembed defaults to `./.fastembed_cache` (CWD-relative), which is
+    /// unwritable when the daemon runs as a non-root user with CWD=`/`.
+    model_cache_dir: Option<PathBuf>,
 }
 
 impl EmbeddingServiceImpl {
     /// Create a new EmbeddingService bound to the given dense provider.
-    pub fn new(dense_provider: Arc<dyn DenseProvider>) -> Self {
+    ///
+    /// `model_cache_dir` is the writable directory the reranker downloads its
+    /// ONNX model into (typically the same path the dense provider uses). When
+    /// `None`, fastembed falls back to its CWD-relative default.
+    pub fn new(
+        dense_provider: Arc<dyn DenseProvider>,
+        model_cache_dir: Option<PathBuf>,
+    ) -> Self {
         let cache_size =
             NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
         Self {
@@ -77,12 +90,13 @@ impl EmbeddingServiceImpl {
             cache: Arc::new(TokioMutex::new(LruCache::new(cache_size))),
             bm25: Arc::new(TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))),
             reranker: Arc::new(TokioMutex::new(None)),
+            model_cache_dir,
         }
     }
 
     /// Rerank `documents` against `query` with a cross-encoder, returning
-    /// `(index, score)` pairs sorted by score descending. Lazy-loads the BGE
-    /// reranker on first call (~280MB download).
+    /// `(index, score)` pairs sorted by score descending. Lazy-loads the Jina
+    /// turbo reranker on first call (~150MB ONNX download into `model_cache_dir`).
     async fn rerank_internal(
         &self,
         query: &str,
@@ -93,12 +107,24 @@ impl EmbeddingServiceImpl {
         }
         let mut guard = self.reranker.lock().await;
         if guard.is_none() {
-            info!("Initializing cross-encoder reranker (first call, ~280MB download)...");
-            let model = TextRerank::try_new(
-                RerankInitOptions::new(RerankerModel::BGERerankerBase)
-                    .with_show_download_progress(true),
-            )
-            .map_err(|e| {
+            info!(
+                cache_dir = ?self.model_cache_dir,
+                "Initializing cross-encoder reranker (first call, ~150MB ONNX download)..."
+            );
+            // jina-reranker-v1-turbo-en: 38M-param English cross-encoder. ~7×
+            // faster on CPU than bge-reranker-base (278M) — bge measured ~3s per
+            // 30-doc query, which is too slow for interactive search and broke the
+            // benchmark's timeout. Turbo keeps per-query rerank well under 1s.
+            let mut init_opts = RerankInitOptions::new(RerankerModel::JINARerankerV1TurboEn)
+                .with_show_download_progress(true);
+            // Redirect the model download to a writable cache dir. Without this
+            // fastembed uses `./.fastembed_cache` (CWD-relative); the daemon runs
+            // as a non-root user with CWD=`/`, so that path is unwritable and the
+            // download fails immediately with "Failed to retrieve model file".
+            if let Some(ref dir) = self.model_cache_dir {
+                init_opts = init_opts.with_cache_dir(dir.clone());
+            }
+            let model = TextRerank::try_new(init_opts).map_err(|e| {
                 error!("Reranker init failed: {:?}", e);
                 Status::internal(format!("Reranker init failed: {}", e))
             })?;
@@ -350,7 +376,7 @@ mod tests {
 
     fn make_service() -> EmbeddingServiceImpl {
         let provider: Arc<dyn DenseProvider> = Arc::new(FastEmbedProvider::new(32, None, None));
-        EmbeddingServiceImpl::new(provider)
+        EmbeddingServiceImpl::new(provider, None)
     }
 
     #[test]
