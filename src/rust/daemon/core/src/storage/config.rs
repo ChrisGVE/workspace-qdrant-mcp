@@ -57,7 +57,13 @@ impl Default for Http2Config {
 }
 
 /// Storage client configuration
+///
+/// `#[serde(default)]` lets a user config specify only the fields it cares
+/// about (e.g. just `url`/`api_key`); omitted fields such as `timeout_ms` fall
+/// back to [`StorageConfig::default()`] instead of failing the whole daemon
+/// config parse (`qdrant:` is deserialized as part of `DaemonConfig`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StorageConfig {
     /// Qdrant server URL
     pub url: String,

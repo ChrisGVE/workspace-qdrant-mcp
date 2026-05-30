@@ -78,8 +78,18 @@ impl DaemonEndpointConfig {
     }
 }
 
-/// Complete daemon configuration that matches the TOML structure
+/// Complete daemon configuration that matches the TOML structure.
+///
+/// `#[serde(default)]` at the struct level makes a partial/minimal config file
+/// parse cleanly: any field absent from the YAML falls back to the value in
+/// [`DaemonConfig::default()`] (which is derived from the embedded
+/// `default_configuration.yaml`). This is the intended "user config overlays
+/// the built-in defaults" behavior — `load_config_file` deserializes the user
+/// YAML directly into this struct (no separate merge step), so without this a
+/// minimal config (e.g. only `qdrant`/`embedding`) crashed the daemon on parse
+/// with "missing field `enable_preemption`" — fatal on `docker restart`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DaemonConfig {
     /// Log file path
     pub log_file: Option<PathBuf>,
@@ -561,6 +571,37 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_minimal_config_parses_with_defaults() {
+        // Regression guard: a minimal user config (only qdrant/embedding) must
+        // deserialize cleanly into DaemonConfig, with all omitted fields falling
+        // back to defaults. Before `#[serde(default)]` on DaemonConfig this
+        // crashed with "missing field `enable_preemption`" — fatal on restart.
+        let minimal = r#"
+qdrant:
+  url: http://qdrant:6334
+embedding:
+  provider: fastembed
+  output_dim: 384
+"#;
+        let config: DaemonConfig =
+            serde_yaml_ng::from_str(minimal).expect("minimal config must parse");
+        // Omitted scalars fall back to embedded defaults.
+        assert!(config.enable_preemption);
+        assert_eq!(config.chunk_size, 1000);
+        assert_eq!(config.log_level, "info");
+        // Present fields are honored.
+        assert_eq!(config.qdrant.url, "http://qdrant:6334");
+    }
+
+    #[test]
+    fn test_empty_config_parses_to_defaults() {
+        // An entirely empty document must parse to defaults (never crash).
+        let config: DaemonConfig =
+            serde_yaml_ng::from_str("{}").expect("empty config must parse");
+        assert!(config.enable_preemption);
+    }
 
     #[test]
     fn test_daemon_config_defaults() {
