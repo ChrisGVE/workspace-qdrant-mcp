@@ -496,3 +496,7 @@ mod part3;
 #[cfg(test)]
 #[path = "list_tests_part4.rs"]
 mod part4;
+
+#[cfg(test)]
+#[path = "list_tests_part5.rs"]
+mod part5;

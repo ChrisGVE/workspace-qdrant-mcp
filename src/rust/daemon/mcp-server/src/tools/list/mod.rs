@@ -128,11 +128,11 @@ impl ListInput {
 
 /// Check whether a component ID matches a filter string (prefix / exact).
 ///
-/// Mirrors `componentMatchesFilter` in component-detector/helpers.ts.
+/// Mirrors `componentMatchesFilter` in component-detector/helpers.ts:44-50.
+/// Only two clauses: exact match or dot-separated prefix (`daemon` matches
+/// `daemon.core` but NOT `daemon/core`).
 fn component_matches_filter(component_id: &str, filter: &str) -> bool {
-    component_id == filter
-        || component_id.starts_with(&format!("{filter}."))
-        || component_id.starts_with(&format!("{filter}/"))
+    component_id == filter || component_id.starts_with(&format!("{filter}."))
 }
 
 /// Resolve a component filter string to a list of base-path prefixes for SQL.
@@ -208,59 +208,67 @@ fn build_list_stats(
 }
 
 // ---------------------------------------------------------------------------
-// Core tool function
+// Private helpers for list_tool
 // ---------------------------------------------------------------------------
 
-/// Execute the `list` tool.
-///
-/// Mirrors `ListFilesTool.list()` in list-files/index.ts.
-/// Synchronous — reads from SQLite only, no async I/O.
-pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) -> CallToolResult {
-    let format = input.format.as_deref().unwrap_or("tree");
-    let depth = input
-        .depth
-        .map(|d| d.clamp(1, MAX_DEPTH))
-        .unwrap_or(DEFAULT_DEPTH);
-    let limit = input
-        .limit
-        .map(|l| l.clamp(1, MAX_LIMIT))
-        .unwrap_or(DEFAULT_LIMIT);
-    let base_path = input.path.clone().unwrap_or_default();
+/// Resolved database IDs for the project.
+struct ProjectIds {
+    watch_folder_id: String,
+    project_path: Option<String>,
+}
 
-    // Resolve project ID: input override → session state.
+/// Resolve project_id + watch_folder_id + project_path from input + session.
+///
+/// Returns `Err(CallToolResult)` (an early-exit error response) when the
+/// project cannot be identified or is absent from the DB.
+fn resolve_project_ids(
+    input: &ListInput,
+    state: &SessionState,
+    sqlite: &StateManager,
+    base_path: &str,
+    format: &str,
+) -> Result<ProjectIds, CallToolResult> {
     let project_id = match input.project_id.as_deref().or(state.project_id.as_deref()) {
         Some(id) => id.to_string(),
         None => {
-            return ok_text(&ListResponse::error(
+            return Err(ok_text(&ListResponse::error(
                 "Could not detect project. Use projectId parameter.",
-                &base_path,
+                base_path,
                 format,
-            ));
+            )));
         }
     };
-
     let conn = sqlite.connection();
-
-    // Resolve watch_folder_id from tenant_id.
     let watch_folder_id = match project_queries::get_watch_folder_id_by_tenant(conn, &project_id) {
         Some(id) => id,
         None => {
-            return ok_text(&ListResponse::error(
+            return Err(ok_text(&ListResponse::error(
                 "Project not found in database. Has the daemon indexed it?",
-                &base_path,
+                base_path,
                 format,
-            ));
+            )));
         }
     };
-
-    // Resolve project path for the response.
     let project_path =
         project_queries::get_project_by_id(conn, &project_id).map(|p| p.project_path);
+    Ok(ProjectIds {
+        watch_folder_id,
+        project_path,
+    })
+}
 
-    // Load components (DB first, then skip — no live filesystem detection in
-    // the Rust server; component detection from disk is a TS-only concern).
-    let db_components = list_project_components(conn, &watch_folder_id);
-    let component_summaries: Option<Vec<ComponentSummary>> = if db_components.is_empty() {
+/// Build `ComponentSummary` list and resolve component base-path filter.
+///
+/// Returns `(summaries, base_paths_filter)`:
+/// - `summaries` is `None` when the project has no registered components.
+/// - `base_paths_filter` is forwarded to `resolve_component_base_paths`.
+fn load_components(
+    conn: Option<&rusqlite::Connection>,
+    watch_folder_id: &str,
+    component_filter: Option<&str>,
+) -> (Option<Vec<ComponentSummary>>, Option<Vec<String>>) {
+    let db_components = list_project_components(conn, watch_folder_id);
+    let summaries = if db_components.is_empty() {
         None
     } else {
         Some(
@@ -274,25 +282,26 @@ pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) 
                 .collect(),
         )
     };
+    let base_paths = resolve_component_base_paths(component_filter, &db_components);
+    (summaries, base_paths)
+}
 
-    // Resolve component filter to SQL base-paths.
-    let component_base_paths =
-        resolve_component_base_paths(input.component.as_deref(), &db_components);
-
-    // Decode cursor for keyset pagination.
-    let after_path = input.cursor.as_deref().and_then(decode_cursor);
-
-    // Effective page size: pageSize > limit > DEFAULT_LIMIT, capped at MAX_LIMIT.
-    let page_size = input.page_size.unwrap_or(limit).clamp(1, MAX_LIMIT);
-
-    // Build filter options.
+/// Build the `ListTrackedFilesOptions` filter struct from the tool input.
+fn build_file_query_opts(
+    input: &ListInput,
+    state: &SessionState,
+    watch_folder_id: &str,
+    base_path: &str,
+    component_base_paths: Option<Vec<String>>,
+    page_size: u32,
+) -> ListTrackedFilesOptions {
     let mut opts = ListTrackedFilesOptions {
-        watch_folder_id: watch_folder_id.clone(),
+        watch_folder_id: watch_folder_id.to_string(),
         limit: Some(page_size as usize),
         ..Default::default()
     };
     if !base_path.is_empty() {
-        opts.path = Some(base_path.clone());
+        opts.path = Some(base_path.to_string());
     }
     if let Some(ft) = &input.file_type {
         opts.file_type = Some(ft.clone());
@@ -321,50 +330,49 @@ pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) 
             opts.branch = Some(br.to_string());
         }
     }
+    opts
+}
 
-    // COUNT with all filters but no cursor, no limit.
-    let count_opts = ListTrackedFilesOptions {
-        after_path: None,
-        limit: None,
-        ..opts.clone()
-    };
-    let total_matching = count_tracked_files(conn, &count_opts);
-
-    // Paginated fetch.
-    if let Some(ap) = after_path {
-        opts.after_path = Some(ap);
-    }
-    let page_files = list_tracked_files(conn, &opts);
-
-    // Submodules.
-    let submodules = list_submodules(conn, &watch_folder_id);
-
-    // Render the listing string.
-    let (listing, rendered_count) =
-        render_files(&page_files, &submodules, &base_path, format, depth, limit);
-
-    // truncated: render limit hit within the page.
-    let truncated = rendered_count < page_files.len();
-
-    // next_token: present when there could be more pages.
-    let has_next_page = page_files.len() >= page_size as usize;
-    let next_token = if has_next_page {
+/// Compute the next_token cursor from the current page result.
+fn compute_next_token(page_files: &[TrackedFileEntry], page_size: u32) -> Option<String> {
+    if page_files.len() >= page_size as usize {
         page_files.last().map(|f| encode_cursor(&f.relative_path))
     } else {
         None
-    };
+    }
+}
 
-    let final_listing = if truncated || next_token.is_some() {
+/// Assemble the final `ListResponse` value.
+#[allow(clippy::too_many_arguments)]
+fn assemble_response(
+    project_path: Option<String>,
+    base_path: String,
+    format: &str,
+    page_files: &[TrackedFileEntry],
+    submodules: &[SubmoduleEntry],
+    depth: u32,
+    limit: u32,
+    page_size: u32,
+    total_matching: i64,
+    component_summaries: Option<Vec<ComponentSummary>>,
+) -> ListResponse {
+    let (listing, rendered_count) =
+        render_files(page_files, submodules, &base_path, format, depth, limit);
+    let truncated = rendered_count < page_files.len();
+    let next_token = compute_next_token(page_files, page_size);
+    let is_cut = truncated || next_token.is_some();
+
+    let final_listing = if is_cut {
         format!("{listing}\n... (truncated, {total_matching} total files match)")
     } else {
         listing
     };
 
     let stats = build_list_stats(
-        &page_files,
-        &submodules,
+        page_files,
+        submodules,
         &base_path,
-        truncated || next_token.is_some(),
+        is_cut,
         total_matching,
         component_summaries,
     );
@@ -384,7 +392,78 @@ pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) 
         next_token: None,
     };
     response.next_token = next_token;
+    response
+}
 
+// ---------------------------------------------------------------------------
+// Core tool function
+// ---------------------------------------------------------------------------
+
+/// Execute the `list` tool.
+///
+/// Mirrors `ListFilesTool.list()` in list-files/index.ts.
+/// Synchronous — reads from SQLite only, no async I/O.
+pub fn list_tool(input: ListInput, sqlite: &StateManager, state: &SessionState) -> CallToolResult {
+    let format = input.format.as_deref().unwrap_or("tree");
+    let depth = input
+        .depth
+        .map(|d| d.clamp(1, MAX_DEPTH))
+        .unwrap_or(DEFAULT_DEPTH);
+    let limit = input
+        .limit
+        .map(|l| l.clamp(1, MAX_LIMIT))
+        .unwrap_or(DEFAULT_LIMIT);
+    let base_path = input.path.clone().unwrap_or_default();
+
+    let ids = match resolve_project_ids(&input, state, sqlite, &base_path, format) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let conn = sqlite.connection();
+
+    // Load components (DB only — no live filesystem detection in Rust server).
+    let (component_summaries, component_base_paths) =
+        load_components(conn, &ids.watch_folder_id, input.component.as_deref());
+
+    // Effective page size: pageSize > limit > DEFAULT_LIMIT, capped at MAX_LIMIT.
+    let page_size = input.page_size.unwrap_or(limit).clamp(1, MAX_LIMIT);
+    let after_path = input.cursor.as_deref().and_then(decode_cursor);
+
+    let mut opts = build_file_query_opts(
+        &input,
+        state,
+        &ids.watch_folder_id,
+        &base_path,
+        component_base_paths,
+        page_size,
+    );
+
+    // COUNT without cursor/limit, then paginated fetch.
+    let count_opts = ListTrackedFilesOptions {
+        after_path: None,
+        limit: None,
+        ..opts.clone()
+    };
+    let total_matching = count_tracked_files(conn, &count_opts);
+    if let Some(ap) = after_path {
+        opts.after_path = Some(ap);
+    }
+    let page_files = list_tracked_files(conn, &opts);
+    let submodules = list_submodules(conn, &ids.watch_folder_id);
+
+    let response = assemble_response(
+        ids.project_path,
+        base_path,
+        format,
+        &page_files,
+        &submodules,
+        depth,
+        limit,
+        page_size,
+        total_matching,
+        component_summaries,
+    );
     ok_text(&response)
 }
 
