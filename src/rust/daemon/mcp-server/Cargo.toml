@@ -102,6 +102,12 @@ tokio-test = { workspace = true }
 wiremock = { workspace = true }
 # For tower::ServiceExt::oneshot used in http transport tests.
 tower = { version = "0.5", features = ["util"] }
+# Criterion benchmark harness (pinned 0.5.x — stable API, no nightly required).
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "tool_overhead"
+harness = false
 
 [features]
 # Gates integration tests that require a live daemon + Qdrant

@@ -3634,6 +3634,7 @@ dependencies = [
  "axum-server",
  "base64 0.22.1",
  "chrono",
+ "criterion",
  "dirs 5.0.1",
  "hex",
  "http-body-util",
