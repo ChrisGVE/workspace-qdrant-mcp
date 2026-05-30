@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use tokio::task::AbortHandle;
 use tracing::{debug, error, info};
 
+use crate::observability::metrics::{record_session_end, record_session_start};
 use crate::server_types::SessionState;
 use crate::sqlite::manager::StateManager;
 
@@ -180,6 +181,10 @@ pub async fn initialize_session<D, DetectFn, HbFn>(
     // (state.session_id is already set by SessionState::new(); re-assign to
     // match TS behaviour where randomUUID() is called inside initializeSession)
     state.session_id = uuid::Uuid::new_v4();
+
+    // Mirrors `recordSessionStart()` called in TS `initializeSession`
+    // (session-lifecycle.ts via telemetry/metrics.ts:recordSessionStart).
+    record_session_start();
 
     debug!(session_id = %state.session_id, "Session start");
 
@@ -393,6 +398,10 @@ pub async fn cleanup_session<D: DaemonOps>(
     // The trait method `close` is not part of DaemonOps to keep the trait
     // minimal; callers that own a DaemonClient call `.close()` directly.
 
+    // Mirrors `recordSessionEnd()` in TS `cleanup` (session-lifecycle.ts via
+    // telemetry/metrics.ts:recordSessionEnd).
+    record_session_end();
+
     debug!(session_id = %state.session_id, "Session end");
 }
 
@@ -413,3 +422,6 @@ mod lifecycle_test_support;
 #[cfg(test)]
 #[path = "lifecycle_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "lifecycle_tests_gauge.rs"]
+mod tests_gauge;

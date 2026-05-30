@@ -445,3 +445,7 @@ async fn register_project_inactive_project_skips_apply() {
         "project_id must not be set for an inactive/uncreated project"
     );
 }
+
+// Session gauge metric tests live in the sibling `lifecycle_tests_gauge.rs`
+// module (wired below in `lifecycle.rs`) to keep this file under 500 lines
+// and to apply `#[serial]` isolation without polluting the non-gauge tests.
