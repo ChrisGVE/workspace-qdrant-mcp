@@ -4,7 +4,7 @@ workspace-qdrant-mcp consists of three components:
 
 - **memexd** — Rust daemon for file watching, embedding generation, and queue processing
 - **wqm** — Rust CLI for service management, configuration, and queue inspection
-- **MCP Server** — TypeScript server exposing the 6 MCP tools to LLM clients
+- **MCP Server** — TypeScript server exposing the 10 MCP tools to LLM clients
 
 All three components must be installed for full functionality. The MCP Server and CLI can operate without the daemon for limited read-only queries, but file indexing and write operations require `memexd`.
 

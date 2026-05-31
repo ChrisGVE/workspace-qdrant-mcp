@@ -12,7 +12,7 @@ workspace-qdrant-mcp (v0.1.3) is a Model Context Protocol (MCP) server providing
 - **CLI**: Rust (high-performance command-line interface)
 
 **Core Features:**
-- 6 MCP tools: store, search, rules, retrieve, grep, list
+- 10 MCP tools: store, search, rules, retrieve, grep, list (core) + graph, embedding, search_eval, workspace_index
 - Hybrid search combining dense (semantic) and sparse (keyword) vectors
 - Automatic project detection with Git integration
 - Behavioral rules via persistent rules collection

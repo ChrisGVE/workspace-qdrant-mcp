@@ -2,7 +2,7 @@
 
 ### MCP Tools
 
-The server provides exactly **7 tools**: `search`, `retrieve`, `rules`, `store`, `grep`, `list`, and `embedding`.
+The server provides **10 tools**: `search`, `retrieve`, `rules`, `store`, `grep`, `list`, `embedding`, `graph`, `search_eval`, and `workspace_index`.
 
 **Important design principles:**
 
@@ -291,6 +291,82 @@ list({
 - `flat`: Simple flat list of file paths matching filters
 
 **Use case:** Understanding project structure before diving into code. Start with `format: "summary"` for an overview, then use `path` to drill into specific directories.
+
+#### embedding
+
+Report the daemon's active embedding provider — a diagnostic, not a retrieval tool. Low-level: prefer `search` for actual queries.
+
+```typescript
+embedding(); // no arguments
+```
+
+Returns the provider id, model name, configured output dimensionality, base URL (for remote providers), and a live probe status. Use it to confirm which model the index is built against — e.g. before/after an embedding-model migration.
+
+#### graph
+
+Navigate the code-relationship graph (calls, contains, uses-type, imports) built from symbol relations during indexing. Use it to understand how code connects before editing.
+
+```typescript
+graph({
+    action: "stats" | "relations" | "impact" | "usages" | "hotspots" | "bridges" | "modules", // default: "stats"
+    symbol?: string,                    // Required for "impact" and "relations"
+    filePath?: string,                  // Required for "relations"; optional narrowing for "impact"
+    symbolType?: string,                // Node kind for "relations" lookup (default: "function")
+    edgeTypes?: string[],               // Filter: ["CALLS","IMPORTS","CONTAINS","USES_TYPE"] (default: all)
+    maxHops?: number,                   // Traversal depth for "relations" (1-5, default: 1)
+    topK?: number,                      // Top results for "hotspots"/"bridges" (default: 20)
+    maxSamples?: number,                // "bridges": sample N sources on large graphs (0 = exact)
+    minSize?: number,                   // Minimum community size for "modules" (default: 2)
+    projectId?: string,                 // Tenant (default: first active project)
+});
+```
+
+**Actions:**
+
+- `stats`: node/edge counts
+- `relations`: callers/callees of a symbol
+- `impact`: change blast-radius (what breaks if you change a symbol)
+- `usages`: where/by what a symbol is used
+- `hotspots`: most central symbols (PageRank)
+- `bridges`: bottleneck symbols on many shortest paths (betweenness)
+- `modules`: code clusters (community detection)
+
+**Use case:** "What calls this function?", "What breaks if I change X?", "What are the most central functions?" — answered from the daemon's relationship graph instead of inferring from search hits.
+
+#### search_eval
+
+Benchmark semantic-search quality against known-item queries — the measure→edit→measure loop for ranking changes.
+
+```typescript
+search_eval({
+    cases?: Array<{ query: string; expectedFiles: string[]; id?: string }>, // Ad-hoc set; omit to use the bundled dataset
+    scope?: "project" | "global" | "all", // default: "project"
+    topK?: number,                      // Evaluation cutoff K (default: 10)
+    limit?: number,                     // Results fetched per query (default: 10)
+    includeTopPaths?: boolean,          // Return per-query paths for debugging misses (default: false)
+    projectId?: string,                 // Tenant (default: auto-detect from cwd)
+    cwd?: string,                       // Working dir for project auto-detect over HTTP
+});
+```
+
+Runs each query through the live pipeline and returns hit@1/3/10, recall@10, MRR, and duplicate-rate per mode (semantic/hybrid/exact) plus a quality verdict. Runs in-process against the real index — no extra setup.
+
+#### workspace_index
+
+Observe and manage indexed projects, agent-created branches, and worktrees. **Read-only by default; mutating actions require double opt-in** (`allowMutation: true` in the call AND `WQM_INDEX_MANAGER_ALLOW_MUTATION=1` in the environment).
+
+```typescript
+workspace_index({
+    action: string, // see below
+    // ...action-specific args (projectId, branchName, baseBranch, useWorktree, ...)
+});
+```
+
+**Read-only actions:** `list_projects`, `project_status`, `status_all`, `list_branches`, `agent_branch_status`, `incremental_check`, `indexing_status`.
+
+**Mutating actions** (double opt-in): `add_project`, `start_agent_branch`, `finish_agent_branch`, `abandon_agent_branch`, `register_wqm`, `register_all_wqm`, `cleanup_orphans`, `observe_project`, `sync_current_branch`.
+
+See [`workspace_index` `indexing_status` action](#workspace_index-indexing_status) below for the indexing-progress payload shape.
 
 ### Session Lifecycle
 
