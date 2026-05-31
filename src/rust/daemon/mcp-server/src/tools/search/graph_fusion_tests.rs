@@ -183,3 +183,49 @@ async fn self_node_skipped_and_per_result_cap_enforced() {
     assert_eq!(expanded, 4, "self node consumes one of the 5 sliced slots");
     assert!(results.iter().all(|r| r.id != seed_node_id));
 }
+
+#[tokio::test]
+async fn expanded_node_converts_to_narrow_search_result() {
+    // A graph-expanded TaggedResult converts to a SearchResult mirroring TS
+    // `nodeToSearchResult`: content/title set, but metadata is NARROW
+    // (no content/title/_search_type keys) and provenance is None.
+    let seed = code_result("v1", 1.0, "foo", "function", "t", "src/a.rs");
+    let seed_node_id = compute_node_id("t", "src/a.rs", "foo", "function");
+    let mut results = vec![seed];
+    let mut daemon = MapDaemon::default();
+    daemon
+        .responses
+        .insert(seed_node_id, vec![node("expanded_1", "bar", 1)]);
+    expand_and_fuse_with_graph(&mut daemon, &mut results, "projects").await;
+
+    let expanded = results
+        .into_iter()
+        .find(|r| r.id == "expanded_1")
+        .expect("expanded node present");
+    let sr = crate::tools::search::flow_collect::tagged_to_search_result(expanded);
+    assert_eq!(sr.title.as_deref(), Some("bar"));
+    assert_eq!(sr.content, "function bar in src/other.rs");
+    assert!(sr.provenance.is_none(), "graph nodes carry no provenance");
+    assert!(
+        !sr.metadata.contains_key("content"),
+        "narrow metadata: no content"
+    );
+    assert!(
+        !sr.metadata.contains_key("title"),
+        "narrow metadata: no title"
+    );
+    assert!(
+        !sr.metadata.contains_key("_search_type"),
+        "narrow metadata: no _search_type"
+    );
+    assert_eq!(
+        sr.metadata.get("source").and_then(|v| v.as_str()),
+        Some("graph_expansion")
+    );
+    assert_eq!(
+        sr.metadata
+            .get("chunk_symbol_name")
+            .and_then(|v| v.as_str()),
+        Some("bar")
+    );
+}

@@ -59,18 +59,24 @@ struct ExpandCandidate {
     node_id: String,
 }
 
+/// Extract a payload value as a non-empty string slice (JS-falsy semantics:
+/// `None` for missing, non-string, or empty/whitespace-free blank).
+fn non_empty_str(v: Option<&Value>) -> Option<&str> {
+    v.and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+}
+
 /// Build the expansion candidate list from the fused results (TS `collectCandidates`).
 fn collect_candidates(results: &[TaggedResult]) -> Vec<ExpandCandidate> {
     let mut candidates = Vec::new();
     for r in results {
-        let symbol_name = r.payload.get("chunk_symbol_name").and_then(|v| v.as_str());
-        let chunk_type = r.payload.get("chunk_chunk_type").and_then(|v| v.as_str());
-        let tenant_id = r.payload.get("tenant_id").and_then(|v| v.as_str());
-        let file_path = r
-            .payload
-            .get("relative_path")
-            .or_else(|| r.payload.get("file_path"))
-            .and_then(|v| v.as_str());
+        // TS `collectCandidates` skips a result when ANY required field is falsy
+        // (`!symbolName || ...`), which in JS includes the empty string — so treat
+        // empty and missing identically via `non_empty_str`.
+        let symbol_name = non_empty_str(r.payload.get("chunk_symbol_name"));
+        let chunk_type = non_empty_str(r.payload.get("chunk_chunk_type"));
+        let tenant_id = non_empty_str(r.payload.get("tenant_id"));
+        let file_path = non_empty_str(r.payload.get("relative_path"))
+            .or_else(|| non_empty_str(r.payload.get("file_path")));
         let (Some(sym), Some(ct), Some(tid), Some(fp)) =
             (symbol_name, chunk_type, tenant_id, file_path)
         else {

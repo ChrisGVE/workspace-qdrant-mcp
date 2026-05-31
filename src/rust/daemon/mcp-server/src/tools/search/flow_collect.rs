@@ -252,12 +252,25 @@ pub fn tagged_to_search_result(tagged: TaggedResult) -> SearchResult {
         .get("title")
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let mut metadata: HashMap<String, Value> = payload.clone();
-    metadata.insert(
-        "_search_type".to_string(),
-        Value::String(tagged.search_type.as_str().to_string()),
-    );
-    let provenance = build_provenance(&payload, &collection);
+
+    // Graph-expansion nodes mirror TS `nodeToSearchResult` (search-graph-expansion.ts:84):
+    // a NARROW metadata object (no `content`/`title`/`_search_type`) and no
+    // provenance. All other results carry the full payload as metadata, a
+    // `_search_type` tag, and computed provenance.
+    let (metadata, provenance) = if tagged.search_type == SearchType::Graph {
+        let mut meta = payload.clone();
+        meta.remove("content");
+        meta.remove("title");
+        (meta, None)
+    } else {
+        let mut meta = payload.clone();
+        meta.insert(
+            "_search_type".to_string(),
+            Value::String(tagged.search_type.as_str().to_string()),
+        );
+        (meta, Some(build_provenance(&payload, &collection)))
+    };
+
     SearchResult {
         id: tagged.id,
         score: tagged.score,
@@ -265,7 +278,7 @@ pub fn tagged_to_search_result(tagged: TaggedResult) -> SearchResult {
         content,
         title,
         metadata,
-        provenance: Some(provenance),
+        provenance,
         parent_context: None,
         graph_context: None,
     }
