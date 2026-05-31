@@ -521,9 +521,7 @@ impl GraphService for GraphServiceImpl {
 
         // Hard cap 3, default 2. Reject 0 and >=4 explicitly.
         if req.max_hops == 0 || req.max_hops > 3 {
-            return Err(Status::invalid_argument(
-                "max_hops must be between 1 and 3",
-            ));
+            return Err(Status::invalid_argument("max_hops must be between 1 and 3"));
         }
         let max_hops = req.max_hops;
 
@@ -541,7 +539,10 @@ impl GraphService for GraphServiceImpl {
             match EdgeType::from_str(t) {
                 Some(et) => edge_types.push(et),
                 None => {
-                    return Err(Status::invalid_argument(format!("unknown edge type: {}", t)));
+                    return Err(Status::invalid_argument(format!(
+                        "unknown edge type: {}",
+                        t
+                    )));
                 }
             }
         }
