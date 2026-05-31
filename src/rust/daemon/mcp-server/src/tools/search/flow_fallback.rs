@@ -67,6 +67,16 @@ where
             refused.push(coll.clone());
             continue;
         }
+        // SECURITY: group scope fails closed in the daemon-down fallback. TS
+        // `buildFallbackFilter` sets `groupTenantIds: undefined`, so `buildProjectCondition`
+        // THROWS ("Group scope requires non-empty tenant ID set", search-filters.ts:67-69) —
+        // i.e. it refuses rather than scrolling unfiltered. Rust `build_project_condition`
+        // returns None (no tenant filter) in that state, which would scroll cross-tenant and
+        // leak. Refuse instead to preserve the fail-closed contract.
+        if scope == SearchScope::Group {
+            refused.push(coll.clone());
+            continue;
+        }
         let filter_params = fallback_filter_params(coll, opts, project_id, scope_ctx);
         let filter = build_filter(&filter_params);
         attempted += 1;

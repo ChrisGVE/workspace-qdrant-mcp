@@ -196,7 +196,14 @@ async fn ac_s5_project_scope_with_resolved_id_proceeds() {
     };
     let collections = vec!["projects".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, Some("tenant_abc"), &Default::default()).await;
+    let resp = fallback_search(
+        &qdrant,
+        &opts,
+        &collections,
+        Some("tenant_abc"),
+        &Default::default(),
+    )
+    .await;
 
     // Degraded (uncertain) but NOT refused — results allowed.
     assert_eq!(resp.status.as_deref(), Some("uncertain"));
@@ -208,6 +215,45 @@ async fn ac_s5_project_scope_with_resolved_id_proceeds() {
     assert!(
         !resp.results.is_empty(),
         "results must be returned when project resolved"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY: group scope fails closed in the daemon-down fallback (no
+//   cross-tenant scroll), mirroring the TS `buildProjectCondition` throw.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn group_scope_fallback_refuses_and_does_not_scroll() {
+    let opts = SearchOptions {
+        scope: SearchScope::Group,
+        ..opts_hybrid("search term", 10)
+    };
+    // Even with a resolved project_id, a populated group set, AND matching scroll
+    // results available, group scope must refuse to scroll in the fallback.
+    let scroll_pt = make_retrieved_point("r1", "search term result");
+    let qdrant = StubQdrant {
+        scroll_results: vec![scroll_pt],
+        ..Default::default()
+    };
+    let collections = vec!["projects".to_string()];
+    let scope_ctx = crate::tools::search::scope::ScopeContext {
+        group_tenant_ids: Some(vec!["tenant_abc".to_string(), "tenant_def".to_string()]),
+        ..Default::default()
+    };
+
+    let resp = fallback_search(&qdrant, &opts, &collections, Some("tenant_abc"), &scope_ctx).await;
+
+    assert_eq!(resp.status.as_deref(), Some("uncertain"));
+    assert!(
+        resp.results.is_empty(),
+        "group scope must not scroll cross-tenant in the daemon-down fallback"
+    );
+    // All collections refused → degraded F-001 reason naming the refused set.
+    assert_eq!(
+        resp.status_reason.as_deref(),
+        Some(f001_refusal_reason(&collections).as_str()),
+        "group fallback refuses (fail-closed) like project-unresolved"
     );
 }
 

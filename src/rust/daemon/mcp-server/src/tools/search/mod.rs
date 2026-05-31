@@ -321,7 +321,8 @@ fn group_refusal_response(opts: &SearchOptions) -> SearchResponse {
         collections_searched: collections,
         status: Some("error".to_string()),
         status_reason: Some(scope::GROUP_EMPTY_REFUSAL.to_string()),
-        branch: opts.branch.clone(),
+        // TS group-refusal object omits `branch` (search.ts:246-256).
+        branch: None,
         diversity_score: None,
     }
 }
