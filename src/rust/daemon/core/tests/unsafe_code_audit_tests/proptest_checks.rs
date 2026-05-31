@@ -4,6 +4,8 @@
 //! for file descriptor operations, string conversions, pointer arithmetic,
 //! buffer bounds, memory tracking, and null pointer handling.
 
+// `thread` is only used inside the `#[cfg(unix)]` block of the concurrent-fd test.
+#[cfg(unix)]
 use std::thread;
 
 use proptest::prelude::*;
@@ -13,6 +15,11 @@ use super::auditor::MemoryTracker;
 proptest! {
     #[test]
     fn test_fd_operations_with_random_values(fd in -100i32..1000i32) {
+        // `fd` is only consumed inside the `#[cfg(unix)]` block below; bind it
+        // on other platforms so the proptest strategy param isn't flagged as
+        // unused.
+        #[cfg(not(unix))]
+        let _ = fd;
         #[cfg(unix)]
         {
             if (0..1024).contains(&fd) {
@@ -53,6 +60,9 @@ proptest! {
 
     #[test]
     fn test_concurrent_fd_operations(thread_count in 2usize..8) {
+        // `thread_count` is only used inside the `#[cfg(unix)]` block below.
+        #[cfg(not(unix))]
+        let _ = thread_count;
         #[cfg(unix)]
         {
             let results: Vec<_> = (0..thread_count)
