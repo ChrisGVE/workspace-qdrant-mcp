@@ -36,7 +36,7 @@ impl LanguageServerManager {
     pub async fn stats(&self) -> ProjectLspStats {
         let servers = self.servers.read().await;
         let available = self.available_servers.read().await;
-        let cache = self.cache.read().await;
+        let cache = self.cache.lock().await;
         let metrics = self.metrics.read().await;
 
         ProjectLspStats {

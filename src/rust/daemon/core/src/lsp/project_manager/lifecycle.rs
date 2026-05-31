@@ -318,7 +318,7 @@ impl LanguageServerManager {
         }
 
         // Clear cache
-        self.cache.write().await.clear();
+        self.cache.lock().await.clear();
 
         tracing::info!("LanguageServerManager shutdown complete");
         Ok(())

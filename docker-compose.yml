@@ -140,11 +140,13 @@ services:
       WQM_STARTUP_WARMUP_WINDOW_SECS: ${WQM_STARTUP_WARMUP_WINDOW_SECS:-5}
       WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS: ${WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS:-4}
       # Process-RSS safety valve (queue processor pauses when exceeded).
-      # Default 2048 is too tight for FastEmbed + heap + mmap on this stack;
-      # 4096 gives headroom without disabling the leak guard entirely.
-      # Note: with MAX_CONCURRENT_EMBEDDINGS raised to 8, you may need to bump
-      # this to 5120-6144 if you see pause-on-pressure events in the logs.
-      WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-4096}
+      # Bumped 4096 -> 8192 (2026-05-31): the LSP enrichment cache
+      # (project_manager::cache) was unbounded and grew the daemon heap to
+      # ~4.7GB during a full reconcile, so the 4096 guard fired from near-boot
+      # and starved indexing for ALL projects. The real fix is bounding that
+      # cache (LRU); 8192 is interim headroom on a 108GB host. Once the cache
+      # is bounded, baseline RSS drops well below this again.
+      WQM_MAX_RSS_MB: ${WQM_MAX_RSS_MB:-8192}
       # FTS5 batch-mode kill switch for oversize files. When > 0, the
       # FtsBatchProcessor falls back to single-file mode whenever ANY
       # pending FileChange has more lines than this threshold — even

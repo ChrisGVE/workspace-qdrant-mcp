@@ -31,14 +31,16 @@ mod metrics;
 mod tests;
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use super::{Language, LspConfig, LspError, ServerInstance, ServerStatus};
 use crate::config::LspSettings;
@@ -348,6 +350,27 @@ impl LspMetrics {
     }
 }
 
+/// Default maximum number of entries in the LSP enrichment cache.
+///
+/// The cache is keyed by `(project_id, file_path, position)`. Without a bound it
+/// grew the daemon heap unboundedly during a full reconcile — one entry per
+/// enriched chunk position across every active project — driving process RSS
+/// past the `WQM_MAX_RSS_MB` guard and starving the queue processor for ALL
+/// projects. An LRU bound keeps the hot set (recent re-enrichments still hit)
+/// while capping memory to a few hundred MB worst case. Override with
+/// `WQM_LSP_ENRICHMENT_CACHE_CAPACITY`.
+const ENRICHMENT_CACHE_CAPACITY: usize = 50_000;
+
+/// Resolve the enrichment-cache capacity, honoring the env override.
+fn enrichment_cache_capacity() -> NonZeroUsize {
+    let cap = std::env::var("WQM_LSP_ENRICHMENT_CACHE_CAPACITY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(ENRICHMENT_CACHE_CAPACITY);
+    NonZeroUsize::new(cap).expect("capacity >= 1")
+}
+
 /// Manages LSP servers for all active projects
 pub struct LanguageServerManager {
     /// Configuration
@@ -357,8 +380,10 @@ pub struct LanguageServerManager {
     /// Running server instances by (project_id, language)
     pub(crate) instances:
         Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,
-    /// Enrichment cache: (project_id, file_path, position) -> enrichment
-    pub(crate) cache: Arc<RwLock<HashMap<String, LspEnrichment>>>,
+    /// Enrichment cache: (project_id, file_path, position) -> enrichment.
+    /// Bounded LRU — see `ENRICHMENT_CACHE_CAPACITY`. `LruCache::get` mutates
+    /// recency, so this is a `Mutex` (not `RwLock`): even reads take the lock.
+    pub(crate) cache: Arc<Mutex<LruCache<String, LspEnrichment>>>,
     /// Detected available servers by language
     pub(crate) available_servers: Arc<RwLock<HashMap<Language, Vec<String>>>>,
     /// Running flag
@@ -376,7 +401,7 @@ impl LanguageServerManager {
             config,
             servers: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(Mutex::new(LruCache::new(enrichment_cache_capacity()))),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(LspMetrics::new())),
