@@ -1,35 +1,51 @@
-//! OpenTelemetry tracing setup for daemon-server boundary
+//! OpenTelemetry tracing setup for the daemon-server boundary.
 //!
-//! Implements distributed tracing across the daemon and MCP server
-//! using OpenTelemetry standards. Supports both stdout (development)
-//! and OTLP (production) exporters.
+//! Implements distributed tracing across the daemon and MCP server using
+//! OpenTelemetry standards. Supports both a no-op development mode (no
+//! exporter) and OTLP (production) export over either gRPC (tonic) or
+//! HTTP/protobuf (reqwest).
 //!
-//! Task 412.19: Add OpenTelemetry tracing setup for daemon-server boundary
+//! Task 412.19: initial OpenTelemetry tracing setup.
+//! Task 57: upgrade to opentelemetry 0.31 / opentelemetry-otlp 0.31 /
+//!   tracing-opentelemetry 0.32. The 0.21 -> 0.31 migration replaced the
+//!   `new_exporter()` / `Config` / `runtime::Tokio` APIs with the
+//!   `SpanExporter::builder()` and `SdkTracerProvider::builder()` builders,
+//!   and removed the global `shutdown_tracer_provider()` in favour of a
+//!   retained `provider.shutdown()` handle.
 
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{
-    runtime,
-    trace::{BatchSpanProcessor, Config, Sampler, TracerProvider},
-    Resource,
-};
+mod exporter;
+
 use std::env;
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::Subscriber;
 use tracing_subscriber::registry::LookupSpan;
 
-/// OpenTelemetry configuration
+pub use exporter::OtlpTransport;
+
+/// Globally retained tracer provider handle.
+///
+/// 0.31 removed `opentelemetry::global::shutdown_tracer_provider()`; flushing
+/// now requires calling `SdkTracerProvider::shutdown()` on a retained handle.
+/// [`otel_layer`] stores the provider here so [`shutdown_tracer`] can flush
+/// buffered spans on daemon exit.
+static TRACER_PROVIDER: Lazy<Mutex<Option<SdkTracerProvider>>> = Lazy::new(|| Mutex::new(None));
+
+/// OpenTelemetry configuration.
 #[derive(Debug, Clone)]
 pub struct OtelConfig {
-    /// Service name for traces
+    /// Service name for traces.
     pub service_name: String,
-    /// Service version
+    /// Service version.
     pub service_version: String,
-    /// OTLP endpoint (if None, uses stdout exporter)
+    /// OTLP endpoint (if `None`, uses a no-op provider with no exporter).
     pub otlp_endpoint: Option<String>,
-    /// Sampling ratio (0.0 to 1.0)
+    /// Sampling ratio (0.0 to 1.0).
     pub sampling_ratio: f64,
-    /// Enable trace context propagation in gRPC metadata
+    /// Enable trace context propagation in gRPC metadata.
     pub propagate_context: bool,
     /// OTLP exporter protocol: `grpc` (tonic) or `http/protobuf` (reqwest/http).
     pub otlp_protocol: String,
@@ -69,17 +85,12 @@ impl OtelConfig {
             otlp_endpoint: Some(telemetry.otlp.endpoint.clone()),
             sampling_ratio: telemetry.otlp.sample_rate,
             propagate_context: true,
-            otlp_protocol: match telemetry.otlp.protocol {
-                crate::config::OtlpProtocol::Grpc => "grpc".to_string(),
-                crate::config::OtlpProtocol::HttpProtobuf => "http/protobuf".to_string(),
-            },
+            otlp_protocol: telemetry.otlp.protocol.as_str().to_string(),
             otlp_headers: telemetry.otlp.headers.clone(),
         })
     }
-}
 
-impl OtelConfig {
-    /// Create config from environment variables
+    /// Create config from environment variables.
     pub fn from_env() -> Self {
         let mut config = Self::default();
 
@@ -97,97 +108,63 @@ impl OtelConfig {
     }
 }
 
-/// Initialize OpenTelemetry tracing with OTLP exporter
+/// Initialize an OpenTelemetry tracer provider for the supplied config.
 ///
-/// Returns a TracerProvider that can be used to get tracers for distributed tracing.
-/// If OTEL_EXPORTER_OTLP_ENDPOINT is set, uses OTLP exporter; otherwise uses a simple provider.
+/// When `otlp_endpoint` is set, an OTLP [`SdkTracerProvider`] is built with a
+/// batch span processor over the configured transport (gRPC or HTTP/protobuf).
+/// When it is `None`, a no-op provider with no exporter is returned so the rest
+/// of the pipeline still has a valid provider with zero export overhead.
 pub fn init_tracer_provider(
     config: &OtelConfig,
-) -> Result<TracerProvider, opentelemetry::trace::TraceError> {
-    let resource = Resource::new(vec![
-        KeyValue::new("service.name", config.service_name.clone()),
-        KeyValue::new("service.version", config.service_version.clone()),
-    ]);
+) -> Result<SdkTracerProvider, exporter::OtelInitError> {
+    let resource = exporter::build_resource(config);
+    let sampler = exporter::build_sampler(config.sampling_ratio);
 
-    let sampler = if config.sampling_ratio >= 1.0 {
-        Sampler::AlwaysOn
-    } else if config.sampling_ratio <= 0.0 {
-        Sampler::AlwaysOff
-    } else {
-        Sampler::TraceIdRatioBased(config.sampling_ratio)
-    };
-
-    let trace_config = Config::default()
-        .with_sampler(sampler)
-        .with_resource(resource);
-
-    if let Some(endpoint) = &config.otlp_endpoint {
-        // Use OTLP exporter for production
-        tracing::info!(
-            "Initializing OpenTelemetry with OTLP endpoint: {} (protocol={})",
-            endpoint,
-            config.otlp_protocol
-        );
-        if config.otlp_protocol != "grpc" {
-            tracing::warn!(
-                "OTLP protocol '{}' requested but only the tonic/gRPC exporter is \
-                 compiled in. Falling back to gRPC transport to the configured endpoint.",
-                config.otlp_protocol
+    match &config.otlp_endpoint {
+        Some(endpoint) => {
+            let transport = exporter::select_transport(&config.otlp_protocol);
+            tracing::info!(
+                endpoint = %endpoint,
+                transport = %transport.as_str(),
+                "Initializing OpenTelemetry OTLP exporter"
             );
+            let span_exporter =
+                exporter::build_span_exporter(transport, endpoint, &config.otlp_headers)?;
+            Ok(SdkTracerProvider::builder()
+                .with_sampler(sampler)
+                .with_resource(resource)
+                .with_batch_exporter(span_exporter)
+                .build())
         }
-
-        if !config.otlp_headers.is_empty() {
-            // Header/metadata injection requires tonic version alignment with
-            // opentelemetry-otlp 0.14's vendored tonic. Relying on the
-            // `OTEL_EXPORTER_OTLP_HEADERS` env variable is the interop path
-            // the SDK already honors. Warn so operators know we're not
-            // wiring them manually yet.
-            tracing::warn!(
-                "telemetry.otlp.headers configured ({} entries) but are being \
-                 forwarded via OTEL_EXPORTER_OTLP_HEADERS env only; direct \
-                 injection is not yet implemented",
-                config.otlp_headers.len()
-            );
+        None => {
+            tracing::info!("Initializing OpenTelemetry with no exporter (development mode)");
+            Ok(SdkTracerProvider::builder()
+                .with_sampler(sampler)
+                .with_resource(resource)
+                .build())
         }
-        let exporter = opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(endpoint.clone())
-            .build_span_exporter()
-            .map_err(|e| opentelemetry::trace::TraceError::Other(Box::new(e)))?;
-
-        let batch_processor = BatchSpanProcessor::builder(exporter, runtime::Tokio).build();
-
-        let provider = TracerProvider::builder()
-            .with_span_processor(batch_processor)
-            .with_config(trace_config)
-            .build();
-
-        Ok(provider)
-    } else {
-        // Use simple provider for development (no exporter)
-        tracing::info!("Initializing OpenTelemetry with no exporter (development mode)");
-
-        let provider = TracerProvider::builder().with_config(trace_config).build();
-
-        Ok(provider)
     }
 }
 
-/// Create an OpenTelemetry tracing layer for use with tracing-subscriber
+/// Create an OpenTelemetry tracing layer for use with `tracing-subscriber`.
 ///
-/// This layer bridges the `tracing` crate with OpenTelemetry, allowing
-/// all `#[tracing::instrument]` spans to be exported as OpenTelemetry traces.
+/// This layer bridges the `tracing` crate with OpenTelemetry, allowing all
+/// `#[tracing::instrument]` spans to be exported as OpenTelemetry traces. The
+/// built provider is set globally and retained for [`shutdown_tracer`] so
+/// buffered spans are flushed on exit.
 pub fn otel_layer<S>(
     config: &OtelConfig,
-) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
+) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
     match init_tracer_provider(config) {
         Ok(provider) => {
             let tracer = provider.tracer(config.service_name.clone());
-            // Set the global provider so spans are exported
-            opentelemetry::global::set_tracer_provider(provider);
+            // Set the global provider so spans created outside the tracing
+            // bridge are still exported, and retain a handle for shutdown.
+            opentelemetry::global::set_tracer_provider(provider.clone());
+            store_provider(provider);
             Some(tracing_opentelemetry::layer().with_tracer(tracer))
         }
         Err(e) => {
@@ -197,17 +174,35 @@ where
     }
 }
 
-/// Shutdown OpenTelemetry and flush remaining traces
+/// Store the retained provider handle, replacing any previous one.
+fn store_provider(provider: SdkTracerProvider) {
+    if let Ok(mut guard) = TRACER_PROVIDER.lock() {
+        *guard = Some(provider);
+    }
+}
+
+/// Shutdown OpenTelemetry and flush remaining traces.
+///
+/// 0.31 removed the global `shutdown_tracer_provider()`; we flush by calling
+/// `shutdown()` on the retained [`SdkTracerProvider`] handle. A no-op when no
+/// provider was ever installed (OTLP disabled), preserving the zero-overhead
+/// disabled path.
 pub fn shutdown_tracer() {
-    opentelemetry::global::shutdown_tracer_provider();
-    tracing::info!("OpenTelemetry tracer provider shut down");
+    let provider = TRACER_PROVIDER.lock().ok().and_then(|mut g| g.take());
+    if let Some(provider) = provider {
+        if let Err(e) = provider.shutdown() {
+            tracing::warn!("Error shutting down OpenTelemetry tracer provider: {}", e);
+        } else {
+            tracing::info!("OpenTelemetry tracer provider shut down");
+        }
+    }
 }
 
 // Note: gRPC context propagation functions (extract_context_from_metadata,
 // inject_context_into_metadata) are implemented in the grpc crate where
 // tonic types are available.
 
-/// Get the current trace ID as a string for logging correlation
+/// Get the current trace ID as a string for logging correlation.
 ///
 /// This can be included in log messages to correlate logs with traces.
 pub fn current_trace_id() -> Option<String> {
@@ -224,7 +219,7 @@ pub fn current_trace_id() -> Option<String> {
     }
 }
 
-/// Get the current span ID as a string for logging correlation
+/// Get the current span ID as a string for logging correlation.
 pub fn current_span_id() -> Option<String> {
     use opentelemetry::trace::TraceContextExt;
 
@@ -253,14 +248,14 @@ mod tests {
 
     #[test]
     fn test_config_from_env() {
-        // Test that from_env doesn't panic
+        // Test that from_env doesn't panic.
         let config = OtelConfig::from_env();
         assert!(!config.service_name.is_empty());
     }
 
     #[test]
     fn test_trace_id_functions() {
-        // Without active span, should return None
+        // Without an active span, both should return None.
         assert!(current_trace_id().is_none());
         assert!(current_span_id().is_none());
     }
@@ -295,5 +290,22 @@ mod tests {
             o.otlp_headers.get("x-trace").map(String::as_str),
             Some("yes")
         );
+    }
+
+    #[test]
+    fn init_no_exporter_provider_succeeds() {
+        let config = OtelConfig {
+            otlp_endpoint: None,
+            ..OtelConfig::default()
+        };
+        let provider = init_tracer_provider(&config).expect("no-op provider builds");
+        // Flushing a no-op provider must not error.
+        provider.shutdown().expect("shutdown no-op provider");
+    }
+
+    #[test]
+    fn shutdown_without_provider_is_noop() {
+        // Must not panic when no provider was ever installed.
+        shutdown_tracer();
     }
 }

@@ -63,11 +63,23 @@ sysinfo = "0.30"
 prometheus = { version = "0.13", features = ["process"] }
 axum = { version = "0.7", features = ["tokio"] }
 
-# OpenTelemetry tracing (Task 412.19)
-opentelemetry = { version = "0.21", features = ["trace"] }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.14", features = ["tonic"] }
-tracing-opentelemetry = "0.22"
+# OpenTelemetry tracing (Task 412.19; upgraded 0.21 -> 0.31 in Task 57)
+# opentelemetry-otlp 0.31 exposes both gRPC (tonic) and HTTP/protobuf (reqwest)
+# exporters; both are enabled so the wire protocol can be chosen from config at
+# runtime. The `metrics` features build the PeriodicReader / SdkMeterProvider
+# scaffolding (kept disabled by default; wired in Phase 2).
+opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metrics"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "grpc-tonic", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.32"
+# opentelemetry-otlp 0.31's gRPC exporter is built against tonic 0.14; we take a
+# matching direct dependency so programmatic gRPC header (metadata) injection
+# compiles against the same tonic the exporter uses. (default-features off: we
+# only need the metadata types, not the server/transport stack.)
+# Aliased as `tonic_otlp` because the dev-dependencies pull tonic 0.12 (via the
+# workspace-qdrant-grpc test client); without the rename core's own source would
+# see two `tonic` rlib candidates in test builds (E0464).
+tonic_otlp = { version = "0.14", default-features = false, package = "tonic" }
 
 # Additional core dependencies
 once_cell = "1.19"
