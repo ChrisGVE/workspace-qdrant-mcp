@@ -234,10 +234,14 @@ fn resolve_project_id(
     session: &SessionState,
     state: &SharedStateManager,
 ) -> Option<String> {
-    if let Some(p) = opts.project_id.clone() {
+    // Normalize blank IDs to unresolved (TS treats `''` as falsy `!projectId`),
+    // so empty strings never trigger scope/decay/base-point resolution or build a
+    // degenerate single-tenant filter downstream.
+    let non_blank = |s: String| (!s.trim().is_empty()).then_some(s);
+    if let Some(p) = opts.project_id.clone().and_then(non_blank) {
         return Some(p);
     }
-    if let Some(p) = session.project_id.clone() {
+    if let Some(p) = session.project_id.clone().and_then(non_blank) {
         return Some(p);
     }
     detect_project_id_from_cwd(state)

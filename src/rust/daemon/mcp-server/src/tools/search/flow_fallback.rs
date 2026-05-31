@@ -129,7 +129,10 @@ pub(super) fn fallback_filter_params<'a>(
         project_id: project_id
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string),
-        group_tenant_ids: scope_ctx.group_tenant_ids.clone(),
+        // TS `buildFallbackFilter` sets `groupTenantIds: undefined` — the
+        // daemon-down fallback is a project-tenant-scoped substring scan and does
+        // not apply group/all tenant filtering (search-qdrant.ts:342).
+        group_tenant_ids: None,
         branch: opts.branch.clone(),
         file_type: opts.file_type.clone(),
         library_name: if collection == COLLECTION_LIBRARIES {
@@ -146,7 +149,13 @@ pub(super) fn fallback_filter_params<'a>(
         tags: opts.tags.clone(),
         path_glob: opts.path_glob.clone(),
         component: opts.component.clone(),
-        base_points: scope_ctx.base_points.clone(),
+        // Base points only constrain the projects collection (TS
+        // search-qdrant.ts:351 `collection === PROJECTS_COLLECTION ? basePoints : undefined`).
+        base_points: if collection == wqm_common::constants::COLLECTION_PROJECTS {
+            scope_ctx.base_points.clone()
+        } else {
+            None
+        },
     }
 }
 

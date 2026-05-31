@@ -95,11 +95,27 @@ pub fn resolve_base_points(
         return (Some(points), false, None);
     }
     // > cap: narrow to the primary base point that contains cwd (F-012).
+    // Path-segment-aware prefix: `cwd == bp` or `cwd` starts with `bp` + a path
+    // separator. This hardens beyond TS's raw `cwd.startsWith(bp)` (search-helpers.ts:90),
+    // which false-positives on sibling roots sharing a prefix (e.g. `/repo` vs `/repo-a`).
     let cwd_str = cwd.to_string_lossy();
-    match points.iter().find(|bp| cwd_str.starts_with(bp.as_str())) {
+    match points.iter().find(|bp| cwd_under_base_point(&cwd_str, bp)) {
         Some(primary) => (Some(vec![primary.clone()]), false, None),
         None => (None, true, Some(points.len())),
     }
+}
+
+/// True when `cwd` is the base point itself or a descendant of it, using
+/// path-segment boundaries (not a raw string prefix). Trailing separators on the
+/// base point are tolerated.
+fn cwd_under_base_point(cwd: &str, base_point: &str) -> bool {
+    let sep = std::path::MAIN_SEPARATOR;
+    let bp = base_point.trim_end_matches(sep);
+    if cwd == bp {
+        return true;
+    }
+    cwd.strip_prefix(bp)
+        .is_some_and(|rest| rest.starts_with(sep))
 }
 
 /// Apply per-tenant relevance decay to fused results, then re-sort by score.
@@ -112,7 +128,10 @@ pub fn apply_relevance_decay(results: &mut [TaggedResult], decay_map: &HashMap<S
     for r in results.iter_mut() {
         let tenant = r.payload.get("tenant_id").and_then(|v| v.as_str());
         if let Some(t) = tenant {
-            let multiplier = decay_map.get(t).copied().unwrap_or(DEFAULT_DECAY_MULTIPLIER);
+            let multiplier = decay_map
+                .get(t)
+                .copied()
+                .unwrap_or(DEFAULT_DECAY_MULTIPLIER);
             r.score *= multiplier;
         }
     }

@@ -211,3 +211,42 @@ fn base_points_over_cap_no_primary_degrades() {
     assert!(degraded);
     assert_eq!(count, Some(520));
 }
+
+#[test]
+fn base_points_over_cap_sibling_prefix_does_not_false_match() {
+    // cwd `/repo-a/...` must NOT match the sibling base point `/repo` (raw
+    // string prefix would). With no real prefix match → degrade (Finding #3).
+    let dir = tempfile::TempDir::new().unwrap();
+    let owned: Vec<String> = (0..520).map(|i| format!("/bp/{i}")).collect();
+    let mut refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+    refs.push("/repo");
+    let db = make_base_points_db(&dir, "T", "w1", &refs);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let (bp, degraded, _) = resolve_base_points(
+        Some(&conn),
+        Some("T"),
+        SearchScope::Project,
+        std::path::Path::new("/repo-a/src"),
+    );
+    assert_eq!(bp, None);
+    assert!(degraded);
+}
+
+// ── cwd_under_base_point ─────────────────────────────────────────────────────
+
+#[test]
+fn cwd_under_base_point_segment_boundaries() {
+    let sep = std::path::MAIN_SEPARATOR;
+    let join = |a: &str, b: &str| format!("{a}{sep}{b}");
+    let repo = join("", "repo"); // "/repo" on unix
+                                 // Exact match and true descendants match.
+    assert!(cwd_under_base_point(&repo, &repo));
+    assert!(cwd_under_base_point(&join(&repo, "src"), &repo));
+    // Sibling sharing a string prefix must NOT match.
+    assert!(!cwd_under_base_point(&format!("{repo}-a"), &repo));
+    // Trailing separator on the base point is tolerated.
+    assert!(cwd_under_base_point(
+        &join(&repo, "src"),
+        &format!("{repo}{sep}")
+    ));
+}

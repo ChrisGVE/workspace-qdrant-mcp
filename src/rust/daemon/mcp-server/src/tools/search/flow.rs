@@ -28,7 +28,7 @@ use crate::qdrant::filters::{build_filter, determine_collections, FilterParams};
 use crate::qdrant::fusion::{
     apply_rrf_fusion, diversify_results, TaggedResult, DEFAULT_DIVERSITY_CONFIG,
 };
-use wqm_common::constants::COLLECTION_LIBRARIES;
+use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
 use super::graph_context::{expand_graph_context, GraphQueryDaemon};
 use super::options::{SearchOptions, DEFAULT_EXPANSION_WEIGHT};
@@ -484,6 +484,13 @@ fn search_filter_params<'a>(
         tags: opts.tags.clone(),
         path_glob: opts.path_glob.clone(),
         component: opts.component.clone(),
-        base_points: scope_ctx.base_points.clone(),
+        // Base points only constrain the projects collection (TS
+        // search-helpers.ts:216 `coll === PROJECTS_COLLECTION ? basePoints : undefined`);
+        // threading them into libraries/scratchpad/rules would wrongly suppress hits.
+        base_points: if collection == COLLECTION_PROJECTS {
+            scope_ctx.base_points.clone()
+        } else {
+            None
+        },
     }
 }
