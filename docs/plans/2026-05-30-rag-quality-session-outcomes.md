@@ -47,6 +47,32 @@ hardware-compat gate.
   **advertises `graph`** via a live `tools/list` (10 tools total). A client-side
   MCP reconnect is needed for an existing session to see/call it.
 
+### 4. Reembed collection-schema fix (`recreator.rs` + `upsert.rs`) — post-incident
+Clearing the last 2 turbofish artifacts (in `grammar.rs`) via `wqm admin reembed`
+surfaced a latent bug that **took vector search down**:
+- **Bug:** `TriggerReembed`'s drop-and-recreate path rebuilt the 4 canonical
+  collections with a single **unnamed** 384d vector (`create_collection`), not the
+  named `dense` + named `sparse` vectors hybrid search requires. Qdrant then
+  declined every upsert (`collection_updater: Update operation declined: Not
+  existing vector name error: dense` / `sparse`) — **silently**, because batch
+  upserts run `wait=false`, so the daemon logged "N successful, 0 failed" while all
+  collections sat at 0 points. No snapshots existed to restore from.
+- **Fix:** recreate via `create_multi_tenant_collection` (the SAME method the
+  create-on-index path uses via `shared::ensure_collection`). Belt-and-suspenders:
+  `finalize_batch_result` no longer reports acknowledged-but-unconfirmed points as
+  "successful" under `wait=false` (now "submitted … apply not confirmed"), so a
+  future schema mismatch can't hide. Regression test
+  `reembed_recreate_uses_named_dense_sparse_schema`. **Takes effect after a `memexd`
+  rebuild + redeploy.**
+- **Recovery (used live, for the still-running pre-fix daemon):** delete the 4
+  empty collections via the Qdrant API, then `docker restart wqm-memexd` → the
+  create-on-index path rebuilds the correct named-vector schema and startup
+  reconcile re-enqueues every source → collections repopulate. Verified: search
+  restored (`projects` climbed back past 5.7k points), graph garbage still **0**.
+- **De-risks the embedding upgrade:** the migration plan below (step 3) calls
+  `TriggerReembed` to recreate collections at 1024d — it would have hit this exact
+  bug. Now safe once the fix is deployed.
+
 ## Negative results (do NOT retry)
 - **`bge-reranker-base` on CPU:** ~3s/query — too slow for interactive search and
   blows the benchmark timeout. Use jina-turbo.
@@ -82,7 +108,9 @@ retrieval-ceiling lever. **Not yet wired to the daemon (still on `fastembed`).**
 2. Start `memexd` with **`--bootstrap-reembed`** (suppresses the startup
    dim-mismatch guard, which otherwise aborts on 384d-collection vs 1024d-config).
 3. Call **`TriggerReembed`** (DESTRUCTIVE — drops/recreates collections at 1024d).
-   NOT `ReembedTenant` (non-destructive, can't change dim).
+   NOT `ReembedTenant` (non-destructive, can't change dim). **Requires the §4
+   schema fix deployed** — pre-fix, the recreate built an unnamed-vector collection
+   that silently declined all hybrid upserts.
 4. Remove `--bootstrap-reembed`.
 
 ### ⚠️ Scope caveat
@@ -106,6 +134,17 @@ no re-embed.
    ceiling (partial indexing under the legacy `local_` tenant) AND blocks LSP graph
    resolution (LSP registers under the canonical `367157a01d98`, indexing under
    `local_5288aa13ad6c` — `is_server_ready_for_file` never matches).
+5. **Don't run a full reembed for a cosmetic cleanup.** Polishing 2 harmless stale
+   graph edges via `wqm admin reembed` triggered a global, multi-project re-embed
+   AND exposed the unnamed-vector recreate bug — a long search outage for near-zero
+   benefit. The artifact filter is in the extraction code, so residual pre-fix edges
+   are harmless and clear on the file's next real edit. Match the tool to the blast
+   radius.
+6. **`wait=false` upserts hide async declines.** Qdrant ACKs before applying; a
+   wrong-schema apply is rejected later with no error on the write path, so the
+   daemon happily logged "successful" at 0 points. Destructive ops (drop/recreate)
+   need an explicit post-condition check (point count / a probe upsert with
+   `wait=true`), not just a green write log.
 
 ## Next steps (priority order)
 1. **Finish embedding upgrade** — verify the Infinity Blackwell gate; if it works,
