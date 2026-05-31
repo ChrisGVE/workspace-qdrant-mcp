@@ -37,7 +37,7 @@ problems.
 | memexd | `up{job="memexd"}` | GREEN=UP / RED=DOWN. Any red value requires immediate attention. |
 | MCP Server | `up{job="mcp"}` | Same. Note: only meaningful in HTTP mode; in stdio mode the scrape job is absent. |
 | Qdrant | `up{job="qdrant"}` | RED means all searches and writes are failing. |
-| Total Pending Queue Items | `sum(memexd_unified_queue_depth{status="pending"})` | Counts items waiting to be processed. Amber above 100, red above 500. |
+| Total Pending Queue Items | `sum(wqm_memexd_unified_queue_depth{status="pending"})` | Counts items waiting to be processed. Amber above 100, red above 500. |
 | Active MCP Sessions | `wqm_mcp_session_count` | Number of connected Claude Code sessions. |
 
 **Row 2 — Activity trend (time series)**
@@ -45,14 +45,14 @@ problems.
 | Panel | Query summary | Interpretation |
 |---|---|---|
 | MCP Tool Invocation Rate | `sum(rate(wqm_mcp_tool_invocations_total[2m]))` | Overall call rate across all tools. A flat line at zero when sessions are active indicates a stalled client. |
-| Queue Depth Trend | `sum(memexd_queue_depth)` (legacy) + `sum(memexd_unified_queue_depth{status="pending"})` | Rising trend with no corresponding throughput increase indicates a queue processor problem. |
+| Queue Depth Trend | `sum(wqm_memexd_queue_depth)` (legacy) + `sum(wqm_memexd_unified_queue_depth{status="pending"})` | Rising trend with no corresponding throughput increase indicates a queue processor problem. |
 
 **Row 3 — Error events (table)**
 
 Instant snapshot of the current error rate across four sources:
 
-- `memexd_ingestion_errors_total` — ingestion failures by error type
-- `memexd_watch_errors_total` — filesystem watch failures by watch ID
+- `wqm_memexd_ingestion_errors_total` — ingestion failures by error type
+- `wqm_memexd_watch_errors_total` — filesystem watch failures by watch ID
 - `wqm_mcp_tool_invocations_total{status="error"}` — MCP tool errors by tool
 - `wqm_mcp_daemon_fallback_total` — daemon-unreachable fallbacks by tool and reason
 
@@ -73,30 +73,30 @@ Deep-dive on the Rust daemon internals.
 
 | Panel | Metric | Thresholds | Interpretation |
 |---|---|---|---|
-| Daemon Uptime | `max(memexd_uptime_seconds)` | Red < 60 s, yellow < 5 min, green ≥ 5 min | A low value after a known-stable run indicates a recent restart. |
-| Active Sessions | `sum(memexd_active_sessions)` | Yellow ≥ 50, red ≥ 200 | Sessions across all projects and priorities. |
-| Watches in Backoff | `sum(memexd_watches_in_backoff)` | Yellow ≥ 1, red ≥ 5 | Any non-zero value means at least one filesystem watch is experiencing errors and is throttling events. Investigate with `wqm project watch status`. |
-| Oldest Pending Queue Item Age | `wqm_queue_oldest_pending_age_seconds` | Yellow ≥ 60 s, red ≥ 300 s | The QueueStuck alert fires at 12 hours; this panel gives earlier warning. |
+| Daemon Uptime | `max(wqm_memexd_uptime_seconds)` | Red < 60 s, yellow < 5 min, green ≥ 5 min | A low value after a known-stable run indicates a recent restart. |
+| Active Sessions | `sum(wqm_memexd_active_sessions)` | Yellow ≥ 50, red ≥ 200 | Sessions across all projects and priorities. |
+| Watches in Backoff | `sum(wqm_memexd_watches_in_backoff)` | Yellow ≥ 1, red ≥ 5 | Any non-zero value means at least one filesystem watch is experiencing errors and is throttling events. Investigate with `wqm project watch status`. |
+| Oldest Pending Queue Item Age | `wqm_memexd_queue_oldest_pending_age_seconds` | Yellow ≥ 60 s, red ≥ 300 s | The QueueStuck alert fires at 12 hours; this panel gives earlier warning. |
 
 **Row 2 — Queue (time series)**
 
 | Panel | Queries | Interpretation |
 |---|---|---|
-| Queue Depth by Priority | `sum by (priority) (memexd_queue_depth)` | Separate lines per priority level. A persistent non-draining queue indicates processor slowness or blockage. |
-| Queue Processing Throughput | Success: `rate(memexd_queue_items_processed_total{status="success"})` / Failure: same with `status="failure"` | Failure lines in red. Any visible failure rate warrants log investigation. |
+| Queue Depth by Priority | `sum by (priority) (wqm_memexd_queue_depth)` | Separate lines per priority level. A persistent non-draining queue indicates processor slowness or blockage. |
+| Queue Processing Throughput | Success: `rate(wqm_memexd_queue_items_processed_total{status="success"})` / Failure: same with `status="failure"` | Failure lines in red. Any visible failure rate warrants log investigation. |
 
 **Row 3 — Latency and errors (time series)**
 
 | Panel | Queries | Interpretation |
 |---|---|---|
-| Queue Processing Latency (P50/P95/P99) | `histogram_quantile(0.50|0.95|0.99, rate(memexd_queue_processing_time_seconds_bucket[5m]))` | Normal processing should stay well under 1 s at P99. Elevated P99 with normal P50 suggests occasional slow items (large files, tree-sitter parse time). |
-| Ingestion and Watch Error Rates | `rate(memexd_ingestion_errors_total[2m])` + `rate(memexd_watch_errors_total[2m])` | Both should be zero in steady state. Persistent watch errors often indicate a deleted or unmounted directory that memexd is trying to watch. |
+| Queue Processing Latency (P50/P95/P99) | `histogram_quantile(0.50|0.95|0.99, rate(wqm_memexd_queue_processing_time_seconds_bucket[5m]))` | Normal processing should stay well under 1 s at P99. Elevated P99 with normal P50 suggests occasional slow items (large files, tree-sitter parse time). |
+| Ingestion and Watch Error Rates | `rate(wqm_memexd_ingestion_errors_total[2m])` + `rate(wqm_memexd_watch_errors_total[2m])` | Both should be zero in steady state. Persistent watch errors often indicate a deleted or unmounted directory that memexd is trying to watch. |
 
 **Row 4 — Unified queue (time series)**
 
 | Panel | Query | Interpretation |
 |---|---|---|
-| Unified Queue Depth by Type and Status | `sum by (item_type, status) (memexd_unified_queue_depth)` | Breaks down pending, in_progress, done, failed items per item type. A growing `in_progress` count with no corresponding `done` increase indicates stalled processing. |
+| Unified Queue Depth by Type and Status | `sum by (item_type, status) (wqm_memexd_unified_queue_depth)` | Breaks down pending, in_progress, done, failed items per item type. A growing `in_progress` count with no corresponding `done` increase indicates stalled processing. |
 
 ---
 

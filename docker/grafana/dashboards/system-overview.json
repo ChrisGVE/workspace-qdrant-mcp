@@ -175,7 +175,7 @@
     {
       "id": 4,
       "title": "Total Pending Queue Items",
-      "description": "Sum of all pending items across the unified queue (memexd_unified_queue_depth{status=\"pending\"}).",
+      "description": "Sum of all pending items across the unified queue (wqm_memexd_unified_queue_depth{status=\"pending\"}).",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -205,7 +205,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
+          "expr": "sum(wqm_memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
           "legendFormat": "pending items",
           "refId": "A"
         }
@@ -320,13 +320,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_queue_depth) or vector(0)",
+          "expr": "sum(wqm_memexd_queue_depth) or vector(0)",
           "legendFormat": "legacy queue",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
+          "expr": "sum(wqm_memexd_unified_queue_depth{status=\"pending\"}) or vector(0)",
           "legendFormat": "unified pending",
           "refId": "B"
         }
@@ -365,14 +365,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (error_type) (rate(memexd_ingestion_errors_total[5m])), \"source\", \"memexd ingestion ($1)\", \"error_type\", \"(.+)\")",
+          "expr": "label_replace(sum by (error_type) (rate(wqm_memexd_ingestion_errors_total[5m])), \"source\", \"memexd ingestion ($1)\", \"error_type\", \"(.+)\")",
           "legendFormat": "ingestion {{error_type}}",
           "refId": "A",
           "instant": true
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (watch_id) (rate(memexd_watch_errors_total[5m])), \"source\", \"watch ($1)\", \"watch_id\", \"(.+)\")",
+          "expr": "label_replace(sum by (watch_id) (rate(wqm_memexd_watch_errors_total[5m])), \"source\", \"watch ($1)\", \"watch_id\", \"(.+)\")",
           "legendFormat": "watch {{watch_id}}",
           "refId": "B",
           "instant": true

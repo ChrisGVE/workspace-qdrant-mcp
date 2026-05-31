@@ -118,10 +118,10 @@ fn encode_contains_extension_metric_names() {
         Duration::from_millis(1),
     );
     let out = m.encode().expect("encode ok");
-    assert!(out.contains("memexd_watcher_events_total"));
-    assert!(out.contains("memexd_watcher_coalesced_total"));
-    assert!(out.contains("memexd_grpc_requests_total"));
-    assert!(out.contains("memexd_grpc_request_duration_seconds"));
+    assert!(out.contains("wqm_memexd_watcher_events_total"));
+    assert!(out.contains("wqm_memexd_watcher_coalesced_total"));
+    assert!(out.contains("wqm_memexd_grpc_requests_total"));
+    assert!(out.contains("wqm_memexd_grpc_request_duration_seconds"));
 }
 
 #[test]
@@ -192,8 +192,8 @@ fn encode_contains_dependency_metric_names() {
     m.record_sqlite("read", Duration::from_millis(1));
     m.record_qdrant("search", Duration::from_millis(1), None);
     let out = m.encode().expect("encode ok");
-    assert!(out.contains("memexd_embedding_duration_seconds"));
-    assert!(out.contains("memexd_embedding_batch_size"));
-    assert!(out.contains("memexd_sqlite_query_duration_seconds"));
-    assert!(out.contains("memexd_qdrant_request_duration_seconds"));
+    assert!(out.contains("wqm_memexd_embedding_duration_seconds"));
+    assert!(out.contains("wqm_memexd_embedding_batch_size"));
+    assert!(out.contains("wqm_memexd_sqlite_query_duration_seconds"));
+    assert!(out.contains("wqm_memexd_qdrant_request_duration_seconds"));
 }

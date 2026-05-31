@@ -108,7 +108,7 @@ impl QueueManager {
     /// Get the depth of the unified queue keyed by (item_type, status).
     ///
     /// Used by the background metrics exporter to refresh the
-    /// `memexd_unified_queue_depth` gauge. Excludes `done` items because they
+    /// `wqm_memexd_unified_queue_depth` gauge. Excludes `done` items because they
     /// are deleted as soon as finalization runs.
     pub async fn get_unified_queue_depth_by_type_status(
         &self,

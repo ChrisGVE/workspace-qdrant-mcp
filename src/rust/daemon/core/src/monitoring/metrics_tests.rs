@@ -77,8 +77,8 @@ mod tests {
         metrics.set_queue_depth("normal", "projects", 50);
 
         let output = metrics.encode().expect("encoding should succeed");
-        assert!(output.contains("memexd_active_sessions"));
-        assert!(output.contains("memexd_queue_depth"));
+        assert!(output.contains("wqm_memexd_active_sessions"));
+        assert!(output.contains("wqm_memexd_queue_depth"));
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
         metrics.unified_queue_enqueued("cli_ingest");
 
         let output = metrics.encode().expect("encoding should succeed");
-        assert!(output.contains("memexd_unified_queue_depth"));
-        assert!(output.contains("memexd_unified_queue_enqueues_total"));
+        assert!(output.contains("wqm_memexd_unified_queue_depth"));
+        assert!(output.contains("wqm_memexd_unified_queue_enqueues_total"));
     }
 }

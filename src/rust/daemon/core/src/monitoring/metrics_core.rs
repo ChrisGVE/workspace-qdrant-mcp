@@ -258,14 +258,14 @@ fn create_all_metrics() -> CreatedMetrics {
     ) = create_dependency_metrics();
 
     let queue_oldest_pending_age_seconds = IntGauge::new(
-        "wqm_queue_oldest_pending_age_seconds",
+        "wqm_memexd_queue_oldest_pending_age_seconds",
         "Age in seconds of the oldest pending queue item",
     )
     .expect("metric can be created");
 
     let circuit_breaker_pauses_total = IntCounterVec::new(
         Opts::new(
-            "wqm_circuit_breaker_pauses_total",
+            "wqm_memexd_circuit_breaker_pauses_total",
             "Circuit breaker pause events by subsystem",
         ),
         &["subsystem"],
@@ -471,7 +471,8 @@ impl DaemonMetrics {
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();
         encoder.encode(&metric_families, &mut buffer)?;
-        Ok(String::from_utf8(buffer).unwrap_or_default())
+        String::from_utf8(buffer)
+            .map_err(|e| prometheus::Error::Msg(format!("metrics buffer is not valid UTF-8: {e}")))
     }
 }
 

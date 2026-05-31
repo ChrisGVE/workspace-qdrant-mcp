@@ -295,8 +295,8 @@ mod tests {
             .text()
             .await
             .expect("body utf8");
-        assert!(metrics_body.contains("memexd_watcher_events_total"));
-        assert!(metrics_body.contains("memexd_grpc_requests_total"));
+        assert!(metrics_body.contains("wqm_memexd_watcher_events_total"));
+        assert!(metrics_body.contains("wqm_memexd_grpc_requests_total"));
 
         let health_url = format!("http://{}/health", addr);
         let health = client

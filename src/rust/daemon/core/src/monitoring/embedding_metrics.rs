@@ -4,9 +4,9 @@
 //!
 //! | Metric                                       | Type      | Labels                          |
 //! |----------------------------------------------|-----------|---------------------------------|
-//! | `memexd_embedding_provider_requests_total`   | Counter   | provider, model, status_class   |
-//! | `memexd_embedding_provider_rate_limit_waits_total` | Counter | provider                  |
-//! | `memexd_embedding_provider_latency_seconds`  | Histogram | provider, model                 |
+//! | `wqm_memexd_embedding_provider_requests_total`   | Counter   | provider, model, status_class   |
+//! | `wqm_memexd_embedding_provider_rate_limit_waits_total` | Counter | provider                  |
+//! | `wqm_memexd_embedding_provider_latency_seconds`  | Histogram | provider, model                 |
 //!
 //! The `provider` label is bounded-cardinality: it is the value returned by
 //! [`DenseProvider::metrics_label`] (one of `fastembed`, `openai`,
@@ -37,28 +37,25 @@ impl EmbeddingProviderMetrics {
     fn build_and_register(registry: &Registry) -> Self {
         let requests_total = IntCounterVec::new(
             Opts::new(
-                "embedding_provider_requests_total",
+                "wqm_memexd_embedding_provider_requests_total",
                 "Total embedding provider requests by provider, model, and HTTP status class",
-            )
-            .namespace("memexd"),
+            ),
             &["provider", "model", "status_class"],
         )
         .expect("metric can be created");
         let rate_limit_waits_total = IntCounterVec::new(
             Opts::new(
-                "embedding_provider_rate_limit_waits_total",
+                "wqm_memexd_embedding_provider_rate_limit_waits_total",
                 "Total times the embedding provider waited on a rate-limit window",
-            )
-            .namespace("memexd"),
+            ),
             &["provider"],
         )
         .expect("metric can be created");
         let latency_seconds = HistogramVec::new(
             HistogramOpts::new(
-                "embedding_provider_latency_seconds",
+                "wqm_memexd_embedding_provider_latency_seconds",
                 "Latency of embedding provider requests in seconds",
             )
-            .namespace("memexd")
             .buckets(LATENCY_BUCKETS.to_vec()),
             &["provider", "model"],
         )

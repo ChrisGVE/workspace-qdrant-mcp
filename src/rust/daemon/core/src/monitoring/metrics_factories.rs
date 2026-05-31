@@ -14,17 +14,17 @@ use prometheus::{
 // ── Small typed builders to reduce verbosity in factories ────────────────
 
 pub(super) fn int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> IntGaugeVec {
-    IntGaugeVec::new(Opts::new(name, help).namespace("memexd"), labels)
+    IntGaugeVec::new(Opts::new(name, help), labels)
         .expect("metric can be created")
 }
 
 pub(super) fn int_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
-    IntCounterVec::new(Opts::new(name, help).namespace("memexd"), labels)
+    IntCounterVec::new(Opts::new(name, help), labels)
         .expect("metric can be created")
 }
 
 pub(super) fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> GaugeVec {
-    GaugeVec::new(Opts::new(name, help).namespace("memexd"), labels).expect("metric can be created")
+    GaugeVec::new(Opts::new(name, help), labels).expect("metric can be created")
 }
 
 pub(super) fn histogram_vec(
@@ -35,7 +35,6 @@ pub(super) fn histogram_vec(
 ) -> HistogramVec {
     HistogramVec::new(
         prometheus::HistogramOpts::new(name, help)
-            .namespace("memexd")
             .buckets(buckets),
         labels,
     )
@@ -53,17 +52,17 @@ pub(super) fn register_all(registry: &Registry, collectors: Vec<Box<dyn Collecto
 
 pub(super) fn create_session_metrics() -> (IntGaugeVec, IntCounterVec, HistogramVec) {
     let active_sessions = int_gauge_vec(
-        "memexd_active_sessions",
+        "wqm_memexd_active_sessions",
         "Number of active sessions by project and priority",
         &["project_id", "priority"],
     );
     let total_sessions = int_counter_vec(
-        "memexd_total_sessions",
+        "wqm_memexd_total_sessions",
         "Total number of sessions created (lifetime)",
         &["project_id"],
     );
     let session_duration_seconds = histogram_vec(
-        "memexd_session_duration_seconds",
+        "wqm_memexd_session_duration_seconds",
         "Session duration in seconds",
         &["project_id"],
         vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
@@ -73,18 +72,18 @@ pub(super) fn create_session_metrics() -> (IntGaugeVec, IntCounterVec, Histogram
 
 pub(super) fn create_queue_metrics() -> (IntGaugeVec, HistogramVec, IntCounterVec) {
     let queue_depth = int_gauge_vec(
-        "memexd_queue_depth",
+        "wqm_memexd_queue_depth",
         "Current queue depth by priority and collection",
         &["priority", "collection"],
     );
     let queue_processing_time_seconds = histogram_vec(
-        "memexd_queue_processing_time_seconds",
+        "wqm_memexd_queue_processing_time_seconds",
         "Queue item processing time in seconds",
         &["priority"],
         vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0],
     );
     let queue_items_processed_total = int_counter_vec(
-        "memexd_queue_items_processed_total",
+        "wqm_memexd_queue_items_processed_total",
         "Total items processed by priority and status",
         &["priority", "status"],
     );
@@ -97,17 +96,17 @@ pub(super) fn create_queue_metrics() -> (IntGaugeVec, HistogramVec, IntCounterVe
 
 pub(super) fn create_tenant_metrics() -> (IntGaugeVec, IntCounterVec, GaugeVec) {
     let tenant_documents_total = int_gauge_vec(
-        "memexd_tenant_documents_total",
+        "wqm_memexd_tenant_documents_total",
         "Total documents per tenant and collection",
         &["tenant_id", "collection"],
     );
     let tenant_search_requests_total = int_counter_vec(
-        "memexd_tenant_search_requests_total",
+        "wqm_memexd_tenant_search_requests_total",
         "Total search requests per tenant",
         &["tenant_id"],
     );
     let tenant_storage_bytes = gauge_vec(
-        "memexd_tenant_storage_bytes",
+        "wqm_memexd_tenant_storage_bytes",
         "Estimated storage bytes per tenant",
         &["tenant_id"],
     );
@@ -119,14 +118,14 @@ pub(super) fn create_tenant_metrics() -> (IntGaugeVec, IntCounterVec, GaugeVec) 
 }
 
 pub(super) fn create_system_metrics() -> (GaugeVec, IntCounterVec, HistogramVec) {
-    let uptime_seconds = gauge_vec("memexd_uptime_seconds", "Daemon uptime in seconds", &[]);
+    let uptime_seconds = gauge_vec("wqm_memexd_uptime_seconds", "Daemon uptime in seconds", &[]);
     let ingestion_errors_total = int_counter_vec(
-        "memexd_ingestion_errors_total",
+        "wqm_memexd_ingestion_errors_total",
         "Total ingestion errors by error type",
         &["error_type"],
     );
     let heartbeat_latency_seconds = histogram_vec(
-        "memexd_heartbeat_latency_seconds",
+        "wqm_memexd_heartbeat_latency_seconds",
         "Heartbeat processing latency in seconds",
         &["project_id"],
         vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
@@ -148,27 +147,27 @@ pub(super) fn create_watch_metrics() -> (
     IntCounterVec,
 ) {
     let watch_errors_total = int_counter_vec(
-        "memexd_watch_errors_total",
+        "wqm_memexd_watch_errors_total",
         "Total watch errors by watch_id",
         &["watch_id"],
     );
     let watch_consecutive_errors = int_gauge_vec(
-        "memexd_watch_consecutive_errors",
+        "wqm_memexd_watch_consecutive_errors",
         "Current consecutive errors by watch_id",
         &["watch_id"],
     );
     let watch_health_status = int_gauge_vec(
-        "memexd_watch_health_status",
+        "wqm_memexd_watch_health_status",
         "Watch health status (1 = in this state)",
         &["watch_id", "health_status"],
     );
     let watches_in_backoff = int_gauge_vec(
-        "memexd_watches_in_backoff",
+        "wqm_memexd_watches_in_backoff",
         "Number of watches currently in backoff",
         &[],
     );
     let watch_recovery_time_seconds = histogram_vec(
-        "memexd_watch_recovery_time_seconds",
+        "wqm_memexd_watch_recovery_time_seconds",
         "Watch error recovery time in seconds",
         &["watch_id"],
         vec![
@@ -176,7 +175,7 @@ pub(super) fn create_watch_metrics() -> (
         ],
     );
     let watch_events_throttled_total = int_counter_vec(
-        "memexd_watch_events_throttled_total",
+        "wqm_memexd_watch_events_throttled_total",
         "Events throttled due to queue depth",
         &["watch_id", "load_level"],
     );
@@ -199,31 +198,31 @@ pub(super) fn create_dependency_metrics() -> (
     IntCounterVec,
 ) {
     let embedding_duration_seconds = histogram_vec(
-        "memexd_embedding_duration_seconds",
+        "wqm_memexd_embedding_duration_seconds",
         "Embedding generation duration in seconds by model",
         &["model"],
         vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
     );
     let embedding_batch_size = histogram_vec(
-        "memexd_embedding_batch_size",
+        "wqm_memexd_embedding_batch_size",
         "Embedding batch size (items per call) by model",
         &["model"],
         vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0],
     );
     let sqlite_query_duration_seconds = histogram_vec(
-        "memexd_sqlite_query_duration_seconds",
+        "wqm_memexd_sqlite_query_duration_seconds",
         "SQLite query duration in seconds by op",
         &["op"],
         vec![0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
     );
     let qdrant_request_duration_seconds = histogram_vec(
-        "memexd_qdrant_request_duration_seconds",
+        "wqm_memexd_qdrant_request_duration_seconds",
         "Qdrant request duration in seconds by op",
         &["op"],
         vec![0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0],
     );
     let qdrant_request_errors_total = int_counter_vec(
-        "memexd_qdrant_request_errors_total",
+        "wqm_memexd_qdrant_request_errors_total",
         "Total Qdrant request errors by op and error_type",
         &["op", "error_type"],
     );
@@ -239,22 +238,22 @@ pub(super) fn create_dependency_metrics() -> (
 pub(super) fn create_telemetry_extension_metrics(
 ) -> (IntCounterVec, IntCounterVec, IntCounterVec, HistogramVec) {
     let watcher_events_total = int_counter_vec(
-        "memexd_watcher_events_total",
+        "wqm_memexd_watcher_events_total",
         "Total filesystem watcher events by event_type",
         &["event_type"],
     );
     let watcher_coalesced_total = int_counter_vec(
-        "memexd_watcher_coalesced_total",
+        "wqm_memexd_watcher_coalesced_total",
         "Total watcher events coalesced before enqueue",
         &["reason"],
     );
     let grpc_requests_total = int_counter_vec(
-        "memexd_grpc_requests_total",
+        "wqm_memexd_grpc_requests_total",
         "Total gRPC requests by service, method, and status",
         &["service", "method", "status"],
     );
     let grpc_request_duration_seconds = histogram_vec(
-        "memexd_grpc_request_duration_seconds",
+        "wqm_memexd_grpc_request_duration_seconds",
         "gRPC request duration in seconds by service and method",
         &["service", "method"],
         vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0],
@@ -278,12 +277,12 @@ pub(super) fn create_unified_queue_metrics() -> (
     IntCounterVec,
 ) {
     let unified_queue_depth = int_gauge_vec(
-        "memexd_unified_queue_depth",
+        "wqm_memexd_unified_queue_depth",
         "Current unified queue depth by item_type and status",
         &["item_type", "status"],
     );
     let unified_queue_processing_time_seconds = histogram_vec(
-        "memexd_unified_queue_processing_time_seconds",
+        "wqm_memexd_unified_queue_processing_time_seconds",
         "Unified queue item processing time in seconds",
         &["item_type"],
         vec![
@@ -291,27 +290,27 @@ pub(super) fn create_unified_queue_metrics() -> (
         ],
     );
     let unified_queue_items_total = int_counter_vec(
-        "memexd_unified_queue_items_total",
+        "wqm_memexd_unified_queue_items_total",
         "Total unified queue items processed by item_type, op, and result",
         &["item_type", "op", "result"],
     );
     let unified_queue_enqueues_total = int_counter_vec(
-        "memexd_unified_queue_enqueues_total",
+        "wqm_memexd_unified_queue_enqueues_total",
         "Total unified queue enqueues by source",
         &["source"],
     );
     let unified_queue_dequeues_total = int_counter_vec(
-        "memexd_unified_queue_dequeues_total",
+        "wqm_memexd_unified_queue_dequeues_total",
         "Total unified queue dequeues by item_type",
         &["item_type"],
     );
     let unified_queue_stale_items = int_gauge_vec(
-        "memexd_unified_queue_stale_items",
+        "wqm_memexd_unified_queue_stale_items",
         "Stale lease items in unified queue",
         &[],
     );
     let unified_queue_retries_total = int_counter_vec(
-        "memexd_unified_queue_retries_total",
+        "wqm_memexd_unified_queue_retries_total",
         "Unified queue retry count by item_type",
         &["item_type"],
     );

@@ -15,7 +15,7 @@
     {
       "id": 1,
       "title": "Daemon Uptime",
-      "description": "memexd process uptime in seconds (memexd_uptime_seconds).",
+      "description": "memexd process uptime in seconds (wqm_memexd_uptime_seconds).",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -45,7 +45,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(memexd_uptime_seconds)",
+          "expr": "max(wqm_memexd_uptime_seconds)",
           "legendFormat": "uptime",
           "refId": "A"
         }
@@ -54,7 +54,7 @@
     {
       "id": 2,
       "title": "Active Sessions",
-      "description": "Number of active daemon sessions across all projects (memexd_active_sessions).",
+      "description": "Number of active daemon sessions across all projects (wqm_memexd_active_sessions).",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -84,7 +84,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_active_sessions)",
+          "expr": "sum(wqm_memexd_active_sessions)",
           "legendFormat": "active sessions",
           "refId": "A"
         }
@@ -93,7 +93,7 @@
     {
       "id": 3,
       "title": "Watches in Backoff",
-      "description": "Number of file-system watches currently in exponential backoff (memexd_watches_in_backoff). Any non-zero value warrants investigation.",
+      "description": "Number of file-system watches currently in exponential backoff (wqm_memexd_watches_in_backoff). Any non-zero value warrants investigation.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -123,7 +123,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(memexd_watches_in_backoff)",
+          "expr": "sum(wqm_memexd_watches_in_backoff)",
           "legendFormat": "backoff watches",
           "refId": "A"
         }
@@ -132,7 +132,7 @@
     {
       "id": 4,
       "title": "Oldest Pending Queue Item Age",
-      "description": "Age in seconds of the oldest pending item in the unified queue (wqm_queue_oldest_pending_age_seconds). High values indicate processing stalls.",
+      "description": "Age in seconds of the oldest pending item in the unified queue (wqm_memexd_queue_oldest_pending_age_seconds). High values indicate processing stalls.",
       "type": "stat",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -162,7 +162,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "wqm_queue_oldest_pending_age_seconds",
+          "expr": "wqm_memexd_queue_oldest_pending_age_seconds",
           "legendFormat": "oldest pending",
           "refId": "A"
         }
@@ -171,7 +171,7 @@
     {
       "id": 5,
       "title": "Queue Depth by Priority",
-      "description": "Current queue depth broken down by priority and collection (memexd_queue_depth).",
+      "description": "Current queue depth broken down by priority and collection (wqm_memexd_queue_depth).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -202,7 +202,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (memexd_queue_depth)",
+          "expr": "sum by (priority) (wqm_memexd_queue_depth)",
           "legendFormat": "priority={{priority}}",
           "refId": "A"
         }
@@ -211,7 +211,7 @@
     {
       "id": 6,
       "title": "Queue Processing Throughput",
-      "description": "Items processed per second by priority and status (memexd_queue_items_processed_total).",
+      "description": "Items processed per second by priority and status (wqm_memexd_queue_items_processed_total).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -243,13 +243,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (rate(memexd_queue_items_processed_total{status=\"success\"}[2m]))",
+          "expr": "sum by (priority) (rate(wqm_memexd_queue_items_processed_total{status=\"success\"}[2m]))",
           "legendFormat": "success priority={{priority}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (priority) (rate(memexd_queue_items_processed_total{status=\"failure\"}[2m]))",
+          "expr": "sum by (priority) (rate(wqm_memexd_queue_items_processed_total{status=\"failure\"}[2m]))",
           "legendFormat": "failure priority={{priority}}",
           "refId": "B"
         }
@@ -258,7 +258,7 @@
     {
       "id": 7,
       "title": "Queue Processing Latency (P50 / P95 / P99)",
-      "description": "Queue item processing time distribution (memexd_queue_processing_time_seconds).",
+      "description": "Queue item processing time distribution (wqm_memexd_queue_processing_time_seconds).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -289,19 +289,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (priority, le) (rate(wqm_memexd_queue_processing_time_seconds_bucket[5m])))",
           "legendFormat": "p50 priority={{priority}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (priority, le) (rate(wqm_memexd_queue_processing_time_seconds_bucket[5m])))",
           "legendFormat": "p95 priority={{priority}}",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (priority, le) (rate(memexd_queue_processing_time_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (priority, le) (rate(wqm_memexd_queue_processing_time_seconds_bucket[5m])))",
           "legendFormat": "p99 priority={{priority}}",
           "refId": "C"
         }
@@ -310,7 +310,7 @@
     {
       "id": 8,
       "title": "Ingestion and Watch Error Rates",
-      "description": "Rate of ingestion errors (memexd_ingestion_errors_total) and watch errors (memexd_watch_errors_total). Both should be zero in steady state.",
+      "description": "Rate of ingestion errors (wqm_memexd_ingestion_errors_total) and watch errors (wqm_memexd_watch_errors_total). Both should be zero in steady state.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -342,13 +342,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (error_type) (rate(memexd_ingestion_errors_total[2m]))",
+          "expr": "sum by (error_type) (rate(wqm_memexd_ingestion_errors_total[2m]))",
           "legendFormat": "ingest {{error_type}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (watch_id) (rate(memexd_watch_errors_total[2m]))",
+          "expr": "sum by (watch_id) (rate(wqm_memexd_watch_errors_total[2m]))",
           "legendFormat": "watch {{watch_id}}",
           "refId": "B"
         }
@@ -357,7 +357,7 @@
     {
       "id": 9,
       "title": "Unified Queue Depth by Type and Status",
-      "description": "Unified queue item counts broken down by item_type and status (memexd_unified_queue_depth).",
+      "description": "Unified queue item counts broken down by item_type and status (wqm_memexd_unified_queue_depth).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -388,7 +388,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (item_type, status) (memexd_unified_queue_depth)",
+          "expr": "sum by (item_type, status) (wqm_memexd_unified_queue_depth)",
           "legendFormat": "{{item_type}} / {{status}}",
           "refId": "A"
         }

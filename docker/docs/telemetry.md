@@ -50,58 +50,58 @@ Source: `src/typescript/mcp-server/src/telemetry/metrics.ts`
 Source: `src/rust/daemon/core/src/monitoring/metrics_core.rs`
 
 All daemon metrics use the `memexd` namespace prefix except
-`wqm_queue_oldest_pending_age_seconds`.
+`wqm_memexd_queue_oldest_pending_age_seconds`.
 
 ### Queue metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `memexd_queue_depth` | Gauge | `priority`, `collection` | Current depth of the legacy queue by priority and collection |
-| `memexd_queue_items_processed_total` | Counter | `priority`, `status` | Items processed; `status` is `success`, `failure`, or `skipped` |
-| `memexd_queue_processing_time_seconds` | Histogram | `priority` | Processing time per item |
-| `wqm_queue_oldest_pending_age_seconds` | Gauge | — | Age in seconds of the oldest pending item (0 if queue is empty) |
-| `memexd_unified_queue_depth` | Gauge | `item_type`, `status` | Unified queue depth by type and status |
-| `memexd_unified_queue_processing_time_seconds` | Histogram | `item_type` | Unified queue processing time |
-| `memexd_unified_queue_items_total` | Counter | `item_type`, `op`, `result` | Unified queue items processed |
-| `memexd_unified_queue_enqueues_total` | Counter | `source` | Enqueues by source |
-| `memexd_unified_queue_dequeues_total` | Counter | `item_type` | Dequeues by item type |
-| `memexd_unified_queue_stale_items` | Gauge | — | Expired leases not yet recovered |
-| `memexd_unified_queue_retries_total` | Counter | `item_type` | Retry count by item type |
+| `wqm_memexd_queue_depth` | Gauge | `priority`, `collection` | Current depth of the legacy queue by priority and collection |
+| `wqm_memexd_queue_items_processed_total` | Counter | `priority`, `status` | Items processed; `status` is `success`, `failure`, or `skipped` |
+| `wqm_memexd_queue_processing_time_seconds` | Histogram | `priority` | Processing time per item |
+| `wqm_memexd_queue_oldest_pending_age_seconds` | Gauge | — | Age in seconds of the oldest pending item (0 if queue is empty) |
+| `wqm_memexd_unified_queue_depth` | Gauge | `item_type`, `status` | Unified queue depth by type and status |
+| `wqm_memexd_unified_queue_processing_time_seconds` | Histogram | `item_type` | Unified queue processing time |
+| `wqm_memexd_unified_queue_items_total` | Counter | `item_type`, `op`, `result` | Unified queue items processed |
+| `wqm_memexd_unified_queue_enqueues_total` | Counter | `source` | Enqueues by source |
+| `wqm_memexd_unified_queue_dequeues_total` | Counter | `item_type` | Dequeues by item type |
+| `wqm_memexd_unified_queue_stale_items` | Gauge | — | Expired leases not yet recovered |
+| `wqm_memexd_unified_queue_retries_total` | Counter | `item_type` | Retry count by item type |
 
 ### Session metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `memexd_active_sessions` | Gauge | `project_id`, `priority` | Active sessions by project and priority |
-| `memexd_total_sessions` | Counter | `project_id` | Lifetime session count by project |
-| `memexd_session_duration_seconds` | Histogram | `project_id` | Session duration |
+| `wqm_memexd_active_sessions` | Gauge | `project_id`, `priority` | Active sessions by project and priority |
+| `wqm_memexd_total_sessions` | Counter | `project_id` | Lifetime session count by project |
+| `wqm_memexd_session_duration_seconds` | Histogram | `project_id` | Session duration |
 
 ### System metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `memexd_uptime_seconds` | Gauge | — | Daemon process uptime |
-| `memexd_ingestion_errors_total` | Counter | `error_type` | Ingestion errors by type |
-| `memexd_heartbeat_latency_seconds` | Histogram | `project_id` | Heartbeat processing latency |
+| `wqm_memexd_uptime_seconds` | Gauge | — | Daemon process uptime |
+| `wqm_memexd_ingestion_errors_total` | Counter | `error_type` | Ingestion errors by type |
+| `wqm_memexd_heartbeat_latency_seconds` | Histogram | `project_id` | Heartbeat processing latency |
 
 ### Watch metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `memexd_watch_errors_total` | Counter | `watch_id` | Cumulative watch errors |
-| `memexd_watch_consecutive_errors` | Gauge | `watch_id` | Current run of consecutive errors |
-| `memexd_watch_health_status` | Gauge | `watch_id`, `health_status` | Health state flag (1 = in this state); states: `healthy`, `degraded`, `backoff`, `disabled` |
-| `memexd_watches_in_backoff` | Gauge | — | Watches currently in exponential backoff |
-| `memexd_watch_recovery_time_seconds` | Histogram | `watch_id` | Time from first error to recovery |
-| `memexd_watch_events_throttled_total` | Counter | `watch_id`, `load_level` | Events dropped due to queue pressure; `load_level` is `high` or `critical` |
+| `wqm_memexd_watch_errors_total` | Counter | `watch_id` | Cumulative watch errors |
+| `wqm_memexd_watch_consecutive_errors` | Gauge | `watch_id` | Current run of consecutive errors |
+| `wqm_memexd_watch_health_status` | Gauge | `watch_id`, `health_status` | Health state flag (1 = in this state); states: `healthy`, `degraded`, `backoff`, `disabled` |
+| `wqm_memexd_watches_in_backoff` | Gauge | — | Watches currently in exponential backoff |
+| `wqm_memexd_watch_recovery_time_seconds` | Histogram | `watch_id` | Time from first error to recovery |
+| `wqm_memexd_watch_events_throttled_total` | Counter | `watch_id`, `load_level` | Events dropped due to queue pressure; `load_level` is `high` or `critical` |
 
 ### Per-tenant metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `memexd_tenant_documents_total` | Gauge | `tenant_id`, `collection` | Document count per tenant and collection |
-| `memexd_tenant_search_requests_total` | Counter | `tenant_id` | Search requests per tenant |
-| `memexd_tenant_storage_bytes` | Gauge | `tenant_id` | Estimated storage usage per tenant |
+| `wqm_memexd_tenant_documents_total` | Gauge | `tenant_id`, `collection` | Document count per tenant and collection |
+| `wqm_memexd_tenant_search_requests_total` | Counter | `tenant_id` | Search requests per tenant |
+| `wqm_memexd_tenant_storage_bytes` | Gauge | `tenant_id` | Estimated storage usage per tenant |
 
 ## Prometheus query recipes
 
@@ -128,31 +128,31 @@ histogram_quantile(0.99,
 ### Queue depth (unified, pending items only)
 
 ```promql
-sum(memexd_unified_queue_depth{status="pending"})
+sum(wqm_memexd_unified_queue_depth{status="pending"})
 ```
 
 ### Queue failure rate (per hour)
 
 ```promql
-increase(memexd_queue_items_processed_total{status="failure"}[1h])
+increase(wqm_memexd_queue_items_processed_total{status="failure"}[1h])
 ```
 
 ### Oldest pending item age
 
 ```promql
-wqm_queue_oldest_pending_age_seconds
+wqm_memexd_queue_oldest_pending_age_seconds
 ```
 
 ### Daemon uptime
 
 ```promql
-max(memexd_uptime_seconds)
+max(wqm_memexd_uptime_seconds)
 ```
 
 ### Watch health — any watch in backoff?
 
 ```promql
-sum(memexd_watches_in_backoff) > 0
+sum(wqm_memexd_watches_in_backoff) > 0
 ```
 
 ### Daemon fallback rate
@@ -177,13 +177,13 @@ Defined in `docker/prometheus/alerts.yml`. Six rules in the
 
 ### Alert details
 
-**QueueStuck** — `max_over_time(wqm_queue_oldest_pending_age_seconds[1h]) > 43200`  
+**QueueStuck** — `max_over_time(wqm_memexd_queue_oldest_pending_age_seconds[1h]) > 43200`  
 The oldest pending queue item has not been picked up in 12 hours. Likely cause:
 queue processor stopped or a task type is permanently erroring.
 
-**QueueFailedWarning** — `increase(memexd_queue_items_processed_total{status="failed"}[1h]) > 0`  
+**QueueFailedWarning** — `increase(wqm_memexd_queue_items_processed_total{status="failed"}[1h]) > 0`  
 At least one item failed processing in the last hour. Inspect `docker logs memexd`
-for the failure reason and `error_type` label in `memexd_ingestion_errors_total`.
+for the failure reason and `error_type` label in `wqm_memexd_ingestion_errors_total`.
 
 **QueueFailedCritical** — same counter, threshold 10/hour  
 Ten or more failures in one hour. Indicates a systemic problem rather than an
