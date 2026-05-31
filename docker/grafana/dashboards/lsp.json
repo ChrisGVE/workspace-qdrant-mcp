@@ -157,13 +157,13 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",   "value": null },
-              { "color": "green", "value": 1 }
+              { "color": "#808080", "value": null },
+              { "color": "green",   "value": 1 }
             ]
           },
           "unit": "none",
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "stopped" }, "1": { "text": "running" } } }
+            { "type": "value", "options": { "0": { "text": "idle" }, "1": { "text": "running" } } }
           ]
         },
         "overrides": []
@@ -178,6 +178,7 @@
         "graphMode": "none",
         "justifyMode": "auto"
       },
+      "description": "Background colour = LSP state for that language. Green = a server process is currently running for an active project. Grey = the binary is installed but idle (no active project uses this language right now) — this is normal, not an error. A language whose binary is NOT installed never appears here, so grey never means \"missing\".",
       "title": "LSP Binary Detected & Running per Language",
       "type": "stat",
       "targets": [
@@ -284,5 +285,5 @@
   "timezone": "browser",
   "title": "LSP Observability",
   "uid": "memexd-lsp-observability",
-  "version": 1
+  "version": 2
 }
