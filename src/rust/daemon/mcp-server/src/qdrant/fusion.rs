@@ -72,6 +72,9 @@ pub enum SearchType {
     Keyword,
     Hybrid,
     Fallback,
+    /// Node injected by the graph-expansion fusion pass (GitHub #80,
+    /// `expandAndFuseWithGraph`). Carries `source: graph_expansion` in its payload.
+    Graph,
 }
 
 impl SearchType {
@@ -81,6 +84,7 @@ impl SearchType {
             Self::Keyword => "keyword",
             Self::Hybrid => "hybrid",
             Self::Fallback => "fallback",
+            Self::Graph => "graph",
         }
     }
 }

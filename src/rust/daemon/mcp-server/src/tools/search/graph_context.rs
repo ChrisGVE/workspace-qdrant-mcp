@@ -57,8 +57,9 @@ pub trait GraphQueryDaemon: Send + Sync {
 /// Compute node_id matching Rust daemon's `compute_node_id`.
 ///
 /// SHA256(tenant_id|file_path|symbol_name|symbol_type)[..16] as hex.
-/// Mirrors `computeNodeId` in `search-graph-context.ts:43-52`.
-fn compute_node_id(
+/// Mirrors `computeNodeId` in `search-graph-context.ts:43-52`. Shared with the
+/// graph-fusion pass (`graph_fusion.rs`, GitHub #80).
+pub(super) fn compute_node_id(
     tenant_id: &str,
     file_path: &str,
     symbol_name: &str,

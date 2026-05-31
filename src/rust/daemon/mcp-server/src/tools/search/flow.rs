@@ -25,9 +25,7 @@ use std::collections::HashMap;
 use crate::observability::metrics::record_daemon_fallback;
 use crate::qdrant::client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 use crate::qdrant::filters::{build_filter, determine_collections, FilterParams};
-use crate::qdrant::fusion::{
-    apply_rrf_fusion, diversify_results, TaggedResult, DEFAULT_DIVERSITY_CONFIG,
-};
+use crate::qdrant::fusion::TaggedResult;
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
 use super::graph_context::{expand_graph_context, GraphQueryDaemon};
@@ -35,7 +33,8 @@ use super::options::{SearchOptions, DEFAULT_EXPANSION_WEIGHT};
 use super::types::{SearchMode, SearchResponse, SearchResult, SearchScope};
 
 pub use super::flow_collect::{
-    build_provenance, expand_parent_context, search_collection, tagged_to_search_result,
+    build_provenance, diversify_slice_convert, expand_parent_context, fuse_and_sort,
+    search_collection, tagged_to_search_result,
 };
 pub use super::flow_fallback::{f001_refusal_reason, fallback_search, FALLBACK_STATUS_REASON};
 
@@ -238,9 +237,23 @@ where
     )
     .await;
 
-    // Phases 3-6: Fuse, rank, diversify, slice, convert.
-    let (mut results, diversity_score) =
-        finalize_results(all_tagged, opts, mode, &collections, scope_ctx);
+    // Phase 3: relevance decay → RRF fusion → sort by score.
+    let mut fused = fuse_and_sort(all_tagged, mode, scope_ctx);
+
+    // Phase 3b: graph-expansion fusion (GitHub #80). Mirrors TS
+    // `expandAndFuseWithGraph` at `finalizeResults` (search-helpers.ts:313-316) —
+    // runs BEFORE diversity so graph-expanded nodes participate in diversity
+    // scoring and the slice. Primary collection = first searched (TS `[0] ?? 'projects'`).
+    if opts.include_graph_context {
+        let primary = collections
+            .first()
+            .map(String::as_str)
+            .unwrap_or(COLLECTION_PROJECTS);
+        super::graph_fusion::expand_and_fuse_with_graph(daemon, &mut fused, primary).await;
+    }
+
+    // Phases 4-6: diversify, slice, convert.
+    let (mut results, diversity_score) = diversify_slice_convert(fused, opts, &collections);
 
     // Phases 7-8: Context enrichment.
     enrich_results(daemon, qdrant, opts, &mut results).await;
@@ -323,53 +336,6 @@ where
     all_tagged
 }
 
-/// Phases 3–6: relevance decay → RRF fusion → sort → diversity → slice → convert.
-fn finalize_results(
-    all_tagged: Vec<TaggedResult>,
-    opts: &SearchOptions,
-    mode: SearchMode,
-    collections: &[String],
-    scope_ctx: &super::scope::ScopeContext,
-) -> (Vec<SearchResult>, Option<f64>) {
-    // Phase 2b: relevance decay (scope=group/all). Applied to the combined
-    // results BEFORE fusion so the decay-induced ordering feeds the rank-based
-    // RRF (mirrors TS `applyRelevanceDecay` before `finalizeResults`).
-    let mut all_tagged = all_tagged;
-    if let Some(decay_map) = &scope_ctx.decay_map {
-        super::scope::apply_relevance_decay(&mut all_tagged, decay_map);
-    }
-
-    // Phase 3: RRF fusion (hybrid only) → sort by score desc.
-    let fused = if mode == SearchMode::Hybrid {
-        apply_rrf_fusion(&all_tagged)
-    } else {
-        all_tagged
-    };
-    let mut sorted = fused;
-    sorted.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Phase 4: Source diversity re-ranking (when >1 collection).
-    let (diverse_results, diversity_score) = if opts.diverse && collections.len() > 1 {
-        let (dr, ds) = diversify_results(sorted, &DEFAULT_DIVERSITY_CONFIG);
-        (dr, Some(ds))
-    } else {
-        (sorted, None)
-    };
-
-    // Phase 5-6: Slice to limit and convert.
-    let results: Vec<SearchResult> = diverse_results
-        .into_iter()
-        .take(opts.limit)
-        .map(tagged_to_search_result)
-        .collect();
-
-    (results, diversity_score)
-}
-
 /// Phases 7–8: Parent context and graph context enrichment.
 async fn enrich_results<D, Q>(
     daemon: &mut D,
@@ -384,12 +350,9 @@ async fn enrich_results<D, Q>(
         expand_parent_context(qdrant, results).await;
     }
     if opts.include_graph_context {
-        // DEFERRED (task 30 follow-up, GitHub #80): expandAndFuseWithGraph
-        // (graph-expansion fusion pass before diversity re-ranking) is not yet
-        // implemented.  Only expandGraphContext (post-slice per-result enrichment)
-        // runs here.  TS executes `expandAndFuseWithGraph` BEFORE diversity +
-        // slice (`finalizeResults` in search-helpers.ts:313-315), allowing
-        // graph-expanded results to participate in diversity scoring.
+        // Post-slice per-result caller/callee enrichment (TS `expandGraphContext`,
+        // search-helpers.ts:333). The pre-diversity graph-expansion fusion pass
+        // (`expandAndFuseWithGraph`, GitHub #80) runs earlier in `run_search_pipeline`.
         expand_graph_context(daemon, results).await;
     }
 }

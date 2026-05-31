@@ -23,6 +23,7 @@ pub mod flow;
 pub mod flow_collect;
 pub mod flow_fallback;
 pub mod graph_context;
+pub mod graph_fusion;
 pub mod options;
 pub mod scope;
 pub mod types;

@@ -11,11 +11,75 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::qdrant::client::QdrantRetrievedPoint;
-use crate::qdrant::fusion::{point_to_tagged, SearchType, TaggedResult};
+use crate::qdrant::fusion::{
+    apply_rrf_fusion, diversify_results, point_to_tagged, SearchType, TaggedResult,
+    DEFAULT_DIVERSITY_CONFIG,
+};
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::flow::SearchQdrant;
+use super::options::SearchOptions;
 use super::types::{ParentContext, Provenance, SearchMode, SearchResult};
+
+// ---------------------------------------------------------------------------
+// Fusion + finalize phases
+// ---------------------------------------------------------------------------
+
+/// Phase 3: relevance decay → RRF fusion → sort by score desc.
+///
+/// Split from the diversity/slice phases (`diversify_slice_convert`) so the
+/// graph-expansion fusion pass (GitHub #80) can run between them — TS interposes
+/// `expandAndFuseWithGraph` after the fusion sort and before diversity.
+pub fn fuse_and_sort(
+    all_tagged: Vec<TaggedResult>,
+    mode: SearchMode,
+    scope_ctx: &super::scope::ScopeContext,
+) -> Vec<TaggedResult> {
+    // Phase 2b: relevance decay (scope=group/all). Applied to the combined
+    // results BEFORE fusion so the decay-induced ordering feeds the rank-based
+    // RRF (mirrors TS `applyRelevanceDecay` before `finalizeResults`).
+    let mut all_tagged = all_tagged;
+    if let Some(decay_map) = &scope_ctx.decay_map {
+        super::scope::apply_relevance_decay(&mut all_tagged, decay_map);
+    }
+
+    // Phase 3: RRF fusion (hybrid only) → sort by score desc.
+    let mut sorted = if mode == SearchMode::Hybrid {
+        apply_rrf_fusion(&all_tagged)
+    } else {
+        all_tagged
+    };
+    sorted.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    sorted
+}
+
+/// Phases 4–6: source diversity re-ranking → slice to limit → convert.
+pub fn diversify_slice_convert(
+    fused: Vec<TaggedResult>,
+    opts: &SearchOptions,
+    collections: &[String],
+) -> (Vec<SearchResult>, Option<f64>) {
+    // Phase 4: Source diversity re-ranking (when >1 collection).
+    let (diverse_results, diversity_score) = if opts.diverse && collections.len() > 1 {
+        let (dr, ds) = diversify_results(fused, &DEFAULT_DIVERSITY_CONFIG);
+        (dr, Some(ds))
+    } else {
+        (fused, None)
+    };
+
+    // Phase 5-6: Slice to limit and convert.
+    let results: Vec<SearchResult> = diverse_results
+        .into_iter()
+        .take(opts.limit)
+        .map(tagged_to_search_result)
+        .collect();
+
+    (results, diversity_score)
+}
 
 // ---------------------------------------------------------------------------
 // Per-collection search
