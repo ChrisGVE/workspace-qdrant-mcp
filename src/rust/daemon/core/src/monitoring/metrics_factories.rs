@@ -14,13 +14,11 @@ use prometheus::{
 // ── Small typed builders to reduce verbosity in factories ────────────────
 
 pub(super) fn int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> IntGaugeVec {
-    IntGaugeVec::new(Opts::new(name, help), labels)
-        .expect("metric can be created")
+    IntGaugeVec::new(Opts::new(name, help), labels).expect("metric can be created")
 }
 
 pub(super) fn int_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
-    IntCounterVec::new(Opts::new(name, help), labels)
-        .expect("metric can be created")
+    IntCounterVec::new(Opts::new(name, help), labels).expect("metric can be created")
 }
 
 pub(super) fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> GaugeVec {
@@ -34,8 +32,7 @@ pub(super) fn histogram_vec(
     buckets: Vec<f64>,
 ) -> HistogramVec {
     HistogramVec::new(
-        prometheus::HistogramOpts::new(name, help)
-            .buckets(buckets),
+        prometheus::HistogramOpts::new(name, help).buckets(buckets),
         labels,
     )
     .expect("metric can be created")
