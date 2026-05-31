@@ -147,6 +147,9 @@ export async function initializeSession(
     sessionState.daemonConnected = true;
     logDaemonStatus(true);
     if (sessionState.projectPath) await registerProject(sessionState, daemonClient);
+    // Keep this checkout registered for LSP regardless of the client's project
+    // (cwd-detection can't find the self-repo in the container — see fn docs).
+    await ensureSelfRepoRegistered(daemonClient);
     startHeartbeatFn();
   } catch (error) {
     sessionState.daemonConnected = false;
@@ -281,6 +284,43 @@ async function callRegisterProject(
     });
   }
   return response;
+}
+
+/**
+ * Ensure the workspace-qdrant-mcp checkout itself is registered with the daemon
+ * so ITS LSP servers (rust-analyzer, typescript-language-server, …) come up.
+ *
+ * cwd-based detection can't find this repo: the containerized MCP runs from
+ * /app and `WQM_PROJECT_ROOT` points at the bind-mounted *dev root* (the parent
+ * of all repos, which has no project marker), so `detectProjectForSession`
+ * never registers this checkout — leaving Rust/TS grey on the LSP dashboard
+ * after a (re)start. `WQM_REPO_DIR` is the exact container path of the checkout,
+ * so register it explicitly. Idempotent (`register_if_new`) and best-effort: a
+ * failure here must never break session startup. Does not touch `sessionState`
+ * — this is independent of whatever project the connecting client is in.
+ */
+export async function ensureSelfRepoRegistered(daemonClient: DaemonClient): Promise<void> {
+  const repoDir = process.env['WQM_REPO_DIR'];
+  if (!repoDir) return;
+  try {
+    const resolvedPath = findGitRoot(repoDir) ?? repoDir;
+    const gitRemote = getGitRemoteUrl(resolvedPath);
+    const response = await callRegisterProject(
+      daemonClient,
+      resolvedPath,
+      basename(resolvedPath) || 'workspace-qdrant-mcp',
+      gitRemote,
+      '',
+      true, // register_if_new
+      false // housekeeping call — don't emit a session 'register' event
+    );
+    logDebug('Self-repo registered for LSP', {
+      repo_dir: resolvedPath,
+      project_id: response.project_id,
+    });
+  } catch (error) {
+    logDebug('Self-repo registration skipped', { error: String(error) });
+  }
 }
 
 export async function registerProjectFromTool(
