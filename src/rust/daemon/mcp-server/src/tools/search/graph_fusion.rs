@@ -75,8 +75,16 @@ fn collect_candidates(results: &[TaggedResult]) -> Vec<ExpandCandidate> {
         let symbol_name = non_empty_str(r.payload.get("chunk_symbol_name"));
         let chunk_type = non_empty_str(r.payload.get("chunk_chunk_type"));
         let tenant_id = non_empty_str(r.payload.get("tenant_id"));
-        let file_path = non_empty_str(r.payload.get("relative_path"))
-            .or_else(|| non_empty_str(r.payload.get("file_path")));
+        // TS: `filePath = relative_path ?? file_path` is NULLISH coalescing —
+        // it falls back to file_path only when relative_path is missing/null,
+        // NOT when it is an empty string. The subsequent `if (!filePath)` then
+        // skips an empty result. So a present-but-empty relative_path must NOT
+        // fall back to file_path; it is taken as "" and the row is skipped.
+        let file_path = match r.payload.get("relative_path").and_then(|v| v.as_str()) {
+            Some(rp) => Some(rp),
+            None => r.payload.get("file_path").and_then(|v| v.as_str()),
+        }
+        .filter(|s| !s.is_empty());
         let (Some(sym), Some(ct), Some(tid), Some(fp)) =
             (symbol_name, chunk_type, tenant_id, file_path)
         else {

@@ -185,6 +185,40 @@ async fn self_node_skipped_and_per_result_cap_enforced() {
 }
 
 #[tokio::test]
+async fn empty_relative_path_does_not_fall_back_to_file_path() {
+    // TS `relative_path ?? file_path` is nullish: a present-but-empty
+    // relative_path is taken as "" and the row is then skipped by `!filePath`.
+    // It must NOT fall back to file_path → no candidate → no expansion at all.
+    let mut payload: HashMap<String, Value> = HashMap::new();
+    payload.insert("chunk_symbol_name".into(), Value::String("foo".into()));
+    payload.insert("chunk_chunk_type".into(), Value::String("function".into()));
+    payload.insert("tenant_id".into(), Value::String("t".into()));
+    payload.insert("relative_path".into(), Value::String(String::new()));
+    payload.insert("file_path".into(), Value::String("src/a.rs".into()));
+    let mut results = vec![TaggedResult {
+        id: "v1".into(),
+        score: 1.0,
+        collection: "projects".into(),
+        payload,
+        search_type: SearchType::Semantic,
+    }];
+
+    // Daemon HAS a response under the node_id derived from the file_path
+    // fallback — if the bug were present it would expand; with the fix it never
+    // becomes a candidate, so the daemon is never queried.
+    let fallback_node_id = compute_node_id("t", "src/a.rs", "foo", "function");
+    let mut daemon = MapDaemon::default();
+    daemon
+        .responses
+        .insert(fallback_node_id, vec![node("expanded_1", "bar", 1)]);
+    expand_and_fuse_with_graph(&mut daemon, &mut results, "projects").await;
+
+    // No candidate → no expansion, and no alpha scaling (candidates empty).
+    assert_eq!(results.len(), 1, "no graph-expanded node added");
+    assert!((results[0].score - 1.0).abs() < 1e-9, "score untouched");
+}
+
+#[tokio::test]
 async fn expanded_node_converts_to_narrow_search_result() {
     // A graph-expanded TaggedResult converts to a SearchResult mirroring TS
     // `nodeToSearchResult`: content/title set, but metadata is NARROW
