@@ -88,7 +88,7 @@ grep-matcher = "0.1"
 which = "6.0"
 flate2 = "1.1"
 tar = "0.4"
-qdrant-client = "1.17"
+qdrant-client = "1.18"
 tokio-util = "0.7"
 zip = "2.1"
 rbook = { version = "0.7.3", default-features = false, features = ["threadsafe"] }
