@@ -208,7 +208,9 @@ jobs:
 
       - name: Integration tests (live services)
         working-directory: src/typescript/mcp-server
-        run: npm test -- --include 'tests/integration/**' --reporter=verbose
+        # vitest 2.x dropped the `--include` CLI flag (config-only); pass the
+        # directory as a positional path filter instead.
+        run: npm test -- tests/integration/ --reporter=verbose
 
   # memexd control-port discipline (spec 16 §10.1).
   # Verifies the cross-process single-instance lock primitive in
