@@ -10,7 +10,6 @@ use serial_test::serial;
 use tempfile::TempDir;
 
 use crate::server_types::SessionState;
-use crate::sqlite::manager::StateManager;
 
 use super::{cleanup_session, initialize_session, register_project, RegisterResponse};
 
@@ -29,14 +28,12 @@ async fn sl1a_initialize_assigns_session_id() {
     let mut state = SessionState::new();
     let original_id = state.session_id;
     let mut daemon = MockDaemonOps::new();
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     initialize_session(
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;
@@ -60,7 +57,6 @@ async fn sl1b_initialize_sets_project_id_when_detected() {
     let dir = TempDir::new().unwrap();
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     let project_path = dir.path().to_path_buf();
 
@@ -68,7 +64,6 @@ async fn sl1b_initialize_sets_project_id_when_detected() {
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
         fixed_detect(project_path.clone(), Some("proj-detected-id".to_string())),
         || {},
     )
@@ -93,14 +88,12 @@ async fn sl1c_initialize_uses_cwd_when_no_project_detected() {
     let dir = TempDir::new().unwrap();
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     initialize_session(
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;
@@ -119,6 +112,52 @@ async fn sl1c_initialize_uses_cwd_when_no_project_detected() {
     );
 }
 
+/// SL1d — `initialize_session` is idempotent: a second call is a no-op.
+///
+/// The HTTP transport shares one `SessionState` across per-connection handlers,
+/// so `initialize` may fire more than once. The second run must NOT re-detect,
+/// re-register, or re-run the daemon health check (GitHub #84).
+#[serial]
+#[tokio::test]
+async fn sl1d_initialize_is_idempotent() {
+    let dir = TempDir::new().unwrap();
+    let mut state = SessionState::new();
+    let mut daemon = MockDaemonOps::new();
+    daemon.health_ok = true;
+
+    initialize_session(
+        &mut state,
+        &mut daemon,
+        dir.path(),
+        fixed_detect(dir.path().to_path_buf(), Some("first-id".to_string())),
+        || {},
+    )
+    .await;
+    assert!(state.initialized, "initialized flag must be set");
+    assert_eq!(state.project_id.as_deref(), Some("first-id"));
+    let health_calls_after_first = daemon.health_calls;
+
+    // Second call with a DIFFERENT detection must be a complete no-op.
+    initialize_session(
+        &mut state,
+        &mut daemon,
+        dir.path(),
+        fixed_detect(dir.path().to_path_buf(), Some("second-id".to_string())),
+        || {},
+    )
+    .await;
+
+    assert_eq!(
+        state.project_id.as_deref(),
+        Some("first-id"),
+        "second initialize must not overwrite project_id"
+    );
+    assert_eq!(
+        daemon.health_calls, health_calls_after_first,
+        "second initialize must not re-run the daemon health check"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AC-SL2: daemon_connected = true on successful health check
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,14 +170,12 @@ async fn sl2a_initialize_sets_daemon_connected_on_health_ok() {
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
     daemon.health_ok = true;
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     initialize_session(
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;
@@ -157,14 +194,12 @@ async fn sl2b_initialize_sets_daemon_disconnected_on_health_fail() {
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
     daemon.health_ok = false;
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     initialize_session(
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;
@@ -188,7 +223,6 @@ async fn sl2c_start_hb_fn_called_on_daemon_connected() {
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
     daemon.health_ok = true;
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     let call_count = Arc::new(AtomicU32::new(0));
     let cc = call_count.clone();
@@ -197,8 +231,7 @@ async fn sl2c_start_hb_fn_called_on_daemon_connected() {
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         move || {
             cc.fetch_add(1, Ordering::SeqCst);
         },
@@ -225,7 +258,6 @@ async fn sl2d_start_hb_fn_not_called_when_health_fails() {
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
     daemon.health_ok = false;
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     let called = Arc::new(AtomicBool::new(false));
     let c = called.clone();
@@ -234,8 +266,7 @@ async fn sl2d_start_hb_fn_not_called_when_health_fails() {
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         move || {
             c.store(true, Ordering::SeqCst);
         },
@@ -260,8 +291,9 @@ async fn sl2d_start_hb_fn_not_called_when_health_fails() {
 #[serial]
 #[tokio::test]
 async fn sl3_heartbeat_failure_sets_daemon_disconnected() {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
+    use tokio::sync::Mutex;
 
     let mut state_inner = SessionState::new();
     state_inner.daemon_connected = true;
@@ -285,7 +317,7 @@ async fn sl3_heartbeat_failure_sets_daemon_disconnected() {
     handle.abort();
 
     assert!(
-        !state.lock().unwrap().daemon_connected,
+        !state.lock().await.daemon_connected,
         "daemon_connected must be false after a heartbeat failure (SL3)"
     );
 }

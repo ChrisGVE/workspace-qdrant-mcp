@@ -12,7 +12,6 @@ use tempfile::TempDir;
 
 use crate::observability::metrics::SESSION_COUNT;
 use crate::server_types::SessionState;
-use crate::sqlite::manager::StateManager;
 
 use super::lifecycle_test_support::{no_project_detect, MockDaemonOps};
 use super::{cleanup_session, initialize_session};
@@ -28,7 +27,6 @@ async fn session_gauge_incremented_on_initialize() {
     let dir = TempDir::new().unwrap();
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     let before = SESSION_COUNT.get();
 
@@ -36,8 +34,7 @@ async fn session_gauge_incremented_on_initialize() {
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;
@@ -77,7 +74,6 @@ async fn session_gauge_net_zero_after_init_and_cleanup() {
     let dir = TempDir::new().unwrap();
     let mut state = SessionState::new();
     let mut daemon = MockDaemonOps::new();
-    let sm = StateManager::open_at("/nonexistent/state.db");
 
     let before = SESSION_COUNT.get();
 
@@ -85,8 +81,7 @@ async fn session_gauge_net_zero_after_init_and_cleanup() {
         &mut state,
         &mut daemon,
         dir.path(),
-        &sm,
-        no_project_detect,
+        no_project_detect(),
         || {},
     )
     .await;

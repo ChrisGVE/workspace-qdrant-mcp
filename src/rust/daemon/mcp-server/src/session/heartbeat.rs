@@ -21,9 +21,10 @@
 //! Any error simply sets `daemon_connected = false` on the shared state.
 
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Mutex;
 use tokio::task::AbortHandle;
 use tracing::{debug, error};
 
@@ -94,7 +95,7 @@ where
     Fut: Future<Output = Result<bool, String>>,
 {
     let (project_id, connected) = {
-        let s = state.lock().unwrap();
+        let s = state.lock().await;
         (s.project_id.clone(), s.daemon_connected)
     };
 
@@ -109,7 +110,7 @@ where
         }
         Err(e) => {
             error!(project_id = %project_id, error = %e, "Heartbeat failed");
-            state.lock().unwrap().daemon_connected = false;
+            state.lock().await.daemon_connected = false;
         }
     }
 }

@@ -203,6 +203,11 @@ pub struct SessionState {
     /// Idempotence flag for `cleanup_session` (F-049).
     /// Set to `true` on the first cleanup invocation; subsequent calls no-op.
     pub cleaned: bool,
+    /// Idempotence flag for `initialize_session`. Set on the first `initialize`
+    /// MCP request; subsequent calls no-op. Required because the HTTP transport
+    /// shares a single `SessionState` across all per-connection handlers, so
+    /// `initialize` may fire more than once against the same state.
+    pub initialized: bool,
     /// Current git branch detected at session start.
     /// Used as the default branch filter for search and list tools.
     /// `None` when not inside a git repository.
@@ -220,6 +225,7 @@ impl SessionState {
             is_worktree: false,
             daemon_connected: false,
             cleaned: false,
+            initialized: false,
             current_branch: None,
         }
     }

@@ -165,18 +165,24 @@ impl DaemonOps for DaemonClient {
 /// `heartbeat::start_heartbeat`; in tests it can be a no-op.
 ///
 /// Mirrors `initializeSession` in `session-lifecycle.ts` (line 50).
-pub async fn initialize_session<D, DetectFn, HbFn>(
+pub async fn initialize_session<D, HbFn>(
     state: &mut SessionState,
     daemon: &mut D,
     cwd: &std::path::Path,
-    state_manager: &StateManager,
-    detect_fn: DetectFn,
+    detected: Option<ProjectInfo>,
     start_hb_fn: HbFn,
 ) where
     D: DaemonOps,
-    DetectFn: FnOnce(&std::path::Path, &StateManager) -> Option<ProjectInfo>,
     HbFn: FnOnce(),
 {
+    // Idempotence: the HTTP transport shares one `SessionState` across all
+    // per-connection handlers, so `initialize` can fire more than once. Run the
+    // session lifecycle exactly once (mirrors a single TS `initializeSession`).
+    if state.initialized {
+        return;
+    }
+    state.initialized = true;
+
     // Assign session UUID.
     // (state.session_id is already set by SessionState::new(); re-assign to
     // match TS behaviour where randomUUID() is called inside initializeSession)
@@ -188,8 +194,9 @@ pub async fn initialize_session<D, DetectFn, HbFn>(
 
     debug!(session_id = %state.session_id, "Session start");
 
-    // Detect project.
-    apply_project_detection(state, cwd, state_manager, detect_fn);
+    // Apply pre-computed project detection (caller resolves it under a short
+    // SQLite lock dropped before this `.await`-bearing function runs).
+    apply_project_detection(state, cwd, detected);
 
     // Connect daemon.
     match daemon.health().await {
@@ -211,16 +218,13 @@ pub async fn initialize_session<D, DetectFn, HbFn>(
     }
 }
 
-/// Apply project detection results to `state`.
-fn apply_project_detection<DetectFn>(
+/// Apply pre-computed project detection results to `state`.
+fn apply_project_detection(
     state: &mut SessionState,
     cwd: &std::path::Path,
-    state_manager: &StateManager,
-    detect_fn: DetectFn,
-) where
-    DetectFn: FnOnce(&std::path::Path, &StateManager) -> Option<ProjectInfo>,
-{
-    match detect_fn(cwd, state_manager) {
+    detected: Option<ProjectInfo>,
+) {
+    match detected {
         Some(info) => {
             state.project_path = Some(info.project_path.clone());
             if let Some(pid) = info.project_id {

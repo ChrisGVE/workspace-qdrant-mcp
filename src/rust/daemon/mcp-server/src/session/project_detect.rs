@@ -203,8 +203,15 @@ pub fn detect_project(cwd: &Path, state_manager: &StateManager) -> Option<Projec
     let git_remote = get_git_remote_url(&project_root);
     let branch = detect_branch(&project_root);
 
-    // Look up project ID from daemon's SQLite (longest-prefix match).
-    let project_id = lookup_project_id(state_manager, &project_root);
+    // Look up project ID from daemon's SQLite by **cwd directly** (longest-prefix
+    // match), NOT by the marker-derived `project_root`. A registered project
+    // path need not contain a filesystem marker (registration accepts raw
+    // paths), so resolving via `project_root` can skip a deeper markerless
+    // registered project and return the wrong (ancestor) tenant. This mirrors
+    // TS `getCurrentProject(cwd)` and keeps `project_id` consistent with the
+    // search tool's cwd-direct resolution (GitHub #83/#84). `project_path` and
+    // `branch` still use the marker root — those drive registration/watching.
+    let project_id = lookup_project_id(state_manager, cwd);
 
     Some(ProjectInfo {
         project_path: project_root,

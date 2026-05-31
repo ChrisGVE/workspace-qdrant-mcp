@@ -315,3 +315,45 @@ fn detect_project_from_subdirectory() {
     assert_eq!(info.project_path, root);
     assert_eq!(info.branch, "main");
 }
+
+/// `detect_project` resolves `project_id` cwd-direct (GitHub #84): with a deeper
+/// markerless registered project, a cwd under it must resolve to the DEEPER
+/// tenant, while `project_path` still reports the marker root. Looking up by the
+/// marker root (the old behavior) would return the wrong ancestor tenant.
+#[test]
+fn detect_project_resolves_project_id_cwd_direct_for_markerless_nested() {
+    let dir = TempDir::new().unwrap();
+    let root = make_git_repo(&dir); // ancestor has a `.git` marker
+    let nest = root.join("sandbox"); // markerless nested registered project
+    let cwd = nest.join("src");
+    fs::create_dir_all(&cwd).unwrap();
+
+    let db_path = dir.path().join("state.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE watch_folders (
+             tenant_id TEXT NOT NULL,
+             path TEXT NOT NULL,
+             collection TEXT NOT NULL DEFAULT 'projects'
+         )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_ROOT', ?1, 'projects')",
+        rusqlite::params![root.to_str().unwrap()],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_NEST', ?1, 'projects')",
+        rusqlite::params![nest.to_str().unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let state_mgr = StateManager::open_at(&db_path);
+    let info = detect_project(&cwd, &state_mgr).unwrap();
+
+    // project_id is cwd-direct → deeper tenant; project_path is the marker root.
+    assert_eq!(info.project_id.as_deref(), Some("T_NEST"));
+    assert_eq!(info.project_path, root);
+}

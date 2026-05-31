@@ -7,7 +7,6 @@
 use std::path::PathBuf;
 
 use crate::session::project_detect::ProjectInfo;
-use crate::sqlite::manager::StateManager;
 
 use super::{DaemonOps, RegisterResponse};
 
@@ -103,22 +102,20 @@ impl DaemonOps for MockDaemonOps {
 // Detection helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// No-op detect_fn — simulates "no project detected".
-pub(crate) fn no_project_detect(_cwd: &std::path::Path, _sm: &StateManager) -> Option<ProjectInfo> {
+/// Pre-detected "no project" result — simulates "no project detected".
+pub(crate) fn no_project_detect() -> Option<ProjectInfo> {
     None
 }
 
-/// detect_fn that returns a fixed `ProjectInfo`.
+/// Pre-detected `ProjectInfo` (branch fixed to "main").
 pub(crate) fn fixed_detect(
     project_path: PathBuf,
     project_id: Option<String>,
-) -> impl Fn(&std::path::Path, &StateManager) -> Option<ProjectInfo> {
-    move |_cwd, _sm| {
-        Some(ProjectInfo {
-            project_path: project_path.clone(),
-            project_id: project_id.clone(),
-            git_remote: None,
-            branch: "main".to_string(),
-        })
-    }
+) -> Option<ProjectInfo> {
+    Some(ProjectInfo {
+        project_path,
+        project_id,
+        git_remote: None,
+        branch: "main".to_string(),
+    })
 }

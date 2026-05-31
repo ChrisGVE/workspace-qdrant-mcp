@@ -52,12 +52,13 @@ mod tests;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
+use tokio::task::AbortHandle;
 
 use rmcp::{
     handler::server::ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, ErrorData, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResult, ErrorData, Implementation, InitializeRequestParams,
+        InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
     },
     service::RequestContext,
     RoleServer,
@@ -102,6 +103,10 @@ pub struct ToolsHandler {
     /// Optional duplication threshold override for the rules tool.
     /// Sourced from `WQM_RULES_DEDUP_THRESHOLD` env var via `ServerConfig`.
     rules_dup_threshold: Option<f64>,
+    /// Heartbeat task handle, set when the `initialize` lifecycle starts the
+    /// heartbeat loop; read+aborted by the transport at cleanup. `std::sync::Mutex`
+    /// because it is only ever locked synchronously (no `.await` held).
+    hb_handle: Arc<std::sync::Mutex<Option<AbortHandle>>>,
 }
 
 impl ToolsHandler {
@@ -137,6 +142,7 @@ impl ToolsHandler {
             session: Arc::new(Mutex::new(session)),
             health_state,
             rules_dup_threshold,
+            hb_handle: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -187,7 +193,14 @@ impl ToolsHandler {
             session,
             health_state,
             rules_dup_threshold,
+            hb_handle: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Access the heartbeat task handle (used by the transport layer for
+    /// cleanup). The slot is populated when `initialize` starts the heartbeat.
+    pub fn hb_handle(&self) -> Arc<std::sync::Mutex<Option<AbortHandle>>> {
+        Arc::clone(&self.hb_handle)
     }
 }
 
@@ -196,6 +209,71 @@ impl ServerHandler for ToolsHandler {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(SERVER_NAME, server_version_string()))
             .with_instructions(INSTRUCTIONS)
+    }
+
+    /// Run the session lifecycle on the MCP `initialize` request.
+    ///
+    /// Without this override rmcp's default `initialize` only stashes peer info,
+    /// so `initialize_session` never runs — leaving `session.project_id`/branch
+    /// unset and the project never registered with the daemon (GitHub #84).
+    ///
+    /// Project detection runs under a short synchronous SQLite lock that is
+    /// dropped before the daemon `.await`; the resolved `Option<ProjectInfo>` is
+    /// then handed to `initialize_session`. The heartbeat is started inside the
+    /// lifecycle closure and its `AbortHandle` stored for cleanup. The lifecycle
+    /// is idempotent (guarded by `SessionState::initialized`), so the shared
+    /// HTTP `SessionState` is initialized at most once.
+    fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<InitializeResult, ErrorData>> + Send + '_ {
+        let state = Arc::clone(&self.state);
+        let session = Arc::clone(&self.session);
+        let daemon = Arc::clone(&self.daemon);
+        let hb_slot = Arc::clone(&self.hb_handle);
+        async move {
+            // Preserve rmcp's default behaviour: stash the client's peer info.
+            if context.peer.peer_info().is_none() {
+                context.peer.set_peer_info(request);
+            }
+
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            // Detect the project under a short SQLite lock, dropped before the
+            // `.await`-bearing `initialize_session` (never held across an await).
+            let detected = {
+                let guard = state.lock();
+                crate::session::default_detect_fn(&cwd, &guard)
+            };
+
+            let mut session_guard = session.lock().await;
+            let mut daemon_guard = daemon.lock().await;
+
+            let hb_session = Arc::clone(&session);
+            let hb_daemon = Arc::clone(&daemon);
+            crate::session::initialize_session(
+                &mut session_guard,
+                &mut *daemon_guard,
+                &cwd,
+                detected,
+                move || {
+                    let handle = crate::session::start_heartbeat(hb_session, move |pid| {
+                        let d = Arc::clone(&hb_daemon);
+                        async move {
+                            use crate::session::DaemonOps;
+                            DaemonOps::heartbeat(&mut *d.lock().await, &pid).await
+                        }
+                    });
+                    *hb_slot.lock().unwrap() = Some(handle);
+                },
+            )
+            .await;
+
+            drop(daemon_guard);
+            drop(session_guard);
+            Ok(self.get_info())
+        }
     }
 
     fn list_tools(

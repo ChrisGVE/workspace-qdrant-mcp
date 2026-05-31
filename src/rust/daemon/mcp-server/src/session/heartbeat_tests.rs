@@ -2,9 +2,11 @@
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
-    Arc, Mutex,
+    Arc, Mutex as StdMutex,
 };
 use std::time::Duration;
+
+use tokio::sync::Mutex;
 
 use crate::server_types::SessionState;
 
@@ -95,7 +97,7 @@ async fn tick_heartbeat_failure_sets_daemon_disconnected() {
     tick_heartbeat(&state, &mut hb_fn).await;
 
     assert!(
-        !state.lock().unwrap().daemon_connected,
+        !state.lock().await.daemon_connected,
         "daemon_connected must be false after heartbeat failure"
     );
 }
@@ -109,7 +111,7 @@ async fn tick_heartbeat_success_keeps_daemon_connected() {
     tick_heartbeat(&state, &mut hb_fn).await;
 
     assert!(
-        state.lock().unwrap().daemon_connected,
+        state.lock().await.daemon_connected,
         "daemon_connected must remain true after successful heartbeat"
     );
 }
@@ -117,7 +119,7 @@ async fn tick_heartbeat_success_keeps_daemon_connected() {
 #[tokio::test]
 async fn tick_heartbeat_passes_correct_project_id() {
     let state = connected_state_with_project("my-project-id");
-    let captured_id = Arc::new(Mutex::new(String::new()));
+    let captured_id = Arc::new(StdMutex::new(String::new()));
     let cap_clone = captured_id.clone();
 
     let mut hb_fn = move |id: String| {

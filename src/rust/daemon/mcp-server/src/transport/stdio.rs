@@ -22,7 +22,6 @@
 //! 2. Deprioritize the project with the daemon.
 //! 3. Mark the session as cleaned.
 
-use tokio::task::AbortHandle;
 use tracing::{debug, error, info, warn};
 
 use rmcp::{serve_server, transport::io::stdio};
@@ -47,8 +46,8 @@ use crate::tools::ToolsHandler;
 /// * `daemon`              — gRPC client to the memexd daemon (may be disconnected).
 /// * `qdrant`              — read-only Qdrant client.
 /// * `state`               — SQLite state manager (may be in degraded mode).
-/// * `session`             — pre-populated session state (from `initialize_session`).
-/// * `hb_handle`           — optional heartbeat `AbortHandle` to cancel on shutdown.
+/// * `session`             — fresh session state; the lifecycle runs on the
+///   client's `initialize` request (see [`ToolsHandler::initialize`]).
 /// * `health_state`        — optional shared health state from a running
 ///   [`HealthMonitorBuilder`](crate::observability::health_monitor::HealthMonitorBuilder).
 ///   When `None` a default optimistic (healthy) state is used.
@@ -72,7 +71,6 @@ pub async fn serve_stdio(
     qdrant: QdrantReadClient,
     state: StateManager,
     session: SessionState,
-    hb_handle: Option<AbortHandle>,
     health_state: Option<SharedHealthState>,
     rules_dup_threshold: Option<f64>,
 ) -> anyhow::Result<()> {
@@ -92,6 +90,7 @@ pub async fn serve_stdio(
     // Grab Arc handles for post-serve cleanup.
     let daemon_arc = handler.daemon();
     let session_arc = handler.session();
+    let hb_arc = handler.hb_handle();
 
     info!("MCP stdio transport: listening on stdin/stdout");
 
@@ -115,6 +114,8 @@ pub async fn serve_stdio(
     }
 
     // Graceful cleanup: stop heartbeat, deprioritize project with daemon.
+    // The heartbeat `AbortHandle` (if any) was stored by `ToolsHandler::initialize`.
+    let hb_handle = hb_arc.lock().expect("hb_handle mutex poisoned").take();
     let mut session_guard = session_arc.lock().await;
     let mut daemon_guard = daemon_arc.lock().await;
     cleanup_session(&mut session_guard, &mut *daemon_guard, hb_handle).await;
