@@ -194,6 +194,7 @@ pub async fn run_search_pipeline<D, Q>(
     opts: &SearchOptions,
     project_id: Option<&str>,
     enable_tag_expansion: bool,
+    scope_ctx: &super::scope::ScopeContext,
 ) -> SearchResponse
 where
     D: EmbedDaemon + GraphQueryDaemon,
@@ -220,7 +221,7 @@ where
         Ok(pair) => pair,
         Err(_) => {
             record_daemon_fallback("search", "embed_failed");
-            return fallback_search(qdrant, opts, &collections, project_id).await;
+            return fallback_search(qdrant, opts, &collections, project_id, scope_ctx).await;
         }
     };
 
@@ -233,11 +234,13 @@ where
         &dense_embedding,
         &sparse_vector,
         project_id,
+        scope_ctx,
     )
     .await;
 
     // Phases 3-6: Fuse, rank, diversify, slice, convert.
-    let (mut results, diversity_score) = finalize_results(all_tagged, opts, mode, &collections);
+    let (mut results, diversity_score) =
+        finalize_results(all_tagged, opts, mode, &collections, scope_ctx);
 
     // Phases 7-8: Context enrichment.
     enrich_results(daemon, qdrant, opts, &mut results).await;
@@ -293,6 +296,7 @@ async fn search_all_collections<Q>(
     dense: &Option<Vec<f32>>,
     sparse: &Option<HashMap<u32, f32>>,
     project_id: Option<&str>,
+    scope_ctx: &super::scope::ScopeContext,
 ) -> Vec<TaggedResult>
 where
     Q: SearchQdrant,
@@ -301,7 +305,7 @@ where
     let search_limit = (opts.limit * 2) as u64;
 
     for coll in collections {
-        let filter_params = search_filter_params(coll, opts, project_id);
+        let filter_params = search_filter_params(coll, opts, project_id, scope_ctx);
         let filter = build_filter(&filter_params);
         let leg = search_collection(
             qdrant,
@@ -319,13 +323,22 @@ where
     all_tagged
 }
 
-/// Phases 3–6: RRF fusion → sort → diversity → slice → convert to SearchResult.
+/// Phases 3–6: relevance decay → RRF fusion → sort → diversity → slice → convert.
 fn finalize_results(
     all_tagged: Vec<TaggedResult>,
     opts: &SearchOptions,
     mode: SearchMode,
     collections: &[String],
+    scope_ctx: &super::scope::ScopeContext,
 ) -> (Vec<SearchResult>, Option<f64>) {
+    // Phase 2b: relevance decay (scope=group/all). Applied to the combined
+    // results BEFORE fusion so the decay-induced ordering feeds the rank-based
+    // RRF (mirrors TS `applyRelevanceDecay` before `finalizeResults`).
+    let mut all_tagged = all_tagged;
+    if let Some(decay_map) = &scope_ctx.decay_map {
+        super::scope::apply_relevance_decay(&mut all_tagged, decay_map);
+    }
+
     // Phase 3: RRF fusion (hybrid only) → sort by score desc.
     let fused = if mode == SearchMode::Hybrid {
         apply_rrf_fusion(&all_tagged)
@@ -448,12 +461,13 @@ fn search_filter_params<'a>(
     collection: &'a str,
     opts: &'a SearchOptions,
     project_id: Option<&'a str>,
+    scope_ctx: &'a super::scope::ScopeContext,
 ) -> FilterParams {
     FilterParams {
         collection: collection.to_string(),
         scope: opts.scope.as_str().to_string(),
         project_id: project_id.map(str::to_string),
-        group_tenant_ids: None,
+        group_tenant_ids: scope_ctx.group_tenant_ids.clone(),
         branch: opts.branch.clone(),
         file_type: opts.file_type.clone(),
         library_name: if collection == COLLECTION_LIBRARIES {
@@ -470,6 +484,6 @@ fn search_filter_params<'a>(
         tags: opts.tags.clone(),
         path_glob: opts.path_glob.clone(),
         component: opts.component.clone(),
-        base_points: None,
+        base_points: scope_ctx.base_points.clone(),
     }
 }

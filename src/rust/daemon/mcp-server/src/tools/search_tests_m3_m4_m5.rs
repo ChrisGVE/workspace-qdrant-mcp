@@ -119,7 +119,7 @@ async fn m3_leg_failure_keeps_partial_results_status_ok() {
         ..opts_keyword("test query", 10)
     };
 
-    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false).await;
+    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false, &Default::default()).await;
 
     assert!(
         resp.status.is_none(),
@@ -155,7 +155,7 @@ async fn m3_dense_leg_failure_silent_sparse_results_kept() {
         ..opts_hybrid("query", 10)
     };
 
-    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false).await;
+    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false, &Default::default()).await;
 
     // Sparse result must be present (dense failure is silent).
     assert_eq!(
@@ -186,6 +186,7 @@ async fn m3_all_legs_succeed_no_uncertain_status() {
         &opts_hybrid("test", 10),
         None,
         false,
+        &Default::default(),
     )
     .await;
 

@@ -279,6 +279,7 @@ async fn ac_s1_hybrid_mode_fires_both_legs() {
         &opts_with_mode("test query", SearchMode::Hybrid),
         None,
         false,
+        &Default::default(),
     )
     .await;
 
@@ -367,6 +368,7 @@ async fn ac_s2_semantic_mode_dense_only() {
         &opts_with_mode("semantic query", SearchMode::Semantic),
         None,
         false,
+        &Default::default(),
     )
     .await;
 
@@ -436,6 +438,7 @@ async fn ac_s3_keyword_mode_sparse_only() {
         &opts_with_mode("keyword query", SearchMode::Keyword),
         None,
         false,
+        &Default::default(),
     )
     .await;
 

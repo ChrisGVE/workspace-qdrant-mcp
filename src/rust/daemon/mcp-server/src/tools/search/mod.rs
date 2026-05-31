@@ -24,6 +24,7 @@ pub mod flow_collect;
 pub mod flow_fallback;
 pub mod graph_context;
 pub mod options;
+pub mod scope;
 pub mod types;
 
 use std::collections::HashMap;
@@ -32,6 +33,7 @@ use rmcp::model::CallToolResult;
 use serde_json::Value;
 
 use crate::grpc::client::DaemonClient;
+use crate::proto::ResolveSearchScopeRequest;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
 use crate::sqlite::SharedStateManager;
@@ -123,25 +125,32 @@ pub async fn search_tool(
     // calls `this.resolveProjectId()` to obtain the fallback.
     opts.project_id = project_id.clone();
 
-    // Pre-compute expansion keywords synchronously BEFORE any `.await`.
-    // This keeps the future `Send` by ensuring no `&Connection` is held
-    // across any await point (see SharedStateManager docs).
-    let expansion_keywords: Vec<String> = if !opts.exact {
-        let collections = crate::qdrant::filters::determine_collections(
-            opts.collection.as_deref(),
-            opts.scope.as_str(),
-            opts.include_libraries,
-        );
+    // Pre-compute expansion keywords + base points synchronously BEFORE any
+    // `.await`. Both read SQLite under a short lock that is dropped before the
+    // first await — no `&Connection` ever crosses an await (SharedStateManager).
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let (expansion_keywords, base_points, bp_degraded, bp_active) = {
         let guard = state.lock();
-        expansion::collect_expansion_keywords(
-            guard.connection(),
-            &opts.query,
-            &collections,
-            project_id.as_deref(),
-        )
+        let conn = guard.connection();
+        let keywords = if !opts.exact {
+            let collections = crate::qdrant::filters::determine_collections(
+                opts.collection.as_deref(),
+                opts.scope.as_str(),
+                opts.include_libraries,
+            );
+            expansion::collect_expansion_keywords(
+                conn,
+                &opts.query,
+                &collections,
+                project_id.as_deref(),
+            )
+        } else {
+            Vec::new()
+        };
+        let (bp, degraded, count) =
+            scope::resolve_base_points(conn, project_id.as_deref(), opts.scope, &cwd);
+        (keywords, bp, degraded, count)
         // guard dropped here — no Connection reference crosses an await
-    } else {
-        Vec::new()
     };
 
     // Fire-and-forget pre-search event (errors swallowed).
@@ -156,15 +165,41 @@ pub async fn search_tool(
     let response = if opts.exact {
         exact::search_exact(daemon, &opts).await
     } else {
-        flow::run_search_pipeline(
-            daemon,
-            qdrant,
-            expansion_keywords,
-            &opts,
-            project_id.as_deref(),
-            true, // enable_tag_expansion
-        )
-        .await
+        // Resolve scope (group/all) tenant filter + relevance decay via daemon.
+        let (group_tenant_ids, decay_map) =
+            resolve_scope_filter(daemon, project_id.as_deref(), opts.scope).await;
+        let scope_ctx = scope::ScopeContext {
+            group_tenant_ids,
+            base_points,
+            decay_map,
+            base_points_degraded: bp_degraded,
+            base_points_active_count: bp_active,
+        };
+
+        // scope=group with no resolved membership → refusal (TS search.ts).
+        let group_empty = scope_ctx
+            .group_tenant_ids
+            .as_ref()
+            .map_or(true, |v| v.is_empty());
+        if opts.scope == SearchScope::Group && group_empty {
+            group_refusal_response(&opts)
+        } else {
+            let mut resp = flow::run_search_pipeline(
+                daemon,
+                qdrant,
+                expansion_keywords,
+                &opts,
+                project_id.as_deref(),
+                true, // enable_tag_expansion
+                &scope_ctx,
+            )
+            .await;
+            // F-014: base-point isolation degraded → uncertain + reason.
+            if scope_ctx.base_points_degraded {
+                apply_base_points_degraded(&mut resp, scope_ctx.base_points_active_count);
+            }
+            resp
+        }
     };
 
     // Fire-and-forget post-search event (errors swallowed).
@@ -238,6 +273,63 @@ fn resolve_cwd_project_id_locked(
 ) -> Option<String> {
     let guard = state.lock();
     crate::session::lookup_project_id(&guard, cwd)
+}
+
+/// Resolve the group/all scope tenant filter + relevance decay via the daemon.
+///
+/// Mirrors TS `resolveScopeFilter`: no daemon call for `scope=project` or when
+/// the project is unresolved; otherwise call `resolveSearchScope` and build the
+/// `(group_tenant_ids, decay_map)` pair. Any daemon error degrades to
+/// `(None, None)` (best-effort, matching the TS `catch`).
+async fn resolve_scope_filter(
+    daemon: &mut DaemonClient,
+    project_id: Option<&str>,
+    scope: SearchScope,
+) -> (Option<Vec<String>>, Option<HashMap<String, f64>>) {
+    let project_id = match (scope, project_id) {
+        (SearchScope::Project, _) | (_, None) => return (None, None),
+        (_, Some(p)) => p,
+    };
+    let req = ResolveSearchScopeRequest {
+        tenant_id: project_id.to_string(),
+        scope: scope.as_str().to_string(),
+    };
+    match daemon.resolve_search_scope(req).await {
+        Ok(resp) => scope::scope_filter_from_response(&resp),
+        Err(_) => (None, None),
+    }
+}
+
+/// Build the `status='error'` refusal response for empty group membership
+/// (TS `search.ts`).
+fn group_refusal_response(opts: &SearchOptions) -> SearchResponse {
+    let collections = crate::qdrant::filters::determine_collections(
+        opts.collection.as_deref(),
+        opts.scope.as_str(),
+        opts.include_libraries,
+    );
+    SearchResponse {
+        results: Vec::new(),
+        total: 0,
+        query: opts.query.clone(),
+        mode: opts.mode,
+        scope: opts.scope,
+        collections_searched: collections,
+        status: Some("error".to_string()),
+        status_reason: Some(scope::GROUP_EMPTY_REFUSAL.to_string()),
+        branch: opts.branch.clone(),
+        diversity_score: None,
+    }
+}
+
+/// Mark a response `uncertain` and append the F-014 base-point-degraded reason.
+fn apply_base_points_degraded(resp: &mut SearchResponse, active_count: Option<usize>) {
+    resp.status = Some("uncertain".to_string());
+    let reason = scope::format_base_points_degraded_reason(active_count);
+    resp.status_reason = Some(match resp.status_reason.take() {
+        Some(existing) if !existing.is_empty() => format!("{existing}; {reason}"),
+        _ => reason,
+    });
 }
 
 /// Fire-and-forget: log pre-search event via daemon.
