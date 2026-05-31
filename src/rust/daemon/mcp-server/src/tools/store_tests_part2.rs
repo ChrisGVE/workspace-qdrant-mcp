@@ -1,0 +1,392 @@
+//! Store tool tests part 2: scratchpad, library, generate_document_id,
+//! validate_url, and metadata source marker tests.
+//!
+//! Included from `store_tests.rs` via
+//! `#[path = "store_tests_part2.rs"] mod part2;`.
+
+use serde_json::json;
+
+use super::super::{generate_document_id, store_tool, validate_url, StoreInput};
+use super::{extract_json, extract_text, make_args, top_level_keys, MockStoreDaemon};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// store type=scratchpad
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn scratchpad_missing_content_returns_error_json() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "scratchpad" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(false));
+    assert!(j["message"]
+        .as_str()
+        .unwrap()
+        .contains("content is required"));
+    assert!(result.is_error.is_none());
+}
+
+#[tokio::test]
+async fn scratchpad_success_enqueues_text_item() {
+    let mut daemon = MockStoreDaemon::ok("scratchpad-q1");
+    let args = make_args(json!({
+        "type": "scratchpad",
+        "content": "My idea for a new feature",
+        "title": "Feature Idea"
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, Some("proj-123"), true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(true));
+    assert_eq!(j["queue_id"], json!("scratchpad-q1"));
+    assert_eq!(j["collection"], json!("scratchpad"));
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert_eq!(enqueue_args[0], "text");
+    assert_eq!(enqueue_args[3], "scratchpad");
+    assert_eq!(enqueue_args[2], "proj-123");
+}
+
+#[tokio::test]
+async fn scratchpad_calls_mirror_upsert_on_success() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "scratchpad",
+        "content": "test note",
+        "tags": ["rust"]
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, Some("proj-456"), true).await;
+    // Mirror upsert should have been called exactly once
+    assert_eq!(daemon.call_count("upsert_scratchpad_mirror"), 1);
+    let mirror_args = daemon.last_call_args("upsert_scratchpad_mirror").unwrap();
+    // args: scratchpad_id, content, title, tags, tenant_id
+    assert_eq!(mirror_args[1], "test note");
+    assert_eq!(mirror_args[4], "proj-456");
+}
+
+#[tokio::test]
+async fn scratchpad_no_mirror_on_enqueue_failure() {
+    let mut daemon = MockStoreDaemon::fail_enqueue("timeout");
+    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    assert_eq!(daemon.call_count("upsert_scratchpad_mirror"), 0);
+}
+
+#[tokio::test]
+async fn scratchpad_global_tenant_when_no_session_project() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert_eq!(enqueue_args[2], "global");
+}
+
+#[tokio::test]
+async fn scratchpad_result_field_order_no_queue_id_on_error() {
+    let mut daemon = MockStoreDaemon::fail_enqueue("fail");
+    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    // queue_id must be absent on failure
+    assert!(j.get("queue_id").is_none());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// store type=library (default)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn library_missing_content_returns_error_json() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "libraryName": "my-lib" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(false));
+    assert!(j["message"]
+        .as_str()
+        .unwrap()
+        .contains("Content is required"));
+}
+
+#[tokio::test]
+async fn library_missing_library_name_returns_error_json() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "content": "some content" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(false));
+    assert!(j["message"]
+        .as_str()
+        .unwrap()
+        .contains("libraryName is required"));
+}
+
+#[tokio::test]
+async fn library_success_enqueues_tenant_item() {
+    let mut daemon = MockStoreDaemon::ok("lib-q1");
+    let args = make_args(json!({
+        "content": "Reference content here",
+        "libraryName": "rust-docs"
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(true));
+    assert_eq!(j["collection"], json!("libraries"));
+    assert_eq!(j["fallback_mode"], json!("unified_queue"));
+    assert_eq!(j["queue_id"], json!("lib-q1"));
+    // documentId must be present and 32 chars
+    let doc_id = j["documentId"].as_str().unwrap();
+    assert_eq!(doc_id.len(), 32);
+
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert_eq!(enqueue_args[0], "tenant");
+    assert_eq!(enqueue_args[1], "add");
+    assert_eq!(enqueue_args[2], "rust-docs");
+    assert_eq!(enqueue_args[3], "libraries");
+}
+
+#[tokio::test]
+async fn library_result_field_order() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let text = extract_text(&result);
+    // success → documentId → collection → message → fallback_mode → queue_id
+    assert_eq!(
+        top_level_keys(text),
+        vec![
+            "success",
+            "documentId",
+            "collection",
+            "message",
+            "fallback_mode",
+            "queue_id"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn library_error_result_no_document_id() {
+    let mut daemon = MockStoreDaemon::fail_enqueue("err");
+    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert!(j.get("documentId").is_none());
+    assert!(j.get("queue_id").is_none());
+}
+
+#[tokio::test]
+async fn library_metadata_source_marker_is_mcp_store_tool() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "content": "c", "libraryName": "lib" }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    // metadata_json is last arg
+    assert!(enqueue_args[6].contains("mcp_store_tool"));
+}
+
+#[tokio::test]
+async fn library_for_project_uses_session_project_id() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "content": "c", "forProject": true }));
+    let input = StoreInput::from_args(&args, Some("proj-xyz"));
+    let result = store_tool(input, &mut daemon, Some("proj-xyz"), true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(true));
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert_eq!(enqueue_args[2], "proj-xyz");
+}
+
+#[tokio::test]
+async fn library_for_project_without_session_id_returns_error() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "content": "c", "forProject": true }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(false));
+    assert!(j["message"].as_str().unwrap().contains("No active project"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// generate_document_id
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn document_id_is_32_hex_chars() {
+    let id = generate_document_id("hello world", "my-tenant");
+    assert_eq!(id.len(), 32);
+    assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[test]
+fn document_id_is_deterministic() {
+    let id1 = generate_document_id("content", "tenant");
+    let id2 = generate_document_id("content", "tenant");
+    assert_eq!(id1, id2);
+}
+
+#[test]
+fn document_id_differs_by_content() {
+    let id1 = generate_document_id("content A", "tenant");
+    let id2 = generate_document_id("content B", "tenant");
+    assert_ne!(id1, id2);
+}
+
+#[test]
+fn document_id_differs_by_tenant() {
+    let id1 = generate_document_id("content", "tenant-A");
+    let id2 = generate_document_id("content", "tenant-B");
+    assert_ne!(id1, id2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// validate_url
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn validate_url_empty_fails() {
+    assert!(validate_url("").is_err());
+    assert!(validate_url("   ").is_err());
+}
+
+#[test]
+fn validate_url_non_http_scheme_fails() {
+    assert!(validate_url("ftp://example.com").is_err());
+}
+
+#[test]
+fn validate_url_http_ok() {
+    assert!(validate_url("http://example.com").is_ok());
+}
+
+#[test]
+fn validate_url_https_ok() {
+    assert!(validate_url("https://example.com/path").is_ok());
+}
+
+#[test]
+fn validate_url_uppercase_http_accepted() {
+    // TS `new URL(...)` normalizes protocol to lowercase, so "HTTP://x"
+    // has protocol === 'http:' and is accepted.  Rust must match this.
+    assert!(
+        validate_url("HTTP://example.com").is_ok(),
+        "HTTP:// (uppercase) must be accepted like http://"
+    );
+}
+
+#[test]
+fn validate_url_uppercase_https_accepted() {
+    // Similarly "HTTPS://x" must be accepted.
+    assert!(
+        validate_url("HTTPS://example.com/path").is_ok(),
+        "HTTPS:// (uppercase) must be accepted like https://"
+    );
+}
+
+#[test]
+fn validate_url_mixed_case_scheme_accepted() {
+    // Mixed-case scheme "Http://" must also be accepted.
+    assert!(
+        validate_url("Http://example.com").is_ok(),
+        "Http:// (mixed case) must be accepted"
+    );
+}
+
+#[test]
+fn validate_url_uppercase_non_http_rejected_with_lowercase_message() {
+    // "FTP://x" must be rejected; the error message must use the lowercase
+    // scheme (matching TS parsed.protocol which is always lowercase).
+    let err = validate_url("FTP://example.com").unwrap_err();
+    assert!(
+        err.contains("ftp:"),
+        "error message must cite lowercase scheme 'ftp:'; got: {err}"
+    );
+    assert!(
+        !err.contains("FTP:"),
+        "error message must NOT use uppercase 'FTP:'; got: {err}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// scratchpad metadata source marker
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn scratchpad_metadata_source_is_mcp_store_scratchpad() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "scratchpad", "content": "note" }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert!(enqueue_args[6].contains("mcp_store_scratchpad"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// url metadata source marker
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn url_metadata_source_is_mcp_store_url() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "url", "url": "https://example.com" }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    assert!(enqueue_args[6].contains("mcp_store_url"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// url tenant resolution: whitespace-only libraryName
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn url_whitespace_library_name_falls_back_to_session_project_id() {
+    // TS: `libraryName?.trim() || sessionState.projectId || TENANT_GLOBAL`
+    // A whitespace-only libraryName trims to '' (falsy) → falls back to
+    // sessionState.projectId.  Rust must match this behaviour.
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "url",
+        "url": "https://example.com",
+        "libraryName": "   "  // whitespace only
+    }));
+    let input = StoreInput::from_args(&args, Some("session-project-123"));
+    let _ = store_tool(input, &mut daemon, Some("session-project-123"), true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    // tenant_id is arg index 2
+    assert_eq!(
+        enqueue_args[2], "session-project-123",
+        "whitespace-only libraryName must fall back to session project_id"
+    );
+}
+
+#[tokio::test]
+async fn url_whitespace_library_name_falls_back_to_global_when_no_session() {
+    // When libraryName is whitespace AND no session project_id, tenant = TENANT_GLOBAL.
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "url",
+        "url": "https://example.com",
+        "libraryName": "  "  // whitespace only, no session
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let _ = store_tool(input, &mut daemon, None, true).await;
+    let enqueue_args = daemon.last_call_args("enqueue_item").unwrap();
+    let expected_global = wqm_common::constants::TENANT_GLOBAL;
+    assert_eq!(
+        enqueue_args[2], expected_global,
+        "whitespace-only libraryName with no session must fall back to TENANT_GLOBAL"
+    );
+}

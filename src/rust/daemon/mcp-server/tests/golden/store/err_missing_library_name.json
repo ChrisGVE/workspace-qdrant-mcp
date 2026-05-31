@@ -1,0 +1,4 @@
+{
+  "is_error": true,
+  "text": "Error: libraryName is required - store tool is for libraries collection only. Use forProject: true to store to the current project's library."
+}

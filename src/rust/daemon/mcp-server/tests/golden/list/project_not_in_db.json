@@ -1,0 +1,15 @@
+{
+  "success": false,
+  "projectPath": null,
+  "basePath": ".",
+  "format": "tree",
+  "listing": "",
+  "stats": {
+    "files": 0,
+    "folders": 0,
+    "languages": [],
+    "truncated": false,
+    "totalMatching": 0
+  },
+  "message": "Project not found in database. Has the daemon indexed it?"
+}

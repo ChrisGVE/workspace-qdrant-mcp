@@ -1,0 +1,222 @@
+[
+  {
+    "name": "pi_0",
+    "input": "0",
+    "expected": 0
+  },
+  {
+    "name": "pi_1",
+    "input": "42",
+    "expected": 42
+  },
+  {
+    "name": "pi_2",
+    "input": "  42  ",
+    "expected": 42
+  },
+  {
+    "name": "pi_3",
+    "input": "+7",
+    "expected": 7
+  },
+  {
+    "name": "pi_4",
+    "input": "-3",
+    "expected": -3
+  },
+  {
+    "name": "pi_5",
+    "input": "12px",
+    "expected": 12
+  },
+  {
+    "name": "pi_6",
+    "input": "0x1F",
+    "expected": 0
+  },
+  {
+    "name": "pi_7",
+    "input": "3.9",
+    "expected": 3
+  },
+  {
+    "name": "pi_8",
+    "input": "",
+    "expected": null
+  },
+  {
+    "name": "pi_9",
+    "input": "abc",
+    "expected": null
+  },
+  {
+    "name": "pi_10",
+    "input": "   ",
+    "expected": null
+  },
+  {
+    "name": "pi_11",
+    "input": "007",
+    "expected": 7
+  },
+  {
+    "name": "pi_12",
+    "input": "1e3",
+    "expected": 1
+  },
+  {
+    "name": "pi_13",
+    "input": "8080",
+    "expected": 8080
+  },
+  {
+    "name": "pi_14",
+    "input": "8080abc",
+    "expected": 8080
+  },
+  {
+    "name": "pi_15",
+    "input": "  8080",
+    "expected": 8080
+  },
+  {
+    "name": "pi_16",
+    "input": "65535",
+    "expected": 65535
+  },
+  {
+    "name": "pi_17",
+    "input": "2147483647",
+    "expected": 2147483647
+  },
+  {
+    "name": "pi_18",
+    "input": "9999999999",
+    "expected": 9999999999
+  },
+  {
+    "name": "pi_19",
+    "input": "  -15 ",
+    "expected": -15
+  },
+  {
+    "name": "pi_20",
+    "input": "+0",
+    "expected": 0
+  },
+  {
+    "name": "pi_21",
+    "input": "-0",
+    "expected": 0
+  },
+  {
+    "name": "pi_22",
+    "input": "  +99  ",
+    "expected": 99
+  },
+  {
+    "name": "pi_23",
+    "input": "00",
+    "expected": 0
+  },
+  {
+    "name": "pi_24",
+    "input": "  ",
+    "expected": null
+  },
+  {
+    "name": "pi_25",
+    "input": "\t\n123",
+    "expected": 123
+  },
+  {
+    "name": "pi_26",
+    "input": "  12 34",
+    "expected": 12
+  },
+  {
+    "name": "pi_27",
+    "input": "100000000000",
+    "expected": 100000000000
+  },
+  {
+    "name": "pi_28",
+    "input": "-100",
+    "expected": -100
+  },
+  {
+    "name": "pi_29",
+    "input": " - 5",
+    "expected": null
+  },
+  {
+    "name": "pi_30",
+    "input": "+",
+    "expected": null
+  },
+  {
+    "name": "pi_31",
+    "input": "-",
+    "expected": null
+  },
+  {
+    "name": "pi_32",
+    "input": "++5",
+    "expected": null
+  },
+  {
+    "name": "pi_33",
+    "input": "--5",
+    "expected": null
+  },
+  {
+    "name": "pi_34",
+    "input": "1_000",
+    "expected": 1
+  },
+  {
+    "name": "pi_35",
+    "input": "0b101",
+    "expected": 0
+  },
+  {
+    "name": "pi_36",
+    "input": "0o17",
+    "expected": 0
+  },
+  {
+    "name": "pi_37",
+    "input": ".5",
+    "expected": null
+  },
+  {
+    "name": "pi_38",
+    "input": "  .9",
+    "expected": null
+  },
+  {
+    "name": "pi_39",
+    "input": "Infinity",
+    "expected": null
+  },
+  {
+    "name": "pi_40",
+    "input": "NaN",
+    "expected": null
+  },
+  {
+    "name": "pi_41",
+    "input": "9007199254740991",
+    "expected": 9007199254740991
+  },
+  {
+    "name": "pi_42",
+    "input": "  -0042xyz",
+    "expected": -42
+  },
+  {
+    "name": "pi_43",
+    "input": "-9007199254740991",
+    "expected": -9007199254740991
+  }
+]

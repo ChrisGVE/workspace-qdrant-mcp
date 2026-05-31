@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "provider": "fastembed",
+  "model": "all-MiniLM-L6-v2",
+  "output_dim": 384,
+  "base_url": "",
+  "probe_status": "healthy",
+  "probe_message": "probe succeeded"
+}

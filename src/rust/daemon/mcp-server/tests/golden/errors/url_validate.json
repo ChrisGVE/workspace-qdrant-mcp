@@ -1,0 +1,316 @@
+[
+  {
+    "name": "missing",
+    "present": false,
+    "url": null,
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "null",
+    "present": true,
+    "url": null,
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "empty",
+    "present": true,
+    "url": "",
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "whitespace",
+    "present": true,
+    "url": "   ",
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "tab",
+    "present": true,
+    "url": "\t",
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "number",
+    "present": true,
+    "url": 5,
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "array",
+    "present": true,
+    "url": [
+      "http://x"
+    ],
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "object",
+    "present": true,
+    "url": {},
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "valid_http",
+    "present": true,
+    "url": "http://example.com",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_https_path",
+    "present": true,
+    "url": "https://example.com/path?q=1",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_caps_scheme",
+    "present": true,
+    "url": "HTTP://Example.COM",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_port",
+    "present": true,
+    "url": "http://host:8080/p",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_subdomain",
+    "present": true,
+    "url": "https://a.b.c",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_localhost",
+    "present": true,
+    "url": "https://localhost",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_with_surrounding_ws",
+    "present": true,
+    "url": "  http://example.com  ",
+    "expected": "OK"
+  },
+  {
+    "name": "scheme_ftp",
+    "present": true,
+    "url": "ftp://example.com",
+    "expected": "url must use http:// or https:// (got ftp:)"
+  },
+  {
+    "name": "scheme_file",
+    "present": true,
+    "url": "file:///etc/passwd",
+    "expected": "url must use http:// or https:// (got file:)"
+  },
+  {
+    "name": "scheme_ssh",
+    "present": true,
+    "url": "ssh://host",
+    "expected": "url must use http:// or https:// (got ssh:)"
+  },
+  {
+    "name": "scheme_gopher",
+    "present": true,
+    "url": "gopher://x",
+    "expected": "url must use http:// or https:// (got gopher:)"
+  },
+  {
+    "name": "scheme_custom_plus",
+    "present": true,
+    "url": "custom+scheme://x",
+    "expected": "url must use http:// or https:// (got custom+scheme:)"
+  },
+  {
+    "name": "no_scheme_sep",
+    "present": true,
+    "url": "not a url",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "plain_text",
+    "present": true,
+    "url": "justtext",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "dots_only_host",
+    "present": true,
+    "url": "http://...",
+    "expected": "url has invalid hostname (dots/whitespace only)"
+  },
+  {
+    "name": "valid_query_frag",
+    "present": true,
+    "url": "https://x.io/a/b?c=d&e=f#frag",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_ip_host",
+    "present": true,
+    "url": "http://127.0.0.1:3000",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_trailing_slash",
+    "present": true,
+    "url": "https://example.com/",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_uppercase_https",
+    "present": true,
+    "url": "HTTPS://SECURE.EXAMPLE.COM",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_deep_path",
+    "present": true,
+    "url": "https://a.example.com/x/y/z/file.html",
+    "expected": "OK"
+  },
+  {
+    "name": "scheme_data",
+    "present": true,
+    "url": "data://x",
+    "expected": "url must use http:// or https:// (got data:)"
+  },
+  {
+    "name": "scheme_ws",
+    "present": true,
+    "url": "ws://host",
+    "expected": "url must use http:// or https:// (got ws:)"
+  },
+  {
+    "name": "scheme_wss",
+    "present": true,
+    "url": "wss://host",
+    "expected": "url must use http:// or https:// (got wss:)"
+  },
+  {
+    "name": "valid_userinfo",
+    "present": true,
+    "url": "https://user:pass@example.com",
+    "expected": "OK"
+  },
+  {
+    "name": "empty_after_trim_newline",
+    "present": true,
+    "url": "\n\n",
+    "expected": "url is required when type is \"url\""
+  },
+  {
+    "name": "valid_https_root",
+    "present": true,
+    "url": "https://example.com",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_http_port_only",
+    "present": true,
+    "url": "http://example.com:80",
+    "expected": "OK"
+  },
+  {
+    "name": "scheme_telnet",
+    "present": true,
+    "url": "telnet://host",
+    "expected": "url must use http:// or https:// (got telnet:)"
+  },
+  {
+    "name": "scheme_redis",
+    "present": true,
+    "url": "redis://localhost:6379",
+    "expected": "url must use http:// or https:// (got redis:)"
+  },
+  {
+    "name": "valid_hyphen_host",
+    "present": true,
+    "url": "https://my-host.example.com",
+    "expected": "OK"
+  },
+  {
+    "name": "valid_numeric_subpath",
+    "present": true,
+    "url": "http://example.com/123/456",
+    "expected": "OK"
+  },
+  {
+    "name": "scheme_jdbc",
+    "present": true,
+    "url": "jdbc://db",
+    "expected": "url must use http:// or https:// (got jdbc:)"
+  },
+  {
+    "name": "bare_http_no_host",
+    "present": true,
+    "url": "http://",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "bare_https_no_host",
+    "present": true,
+    "url": "https://",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "mailto_scheme",
+    "present": true,
+    "url": "mailto:a@b",
+    "expected": "url must use http:// or https:// (got mailto:)"
+  },
+  {
+    "name": "http_single_slash",
+    "present": true,
+    "url": "http:/x",
+    "expected": "OK"
+  },
+  {
+    "name": "https_single_slash",
+    "present": true,
+    "url": "https:/host/path",
+    "expected": "OK"
+  },
+  {
+    "name": "embedded_space_host",
+    "present": true,
+    "url": "http://a b.com",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "scheme_only_http",
+    "present": true,
+    "url": "http:",
+    "expected": "url is malformed (failed to parse)"
+  },
+  {
+    "name": "scheme_only_colon_text",
+    "present": true,
+    "url": "http:example",
+    "expected": "OK"
+  },
+  {
+    "name": "backslash_host",
+    "present": true,
+    "url": "http://exa\\mple.com",
+    "expected": "OK"
+  },
+  {
+    "name": "tab_in_host",
+    "present": true,
+    "url": "http://ex\tample.com",
+    "expected": "OK"
+  },
+  {
+    "name": "unicode_host",
+    "present": true,
+    "url": "http://exámple.com",
+    "expected": "OK"
+  },
+  {
+    "name": "ipv6_host",
+    "present": true,
+    "url": "http://[::1]:8080/p",
+    "expected": "OK"
+  }
+]
