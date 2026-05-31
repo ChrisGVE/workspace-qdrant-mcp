@@ -52,6 +52,7 @@ async fn session_gauge_incremented_on_initialize() {
 #[tokio::test]
 async fn session_gauge_decremented_on_cleanup() {
     let mut state = SessionState::new();
+    state.initialized = true; // an initialized session (record_session_start ran)
     state.daemon_connected = false;
     let mut daemon = MockDaemonOps::new();
 
@@ -64,6 +65,27 @@ async fn session_gauge_decremented_on_cleanup() {
         after,
         before - 1.0,
         "SESSION_COUNT must decrement by 1 after cleanup_session"
+    );
+}
+
+/// Cleanup of a session that was never initialized must NOT touch the gauge
+/// (no `record_session_start` ran, so decrementing would underflow). Guards the
+/// no-client / early-error shutdown path.
+#[serial]
+#[tokio::test]
+async fn session_gauge_unchanged_when_cleanup_without_initialize() {
+    let mut state = SessionState::new();
+    // initialized = false (default): no initialize_session ever ran.
+    state.daemon_connected = false;
+    let mut daemon = MockDaemonOps::new();
+
+    let before = SESSION_COUNT.get();
+    cleanup_session(&mut state, &mut daemon, None).await;
+    let after = SESSION_COUNT.get();
+
+    assert_eq!(
+        after, before,
+        "SESSION_COUNT must be unchanged when cleaning up an uninitialized session"
     );
 }
 

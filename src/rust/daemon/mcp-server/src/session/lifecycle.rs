@@ -404,7 +404,15 @@ pub async fn cleanup_session<D: DaemonOps>(
 
     // Mirrors `recordSessionEnd()` in TS `cleanup` (session-lifecycle.ts via
     // telemetry/metrics.ts:recordSessionEnd).
-    record_session_end();
+    //
+    // Only decrement the active-session gauge if this session was actually
+    // initialized (`record_session_start` ran). Otherwise — e.g. a server that
+    // starts and shuts down with no client ever sending `initialize` — cleanup
+    // would drive the gauge negative. Both transports always call
+    // `cleanup_session` at shutdown regardless of whether a client connected.
+    if state.initialized {
+        record_session_end();
+    }
 
     debug!(session_id = %state.session_id, "Session end");
 }

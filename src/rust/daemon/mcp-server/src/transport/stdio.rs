@@ -115,9 +115,11 @@ pub async fn serve_stdio(
 
     // Graceful cleanup: stop heartbeat, deprioritize project with daemon.
     // The heartbeat `AbortHandle` (if any) was stored by `ToolsHandler::initialize`.
+    // Lock order is daemon-then-session, consistent with `call_tool` /
+    // `initialize` / HTTP cleanup to avoid any ABBA deadlock.
     let hb_handle = hb_arc.lock().expect("hb_handle mutex poisoned").take();
-    let mut session_guard = session_arc.lock().await;
     let mut daemon_guard = daemon_arc.lock().await;
+    let mut session_guard = session_arc.lock().await;
     cleanup_session(&mut session_guard, &mut *daemon_guard, hb_handle).await;
 
     info!("MCP server shutdown complete");
