@@ -337,6 +337,43 @@ RUN set -ux; \
     fi
 
 # ─────────────────────────────────────────────
+# Stage 3e: R language server build
+# `languageserver` is a CRAN package whose dependency tree compiles native code
+# (xml2 → libxml2, stringi → ICU). The slim runtime ships neither the compiler
+# toolchain nor the -dev headers, so the previous in-runtime `install.packages`
+# was best-effort and always failed: the `R` binary was detected but the package
+# was absent, leaving the R LSP permanently "idle/unusable" on the dashboard.
+#
+# Build the package tree here against the SAME Debian r-base the runtime installs
+# (identical R 4.2 ABI → the compiled .so files load unchanged) and COPY the
+# resulting site-library into the runtime stage. Source-compiling stringi/xml2/
+# lintr/styler takes a few minutes but is cached as its own layer.
+# ─────────────────────────────────────────────
+FROM debian:${DEBIAN_CODENAME}-slim AS r-lsp-build
+
+# Parallelise across packages (Ncpus, set in the R call) and within each native
+# compile (MAKEFLAGS).
+ENV MAKEFLAGS="-j4"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        r-base \
+        build-essential \
+        ca-certificates \
+        pkg-config \
+        libxml2-dev \
+        libssl-dev \
+        libcurl4-openssl-dev \
+        libicu-dev \
+        libuv1-dev \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Compile languageserver + its dependency tree into /usr/local/lib/R/site-library.
+# Unlike the old runtime attempt this HARD-FAILS the build if the package does
+# not end up importable — a broken R LSP must not pass silently again.
+RUN Rscript --no-save --no-restore -e "options(Ncpus = 4L); install.packages('languageserver', repos = 'https://cloud.r-project.org'); if (!nzchar(system.file(package = 'languageserver'))) { quit(status = 1) }"
+
+# ─────────────────────────────────────────────
 # Stage 4: Runtime image
 # ─────────────────────────────────────────────
 FROM debian:${DEBIAN_CODENAME}-slim AS runtime
@@ -372,6 +409,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clangd \
         default-jre-headless \
         r-base \
+        libxml2 \
+        libicu72 \
+        libcurl4 \
+        libssl3 \
+        libuv1 \
         gcc \
         g++ \
         libc6-dev \
@@ -413,15 +455,13 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         python-lsp-server[all]==1.12.2 \
     || echo "WARNING: pylsp install failed (non-fatal) — pyright remains the Python LSP."
 
-# R language server — CRAN package into the system R library.
-# Non-fatal: `languageserver` compiles native deps (xml2/curl/openssl) that need
-# build-essential + the matching -dev headers. Those are intentionally NOT in
-# this slim runtime image, so the install is best-effort here; the build must
-# not block on it. Full R LSP support is a follow-up (dedicated build stage that
-# compiles the R package tree and copies the library in).
-RUN Rscript --no-save --no-restore -e \
-    "install.packages('languageserver', repos='https://cloud.r-project.org', quiet=TRUE)" \
-    || echo "WARNING: R languageserver install failed (non-fatal) — R LSP unavailable until a build stage is added."
+# R language server — the `languageserver` package (with its compiled xml2 /
+# stringi deps) is built in the dedicated `r-lsp-build` stage against the same
+# Debian r-base installed above, then its site-library is copied in. The matching
+# runtime shared libs (libxml2 / libicu72 / libcurl4 / libssl3) are installed in
+# the apt layer above so the packages load. The daemon launches the server via
+# `R --slave -e "languageserver::run()"` (see lsp/lifecycle/process.rs).
+COPY --from=r-lsp-build /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 
 # Copy the native LSPs into /usr/local/bin so the daemon can spawn them by
 # name. `rust-analyzer` comes from the prebuilt release archive;
