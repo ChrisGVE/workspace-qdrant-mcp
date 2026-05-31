@@ -202,6 +202,20 @@ impl ToolsHandler {
     pub fn hb_handle(&self) -> Arc<std::sync::Mutex<Option<AbortHandle>>> {
         Arc::clone(&self.hb_handle)
     }
+
+    /// Replace the heartbeat-handle slot with a shared one.
+    ///
+    /// The HTTP transport builds a fresh `ToolsHandler` per connection but they
+    /// all share one `SessionState`; the heartbeat is started once (idempotency
+    /// guard). Sharing one `hb_handle` slot across the per-connection handlers
+    /// lets the server abort that single heartbeat at shutdown.
+    pub fn with_shared_hb_handle(
+        mut self,
+        hb_handle: Arc<std::sync::Mutex<Option<AbortHandle>>>,
+    ) -> Self {
+        self.hb_handle = hb_handle;
+        self
+    }
 }
 
 impl ServerHandler for ToolsHandler {
@@ -247,8 +261,10 @@ impl ServerHandler for ToolsHandler {
                 crate::session::default_detect_fn(&cwd, &guard)
             };
 
-            let mut session_guard = session.lock().await;
+            // Lock order MUST match `call_tool` (daemon then session) to avoid
+            // an ABBA deadlock if an `initialize` and a tool call overlap.
             let mut daemon_guard = daemon.lock().await;
+            let mut session_guard = session.lock().await;
 
             let hb_session = Arc::clone(&session);
             let hb_daemon = Arc::clone(&daemon);
@@ -270,8 +286,9 @@ impl ServerHandler for ToolsHandler {
             )
             .await;
 
-            drop(daemon_guard);
+            // Drop in reverse acquisition order (session, then daemon).
             drop(session_guard);
+            drop(daemon_guard);
             Ok(self.get_info())
         }
     }

@@ -54,12 +54,14 @@ use rmcp::transport::streamable_http_server::{
 };
 
 use tokio::sync::Mutex;
+use tokio::task::AbortHandle;
 
 use crate::grpc::client::DaemonClient;
 use crate::observability::health_monitor::{HealthState, SharedHealthState};
 use crate::observability::metrics::record_http_request;
 use crate::qdrant::client::QdrantReadClient;
 use crate::server_types::SessionState;
+use crate::session::lifecycle::cleanup_session;
 use crate::sqlite::{SharedStateManager, StateManager};
 use crate::tools::ToolsHandler;
 use crate::transport::auth::{require_auth, AuthConfig};
@@ -124,6 +126,16 @@ struct MiddlewareState {
     limiter: Arc<SlidingWindowLimiter>,
 }
 
+/// Shared handles the server uses to run `cleanup_session` once the serve loop
+/// stops. The per-connection `ToolsHandler`s all share this `session`/`daemon`
+/// and the single `hb_handle` slot, so the one heartbeat started by
+/// `initialize` is aborted (and the project deprioritized) at shutdown.
+struct HttpCleanup {
+    session: Arc<Mutex<SessionState>>,
+    daemon: Arc<Mutex<DaemonClient>>,
+    hb_handle: Arc<std::sync::Mutex<Option<AbortHandle>>>,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public entry point
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,7 +177,7 @@ pub async fn serve_http(
     let tls_cfg = tls_config_from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // ── 4-5. Build rmcp service + middleware ─────────────────────────────────
-    let (mcp_service, mw) = build_mcp_service(
+    let (mcp_service, mw, cleanup) = build_mcp_service(
         daemon,
         qdrant,
         state,
@@ -190,7 +202,25 @@ pub async fn serve_http(
         });
 
     // ── 7. Bind + serve ──────────────────────────────────────────────────────
-    bind_and_serve(router, &http_cfg, tls_cfg, shutdown_token).await?;
+    let serve_result = bind_and_serve(router, &http_cfg, tls_cfg, shutdown_token).await;
+
+    // ── 8. Graceful session cleanup (runs even if the serve loop errored) ────
+    // Aborts the single heartbeat started by `initialize` and deprioritizes the
+    // project with the daemon. The serve loop has stopped, so no `call_tool`
+    // runs concurrently; `cleanup_session` aborts the heartbeat before locking
+    // the daemon for deprioritize.
+    let hb = cleanup
+        .hb_handle
+        .lock()
+        .expect("hb_handle mutex poisoned")
+        .take();
+    {
+        let mut daemon_guard = cleanup.daemon.lock().await;
+        let mut session_guard = cleanup.session.lock().await;
+        cleanup_session(&mut session_guard, &mut *daemon_guard, hb).await;
+    }
+
+    serve_result?;
     info!("MCP HTTP transport stopped");
     Ok(())
 }
@@ -215,12 +245,18 @@ fn build_mcp_service(
 ) -> (
     StreamableHttpService<ToolsHandler, LocalSessionManager>,
     MiddlewareState,
+    HttpCleanup,
 ) {
     let daemon_arc: Arc<Mutex<DaemonClient>> = Arc::new(Mutex::new(daemon));
     let qdrant_arc: Arc<QdrantReadClient> = Arc::new(qdrant);
     let state_arc: Arc<SharedStateManager> = Arc::new(SharedStateManager::new(state));
     let session_arc: Arc<Mutex<SessionState>> = Arc::new(Mutex::new(session));
     let health_arc: SharedHealthState = Arc::new(std::sync::RwLock::new(HealthState::initial()));
+    // One shared heartbeat-handle slot across all per-connection handlers, so
+    // the single heartbeat (started once by `initialize`) can be aborted at
+    // shutdown via `cleanup_session`.
+    let hb_handle: Arc<std::sync::Mutex<Option<AbortHandle>>> =
+        Arc::new(std::sync::Mutex::new(None));
 
     let rmcp_cfg = StreamableHttpServerConfig::default()
         .with_stateful_mode(true)
@@ -237,6 +273,7 @@ fn build_mcp_service(
             let qdrant_arc = Arc::clone(&qdrant_arc);
             let state_arc = Arc::clone(&state_arc);
             let session_arc = Arc::clone(&session_arc);
+            let hb_handle = Arc::clone(&hb_handle);
             move || {
                 Ok(ToolsHandler::from_arcs_with_config(
                     Arc::clone(&daemon_arc),
@@ -245,7 +282,8 @@ fn build_mcp_service(
                     Arc::clone(&session_arc),
                     Arc::clone(&health_arc),
                     rules_dup_threshold,
-                ))
+                )
+                .with_shared_hb_handle(Arc::clone(&hb_handle)))
             }
         },
         Arc::new(LocalSessionManager::default()),
@@ -258,7 +296,13 @@ fn build_mcp_service(
         limiter: Arc::new(SlidingWindowLimiter::with_config(rate_cfg)),
     };
 
-    (mcp_service, mw)
+    let cleanup = HttpCleanup {
+        session: session_arc,
+        daemon: daemon_arc,
+        hb_handle,
+    };
+
+    (mcp_service, mw, cleanup)
 }
 
 /// Bind the TCP listener and drive the serve loop.
