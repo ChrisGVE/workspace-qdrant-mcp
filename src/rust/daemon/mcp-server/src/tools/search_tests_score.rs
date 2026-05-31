@@ -112,7 +112,16 @@ async fn score_threshold_forwarded_to_qdrant_legs_only() {
         ..opts_with_mode("threshold test", SearchMode::Hybrid)
     };
 
-    let resp = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false, &Default::default()).await;
+    let resp = run_search_pipeline(
+        &mut daemon,
+        &qdrant,
+        Vec::new(),
+        &opts,
+        None,
+        false,
+        &Default::default(),
+    )
+    .await;
 
     // 1. Threshold was forwarded to the dense leg.
     let dense_thresholds = qdrant.dense_thresholds.lock().unwrap().clone();
@@ -167,7 +176,16 @@ async fn semantic_mode_dense_threshold_forwarded_no_sparse_leg() {
         ..opts_with_mode("semantic threshold", SearchMode::Semantic)
     };
 
-    let _ = run_search_pipeline(&mut daemon, &qdrant, Vec::new(), &opts, None, false, &Default::default()).await;
+    let _ = run_search_pipeline(
+        &mut daemon,
+        &qdrant,
+        Vec::new(),
+        &opts,
+        None,
+        false,
+        &Default::default(),
+    )
+    .await;
 
     let dense_t = qdrant.dense_thresholds.lock().unwrap().clone();
     assert_eq!(
