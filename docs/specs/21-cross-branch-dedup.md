@@ -1,6 +1,16 @@
-# Cross-Branch File Dedup (Design Proposal)
+# Cross-Branch File Dedup
 
-**Status**: Design proposed, not implemented.
+**Status**: **Layer 1 (skip the embed) — SHIPPED.** Layer 2 (share one point
+across branches) — designed, not implemented.
+
+> **Update 2026-05-31.** Layer 1 below is implemented and wired into the
+> ingestion path; the per-file embed is skipped on cross-branch duplicates by
+> copying the existing Qdrant vectors under a new `base_point`. A second,
+> related mechanism — in-place `tracked_files` re-keying on `git checkout` — also
+> shipped. Both are described in [What shipped](#what-shipped). Layer 2 (drop
+> `branch` from `base_point` and share a single point via a `branches[]` payload
+> array) remains the open follow-up. The original design text is preserved below
+> for rationale.
 
 ## Problem
 
@@ -43,9 +53,44 @@ So the cost of branch isolation is the cost of branch re-ingestion.
 - `watch_folders.is_active` is already a counter (`SET is_active = is_active + 1`),
   so the codebase has precedent for refcount-style sharing.
 
-## Proposed implementation (two layers)
+## What shipped
 
-### Layer 1: Skip the embed step (cheap)
+Two complementary mechanisms, both of which reuse the dense+sparse vectors
+verbatim and skip the dominant per-file cost (FastEmbed ONNX inference):
+
+### A. Ingestion fast-path — `branch_dedup.rs` (this spec's Layer 1)
+
+[`strategies/processing/file/branch_dedup.rs`](../../src/rust/daemon/core/src/strategies/processing/file/branch_dedup.rs),
+called from [`ingest.rs`](../../src/rust/daemon/core/src/strategies/processing/file/ingest.rs)
+before parse/embed. When a `file/add` or `file/update` arrives and another branch
+already has the same `(watch_folder_id, relative_path, file_hash)`:
+
+1. One SQL probe on `idx_tracked_files_dedup` finds the existing `base_point`.
+2. `scroll_with_filter_and_vectors` pulls the old points **with vectors**.
+3. `rekey_point` re-keys each point to the new `base_point` + branch (reusing the
+   dense/sparse vectors and payload verbatim; only `point_id`, `base_point`,
+   `branch`, `absolute_path` change) and re-upserts them.
+4. A new `tracked_files` row is inserted for the branch with `source="dedup_clone"`
+   and the same `chunk_count`.
+5. Parse + embed are **skipped**. FTS5 (`search.db`) IS re-indexed for the new
+   branch — search filters by `fm.branch = ?`, so FTS rows can't be shared.
+
+On a 0-point scroll (stale row / partial cleanup) it falls back to a full ingest.
+
+### B. Branch-switch re-keying — `branch_switch/db.rs`
+
+On `git checkout`, files **not** in the changed-paths set don't re-ingest at all:
+[`branch_switch/db.rs`](../../src/rust/daemon/core/src/branch_switch/db.rs)
+recomputes each unchanged file's `base_point` for the new branch and `UPDATE`s the
+`tracked_files` rows in place (`SET branch = ?, base_point = ?`) via a temp-table
+join — no parse, no embed.
+
+Net effect: switching or branching is near-free on the indexed-data side; only
+genuinely changed files pay the full embed cost.
+
+## Original design (Layer 1 as proposed, plus the open Layer 2)
+
+### Layer 1: Skip the embed step (cheap) — SHIPPED, see [What shipped](#what-shipped)
 
 Before `parse_document` in [`strategies/processing/file/ingest.rs`](../src/rust/daemon/core/src/strategies/processing/file/ingest.rs):
 
@@ -93,11 +138,19 @@ This eliminates storage duplication entirely. ~500 lines + migration.
 
 ## Recommendation
 
-Implement **Layer 1** first. It addresses the dominant cost (embed) without
-schema changes, is backward-compatible, and lets the team gather data before
-committing to Layer 2.
+~~Implement **Layer 1** first.~~ **Done** — see [What shipped](#what-shipped).
+Layer 1 addressed the dominant cost (embed) without schema changes and is
+backward-compatible.
 
-## Acceptance signals (post-Layer-1)
+**Open decision — Layer 2.** Layer 1 still **duplicates storage**: each branch
+keeps its own copy of every point (same vectors, different `point_id`), so
+`points_count` grows with `branches × unique-content`, not just unique content.
+Layer 2 (share one point via a `branches[]` payload array) removes that
+duplication but needs the `base_point` formula change + a migration. Pursue it
+only if Qdrant storage from many long-lived branches becomes a real cost — the
+compute waste (the expensive part) is already gone.
+
+## Acceptance signals (post-Layer-1) — expected (criteria, not yet re-measured)
 
 - Switching `main` → `fork/fixes` on workspace-qdrant-mcp re-ingests the
   ~28 modified files at full cost, but the ~1935 unchanged files complete
