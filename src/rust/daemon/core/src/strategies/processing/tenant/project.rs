@@ -272,12 +272,18 @@ async fn handle_project_scan(
     item: &UnifiedQueueItem,
     payload: &ProjectPayload,
 ) -> UnifiedProcessorResult<()> {
-    // Read the previous scan timestamp to seed mtime pruning.
+    // Read the previous scan timestamp to seed mtime pruning. Key on PATH, not
+    // just tenant_id: a multi-clone tenant has one watch_folder row per working
+    // copy, and they must NOT share a last_scan. Keying on tenant_id alone made
+    // a newly-added clone read a sibling's recent last_scan and mtime-prune
+    // every one of its files -> the clone was registered but never indexed.
     let last_scan: Option<String> = sqlx::query_scalar(
-        "SELECT last_scan FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+        "SELECT last_scan FROM watch_folders \
+         WHERE tenant_id = ?1 AND collection = ?2 AND path = ?3",
     )
     .bind(&item.tenant_id)
     .bind(COLLECTION_PROJECTS)
+    .bind(&payload.project_root)
     .fetch_optional(ctx.queue_manager.pool())
     .await
     .unwrap_or(None)
@@ -285,14 +291,16 @@ async fn handle_project_scan(
 
     scan_project_directory(ctx, item, payload, last_scan.as_deref()).await?;
 
-    // Update last_scan timestamp for this project's watch_folder
+    // Update last_scan for THIS working copy's watch_folder only (per path) —
+    // see the read above; a tenant-wide UPDATE would stamp sibling clones too.
     let update_result = sqlx::query(
         "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-         WHERE tenant_id = ?1 AND collection = ?2",
+         WHERE tenant_id = ?1 AND collection = ?2 AND path = ?3",
     )
     .bind(&item.tenant_id)
     .bind(COLLECTION_PROJECTS)
+    .bind(&payload.project_root)
     .execute(ctx.queue_manager.pool())
     .await;
 
