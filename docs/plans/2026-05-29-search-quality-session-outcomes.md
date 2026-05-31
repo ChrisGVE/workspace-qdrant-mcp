@@ -84,16 +84,23 @@ Validated against the code so a future session can act on it directly:
    embed, switch `config.yaml`, `wqm admin reembed --confirm`, then re-run
    `search_eval` / the benchmark before↔after. Pick model+dim (recommend
    `gte-large` 1024d, or `multilingual-e5-large` if PT matters).
-2. **Second-stage reranker (Phase 3 of the embedding/rerank plan).** Pluggable
-   `RerankProvider` over the same TEI infra (`BAAI/bge-reranker-base`),
-   `fallback_to_rrf`. This is the path to `top-3 ≥ 80%`; cheap re-rank tuning has
-   plateaued. **Grow the dataset to >30 queries first** to avoid overfitting the
-   `PATH_BOOST_ALPHA=0.8` and the reranker to 12 queries.
+2. ~~**Second-stage reranker (Phase 3 of the embedding/rerank plan).**~~
+   **SHIPPED 2026-05-30** (`06d916852`) — daemon-side cross-encoder, but with
+   **`JINARerankerV1TurboEn`**, not `bge-reranker-base` (~3s/query on CPU was too
+   slow). Measured: top1 16.7→33.3%, top3 41.7→66.7%, recall@10 70.8%. **It did
+   NOT reach `top-3 ≥ 80%`** — see [2026-05-30 outcomes](2026-05-30-rag-quality-session-outcomes.md):
+   the remaining misses are *retrieval* failures, so the real lever is the
+   embedding upgrade (BGE-large 1024d), not more rerank tuning. **Still TODO:**
+   grow the dataset to >30 queries before trusting `PATH_BOOST_ALPHA=0.8`.
 3. **Admin-UI benchmark panel (Phase B).** A panel over the `search_eval` path —
    edit dataset, tweak params, re-run, view per-query drill-down + verdict.
-4. **Tree-sitter Gap #3 / #4.** LSP `definition` + `kind` precision (needs a live
-   LSP server to validate) and incremental parse + tree-diff re-embed (Large;
-   `parse_incremental` exists but has no production caller).
+4. **Tree-sitter Gap #3 / #4.** LSP `definition` + `kind` precision and incremental
+   parse + tree-diff re-embed (Large; `parse_incremental` exists but has no
+   production caller). **Update (2026-05-31):** the Gap #3 blocker — "needs a live
+   LSP server" — is now **removed** (servers bundled + protocol framing fixed, see
+   [LSP outcomes](2026-05-31-lsp-session-outcomes.md)); `accc6db24` also added
+   resolved CALLS edges via callHierarchy. The specific `definition: None` /
+   substring-`kind` gap in `enrichment.rs` is still open but now host-validatable.
 5. **Multi-clone tenant registration fix.** The registry/tenant knot that made
    `search` resolve an empty tenant — see the existing spawned task.
 

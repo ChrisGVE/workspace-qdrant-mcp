@@ -4,6 +4,12 @@ Continuation of the search/graph quality work. Three improvements **shipped to
 `main` + `dev`**; one upgrade (embedding model) **started and paused** at a
 hardware-compat gate.
 
+> **Scope note.** This doc covers the RAG/search/graph frente only. The LSP &
+> code-intelligence work that ran the same session (bundled language servers,
+> protocol framing, callHierarchy CALLS edges, observability) is recorded
+> separately in
+> [2026-05-31-lsp-session-outcomes.md](2026-05-31-lsp-session-outcomes.md).
+
 ## Shipped (main + dev)
 
 | Commit | Change | Verification |
@@ -62,8 +68,10 @@ surfaced a latent bug that **took vector search down**:
   `finalize_batch_result` no longer reports acknowledged-but-unconfirmed points as
   "successful" under `wait=false` (now "submitted … apply not confirmed"), so a
   future schema mismatch can't hide. Regression test
-  `reembed_recreate_uses_named_dense_sparse_schema`. **Takes effect after a `memexd`
-  rebuild + redeploy.**
+  `reembed_recreate_uses_named_dense_sparse_schema`. **DEPLOYED 2026-05-31**
+  (`main` tip `f36468078`, PR #71; payload-index backfill `753506f09`; clippy
+  cleanup PR #72): the running daemon was recreated from the post-fix image and
+  search verified — so the recreate path is now safe in code, not just patched live.
 - **Recovery (used live, for the still-running pre-fix daemon):** delete the 4
   empty collections via the Qdrant API, then `docker restart wqm-memexd` → the
   create-on-index path rebuilds the correct named-vector schema and startup
@@ -151,6 +159,9 @@ no re-embed.
    run the migration above (mind the global scope). If not, options: CPU-TEI now
    (quality win, ~+100ms/query, hours-long global reembed) or build TEI from source
    with sm_120. Then measure with `search_eval` (expect top1/recall to jump).
+   **De-risked:** the §4 schema fix this step depended on is now **deployed**
+   (`f36468078`) — `TriggerReembed` at 1024d will recreate named-vector
+   collections correctly instead of silently declining all hybrid upserts.
 2. **Multi-clone tenant knot** — highest-leverage infra fix: unblocks dev-branch
    search AND raises the graph resolution ceiling AND enables LSP graph resolution.
 3. **Query expansion** (lighter retrieval lever, no reembed) if the embedding

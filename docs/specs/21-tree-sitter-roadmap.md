@@ -47,9 +47,9 @@ never issued, `kind` classifier uses naive string match on hover text).
 
 ### Validated gaps (execution order)
 
-> **Status update — 2026-05-29 (re-audited against the code).** Items #1 and #2
-> are now SHIPPED; the per-item text below is kept for historical context.
-> Items #3 and #4 remain open.
+> **Status update — 2026-05-31 (re-audited against the code).** Items #1 and #2
+> are SHIPPED; the per-item text below is kept for historical context. Items #3
+> and #4 remain open, but #3's runtime blocker is now removed (see below).
 >
 > - **#1 Real tokenizer — DONE.** `tokenizer::estimated_token_count(text, Option<&ModelTokenizer>)`
 >   drives the oversize gate in `chunker/splitting.rs::handle_oversized_chunks`
@@ -62,10 +62,23 @@ never issued, `kind` classifier uses naive string match on hover text).
 > - **#2 Symbols → tagging — DONE.** `keyword_extraction/symbol_candidates.rs`
 >   consumes `SemanticChunk` symbol names into the candidate merge
 >   (`keyword_extraction/pipeline.rs`); see also `cooccurrence_graph.rs`.
-> - **#3 LSP `definition` + `kind` precision — OPEN.** `enrichment.rs:81` still
->   hardcodes `definition: None` and `:419` still classifies `kind` by
->   `type_signature.contains("fn ")…`. Validating a fix needs a live LSP server,
->   so it is not a host-only drop-in.
+> - **⚠️ Prerequisite regression fixed (`d59175369`, 2026-05-31).** Independent of
+>   the numbered items: `ensure_grammar_available` was short-circuiting for EVERY
+>   registry language (it checked `is_language_supported()` as a proxy for "has a
+>   static grammar", but the v0.1.3 dynamic-grammar refactor emptied the static
+>   set), so the chunker silently **text-chunked all code** and never reached
+>   dynamic grammar loading. The code-relationship graph therefore got no symbol
+>   nodes/edges. Now the real static predicate is checked → dynamic loading always
+>   reached. This sits upstream of everything in this roadmap.
+> - **#3 LSP `definition` + `kind` precision — OPEN, but unblocked.** `enrichment.rs`
+>   still hardcodes `definition: None` and still classifies `kind` by
+>   `type_signature.contains("fn ")…`. The historical caveat ("validating a fix
+>   needs a live LSP server, not a host-only drop-in") is now **resolved**: the
+>   2026-05-30/31 LSP frente bundled the servers and fixed the protocol framing, so
+>   a live server is available to validate against (see
+>   [../plans/2026-05-31-lsp-session-outcomes.md](../plans/2026-05-31-lsp-session-outcomes.md)).
+>   `accc6db24` also landed resolved CALLS edges via callHierarchy — a related but
+>   separate win (it does not populate the `definition`/`kind`/`container` fields).
 > - **#4 Incremental parse + tree-diff re-embed — OPEN (groundwork only).**
 >   `parser::parse_incremental(old_tree)` exists with a unit test but has NO
 >   production caller; the watcher/`document_processor` still full-reparses and

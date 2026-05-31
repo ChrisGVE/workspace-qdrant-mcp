@@ -72,6 +72,21 @@ The daemon uses these mappings to spawn the correct server when a project contai
 
 Users can override or extend LSP mappings via YAML files in `~/.workspace-qdrant/languages/`.
 
+**Implementation status (2026-05-31, containerized daemon):** the memexd image
+**bundles** language servers for the common stack — rust-analyzer,
+typescript-language-server, clangd, gopls, pyright-langserver, jdtls (Java),
+dart, and R `languageserver` — so registering a project of those languages
+spawns a working server with no host install. LSP health is exposed on a Grafana
+dashboard (`docker/grafana/dashboards/lsp.json`) via
+`memexd_lsp_{server_state,enrichments_total,available_languages,active_servers}`.
+On the dashboard, **grey = idle** (binary present, no active project uses that
+language) — not an error; a server only spawns on `register_project`, never on
+the file reconcile, so a daemon restart shows all-grey until projects re-register.
+Beyond `references`/`type_info`, enrichment also resolves CALLS edges via
+`textDocument/callHierarchy` (`accc6db24`), wired behind an LSP-ready gate
+(no-op on a cold index). See
+[../plans/2026-05-31-lsp-session-outcomes.md](../plans/2026-05-31-lsp-session-outcomes.md).
+
 ### LSP Server Lifecycle
 
 The daemon manages LSP server instances through a state machine:
