@@ -164,6 +164,14 @@ where
             // Set the global provider so spans created outside the tracing
             // bridge are still exported, and retain a handle for shutdown.
             opentelemetry::global::set_tracer_provider(provider.clone());
+            // Install the W3C trace-context propagator so `traceparent` headers
+            // are injected/extracted across the daemon<->MCP boundary (Task 58,
+            // fixes C6 together with the ParentBased sampler).
+            if config.propagate_context {
+                opentelemetry::global::set_text_map_propagator(
+                    opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+                );
+            }
             store_provider(provider);
             Some(tracing_opentelemetry::layer().with_tracer(tracer))
         }

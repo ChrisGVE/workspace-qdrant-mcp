@@ -85,17 +85,66 @@ pub fn select_transport(protocol: &str) -> OtlpTransport {
 }
 
 /// Build the OTLP resource (service identity attributes).
+///
+/// In addition to `service.name`/`service.version`, enriches the resource with
+/// `service.instance.id` (stable across restarts), `deployment.environment`,
+/// and `host.name` so traces from multiple daemon instances/environments are
+/// distinguishable (Task 58, fixes C5).
 pub fn build_resource(config: &super::OtelConfig) -> Resource {
     Resource::builder()
         .with_attributes([
             KeyValue::new("service.name", config.service_name.clone()),
             KeyValue::new("service.version", config.service_version.clone()),
+            KeyValue::new("service.instance.id", service_instance_id(config)),
+            KeyValue::new("deployment.environment", deployment_environment()),
+            KeyValue::new("host.name", host_name()),
         ])
         .build()
 }
 
-/// Build a sampler from a sampling ratio in `[0.0, 1.0]`.
-pub fn build_sampler(ratio: f64) -> Sampler {
+/// Stable-across-restart instance id for `service.instance.id`.
+///
+/// Prefers an explicit `OTEL_SERVICE_INSTANCE_ID`, then the host name (stable
+/// for a single daemon per host), falling back to the service name. Never
+/// random, so the same instance keeps its id across restarts.
+fn service_instance_id(config: &super::OtelConfig) -> String {
+    if let Ok(id) = std::env::var("OTEL_SERVICE_INSTANCE_ID") {
+        if !id.is_empty() {
+            return id;
+        }
+    }
+    match sysinfo::System::host_name() {
+        Some(h) if !h.is_empty() => h,
+        _ => config.service_name.clone(),
+    }
+}
+
+/// Deployment environment for `deployment.environment`.
+///
+/// Read from `OTEL_DEPLOYMENT_ENVIRONMENT` or `DEPLOYMENT_ENVIRONMENT`,
+/// defaulting to `development`.
+fn deployment_environment() -> String {
+    std::env::var("OTEL_DEPLOYMENT_ENVIRONMENT")
+        .or_else(|_| std::env::var("DEPLOYMENT_ENVIRONMENT"))
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "development".to_string())
+}
+
+/// Host name for `host.name`.
+fn host_name() -> String {
+    sysinfo::System::host_name()
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok().filter(|h| !h.is_empty()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Build the root sampler for a sampling ratio in `[0.0, 1.0]` (no parent).
+///
+/// Out-of-range ratios saturate to `AlwaysOn`/`AlwaysOff`. This is the decision
+/// applied to *root* spans; [`build_sampler`] wraps it so child spans inherit
+/// the parent's decision.
+fn base_sampler(ratio: f64) -> Sampler {
     if ratio >= 1.0 {
         Sampler::AlwaysOn
     } else if ratio <= 0.0 {
@@ -103,6 +152,16 @@ pub fn build_sampler(ratio: f64) -> Sampler {
     } else {
         Sampler::TraceIdRatioBased(ratio)
     }
+}
+
+/// Build a `ParentBased` sampler from a sampling ratio in `[0.0, 1.0]`.
+///
+/// Wrapping the ratio sampler in `ParentBased` makes the daemon honor sampling
+/// decisions propagated from the MCP side (a sampled parent keeps its children
+/// sampled across the service boundary); only root spans consult the ratio
+/// (Task 58, fixes C6).
+pub fn build_sampler(ratio: f64) -> Sampler {
+    Sampler::ParentBased(Box::new(base_sampler(ratio)))
 }
 
 /// Build a span exporter for the selected transport with header injection.
@@ -232,15 +291,32 @@ mod tests {
     }
 
     #[test]
-    fn sampler_bounds() {
-        assert!(matches!(build_sampler(1.0), Sampler::AlwaysOn));
-        assert!(matches!(build_sampler(2.0), Sampler::AlwaysOn));
-        assert!(matches!(build_sampler(0.0), Sampler::AlwaysOff));
-        assert!(matches!(build_sampler(-1.0), Sampler::AlwaysOff));
+    fn base_sampler_bounds() {
+        assert!(matches!(base_sampler(1.0), Sampler::AlwaysOn));
+        assert!(matches!(base_sampler(2.0), Sampler::AlwaysOn));
+        assert!(matches!(base_sampler(0.0), Sampler::AlwaysOff));
+        assert!(matches!(base_sampler(-1.0), Sampler::AlwaysOff));
         assert!(matches!(
-            build_sampler(0.5),
+            base_sampler(0.5),
             Sampler::TraceIdRatioBased(r) if (r - 0.5).abs() < f64::EPSILON
         ));
+    }
+
+    #[test]
+    fn build_sampler_is_parent_based() {
+        // Every ratio must yield a ParentBased sampler so child spans inherit
+        // the propagated parent decision.
+        assert!(matches!(build_sampler(1.0), Sampler::ParentBased(_)));
+        assert!(matches!(build_sampler(0.5), Sampler::ParentBased(_)));
+        assert!(matches!(build_sampler(0.0), Sampler::ParentBased(_)));
+    }
+
+    #[test]
+    fn resource_attribute_helpers_are_non_empty() {
+        let config = super::super::OtelConfig::default();
+        assert!(!service_instance_id(&config).is_empty());
+        assert!(!deployment_environment().is_empty());
+        assert!(!host_name().is_empty());
     }
 
     #[test]
