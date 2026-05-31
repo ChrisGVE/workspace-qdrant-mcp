@@ -90,7 +90,8 @@ impl FileStrategy {
         }
 
         let pool = ctx.queue_manager.pool();
-        let (watch_folder_id, base_path) = resolve_watch_folder(pool, item).await?;
+        let (watch_folder_id, base_path) =
+            resolve_watch_folder(pool, item, payload.file_path.as_str()).await?;
 
         // Reconstruct the absolute filesystem path by anchoring the
         // relative payload path to the watch_folder root. The relative
@@ -403,6 +404,7 @@ async fn prepare_uplift(
 async fn resolve_watch_folder(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
+    relative_path: &str,
 ) -> Result<(String, String), UnifiedProcessorError> {
     let watch_info =
         tracked_files_schema::lookup_watch_folder(pool, &item.tenant_id, &item.collection)
@@ -420,7 +422,20 @@ async fn resolve_watch_folder(
     // but the watch_folder has the original project tenant_id and collection="projects".
     // Fall back using source_project_id from metadata when the primary lookup fails.
     match watch_info {
-        Some((wid, bp)) => Ok((wid, bp)),
+        Some((wid, bp)) => {
+            // Multi-clone disambiguation: `lookup_watch_folder` keys on
+            // tenant_id alone, so for a tenant with sibling working copies it
+            // can return a different (or stale) clone's path. If THIS file
+            // isn't at the resolved root but another watch_folder of the same
+            // tenant has it, use that one — otherwise the file resolves to a
+            // base where it doesn't exist, hits `handle_missing_file`, and is
+            // silently skipped (never indexed). See the multi-clone bugs in
+            // 545c4cd09 (registration) and the last_scan fix.
+            if let Some(better) = disambiguate_multi_path(pool, item, relative_path, &bp).await {
+                return Ok(better);
+            }
+            Ok((wid, bp))
+        }
         None if item.collection == COLLECTION_LIBRARIES => {
             // Extract source_project_id from metadata for format-routed files
             let source_project_id = item
@@ -475,6 +490,40 @@ async fn resolve_watch_folder(
             )))
         }
     }
+}
+
+/// For a tenant with more than one watch_folder (sibling working copies of the
+/// same git remote), pick the watch_folder whose root actually contains
+/// `relative_path` on disk.
+///
+/// Returns `None` — keep the caller's original resolution — when either the
+/// already-resolved `current_base` holds the file (the common single-clone
+/// case, settled in one stat), or no sibling has it (genuinely missing /
+/// delete op). Only when the resolved base misses AND a sibling hits do we
+/// re-point, which is exactly the stale/wrong-clone case.
+async fn disambiguate_multi_path(
+    pool: &SqlitePool,
+    item: &UnifiedQueueItem,
+    relative_path: &str,
+    current_base: &str,
+) -> Option<(String, String)> {
+    // Fast path: the resolved base already holds the file — nothing to fix.
+    if Path::new(current_base).join(relative_path).exists() {
+        return None;
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT watch_id, path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2",
+    )
+    .bind(&item.tenant_id)
+    .bind(&item.collection)
+    .fetch_all(pool)
+    .await
+    .ok()?;
+    if rows.len() <= 1 {
+        return None;
+    }
+    rows.into_iter()
+        .find(|(_, bp)| Path::new(bp).join(relative_path).exists())
 }
 
 #[cfg(test)]
