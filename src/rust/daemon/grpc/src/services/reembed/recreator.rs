@@ -52,7 +52,18 @@ impl CollectionRecreator for StorageClientRecreator {
         self.storage
             .create_multi_tenant_collection(name, &config)
             .await
-            .map_err(|e| Status::internal(format!("create_multi_tenant_collection({name}): {e}")))
+            .map_err(|e| Status::internal(format!("create_multi_tenant_collection({name}): {e}")))?;
+
+        // The delete above also dropped the payload indexes that
+        // `initialize_multi_tenant_collections` builds at startup. Re-create
+        // them here so the reembedded collection isn't left with the correct
+        // vector schema but no indexes — that would silently degrade every
+        // tenant-scoped filter / delete to a full-collection scan until the
+        // next daemon restart.
+        self.storage
+            .ensure_canonical_payload_indexes(name)
+            .await
+            .map_err(|e| Status::internal(format!("ensure_canonical_payload_indexes({name}): {e}")))
     }
 }
 

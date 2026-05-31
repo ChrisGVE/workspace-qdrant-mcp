@@ -152,7 +152,7 @@ async fn test_collection_management() {
     let client = StorageClient::with_config(config);
 
     // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
+    if !client.test_connection().await.unwrap_or(false) {
         tracing::warn!("Qdrant not available, skipping collection management test");
         return;
     }
@@ -209,7 +209,7 @@ async fn test_batch_operations() {
     let client = StorageClient::with_config(config);
 
     // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
+    if !client.test_connection().await.unwrap_or(false) {
         tracing::warn!("Qdrant not available, skipping batch operations test");
         return;
     }
@@ -319,7 +319,7 @@ async fn reembed_recreate_uses_named_dense_sparse_schema() {
     let client = StorageClient::with_config(config);
 
     // Skip if Qdrant is not available
-    if client.test_connection().await.unwrap_or(false) == false {
+    if !client.test_connection().await.unwrap_or(false) {
         tracing::warn!("Qdrant not available, skipping reembed schema test");
         return;
     }

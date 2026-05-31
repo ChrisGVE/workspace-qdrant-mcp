@@ -10,7 +10,7 @@ use qdrant_client::qdrant::{
     FieldType, HnswConfigDiffBuilder, SparseVectorConfig, SparseVectorParams, VectorParams,
     VectorParamsBuilder, VectorParamsMap, VectorsConfig,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use wqm_common::constants::{
     COLLECTION_IMAGES, COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES,
@@ -56,6 +56,23 @@ pub(crate) const SCRATCHPAD_PAYLOAD_INDEX_FIELDS: &[&str] = &["tenant_id"];
 
 /// Payload-index fields for the `images` collection.
 pub(crate) const IMAGES_PAYLOAD_INDEX_FIELDS: &[&str] = &["tenant_id", "source_document_id"];
+
+/// Map a canonical collection name to its payload-index manifest.
+///
+/// Single source for the name→fields lookup used by the reembed recreate path
+/// (`StorageClient::ensure_canonical_payload_indexes`). Returns an empty slice
+/// for non-canonical names. Kept as a free function so the mapping is
+/// unit-testable without a live Qdrant (see `mod tests`).
+pub(crate) fn canonical_payload_index_fields(collection_name: &str) -> &'static [&'static str] {
+    match collection_name {
+        COLLECTION_PROJECTS => PROJECTS_PAYLOAD_INDEX_FIELDS,
+        COLLECTION_LIBRARIES => LIBRARIES_PAYLOAD_INDEX_FIELDS,
+        COLLECTION_RULES => RULES_PAYLOAD_INDEX_FIELDS,
+        COLLECTION_SCRATCHPAD => SCRATCHPAD_PAYLOAD_INDEX_FIELDS,
+        COLLECTION_IMAGES => IMAGES_PAYLOAD_INDEX_FIELDS,
+        _ => &[],
+    }
+}
 
 impl StorageClient {
     /// Create a multi-tenant collection with optimized HNSW configuration
@@ -240,6 +257,38 @@ impl StorageClient {
                 collection, field, e
             );
         }
+    }
+
+    /// Backfill the canonical payload indexes for `collection_name`, matching
+    /// the manifest the `init_*_collection` helpers create at startup.
+    ///
+    /// Idempotent — Qdrant treats an already-existing index as success, so this
+    /// is safe to call repeatedly. The reembed recreate path needs it: that path
+    /// *deletes* the collection before recreating, dropping the payload indexes
+    /// built at startup by `initialize_multi_tenant_collections`. Without this
+    /// backfill the reembedded collection keeps the correct vector schema but
+    /// has no payload indexes, silently degrading every tenant-scoped filter /
+    /// delete to a full-collection scan until the next daemon restart.
+    ///
+    /// Index-creation failures are logged and swallowed (same as startup) — a
+    /// missing index is a performance issue, not a correctness one, and must not
+    /// fail the reembed. Non-canonical names are a no-op.
+    pub async fn ensure_canonical_payload_indexes(
+        &self,
+        collection_name: &str,
+    ) -> Result<(), StorageError> {
+        let fields = canonical_payload_index_fields(collection_name);
+        if fields.is_empty() {
+            debug!(
+                "No canonical payload-index manifest for '{}'; skipping index backfill",
+                collection_name
+            );
+            return Ok(());
+        }
+        for field in fields {
+            self.try_create_payload_index(collection_name, field).await;
+        }
+        Ok(())
     }
 
     /// Initialize all multi-tenant collections with proper configuration
@@ -482,6 +531,66 @@ mod tests {
                 sorted.len(),
                 original_len,
                 "{name} payload-index manifest has duplicate fields: {fields:?}",
+            );
+        }
+    }
+
+    /// The reembed recreate path backfills payload indexes by collection name
+    /// (`StorageClient::ensure_canonical_payload_indexes` →
+    /// `canonical_payload_index_fields`). Lock the name→manifest mapping so a
+    /// rename can't silently leave a reembedded collection index-less.
+    #[test]
+    fn canonical_payload_index_fields_maps_each_canonical_collection() {
+        use wqm_common::constants::{
+            COLLECTION_IMAGES, COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES,
+            COLLECTION_SCRATCHPAD,
+        };
+        assert_eq!(
+            canonical_payload_index_fields(COLLECTION_PROJECTS),
+            PROJECTS_PAYLOAD_INDEX_FIELDS
+        );
+        assert_eq!(
+            canonical_payload_index_fields(COLLECTION_LIBRARIES),
+            LIBRARIES_PAYLOAD_INDEX_FIELDS
+        );
+        assert_eq!(
+            canonical_payload_index_fields(COLLECTION_RULES),
+            RULES_PAYLOAD_INDEX_FIELDS
+        );
+        assert_eq!(
+            canonical_payload_index_fields(COLLECTION_SCRATCHPAD),
+            SCRATCHPAD_PAYLOAD_INDEX_FIELDS
+        );
+        assert_eq!(
+            canonical_payload_index_fields(COLLECTION_IMAGES),
+            IMAGES_PAYLOAD_INDEX_FIELDS
+        );
+    }
+
+    /// Unknown / non-canonical names map to an empty manifest (no-op backfill).
+    #[test]
+    fn canonical_payload_index_fields_unknown_is_empty() {
+        assert!(canonical_payload_index_fields("not_a_canonical_collection").is_empty());
+    }
+
+    /// Every collection the reembed orchestrator recreates MUST have a non-empty
+    /// payload-index manifest, or the recreate path leaves it index-less and
+    /// tenant-scoped filters degrade to full scans. Mirrors `REEMBED_COLLECTIONS`
+    /// in the grpc reembed orchestrator.
+    #[test]
+    fn reembed_canonical_collections_have_nonempty_manifests() {
+        use wqm_common::constants::{
+            COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+        };
+        for name in [
+            COLLECTION_PROJECTS,
+            COLLECTION_LIBRARIES,
+            COLLECTION_RULES,
+            COLLECTION_SCRATCHPAD,
+        ] {
+            assert!(
+                !canonical_payload_index_fields(name).is_empty(),
+                "{name} is recreated on reembed but has no payload-index manifest",
             );
         }
     }

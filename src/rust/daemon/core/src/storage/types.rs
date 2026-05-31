@@ -188,12 +188,22 @@ impl Default for HybridSearchMode {
     }
 }
 
-/// Batch operation statistics
+/// Batch operation statistics.
+///
+/// ⚠️ Under `wait=false` (the default for `insert_points_batch`) Qdrant only
+/// *acknowledges* each batch; the async apply can still be declined afterwards
+/// (e.g. a wrong vector-name schema). In that mode `successful` counts
+/// **acknowledged** points, not confirmed-persisted ones. Use
+/// `insert_points_batch_with_wait(.., wait=true)` when a caller needs
+/// `successful` to mean "applied". See also `finalize_batch_result`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchStats {
     /// Total points processed
     pub total_points: usize,
-    /// Successfully inserted points
+    /// Number of successfully inserted points.
+    ///
+    /// Under `wait=false` this is "acknowledged by Qdrant", not
+    /// "confirmed persisted" — see the struct-level note.
     pub successful: usize,
     /// Failed insertions
     pub failed: usize,
