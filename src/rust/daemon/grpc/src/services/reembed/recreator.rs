@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use tonic::Status;
 use tracing::warn;
 
-use workspace_qdrant_core::storage::StorageClient;
+use workspace_qdrant_core::storage::{MultiTenantConfig, StorageClient};
 
 /// Abstraction over Qdrant collection recreation so the reembed flow can
 /// be unit-tested without a running Qdrant instance.
@@ -36,10 +36,23 @@ impl CollectionRecreator for StorageClientRecreator {
                 );
             }
         }
+        // Recreate with the SAME named-vector schema as the daemon's
+        // create-on-index path (`shared::ensure_collection` →
+        // `create_multi_tenant_collection`): a named `dense` vector + named
+        // `sparse` sparse-vector. The plain `create_collection` builds a
+        // single UNNAMED dense vector with no sparse config, which makes
+        // Qdrant decline every subsequent hybrid upsert with
+        // "Not existing vector name error: dense" (and `sparse`) — silently,
+        // because batch upserts run with `wait=false`. That left every
+        // reembedded collection at 0 points with no operator-visible error.
+        let config = MultiTenantConfig {
+            vector_size: dim,
+            ..MultiTenantConfig::default()
+        };
         self.storage
-            .create_collection(name, Some(dim), None)
+            .create_multi_tenant_collection(name, &config)
             .await
-            .map_err(|e| Status::internal(format!("create_collection({name}): {e}")))
+            .map_err(|e| Status::internal(format!("create_multi_tenant_collection({name}): {e}")))
     }
 }
 

@@ -146,7 +146,7 @@ impl StorageClient {
         }
 
         let processing_time_ms = start_time.elapsed().as_millis() as u64;
-        finalize_batch_result(total_points, successful, failed, processing_time_ms)
+        finalize_batch_result(total_points, successful, failed, processing_time_ms, wait)
     }
 }
 
@@ -161,6 +161,7 @@ pub(crate) fn finalize_batch_result(
     successful: usize,
     failed: usize,
     processing_time_ms: u64,
+    wait: bool,
 ) -> Result<BatchStats, StorageError> {
     let throughput = if processing_time_ms > 0 {
         (successful as f64) / (processing_time_ms as f64 / 1000.0)
@@ -176,10 +177,23 @@ pub(crate) fn finalize_batch_result(
         throughput,
     };
 
-    info!(
-        "Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
-        successful, failed, throughput
-    );
+    // Under `wait=false` Qdrant only ACKNOWLEDGES the upsert; the async apply
+    // can still be declined later (e.g. a wrong/unnamed vector schema →
+    // "Not existing vector name error: dense") without ever surfacing on this
+    // code path. Don't report acknowledged-but-unconfirmed points as
+    // "successful" — that is exactly what masked the reembed schema regression.
+    if wait {
+        info!(
+            "Batch insertion completed: {} successful, {} failed, {:.2} points/sec",
+            successful, failed, throughput
+        );
+    } else {
+        info!(
+            "Batch insertion submitted (wait=false, async — apply not confirmed): \
+             {} acknowledged, {} rejected-on-submit, {:.2} points/sec",
+            successful, failed, throughput
+        );
+    }
 
     if failed > 0 {
         return Err(StorageError::Batch(format!(
@@ -197,7 +211,7 @@ mod tests {
 
     #[test]
     fn finalize_batch_result_all_success_returns_ok() {
-        let result = finalize_batch_result(5, 5, 0, 100);
+        let result = finalize_batch_result(5, 5, 0, 100, true);
         let stats = result.expect("all-success batch must return Ok");
         assert_eq!(stats.total_points, 5);
         assert_eq!(stats.successful, 5);
@@ -207,7 +221,7 @@ mod tests {
 
     #[test]
     fn finalize_batch_result_empty_returns_ok() {
-        let result = finalize_batch_result(0, 0, 0, 0);
+        let result = finalize_batch_result(0, 0, 0, 0, true);
         let stats = result.expect("empty batch must return Ok");
         assert_eq!(stats.total_points, 0);
         assert_eq!(stats.successful, 0);
@@ -218,7 +232,7 @@ mod tests {
     fn finalize_batch_result_partial_failure_returns_err() {
         // F-032 regression: 3 of 5 points failed mid-batch — caller must see
         // Err, not Ok with stats.failed > 0, so retry metadata is populated.
-        let result = finalize_batch_result(5, 2, 3, 100);
+        let result = finalize_batch_result(5, 2, 3, 100, true);
         let err = result.expect_err("partial failure must return Err");
         match err {
             StorageError::Batch(msg) => {
@@ -235,7 +249,7 @@ mod tests {
 
     #[test]
     fn finalize_batch_result_all_failed_returns_err() {
-        let result = finalize_batch_result(4, 0, 4, 50);
+        let result = finalize_batch_result(4, 0, 4, 50, true);
         let err = result.expect_err("total failure must return Err");
         assert!(matches!(err, StorageError::Batch(_)));
     }

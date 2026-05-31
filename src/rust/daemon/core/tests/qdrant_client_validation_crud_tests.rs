@@ -9,7 +9,8 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use workspace_qdrant_core::storage::{
-    DocumentPoint, HybridSearchMode, SearchParams, StorageClient, StorageConfig, TransportMode,
+    DocumentPoint, HybridSearchMode, MultiTenantConfig, SearchParams, StorageClient, StorageConfig,
+    TransportMode,
 };
 
 /// Test Qdrant connection configuration
@@ -286,6 +287,71 @@ async fn test_batch_operations() {
         "Should find results in batch-inserted data"
     );
     assert!(results.len() <= 10, "Should respect search limit");
+
+    // Cleanup
+    let _ = client.delete_collection(&collection_name).await;
+}
+
+/// Regression: the reembed drop-and-recreate path must build collections with
+/// the SAME named-vector schema as the daemon's create-on-index path — a named
+/// `dense` vector plus a named `sparse` sparse-vector — NOT a single unnamed
+/// vector.
+///
+/// Before the fix, `TriggerReembed` recreated the canonical collections via the
+/// plain `create_collection`, which produces an UNNAMED dense vector and no
+/// sparse config. Every later upsert (which writes the named `dense`/`sparse`
+/// slots) was then declined by Qdrant with
+/// `Not existing vector name error: dense` — silently, because batch upserts
+/// run with `wait=false`, leaving all collections at 0 points with no visible
+/// error. The recreator now uses `create_multi_tenant_collection` (the same
+/// method `shared::ensure_collection` uses on the create-on-index path).
+///
+/// This test recreates a collection exactly like the recreator does and proves
+/// the schema is the named-vector one by upserting a point through
+/// `insert_point` (which writes the named `dense` slot with `wait=true`): on an
+/// unnamed-vector collection this fails synchronously; on the correct named
+/// schema it succeeds.
+#[tokio::test]
+#[serial_test::serial]
+#[tracing_test::traced_test]
+async fn reembed_recreate_uses_named_dense_sparse_schema() {
+    let config = create_test_storage_config();
+    let client = StorageClient::with_config(config);
+
+    // Skip if Qdrant is not available
+    if client.test_connection().await.unwrap_or(false) == false {
+        tracing::warn!("Qdrant not available, skipping reembed schema test");
+        return;
+    }
+
+    let collection_name = format!(
+        "test_reembed_schema_{}",
+        Uuid::new_v4().to_string().replace('-', "_")
+    );
+
+    // Recreate exactly like the reembed recreator: named dense + sparse via
+    // `create_multi_tenant_collection` at the configured dim.
+    let mt_config = MultiTenantConfig {
+        vector_size: 384,
+        ..MultiTenantConfig::default()
+    };
+    client
+        .create_multi_tenant_collection(&collection_name, &mt_config)
+        .await
+        .expect("multi-tenant (named dense+sparse) collection creation should succeed");
+
+    // `insert_point` writes the dense vector under the NAMED "dense" slot with
+    // `wait=true`. On an unnamed-vector collection (the reembed regression)
+    // Qdrant declines this synchronously with "Not existing vector name error:
+    // dense"; on the correct named schema it succeeds.
+    let doc = create_test_document("reembed_named_vec_1", "named vector schema regression check");
+    let insert_result = client.insert_point(&collection_name, doc).await;
+    assert!(
+        insert_result.is_ok(),
+        "a named 'dense' upsert must be accepted by a reembed-recreated collection; \
+         an unnamed-vector schema would decline it (reembed regression). got: {:?}",
+        insert_result
+    );
 
     // Cleanup
     let _ = client.delete_collection(&collection_name).await;
