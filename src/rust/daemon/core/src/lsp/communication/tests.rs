@@ -85,3 +85,45 @@ async fn test_cleanup_expired_requests() {
     let stats = client.get_stats().await;
     assert_eq!(stats.get("pending_requests").unwrap().as_u64(), Some(0));
 }
+
+#[tokio::test]
+async fn read_message_skips_extra_content_type_header() {
+    // jdtls / dart / pyright frame responses with BOTH Content-Length and a
+    // Content-Type header. The reader must consume the whole header block and
+    // still read the exact body — the old single-header code truncated it,
+    // producing "EOF while parsing an object" + an LSP-initialize timeout.
+    let body = r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}"#;
+    let framed = format!(
+        "Content-Length: {}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let mut reader = tokio::io::BufReader::new(framed.as_bytes());
+
+    let got = read_message(&mut reader).await.unwrap();
+    assert_eq!(got.as_deref(), Some(body));
+    assert!(matches!(
+        JsonRpcMessage::parse(&got.unwrap()).unwrap(),
+        JsonRpcMessage::Response(_)
+    ));
+}
+
+#[tokio::test]
+async fn read_message_frames_back_to_back_messages() {
+    // The header loop must consume exactly one header block per message so the
+    // second message frames correctly after the first; EOF then returns None.
+    let b1 = r#"{"jsonrpc":"2.0","id":1,"result":1}"#;
+    let b2 = r#"{"jsonrpc":"2.0","method":"x","params":{}}"#;
+    let framed = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        b1.len(),
+        b1,
+        b2.len(),
+        b2
+    );
+    let mut reader = tokio::io::BufReader::new(framed.as_bytes());
+
+    assert_eq!(read_message(&mut reader).await.unwrap().as_deref(), Some(b1));
+    assert_eq!(read_message(&mut reader).await.unwrap().as_deref(), Some(b2));
+    assert_eq!(read_message(&mut reader).await.unwrap(), None);
+}

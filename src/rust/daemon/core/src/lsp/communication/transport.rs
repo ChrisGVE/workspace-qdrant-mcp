@@ -268,6 +268,63 @@ impl Default for JsonRpcClient {
     }
 }
 
+/// Read one LSP-framed message body from `reader`.
+///
+/// Consumes the header block — one or more `Header: value` lines terminated by a
+/// blank line — then exactly `Content-Length` body bytes. Returns `Ok(None)` on
+/// a clean EOF at a message boundary (the server closed stdout) and
+/// `Ok(Some(body))` otherwise (an empty `String` for a malformed / zero-length
+/// frame, which the caller skips).
+///
+/// Generic over the reader so the framing can be unit-tested without spawning a
+/// process. Every header line is read in a loop until the blank separator, so
+/// any number and order of headers is tolerated; every header other than
+/// `Content-Length` (matched case-insensitively) is ignored.
+///
+/// This is the fix for a real LSP-init failure: the previous implementation
+/// assumed exactly ONE header line (`Content-Length`) followed by the blank
+/// line. Servers that also emit a `Content-Type` header (jdtls, dart, pyright)
+/// had that line consumed as the separator, so `read_exact` began two bytes
+/// into the real `\r\n` separator — shifting the body onto "line 2" and
+/// truncating its tail. On the large `initialize` response that surfaced as
+/// `EOF while parsing an object` and a spurious `Timeout occurred: LSP
+/// initialize`, leaving those servers permanently red on the dashboard.
+pub(crate) async fn read_message<R: AsyncBufReadExt + Unpin>(
+    reader: &mut R,
+) -> std::io::Result<Option<String>> {
+    let mut header = String::new();
+    let mut content_length: Option<usize> = None;
+
+    // Header block: read until the blank line that separates headers from body.
+    loop {
+        header.clear();
+        if reader.read_line(&mut header).await? == 0 {
+            return Ok(None); // EOF at a message boundary
+        }
+        let line = header.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse::<usize>().ok();
+            }
+            // Other headers (Content-Type, …) are intentionally ignored.
+        } else {
+            warn!("Invalid LSP header line: {line}");
+        }
+    }
+
+    // Body: exactly Content-Length bytes.
+    let content_length = match content_length {
+        Some(n) if n > 0 => n,
+        _ => return Ok(Some(String::new())), // malformed / empty → caller skips
+    };
+    let mut content = vec![0u8; content_length];
+    reader.read_exact(&mut content).await?;
+    Ok(Some(String::from_utf8_lossy(&content).into_owned()))
+}
+
 /// Read loop for LSP server stdout
 ///
 /// Reads Content-Length framed messages, parses them, and dispatches
@@ -277,50 +334,20 @@ async fn read_stdout_loop(
     pending_requests: &Arc<RwLock<HashMap<u64, PendingRequest>>>,
     notification_handler: &Arc<Mutex<Option<Box<dyn Fn(JsonRpcNotification) + Send + Sync>>>>,
 ) {
-    let mut buffer = String::new();
-
     loop {
-        buffer.clear();
-
-        // Read Content-Length header
-        match reader.read_line(&mut buffer).await {
-            Ok(0) => break, // EOF
-            Ok(_) => {
-                if buffer.trim().is_empty() {
-                    continue;
+        match read_message(reader).await {
+            Ok(None) => break, // EOF
+            Ok(Some(message_text)) => {
+                if message_text.is_empty() {
+                    continue; // malformed / zero-length frame
                 }
-
-                // Parse Content-Length
-                let content_length = if buffer.starts_with("Content-Length: ") {
-                    buffer[16..].trim().parse::<usize>().unwrap_or(0)
-                } else {
-                    warn!("Invalid header: {}", buffer.trim());
-                    continue;
-                };
-
-                if content_length == 0 {
-                    continue;
-                }
-
-                // Read empty line
-                buffer.clear();
-                if reader.read_line(&mut buffer).await.is_err() {
-                    break;
-                }
-
-                // Read message content
-                let mut content = vec![0u8; content_length];
-                if reader.read_exact(&mut content).await.is_err() {
-                    break;
-                }
-
-                let message_text = String::from_utf8_lossy(&content);
                 trace!("Received: {}", message_text);
-
-                // Parse and handle message
-                if let Err(e) =
-                    handle_incoming_message(&message_text, pending_requests, notification_handler)
-                        .await
+                if let Err(e) = handle_incoming_message(
+                    &message_text,
+                    pending_requests,
+                    notification_handler,
+                )
+                .await
                 {
                     warn!("Error handling message: {}", e);
                 }

@@ -420,7 +420,13 @@ impl LanguageServerManager {
             (Language::Rust, vec!["rust-analyzer"]),
             (
                 Language::Python,
-                vec!["pyright", "pyright-langserver", "pylsp", "ruff-lsp"],
+                // `pyright` (the CLI type-checker) is NOT an LSP server — only
+                // `pyright-langserver` speaks LSP over stdio. List the langserver
+                // first so detection never picks the bare `pyright` binary, which
+                // would be spawned as `pyright --stdio` and never answer
+                // `initialize` (→ "Timeout occurred: LSP initialize"). `pylsp` is
+                // the working fallback when pyright is absent.
+                vec!["pyright-langserver", "pylsp", "ruff-lsp"],
             ),
             (
                 Language::TypeScript,
