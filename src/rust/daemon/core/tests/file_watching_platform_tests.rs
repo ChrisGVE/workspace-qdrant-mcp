@@ -4,12 +4,18 @@
 //! Linux inotify timing, macOS FSEvents batching, Windows Unicode support,
 //! and Unix symlink handling (creation, broken links, circular links).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+// `PathBuf` is only used by `create_test_file`, which is itself `#[cfg(unix)]`.
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use shared_test_utils::{async_test, TestResult};
+use shared_test_utils::async_test;
+// `TestResult` is only the return type of `create_test_file`, which is `#[cfg(unix)]`.
+#[cfg(unix)]
+use shared_test_utils::TestResult;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -68,6 +74,11 @@ impl TestWatcher {
 }
 
 /// Test helper for creating test files
+///
+/// Only used by the `#[cfg(unix)]` symlink tests below, so the definition is
+/// gated to match — otherwise it is dead code (and orphans `PathBuf`) on
+/// Windows.
+#[cfg(unix)]
 async fn create_test_file(dir: &Path, name: &str, content: &str) -> TestResult<PathBuf> {
     let file_path = dir.join(name);
     tokio::fs::write(&file_path, content).await?;

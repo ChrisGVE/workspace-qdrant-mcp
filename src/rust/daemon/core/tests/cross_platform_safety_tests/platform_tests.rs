@@ -37,12 +37,14 @@ impl CrossPlatformTestSuite {
     pub(crate) async fn test_symbolic_links(&self, path: &Path) -> anyhow::Result<bool> {
         // Test symbolic link support
         let original = path.join("original.txt");
-        let link = path.join("link.txt");
 
         tokio::fs::write(&original, "test").await?;
 
         #[cfg(unix)]
         {
+            // `link` is only needed on unix; defining it here keeps it out of
+            // the Windows build where it would be an unused binding.
+            let link = path.join("link.txt");
             tokio::fs::symlink(&original, &link).await?;
             let link_exists = tokio::fs::metadata(&link).await.is_ok();
 
