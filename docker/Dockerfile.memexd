@@ -23,10 +23,12 @@ ARG GOPLS_VERSION=0.19.1
 
 # Additional LSP binary versions — pinned for reproducible builds.
 # Dart:  dart language-server --lsp covers both Dart and Flutter projects.
-# JDTLS: Eclipse JDT Language Server for Java (requires JRE at runtime).
 ARG DART_VERSION=3.7.2
-ARG JDTLS_VERSION=1.45.0
-ARG JDTLS_DATE=202504251455
+# JDTLS (Eclipse JDT Language Server for Java) is pulled from the always-present
+# `latest` snapshot, NOT a dated milestone — the milestone tarballs get pruned
+# from download.eclipse.org (the old 1.45.0/202504251455 pin began 404ing and
+# silently shipped an empty /opt/jdtls). Its bundles require Java 21, supplied by
+# the Temurin JRE (temurin-download stage); the Debian default JRE is 17.
 
 # ─────────────────────────────────────────────
 # Stage 1: ONNX Runtime downloader
@@ -310,31 +312,60 @@ RUN set -ux; \
 
 # ─────────────────────────────────────────────
 # Stage 3d: Eclipse JDT Language Server download
-# Platform-independent JAR bundle; only one architecture/OS variant needed.
-# The jdtls wrapper script (written in the runtime stage) locates the
-# versioned equinox launcher JAR and invokes java with the right flags.
+# Platform-independent JAR bundle. Pulled from the always-present `latest`
+# snapshot (dated milestone tarballs get pruned → 404 → empty /opt/jdtls).
+# HARD-FAILS if the equinox launcher JAR or the linux config are missing after
+# extraction, so a broken download can never again ship a non-functional jdtls.
+# The bundles require Java 21 at runtime — see the temurin-download stage.
 # ─────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM debian:${DEBIAN_CODENAME}-slim AS jdtls-download
-
-ARG JDTLS_VERSION
-ARG JDTLS_DATE
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Best-effort: always create /opt/jdtls so the runtime COPY succeeds even if the
-# milestone URL is unavailable (the daemon gracefully handles an absent jdtls).
-RUN set -ux; \
+RUN set -eux; \
     mkdir -p /opt/jdtls; \
-    if curl --fail --silent --show-error --location \
-        "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz" \
-        -o /tmp/jdtls.tar.gz; then \
-        tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls && rm /tmp/jdtls.tar.gz; \
-    else \
-        echo "WARNING: JDTLS download failed (non-fatal) — Java LSP unavailable until the milestone URL is fixed."; \
-    fi
+    curl --fail --silent --show-error --location \
+        "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz" \
+        -o /tmp/jdtls.tar.gz; \
+    tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls; \
+    rm /tmp/jdtls.tar.gz; \
+    ls /opt/jdtls/plugins/org.eclipse.equinox.launcher_*.jar; \
+    test -d /opt/jdtls/config_linux
+
+# ─────────────────────────────────────────────
+# Stage 3e: Temurin 21 JRE download
+# The current Eclipse JDT LS bundles require Java 21 (Require-Capability
+# osgi.ee=JavaSE;version=21), which Debian bookworm does not package (main ships
+# 17, backports has none). Pull the Eclipse Temurin 21 JRE tarball (multi-arch
+# via the Adoptium API) and copy it into the runtime; the jdtls wrapper invokes
+# /opt/java21/bin/java explicitly. `test -x` (not `java -version`) so the check
+# also passes under cross-platform builds where the target JRE can't exec here.
+# ─────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM debian:${DEBIAN_CODENAME}-slim AS temurin-download
+
+ARG TARGETPLATFORM
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "${TARGETPLATFORM}" in \
+        linux/amd64) JRE_ARCH="x64" ;; \
+        linux/arm64) JRE_ARCH="aarch64" ;; \
+        *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
+    esac; \
+    mkdir -p /opt/java21; \
+    curl --fail --silent --show-error --location \
+        "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${JRE_ARCH}/jre/hotspot/normal/eclipse" \
+        -o /tmp/jre.tar.gz; \
+    tar -xzf /tmp/jre.tar.gz -C /opt/java21 --strip-components=1; \
+    rm /tmp/jre.tar.gz; \
+    test -x /opt/java21/bin/java
 
 # ─────────────────────────────────────────────
 # Stage 3e: R language server build
@@ -407,7 +438,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-yaml \
         python3-pip \
         clangd \
-        default-jre-headless \
         r-base \
         libxml2 \
         libicu72 \
@@ -473,26 +503,14 @@ COPY --from=gopls-build /out/gopls /usr/local/bin/gopls
 COPY --from=dart-download /opt/dart-sdk /opt/dart-sdk
 RUN ln -s /opt/dart-sdk/bin/dart /usr/local/bin/dart
 
-# JDT Language Server — Java LSP via Eclipse.
+# JDT Language Server — Java LSP via Eclipse. The current JDT bundles require
+# Java 21, so ship the Temurin 21 JRE and call it explicitly from the wrapper,
+# which also sets up writable -configuration / -data areas (the shipped
+# config_linux is root-owned and read-only here). See docker/jdtls-wrapper.sh.
 COPY --from=jdtls-download /opt/jdtls /opt/jdtls
-# Wrapper resolves the versioned equinox launcher JAR at container start.
-# config_linux is the platform-specific configuration directory shipped
-# in the JDTLS tarball alongside config_mac and config_win.
-RUN printf '#!/bin/sh\n\
-JAR="$(ls /opt/jdtls/plugins/org.eclipse.equinox.launcher_*.jar 2>/dev/null | head -1)"\n\
-exec java \\\n\
-    -Declipse.application=org.eclipse.jdt.ls.core.id1 \\\n\
-    -Dosgi.bundles.defaultStartLevel=4 \\\n\
-    -Declipse.product=org.eclipse.jdt.ls.core.product \\\n\
-    -noverify \\\n\
-    -Xmx1G \\\n\
-    --add-modules=ALL-SYSTEM \\\n\
-    --add-opens java.base/java.util=ALL-UNNAMED \\\n\
-    --add-opens java.base/java.lang=ALL-UNNAMED \\\n\
-    -jar "${JAR}" \\\n\
-    -configuration /opt/jdtls/config_linux \\\n\
-    "$@"\n' > /usr/local/bin/jdtls \
-    && chmod +x /usr/local/bin/jdtls
+COPY --from=temurin-download /opt/java21 /opt/java21
+COPY docker/jdtls-wrapper.sh /usr/local/bin/jdtls
+RUN sed -i 's/\r$//' /usr/local/bin/jdtls && chmod 0755 /usr/local/bin/jdtls
 
 LABEL org.opencontainers.image.title="memexd" \
       org.opencontainers.image.description="workspace-qdrant-mcp Rust daemon" \

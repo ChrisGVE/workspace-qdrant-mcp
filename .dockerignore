@@ -14,6 +14,7 @@ src/typescript/mcp-server/dist/
 # Old Docker folder
 docker/*
 !docker/memexd-entrypoint.sh
+!docker/jdtls-wrapper.sh
 
 # TaskMaster and Claude config
 .taskmaster/
