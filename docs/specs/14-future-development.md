@@ -572,6 +572,18 @@ The capabilities being built form the foundation for a general-purpose knowledge
 
 Qdrant's Distance Matrix API can compute pairwise distances between points using the `dense` vector. This could power interactive code intelligence visualizations showing clusters of semantically related files, functions, or documentation. Could serve as a stepping stone toward full Graph RAG by revealing natural code clusters. See the [Qdrant Dashboard Visualization](12-configuration.md#qdrant-dashboard-visualization) section for current capabilities.
 
+### MCP Tool Surface — Reduce Tool-Selection Ambiguity to Improve Adoption
+
+**Problem:** The current 6-tool MCP surface (`store`, `search`, `rules`, `retrieve`, `grep`, `list`) is intentionally minimal, but in practice LLM clients are frequently *confused about which tool to use for a given intent* — e.g. `search` vs `grep` vs `retrieve`, or `store`-a-note vs `store`-a-project vs `store`-a-url. This ambiguity raises the cost of correct invocation, produces wrong-tool calls, and measurably **decreases adoption**: a model that can't reliably pick the right tool will fall back to native `Grep`/`Read` or skip the server entirely.
+
+**Direction (to be scoped):** *Increase* the tool surface so each high-frequency intent maps to one obvious, narrowly-described tool, rather than overloading a few general tools via mode/parameter switches. Candidate decompositions:
+
+- Split `search` by intent: semantic concept search vs. literal/regex line search (`grep`) vs. graph-neighborhood expansion (`includeGraphContext`) — surface these as distinct, self-describing tools instead of flags.
+- Split `store` by target: scratchpad-note vs. document/URL ingestion vs. project registration — these are different mental models sharing one verb today.
+- Consider intent-named aliases (e.g. `find_code`, `find_docs`, `recall_notes`, `register_project`) whose names + descriptions disambiguate at tool-selection time, even if they share backend implementations.
+
+**Tension to resolve during scoping:** more tools = clearer per-tool intent, but too many tools dilutes the prompt and reintroduces selection load. The goal is the *minimum surface at which each common intent is unambiguous*, not maximal granularity. Needs: (1) telemetry on real wrong-tool / fallback rates to target the worst offenders, (2) A/B of tool-description wording and naming, (3) measurement of adoption / correct-invocation rate before and after. Applies to both the Rust MCP server and any remaining TypeScript surface; keep tool semantics identical across transports.
+
 ---
 
 ## Related Documents
