@@ -89,6 +89,73 @@ fn default_otlp_sample_rate() -> f64 {
     1.0
 }
 
+fn default_trace_tier() -> String {
+    "off".to_string()
+}
+
+fn default_attribute_cardinality_cap() -> usize {
+    40
+}
+
+/// Runtime tracing controls (PRD B4). Governs the trace cost-gate tier, hot-path
+/// instrumentation, and per-span attribute cardinality. Independent of OTLP
+/// export (`otlp`): these bound span/attribute *construction* cost on hot paths,
+/// the OTLP sampler bounds *export*.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TracingConfig {
+    /// Trace verbosity tier: `off` | `hot` | `full` (default `off`). Maps to
+    /// [`crate::tracing_gate::TraceTier`]; consult [`TracingConfig::effective_tier`].
+    #[serde(default = "default_trace_tier")]
+    pub tier: String,
+
+    /// Whether `#[instrument]`-style spans on hot paths are constructed. The
+    /// per-path gate ([`crate::tracing_gate::if_tier`]) keys off `tier`; this is
+    /// an additional global opt-out for hot-path span work.
+    #[serde(default)]
+    pub instrument_hot_paths: bool,
+
+    /// Upper bound on distinct attribute values recorded per span dimension, to
+    /// cap trace-backend cardinality (default 40).
+    #[serde(default = "default_attribute_cardinality_cap")]
+    pub attribute_cardinality_cap: usize,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            tier: default_trace_tier(),
+            instrument_hot_paths: false,
+            attribute_cardinality_cap: default_attribute_cardinality_cap(),
+        }
+    }
+}
+
+impl TracingConfig {
+    /// Parse `tier` into the runtime [`TraceTier`](crate::tracing_gate::TraceTier),
+    /// falling back to [`TraceTier::Off`](crate::tracing_gate::TraceTier::Off) for
+    /// an unrecognized value. Call [`TracingConfig::validate`] first to surface a
+    /// bad tier as a config error rather than a silent fallback.
+    pub fn effective_tier(&self) -> crate::tracing_gate::TraceTier {
+        crate::tracing_gate::TraceTier::parse(&self.tier)
+            .unwrap_or(crate::tracing_gate::TraceTier::Off)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if crate::tracing_gate::TraceTier::parse(&self.tier).is_none() {
+            return Err(format!(
+                "telemetry.tracing.tier must be one of off|hot|full, got {:?}",
+                self.tier
+            ));
+        }
+        if self.attribute_cardinality_cap == 0 {
+            return Err(
+                "telemetry.tracing.attribute_cardinality_cap must be at least 1".to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 /// OTLP wire protocol. Matches the `OTEL_EXPORTER_OTLP_PROTOCOL`
 /// environment variable convention (lowercase with slashes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,6 +309,11 @@ pub struct TelemetryConfig {
     /// OTLP push exporter for traces (and optionally metrics).
     #[serde(default)]
     pub otlp: OtlpExportConfig,
+
+    /// Runtime tracing controls (cost-gate tier, hot-path instrumentation,
+    /// attribute cardinality cap).
+    #[serde(default)]
+    pub tracing: TracingConfig,
 }
 
 impl Default for TelemetryConfig {
@@ -257,6 +329,7 @@ impl Default for TelemetryConfig {
             service_name: default_service_name(),
             prometheus: PrometheusExportConfig::default(),
             otlp: OtlpExportConfig::default(),
+            tracing: TracingConfig::default(),
         }
     }
 }
@@ -295,6 +368,18 @@ impl TelemetryConfig {
         self.apply_otlp_header_overrides();
         self.apply_sample_rate_override();
         self.apply_prometheus_overrides();
+        self.apply_tracing_overrides();
+    }
+
+    fn apply_tracing_overrides(&mut self) {
+        // Trace cost-gate tier (B1/B4). WQM_TRACE_TIER overrides the YAML/default
+        // tier; an unparseable value is left for validate() to reject rather
+        // than silently dropped, keeping env > YAML > default precedence.
+        if let Ok(val) = std::env::var(crate::tracing_gate::TRACE_TIER_ENV) {
+            if !val.trim().is_empty() {
+                self.tracing.tier = val.trim().to_string();
+            }
+        }
     }
 
     fn apply_otlp_header_overrides(&mut self) {
@@ -347,6 +432,7 @@ impl TelemetryConfig {
         }
         self.prometheus.validate()?;
         self.otlp.validate()?;
+        self.tracing.validate()?;
         Ok(())
     }
 }
@@ -398,6 +484,7 @@ mod tests {
         "WQM_PROMETHEUS_ENABLED",
         "WQM_PROMETHEUS_PORT",
         "WQM_PROMETHEUS_BIND",
+        "WQM_TRACE_TIER",
     ];
 
     struct TelemetryEnvGuard;
@@ -552,6 +639,79 @@ mod tests {
         t.apply_env_overrides();
         assert_eq!(t.otlp.endpoint, "http://set-in-yaml:4318");
         assert!((t.otlp.sample_rate - 0.5).abs() < 1e-9);
+    }
+
+    // ── TracingConfig (B4) ──────────────────────────────────────────────
+
+    #[test]
+    fn test_tracing_defaults_are_off() {
+        let t = TelemetryConfig::default();
+        assert_eq!(t.tracing.tier, "off");
+        assert!(!t.tracing.instrument_hot_paths);
+        assert_eq!(t.tracing.attribute_cardinality_cap, 40);
+        assert_eq!(
+            t.tracing.effective_tier(),
+            crate::tracing_gate::TraceTier::Off
+        );
+    }
+
+    #[test]
+    fn test_tracing_defaults_validate() {
+        TelemetryConfig::default().validate().unwrap();
+    }
+
+    #[test]
+    fn test_tracing_validation_rejects_unknown_tier() {
+        let mut t = TelemetryConfig::default();
+        t.tracing.tier = "loud".to_string();
+        let err = t.validate().unwrap_err();
+        assert!(err.contains("tier"), "error should mention tier: {err}");
+    }
+
+    #[test]
+    fn test_tracing_validation_rejects_zero_cardinality_cap() {
+        let mut t = TelemetryConfig::default();
+        t.tracing.attribute_cardinality_cap = 0;
+        assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_tracing_effective_tier_maps_values() {
+        use crate::tracing_gate::TraceTier;
+        let mut t = TelemetryConfig::default();
+        t.tracing.tier = "hot".to_string();
+        assert_eq!(t.tracing.effective_tier(), TraceTier::Hot);
+        t.tracing.tier = "FULL".to_string();
+        assert_eq!(t.tracing.effective_tier(), TraceTier::Full);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_override_trace_tier_precedence() {
+        let _g = TelemetryEnvGuard;
+        // YAML/default value present; env should win (env > YAML > default).
+        let mut t = TelemetryConfig::default();
+        t.tracing.tier = "hot".to_string();
+
+        std::env::set_var("WQM_TRACE_TIER", "full");
+        t.apply_env_overrides();
+        assert_eq!(t.tracing.tier, "full");
+        assert_eq!(
+            t.tracing.effective_tier(),
+            crate::tracing_gate::TraceTier::Full
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_override_trace_tier_unset_keeps_yaml() {
+        let _g = TelemetryEnvGuard;
+        let mut t = TelemetryConfig::default();
+        t.tracing.tier = "hot".to_string();
+
+        // No WQM_TRACE_TIER in env → YAML value survives.
+        t.apply_env_overrides();
+        assert_eq!(t.tracing.tier, "hot");
     }
 
     // ── ObservabilityConfig::validate ────────────────────────────────────────

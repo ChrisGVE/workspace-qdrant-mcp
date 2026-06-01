@@ -246,6 +246,11 @@ pub struct YamlTelemetryConfig {
     /// OpenTelemetry Protocol push-based export settings (traces + metrics).
     #[serde(default)]
     pub otlp: YamlOtlpConfig,
+
+    /// Runtime tracing controls (cost-gate tier, hot-path instrumentation,
+    /// attribute cardinality cap).
+    #[serde(default)]
+    pub tracing: YamlTracingConfig,
 }
 
 impl Default for YamlTelemetryConfig {
@@ -261,6 +266,30 @@ impl Default for YamlTelemetryConfig {
             service_name: "memexd".to_string(),
             prometheus: YamlPrometheusConfig::default(),
             otlp: YamlOtlpConfig::default(),
+            tracing: YamlTracingConfig::default(),
+        }
+    }
+}
+
+/// Runtime tracing controls (PRD B4). Bound span/attribute construction cost on
+/// hot paths, independent of the OTLP sampler which bounds export.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlTracingConfig {
+    /// Trace cost-gate tier: `off` | `hot` | `full` (default `off`).
+    pub tier: String,
+    /// Whether `#[instrument]`-style spans on hot paths are constructed.
+    pub instrument_hot_paths: bool,
+    /// Upper bound on distinct attribute values per span dimension.
+    pub attribute_cardinality_cap: usize,
+}
+
+impl Default for YamlTracingConfig {
+    fn default() -> Self {
+        Self {
+            tier: "off".to_string(),
+            instrument_hot_paths: false,
+            attribute_cardinality_cap: 40,
         }
     }
 }

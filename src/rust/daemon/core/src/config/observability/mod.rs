@@ -8,5 +8,5 @@ pub use logging::LoggingConfig;
 pub use monitoring::MonitoringConfig;
 pub use telemetry::{
     MetricsConfig, ObservabilityConfig, OtlpExportConfig, OtlpProtocol, PrometheusExportConfig,
-    TelemetryConfig,
+    TelemetryConfig, TracingConfig,
 };

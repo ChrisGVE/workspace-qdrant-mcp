@@ -25,7 +25,7 @@ pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
 pub use narrative::NarrativeConfig;
 pub use observability::{
     LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, OtlpExportConfig,
-    OtlpProtocol, PrometheusExportConfig, TelemetryConfig,
+    OtlpProtocol, PrometheusExportConfig, TelemetryConfig, TracingConfig,
 };
 pub use processing::{QueueProcessorSettings, StartupConfig};
 pub use resource_limits::{detect_physical_cores, ResourceLimitsConfig};
@@ -317,6 +317,11 @@ fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
                 protocol,
                 sample_rate: y_telemetry.otlp.sample_rate,
                 headers: y_telemetry.otlp.headers.clone(),
+            },
+            tracing: TracingConfig {
+                tier: y_telemetry.tracing.tier.clone(),
+                instrument_hot_paths: y_telemetry.tracing.instrument_hot_paths,
+                attribute_cardinality_cap: y_telemetry.tracing.attribute_cardinality_cap,
             },
         },
     }

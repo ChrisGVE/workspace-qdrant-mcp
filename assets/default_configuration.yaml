@@ -998,6 +998,21 @@ observability:
       # OTEL_EXPORTER_OTLP_HEADERS env var (comma-separated k=v pairs).
       headers: {}
 
+    # Runtime tracing controls. These bound span/attribute *construction* cost
+    # on hot paths (independent of the otlp sampler, which bounds export).
+    tracing:
+      # Trace cost-gate tier: "off" | "hot" | "full" (default "off").
+      #   off  — instrumented hot paths do no attribute work
+      #   hot  — only cheap, high-value spans
+      #   full — full span tree (per-chunk/per-point detail)
+      # Overridable at runtime via the WQM_TRACE_TIER env var (env > YAML).
+      tier: "off"
+      # Whether #[instrument]-style spans on hot paths are constructed.
+      instrument_hot_paths: false
+      # Upper bound on distinct attribute values per span dimension, to cap
+      # trace-backend cardinality.
+      attribute_cardinality_cap: 40
+
 # =============================================================================
 # RESOURCE LIMITS CONFIGURATION
 # =============================================================================
