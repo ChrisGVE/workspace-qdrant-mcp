@@ -51,6 +51,7 @@ pub mod queue_health;
 pub mod queue_operations;
 pub mod queue_types;
 pub mod telemetry;
+pub mod tracing_gate;
 pub mod tracing_otel;
 // Note: queue_processor module removed per Task 21 - use unified_queue_processor
 pub mod code_lines_schema;

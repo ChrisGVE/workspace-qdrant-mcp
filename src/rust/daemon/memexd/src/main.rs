@@ -126,6 +126,10 @@ async fn run_daemon(
     // so it creates no series when metrics collection is disabled.
     workspace_qdrant_core::monitoring::metrics_core::METRICS
         .set_enabled(daemon_config.observability.metrics.enabled);
+    // Trace cost-gate (B1): apply the WQM_TRACE_TIER env override at startup.
+    // The config-file surface (TelemetryConfig.tracing) is wired by B4.
+    let trace_tier = workspace_qdrant_core::tracing_gate::init_trace_tier_from_env();
+    info!("Trace tier: {:?}", trace_tier);
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
     // Phase 3: Background tasks
