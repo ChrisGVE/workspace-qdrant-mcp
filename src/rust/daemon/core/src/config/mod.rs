@@ -313,6 +313,7 @@ fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
             },
             otlp: OtlpExportConfig {
                 enabled: y_telemetry.otlp.enabled,
+                metrics_enabled: y_telemetry.otlp.metrics_enabled,
                 endpoint: y_telemetry.otlp.endpoint.clone(),
                 protocol,
                 sample_rate: y_telemetry.otlp.sample_rate,

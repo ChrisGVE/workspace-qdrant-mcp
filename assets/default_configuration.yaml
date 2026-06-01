@@ -983,9 +983,13 @@ observability:
     # metrics). Disabled by default; enable by setting otlp.enabled or by
     # exporting OTEL_EXPORTER_OTLP_ENDPOINT.
     otlp:
-      # Master switch. Setting OTEL_EXPORTER_OTLP_ENDPOINT also flips this
-      # to true at runtime.
+      # Master switch (traces). Setting OTEL_EXPORTER_OTLP_ENDPOINT also flips
+      # this to true at runtime.
       enabled: false
+      # Additive OTLP metrics push path (Task 88). Independent opt-in; also
+      # requires `enabled` (shared endpoint). Prometheus pull stays primary.
+      # WQM_OTLP_METRICS_ENABLED=true flips this (and `enabled`) at runtime.
+      metrics_enabled: false
       # Collector endpoint. http/protobuf uses port 4318 by default; grpc
       # expects port 4317.
       endpoint: http://localhost:4318

@@ -328,6 +328,10 @@ impl Default for YamlPrometheusConfig {
 #[serde(default)]
 pub struct YamlOtlpConfig {
     pub enabled: bool,
+    /// Enable the additive OTLP metrics push path (Task 88). Independent of
+    /// `enabled` (which gates traces); metrics push also requires `enabled`
+    /// since the OTLP endpoint is shared. Prometheus pull stays primary.
+    pub metrics_enabled: bool,
     pub endpoint: String,
     /// Wire protocol: `http/protobuf` (default) or `grpc`.
     pub protocol: String,
@@ -342,6 +346,7 @@ impl Default for YamlOtlpConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            metrics_enabled: false,
             endpoint: "http://localhost:4318".to_string(),
             protocol: "http/protobuf".to_string(),
             sample_rate: 1.0,

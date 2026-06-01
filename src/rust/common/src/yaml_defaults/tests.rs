@@ -150,6 +150,7 @@ fn test_telemetry_export_defaults_parse_from_yaml() {
     assert_eq!(t.prometheus.port, 6337);
     assert_eq!(t.prometheus.bind, "0.0.0.0");
     assert!(!t.otlp.enabled);
+    assert!(!t.otlp.metrics_enabled);
     assert_eq!(t.otlp.endpoint, "http://localhost:4318");
     assert_eq!(t.otlp.protocol, "http/protobuf");
     assert!((t.otlp.sample_rate - 1.0).abs() < f64::EPSILON);

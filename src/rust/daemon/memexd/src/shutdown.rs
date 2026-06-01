@@ -112,8 +112,10 @@ pub fn abort_background_tasks(
         info!("Metrics server stopped");
     }
 
-    // Flush any buffered OTLP spans before the process exits.
+    // Flush any buffered OTLP spans and the final OTLP metrics export before
+    // the process exits (both no-op when OTLP is disabled).
     workspace_qdrant_core::tracing_otel::shutdown_tracer();
+    workspace_qdrant_core::tracing_otel::shutdown_meter_provider();
 
     info!("memexd daemon shutdown complete");
 }

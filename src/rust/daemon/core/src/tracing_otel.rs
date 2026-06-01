@@ -18,9 +18,11 @@ mod propagation;
 
 use std::env;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::Subscriber;
 use tracing_subscriber::registry::LookupSpan;
@@ -35,6 +37,17 @@ pub use propagation::{current_traceparent, link_current_to_traceparent};
 /// [`otel_layer`] stores the provider here so [`shutdown_tracer`] can flush
 /// buffered spans on daemon exit.
 static TRACER_PROVIDER: Lazy<Mutex<Option<SdkTracerProvider>>> = Lazy::new(|| Mutex::new(None));
+
+/// Globally retained meter provider handle (Task 88, OTLP metrics path).
+///
+/// Mirrors [`TRACER_PROVIDER`]: [`init_meter_provider`] installs the provider
+/// globally and retains it here so [`shutdown_meter_provider`] can flush the
+/// final periodic export on daemon exit.
+static METER_PROVIDER: Lazy<Mutex<Option<SdkMeterProvider>>> = Lazy::new(|| Mutex::new(None));
+
+/// Default OTLP metrics export interval (matches the 60s metrics-snapshot
+/// cadence used by the Prometheus history writer).
+pub const DEFAULT_OTLP_METRICS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// OpenTelemetry configuration.
 #[derive(Debug, Clone)]
@@ -208,6 +221,54 @@ pub fn shutdown_tracer() {
     }
 }
 
+/// Initialize and globally install the OTLP **metrics** export path (Task 88).
+///
+/// Builds an [`SdkMeterProvider`] with a [`PeriodicReader`] over the configured
+/// OTLP transport, installs it as the global meter provider, retains it for
+/// [`shutdown_meter_provider`], and bridges the daemon's Prometheus
+/// gauge/counter registry onto OTel observable instruments so real data flows.
+///
+/// This is the additive Phase-2 path: the Prometheus pull endpoint remains the
+/// primary metric transport. Returns `Ok(true)` when a provider was installed,
+/// `Ok(false)` when no OTLP endpoint was configured (nothing to export).
+///
+/// [`PeriodicReader`]: opentelemetry_sdk::metrics::PeriodicReader
+pub fn init_meter_provider(
+    config: &OtelConfig,
+    interval: Duration,
+) -> Result<bool, exporter::OtelInitError> {
+    match exporter::build_meter_provider(config, interval)? {
+        Some(provider) => {
+            opentelemetry::global::set_meter_provider(provider.clone());
+            if let Ok(mut guard) = METER_PROVIDER.lock() {
+                *guard = Some(provider);
+            }
+            let bridged = crate::monitoring::otlp_metrics_bridge::install_global_bridge();
+            tracing::info!(
+                bridged_instruments = bridged,
+                "OTLP metrics export path installed (additive to Prometheus pull)"
+            );
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Shutdown the OTLP metrics provider and flush the final export (Task 88).
+///
+/// A no-op when no provider was ever installed (OTLP metrics disabled),
+/// preserving the zero-overhead disabled path. Mirrors [`shutdown_tracer`].
+pub fn shutdown_meter_provider() {
+    let provider = METER_PROVIDER.lock().ok().and_then(|mut g| g.take());
+    if let Some(provider) = provider {
+        if let Err(e) = provider.shutdown() {
+            tracing::warn!("Error shutting down OpenTelemetry meter provider: {}", e);
+        } else {
+            tracing::info!("OpenTelemetry meter provider shut down");
+        }
+    }
+}
+
 // Note: gRPC context propagation functions (extract_context_from_metadata,
 // inject_context_into_metadata) are implemented in the grpc crate where
 // tonic types are available.
@@ -317,5 +378,24 @@ mod tests {
     fn shutdown_without_provider_is_noop() {
         // Must not panic when no provider was ever installed.
         shutdown_tracer();
+    }
+
+    #[test]
+    fn init_meter_provider_without_endpoint_returns_false() {
+        // No endpoint => nothing to export => no global install (Ok(false)),
+        // keeping the disabled path zero-overhead and the global meter untouched.
+        let config = OtelConfig {
+            otlp_endpoint: None,
+            ..OtelConfig::default()
+        };
+        let installed =
+            init_meter_provider(&config, Duration::from_secs(1)).expect("no-endpoint is Ok");
+        assert!(!installed);
+    }
+
+    #[test]
+    fn shutdown_meter_provider_without_provider_is_noop() {
+        // Must not panic when no meter provider was ever installed.
+        shutdown_meter_provider();
     }
 }

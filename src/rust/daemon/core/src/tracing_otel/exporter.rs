@@ -225,15 +225,13 @@ fn build_tonic_metadata(headers: &HashMap<String, String>) -> tonic_otlp::metada
     map
 }
 
-/// Build an OTLP [`SdkMeterProvider`] for metrics export (Phase 2 scaffolding).
+/// Build an OTLP [`SdkMeterProvider`] for metrics export (Task 88, Phase 2).
 ///
-/// Wired but intentionally NOT installed by default: the Prometheus pull
-/// endpoint remains the canonical metric surface for this daemon. Task 88
-/// will gate this behind config and install it globally. Kept here so the
-/// 0.31 metrics builder API is exercised and ready.
+/// Installed by [`super::init_meter_provider`] when the operator opts into the
+/// additive OTLP metrics push path. The Prometheus pull endpoint remains the
+/// canonical metric surface; this is additive (exemplars, future multi-host).
 ///
 /// Returns `None` when no endpoint is configured.
-#[allow(dead_code)]
 pub fn build_meter_provider(
     config: &super::OtelConfig,
     interval: Duration,
@@ -317,6 +315,19 @@ mod tests {
         assert!(!service_instance_id(&config).is_empty());
         assert!(!deployment_environment().is_empty());
         assert!(!host_name().is_empty());
+    }
+
+    #[test]
+    fn meter_provider_none_without_endpoint() {
+        // Mirrors the trace no-op path: no endpoint => Ok(None), no exporter
+        // built and no tokio runtime required.
+        let config = super::super::OtelConfig {
+            otlp_endpoint: None,
+            ..Default::default()
+        };
+        let provider =
+            build_meter_provider(&config, Duration::from_secs(1)).expect("no-endpoint is Ok");
+        assert!(provider.is_none());
     }
 
     #[test]

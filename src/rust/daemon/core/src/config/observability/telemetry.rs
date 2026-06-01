@@ -233,6 +233,16 @@ pub struct OtlpExportConfig {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Enable the additive OTLP **metrics** push path (Task 88, Phase 2).
+    ///
+    /// Independent of `enabled` (which gates traces) so an operator can ship
+    /// traces over OTLP without also pushing metrics. Metrics push requires
+    /// `enabled` to be true as well (the OTLP endpoint is shared). The
+    /// Prometheus pull endpoint remains the primary metric transport
+    /// regardless; this path is additive (exemplars, future multi-host).
+    #[serde(default)]
+    pub metrics_enabled: bool,
+
     #[serde(default = "default_otlp_endpoint")]
     pub endpoint: String,
 
@@ -250,6 +260,7 @@ impl Default for OtlpExportConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            metrics_enabled: false,
             endpoint: default_otlp_endpoint(),
             protocol: default_otlp_protocol(),
             sample_rate: default_otlp_sample_rate(),
@@ -259,6 +270,15 @@ impl Default for OtlpExportConfig {
 }
 
 impl OtlpExportConfig {
+    /// Whether the additive OTLP metrics push path should be installed.
+    ///
+    /// Requires both `enabled` (OTLP on, shared endpoint) and `metrics_enabled`
+    /// (operator opted into the metrics push). Traces are gated by `enabled`
+    /// alone; metrics need the extra opt-in (Task 88).
+    pub fn metrics_export_enabled(&self) -> bool {
+        self.enabled && self.metrics_enabled
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if !(0.0..=1.0).contains(&self.sample_rate) {
             return Err(format!(
@@ -362,6 +382,19 @@ impl TelemetryConfig {
         if let Ok(val) = env::var("OTEL_EXPORTER_OTLP_PROTOCOL") {
             if let Some(protocol) = OtlpProtocol::parse(&val) {
                 self.otlp.protocol = protocol;
+            }
+        }
+
+        // Opt into the additive OTLP metrics push path (Task 88). Truthy values
+        // also imply OTLP itself is on, since the endpoint is shared.
+        if let Ok(val) = env::var("WQM_OTLP_METRICS_ENABLED") {
+            match val.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => {
+                    self.otlp.metrics_enabled = true;
+                    self.otlp.enabled = true;
+                }
+                "0" | "false" | "no" | "off" => self.otlp.metrics_enabled = false,
+                _ => {}
             }
         }
 
@@ -493,6 +526,7 @@ mod tests {
         "WQM_PROMETHEUS_BIND",
         "WQM_METRICS_PORT",
         "WQM_TRACE_TIER",
+        "WQM_OTLP_METRICS_ENABLED",
     ];
 
     struct TelemetryEnvGuard;
@@ -553,6 +587,39 @@ mod tests {
         t.otlp.enabled = true;
         t.otlp.endpoint = "".to_string();
         assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn test_otlp_metrics_disabled_by_default() {
+        let t = TelemetryConfig::default();
+        assert!(!t.otlp.metrics_enabled);
+        // Even with traces on, metrics export stays off until opted in.
+        assert!(!t.otlp.metrics_export_enabled());
+    }
+
+    #[test]
+    fn test_otlp_metrics_export_enabled_requires_both_flags() {
+        let mut t = TelemetryConfig::default();
+        t.otlp.metrics_enabled = true;
+        // metrics_enabled alone is insufficient — otlp.enabled gates the shared endpoint.
+        assert!(!t.otlp.metrics_export_enabled());
+        t.otlp.enabled = true;
+        assert!(t.otlp.metrics_export_enabled());
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_override_otlp_metrics_enabled() {
+        let _g = TelemetryEnvGuard;
+        std::env::set_var("WQM_OTLP_METRICS_ENABLED", "true");
+
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+
+        assert!(t.otlp.metrics_enabled);
+        // Enabling metrics push implies OTLP itself is on (shared endpoint).
+        assert!(t.otlp.enabled);
+        assert!(t.otlp.metrics_export_enabled());
     }
 
     #[test]

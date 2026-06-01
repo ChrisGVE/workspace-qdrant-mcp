@@ -317,24 +317,40 @@ pub fn init_logging_with_telemetry(
         config.level = Level::INFO;
     }
 
-    let otel_layer = telemetry
-        .and_then(|t| {
-            workspace_qdrant_core::tracing_otel::OtelConfig::from_telemetry(
-                t,
-                env!("CARGO_PKG_VERSION"),
-            )
-        })
-        .and_then(|cfg| workspace_qdrant_core::tracing_otel::otel_layer(&cfg));
+    let otel_config = telemetry.and_then(|t| {
+        workspace_qdrant_core::tracing_otel::OtelConfig::from_telemetry(
+            t,
+            env!("CARGO_PKG_VERSION"),
+        )
+    });
 
-    // OTLP metrics export is intentionally deferred: the Prometheus pull
-    // endpoint is the canonical metric surface for this daemon. Spans are
-    // still shipped over OTLP via the tracing bridge above when enabled.
-    if let Some(t) = telemetry {
-        if t.otlp.enabled {
+    let otel_layer = otel_config
+        .as_ref()
+        .and_then(|cfg| workspace_qdrant_core::tracing_otel::otel_layer(cfg));
+
+    // OTLP metrics export (Task 88): additive to the Prometheus pull endpoint,
+    // which remains the canonical metric surface. Installed only when the
+    // operator opts in via telemetry.otlp.metrics_enabled (and otlp.enabled).
+    if let (Some(t), Some(cfg)) = (telemetry, otel_config.as_ref()) {
+        if t.otlp.metrics_export_enabled() {
+            match workspace_qdrant_core::tracing_otel::init_meter_provider(
+                cfg,
+                workspace_qdrant_core::tracing_otel::DEFAULT_OTLP_METRICS_INTERVAL,
+            ) {
+                Ok(true) => tracing::info!(
+                    "OTLP export: metrics push enabled (additive); Prometheus pull \
+                     remains primary at /metrics"
+                ),
+                Ok(false) => tracing::warn!(
+                    "OTLP metrics requested but no endpoint configured; metrics push not installed"
+                ),
+                Err(e) => tracing::error!("Failed to install OTLP metrics export path: {}", e),
+            }
+        } else if t.otlp.enabled {
             tracing::info!(
                 "OTLP export: traces enabled via tracing_opentelemetry bridge; \
-                 metrics export is disabled — scrape /metrics from the \
-                 Prometheus endpoint for counters and histograms"
+                 metrics push disabled (set telemetry.otlp.metrics_enabled to enable) — \
+                 scrape /metrics from the Prometheus endpoint for counters and histograms"
             );
         }
     }
