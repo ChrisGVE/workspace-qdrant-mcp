@@ -162,6 +162,16 @@ pub fn start_metrics_collection(pool: SqlitePool) -> JoinHandle<()> {
             {
                 warn!("Failed to snapshot state-DB metrics: {}", e);
             }
+            // Phase-1 SQLite state gauges (D5): schema version, sizes, WAL,
+            // free pages, per-table rows, weekly integrity check.
+            if let Err(e) =
+                workspace_qdrant_core::monitoring::sqlite_metrics::snapshot_sqlite_state_metrics(
+                    &pool,
+                )
+                .await
+            {
+                warn!("Failed to snapshot SQLite state metrics: {}", e);
+            }
         }
     });
     info!("Metrics history collection started (60s interval)");

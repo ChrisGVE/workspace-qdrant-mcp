@@ -19,6 +19,7 @@ mod metrics_helpers; // impl blocks for DaemonMetrics helper methods
 pub mod metrics_history;
 pub mod metrics_server;
 pub mod remote_monitor;
+pub mod sqlite_metrics;
 pub mod state_db_metrics;
 pub mod tool_detection;
 pub mod tool_monitor;
