@@ -362,3 +362,56 @@ fn processing_disabled_creates_no_series() {
     );
     assert!(processing_series_count(&m) > 0);
 }
+
+// ── B6: RED/USE coverage ─────────────────────────────────────────────────
+
+#[test]
+fn record_search_emits_duration_and_count() {
+    let m = DaemonMetrics::new();
+    m.record_search(
+        "projects",
+        "hybrid",
+        "tenant-a",
+        7,
+        Duration::from_millis(12),
+    );
+    let dur = m
+        .search_duration_seconds
+        .with_label_values(&["projects", "hybrid"]);
+    assert_eq!(
+        dur.collect()[0].get_metric()[0]
+            .get_histogram()
+            .get_sample_count(),
+        1
+    );
+    let cnt = m
+        .search_result_count
+        .with_label_values(&["tenant-a", "projects"]);
+    let hist = cnt.collect();
+    let h = hist[0].get_metric()[0].get_histogram();
+    assert_eq!(h.get_sample_count(), 1);
+    assert_eq!(h.get_sample_sum(), 7.0);
+}
+
+#[test]
+fn embedding_inflight_guard_tracks_gauge() {
+    let m = DaemonMetrics::new();
+    assert_eq!(m.embedding_inflight.get(), 0);
+    {
+        let _g = m.embedding_inflight_guard();
+        assert_eq!(m.embedding_inflight.get(), 1);
+        let _g2 = m.embedding_inflight_guard();
+        assert_eq!(m.embedding_inflight.get(), 2);
+    }
+    // Both guards dropped → gauge returns to zero.
+    assert_eq!(m.embedding_inflight.get(), 0);
+}
+
+#[test]
+fn record_sqlite_busy_increments_counter() {
+    let m = DaemonMetrics::new();
+    assert_eq!(m.sqlite_busy_total.get(), 0);
+    m.record_sqlite_busy();
+    m.record_sqlite_busy();
+    assert_eq!(m.sqlite_busy_total.get(), 2);
+}

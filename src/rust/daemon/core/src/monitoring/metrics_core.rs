@@ -7,14 +7,15 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
-    TextEncoder,
+    self, Encoder, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
+    Registry, TextEncoder,
 };
 
 use super::metrics_factories::{
     create_dependency_metrics, create_processing_metrics, create_queue_metrics,
-    create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
-    create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
+    create_red_use_metrics, create_session_metrics, create_system_metrics,
+    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
+    create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -181,6 +182,19 @@ pub struct DaemonMetrics {
     /// Labels: collection, file_type, language, operation, embedding_engine
     pub processing_duration_seconds: HistogramVec,
 
+    // RED/USE coverage (B6)
+    /// Vector search latency in seconds. Labels: collection, mode
+    pub search_duration_seconds: HistogramVec,
+
+    /// Result-set size per search. Labels: tenant_id, collection
+    pub search_result_count: HistogramVec,
+
+    /// Number of in-flight embedding operations (embedder saturation).
+    pub embedding_inflight: IntGauge,
+
+    /// Total SQLite busy/locked (`SQLITE_BUSY`) occurrences.
+    pub sqlite_busy_total: IntCounter,
+
     /// Telemetry kill switch (from `observability.metrics.enabled`). When false,
     /// the A2 dimensional emission path is skipped so no series are created.
     pub enabled: std::sync::atomic::AtomicBool,
@@ -225,6 +239,10 @@ struct CreatedMetrics {
     qdrant_request_duration_seconds: HistogramVec,
     qdrant_request_errors_total: IntCounterVec,
     processing_duration_seconds: HistogramVec,
+    search_duration_seconds: HistogramVec,
+    search_result_count: HistogramVec,
+    embedding_inflight: IntGauge,
+    sqlite_busy_total: IntCounter,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -267,6 +285,8 @@ fn create_all_metrics() -> CreatedMetrics {
         qdrant_request_errors_total,
     ) = create_dependency_metrics();
     let processing_duration_seconds = create_processing_metrics();
+    let (search_duration_seconds, search_result_count, embedding_inflight, sqlite_busy_total) =
+        create_red_use_metrics();
 
     let queue_oldest_pending_age_seconds = IntGauge::new(
         "wqm_memexd_queue_oldest_pending_age_seconds",
@@ -321,6 +341,10 @@ fn create_all_metrics() -> CreatedMetrics {
         qdrant_request_duration_seconds,
         qdrant_request_errors_total,
         processing_duration_seconds,
+        search_duration_seconds,
+        search_result_count,
+        embedding_inflight,
+        sqlite_busy_total,
     }
 }
 
@@ -366,6 +390,10 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.qdrant_request_duration_seconds.clone()),
             Box::new(m.qdrant_request_errors_total.clone()),
             Box::new(m.processing_duration_seconds.clone()),
+            Box::new(m.search_duration_seconds.clone()),
+            Box::new(m.search_result_count.clone()),
+            Box::new(m.embedding_inflight.clone()),
+            Box::new(m.sqlite_busy_total.clone()),
         ],
     );
 }
@@ -416,68 +444,12 @@ impl DaemonMetrics {
             qdrant_request_duration_seconds: m.qdrant_request_duration_seconds,
             qdrant_request_errors_total: m.qdrant_request_errors_total,
             processing_duration_seconds: m.processing_duration_seconds,
+            search_duration_seconds: m.search_duration_seconds,
+            search_result_count: m.search_result_count,
+            embedding_inflight: m.embedding_inflight,
+            sqlite_busy_total: m.sqlite_busy_total,
             enabled: std::sync::atomic::AtomicBool::new(true),
         }
-    }
-
-    /// Record an embedding batch: duration and batch size by model.
-    pub fn record_embedding(&self, model: &str, batch_size: usize, duration: std::time::Duration) {
-        self.embedding_duration_seconds
-            .with_label_values(&[model])
-            .observe(duration.as_secs_f64());
-        self.embedding_batch_size
-            .with_label_values(&[model])
-            .observe(batch_size as f64);
-    }
-
-    /// Record a SQLite query by op (read, write, transaction).
-    pub fn record_sqlite(&self, op: &str, duration: std::time::Duration) {
-        self.sqlite_query_duration_seconds
-            .with_label_values(&[op])
-            .observe(duration.as_secs_f64());
-    }
-
-    /// Record a Qdrant request with op, duration, and optional error type.
-    pub fn record_qdrant(&self, op: &str, duration: std::time::Duration, error: Option<&str>) {
-        self.qdrant_request_duration_seconds
-            .with_label_values(&[op])
-            .observe(duration.as_secs_f64());
-        if let Some(error_type) = error {
-            self.qdrant_request_errors_total
-                .with_label_values(&[op, error_type])
-                .inc();
-        }
-    }
-
-    /// Record a single filesystem watcher event.
-    pub fn record_watcher_event(&self, event_type: &str) {
-        self.watcher_events_total
-            .with_label_values(&[event_type])
-            .inc();
-    }
-
-    /// Record a coalesced watcher event (debounced or duplicate).
-    pub fn record_watcher_coalesced(&self, reason: &str) {
-        self.watcher_coalesced_total
-            .with_label_values(&[reason])
-            .inc();
-    }
-
-    /// Record a completed gRPC call with its duration and outcome.
-    pub fn record_grpc_call(
-        &self,
-        service: &str,
-        method: &str,
-        ok: bool,
-        duration: std::time::Duration,
-    ) {
-        let status = if ok { "ok" } else { "error" };
-        self.grpc_requests_total
-            .with_label_values(&[service, method, status])
-            .inc();
-        self.grpc_request_duration_seconds
-            .with_label_values(&[service, method])
-            .observe(duration.as_secs_f64());
     }
 
     /// Encode all metrics in Prometheus text format

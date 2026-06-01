@@ -237,6 +237,101 @@ impl DaemonMetrics {
         self.enabled.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Record an embedding batch: duration and batch size by model.
+    pub fn record_embedding(&self, model: &str, batch_size: usize, duration: std::time::Duration) {
+        self.embedding_duration_seconds
+            .with_label_values(&[model])
+            .observe(duration.as_secs_f64());
+        self.embedding_batch_size
+            .with_label_values(&[model])
+            .observe(batch_size as f64);
+    }
+
+    /// Record a SQLite query by op (read, write, transaction).
+    pub fn record_sqlite(&self, op: &str, duration: std::time::Duration) {
+        self.sqlite_query_duration_seconds
+            .with_label_values(&[op])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Record a Qdrant request with op, duration, and optional error type.
+    pub fn record_qdrant(&self, op: &str, duration: std::time::Duration, error: Option<&str>) {
+        self.qdrant_request_duration_seconds
+            .with_label_values(&[op])
+            .observe(duration.as_secs_f64());
+        if let Some(error_type) = error {
+            self.qdrant_request_errors_total
+                .with_label_values(&[op, error_type])
+                .inc();
+        }
+    }
+
+    /// Record a single filesystem watcher event.
+    pub fn record_watcher_event(&self, event_type: &str) {
+        self.watcher_events_total
+            .with_label_values(&[event_type])
+            .inc();
+    }
+
+    /// Record a coalesced watcher event (debounced or duplicate).
+    pub fn record_watcher_coalesced(&self, reason: &str) {
+        self.watcher_coalesced_total
+            .with_label_values(&[reason])
+            .inc();
+    }
+
+    /// Record a completed gRPC call with its duration and outcome.
+    pub fn record_grpc_call(
+        &self,
+        service: &str,
+        method: &str,
+        ok: bool,
+        duration: std::time::Duration,
+    ) {
+        let status = if ok { "ok" } else { "error" };
+        self.grpc_requests_total
+            .with_label_values(&[service, method, status])
+            .inc();
+        self.grpc_request_duration_seconds
+            .with_label_values(&[service, method])
+            .observe(duration.as_secs_f64());
+    }
+
+    // ── RED/USE coverage (B6) ─────────────────────────────────────────
+
+    /// Record one completed daemon vector search: latency (by collection +
+    /// mode) and result-set size (by tenant + collection).
+    pub fn record_search(
+        &self,
+        collection: &str,
+        mode: &str,
+        tenant_id: &str,
+        result_count: usize,
+        duration: std::time::Duration,
+    ) {
+        self.search_duration_seconds
+            .with_label_values(&[collection, mode])
+            .observe(duration.as_secs_f64());
+        self.search_result_count
+            .with_label_values(&[tenant_id, collection])
+            .observe(result_count as f64);
+    }
+
+    /// RAII guard tracking one in-flight embedding operation
+    /// (`wqm_memexd_embedding_inflight`). Increments on construction and
+    /// decrements on drop, so the gauge is correct even on early return/panic.
+    pub fn embedding_inflight_guard(&self) -> EmbeddingInflightGuard<'_> {
+        self.embedding_inflight.inc();
+        EmbeddingInflightGuard {
+            gauge: &self.embedding_inflight,
+        }
+    }
+
+    /// Increment the SQLite busy/locked (`SQLITE_BUSY`) saturation counter.
+    pub fn record_sqlite_busy(&self) {
+        self.sqlite_busy_total.inc();
+    }
+
     /// Observe one processed item on the dimensional
     /// `wqm_memexd_processing_duration_seconds` histogram.
     ///
@@ -264,5 +359,18 @@ impl DaemonMetrics {
         self.processing_duration_seconds
             .with_label_values(&[collection, file_type, language, operation, embedding_engine])
             .observe(duration_secs);
+    }
+}
+
+/// RAII guard for `wqm_memexd_embedding_inflight`: holds the gauge incremented
+/// for its lifetime and decrements it on drop. Obtain via
+/// [`DaemonMetrics::embedding_inflight_guard`].
+pub struct EmbeddingInflightGuard<'a> {
+    gauge: &'a prometheus::IntGauge,
+}
+
+impl Drop for EmbeddingInflightGuard<'_> {
+    fn drop(&mut self) {
+        self.gauge.dec();
     }
 }

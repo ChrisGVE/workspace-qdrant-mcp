@@ -8,7 +8,8 @@
 //! and stores on the struct.
 
 use prometheus::{
-    self, core::Collector, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry,
+    self, core::Collector, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Opts, Registry,
 };
 
 // ── Frozen histogram bucket layouts (stable API — A5) ────────────────────
@@ -33,6 +34,16 @@ pub const EMBEDDING_DURATION_BUCKETS: &[f64] = &[0.01, 0.05, 0.1, 0.5, 1.0, 5.0,
 /// quantile comparisons across the two histograms align on shared boundaries.
 pub const PROCESSING_DURATION_BUCKETS: &[f64] =
     &[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0];
+
+/// Bucket layout for `wqm_memexd_search_duration_seconds` (B6). Covers fast
+/// in-memory hits up to multi-second cold/hybrid searches. Frozen stable API.
+pub const SEARCH_DURATION_BUCKETS: &[f64] =
+    &[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0];
+
+/// Bucket layout for `wqm_memexd_search_result_count` (B6) — a histogram of
+/// per-search result-set sizes (counts, not seconds). Frozen stable API.
+pub const SEARCH_RESULT_COUNT_BUCKETS: &[f64] =
+    &[1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0];
 
 // ── Small typed builders to reduce verbosity in factories ────────────────
 
@@ -275,6 +286,41 @@ pub(super) fn create_processing_metrics() -> HistogramVec {
             "embedding_engine",
         ],
         PROCESSING_DURATION_BUCKETS.to_vec(),
+    )
+}
+
+/// RED/USE coverage metrics (B6): search latency + result-size histograms, the
+/// embedder-saturation in-flight gauge, and the SQLite busy/locked counter.
+/// Histograms use the frozen [`SEARCH_DURATION_BUCKETS`] /
+/// [`SEARCH_RESULT_COUNT_BUCKETS`] layouts.
+pub(super) fn create_red_use_metrics() -> (HistogramVec, HistogramVec, IntGauge, IntCounter) {
+    let search_duration_seconds = histogram_vec(
+        "wqm_memexd_search_duration_seconds",
+        "Vector search latency in seconds by collection and mode",
+        &["collection", "mode"],
+        SEARCH_DURATION_BUCKETS.to_vec(),
+    );
+    let search_result_count = histogram_vec(
+        "wqm_memexd_search_result_count",
+        "Number of results returned per search by tenant and collection",
+        &["tenant_id", "collection"],
+        SEARCH_RESULT_COUNT_BUCKETS.to_vec(),
+    );
+    let embedding_inflight = IntGauge::new(
+        "wqm_memexd_embedding_inflight",
+        "Number of in-flight embedding operations (embedder saturation)",
+    )
+    .expect("metric can be created");
+    let sqlite_busy_total = IntCounter::new(
+        "wqm_memexd_sqlite_busy_total",
+        "Total SQLite busy/locked (SQLITE_BUSY) occurrences (lock-wait saturation)",
+    )
+    .expect("metric can be created");
+    (
+        search_duration_seconds,
+        search_result_count,
+        embedding_inflight,
+        sqlite_busy_total,
     )
 }
 

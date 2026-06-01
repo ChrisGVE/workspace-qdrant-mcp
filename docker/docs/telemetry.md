@@ -116,6 +116,8 @@ frozen layouts are declared as single-source-of-truth consts in
 |---|---|---|
 | `wqm_memexd_embedding_duration_seconds` | `EMBEDDING_DURATION_BUCKETS` | `0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0` |
 | `wqm_memexd_processing_duration_seconds` | `PROCESSING_DURATION_BUCKETS` | `0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0` |
+| `wqm_memexd_search_duration_seconds` | `SEARCH_DURATION_BUCKETS` | `0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0` |
+| `wqm_memexd_search_result_count` | `SEARCH_RESULT_COUNT_BUCKETS` | `1, 2, 5, 10, 20, 50, 100, 250, 500, 1000` (result counts, not seconds) |
 
 The embedding layout gained the `10.0` and `30.0` upper buckets so cold model
 loads and large-batch embeds (which exceed 5s) remain measurable at p99

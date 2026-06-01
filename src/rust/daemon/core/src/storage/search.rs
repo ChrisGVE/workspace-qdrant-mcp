@@ -150,6 +150,21 @@ impl StorageClient {
         debug!("Performing search in collection: {}", collection_name);
         let started = std::time::Instant::now();
 
+        // Capture RED-metric labels before `params` fields move into the
+        // per-mode branches below (B6).
+        let mode_label = match &params.search_mode {
+            HybridSearchMode::Dense => "dense",
+            HybridSearchMode::Sparse => "sparse",
+            HybridSearchMode::Hybrid { .. } => "hybrid",
+        };
+        let tenant_label = params
+            .filter
+            .as_ref()
+            .and_then(|f| f.get("tenant_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
         let diversity_config = params.diversity_penalty.clone();
 
         let results = match params.search_mode {
@@ -215,7 +230,15 @@ impl StorageClient {
         };
 
         debug!("Search completed, returned {} results", results.len());
-        crate::monitoring::metrics_core::METRICS.record_qdrant("search", started.elapsed(), None);
+        let elapsed = started.elapsed();
+        crate::monitoring::metrics_core::METRICS.record_qdrant("search", elapsed, None);
+        crate::monitoring::metrics_core::METRICS.record_search(
+            collection_name,
+            mode_label,
+            &tenant_label,
+            results.len(),
+            elapsed,
+        );
         Ok(results)
     }
 

@@ -109,7 +109,11 @@ impl EmbeddingGenerator {
             }
         } else {
             let embed_start = Instant::now();
+            // Track embedder saturation for the duration of the provider call
+            // (decremented on drop, including the early-return `?` paths).
+            let _inflight = crate::monitoring::metrics_core::METRICS.embedding_inflight_guard();
             let mut embeddings = self.dense_provider.embed(&[text]).await?;
+            drop(_inflight);
             let embed_ms = embed_start.elapsed().as_millis();
 
             let dense = embeddings

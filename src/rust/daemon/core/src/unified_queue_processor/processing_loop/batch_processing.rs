@@ -418,6 +418,16 @@ async fn handle_item_failure(
     );
     emit_processing_metric(item, ctx, start_time.elapsed().as_secs_f64());
 
+    // SQLite lock-wait saturation (B6): count busy/locked failures on the
+    // queue-processing DB path (the dominant state.db write-contention site).
+    let err_lower = e.to_string().to_lowercase();
+    if err_lower.contains("database is locked")
+        || err_lower.contains("database locked")
+        || err_lower.contains("sqlite_busy")
+    {
+        METRICS.record_sqlite_busy();
+    }
+
     if error_category == "permanent_gone" {
         warn!(
             "Item {} gone (type={:?}), removing from queue: {}",
