@@ -13,6 +13,7 @@ pub mod algorithms;
 mod cross_boundary;
 pub mod extractor;
 pub mod factory;
+pub mod metrics;
 pub mod migrator;
 mod schema;
 mod shared;

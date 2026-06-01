@@ -26,7 +26,7 @@ mod windows_service;
 use std::process;
 use std::sync::Arc;
 use tokio::sync::Notify;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{config::Config, config::DaemonConfig, HierarchyBuilder, WatchManager};
 
@@ -138,6 +138,22 @@ async fn run_daemon(
     info!("Trace tier: {:?}", trace_tier);
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
+    // Graph metrics snapshotter (D5): snapshot the code-graph gauges on the
+    // collection_interval. Uses the SQLite graph pool directly for a single
+    // read transaction per tick; no-ops when telemetry is disabled.
+    if let Some(graph_store) = db_handles.graph_sqlite.as_ref() {
+        match graph_store.read().await {
+            Ok(guard) => {
+                let graph_pool = guard.pool().clone();
+                drop(guard);
+                background::start_graph_metrics_collection(
+                    graph_pool,
+                    daemon_config.observability.collection_interval,
+                );
+            }
+            Err(e) => warn!("Graph metrics: unable to acquire graph pool: {}", e),
+        }
+    }
     // Phase 3: Background tasks
     let prometheus_config = background::resolve_prometheus_config(
         daemon_config.observability.telemetry.prometheus.clone(),

@@ -36,6 +36,10 @@ pub(super) async fn ingest_graph_edges(
         return; // Graph not initialized — skip silently
     };
 
+    // Time the full processing-layer graph extraction + store cycle (PRD D5:
+    // graph_extract_duration_seconds{layer=processing}).
+    let extract_start = std::time::Instant::now();
+
     let ExtractionResult {
         mut nodes,
         mut edges,
@@ -74,6 +78,11 @@ pub(super) async fn ingest_graph_edges(
             file_path, tenant_id, e
         );
     }
+
+    crate::graph::metrics::record_graph_extract_duration(
+        crate::graph::metrics::LAYER_PROCESSING,
+        extract_start.elapsed().as_secs_f64(),
+    );
 }
 
 /// Delete graph edges for a file (called during file deletion).

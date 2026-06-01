@@ -72,6 +72,33 @@ pub fn resolve_prometheus_config(
     }
 }
 
+/// Start periodic graph-metrics snapshotting (PRD D5). Every `interval_secs`
+/// (the daemon `collection_interval`, default 60s) it runs a single bounded
+/// SQLite read transaction over the graph DB and updates the Phase-1 graph
+/// gauges. Failures are logged, never fatal.
+pub fn start_graph_metrics_collection(
+    graph_pool: SqlitePool,
+    interval_secs: u64,
+) -> JoinHandle<()> {
+    let period = std::time::Duration::from_secs(interval_secs.max(1));
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(period);
+        loop {
+            interval.tick().await;
+            if let Err(e) =
+                workspace_qdrant_core::graph::metrics::snapshot_graph_metrics(&graph_pool).await
+            {
+                warn!("Failed to snapshot graph metrics: {}", e);
+            }
+        }
+    });
+    info!(
+        "Graph metrics collection started ({}s interval)",
+        interval_secs
+    );
+    handle
+}
+
 /// Start uptime tracking (updates the global METRICS gauge every second).
 pub fn start_uptime_tracker() -> JoinHandle<()> {
     let start_time = std::time::Instant::now();
