@@ -18,6 +18,7 @@ use tracing_subscriber::{
     EnvFilter, Registry,
 };
 
+use super::log_trace_format::TraceJsonFormat;
 use crate::error::WorkspaceError;
 
 /// Logging configuration for the workspace-qdrant system
@@ -288,14 +289,10 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     if json_format {
-        fmt::layer()
-            .json()
-            .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_thread_names(true)
-            .with_ansi(!disable_ansi)
-            .boxed()
+        // Custom event formatter injects OTel trace_id/span_id (PRD B3); it
+        // emits its own timestamp/target/thread fields, so the builder
+        // formatting options below are intentionally not applied here.
+        fmt::layer().event_format(TraceJsonFormat).boxed()
     } else {
         fmt::layer()
             .with_timer(ChronoUtc::rfc_3339())
@@ -385,12 +382,8 @@ where
         let non_blocking = build_non_blocking_writer(log_file_path, config)?;
         let console_layer = build_console_layer(config.json_format, disable_ansi);
         let file_layer = fmt::layer()
-            .json()
-            .with_writer(non_blocking)
-            .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_thread_names(true);
+            .event_format(TraceJsonFormat)
+            .with_writer(non_blocking);
         registry
             .with(otel_layer)
             .with(env_filter)
@@ -410,12 +403,8 @@ where
         })?;
         let non_blocking = build_non_blocking_writer(log_file_path, config)?;
         let file_layer = fmt::layer()
-            .json()
-            .with_writer(non_blocking)
-            .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_thread_names(true);
+            .event_format(TraceJsonFormat)
+            .with_writer(non_blocking);
         registry
             .with(otel_layer)
             .with(env_filter)

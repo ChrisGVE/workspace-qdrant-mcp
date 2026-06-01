@@ -5,6 +5,7 @@
 
 pub mod embedding_metrics;
 pub mod labels;
+pub mod log_trace_format;
 pub mod logging_config;
 pub mod logging_perf;
 pub mod logging_structured;
