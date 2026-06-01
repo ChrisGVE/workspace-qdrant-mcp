@@ -1,0 +1,13 @@
+{
+  "results": [],
+  "total": 0,
+  "query": "test query",
+  "mode": "hybrid",
+  "scope": "project",
+  "collections_searched": [
+    "workspace-qdrant-projects",
+    "workspace-qdrant-scratchpad"
+  ],
+  "status": "uncertain",
+  "status_reason": "Daemon unavailable and project scope unresolved - cannot run cross-tenant fallback. Refused collections: workspace-qdrant-projects, workspace-qdrant-scratchpad"
+}

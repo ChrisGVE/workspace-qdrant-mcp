@@ -1,0 +1,12 @@
+{
+  "results": [],
+  "total": 0,
+  "query": "test query",
+  "mode": "hybrid",
+  "scope": "all",
+  "collections_searched": [
+    "workspace-qdrant-projects"
+  ],
+  "status": "uncertain",
+  "status_reason": "Daemon unavailable - using fallback text search"
+}

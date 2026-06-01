@@ -1,0 +1,122 @@
+[package]
+name = "mcp-server"
+version = "0.1.0"
+edition = "2021"
+description = "Rust MCP server for workspace-qdrant — drop-in replacement for the TypeScript server"
+authors = ["Chris Van Eerden"]
+license = "Apache-2.0"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[[bin]]
+name = "wqm-mcp"
+path = "src/main.rs"
+
+[lib]
+name = "mcp_server"
+path = "src/lib.rs"
+
+[dependencies]
+# MCP framework (pinned — not in workspace deps)
+rmcp = { version = "1.7", features = [
+    "server",
+    "transport-io",
+    "transport-streamable-http-server",
+    "server-side-http",
+    "auth",
+    "tower",
+    "macros",
+] }
+
+# HTTP server — pinned to match rmcp's dev-dependency versions to avoid skew.
+axum = { version = "0.8", features = ["http1", "tokio"] }
+# TLS termination via axum-server.  Use tls-rustls-no-provider so we supply our
+# own crypto provider (ring, already in the graph via tonic) rather than pulling
+# in the heavy aws-lc-sys build.
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+# rustls 0.23 with ring provider — matches tokio-rustls 0.26 already in graph.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+rcgen = "0.13"
+# Low-level body utilities used to adapt rmcp's BoxBody → axum Body.
+http-body-util = "0.1"
+# tower::Service trait (for calling StreamableHttpService directly).
+tower-service = "0.3"
+# CancellationToken for graceful shutdown.
+tokio-util = { workspace = true }
+
+# Qdrant client (pinned to match workspace usage in daemon/core + daemon/grpc)
+qdrant-client = "1.17"
+
+# WHATWG URL parser — matches TS `new URL()` for store-url validation parity
+url = "2.5"
+
+# gRPC client stack (workspace versions)
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Shared config, paths, constants, project-id, hashing, payloads
+wqm-common = { path = "../../common", features = ["sqlite"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+sha2 = { workspace = true }
+thiserror = "1.0"
+anyhow = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+
+# SQLite (read-only access — matching CLI pattern)
+rusqlite = { workspace = true }
+
+# Secrets (avoid Debug leaks for tokens/api-keys)
+secrecy = { workspace = true }
+
+# Base64 for pagination cursor encoding (next_token)
+base64 = "0.22"
+
+# Constant-time comparison (token auth)
+subtle = "2"
+# Hex encoding (token digest)
+hex = "0.4"
+# Lazy statics (Prometheus metrics)
+once_cell = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
+prometheus = { version = "0.13", features = ["process"] }
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serial_test = { workspace = true }
+tokio-test = { workspace = true }
+wiremock = { workspace = true }
+# For tower::ServiceExt::oneshot used in http transport tests.
+tower = { version = "0.5", features = ["util"] }
+# Criterion benchmark harness (pinned 0.5.x — stable API, no nightly required).
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "tool_overhead"
+harness = false
+
+[features]
+# Gates integration tests that require a live daemon + Qdrant
+integration-tests = []
+# Gates golden-file capture mode (vs replay)
+golden-capture = []
+
+[lints]
+workspace = true

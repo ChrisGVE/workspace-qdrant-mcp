@@ -22,6 +22,7 @@ pub mod nlp;
 pub mod paths;
 pub mod payloads;
 pub mod project_id;
+pub mod qdrant_endpoint;
 pub mod queue_types;
 pub mod rules_legacy;
 pub mod schema;

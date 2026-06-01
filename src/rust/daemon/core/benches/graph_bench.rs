@@ -196,7 +196,8 @@ fn bench_query_1hop(c: &mut Criterion) {
                     black_box(tenant),
                     black_box(start_id),
                     black_box(1),
-                    None, None,
+                    None,
+                    None,
                 ))
                 .unwrap();
             });
@@ -227,7 +228,8 @@ fn bench_query_2hop(c: &mut Criterion) {
                     black_box(tenant),
                     black_box(start_id),
                     black_box(2),
-                    None, None,
+                    None,
+                    None,
                 ))
                 .unwrap();
             });
@@ -255,8 +257,13 @@ fn bench_impact_analysis(c: &mut Criterion) {
             let target = &all_nodes[0][funcs / 2].symbol_name;
 
             b.iter(|| {
-                rt.block_on(store.impact_analysis(black_box(tenant), black_box(target), None, None))
-                    .unwrap();
+                rt.block_on(store.impact_analysis(
+                    black_box(tenant),
+                    black_box(target),
+                    None,
+                    None,
+                ))
+                .unwrap();
             });
         });
     }

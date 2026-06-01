@@ -1,0 +1,42 @@
+[
+  {
+    "name": "pattern_missing",
+    "opts": {},
+    "expected": {
+      "success": false,
+      "matches": [],
+      "total_matches": 0,
+      "truncated": false,
+      "latency_ms": 0,
+      "message": "Search pattern is required"
+    }
+  },
+  {
+    "name": "pattern_null",
+    "opts": {
+      "pattern": null
+    },
+    "expected": {
+      "success": false,
+      "matches": [],
+      "total_matches": 0,
+      "truncated": false,
+      "latency_ms": 0,
+      "message": "Search pattern is required"
+    }
+  },
+  {
+    "name": "pattern_empty",
+    "opts": {
+      "pattern": ""
+    },
+    "expected": {
+      "success": false,
+      "matches": [],
+      "total_matches": 0,
+      "truncated": false,
+      "latency_ms": 0,
+      "message": "Search pattern is required"
+    }
+  }
+]
