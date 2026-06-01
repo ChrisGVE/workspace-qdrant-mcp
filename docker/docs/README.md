@@ -62,6 +62,7 @@ curl -s http://localhost:6337/metrics  # Prometheus metrics endpoint
 - [full-stack.md](full-stack.md) — integration with main-docker
 - [standalone.md](standalone.md) — single-container docker run commands
 - [telemetry.md](telemetry.md) — metrics reference and Prometheus queries
+- [logging.md](logging.md) — structured logging, Loki aggregation, LogQL queries
 - [dashboards.md](dashboards.md) — Grafana dashboard panel catalog
 
 _workspace-qdrant-mcp v0.1.3 — documentation updated 2026-04-18_
