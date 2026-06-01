@@ -135,7 +135,7 @@ fn build_cli(is_daemon: bool) -> Command {
             Arg::new("metrics-port")
                 .long("metrics-port")
                 .value_name("PORT")
-                .help("Enable Prometheus metrics endpoint on this port (e.g., 9090)")
+                .help("Enable Prometheus metrics endpoint on this port (canonical default: 6337)")
                 .value_parser(clap::value_parser!(u16)),
         )
         .arg(

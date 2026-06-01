@@ -66,7 +66,7 @@ services:
     ports:
       # Expose the gRPC socket so the host `wqm` CLI can drive the daemon.
       - "${MEMEXD_GRPC_PORT:-50051}:50051"
-      - "${MEMEXD_METRICS_PORT:-9091}:9091"
+      - "${MEMEXD_METRICS_PORT:-6337}:6337"
     volumes:
       # Persistent daemon state (SQLite, queues, rules cache) — XDG data home.
       - ${WQM_STATE_DIR:-./state}/memexd:/home/memexd/.local/share/workspace-qdrant
@@ -90,7 +90,7 @@ services:
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:6337/health"]
       interval: 30s
       timeout: 5s
       start_period: 30s

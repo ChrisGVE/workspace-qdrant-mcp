@@ -295,12 +295,12 @@ ENV HOME=/home/memexd
 # gRPC service port
 EXPOSE 50051
 # Prometheus metrics port
-EXPOSE 9091
+EXPOSE 6337
 
 # Health check against the lightweight /health endpoint (returns HTTP 200 "OK").
 # /metrics is also available but /health avoids serialising the full metrics payload.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:9091/health || exit 1
+    CMD curl -f http://localhost:6337/health || exit 1
 
 # Flag notes (see src/rust/daemon/memexd/src/startup.rs):
 #   --foreground    : mandatory in containers; prevents the daemon from forking into background
@@ -315,4 +315,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 ENTRYPOINT ["/usr/local/bin/memexd-entrypoint.sh"]
 CMD ["--foreground", \
      "--grpc-port", "50051", \
-     "--metrics-port", "9091"]
+     "--metrics-port", "6337"]

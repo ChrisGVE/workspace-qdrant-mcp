@@ -13,7 +13,9 @@ use crate::commands::service::platform::{
 use crate::output;
 use crate::output::style::home_to_tilde;
 
-const DEFAULT_METRICS_PORT: u16 = 9090;
+/// Canonical default Prometheus metrics port (E1, §12 Q5) — matches the daemon
+/// `PrometheusExportConfig` default and the docker scrape target.
+const DEFAULT_METRICS_PORT: u16 = 6337;
 
 /// Enable the metrics endpoint by adding --metrics-port to daemon launch args.
 pub async fn enable(port: Option<u16>) -> Result<()> {
@@ -203,6 +205,6 @@ mod tests {
 
     #[test]
     fn test_default_metrics_port() {
-        assert_eq!(DEFAULT_METRICS_PORT, 9090);
+        assert_eq!(DEFAULT_METRICS_PORT, 6337);
     }
 }

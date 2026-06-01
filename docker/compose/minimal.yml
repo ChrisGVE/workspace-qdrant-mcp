@@ -47,9 +47,9 @@ services:
     volumes: *memexd-volumes
     ports:
       - "${MEMEXD_GRPC_PORT:-50051}:50051"
-      - "${MEMEXD_METRICS_PORT:-9091}:9091"
+      - "${MEMEXD_METRICS_PORT:-6337}:6337"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:6337/health"]
       interval: 30s
       timeout: 5s
       start_period: 30s

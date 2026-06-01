@@ -85,9 +85,9 @@ services:
     # No host port bindings — metrics are scraped over the shared network.
     expose:
       - "50051"
-      - "9091"
+      - "6337"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:6337/health"]
       interval: 30s
       timeout: 5s
       start_period: 30s

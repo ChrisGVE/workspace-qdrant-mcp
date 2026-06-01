@@ -90,7 +90,7 @@ the system.
 Compose in `observability.yml` to attach a self-hosted Prometheus +
 Grafana + OpenTelemetry Collector to any of the primary stacks. The
 overlay joins `workspace-network`, so Prometheus reaches the memexd
-(`:9091`) and MCP (`:9092`) metrics endpoints by service DNS without
+(`:6337`) and MCP (`:9092`) metrics endpoints by service DNS without
 publishing extra host ports.
 
 Extra `.env` values (all optional):
@@ -175,7 +175,7 @@ from the host would fail silently.
 | 6333 | qdrant | Qdrant REST |
 | 6334 | qdrant | Qdrant gRPC |
 | 50051 | memexd | memexd gRPC (`wqm` CLI connection) |
-| 9091 | memexd | memexd Prometheus metrics + `/health` |
+| 6337 | memexd | memexd Prometheus metrics + `/health` |
 | 6335 | mcp | MCP Streamable HTTP (`/mcp`, `/healthz`) |
 | 9092 | mcp | MCP Prometheus metrics |
 | 80, 443 | caddy (TLS overlay only) | Reverse proxy |

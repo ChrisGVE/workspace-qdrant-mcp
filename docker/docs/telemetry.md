@@ -4,7 +4,7 @@
 
 ```text
 memexd daemon  ──scrape──▶  Prometheus ──▶  Grafana
-                 :9091
+                 :6337
 MCP server     ──scrape──▶  Prometheus ──▶  Grafana
 (http mode)      :9092
 
@@ -25,7 +25,7 @@ Defined in `docker/prometheus/prometheus.yml`:
 
 | Job | Target | Scrape path |
 |---|---|---|
-| `memexd` | `memexd:9091` | `/metrics` |
+| `memexd` | `memexd:6337` | `/metrics` |
 | `mcp` | `mcp:9092` | `/metrics` |
 | `qdrant` | `qdrant:6333` | `/metrics` |
 | `otel-collector` | `otel-collector:8888` | `/metrics` |
@@ -212,7 +212,7 @@ Ten or more failures in one hour. Indicates a systemic problem rather than an
 isolated error.
 
 **DaemonDown** — `up{job="memexd"} == 0`  
-Prometheus cannot reach memexd at `memexd:9091`. The container may have crashed
+Prometheus cannot reach memexd at `memexd:6337`. The container may have crashed
 or the network route is broken.
 
 **QdrantUnreachable** — `up{job="qdrant"} == 0`  

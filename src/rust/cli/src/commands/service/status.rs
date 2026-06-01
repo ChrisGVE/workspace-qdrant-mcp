@@ -12,7 +12,7 @@
 //! | `None`                  | "memexd not running"                             |
 //!
 //! On any source where a gRPC endpoint is expected to be reachable, an
-//! optional scrape of `http://127.0.0.1:9091/metrics` is attempted with a
+//! optional scrape of `http://127.0.0.1:6337/metrics` is attempted with a
 //! 500 ms timeout. Failure of the scrape never fails the command.
 
 use anyhow::Result;
@@ -30,7 +30,7 @@ use crate::output::{self, ServiceStatus};
 use super::detect::{detect_daemon_source, DaemonSource};
 
 /// URL used for the best-effort Prometheus-style metrics scrape.
-const METRICS_URL: &str = "http://127.0.0.1:9091/metrics";
+const METRICS_URL: &str = "http://127.0.0.1:6337/metrics";
 
 /// Upper bound for the metrics scrape. Kept tight so the command stays
 /// responsive even when the daemon is down.
@@ -406,7 +406,7 @@ mod tests {
         // The metrics endpoint is not expected to respond in the test
         // environment; the helper must return `None` rather than panic.
         let result = scrape_metrics_summary().await;
-        // Allow either: some local stack may actually have 9091 open.
+        // Allow either: some local stack may actually have 6337 open.
         // What matters is no panic and no hang.
         let _ = result;
     }

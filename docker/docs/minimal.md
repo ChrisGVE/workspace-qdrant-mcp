@@ -43,10 +43,10 @@ docker compose -f docker/compose/minimal.yml --env-file docker/.env up -d
 
 ```bash
 # memexd health endpoint
-curl -s http://localhost:9091/health
+curl -s http://localhost:6337/health
 
 # memexd Prometheus metrics
-curl -s http://localhost:9091/metrics | head -20
+curl -s http://localhost:6337/metrics | head -20
 ```
 
 Both should respond without error. The MCP server does not expose an HTTP
@@ -70,7 +70,7 @@ Services started by this combined stack:
 
 | Container | Default port | Purpose |
 |---|---|---|
-| `memexd` | 50051 (gRPC), 9091 (metrics) | Rust daemon |
+| `memexd` | 50051 (gRPC), 6337 (metrics) | Rust daemon |
 | `workspace-qdrant-mcp` | 9092 (metrics) | MCP server |
 | `wqm-prometheus` | 9090 | Metrics collection |
 | `wqm-grafana` | 3000 | Dashboards |
@@ -95,7 +95,7 @@ All variables are defined in `docker/.env.example` with defaults. Key variables:
 | `QDRANT_API_KEY` | _(empty)_ | API key for authenticated Qdrant |
 | `WQM_LOG_LEVEL` | `INFO` | Log level: `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` |
 | `MEMEXD_GRPC_PORT` | `50051` | Host port for memexd gRPC |
-| `MEMEXD_METRICS_PORT` | `9091` | Host port for memexd metrics/health |
+| `MEMEXD_METRICS_PORT` | `6337` | Host port for memexd metrics/health |
 | `MEMEXD_GRPC_URL` | `http://memexd:50051` | gRPC URL the MCP server uses to reach memexd |
 | `MCP_SERVER_MODE` | `stdio` | Transport: `stdio` (Claude Code) or `http` |
 | `MCP_METRICS_PORT` | `9092` | Host port for MCP server metrics |

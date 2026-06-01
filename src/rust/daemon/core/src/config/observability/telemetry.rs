@@ -419,6 +419,13 @@ impl TelemetryConfig {
                 self.prometheus.port = port;
             }
         }
+        // WQM_METRICS_PORT is the canonical metrics-port override (E1, §12 Q5);
+        // applied last so it wins over the legacy WQM_PROMETHEUS_PORT alias.
+        if let Ok(val) = std::env::var("WQM_METRICS_PORT") {
+            if let Ok(port) = val.parse::<u16>() {
+                self.prometheus.port = port;
+            }
+        }
         if let Ok(val) = std::env::var("WQM_PROMETHEUS_BIND") {
             if !val.trim().is_empty() {
                 self.prometheus.bind = val;
@@ -484,6 +491,7 @@ mod tests {
         "WQM_PROMETHEUS_ENABLED",
         "WQM_PROMETHEUS_PORT",
         "WQM_PROMETHEUS_BIND",
+        "WQM_METRICS_PORT",
         "WQM_TRACE_TIER",
     ];
 
@@ -639,6 +647,36 @@ mod tests {
         t.apply_env_overrides();
         assert_eq!(t.otlp.endpoint, "http://set-in-yaml:4318");
         assert!((t.otlp.sample_rate - 0.5).abs() < 1e-9);
+    }
+
+    // ── E1: canonical metrics port ──────────────────────────────────────
+
+    #[test]
+    fn test_metrics_port_default_is_canonical_6337() {
+        assert_eq!(TelemetryConfig::default().prometheus.port, 6337);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_override_metrics_port_precedence() {
+        let _g = TelemetryEnvGuard;
+        // WQM_METRICS_PORT is canonical and wins over WQM_PROMETHEUS_PORT.
+        std::env::set_var("WQM_PROMETHEUS_PORT", "8888");
+        std::env::set_var("WQM_METRICS_PORT", "9999");
+
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+        assert_eq!(t.prometheus.port, 9999);
+    }
+
+    #[test]
+    #[serial]
+    fn test_env_override_metrics_port_alone() {
+        let _g = TelemetryEnvGuard;
+        std::env::set_var("WQM_METRICS_PORT", "7777");
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+        assert_eq!(t.prometheus.port, 7777);
     }
 
     // ── TracingConfig (B4) ──────────────────────────────────────────────

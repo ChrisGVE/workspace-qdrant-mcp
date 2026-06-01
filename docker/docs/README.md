@@ -36,8 +36,8 @@ docker compose -f docker/compose/minimal.yml --env-file docker/.env up -d
 Verify:
 
 ```bash
-curl -s http://localhost:9091/health   # memexd health
-curl -s http://localhost:9091/metrics  # Prometheus metrics endpoint
+curl -s http://localhost:6337/health   # memexd health
+curl -s http://localhost:6337/metrics  # Prometheus metrics endpoint
 ```
 
 ## File reference

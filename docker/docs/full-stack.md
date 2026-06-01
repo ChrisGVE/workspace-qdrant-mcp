@@ -106,7 +106,7 @@ docker compose -f docker/compose/full-stack.yml ps
 ```
 
 The `mcp` service will not start until `memexd` reports `healthy`. The health
-check polls `http://localhost:9091/health` every 30 seconds with a 30-second
+check polls `http://localhost:6337/health` every 30 seconds with a 30-second
 start period.
 
 ### 5. Merge Prometheus scrape targets
@@ -125,7 +125,7 @@ Then reload Prometheus without restarting it:
 curl -X POST http://localhost:9090/-/reload
 ```
 
-The `memexd` job scrapes `memexd:9091` and the `mcp` job scrapes
+The `memexd` job scrapes `memexd:6337` and the `mcp` job scrapes
 `workspace-qdrant-mcp:9092`. Both container names are reachable over
 `main-docker_default`.
 
@@ -162,7 +162,7 @@ No ports are published to the host. Container-internal ports:
 | Container | Internal port | Protocol | Consumer |
 |---|---|---|---|
 | `memexd` | 50051 | gRPC | `workspace-qdrant-mcp` |
-| `memexd` | 9091 | HTTP | Prometheus scrape job `memexd` |
+| `memexd` | 6337 | HTTP | Prometheus scrape job `memexd` |
 | `workspace-qdrant-mcp` | 9092 | HTTP | Prometheus scrape job `mcp` |
 
 ## Stopping
@@ -186,7 +186,7 @@ is not yet started in main-docker.
 **Prometheus shows `memexd` as DOWN after reload**  
 Confirm the container is on the `main-docker_default` network:
 `docker inspect memexd | grep -A5 Networks`. Confirm the scrape target matches
-the container name (`memexd:9091`).
+the container name (`memexd:6337`).
 
 **MCP server never starts**  
 It waits for `memexd` healthy. Check `docker compose -f docker/compose/full-stack.yml ps`.

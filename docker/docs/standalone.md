@@ -18,15 +18,15 @@ docker run -d \
   -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
   -v "${HOME}/dev:/home/memexd/dev:ro" \
   -p 50051:50051 \
-  -p 9091:9091 \
+  -p 6337:6337 \
   chrisgve/memexd:v0.1.3
 ```
 
 Verify:
 
 ```bash
-curl -s http://localhost:9091/health
-curl -s http://localhost:9091/metrics | head -10
+curl -s http://localhost:6337/health
+curl -s http://localhost:6337/metrics | head -10
 ```
 
 ## Standalone MCP server
@@ -67,7 +67,7 @@ docker run -d \
   -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
   -v "${HOME}/dev:/home/memexd/dev:ro" \
   -p 50051:50051 \
-  -p 9091:9091 \
+  -p 6337:6337 \
   chrisgve/memexd:v0.1.3
 
 # Start MCP server on the same network, referencing memexd by container name
@@ -108,7 +108,7 @@ docker compose -f docker/compose/standalone-mcp.yml   --env-file docker/.env up 
 | Service | Port | Protocol | Purpose |
 |---|---|---|---|
 | `memexd` | 50051 | gRPC | MCP server connection, wqm CLI |
-| `memexd` | 9091 | HTTP | `/health` health check, `/metrics` Prometheus |
+| `memexd` | 6337 | HTTP | `/health` health check, `/metrics` Prometheus |
 | `workspace-qdrant-mcp` | 9092 | HTTP | `/metrics` Prometheus (HTTP mode only) |
 
 Port 9092 on the MCP server is only active when `MCP_SERVER_MODE=http`. In the

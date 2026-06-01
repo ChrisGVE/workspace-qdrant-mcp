@@ -29,7 +29,7 @@
 #   full-stack.yml                       → attaches to main-docker (owns observability there)
 #
 # All four compose files share the `workspace-network` bridge so
-# Prometheus can reach `memexd:9091`, `mcp:9092`, and `qdrant:6333`.
+# Prometheus can reach `memexd:6337`, `mcp:9092`, and `qdrant:6333`.
 #
 # compose-spec (no Swarm, no BuildKit extensions)
 

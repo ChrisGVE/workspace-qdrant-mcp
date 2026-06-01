@@ -27,7 +27,7 @@ alerting:
 scrape_configs:
   - job_name: memexd
     static_configs:
-      - targets: [memexd:9091]
+      - targets: [memexd:6337]
     metrics_path: /metrics
 
   - job_name: mcp
