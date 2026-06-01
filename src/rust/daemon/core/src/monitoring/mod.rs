@@ -18,6 +18,8 @@ pub use metrics_factories::{EMBEDDING_DURATION_BUCKETS, PROCESSING_DURATION_BUCK
 mod metrics_helpers; // impl blocks for DaemonMetrics helper methods
 pub mod metrics_history;
 pub mod metrics_server;
+pub mod processing_phase_metrics;
+pub mod queue_state_metrics;
 pub mod remote_monitor;
 pub mod sqlite_metrics;
 pub mod state_db_metrics;

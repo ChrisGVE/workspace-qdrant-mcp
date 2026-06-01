@@ -172,6 +172,16 @@ pub fn start_metrics_collection(pool: SqlitePool) -> JoinHandle<()> {
             {
                 warn!("Failed to snapshot SQLite state metrics: {}", e);
             }
+            // Phase-2 queue destination-status gauges (D5): qdrant/search
+            // status distribution of unified-queue items.
+            if let Err(e) =
+                workspace_qdrant_core::monitoring::queue_state_metrics::snapshot_queue_state_metrics(
+                    &pool,
+                )
+                .await
+            {
+                warn!("Failed to snapshot queue-state metrics: {}", e);
+            }
         }
     });
     info!("Metrics history collection started (60s interval)");

@@ -67,6 +67,15 @@ pub async fn record_timings(
             debug!("Failed to record processing timing: {}", e);
             return; // Transaction will rollback on drop
         }
+
+        // Phase-2 D5: mirror the canonical phases to Prometheus (duration
+        // histogram + item counter). Non-canonical phases are ignored.
+        crate::monitoring::processing_phase_metrics::record_processing_phase(
+            timing.phase,
+            tenant_id,
+            collection,
+            timing.duration_ms as f64 / 1000.0,
+        );
     }
 
     if let Err(e) = tx.commit().await {
