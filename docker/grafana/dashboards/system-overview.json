@@ -31,6 +31,20 @@
       "type": "link",
       "icon": "external link",
       "targetBlank": false
+    },
+    {
+      "title": "Code Graph",
+      "url": "/d/wqm-code-graph",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    },
+    {
+      "title": "State DB",
+      "url": "/d/wqm-state-db",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
     }
   ],
   "panels": [
@@ -320,7 +334,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(wqm_memexd_queue_depth) or vector(0)",
+          "expr": "sum(wqm_memexd_queue_depth{collection=~\"$collection\"}) or vector(0)",
           "legendFormat": "legacy queue",
           "refId": "A"
         },
@@ -404,12 +418,150 @@
           }
         }
       ]
+    },
+    {
+      "id": 9,
+      "title": "Code Graph Nodes",
+      "description": "Total nodes in the code relationship graph aggregated across all graph types (sum(wqm_memexd_graph_nodes)). Phase 1: only the code graph exists. Links to the Code Graph dashboard.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "mappings": [],
+          "links": [
+            { "title": "Open Code Graph dashboard", "url": "/d/wqm-code-graph", "targetBlank": false }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(wqm_memexd_graph_nodes) or vector(0)",
+          "legendFormat": "graph nodes",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "State DB File Size",
+      "description": "On-disk size of the SQLite state database (wqm_memexd_state_db_size_bytes). Links to the State DB dashboard.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 524288000 },
+              { "color": "red", "value": 1073741824 }
+            ]
+          },
+          "mappings": [],
+          "links": [
+            { "title": "Open State DB dashboard", "url": "/d/wqm-state-db", "targetBlank": false }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "wqm_memexd_state_db_size_bytes or vector(0)",
+          "legendFormat": "db size",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Queue Failure Heatmap by Item Type",
+      "description": "Failure counts over time bucketed by queue item_type, derived from the wqm_memexd_unified_queue_items_total{result=\"failure\"} counter via increase(). This counter exposes item_type/op/result labels (no collection label), so failures are bucketed by item_type. The heatmap uses the series directly as rows (calculate=false) — no histogram_quantile, no le.",
+      "type": "heatmap",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "scaleDistribution": { "type": "linear" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral",
+          "steps": 64,
+          "reverse": true,
+          "fill": "dark-orange"
+        },
+        "yAxis": { "axisPlacement": "left", "unit": "short" },
+        "cellGap": 1,
+        "cellValues": {},
+        "tooltip": { "show": true, "yHistogram": false },
+        "legend": { "show": true },
+        "exemplars": { "color": "rgba(255,0,255,0.7)" },
+        "filterValues": { "le": 1e-9 }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (item_type) (increase(wqm_memexd_unified_queue_items_total{result=\"failure\"}[$__interval]))",
+          "legendFormat": "{{item_type}}",
+          "format": "heatmap",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["wqm", "overview"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "collection",
+        "label": "Collection",
+        "description": "Filter panels whose metric carries a collection label (legacy queue depth). Defaults to All.",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(wqm_memexd_queue_depth, collection)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
