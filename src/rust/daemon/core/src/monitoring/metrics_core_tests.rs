@@ -240,3 +240,125 @@ fn processing_duration_buckets_const_is_frozen_layout() {
     assert!(PROCESSING_DURATION_BUCKETS.ends_with(&[10.0, 30.0, 60.0]));
     assert!(EMBEDDING_DURATION_BUCKETS.ends_with(&[10.0, 30.0]));
 }
+
+// ── A2: dimensional processing histogram ─────────────────────────────────
+
+use crate::monitoring::labels::cardinality::{
+    BUNDLED_LANGUAGES, DEFAULT_LABEL_CARDINALITY_CAP, OTHER,
+};
+use std::collections::BTreeSet;
+use std::path::Path;
+
+/// Distinct values emitted for one label of the processing histogram.
+fn processing_label_values(m: &DaemonMetrics, label: &str) -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
+    for mf in m.processing_duration_seconds.collect() {
+        for metric in mf.get_metric() {
+            for lp in metric.get_label() {
+                if lp.get_name() == label {
+                    set.insert(lp.get_value().to_string());
+                }
+            }
+        }
+    }
+    set
+}
+
+fn processing_series_count(m: &DaemonMetrics) -> usize {
+    m.processing_duration_seconds
+        .collect()
+        .iter()
+        .map(|mf| mf.get_metric().len())
+        .sum()
+}
+
+#[test]
+fn processing_emits_five_bounded_labels() {
+    // AC1: one processed file emits the histogram with all five labels
+    // populated; known language/file_type stay, derived from the path.
+    let m = DaemonMetrics::new();
+    m.record_processing_item(
+        "projects",
+        Some(Path::new("src/main.rs")),
+        Some("rust"),
+        "add",
+        "fastembed",
+        0.2,
+    );
+    assert!(processing_label_values(&m, "collection").contains("projects"));
+    assert!(processing_label_values(&m, "operation").contains("add"));
+    assert!(processing_label_values(&m, "embedding_engine").contains("fastembed"));
+    assert!(processing_label_values(&m, "language").contains("rust"));
+    // file_type derives from the `.rs` extension and is bounded (non-empty).
+    assert!(!processing_label_values(&m, "file_type").is_empty());
+}
+
+#[test]
+fn processing_unknown_inputs_collapse_to_other_and_delete_op() {
+    // AC2: a delete operation emits operation="delete"; with no path/language
+    // the bounded file_type and language collapse to the OTHER sentinel.
+    let m = DaemonMetrics::new();
+    m.record_processing_item("c", None, None, "delete", "fastembed", 0.1);
+    assert!(processing_label_values(&m, "operation").contains("delete"));
+    assert!(processing_label_values(&m, "language").contains(OTHER));
+    assert!(processing_label_values(&m, "file_type").contains(OTHER));
+}
+
+#[test]
+fn processing_language_cardinality_is_bounded() {
+    // AC3: feeding every bundled language plus 10·N unknowns yields at most
+    // N+1 distinct `language` label values (top-N kept, tail + unknown → other).
+    let m = DaemonMetrics::new();
+    let n = DEFAULT_LABEL_CARDINALITY_CAP;
+    for lang in BUNDLED_LANGUAGES {
+        m.record_processing_item("c", None, Some(lang), "add", "fastembed", 0.01);
+    }
+    for i in 0..(10 * n) {
+        let s = format!("xlang{i}");
+        m.record_processing_item("c", None, Some(&s), "add", "fastembed", 0.01);
+    }
+    let langs = processing_label_values(&m, "language");
+    assert!(
+        langs.len() <= n + 1,
+        "distinct languages {} exceeds N+1 = {}",
+        langs.len(),
+        n + 1
+    );
+}
+
+#[test]
+fn processing_theoretical_cardinality_ceiling() {
+    // AC3 documented theoretical upper bound (N=40, 4 collections):
+    // |collection| × (N+1 file_type) × (N+1 language) × 8 operation × 6 engine
+    // = 4 × 41 × 41 × 8 × 6 = 322,752 label tuples.
+    let n = DEFAULT_LABEL_CARDINALITY_CAP;
+    assert_eq!(4 * (n + 1) * (n + 1) * 8 * 6, 322_752);
+}
+
+#[test]
+fn processing_disabled_creates_no_series() {
+    // AC4: when telemetry is disabled, the emission path is a no-op — no series
+    // are created; re-enabling restores emission.
+    let m = DaemonMetrics::new();
+    m.set_enabled(false);
+    m.record_processing_item(
+        "c",
+        Some(Path::new("a.rs")),
+        Some("rust"),
+        "add",
+        "fastembed",
+        0.1,
+    );
+    assert_eq!(processing_series_count(&m), 0);
+
+    m.set_enabled(true);
+    m.record_processing_item(
+        "c",
+        Some(Path::new("a.rs")),
+        Some("rust"),
+        "add",
+        "fastembed",
+        0.1,
+    );
+    assert!(processing_series_count(&m) > 0);
+}

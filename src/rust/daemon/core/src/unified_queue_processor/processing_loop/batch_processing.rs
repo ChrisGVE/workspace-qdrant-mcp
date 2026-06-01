@@ -5,6 +5,7 @@
 //! cancellation signal is detected, signalling the caller to shut down.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,6 +21,7 @@ use crate::config::IngestionLimitsConfig;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::monitoring::metrics_core::METRICS;
+use crate::patterns::detection::detect_language_from_path;
 use crate::queue_health::QueueProcessorHealth;
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
@@ -286,6 +288,25 @@ async fn re_lease_remaining_items(
     );
 }
 
+/// Emit the dimensional `wqm_memexd_processing_duration_seconds` histogram (A2)
+/// for one finished item. `file_type`/`language` derive from the item's file
+/// path (bounded by the A1 cardinality helper inside `record_processing_item`);
+/// `embedding_engine` is the active dense-provider label. No-op when telemetry
+/// is disabled. The single-label companion
+/// `wqm_memexd_unified_queue_processing_time_seconds` is retained separately.
+fn emit_processing_metric(item: &UnifiedQueueItem, ctx: &BatchContext, duration_secs: f64) {
+    let path = item.file_path.as_deref().map(Path::new);
+    let language = path.and_then(|p| detect_language_from_path(p).language);
+    METRICS.record_processing_item(
+        &item.collection,
+        path,
+        language.as_deref(),
+        item.op.as_str(),
+        ctx.embedding_generator.metrics_label(),
+        duration_secs,
+    );
+}
+
 async fn handle_item_success(
     item: &UnifiedQueueItem,
     start_time: std::time::Instant,
@@ -299,6 +320,7 @@ async fn handle_item_success(
         "success",
         start_time.elapsed().as_secs_f64(),
     );
+    emit_processing_metric(item, ctx, start_time.elapsed().as_secs_f64());
 
     let _ = ctx
         .queue_manager
@@ -394,6 +416,7 @@ async fn handle_item_failure(
         "failure",
         start_time.elapsed().as_secs_f64(),
     );
+    emit_processing_metric(item, ctx, start_time.elapsed().as_secs_f64());
 
     if error_category == "permanent_gone" {
         warn!(

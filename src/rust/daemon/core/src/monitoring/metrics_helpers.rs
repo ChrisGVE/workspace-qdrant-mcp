@@ -3,6 +3,9 @@
 //! Provides organized tracking methods for sessions, queues, tenants,
 //! system metrics, watch errors, and unified queue operations.
 
+use std::path::Path;
+
+use super::labels::cardinality::{bounded_file_type, bounded_language, OTHER};
 use super::metrics_core::DaemonMetrics;
 
 // ── Session tracking helpers ──────────────────────────────────────
@@ -219,5 +222,47 @@ impl DaemonMetrics {
         self.unified_queue_retries_total
             .with_label_values(&[item_type])
             .inc();
+    }
+
+    // ── Dimensional processing metrics (A2) ───────────────────────────
+
+    /// Enable or disable the A2 dimensional-processing emission path
+    /// (telemetry kill switch, from `observability.metrics.enabled`).
+    pub fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the A2 dimensional-processing emission path is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Observe one processed item on the dimensional
+    /// `wqm_memexd_processing_duration_seconds` histogram.
+    ///
+    /// `file_path` (when present) derives the bounded `file_type`; `language`
+    /// (the detected language name, when known) derives the bounded `language`
+    /// label. Both pass through the A1 cardinality cap, so each contributes at
+    /// most `N + 1` distinct label values. `operation` is the queue-op enum
+    /// string; `embedding_engine` is the bounded provider label. When telemetry
+    /// is disabled ([`is_enabled`](Self::is_enabled) is false) this is a no-op
+    /// and creates no series (zero-overhead path).
+    pub fn record_processing_item(
+        &self,
+        collection: &str,
+        file_path: Option<&Path>,
+        language: Option<&str>,
+        operation: &str,
+        embedding_engine: &str,
+        duration_secs: f64,
+    ) {
+        if !self.is_enabled() {
+            return;
+        }
+        let file_type = file_path.map(bounded_file_type).unwrap_or(OTHER);
+        let language = language.map(bounded_language).unwrap_or(OTHER);
+        self.processing_duration_seconds
+            .with_label_values(&[collection, file_type, language, operation, embedding_engine])
+            .observe(duration_secs);
     }
 }

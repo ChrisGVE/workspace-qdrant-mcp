@@ -77,6 +77,13 @@ impl EmbeddingGenerator {
         self.dense_provider.provider_label()
     }
 
+    /// Bounded-cardinality engine label for the active dense provider, one of
+    /// `fastembed|openai|azure_openai|lmstudio|llama_cpp|openai_compatible_other`.
+    /// Used as the `embedding_engine` metric label (A2).
+    pub fn metrics_label(&self) -> &'static str {
+        self.dense_provider.metrics_label()
+    }
+
     /// Issue a single probe call against the dense provider.
     pub async fn probe_provider(&self) -> Result<(), EmbeddingError> {
         self.dense_provider.probe().await

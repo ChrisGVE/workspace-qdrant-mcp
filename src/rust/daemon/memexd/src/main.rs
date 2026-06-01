@@ -122,6 +122,10 @@ async fn run_daemon(
 
     // Phase 1: Startup
     let (config, _cleanup_guard) = run_phase1(&args, &daemon_config)?;
+    // Telemetry kill switch: gate the dimensional-processing emission path (A2)
+    // so it creates no series when metrics collection is disabled.
+    workspace_qdrant_core::monitoring::metrics_core::METRICS
+        .set_enabled(daemon_config.observability.metrics.enabled);
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
     // Phase 3: Background tasks

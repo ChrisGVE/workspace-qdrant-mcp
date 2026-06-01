@@ -255,6 +255,29 @@ pub(super) fn create_dependency_metrics() -> (
     )
 }
 
+/// Dimensional per-item processing-latency histogram (A2). Companion to the
+/// existing `wqm_memexd_unified_queue_processing_time_seconds{item_type}`; this
+/// one carries the five-way drill-down `{collection, file_type, language,
+/// operation, embedding_engine}`. `file_type`/`language` are bounded at
+/// emission by the A1 cardinality helper; `operation` is the 8-value queue-op
+/// enum; `embedding_engine` is the 6-value bounded provider label. It is NOT a
+/// graph metric — it carries no `layer` label. Buckets are the frozen A5
+/// [`PROCESSING_DURATION_BUCKETS`] layout.
+pub(super) fn create_processing_metrics() -> HistogramVec {
+    histogram_vec(
+        "wqm_memexd_processing_duration_seconds",
+        "Per-item processing pipeline latency in seconds",
+        &[
+            "collection",
+            "file_type",
+            "language",
+            "operation",
+            "embedding_engine",
+        ],
+        PROCESSING_DURATION_BUCKETS.to_vec(),
+    )
+}
+
 pub(super) fn create_telemetry_extension_metrics(
 ) -> (IntCounterVec, IntCounterVec, IntCounterVec, HistogramVec) {
     let watcher_events_total = int_counter_vec(

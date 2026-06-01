@@ -12,9 +12,9 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_queue_metrics, create_session_metrics, create_system_metrics,
-    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
-    create_watch_metrics, register_all,
+    create_dependency_metrics, create_processing_metrics, create_queue_metrics,
+    create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
+    create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -175,6 +175,15 @@ pub struct DaemonMetrics {
     /// Total Qdrant request errors by op and error_type
     /// Labels: op, error_type
     pub qdrant_request_errors_total: IntCounterVec,
+
+    // Dimensional processing metrics (A2)
+    /// Per-item processing pipeline latency in seconds.
+    /// Labels: collection, file_type, language, operation, embedding_engine
+    pub processing_duration_seconds: HistogramVec,
+
+    /// Telemetry kill switch (from `observability.metrics.enabled`). When false,
+    /// the A2 dimensional emission path is skipped so no series are created.
+    pub enabled: std::sync::atomic::AtomicBool,
 }
 
 /// Intermediate struct holding all created metrics before registration.
@@ -215,6 +224,7 @@ struct CreatedMetrics {
     sqlite_query_duration_seconds: HistogramVec,
     qdrant_request_duration_seconds: HistogramVec,
     qdrant_request_errors_total: IntCounterVec,
+    processing_duration_seconds: HistogramVec,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -256,6 +266,7 @@ fn create_all_metrics() -> CreatedMetrics {
         qdrant_request_duration_seconds,
         qdrant_request_errors_total,
     ) = create_dependency_metrics();
+    let processing_duration_seconds = create_processing_metrics();
 
     let queue_oldest_pending_age_seconds = IntGauge::new(
         "wqm_memexd_queue_oldest_pending_age_seconds",
@@ -309,6 +320,7 @@ fn create_all_metrics() -> CreatedMetrics {
         sqlite_query_duration_seconds,
         qdrant_request_duration_seconds,
         qdrant_request_errors_total,
+        processing_duration_seconds,
     }
 }
 
@@ -353,6 +365,7 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.sqlite_query_duration_seconds.clone()),
             Box::new(m.qdrant_request_duration_seconds.clone()),
             Box::new(m.qdrant_request_errors_total.clone()),
+            Box::new(m.processing_duration_seconds.clone()),
         ],
     );
 }
@@ -402,6 +415,8 @@ impl DaemonMetrics {
             sqlite_query_duration_seconds: m.sqlite_query_duration_seconds,
             qdrant_request_duration_seconds: m.qdrant_request_duration_seconds,
             qdrant_request_errors_total: m.qdrant_request_errors_total,
+            processing_duration_seconds: m.processing_duration_seconds,
+            enabled: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
