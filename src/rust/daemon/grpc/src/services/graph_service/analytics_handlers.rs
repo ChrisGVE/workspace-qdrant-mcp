@@ -64,6 +64,11 @@ impl GraphServiceImpl {
 
         match compute_pagerank(&pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
             Ok(mut entries) => {
+                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+                    "pagerank",
+                    &req.tenant_id,
+                    start.elapsed().as_secs_f64(),
+                );
                 let total = entries.len() as u32;
 
                 if let Some(k) = req.top_k {
@@ -138,6 +143,11 @@ impl GraphServiceImpl {
 
         match detect_communities(&pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
             Ok(communities) => {
+                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+                    "community",
+                    &req.tenant_id,
+                    start.elapsed().as_secs_f64(),
+                );
                 let total_communities = communities.len() as u32;
                 let query_time_ms = start.elapsed().as_millis() as i64;
 
@@ -215,6 +225,11 @@ impl GraphServiceImpl {
         .await
         {
             Ok(mut entries) => {
+                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+                    "betweenness",
+                    &req.tenant_id,
+                    start.elapsed().as_secs_f64(),
+                );
                 let total = entries.len() as u32;
 
                 if let Some(k) = req.top_k {

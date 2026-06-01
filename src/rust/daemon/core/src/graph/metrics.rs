@@ -15,7 +15,7 @@
 //! (default 60s) and costs a SINGLE bounded SQLite read transaction.
 
 use once_cell::sync::Lazy;
-use prometheus::{HistogramOpts, HistogramVec, IntGaugeVec, Opts};
+use prometheus::{GaugeVec, HistogramOpts, HistogramVec, IntCounterVec, IntGaugeVec, Opts};
 use sqlx::{Row, SqlitePool};
 
 use crate::monitoring::{METRICS, PROCESSING_DURATION_BUCKETS};
@@ -45,9 +45,24 @@ pub struct GraphMetrics {
     pub graph_orphaned_nodes: IntGaugeVec,
     /// On-disk graph DB size in bytes. Labels: graph_type, backend.
     pub graph_db_size_bytes: IntGaugeVec,
-    /// Graph extraction duration in seconds. Labels: graph_type, backend, layer.
-    /// `layer` is present ONLY on this metric.
+    /// Graph extraction duration in seconds.
+    /// Labels: tenant_id, graph_type, backend, layer. `layer` is present ONLY
+    /// on this metric.
     pub graph_extract_duration_seconds: HistogramVec,
+
+    // ── Phase-2 (D5) ────────────────────────────────────────────────────
+    /// Graph algorithm run duration in seconds.
+    /// Labels: algorithm (pagerank|community|betweenness), tenant_id, graph_type, backend.
+    pub graph_algorithm_duration_seconds: HistogramVec,
+    /// Unix timestamp (seconds) of the last algorithm run.
+    /// Labels: algorithm, tenant_id, graph_type, backend.
+    pub graph_algorithm_last_run_timestamp_seconds: GaugeVec,
+    /// Total nodes upserted during ingestion. Labels: tenant_id, graph_type, backend.
+    pub graph_upsert_nodes_total: IntCounterVec,
+    /// Total edges upserted during ingestion. Labels: tenant_id, graph_type, backend.
+    pub graph_upsert_edges_total: IntCounterVec,
+    /// Total graph ingestion errors. Labels: tenant_id, graph_type, backend.
+    pub graph_ingest_errors_total: IntCounterVec,
 }
 
 impl GraphMetrics {
@@ -99,7 +114,48 @@ impl GraphMetrics {
                 "Graph extraction duration in seconds",
             )
             .buckets(PROCESSING_DURATION_BUCKETS.to_vec()),
-            &["graph_type", "backend", "layer"],
+            &["tenant_id", "graph_type", "backend", "layer"],
+        )
+        .expect("metric can be created");
+        let graph_algorithm_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "wqm_memexd_graph_algorithm_duration_seconds",
+                "Graph algorithm run duration in seconds",
+            )
+            .buckets(PROCESSING_DURATION_BUCKETS.to_vec()),
+            &["algorithm", "tenant_id", "graph_type", "backend"],
+        )
+        .expect("metric can be created");
+        let graph_algorithm_last_run_timestamp_seconds = GaugeVec::new(
+            Opts::new(
+                "wqm_memexd_graph_algorithm_last_run_timestamp_seconds",
+                "Unix timestamp of the last graph algorithm run",
+            ),
+            &["algorithm", "tenant_id", "graph_type", "backend"],
+        )
+        .expect("metric can be created");
+        let graph_upsert_nodes_total = IntCounterVec::new(
+            Opts::new(
+                "wqm_memexd_graph_upsert_nodes_total",
+                "Total graph nodes upserted during ingestion",
+            ),
+            &["tenant_id", "graph_type", "backend"],
+        )
+        .expect("metric can be created");
+        let graph_upsert_edges_total = IntCounterVec::new(
+            Opts::new(
+                "wqm_memexd_graph_upsert_edges_total",
+                "Total graph edges upserted during ingestion",
+            ),
+            &["tenant_id", "graph_type", "backend"],
+        )
+        .expect("metric can be created");
+        let graph_ingest_errors_total = IntCounterVec::new(
+            Opts::new(
+                "wqm_memexd_graph_ingest_errors_total",
+                "Total graph ingestion errors",
+            ),
+            &["tenant_id", "graph_type", "backend"],
         )
         .expect("metric can be created");
 
@@ -115,6 +171,11 @@ impl GraphMetrics {
         let _ = r.register(Box::new(graph_orphaned_nodes.clone()));
         let _ = r.register(Box::new(graph_db_size_bytes.clone()));
         let _ = r.register(Box::new(graph_extract_duration_seconds.clone()));
+        let _ = r.register(Box::new(graph_algorithm_duration_seconds.clone()));
+        let _ = r.register(Box::new(graph_algorithm_last_run_timestamp_seconds.clone()));
+        let _ = r.register(Box::new(graph_upsert_nodes_total.clone()));
+        let _ = r.register(Box::new(graph_upsert_edges_total.clone()));
+        let _ = r.register(Box::new(graph_ingest_errors_total.clone()));
 
         Self {
             graph_nodes,
@@ -125,6 +186,11 @@ impl GraphMetrics {
             graph_orphaned_nodes,
             graph_db_size_bytes,
             graph_extract_duration_seconds,
+            graph_algorithm_duration_seconds,
+            graph_algorithm_last_run_timestamp_seconds,
+            graph_upsert_nodes_total,
+            graph_upsert_edges_total,
+            graph_ingest_errors_total,
         }
     }
 }
@@ -133,16 +199,66 @@ impl GraphMetrics {
 pub static GRAPH_METRICS: Lazy<GraphMetrics> = Lazy::new(GraphMetrics::new);
 
 /// Record a graph extraction duration observation (PRD D5). `layer` is the only
-/// metric carrying a `layer` label; Phase-1 callers pass [`LAYER_PROCESSING`].
+/// metric carrying a `layer` label; Phase-1/2 callers pass [`LAYER_PROCESSING`].
 /// No-op when the telemetry kill switch is off.
-pub fn record_graph_extract_duration(layer: &str, seconds: f64) {
+pub fn record_graph_extract_duration(tenant_id: &str, layer: &str, seconds: f64) {
     if !METRICS.is_enabled() {
         return;
     }
     GRAPH_METRICS
         .graph_extract_duration_seconds
-        .with_label_values(&[GRAPH_TYPE_CODE, BACKEND_SQLITE, layer])
+        .with_label_values(&[tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE, layer])
         .observe(seconds);
+}
+
+/// Record a graph algorithm run (PRD D5 Phase-2): observe its duration and set
+/// the last-run timestamp gauge to the current unix time. `algorithm` is one of
+/// `pagerank` | `community` | `betweenness`. No-op when telemetry is off.
+pub fn record_graph_algorithm_run(algorithm: &str, tenant_id: &str, seconds: f64) {
+    if !METRICS.is_enabled() {
+        return;
+    }
+    let gm = &*GRAPH_METRICS;
+    gm.graph_algorithm_duration_seconds
+        .with_label_values(&[algorithm, tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+        .observe(seconds);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    gm.graph_algorithm_last_run_timestamp_seconds
+        .with_label_values(&[algorithm, tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+        .set(now);
+}
+
+/// Record a successful graph upsert (PRD D5 Phase-2): increment node/edge upsert
+/// counters by the number stored. No-op when telemetry is off.
+pub fn record_graph_upsert(tenant_id: &str, nodes: u64, edges: u64) {
+    if !METRICS.is_enabled() {
+        return;
+    }
+    let gm = &*GRAPH_METRICS;
+    if nodes > 0 {
+        gm.graph_upsert_nodes_total
+            .with_label_values(&[tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .inc_by(nodes);
+    }
+    if edges > 0 {
+        gm.graph_upsert_edges_total
+            .with_label_values(&[tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .inc_by(edges);
+    }
+}
+
+/// Record a graph ingestion error (PRD D5 Phase-2). No-op when telemetry is off.
+pub fn record_graph_ingest_error(tenant_id: &str) {
+    if !METRICS.is_enabled() {
+        return;
+    }
+    GRAPH_METRICS
+        .graph_ingest_errors_total
+        .with_label_values(&[tenant_id, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+        .inc();
 }
 
 /// Snapshot code-graph size/health gauges from the SQLite graph store in a
@@ -394,12 +510,79 @@ mod tests {
     #[test]
     fn extract_duration_carries_layer_and_records() {
         // graph_extract_duration_seconds is the only graph metric with `layer`.
-        record_graph_extract_duration(LAYER_PROCESSING, 0.012);
+        record_graph_extract_duration("t-ext", LAYER_PROCESSING, 0.012);
         let count = GRAPH_METRICS
             .graph_extract_duration_seconds
-            .with_label_values(&[GRAPH_TYPE_CODE, BACKEND_SQLITE, LAYER_PROCESSING])
+            .with_label_values(&["t-ext", GRAPH_TYPE_CODE, BACKEND_SQLITE, LAYER_PROCESSING])
             .get_sample_count();
         assert!(count >= 1);
+    }
+
+    #[test]
+    fn algorithm_run_records_duration_and_timestamp() {
+        record_graph_algorithm_run("pagerank", "t-alg", 0.5);
+        let gm = &*GRAPH_METRICS;
+        let count = gm
+            .graph_algorithm_duration_seconds
+            .with_label_values(&["pagerank", "t-alg", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .get_sample_count();
+        assert!(count >= 1);
+        let ts = gm
+            .graph_algorithm_last_run_timestamp_seconds
+            .with_label_values(&["pagerank", "t-alg", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .get();
+        assert!(ts > 0.0, "last-run timestamp must be set to a unix time");
+    }
+
+    #[test]
+    fn upsert_and_error_counters_increment() {
+        let gm = &*GRAPH_METRICS;
+        let before_n = gm
+            .graph_upsert_nodes_total
+            .with_label_values(&["t-cnt", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .get();
+        let before_err = gm
+            .graph_ingest_errors_total
+            .with_label_values(&["t-cnt", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .get();
+        record_graph_upsert("t-cnt", 3, 5);
+        record_graph_ingest_error("t-cnt");
+        assert_eq!(
+            gm.graph_upsert_nodes_total
+                .with_label_values(&["t-cnt", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+                .get(),
+            before_n + 3
+        );
+        assert_eq!(
+            gm.graph_upsert_edges_total
+                .with_label_values(&["t-cnt", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+                .get(),
+            5
+        );
+        assert_eq!(
+            gm.graph_ingest_errors_total
+                .with_label_values(&["t-cnt", GRAPH_TYPE_CODE, BACKEND_SQLITE])
+                .get(),
+            before_err + 1
+        );
+    }
+
+    /// Counter names end with `_total`; gauges/histograms do not.
+    #[test]
+    fn counter_names_end_with_total() {
+        for name in [
+            "wqm_memexd_graph_upsert_nodes_total",
+            "wqm_memexd_graph_upsert_edges_total",
+            "wqm_memexd_graph_ingest_errors_total",
+        ] {
+            assert!(name.ends_with("_total"), "{name} must end with _total");
+        }
+        for name in [
+            "wqm_memexd_graph_algorithm_duration_seconds",
+            "wqm_memexd_graph_algorithm_last_run_timestamp_seconds",
+        ] {
+            assert!(!name.ends_with("_total"), "{name} must not end with _total");
+        }
     }
 
     /// Every graph metric is registered in the shared registry and exported
@@ -425,7 +608,12 @@ mod tests {
         .await
         .unwrap();
         snapshot_graph_metrics(&pool).await.unwrap();
-        record_graph_extract_duration(LAYER_PROCESSING, 0.01);
+        // Exercise every Phase-1/2 helper so all metric families have a child
+        // and therefore appear in `gather()`.
+        record_graph_extract_duration("t-lbl", LAYER_PROCESSING, 0.01);
+        record_graph_algorithm_run("pagerank", "t-lbl", 0.02);
+        record_graph_upsert("t-lbl", 1, 1);
+        record_graph_ingest_error("t-lbl");
 
         let families = METRICS.registry.gather();
         let graph_families: Vec<_> = families
@@ -433,8 +621,8 @@ mod tests {
             .filter(|f| f.get_name().starts_with("wqm_memexd_graph_"))
             .collect();
         assert!(
-            graph_families.len() >= 8,
-            "expected all 8 graph metric families, got {}",
+            graph_families.len() >= 13,
+            "expected all 13 graph metric families, got {}",
             graph_families.len()
         );
         for f in graph_families {

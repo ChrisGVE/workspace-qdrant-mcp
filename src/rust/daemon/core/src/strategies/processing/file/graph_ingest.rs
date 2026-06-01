@@ -69,17 +69,28 @@ pub(super) async fn ingest_graph_edges(
         file_path
     );
 
-    if let Err(e) = graph_store
+    match graph_store
         .reingest_file(tenant_id, file_path, &nodes, &edges)
         .await
     {
-        warn!(
-            "Graph ingestion failed for {} (tenant {}): {}",
-            file_path, tenant_id, e
-        );
+        Ok(()) => {
+            crate::graph::metrics::record_graph_upsert(
+                tenant_id,
+                nodes.len() as u64,
+                edges.len() as u64,
+            );
+        }
+        Err(e) => {
+            warn!(
+                "Graph ingestion failed for {} (tenant {}): {}",
+                file_path, tenant_id, e
+            );
+            crate::graph::metrics::record_graph_ingest_error(tenant_id);
+        }
     }
 
     crate::graph::metrics::record_graph_extract_duration(
+        tenant_id,
         crate::graph::metrics::LAYER_PROCESSING,
         extract_start.elapsed().as_secs_f64(),
     );
