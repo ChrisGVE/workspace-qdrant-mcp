@@ -137,6 +137,80 @@ mod tests {
         assert!(config.compress_rotated);
     }
 
+    // ── C1: log persistence defaults ON ─────────────────────────────────
+
+    #[serial]
+    #[test]
+    fn test_default_persists_json_to_canonical_path() {
+        let prev = env::var("WQM_LOG_DIR").ok();
+        env::remove_var("WQM_LOG_DIR");
+
+        let config = LoggingConfig::default();
+        assert!(config.file_logging, "file logging defaults ON (C1)");
+        let path = config.log_file_path.expect("default has a log file path");
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("daemon.jsonl")
+        );
+        assert_eq!(path.parent(), Some(get_canonical_log_dir().as_path()));
+        // The file sink is always JSON regardless of the console `json_format`.
+        assert_eq!(config.rotation_size_mb, 50);
+        assert_eq!(config.rotation_count, 5);
+        assert!(config.compress_rotated);
+
+        match prev {
+            Some(v) => env::set_var("WQM_LOG_DIR", v),
+            None => env::remove_var("WQM_LOG_DIR"),
+        }
+    }
+
+    #[serial]
+    #[test]
+    fn test_from_environment_file_logging_defaults_on_and_opts_out() {
+        let prev_file = env::var("WQM_LOG_FILE").ok();
+        let prev_path = env::var("WQM_LOG_FILE_PATH").ok();
+        env::remove_var("WQM_LOG_FILE");
+        env::remove_var("WQM_LOG_FILE_PATH");
+
+        // Unset → defaults ON with the canonical path.
+        let config = LoggingConfig::from_environment();
+        assert!(config.file_logging);
+        assert!(config.log_file_path.is_some());
+
+        // Explicit opt-out.
+        env::set_var("WQM_LOG_FILE", "false");
+        assert!(!LoggingConfig::from_environment().file_logging);
+        env::set_var("WQM_LOG_FILE", "0");
+        assert!(!LoggingConfig::from_environment().file_logging);
+
+        match prev_file {
+            Some(v) => env::set_var("WQM_LOG_FILE", v),
+            None => env::remove_var("WQM_LOG_FILE"),
+        }
+        match prev_path {
+            Some(v) => env::set_var("WQM_LOG_FILE_PATH", v),
+            None => env::remove_var("WQM_LOG_FILE_PATH"),
+        }
+    }
+
+    #[serial]
+    #[test]
+    fn test_development_persists_to_file() {
+        let prev = env::var("WQM_LOG_FILE_PATH").ok();
+        env::remove_var("WQM_LOG_FILE_PATH");
+
+        let config = LoggingConfig::development();
+        assert!(config.file_logging, "dev/foreground persists logs (C1)");
+        assert!(config.console_output, "console stays on in dev");
+        assert!(!config.json_format, "console stays human-readable in dev");
+        assert!(config.log_file_path.is_some());
+
+        match prev {
+            Some(v) => env::set_var("WQM_LOG_FILE_PATH", v),
+            None => env::remove_var("WQM_LOG_FILE_PATH"),
+        }
+    }
+
     #[test]
     fn test_performance_metrics() {
         let mut metrics = PerformanceMetrics::default();

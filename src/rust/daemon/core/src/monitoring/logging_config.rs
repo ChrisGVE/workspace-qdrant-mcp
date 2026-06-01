@@ -56,8 +56,11 @@ impl Default for LoggingConfig {
             level: Level::INFO,
             json_format: false,
             console_output: true,
-            file_logging: false,
-            log_file_path: None,
+            // C1: daemon log persistence defaults ON. The file sink is always
+            // JSON (the file layer uses the B3 trace-aware JSON formatter); the
+            // console keeps its human-readable format via `json_format`.
+            file_logging: true,
+            log_file_path: Some(get_canonical_log_dir().join("daemon.jsonl")),
             performance_metrics: true,
             error_tracking: true,
             global_fields: HashMap::new(),
@@ -99,9 +102,10 @@ impl LoggingConfig {
             .map(|v| v.to_lowercase() != "false" && v != "0")
             .unwrap_or(true);
 
+        // C1: persistence defaults ON; WQM_LOG_FILE=false/0 opts out.
         config.file_logging = env::var("WQM_LOG_FILE")
-            .map(|v| v.to_lowercase() == "true" || v == "1")
-            .unwrap_or(false);
+            .map(|v| v.to_lowercase() != "false" && v != "0")
+            .unwrap_or(true);
 
         if let Ok(file_path) = env::var("WQM_LOG_FILE_PATH") {
             config.log_file_path = Some(PathBuf::from(file_path));
@@ -176,12 +180,18 @@ impl LoggingConfig {
 
     /// Create development logging configuration
     pub fn development() -> Self {
+        // C1: persist to a JSON file even in foreground/dev mode while keeping
+        // the human-readable console. Honors WQM_LOG_FILE_PATH if set.
+        let log_file_path = env::var("WQM_LOG_FILE_PATH")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| Some(get_canonical_log_dir().join("daemon.jsonl")));
         Self {
             level: Level::DEBUG,
             json_format: false,
             console_output: true,
-            file_logging: false,
-            log_file_path: None,
+            file_logging: true,
+            log_file_path,
             performance_metrics: true,
             error_tracking: true,
             force_disable_ansi: None,
