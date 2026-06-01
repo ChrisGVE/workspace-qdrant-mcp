@@ -1,16 +1,18 @@
-# Prometheus alerting rules for workspace-qdrant-mcp v0.1.3.
+# Prometheus alerting rules for workspace-qdrant-mcp v0.2.0.
 #
-# Six rules cover queue health, daemon availability, Qdrant reachability,
-# and MCP session activity. Wire into Prometheus via `rule_files:` in
-# prometheus.yml (see task 4) and mount the file read-only into the
-# Prometheus container (see tasks 3 / 14).
+# Rules cover queue health, daemon/Qdrant availability, MCP session activity,
+# and (v0.2.0 observability) code-graph, State-DB and embedding-provider
+# health. Wire into Prometheus via `rule_files:` in prometheus.yml and mount
+# the file read-only into the Prometheus container.
 #
-# Metric-name note (deviation from PRD §G5b as drafted):
-#   The PRD mentions `wqm_queue_failed_total`. The daemon currently exports
-#   queue-processing outcomes via `wqm_memexd_queue_items_processed_total`
-#   with a `status` label (see src/rust/daemon/core/src/monitoring/metrics_core.rs).
-#   The failure alerts below filter on `status="failure"` against that
-#   existing counter; no daemon code change is required.
+# Metric-name notes (canonical post-A4 wqm_memexd_* names):
+#   - Queue failure outcomes use `wqm_memexd_queue_items_processed_total` with
+#     a `status` label; the canonical failure value is `status="failure"`
+#     (NOT `failed`, which never matched).
+#   - State-DB gauges: `wqm_memexd_state_db_wal_size_bytes`,
+#     `wqm_memexd_state_db_integrity_ok` (1=ok, 0=failed).
+#   - Code graph: `wqm_memexd_graph_nodes` (aggregate across graph types).
+#   - Embedding rate limiting: `wqm_memexd_embedding_provider_rate_limit_waits_total`.
 
 groups:
   - name: workspace-qdrant-alerts
@@ -84,3 +86,51 @@ groups:
         annotations:
           summary: "MCP session active but idle"
           description: "An MCP session is registered but no tool invocations have been recorded in the last 15 minutes."
+
+      # ── Code graph health ────────────────────────────────────
+
+      - alert: GraphDbMissing
+        expr: |
+          (absent(wqm_memexd_graph_nodes) == 1 and on() up{job="memexd"} == 1)
+          or (sum(wqm_memexd_graph_nodes) == 0 and on() up{job="memexd"} == 1)
+        for: 30m
+        labels:
+          severity: warning
+          component: graph
+        annotations:
+          summary: "Code graph empty or missing"
+          description: "wqm_memexd_graph_nodes is absent or all-zero while memexd is up for over 30m. Graph extraction may be stalled or disabled. (absent() yields a single labelless series, so the `and on()` join against up{job=memexd} is required.)"
+
+      # ── State DB health ──────────────────────────────────────
+
+      - alert: StateDbWalOversize
+        expr: wqm_memexd_state_db_wal_size_bytes > 104857600
+        for: 5m
+        labels:
+          severity: warning
+          component: daemon
+        annotations:
+          summary: "State DB WAL exceeds 100MB"
+          description: "SQLite WAL size is {{ $value | humanize1024 }}B (>100MB). Checkpointing may be lagging; investigate write contention or a long-running reader."
+
+      - alert: StateDbIntegrityFail
+        expr: wqm_memexd_state_db_integrity_ok == 0
+        for: 0m
+        labels:
+          severity: critical
+          component: daemon
+        annotations:
+          summary: "State DB integrity check failed"
+          description: "wqm_memexd_state_db_integrity_ok is 0 — the last SQLite integrity check did not pass. The state database may be corrupt."
+
+      # ── Embedding provider health ────────────────────────────
+
+      - alert: EmbeddingRateLimitSustained
+        expr: rate(wqm_memexd_embedding_provider_rate_limit_waits_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: embedding
+        annotations:
+          summary: "Embedding provider rate-limiting sustained"
+          description: "The embedding provider has been imposing rate-limit backoff waits continuously for over 5 minutes. Throughput is throttled; consider reducing concurrency or upgrading the provider tier."
