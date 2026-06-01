@@ -11,6 +11,29 @@ use prometheus::{
     self, core::Collector, GaugeVec, HistogramVec, IntCounterVec, IntGaugeVec, Opts, Registry,
 };
 
+// ── Frozen histogram bucket layouts (stable API — A5) ────────────────────
+//
+// These bucket boundary sets are a **stable API**: dashboards built on
+// `histogram_quantile()` and heatmaps interpolate across these boundaries, so
+// changing a layout silently breaks every panel that spans the changed edge.
+// To change buckets, RENAME the metric instead of editing the layout. Both
+// consts are documented in `docker/docs/telemetry.md`.
+
+/// Bucket layout for `wqm_memexd_embedding_duration_seconds`.
+///
+/// Extends the original `[…5.0]` spread with `10.0` and `30.0` upper buckets so
+/// cold model loads and large-batch embeds (which exceed 5s) are measurable in
+/// p99 instead of collapsing into `+Inf` (fixes C9).
+pub const EMBEDDING_DURATION_BUCKETS: &[f64] = &[0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0];
+
+/// Bucket layout for the dimensional `wqm_memexd_processing_duration_seconds`
+/// histogram (emitted by A2). Frozen here, ahead of A2, so the per-item
+/// processing latency histogram ships with a stable boundary set. A strict
+/// superset of the embedding layout's upper region (both end `…10.0, 30.0`) so
+/// quantile comparisons across the two histograms align on shared boundaries.
+pub const PROCESSING_DURATION_BUCKETS: &[f64] =
+    &[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0];
+
 // ── Small typed builders to reduce verbosity in factories ────────────────
 
 pub(super) fn int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> IntGaugeVec {
@@ -198,7 +221,7 @@ pub(super) fn create_dependency_metrics() -> (
         "wqm_memexd_embedding_duration_seconds",
         "Embedding generation duration in seconds by model",
         &["model"],
-        vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+        EMBEDDING_DURATION_BUCKETS.to_vec(),
     );
     let embedding_batch_size = histogram_vec(
         "wqm_memexd_embedding_batch_size",

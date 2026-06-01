@@ -12,6 +12,8 @@ pub mod metrics_aggregation;
 pub mod metrics_alerts;
 pub mod metrics_core;
 mod metrics_factories; // per-subsystem Prometheus collector factories
+                       // Frozen histogram bucket layouts (A5) — stable API consumed by A2 and tests.
+pub use metrics_factories::{EMBEDDING_DURATION_BUCKETS, PROCESSING_DURATION_BUCKETS};
 mod metrics_helpers; // impl blocks for DaemonMetrics helper methods
 pub mod metrics_history;
 pub mod metrics_server;

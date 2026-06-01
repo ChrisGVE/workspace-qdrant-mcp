@@ -197,3 +197,46 @@ fn encode_contains_dependency_metric_names() {
     assert!(out.contains("wqm_memexd_sqlite_query_duration_seconds"));
     assert!(out.contains("wqm_memexd_qdrant_request_duration_seconds"));
 }
+
+// ── A5: frozen histogram bucket layouts (stable API) ─────────────────────
+
+use crate::monitoring::metrics_factories::{
+    EMBEDDING_DURATION_BUCKETS, PROCESSING_DURATION_BUCKETS,
+};
+
+/// Read the upper-bound boundary set of a live histogram series.
+fn live_bucket_bounds(h: &prometheus::HistogramVec, labels: &[&str]) -> Vec<f64> {
+    let metric = h.with_label_values(labels);
+    let families = metric.collect();
+    families[0].get_metric()[0]
+        .get_histogram()
+        .get_bucket()
+        .iter()
+        .map(|b| b.get_upper_bound())
+        .collect()
+}
+
+#[test]
+fn embedding_duration_live_buckets_equal_const() {
+    // AC1: the registered embedding histogram's buckets are exactly the
+    // single-source-of-truth const, including the new 10.0 and 30.0 uppers.
+    let m = DaemonMetrics::new();
+    let bounds = live_bucket_bounds(&m.embedding_duration_seconds, &["all-MiniLM-L6-v2"]);
+    assert_eq!(bounds, EMBEDDING_DURATION_BUCKETS.to_vec());
+    assert!(bounds.contains(&10.0) && bounds.contains(&30.0));
+}
+
+#[test]
+fn processing_duration_buckets_const_is_frozen_layout() {
+    // AC2: the frozen 11-boundary layout for wqm_memexd_processing_duration_seconds.
+    // The collector itself is built by A2 from this const; here we lock the
+    // stable-API boundary values so a later edit can't silently drift them.
+    assert_eq!(
+        PROCESSING_DURATION_BUCKETS,
+        &[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+    );
+    // Internal consistency: strict superset of the embedding layout's upper
+    // region — both end in 10.0, 30.0 so cross-histogram quantiles align.
+    assert!(PROCESSING_DURATION_BUCKETS.ends_with(&[10.0, 30.0, 60.0]));
+    assert!(EMBEDDING_DURATION_BUCKETS.ends_with(&[10.0, 30.0]));
+}

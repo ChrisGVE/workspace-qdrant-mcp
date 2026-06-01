@@ -103,6 +103,26 @@ All daemon metrics use the `memexd` namespace prefix except
 | `wqm_memexd_tenant_search_requests_total` | Counter | `tenant_id` | Search requests per tenant |
 | `wqm_memexd_tenant_storage_bytes` | Gauge | `tenant_id` | Estimated storage usage per tenant |
 
+## Histogram bucket layouts (stable API)
+
+Histogram bucket boundaries are a **stable API**. Dashboards built on
+`histogram_quantile()` and heatmaps interpolate across these boundaries, so
+changing a layout silently breaks every panel that spans the changed edge.
+**To change buckets, rename the metric** — never edit a layout in place. The
+frozen layouts are declared as single-source-of-truth consts in
+`src/rust/daemon/core/src/monitoring/metrics_factories.rs`:
+
+| Metric | Const | Bucket boundaries (seconds) |
+|---|---|---|
+| `wqm_memexd_embedding_duration_seconds` | `EMBEDDING_DURATION_BUCKETS` | `0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0` |
+| `wqm_memexd_processing_duration_seconds` | `PROCESSING_DURATION_BUCKETS` | `0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0` |
+
+The embedding layout gained the `10.0` and `30.0` upper buckets so cold model
+loads and large-batch embeds (which exceed 5s) remain measurable at p99
+instead of collapsing into `+Inf`. The processing layout is a strict superset
+of the embedding layout's upper region (both end `…10.0, 30.0`) so quantile
+comparisons across the two histograms align on shared boundaries.
+
 ## Prometheus query recipes
 
 ### Tool invocation rate (per tool, per second)
