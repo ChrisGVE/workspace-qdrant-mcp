@@ -14,6 +14,7 @@
 //!   retained `provider.shutdown()` handle.
 
 mod exporter;
+mod propagation;
 
 use std::env;
 use std::sync::Mutex;
@@ -25,6 +26,7 @@ use tracing::Subscriber;
 use tracing_subscriber::registry::LookupSpan;
 
 pub use exporter::OtlpTransport;
+pub use propagation::{current_traceparent, link_current_to_traceparent};
 
 /// Globally retained tracer provider handle.
 ///

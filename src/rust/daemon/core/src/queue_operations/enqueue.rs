@@ -10,6 +10,35 @@ use crate::unified_queue_schema::{
 
 use super::{QueueError, QueueManager, QueueResult};
 
+/// Metadata JSON key carrying the W3C `traceparent` across the enqueue->dequeue
+/// queue hop (PRD B2). Stored in the queue's `metadata` column; the queue
+/// processor extracts it to LINK the per-item processing span back to the
+/// producer span.
+const TRACEPARENT_METADATA_KEY: &str = "wqm_traceparent";
+
+/// Merge a W3C `traceparent` into the item's `metadata` JSON under
+/// [`TRACEPARENT_METADATA_KEY`] without clobbering existing keys.
+///
+/// Returns the metadata string to store:
+/// - `tp == None` -> the incoming metadata is returned unchanged (`None`).
+/// - the incoming metadata fails to parse as a JSON object -> returned
+///   unchanged (we never corrupt caller metadata to carry a trace link).
+/// - otherwise -> the parsed object with `wqm_traceparent` inserted, re-serialized.
+///
+/// Returning `None` means "store the original `metadata` argument as-is" at the
+/// call site, so an absent trace context costs nothing.
+fn merge_traceparent(metadata: Option<&str>, tp: Option<&str>) -> Option<String> {
+    let tp = tp?;
+    let raw = metadata.unwrap_or("{}");
+    let mut value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let obj = value.as_object_mut()?;
+    obj.insert(
+        TRACEPARENT_METADATA_KEY.to_string(),
+        serde_json::Value::String(tp.to_string()),
+    );
+    serde_json::to_string(&value).ok()
+}
+
 impl QueueManager {
     // ========================================================================
     // Unified Queue Operations (Task 37.21-37.29)
@@ -60,7 +89,14 @@ impl QueueManager {
                 .map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
 
         let branch = branch.unwrap_or("main");
-        let metadata = metadata.unwrap_or("{}");
+        // B2: thread the current trace context through the queue hop via the
+        // metadata column so the eventual processing span links back here.
+        // Costs nothing when tracing is off (`current_traceparent` -> None).
+        let merged_metadata = merge_traceparent(
+            metadata,
+            crate::tracing_otel::current_traceparent().as_deref(),
+        );
+        let metadata = merged_metadata.as_deref().or(metadata).unwrap_or("{}");
         let file_path = Self::extract_file_path(item_type, &payload);
 
         let (is_new, _) = self
@@ -389,5 +425,49 @@ impl QueueManager {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod traceparent_tests {
+    use super::*;
+
+    const TP: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+    #[test]
+    fn none_traceparent_leaves_metadata_unchanged() {
+        // No trace context -> caller stores the original metadata as-is.
+        assert_eq!(merge_traceparent(Some(r#"{"k":"v"}"#), None), None);
+        assert_eq!(merge_traceparent(None, None), None);
+    }
+
+    #[test]
+    fn adds_traceparent_to_empty_metadata() {
+        let out = merge_traceparent(None, Some(TP)).expect("merge produces metadata");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v[TRACEPARENT_METADATA_KEY], serde_json::json!(TP));
+    }
+
+    #[test]
+    fn preserves_existing_keys_and_adds_traceparent() {
+        let out = merge_traceparent(Some(r#"{"source":"watcher","n":3}"#), Some(TP))
+            .expect("merge produces metadata");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["source"], serde_json::json!("watcher"));
+        assert_eq!(v["n"], serde_json::json!(3));
+        assert_eq!(v[TRACEPARENT_METADATA_KEY], serde_json::json!(TP));
+    }
+
+    #[test]
+    fn non_object_metadata_is_handled_gracefully() {
+        // A JSON array (non-object) cannot carry the key -> return None so the
+        // caller keeps the original metadata rather than corrupting it.
+        assert_eq!(merge_traceparent(Some("[1,2,3]"), Some(TP)), None);
+    }
+
+    #[test]
+    fn invalid_metadata_is_handled_gracefully() {
+        // Unparseable metadata -> None (keep original, never panic).
+        assert_eq!(merge_traceparent(Some("not json"), Some(TP)), None);
     }
 }

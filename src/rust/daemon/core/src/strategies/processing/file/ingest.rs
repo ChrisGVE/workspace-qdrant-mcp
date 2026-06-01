@@ -16,7 +16,7 @@ use crate::context::ProcessingContext;
 use crate::processing_timings::{self, PhaseTiming};
 use crate::tagging::aggregate_document_embedding;
 use crate::tracked_files_schema;
-use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
+use crate::unified_queue_processor::UnifiedProcessorResult;
 use crate::unified_queue_schema::{
     DestinationStatus, FilePayload, QueueOperation, UnifiedQueueItem,
 };
@@ -30,6 +30,7 @@ use super::graph_ingest;
 use super::keyword_extract;
 use super::keyword_persist;
 use super::narrative_phase;
+use super::parse::parse_document;
 use super::store_track;
 
 /// Ingest file content: embedding, Qdrant upsert, tracked_files, FTS5.
@@ -709,43 +710,6 @@ fn is_narrative_file(path: &Path) -> bool {
             let lower = ext.to_ascii_lowercase();
             lower == "md" || lower == "markdown" || lower == "txt" || lower == "rst"
         })
-}
-
-/// Parse the document and compute file identifiers (phase 0 + 1).
-#[allow(clippy::too_many_arguments)]
-async fn parse_document(
-    ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    payload: &FilePayload,
-    file_path: &Path,
-    abs_file_path: &str,
-    relative_path: &str,
-    provider: Option<std::sync::Arc<dyn crate::tree_sitter::parser::LanguageProvider>>,
-    timings: &mut Vec<PhaseTiming>,
-) -> UnifiedProcessorResult<(crate::DocumentContent, String, String, String)> {
-    let t0 = Instant::now();
-    let document_content = ctx
-        .document_processor
-        .process_file_content_with_provider(file_path, &item.collection, provider)
-        .await
-        .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
-    timings.push(PhaseTiming {
-        phase: "parse",
-        duration_ms: t0.elapsed().as_millis() as u64,
-    });
-    info!(
-        "Extracted {} chunks from {}",
-        document_content.chunks.len(),
-        payload.file_path.as_str()
-    );
-
-    let file_document_id = crate::generate_document_id(&item.tenant_id, abs_file_path);
-    let file_hash = tracked_files_schema::compute_file_hash(file_path)
-        .unwrap_or_else(|_| "unknown".to_string());
-    let base_point =
-        wqm_common::hashing::compute_base_point(&item.tenant_id, relative_path, &file_hash);
-
-    Ok((document_content, file_document_id, file_hash, base_point))
 }
 
 /// Run keyword extraction (phase 3) and graph edge ingestion (phase 4).

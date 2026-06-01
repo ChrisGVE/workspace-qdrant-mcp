@@ -84,6 +84,16 @@ impl StorageClient {
     /// Insert points with explicit wait control.
     ///
     /// When `wait` is true, each batch blocks until Qdrant commits the points.
+    #[tracing::instrument(
+        name = "qdrant.upsert",
+        level = "debug",
+        skip_all,
+        fields(
+            wqm.collection = %collection_name,
+            points.count = points.len(),
+            rpc.system = "qdrant",
+        )
+    )]
     pub async fn insert_points_batch_with_wait(
         &self,
         collection_name: &str,

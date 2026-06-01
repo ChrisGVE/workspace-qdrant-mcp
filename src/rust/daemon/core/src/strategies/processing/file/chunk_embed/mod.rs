@@ -16,6 +16,7 @@ use tracing::{debug, info};
 
 use crate::context::ProcessingContext;
 use crate::lsp::EnrichmentStatus;
+use crate::tracing_gate::{tier_enabled, TraceTier};
 use crate::tracked_files_schema::{self, ChunkType as TrackedChunkType, ProcessingStatus};
 use crate::unified_queue_processor::UnifiedProcessorError;
 use crate::unified_queue_schema::UnifiedQueueItem;
@@ -42,6 +43,16 @@ struct ChunkOutput {
 /// `branch` is the detected current branch (from `BranchCache`), used for
 /// the `"branches"` Qdrant payload field.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(
+    name = "embed.generate",
+    level = "debug",
+    skip_all,
+    fields(
+        wqm.engine = tracing::field::Empty,
+        model = tracing::field::Empty,
+        batch.size = tracing::field::Empty,
+    )
+)]
 pub(super) async fn embed_chunks(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -89,6 +100,13 @@ pub(super) async fn embed_chunks(
 
     // Batch-embed all chunk texts in one provider call.
     let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+
+    if tier_enabled(TraceTier::Hot) {
+        let span = tracing::Span::current();
+        span.record("wqm.engine", ctx.embedding_generator.metrics_label());
+        span.record("model", "default");
+        span.record("batch.size", chunk_texts.len());
+    }
 
     let _permit = ctx
         .embedding_semaphore

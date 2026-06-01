@@ -13,6 +13,7 @@ use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::{QueueError, QueueManager};
+use crate::tracing_gate::{tier_enabled, TraceTier};
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp};
 
@@ -28,6 +29,17 @@ use super::throttle::QueueThrottleState;
 use super::types::{
     get_current_branch, CompiledPatterns, EventDebouncer, FileEvent, WatchConfig, WatchType,
 };
+
+/// Map a notify [`EventKind`] to a low-cardinality `event_type` span attribute.
+fn event_type_label(kind: &EventKind) -> &'static str {
+    match kind {
+        EventKind::Create(_) => "create",
+        EventKind::Modify(_) => "modify",
+        EventKind::Remove(_) => "remove",
+        EventKind::Access(_) => "access",
+        _ => "other",
+    }
+}
 
 impl FileWatcherQueue {
     /// Main event processing loop
@@ -85,8 +97,22 @@ impl FileWatcherQueue {
         info!("Event processing loop stopped");
     }
 
-    /// Process a single file event
+    /// Process a single file event.
+    ///
+    /// `watch.detect` is the producer-side root span for a file's ingestion: it
+    /// records the raw filesystem event and the debounce coalescing decision.
+    /// The eventual `queue.process_item` span on the queue-processor task links
+    /// back to it across the queue hop via the stored W3C traceparent.
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        name = "watch.detect",
+        level = "debug",
+        skip_all,
+        fields(
+            event_type = tracing::field::Empty,
+            watcher_coalesced = tracing::field::Empty,
+        )
+    )]
     async fn process_file_event(
         event: FileEvent,
         debouncer: &Arc<Mutex<EventDebouncer>>,
@@ -102,6 +128,9 @@ impl FileWatcherQueue {
         queue_errors: &Arc<Mutex<u64>>,
         events_throttled: &Arc<Mutex<u64>>,
     ) {
+        if tier_enabled(TraceTier::Hot) {
+            tracing::Span::current().record("event_type", event_type_label(&event.event_kind));
+        }
         {
             let mut count = events_received.lock().await;
             *count += 1;
@@ -132,6 +161,11 @@ impl FileWatcherQueue {
             let mut debouncer_lock = debouncer.lock().await;
             debouncer_lock.add_event(event.clone())
         };
+        if tier_enabled(TraceTier::Hot) {
+            // `false` here means the debouncer coalesced this event into a
+            // pending window (no immediate enqueue); `true` means it fires now.
+            tracing::Span::current().record("watcher_coalesced", !should_process);
+        }
         if should_process {
             Self::enqueue_file_operation(
                 event,

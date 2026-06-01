@@ -12,6 +12,7 @@
 //! - `fts5_index` — FTS5 code search index updates
 //! - `keyword_extract` — keyword/tag extraction pipeline
 //! - `lsp_payload` — LSP enrichment payload serialization
+//! - `parse` — document parse + identifier phase (extract.document span)
 //! - `store_track` — Qdrant upsert + tracked_files/qdrant_chunks transaction
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
 //! - `zero_byte` — graceful handling of empty (0-byte) files
@@ -30,6 +31,7 @@ mod keyword_extract;
 mod keyword_persist;
 pub(crate) mod lsp_payload;
 mod narrative_phase;
+mod parse;
 mod store_track;
 mod update_preamble;
 mod zero_byte;
