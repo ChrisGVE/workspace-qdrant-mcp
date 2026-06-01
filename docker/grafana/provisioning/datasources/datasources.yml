@@ -11,3 +11,23 @@ datasources:
     jsonData:
       httpMethod: POST
       timeInterval: 15s
+
+  # Loki log aggregation (PRD C2). Logs are queryable by `service`, `level`,
+  # and free text; `trace_id` is surfaced as a derived field for log->trace
+  # navigation. The derived field targets a `tempo` datasource UID so it
+  # resolves automatically once a trace store is added (PRD §12 Q1); until
+  # then it still surfaces trace_id as a clickable field on each log line.
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      derivedFields:
+        - name: trace_id
+          matcherType: regex
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: '${__value.raw}'
+          datasourceUid: tempo

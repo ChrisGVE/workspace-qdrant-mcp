@@ -1,0 +1,52 @@
+# docker/promtail/promtail-config.yml
+#
+# Promtail tails the daemon's JSON log files (PRD C1/C2) and ships them to
+# Loki. The daemon writes ~/.local/share/workspace-qdrant/logs/daemon.jsonl;
+# in the compose stack that path is bind-mounted to the host under
+# ${WQM_STATE_DIR}/memexd/logs and re-mounted here read-only at /var/log/memexd.
+#
+# LABEL CARDINALITY (PRD C2 AC4 / §5 — bounded label set):
+#   Promtail emits ONLY low-cardinality labels: `job`, `service`, and `level`.
+#   `trace_id`/`span_id`/`target` are PARSED from the JSON for query-time use
+#   and Grafana derived fields, but are deliberately NOT promoted to labels —
+#   per-trace_id labels would explode Loki's index and are a documented DoS/
+#   cost control. Do not add trace_id/span_id/file_path to the `labels` stage.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: memexd
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: memexd
+          service: workspace-qdrant-mcp
+          __path__: /var/log/memexd/*.jsonl
+    pipeline_stages:
+      # Parse the structured JSON record emitted by the daemon (B3 formatter).
+      - json:
+          expressions:
+            level: level
+            target: target
+            span: span
+            trace_id: trace_id
+            span_id: span_id
+            ts: timestamp
+      # Use the record's own ISO-8601 timestamp as the log entry time.
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+      # Promote ONLY bounded fields to labels. trace_id/span_id stay as parsed
+      # fields (available via LogQL `| json` and Grafana derived fields).
+      - labels:
+          level:

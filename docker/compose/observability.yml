@@ -101,6 +101,52 @@ services:
     labels:
       <<: *watchtower-off
 
+  # ── Log aggregation (PRD C2): Loki + promtail ───────────────────────────────
+  #
+  # promtail tails the daemon's JSON logs (written by C1 to
+  # ${WQM_STATE_DIR}/memexd/logs on the host — the same dir reference.yml/
+  # minimal.yml bind-mount into the memexd container) and ships them to Loki.
+  # Grafana auto-provisions a Loki datasource (see grafana/provisioning).
+  # Loki is bound localhost-only (§5); promtail publishes no host port.
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: wqm-loki
+    <<: *restart
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ../loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: wqm-promtail
+    <<: *restart
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ../promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Daemon JSON log dir (read-only). Matches the memexd state mount in
+      # reference.yml/minimal.yml: <state>/memexd → .../workspace-qdrant, so
+      # logs live under <state>/memexd/logs.
+      - ${WQM_STATE_DIR:-./state}/memexd/logs:/var/log/memexd:ro
+    depends_on:
+      - loki
+    networks:
+      - workspace-network
+    labels:
+      <<: *watchtower-off
+
 # ── Networks + Volumes ───────────────────────────────────────────────────────
 #
 # Network name matches reference.yml and minimal.yml so services resolve
@@ -113,3 +159,4 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  loki_data:
