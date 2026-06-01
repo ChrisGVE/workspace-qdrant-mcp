@@ -152,6 +152,16 @@ pub fn start_metrics_collection(pool: SqlitePool) -> JoinHandle<()> {
                     warn!("Failed to collect metrics history: {}", e);
                 }
             }
+            // State-DB maintenance gauges (D5 DATA-N1): last vacuum/integrity
+            // timestamps from the db_maintenance table on the same state pool.
+            if let Err(e) =
+                workspace_qdrant_core::monitoring::state_db_metrics::snapshot_state_db_metrics(
+                    &pool,
+                )
+                .await
+            {
+                warn!("Failed to snapshot state-DB metrics: {}", e);
+            }
         }
     });
     info!("Metrics history collection started (60s interval)");

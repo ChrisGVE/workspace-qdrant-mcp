@@ -277,12 +277,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_schema_version_is_42() {
+    async fn test_schema_version_is_current() {
         let pool = setup_pool().await;
         let version: i32 = sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(version, 42);
+        assert_eq!(version, crate::schema_version::CURRENT_SCHEMA_VERSION);
     }
 }
