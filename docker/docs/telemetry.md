@@ -47,10 +47,28 @@ Source: `src/typescript/mcp-server/src/telemetry/metrics.ts`
 
 ## Daemon metrics
 
-Source: `src/rust/daemon/core/src/monitoring/metrics_core.rs`
+Source: `src/rust/daemon/core/src/monitoring/` (metric factories in
+`metrics_factories.rs`; self-registering subsystem modules in
+`state_db_metrics.rs`, `sqlite_metrics.rs`, `queue_state_metrics.rs`,
+`processing_phase_metrics.rs`, `embedding_metrics.rs`) and
+`src/rust/daemon/core/src/graph/metrics.rs`.
 
-All daemon metrics use the `memexd` namespace prefix except
-`wqm_memexd_queue_oldest_pending_age_seconds`.
+### Naming convention
+
+Every metric name is a static literal carrying its full single prefix — code
+never calls `.namespace(...)` (which would double-prefix to `memexd_memexd_*`).
+Prefixes are reserved per component:
+
+| Prefix | Component | Source |
+|---|---|---|
+| `wqm_memexd_*` | Rust daemon (`memexd`) | this section |
+| `wqm_mcp_*` | MCP server | [MCP server metrics](#mcp-server-metrics) |
+| `wqm_cli_*` | Rust CLI | reserved (no CLI metrics emitted yet) |
+
+A test (`tests/dashboard_validation_tests.rs`) guards the single-prefix
+invariant at runtime, and a doc-completeness test
+(`tests/metric_inventory_tests.rs`) fails CI if a `wqm_memexd_*` metric is
+defined in code but missing from this document.
 
 ### Queue metrics
 
@@ -102,6 +120,115 @@ All daemon metrics use the `memexd` namespace prefix except
 | `wqm_memexd_tenant_documents_total` | Gauge | `tenant_id`, `collection` | Document count per tenant and collection |
 | `wqm_memexd_tenant_search_requests_total` | Counter | `tenant_id` | Search requests per tenant |
 | `wqm_memexd_tenant_storage_bytes` | Gauge | `tenant_id` | Estimated storage usage per tenant |
+
+### Processing metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_processing_duration_seconds` | Histogram | `collection`, `file_type`, `language`, `operation`, `embedding_engine` | Per-item pipeline latency (A2). `file_type`/`language` bounded by the A1 cardinality helper; `operation` is the 8-value queue-op enum; `embedding_engine` is the 6-value provider label. Buckets: `PROCESSING_DURATION_BUCKETS` |
+| `wqm_memexd_processing_phase_duration_seconds` | Histogram | `phase`, `tenant_id`, `collection` | Per-phase duration (D5). `phase` ∈ `chunk\|embed\|qdrant_upsert\|search_index\|graph_extract` |
+| `wqm_memexd_processing_phase_items_total` | Counter | `phase`, `tenant_id` | Items processed per phase (D5) |
+
+### Search & saturation metrics (RED/USE, B6)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_search_duration_seconds` | Histogram | `collection`, `mode` | Vector search latency. Buckets: `SEARCH_DURATION_BUCKETS` |
+| `wqm_memexd_search_result_count` | Histogram | `tenant_id`, `collection` | Result count per search. Buckets: `SEARCH_RESULT_COUNT_BUCKETS` (counts, not seconds) |
+| `wqm_memexd_embedding_inflight` | Gauge | — | In-flight embedding operations (embedder saturation) |
+| `wqm_memexd_sqlite_busy_total` | Counter | — | `SQLITE_BUSY`/locked occurrences (lock-wait saturation) |
+
+### Embedding metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_embedding_duration_seconds` | Histogram | `model` | Embedding generation duration. Buckets: `EMBEDDING_DURATION_BUCKETS` |
+| `wqm_memexd_embedding_batch_size` | Histogram | `model` | Items per embedding call. Buckets: `1, 5, 10, 25, 50, 100, 250` |
+| `wqm_memexd_embedding_provider_requests_total` | Counter | `provider`, `model`, `status_class` | Provider requests (A2). `provider` ∈ `fastembed\|openai\|azure_openai\|lmstudio\|llama_cpp\|openai_compatible_other`; `status_class` ∈ `2xx\|4xx\|5xx\|error` |
+| `wqm_memexd_embedding_provider_latency_seconds` | Histogram | `provider`, `model` | Provider request latency |
+| `wqm_memexd_embedding_provider_rate_limit_waits_total` | Counter | `provider` | Rate-limit backoff waits |
+
+### gRPC server metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_grpc_requests_total` | Counter | `service`, `method`, `status` | gRPC requests handled |
+| `wqm_memexd_grpc_request_duration_seconds` | Histogram | `service`, `method` | gRPC handler duration. Buckets: `0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10` |
+
+### Qdrant client metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_qdrant_request_duration_seconds` | Histogram | `op` | Qdrant client request duration. Buckets: `0.001, 0.01, 0.05, 0.1, 0.5, 1, 5, 10` |
+| `wqm_memexd_qdrant_request_errors_total` | Counter | `op`, `error_type` | Qdrant client request errors |
+
+### SQLite & State-DB metrics (D5)
+
+Single-writer state DB health. State-DB gauges carry no labels except
+`state_db_table_rows`; some register lazily (absent until the first run).
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_sqlite_query_duration_seconds` | Histogram | `op` | SQLite query duration by op. Buckets: `0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1` |
+| `wqm_memexd_state_db_schema_version` | Gauge | — | Current applied schema version |
+| `wqm_memexd_state_db_size_bytes` | Gauge | — | Database file size |
+| `wqm_memexd_state_db_wal_size_bytes` | Gauge | — | WAL file size |
+| `wqm_memexd_state_db_wal_frames_pending` | Gauge | — | WAL frames awaiting checkpoint |
+| `wqm_memexd_state_db_free_pages` | Gauge | — | Free pages in the DB file |
+| `wqm_memexd_state_db_integrity_ok` | Gauge | — | Last integrity check result (1 = ok, 0 = failed) |
+| `wqm_memexd_state_db_table_rows` | Gauge | `table` | Row count per table (14-table bounded set) |
+| `wqm_memexd_state_db_last_vacuum_timestamp_seconds` | Gauge | — | Unix time of last VACUUM (absent until first VACUUM) |
+| `wqm_memexd_state_db_last_integrity_check_timestamp_seconds` | Gauge | — | Unix time of last integrity check |
+
+### Unified-queue state gauges (D5)
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_unified_queue_qdrant_status` | Gauge | `qdrant_status` | Item count per Qdrant destination status (4-value enum) |
+| `wqm_memexd_unified_queue_search_status` | Gauge | `search_status` | Item count per search destination status (4-value enum) |
+
+### Code-graph metrics (D5)
+
+All graph metrics carry `graph_type` (`code` in Phase 1) and `backend`
+(`sqlite`/`ladybug`). `tenant_id` is present on per-tenant metrics; `layer` is
+present **only** on `graph_extract_duration_seconds`; `algorithm` labels the
+`graph_algorithm_*` metrics.
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_graph_nodes` | Gauge | `graph_type`, `backend`, `tenant_id` | Node count |
+| `wqm_memexd_graph_edges` | Gauge | `graph_type`, `backend`, `tenant_id` | Edge count |
+| `wqm_memexd_graph_nodes_by_type` | Gauge | `graph_type`, `backend`, `node_type`, `tenant_id` | Nodes by node type |
+| `wqm_memexd_graph_edges_by_type` | Gauge | `graph_type`, `backend`, `edge_type`, `tenant_id` | Edges by edge type |
+| `wqm_memexd_graph_schema_version` | Gauge | `graph_type`, `backend` | Graph schema version |
+| `wqm_memexd_graph_orphaned_nodes` | Gauge | `graph_type`, `backend`, `tenant_id` | Nodes with no edges |
+| `wqm_memexd_graph_db_size_bytes` | Gauge | `graph_type`, `backend` | Graph store size on disk |
+| `wqm_memexd_graph_extract_duration_seconds` | Histogram | `graph_type`, `backend`, `layer`, `tenant_id` | Extraction duration by layer |
+| `wqm_memexd_graph_algorithm_duration_seconds` | Histogram | `graph_type`, `backend`, `algorithm`, `tenant_id` | Algorithm run duration (PageRank/community/betweenness) |
+| `wqm_memexd_graph_algorithm_last_run_timestamp_seconds` | Gauge | `graph_type`, `backend`, `algorithm`, `tenant_id` | Unix time of last algorithm run |
+| `wqm_memexd_graph_upsert_nodes_total` | Counter | `graph_type`, `backend`, `tenant_id` | Nodes upserted |
+| `wqm_memexd_graph_upsert_edges_total` | Counter | `graph_type`, `backend`, `tenant_id` | Edges upserted |
+| `wqm_memexd_graph_ingest_errors_total` | Counter | `graph_type`, `backend`, `tenant_id` | Graph ingestion errors |
+
+### Watcher-event metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_watcher_events_total` | Counter | `event_type` | Filesystem watcher events by type |
+| `wqm_memexd_watcher_coalesced_total` | Counter | `reason` | Watcher events coalesced before enqueue |
+
+### Reliability metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_circuit_breaker_pauses_total` | Counter | `subsystem` | Circuit-breaker pause events by subsystem |
+
+> Histograms outside the four frozen A5 layouts below (e.g.
+> `embedding_batch_size`, `sqlite_query_duration_seconds`,
+> `qdrant_request_duration_seconds`, `grpc_request_duration_seconds`,
+> `graph_*_duration_seconds`, `processing_phase_duration_seconds`) use inline
+> bucket vectors defined alongside their factory and are not part of the frozen
+> stable-API set.
 
 ## Histogram bucket layouts (stable API)
 
