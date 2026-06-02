@@ -1,11 +1,12 @@
-//! Tests for `env_overrides` — `parse_grpc_endpoint` and `apply_env_overrides`.
+//! Tests for the MCP env-override layer — `parse_grpc_endpoint` and the private
+//! `apply_env_overrides`.
 //!
-//! Included from `env_overrides.rs` via
-//! `#[cfg(test)] #[path = "env_overrides_tests.rs"] mod tests;`.
+//! Included from `mod.rs` via
+//! `#[cfg(test)] #[path = "env_overrides_tests.rs"] mod env_overrides_tests;`.
 
-use super::*;
-use crate::config::types::ServerConfig;
+use super::{apply_env_overrides, parse_grpc_endpoint, ServerConfig};
 use std::collections::HashMap;
+use wqm_common::constants::DEFAULT_GRPC_PORT;
 
 // ------------------------------------------------------------------
 // Helpers
