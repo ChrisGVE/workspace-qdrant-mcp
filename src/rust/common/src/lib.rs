@@ -14,6 +14,7 @@
 
 pub mod classification;
 pub mod cli_profiles;
+pub mod config;
 pub mod constants;
 pub mod duration_fmt;
 pub mod env_expand;
