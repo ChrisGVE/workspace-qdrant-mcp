@@ -81,6 +81,11 @@ services:
       dockerfile: docker/Dockerfile.memexd
     image: workspace-qdrant-mcp-memexd:local
     container_name: wqm-memexd
+    # PID 1 init reaper: memexd spawns LSP servers, grammar downloads and git
+    # subprocesses as children. Without an init, dead children become unreapable
+    # zombies under PID 1 — they accumulate and eventually wedge the container so
+    # Docker cannot even stop it ("PID <n> is zombie and can not be killed").
+    init: true
     <<: *restart
     logging: *default-logging
     depends_on:

@@ -253,6 +253,22 @@ fn walk_eligible_files(
         .add_custom_ignore_filename(".gitignore")
         .add_custom_ignore_filename(".wqmignore");
 
+    // Explicitly apply the project-root `.wqmignore` as a base layer. The
+    // `add_custom_ignore_filename(".wqmignore")` above is meant to pick it up
+    // during the walk, but in a git repo (`git_ignore(true)`) it did NOT
+    // reliably exclude root-anchored deep paths (e.g.
+    // `src/typescript/mcp-server/reports/`), so reconciliation eligibility
+    // diverged from the scan path's `ProjectIgnoreMatcher` (which DOES honor
+    // the root `.wqmignore`). `add_ignore` anchors the file's patterns to its
+    // parent dir (= `project_root`), matching the scan path exactly — without
+    // this, reconciliation would keep re-adding files the scan path excludes
+    // (add/delete reconcile loop). The bind-mounted `global.wqmignore` is
+    // applied separately below.
+    let project_wqmignore = project_root.join(".wqmignore");
+    if project_wqmignore.is_file() {
+        builder.add_ignore(&project_wqmignore);
+    }
+
     // Apply global ignore rules (daemon-wide, outside the project tree).
     // `add_ignore` applies the file's patterns as a base layer that every
     // project walk inherits; `add_custom_ignore_filename` only finds files

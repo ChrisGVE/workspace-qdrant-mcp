@@ -149,6 +149,14 @@ impl GitWatcher {
         event_tx: mpsc::UnboundedSender<GitEvent>,
     ) {
         let debounce = Duration::from_millis(200);
+        // Last emitted (old_sha, new_sha, branch). notify can fire repeatedly
+        // without any real git state change — most visibly the poll backend
+        // re-stat'ing a bind-mounted .git dir — and `parse_reflog_last_entry`
+        // keeps returning the SAME last entry (e.g. the original `clone`
+        // entry, old=000000) until a real operation happens. Re-emitting that
+        // unchanged event every ~200ms re-enqueued the entire tree on a loop
+        // and stopped the index from ever settling. Suppress duplicates.
+        let mut last_emitted: Option<(String, String, Option<String>)> = None;
 
         loop {
             let Some(_first_event) = notify_rx.recv().await else {
@@ -166,6 +174,22 @@ impl GitWatcher {
             match parse_reflog_last_entry(&git_dir) {
                 Some((old_sha, new_sha, event_type, old_branch)) => {
                     let branch = read_current_branch(&git_dir);
+
+                    // Only emit when the git state actually changed since the
+                    // last emission — otherwise a repeatedly-firing notify
+                    // backend turns one stale reflog entry into an endless
+                    // re-index loop.
+                    let state = (old_sha.clone(), new_sha.clone(), branch.clone());
+                    if last_emitted.as_ref() == Some(&state) {
+                        debug!(
+                            "Git state unchanged ({:.8}..{:.8}) for {}, skipping re-emit",
+                            &state.0[..state.0.len().min(8)],
+                            &state.1[..state.1.len().min(8)],
+                            watch_folder_id
+                        );
+                        continue;
+                    }
+                    last_emitted = Some(state);
 
                     let git_event = GitEvent {
                         watch_folder_id: watch_folder_id.clone(),

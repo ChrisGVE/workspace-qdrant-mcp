@@ -707,6 +707,13 @@ function buildSearchOptions(
     options.mode = mode as SearchMode;
   }
 
+  // A/B lever for the cross-encoder reranker: `WQM_BENCH_RERANK=false` runs the
+  // benchmark on the pre-rerank (bi-encoder + path-boost) order. Used to confirm
+  // whether the reranker helps or hurts recall@10 on these known-item queries.
+  if (process.env.WQM_BENCH_RERANK === 'false') {
+    options.rerank = false;
+  }
+
   return options;
 }
 

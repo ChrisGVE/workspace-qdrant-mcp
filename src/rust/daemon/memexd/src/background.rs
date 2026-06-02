@@ -146,7 +146,12 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
 
     let handle = tokio::spawn(async move {
         let manager = QueueManager::new(pool.clone());
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        // 60s (was 10s): each tick runs 3 full-table aggregates on unified_queue
+        // (by type/status, by tenant/status, stats) + a per-tenant rate query.
+        // During a heavy reconcile these are the dominant SQLite-contention
+        // source (28s GROUP BYs starving the connection pool); the gauges are
+        // observability-only, so a coarser cadence trades nothing important.
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
         let known_pairs: std::sync::Arc<
             tokio::sync::Mutex<std::collections::HashSet<(String, String)>>,
         > = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()));
@@ -221,7 +226,7 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
             }
         }
     });
-    info!("Queue depth exporter started (10s interval)");
+    info!("Queue depth exporter started (60s interval)");
     handle
 }
 
@@ -231,7 +236,10 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
 /// a live table of project metadata without querying SQLite directly.
 pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<()> {
     let handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        // 300s (was 30s): this is an expensive watch_folders ⨝ tracked_files
+        // GROUP BY + ORDER BY on computed columns; at 30s it collided with the
+        // reconcile upsert window. Inventory changes slowly, so 5min is ample.
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
         loop {
             interval.tick().await;
             let query = r#"

@@ -543,13 +543,18 @@ export async function finalizeResults(
   // Collapse same-file chunks BEFORE reranking/slicing so the pool holds
   // distinct files, not repeated chunks of one file.
   const deduped = dedupeByFile(fusedResults);
-  // Cross-encoder rerank of the top candidates (best-effort; disable with
-  // `rerank: false`). Promotes the precisely-relevant file into the top-k
-  // beyond what the bi-encoder + path-boost order achieves.
+  // Cross-encoder rerank is OPT-IN (default OFF). Measured on the 12-query
+  // known-item benchmark (settled ext4 index, 2026-06-02): the cross-encoder
+  // HURT code search — it scored implementation `.rs`/`.ts` files below
+  // prose/docs for "where is X" queries, dropping recall@10 to 38% (vs 46%
+  // without) and top10 to 67% (vs 83%) at ~40x the latency (932ms vs 23ms).
+  // The bi-encoder + path-relevance-boosted `deduped` order is strictly better
+  // here. Enable per-call with `rerank: true` for experimentation; a blended
+  // (score-mixing) reranker rather than full reorder is the future direction.
   const ranked =
-    params.options.rerank === false
-      ? deduped
-      : await rerankResults(daemonClient, params.query, deduped, params.limit);
+    params.options.rerank === true
+      ? await rerankResults(daemonClient, params.query, deduped, params.limit)
+      : deduped;
   const finalResults = ranked.slice(0, params.limit);
 
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use notify::{Event, RecursiveMode, Watcher as NotifyWatcher};
+use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info};
 
@@ -160,6 +160,27 @@ impl FileWatcherQueue {
 
     /// Handle notify event
     fn handle_notify_event(event: Event, tx: &mpsc::UnboundedSender<FileEvent>) {
+        // Content indexing only cares about events that can change file CONTENT.
+        // Drop access (reads) and metadata-only (atime/ctime/chmod/chown) events:
+        // across the Docker bind-mount of the WSL ext4 tree these fire spuriously
+        // (and the daemon's own reads bump atime), previously churning the queue
+        // with an endless stream of hash-skip `File/Update` no-ops that kept the
+        // index from ever settling. Real edits arrive as Create / Remove /
+        // Modify(Data) / Modify(Name) / Modify(Any), which all pass through.
+        use notify::event::ModifyKind;
+        if matches!(
+            event.kind,
+            EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_))
+        ) {
+            tracing::debug!(
+                "Ignoring non-content notify event kind={:?} paths={:?}",
+                event.kind,
+                event.paths
+            );
+            return;
+        }
+        tracing::debug!("notify event kind={:?} paths={:?}", event.kind, event.paths);
+
         let timestamp = SystemTime::now();
 
         for path in event.paths {

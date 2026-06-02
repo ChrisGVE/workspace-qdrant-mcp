@@ -531,7 +531,35 @@ impl ProjectServiceImpl {
             );
         }
 
-        let project_root = PathBuf::from(path);
+        // Issue #70: `wqm project activate` sends an empty path (the CLI only
+        // knows the project_id, not the on-disk root). LSP server startup needs
+        // the real project root to detect languages — with an empty root,
+        // language detection finds nothing and zero servers spawn, so enrichment
+        // never runs. Resolve the canonical root from watch_folders when absent.
+        let resolved_path = if path.is_empty() {
+            match self.find_watch_folder_by_tenant(project_id).await {
+                Ok(Some(record)) => record.path,
+                Ok(None) => {
+                    warn!(
+                        project_id = %project_id,
+                        "Cannot start LSP servers: no watch folder found for project"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        project_id = %project_id,
+                        error = %e,
+                        "Cannot start LSP servers: failed to resolve project root"
+                    );
+                    return;
+                }
+            }
+        } else {
+            path.to_string()
+        };
+
+        let project_root = PathBuf::from(&resolved_path);
         if let Err(e) = super::lsp_lifecycle::start_project_lsp_servers(
             &self.lsp_manager,
             &self.language_detector,

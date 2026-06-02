@@ -44,7 +44,13 @@ pub(crate) async fn scan_directory_single_level(
     let mut errors = 0u64;
 
     let baseline: Option<SystemTime> = last_scan.and_then(parse_iso8601_to_system_time);
-    let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path, None);
+    // Pass the watch-folder root so ignore rules cascade from ancestor dirs
+    // (issue #49). Passing `None` here used only the scanned subdirectory's own
+    // `.gitignore`/`.wqmignore`, so a project-root `.wqmignore` (e.g. excluding
+    // `src/typescript/mcp-server/reports/`) was IGNORED when scanning that
+    // subdirectory — letting eval-artifact/leakage files get indexed.
+    let ignore_matcher =
+        ProjectIgnoreMatcher::for_dir(dir_path, Some(Path::new(watch_folder_root.as_str())));
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!(

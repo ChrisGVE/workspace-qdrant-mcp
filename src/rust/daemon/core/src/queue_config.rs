@@ -50,8 +50,14 @@ impl Default for QueueConnectionConfig {
     fn default() -> Self {
         Self {
             database_path: "workspace_state.db".to_string(),
-            max_connections: 10,
-            min_connections: 2,
+            // 24 (was 10): under WAL, readers never block the single writer, so a
+            // larger pool lets the periodic background reads (queue-depth/inventory
+            // exporters, pause/git monitors) get a connection instead of waiting
+            // out the busy_timeout behind the reconcile's in-flight item tasks.
+            // Pool-acquire starvation (logs: "acquired connection but exceeded slow
+            // threshold") was a primary precursor to the daemon recycle.
+            max_connections: 24,
+            min_connections: 4,
             connection_timeout: Duration::from_secs(30),
             busy_timeout: Duration::from_secs(30),
             wal_autocheckpoint: 1000,
@@ -104,7 +110,11 @@ impl QueueConnectionConfig {
             .acquire_timeout(self.connection_timeout)
             .idle_timeout(Some(Duration::from_secs(600))) // 10 minutes
             .max_lifetime(Some(Duration::from_secs(3600))) // 1 hour
-            .test_before_acquire(true) // Verify connection health
+            // false (was true): test_before_acquire runs a validation round-trip
+            // on EVERY acquire. The reconcile acquires connections at high churn,
+            // so this doubled the effective query load against the already-
+            // contended DB. WAL + max_lifetime recycling already bound staleness.
+            .test_before_acquire(false)
             .connect_with(self.build_connection_options())
             .await?;
 

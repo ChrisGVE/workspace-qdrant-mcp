@@ -55,8 +55,9 @@ impl QueueManager {
         let (tenant_id, collection, payload) =
             Self::validate_enqueue_params(tenant_id, collection, payload_json, item_type, op)?;
 
+        let key_payload = Self::idempotency_payload_json(item_type, payload_json);
         let idempotency_key =
-            generate_unified_idempotency_key(item_type, op, tenant_id, collection, payload_json)
+            generate_unified_idempotency_key(item_type, op, tenant_id, collection, &key_payload)
                 .map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
 
         let branch = branch.unwrap_or("main");
@@ -149,6 +150,39 @@ impl QueueManager {
         }
     }
 
+    /// Build the payload JSON used for the idempotency key.
+    ///
+    /// `Folder` scan payloads carry a volatile `last_scan` baseline that is
+    /// bumped to "now" after every scan pass. Hashing it into the idempotency
+    /// key gave every re-scan of the same directory a fresh key, and folder
+    /// items are NOT covered by the partial `file_path` UNIQUE dedup index
+    /// (`WHERE file_path IS NOT NULL`, folders store NULL) — so identical scans
+    /// piled up unbounded and the queue never drained (the index never settled).
+    /// Strip `last_scan` so the key is stable per
+    /// `(item_type, op, tenant, collection, folder_path, scan-params)`; an
+    /// already-pending scan of the same directory then dedups via
+    /// `INSERT OR IGNORE`. The STORED payload keeps `last_scan` for mtime pruning.
+    fn idempotency_payload_json(item_type: ItemType, payload_json: &str) -> std::borrow::Cow<'_, str> {
+        if item_type != ItemType::Folder {
+            return std::borrow::Cow::Borrowed(payload_json);
+        }
+        match serde_json::from_str::<serde_json::Value>(payload_json) {
+            Ok(mut value) => {
+                let changed = value
+                    .as_object_mut()
+                    .map(|obj| obj.remove("last_scan").is_some())
+                    .unwrap_or(false);
+                if !changed {
+                    return std::borrow::Cow::Borrowed(payload_json);
+                }
+                serde_json::to_string(&value)
+                    .map(std::borrow::Cow::Owned)
+                    .unwrap_or(std::borrow::Cow::Borrowed(payload_json))
+            }
+            Err(_) => std::borrow::Cow::Borrowed(payload_json),
+        }
+    }
+
     /// Bulk-enqueue `(item_type, op, tenant_id, collection, payload_json)` tuples
     /// inside a single SQLite transaction.
     ///
@@ -192,12 +226,13 @@ impl QueueManager {
                 .map_err(|e| QueueError::InvalidPayloadJson(e.to_string()))?;
             Self::validate_payload_for_type(item_type, op, &payload)?;
 
+            let key_payload = Self::idempotency_payload_json(item_type, payload_json);
             let idempotency_key = generate_unified_idempotency_key(
                 item_type,
                 op,
                 tenant_id,
                 collection,
-                payload_json,
+                &key_payload,
             )
             .map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
             let file_path = Self::extract_file_path(item_type, &payload);
