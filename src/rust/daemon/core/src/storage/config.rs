@@ -59,7 +59,7 @@ impl Default for Http2Config {
 }
 
 /// Storage client configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
     /// Qdrant server URL
     pub url: String,
@@ -90,6 +90,28 @@ pub struct StorageConfig {
     pub http2: Http2Config,
     /// Skip compatibility checks during connection
     pub check_compatibility: bool,
+}
+
+/// Manual `Debug` (WI-g2): `api_key` is rendered as `Some("[REDACTED]")`/`None`
+/// so the secret never appears in `{:?}` / `{:#?}` output, tracing spans, or any
+/// log line that debug-prints the config. All other fields print verbatim.
+impl std::fmt::Debug for StorageConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageConfig")
+            .field("url", &self.url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("timeout_ms", &self.timeout_ms)
+            .field("max_retries", &self.max_retries)
+            .field("retry_delay_ms", &self.retry_delay_ms)
+            .field("transport", &self.transport)
+            .field("pool_size", &self.pool_size)
+            .field("tls", &self.tls)
+            .field("dense_vector_size", &self.dense_vector_size)
+            .field("sparse_vector_size", &self.sparse_vector_size)
+            .field("http2", &self.http2)
+            .field("check_compatibility", &self.check_compatibility)
+            .finish()
+    }
 }
 
 impl Default for StorageConfig {
@@ -178,6 +200,30 @@ mod tests {
         value["api_key"] = serde_json::Value::String("sk-loaded".to_string());
         let loaded: StorageConfig = serde_json::from_value(value).expect("load");
         assert_eq!(loaded.api_key.as_deref(), Some("sk-loaded"));
+    }
+
+    #[test]
+    fn storage_api_key_redacted_in_debug() {
+        // WI-g2 / AC-g2.1: a configured api_key must never appear in Debug output
+        // (plain or alternate), so a loader that debug-prints the config cannot leak it.
+        let config = StorageConfig {
+            api_key: Some("sk-debug-secret".to_string()),
+            ..StorageConfig::default()
+        };
+        let plain = format!("{config:?}");
+        let alt = format!("{config:#?}");
+        assert!(
+            !plain.contains("sk-debug-secret"),
+            "api_key leaked into {{:?}}: {plain}"
+        );
+        assert!(
+            !alt.contains("sk-debug-secret"),
+            "api_key leaked into {{:#?}}: {alt}"
+        );
+        assert!(plain.contains("[REDACTED]"), "expected redaction marker");
+        // None must render as `None`, not `Some(...)`.
+        let none_dbg = format!("{:?}", StorageConfig::default());
+        assert!(none_dbg.contains("api_key: None"), "got: {none_dbg}");
     }
 
     #[test]

@@ -40,7 +40,7 @@ use wqm_common::paths::MountMap;
 use wqm_common::yaml_defaults::{self, YamlConfig, YamlMountEntry};
 
 /// Daemon endpoint configuration for service discovery
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DaemonEndpointConfig {
     /// Daemon host address
     pub host: String,
@@ -55,6 +55,23 @@ pub struct DaemonEndpointConfig {
     /// secret; deserialization still loads an operator-provided value.
     #[serde(skip_serializing)]
     pub auth_token: Option<String>,
+}
+
+/// Manual `Debug` (WI-g2): `auth_token` is rendered as `Some("[REDACTED]")`/`None`
+/// so the secret never appears in `{:?}` / `{:#?}` output or any log line that
+/// debug-prints the config. All other fields print verbatim.
+impl std::fmt::Debug for DaemonEndpointConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DaemonEndpointConfig")
+            .field("host", &self.host)
+            .field("grpc_port", &self.grpc_port)
+            .field("health_endpoint", &self.health_endpoint)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl Default for DaemonEndpointConfig {
@@ -1048,5 +1065,70 @@ qdrant:
         let http: TransportMode =
             serde_yaml_ng::from_str("http").expect("lowercase http must parse");
         assert!(matches!(http, TransportMode::Http));
+    }
+
+    // ── WI-g2: secret Debug/log redaction ──────────────────────────────────
+
+    #[test]
+    fn daemon_endpoint_auth_token_redacted_in_debug() {
+        // AC-g2.1: auth_token must never appear in Debug output (plain or alternate).
+        let cfg = DaemonEndpointConfig {
+            auth_token: Some("tok-debug-secret".to_string()),
+            ..DaemonEndpointConfig::default()
+        };
+        let plain = format!("{cfg:?}");
+        let alt = format!("{cfg:#?}");
+        assert!(
+            !plain.contains("tok-debug-secret"),
+            "auth_token leaked into {{:?}}: {plain}"
+        );
+        assert!(
+            !alt.contains("tok-debug-secret"),
+            "auth_token leaked into {{:#?}}: {alt}"
+        );
+        assert!(plain.contains("[REDACTED]"), "expected redaction marker");
+        let none_dbg = format!("{:?}", DaemonEndpointConfig::default());
+        assert!(none_dbg.contains("auth_token: None"), "got: {none_dbg}");
+    }
+
+    #[test]
+    fn daemon_config_debug_redacts_nested_secrets() {
+        // AC-g2.1: DaemonConfig's derived Debug recurses into the manual Debug
+        // impls of StorageConfig (qdrant.api_key) and DaemonEndpointConfig
+        // (daemon_endpoint.auth_token) — neither secret may surface.
+        let mut cfg = DaemonConfig::default();
+        cfg.qdrant.api_key = Some("sk-nested-secret".to_string());
+        cfg.daemon_endpoint.auth_token = Some("tok-nested-secret".to_string());
+        for rendered in [format!("{cfg:?}"), format!("{cfg:#?}")] {
+            assert!(
+                !rendered.contains("sk-nested-secret"),
+                "qdrant.api_key leaked: {rendered}"
+            );
+            assert!(
+                !rendered.contains("tok-nested-secret"),
+                "daemon_endpoint.auth_token leaked: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn loader_log_lines_never_contain_secret_values() {
+        // AC-g2.2: a loader that debug-prints the resolved config (the realistic
+        // leak vector) must emit no log line containing a secret VALUE. With the
+        // manual Debug impls in place, debug-printing the config is safe.
+        let mut cfg = DaemonConfig::default();
+        cfg.qdrant.api_key = Some("sk-loader-secret".to_string());
+        cfg.daemon_endpoint.auth_token = Some("tok-loader-secret".to_string());
+        tracing::info!("Configuration loaded: {:?}", cfg);
+        tracing::debug!("Configuration loaded (pretty): {:#?}", cfg);
+        assert!(
+            !logs_contain("sk-loader-secret"),
+            "qdrant.api_key value leaked into a log line"
+        );
+        assert!(
+            !logs_contain("tok-loader-secret"),
+            "daemon_endpoint.auth_token value leaked into a log line"
+        );
     }
 }

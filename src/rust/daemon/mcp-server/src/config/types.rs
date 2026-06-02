@@ -20,7 +20,7 @@ pub struct DatabaseConfig {
 // QdrantConfig
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QdrantConfig {
     pub url: String,
@@ -31,6 +31,19 @@ pub struct QdrantConfig {
     #[serde(skip_serializing)]
     pub api_key: Option<String>,
     pub timeout: u64,
+}
+
+/// Manual `Debug` (WI-g2): `api_key` is rendered as `Some("[REDACTED]")`/`None`
+/// so the secret never appears in `{:?}` / `{:#?}` output or any log line that
+/// debug-prints the config. `url` and `timeout` print verbatim.
+impl std::fmt::Debug for QdrantConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QdrantConfig")
+            .field("url", &self.url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("timeout", &self.timeout)
+            .finish()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +487,35 @@ mod tests {
         let json = serde_json::to_string(&cfg).expect("serialize");
         let back: ServerConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn qdrant_api_key_redacted_in_debug() {
+        // WI-g2 / AC-g2.1: api_key must never appear in Debug output (plain or
+        // alternate), including when nested inside ServerConfig (derived Debug
+        // recurses into QdrantConfig's manual impl).
+        let qdrant = QdrantConfig {
+            url: "http://localhost:6333".to_string(),
+            api_key: Some("sk-mcp-secret".to_string()),
+            timeout: 30,
+        };
+        let plain = format!("{qdrant:?}");
+        let alt = format!("{qdrant:#?}");
+        assert!(!plain.contains("sk-mcp-secret"), "leaked {{:?}}: {plain}");
+        assert!(!alt.contains("sk-mcp-secret"), "leaked {{:#?}}: {alt}");
+        assert!(plain.contains("[REDACTED]"), "expected redaction marker");
+
+        let mut server = ServerConfig::default();
+        server.qdrant.api_key = Some("sk-mcp-secret".to_string());
+        for rendered in [format!("{server:?}"), format!("{server:#?}")] {
+            assert!(
+                !rendered.contains("sk-mcp-secret"),
+                "qdrant.api_key leaked through ServerConfig: {rendered}"
+            );
+        }
+
+        let none_dbg = format!("{:?}", QdrantConfig::default());
+        assert!(none_dbg.contains("api_key: None"), "got: {none_dbg}");
     }
 
     #[test]
