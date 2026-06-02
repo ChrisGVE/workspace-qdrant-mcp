@@ -140,7 +140,7 @@ fn is_ignored_by_matcher(
 
 /// Parse an ISO 8601 / RFC 3339 timestamp string into a `SystemTime`.
 /// Returns `None` on parse failure (safe fallback: scan everything).
-fn parse_iso8601_to_system_time(s: &str) -> Option<SystemTime> {
+pub(crate) fn parse_iso8601_to_system_time(s: &str) -> Option<SystemTime> {
     DateTime::parse_from_rfc3339(s)
         .ok()
         .map(|dt| SystemTime::from(dt))
@@ -178,7 +178,7 @@ async fn process_directory_entry(
 /// Enqueue a submodule directory as a Tenant/Add item.
 ///
 /// Returns 1 if enqueued successfully, 0 otherwise.
-async fn enqueue_submodule(
+pub(crate) async fn enqueue_submodule(
     path: &Path,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
@@ -312,7 +312,7 @@ const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 ///
 /// Returns 1 if the file was enqueued, 0 otherwise.
 #[allow(clippy::too_many_arguments)]
-async fn process_file_entry(
+pub(crate) async fn process_file_entry(
     path: &Path,
     watch_folder_root: &CanonicalPath,
     item: &UnifiedQueueItem,

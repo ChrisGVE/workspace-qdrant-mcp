@@ -32,6 +32,50 @@ import type {
 
 import { DaemonClientBase, grpcUnaryWithTimeout } from './connection.js';
 
+/** Coerce a proto `int64` (decoded as a string by the gRPC client) to a number. */
+function int64ToNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+}
+
+/** Like {@link int64ToNumber} but preserves "absent" — used for the optional ETA. */
+function optionalInt64ToNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Normalize the int64 indexing-progress counts of a `GetProjectStatusResponse`
+ * from gRPC's string encoding into real numbers, leaving every other field
+ * untouched. Without this the ETA never renders (its `typeof === 'number'`
+ * guard rejects the string) and count arithmetic concatenates.
+ */
+function normalizeProjectStatusCounts(
+  resp: GetProjectStatusResponse
+): GetProjectStatusResponse {
+  // Drop eta_seconds from the spread so we never assign it `undefined`
+  // explicitly — `exactOptionalPropertyTypes` forbids that for an optional
+  // field; absence must omit the key entirely.
+  const { eta_seconds, ...rest } = resp;
+  const eta = optionalInt64ToNumber(eta_seconds);
+  const normalized: GetProjectStatusResponse = {
+    ...rest,
+    pending_count: int64ToNumber(resp.pending_count),
+    in_progress_count: int64ToNumber(resp.in_progress_count),
+    failed_count: int64ToNumber(resp.failed_count),
+    done_count: int64ToNumber(resp.done_count),
+    total_count: int64ToNumber(resp.total_count),
+    percent_complete: int64ToNumber(resp.percent_complete, 100),
+  };
+  if (eta !== undefined) normalized.eta_seconds = eta;
+  return normalized;
+}
+
 export class DaemonClientSystem extends DaemonClientBase {
   // ── SystemService ──
 
@@ -172,7 +216,7 @@ export class DaemonClientSystem extends DaemonClientBase {
    * TTL anyway since it can fire on every tool invocation.
    */
   async getProjectStatus(request: GetProjectStatusRequest): Promise<GetProjectStatusResponse> {
-    return this.callWithRetry(() =>
+    const resp = await this.callWithRetry(() =>
       grpcUnaryWithTimeout(
         this.projectClient,
         'getProjectStatus',
@@ -180,6 +224,12 @@ export class DaemonClientSystem extends DaemonClientBase {
         this.getMethodTimeout('getProjectStatus')
       )
     );
+    // The gRPC client decodes proto `int64` fields as STRINGS (to avoid JS
+    // number-precision loss). The whole indexing-progress block is int64, so
+    // coerce it to real numbers here — otherwise consumers' `typeof === 'number'`
+    // guards reject the ETA (perpetual "warming up") and `pending + in_progress`
+    // string-concatenates instead of adding (e.g. 1 + 0 -> "10" in flight).
+    return normalizeProjectStatusCounts(resp as GetProjectStatusResponse);
   }
 
   /**

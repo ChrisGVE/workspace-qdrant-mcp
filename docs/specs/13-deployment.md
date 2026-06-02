@@ -2,6 +2,13 @@
 
 This section documents the deployment architecture, platform support, installation methods, and operational procedures for workspace-qdrant-mcp.
 
+> **Container-first note (this fork).** In practice this fork is deployed via the
+> root `docker-compose.yml`: `make redeploy` (Linux/WSL) or
+> `make -f Makefile.win redeploy` (Windows) builds the daemon + MCP server inside
+> Docker and recreates the containers. The native binary / `cargo build` /
+> `launchctl` procedures described below are the upstream release model and are
+> optional here. See `CLAUDE.md` → "Build and Test".
+
 ### Deployment Architecture Overview
 
 The system consists of three primary components that work together:

@@ -23,7 +23,11 @@ parallel on the same host.
 ## Running locally
 
 ```bash
-# From repo root. Requires a recent release build of `wqm` on PATH.
+# From repo root. The host `wqm` CLI is the one piece these tests build natively
+# (it exercises the host→dockerized-daemon path); everything else builds inside
+# Docker. A native wqm build needs a local Rust toolchain + ONNX Runtime
+# (ORT_LIB_LOCATION) — see CLAUDE.md. Alternatively, copy the binary out of the
+# already-built image: `docker compose cp memexd:/usr/local/bin/wqm ./wqm`.
 cargo build --release --manifest-path src/rust/Cargo.toml --package wqm-cli
 export WQM_BIN="$(pwd)/src/rust/target/release/wqm"
 

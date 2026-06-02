@@ -1,5 +1,13 @@
 # Installation Reference
 
+> **Container-first note (this fork).** The supported way to run this fork is the
+> Docker Compose stack — `make first-time` (Linux/WSL) or
+> `make -f Makefile.win first-time` (Windows), which builds the daemon and MCP
+> server *inside* Docker (no local Rust/cargo, ONNX Runtime, or host npm build).
+> See `CLAUDE.md` → "Build and Test". The Homebrew / pre-built-binary / native
+> install methods below describe the upstream release distribution and are
+> optional here.
+
 workspace-qdrant-mcp consists of three components:
 
 - **memexd** — Rust daemon for file watching, embedding generation, and queue processing

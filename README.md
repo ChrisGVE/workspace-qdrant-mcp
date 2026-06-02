@@ -335,21 +335,49 @@ See the [Documentation Index](docs/INDEX.md) for specifications, ADRs, and devel
 
 ## Development
 
+**Container-first.** All builds run inside Docker — no local Rust/cargo, ONNX
+Runtime, or host `npm` build required. The daemon (Rust + static ONNX) and the
+TypeScript MCP server are compiled in their respective Dockerfiles.
+
+```bash
+# Linux / WSL (top-level Makefile, bash + docker compose):
+make first-time     # from scratch: build images + start the stack + install hooks
+make redeploy       # rebuild + recreate mcp + memexd after code changes
+make stack-status   # ps + endpoint health
+make help           # all targets
+
+# Windows / PowerShell:
+make -f Makefile.win redeploy
+
+# Equivalent raw compose command:
+docker compose --env-file docker/.env -f docker-compose.yml up -d --build
+```
+
+The daemon's watch root is `WQM_DEV_ROOT` in `docker/.env` (WSL: a native ext4
+path; Windows: a host path) — see `docker/.env.example`.
+
+<details>
+<summary>Advanced: native (non-Docker) Rust/TS build</summary>
+
+Only needed when iterating outside containers with a local toolchain. The Rust
+build requires a static ONNX Runtime via `ORT_LIB_LOCATION` (see `CLAUDE.md` →
+"ONNX Runtime Build Requirements").
+
 ```bash
 # TypeScript MCP server
 cd src/typescript/mcp-server && npm install && npm run build && npm test
 
-# Rust daemon and CLI (from src/rust/)
+# Rust daemon and CLI (from src/rust/) — needs ORT_LIB_LOCATION set
 cargo build --release
 cargo test
 
 # Graph benchmarks
 cargo bench --package workspace-qdrant-core --bench graph_bench
 
-# Binaries output to:
-# - target/release/wqm
-# - target/release/memexd
+# Binaries output to: target/release/{wqm,memexd}
 ```
+
+</details>
 
 ## Contributing
 

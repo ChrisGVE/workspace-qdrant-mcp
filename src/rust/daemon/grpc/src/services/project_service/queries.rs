@@ -6,7 +6,9 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use tonic::Status;
 use tracing::{debug, error, warn};
-use workspace_qdrant_core::indexing_progress::{estimate_eta_seconds, rate_files_per_sec};
+use workspace_qdrant_core::indexing_progress::{
+    estimate_eta_seconds, global_rate_files_per_sec, rate_files_per_sec,
+};
 use workspace_qdrant_core::queue_operations::QueueManager;
 
 use crate::proto::{
@@ -100,7 +102,14 @@ pub(crate) async fn fetch_indexing_progress(
         }
     };
 
-    let rate = rate_files_per_sec(pool, tenant_id).await;
+    // Prefer this tenant's own recent rate; fall back to the daemon-wide rate
+    // when the tenant is idle (waiting its turn in the unified queue, which
+    // processes ~one tenant at a time). Without the fallback an idle tenant's
+    // window goes cold and the ETA is a perpetual "warming up".
+    let rate = match rate_files_per_sec(pool, tenant_id).await {
+        Some(r) => Some(r),
+        None => global_rate_files_per_sec(pool).await,
+    };
     let eta_seconds = estimate_eta_seconds(pending, in_progress, rate);
 
     IndexingProgress {

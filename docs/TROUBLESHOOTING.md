@@ -4,6 +4,13 @@
 
 Comprehensive troubleshooting guide for workspace-qdrant-mcp installation, configuration, and operation issues.
 
+> **Container-first note (this fork).** To rebuild the daemon or MCP server,
+> rebuild the Docker image instead of running `cargo build` on the host:
+> `make redeploy` (Linux/WSL) or `make -f Makefile.win redeploy` (Windows), which
+> runs `docker compose build mcp memexd` + recreate. The native `cargo build
+> --release` steps below apply only if you maintain a local Rust toolchain +
+> ONNX Runtime (`ORT_LIB_LOCATION`); they are not needed for the container flow.
+
 ## Table of Contents
 
 - [Installation Issues](#installation-issues)

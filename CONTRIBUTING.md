@@ -4,90 +4,63 @@ We welcome contributions to workspace-qdrant-mcp! This project follows a test-dr
 
 ## Development Setup
 
+This project is **container-first**: the full stack (Qdrant, the Rust daemon
+`memexd`, and the TypeScript MCP server) runs via Docker Compose, and every
+build happens *inside* Docker. You do **not** need a local Rust/cargo toolchain,
+a local ONNX Runtime, or a host `npm`/Python build to run or develop the stack.
+
 ### Prerequisites
 
-- **Python 3.9+** with pip or uv
+- **Docker** (Desktop with the WSL2 backend on Windows, or Docker Engine on Linux/WSL)
 - **Git** for version control
-- **Docker** for Qdrant server (recommended)
-- **Qdrant server** running locally or remotely
+- **GNU Make** (optional but recommended — wraps the compose lifecycle)
+- **python3** (optional — used by the Linux Makefile's `reindex` helpers)
 
 ### Clone and Setup
 
 ```bash
-# Clone repository
 git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
 cd workspace-qdrant-mcp
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install development dependencies
-pip install -e .[dev]
-
-# Or using uv (recommended)
-uv sync --dev
+# Configure the environment (Qdrant key, MCP token, and the daemon watch root).
+cp docker/.env.example docker/.env
+# Then edit docker/.env — at minimum set MCP_HTTP_TOKEN and WQM_DEV_ROOT.
+# WQM_DEV_ROOT is the folder the daemon watches/indexes; on WSL use a native
+# ext4 path (e.g. /home/<you>/repos), on Windows a host path (e.g. C:\Users\you\dev).
 ```
 
-### Start Development Qdrant Server
+### Build and Start the Stack
 
-**Using Docker:**
 ```bash
-docker run -p 6333:6333 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant
+# Linux / WSL (run from inside the WSL distro, native ext4):
+make first-time     # create db volume + build images + up + install hooks + status
+
+# Windows / PowerShell:
+make -f Makefile.win first-time
+
+# Or the raw compose command (any platform):
+docker volume create workspace-qdrant-mcp_memexd_db
+docker compose --env-file docker/.env -f docker-compose.yml up -d --build
 ```
 
-**Using Docker Compose:**
-```bash
-# Create docker-compose.yml if not exists
-cat > docker-compose.yml << EOF
-version: '3.8'
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - ./qdrant_storage:/qdrant/storage
-EOF
-
-# Start Qdrant
-docker-compose up -d qdrant
-```
-
-### Development Environment
-
-Create `.env` file for development:
-```bash
-# Copy example configuration
-cp .env.example .env
-
-# Edit for development
-cat > .env << EOF
-# Qdrant Configuration
-QDRANT_URL=http://localhost:6333
-
-# Development settings
-WORKSPACE_QDRANT_DEBUG=true
-WORKSPACE_QDRANT_HOST=127.0.0.1
-WORKSPACE_QDRANT_PORT=8000
-
-# Optional: GitHub user for testing
-GITHUB_USER=your-username
-EOF
-```
+After code changes, redeploy with `make redeploy` (Linux/WSL) or
+`make -f Makefile.win redeploy` (Windows). Both rebuild and recreate only the
+`mcp` and `memexd` containers.
 
 ### Verify Development Setup
 
 ```bash
-# Validate configuration
-workspace-qdrant-validate --verbose
+make stack-status     # compose ps + ping admin/qdrant/daemon endpoints
+make health-quick     # MCP /admin/api/health
+make reindex-status   # per-project indexing progress
 
-# Start development server
-workspace-qdrant-mcp --debug
-
-# Test basic functionality
-curl http://localhost:8000/health
+# Admin UI:
+#   http://localhost:6335/admin/
 ```
+
+> The native (non-Docker) Rust/TypeScript build is optional and only needed when
+> iterating on a component outside containers — see `CLAUDE.md` → "Build and Test"
+> and "ONNX Runtime Build Requirements".
 
 ## Quality Gates
 

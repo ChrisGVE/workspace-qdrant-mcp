@@ -2,6 +2,15 @@
 
 Comprehensive testing documentation for workspace-qdrant-mcp covering test organization, frameworks, execution, and contribution guidelines.
 
+> **Container-first note (this fork).** The canonical way to build, run, and
+> redeploy the stack is Docker — `make redeploy` (Linux/WSL) or
+> `make -f Makefile.win redeploy` (Windows); see `CLAUDE.md` → "Build and Test".
+> No local Rust/cargo, ONNX Runtime, or host npm build is required for that flow.
+> The `cargo test` commands below apply only when you opt into running the Rust
+> test suite against a local toolchain (with `ORT_LIB_LOCATION` set). Some
+> Python-era steps in this document (uv / pytest / port 8000) predate the current
+> TypeScript MCP + Rust daemon architecture and no longer apply.
+
 ## Table of Contents
 
 1. [Local Testing Setup](#local-testing-setup)

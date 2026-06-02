@@ -358,11 +358,11 @@ Project-scoped rules for a Rust project:
 rules({
   action: "add",
   label: "deploy-after-build",
-  title: "Deploy binaries and restart daemon after changes",
-  content: "After making changes to the Rust codebase, once tests and compilation " +
-    "are successful, always build release binaries and deploy them: " +
-    "cargo build --release, then cp target/release/memexd ~/.local/bin/memexd, " +
-    "then restart the daemon via launchctl.",
+  title: "Rebuild the container and recreate the daemon after changes",
+  content: "After making changes to the Rust codebase, redeploy via the " +
+    "container-first flow (build runs inside Docker — no local cargo): " +
+    "`make redeploy` (Linux/WSL) or `make -f Makefile.win redeploy` (Windows), " +
+    "which runs `docker compose build mcp memexd` then recreates both containers.",
   scope: "project",
   tags: ["workflow", "deployment", "rust"]
 })

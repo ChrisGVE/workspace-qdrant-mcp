@@ -5,6 +5,7 @@
 //! and folder update/add (treated as rescan).
 
 mod delete;
+mod git_scan;
 mod scan;
 mod strategy;
 

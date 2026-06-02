@@ -50,27 +50,46 @@ All Critical (>2000) and High (1000-2000) files have been split across arch-refa
 
 ### Build and Test
 
+**This fork is container-first.** Every build runs *inside Docker* — you do NOT
+need a local Rust/cargo toolchain, a local ONNX Runtime, or a host `npm` build.
+`docker/Dockerfile.memexd` builds the daemon (Rust + statically-linked ONNX) and
+the root `Dockerfile` compiles the TypeScript MCP server and the Rust node addon.
+
+Use the Makefile that matches your shell:
+
+- **Linux / WSL** → `make <target>` (top-level `Makefile`, bash + docker compose)
+- **Windows / PowerShell** → `make -f Makefile.win <target>`
+
 ```bash
-# Rust daemon (release build with ONNX Runtime)
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib cargo build --release --manifest-path src/rust/Cargo.toml --package memexd
+# ── Linux / WSL (run from inside the WSL distro, native ext4) ──
+make first-time        # from scratch: create db volume + build + up + hooks + status
+make redeploy          # after code changes / git pull: rebuild + recreate mcp+memexd
+make stack-status      # compose ps + ping admin/qdrant/daemon
+make stack-logs        # tail mcp + memexd logs
+make reindex           # force-reindex every watched project (admin API)
+make reindex-status    # per-project indexing progress
+make help              # all targets
 
-# Rust CLI
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib cargo build --release --manifest-path src/rust/Cargo.toml --package wqm-cli
+# Under the hood `redeploy` is just:
+docker compose --env-file docker/.env -f docker-compose.yml build mcp memexd
+docker compose --env-file docker/.env -f docker-compose.yml up -d --force-recreate mcp memexd
+```
 
-# Rust tests
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib cargo test --manifest-path src/rust/Cargo.toml --package workspace-qdrant-core
+The daemon's watch root (the projects it indexes) is `WQM_DEV_ROOT` in
+`docker/.env`. On WSL point it at a native ext4 path; on Windows use a host path
+— see the "Watch root" notes in `docker/.env.example`.
 
-# Test specific features: cargo test --package workspace-qdrant-core -- <filter>
+**Advanced — native Rust build (optional, not required for normal dev/deploy).**
+Only needed if you are iterating on the daemon outside Docker and have a local
+Rust toolchain + ONNX Runtime set up (see "ONNX Runtime Build Requirements"
+below). The macOS/Homebrew `launchctl` deploy from upstream does not apply to the
+container flow.
+
+```bash
+# Run the Rust unit tests against a local toolchain (ORT_LIB_LOCATION points at
+# your static ONNX libs — path is machine-specific, not the upstream default):
+ORT_LIB_LOCATION=<your-onnxruntime-static>/lib cargo test --manifest-path src/rust/Cargo.toml --package workspace-qdrant-core
 # Filters: git_integration, watching, tree_sitter, keyword, tag, graph, schema_version, etc.
-
-# TypeScript MCP Server
-cd src/typescript/mcp-server && npm install && npm run build && npm test
-
-# Deploy (after successful build)
-cp src/rust/target/release/memexd ~/.local/bin/memexd
-cp src/rust/target/release/wqm ~/.local/bin/wqm
-launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
-launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
 ```
 
 ### CLI Quick Reference
@@ -122,6 +141,11 @@ These are **guardrails** — consult `docs/specs/` for full design details.
 - **Hybrid search**: Dense (FastEmbed) + Sparse (BM25/IDF persisted in SQLite) + RRF fusion
 
 ### ONNX Runtime Build Requirements
+
+> **Not needed for the container-first flow.** The Docker images already vendor a
+> statically-linked ONNX Runtime, so `make redeploy` / `docker compose build`
+> require none of the steps below. This section applies **only** if you opt into
+> the advanced native Rust build on the host.
 
 **Option 1: Pre-built static library (Recommended)**
 

@@ -155,6 +155,38 @@ async fn dispatch_scan(
             );
             return Ok(());
         }
+
+        // Git fast-path: on the ROOT scan of a git project (folder_path None),
+        // enumerate the whole git index in one pass so the queue `total`
+        // reflects the real tracked-file count immediately instead of growing
+        // organically through the progressive single-level FS walk. Falls back
+        // to the FS walk when the target is not a git repo / the index is
+        // unreadable, or when disabled via WQM_GIT_FASTPATH_DISCOVERY=0.
+        if payload.folder_path.is_none() && super::git_scan::git_fastpath_enabled() {
+            if let Some(result) = super::git_scan::enumerate_git_index(
+                dir_path,
+                &root,
+                item,
+                &ctx.queue_manager,
+                &ctx.allowed_extensions,
+                last_scan,
+            )
+            .await
+            {
+                let (files, submodules, excluded, errs) = result?;
+                info!(
+                    "Git fast-path scan: {} files, {} submodules enqueued, {} excluded, {} errors ({})",
+                    files,
+                    submodules,
+                    excluded,
+                    errs,
+                    abs_scan_target.as_str()
+                );
+                return Ok(());
+            }
+            // Not a git repo / index unreadable -> fall through to FS scan.
+        }
+
         let (files, dirs, excluded, errs) = scan_directory_single_level(
             dir_path,
             &root,
