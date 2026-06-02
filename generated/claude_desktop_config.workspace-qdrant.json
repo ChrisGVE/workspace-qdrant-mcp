@@ -3,12 +3,11 @@
     "workspace-qdrant": {
       "command": "node",
       "args": [
-        "C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"
-      ],
-      "env": {
-        "QDRANT_URL": "http://localhost:6333",
-        "WQM_DAEMON_ENDPOINT": "http://localhost:50051"
-      }
+        "C:/nvm4w/nodejs/node_modules/mcp-remote/dist/proxy.js",
+        "http://localhost:6335/mcp",
+        "--header",
+        "Authorization: Bearer 0123456789abcdef0123456789abcdef"
+      ]
     }
   }
 }
