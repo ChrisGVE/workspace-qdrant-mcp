@@ -15,6 +15,7 @@ global:
 
 rule_files:
   - /etc/prometheus/alerts.yml
+  - /etc/prometheus/wqm_graph_aggregates.yml
 
 alerting:
   alertmanagers:

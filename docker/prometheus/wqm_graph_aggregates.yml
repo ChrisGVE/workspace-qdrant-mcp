@@ -1,0 +1,23 @@
+# Prometheus recording rules — cross-graph-type code-graph aggregates (D5).
+#
+# Tenant-level rollups of the per-(graph_type, backend, tenant_id) graph gauges.
+# Rule names follow the Prometheus level:metric:operation colon convention.
+#
+# Phase 1 note: with only graph_type=code / backend=sqlite emitting, the sum
+# over graph types is an identity (one series per tenant). These rules are
+# specified now for forward-compatibility: when knowledge-graph values (PRD
+# §13.2) start emitting under additional graph_type labels, the rollups become
+# true cross-graph-type totals with no dashboard/alert changes required.
+#
+# Wired via rule_files in prometheus.yml and mounted read-only into the
+# Prometheus container (see docker/compose/observability.yml).
+
+groups:
+  - name: wqm_graph_aggregates
+    interval: 30s
+    rules:
+      - record: wqm_memexd:graph_nodes:sum_by_tenant
+        expr: sum by (tenant_id) (wqm_memexd_graph_nodes)
+
+      - record: wqm_memexd:graph_edges:sum_by_tenant
+        expr: sum by (tenant_id) (wqm_memexd_graph_edges)

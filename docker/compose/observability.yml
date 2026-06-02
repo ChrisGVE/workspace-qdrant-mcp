@@ -55,6 +55,7 @@ services:
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ../prometheus/wqm_graph_aggregates.yml:/etc/prometheus/wqm_graph_aggregates.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
