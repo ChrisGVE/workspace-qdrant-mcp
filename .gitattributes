@@ -1,1 +1,9 @@
+# Normalize ALL text files to LF in the repo and working tree, regardless of
+# the cloner's core.autocrlf. Without this, a Windows-side clone checks out CRLF
+# while the blobs are LF, so the whole tree shows as modified on a Linux/ext4
+# copy (the exact churn seen during the ext4 migration). `text=auto` leaves
+# binary files untouched (auto-detected).
+* text=auto eol=lf
+
+# Shell scripts must stay LF (shebang + exec bit) even if heuristics misfire.
 *.sh text eol=lf
