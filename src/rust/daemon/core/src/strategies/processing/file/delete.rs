@@ -343,6 +343,9 @@ async fn record_delete_timings(
         &item.tenant_id,
         &item.collection,
         language,
+        // Deletes remove points — no file_type classification or embedding.
+        None,
+        None,
         timings,
     )
     .await;

@@ -325,7 +325,15 @@ async fn finish_pipeline(
     dependency_ingest::maybe_store_dependencies(pool, &item.tenant_id, file_path, abs_file_path)
         .await;
 
-    record_pipeline_timings(pool, item, detected_language, timings).await;
+    record_pipeline_timings(
+        pool,
+        item,
+        detected_language,
+        payload.file_type.as_deref(),
+        Some(ctx.embedding_generator.metrics_label()),
+        timings,
+    )
+    .await;
     info!(
         "Successfully processed file item {} ({})",
         item.queue_id,
@@ -887,10 +895,13 @@ async fn update_search_index(
 }
 
 /// Record pipeline phase timings to the database.
+#[allow(clippy::too_many_arguments)]
 async fn record_pipeline_timings(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
     detected_language: Option<&'static str>,
+    file_type: Option<&str>,
+    embedding_engine: Option<&str>,
     timings: &[PhaseTiming],
 ) {
     processing_timings::record_timings(
@@ -901,6 +912,8 @@ async fn record_pipeline_timings(
         &item.tenant_id,
         &item.collection,
         detected_language,
+        file_type,
+        embedding_engine,
         timings,
     )
     .await;

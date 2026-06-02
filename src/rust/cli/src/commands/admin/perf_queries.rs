@@ -16,7 +16,12 @@ fn dimension_column(dim: &str) -> &'static str {
         "project" => "tenant_id",
         "phase" => "phase",
         "language" => "language",
-        "op" => "op",
+        // `operation` is an alias for `op` (parse_group_by normalizes it; map
+        // both here defensively).
+        "op" | "operation" => "op",
+        "collection" => "collection",
+        "file_type" => "file_type",
+        "embedding_engine" => "embedding_engine",
         _ => "phase",
     }
 }
@@ -26,7 +31,10 @@ pub fn dimension_label(dim: &str) -> &'static str {
         "project" => "Project",
         "phase" => "Phase",
         "language" => "Language",
-        "op" => "Operation",
+        "op" | "operation" => "Operation",
+        "collection" => "Collection",
+        "file_type" => "File Type",
+        "embedding_engine" => "Embedding Engine",
         _ => "Group",
     }
 }

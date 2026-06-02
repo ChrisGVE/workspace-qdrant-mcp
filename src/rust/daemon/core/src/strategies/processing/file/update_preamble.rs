@@ -100,7 +100,7 @@ async fn resolve_delete_old(
 async fn record_preamble_timing(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
-    _payload: &FilePayload,
+    payload: &FilePayload,
     abs_file_path: &str,
     preamble_start: Instant,
 ) {
@@ -113,6 +113,9 @@ async fn record_preamble_timing(
         &item.tenant_id,
         &item.collection,
         detected_language,
+        payload.file_type.as_deref(),
+        // Preamble updates rewrite metadata only — no embedding is computed.
+        None,
         &[PhaseTiming {
             phase: "update_preamble",
             duration_ms: preamble_start.elapsed().as_millis() as u64,

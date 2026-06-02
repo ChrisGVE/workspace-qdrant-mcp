@@ -17,6 +17,7 @@ pub struct PhaseTiming {
 ///
 /// Errors are logged but never propagated — instrumentation must not
 /// block or fail the processing pipeline.
+#[allow(clippy::too_many_arguments)]
 pub async fn record_timings(
     pool: &SqlitePool,
     queue_id: &str,
@@ -25,6 +26,8 @@ pub async fn record_timings(
     tenant_id: &str,
     collection: &str,
     language: Option<&str>,
+    file_type: Option<&str>,
+    embedding_engine: Option<&str>,
     timings: &[PhaseTiming],
 ) {
     if timings.is_empty() {
@@ -47,8 +50,8 @@ pub async fn record_timings(
         let result = sqlx::query(
             r#"
             INSERT INTO processing_timings
-                (queue_id, item_type, op, phase, duration_ms, tenant_id, collection, language, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (queue_id, item_type, op, phase, duration_ms, tenant_id, collection, language, file_type, embedding_engine, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(queue_id)
@@ -59,6 +62,8 @@ pub async fn record_timings(
         .bind(tenant_id)
         .bind(collection)
         .bind(language)
+        .bind(file_type)
+        .bind(embedding_engine)
         .bind(&now)
         .execute(&mut *tx)
         .await;
@@ -127,6 +132,8 @@ mod tests {
                 tenant_id TEXT NOT NULL,
                 collection TEXT NOT NULL,
                 language TEXT,
+                file_type TEXT,
+                embedding_engine TEXT,
                 created_at TEXT NOT NULL
             )
             "#,
@@ -158,6 +165,8 @@ mod tests {
             "tenant-1",
             "projects",
             Some("rust"),
+            Some("code"),
+            Some("fastembed"),
             &timings,
         )
         .await;
@@ -181,7 +190,19 @@ mod tests {
     async fn test_record_timings_empty_noop() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         // No table — should not error because we return early for empty timings
-        record_timings(&pool, "q-123", "file", "add", "t", "projects", None, &[]).await;
+        record_timings(
+            &pool,
+            "q-123",
+            "file",
+            "add",
+            "t",
+            "projects",
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -193,7 +214,7 @@ mod tests {
             duration_ms: 10,
         }];
         record_timings(
-            &pool, "q-123", "file", "add", "t", "projects", None, &timings,
+            &pool, "q-123", "file", "add", "t", "projects", None, None, None, &timings,
         )
         .await;
     }
@@ -213,6 +234,8 @@ mod tests {
                 tenant_id TEXT NOT NULL,
                 collection TEXT NOT NULL,
                 language TEXT,
+                file_type TEXT,
+                embedding_engine TEXT,
                 created_at TEXT NOT NULL
             )
             "#,

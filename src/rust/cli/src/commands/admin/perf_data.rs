@@ -73,8 +73,18 @@ pub fn truncate_key(key: &str, max_len: usize) -> String {
 
 // ─── Parsing ─────────────────────────────────────────────────────────────────
 
-/// Valid grouping dimensions.
-const VALID_DIMENSIONS: &[&str] = &["project", "phase", "language", "op"];
+/// Valid grouping dimensions. `operation` is accepted as an alias for `op`
+/// and normalized to `op` by [`parse_group_by`].
+const VALID_DIMENSIONS: &[&str] = &[
+    "project",
+    "phase",
+    "language",
+    "op",
+    "operation",
+    "collection",
+    "file_type",
+    "embedding_engine",
+];
 
 /// Parse and validate `--group-by` argument (comma-separated, max 2).
 pub fn parse_group_by(input: Option<&str>) -> Result<Vec<String>> {
@@ -83,7 +93,19 @@ pub fn parse_group_by(input: Option<&str>) -> Result<Vec<String>> {
         _ => return Ok(vec![]),
     };
 
-    let dims: Vec<String> = input.split(',').map(|s| s.trim().to_lowercase()).collect();
+    // Normalize the `operation` alias to the canonical `op` so dedup and the
+    // dimension→column mapping stay consistent.
+    let dims: Vec<String> = input
+        .split(',')
+        .map(|s| {
+            let d = s.trim().to_lowercase();
+            if d == "operation" {
+                "op".to_string()
+            } else {
+                d
+            }
+        })
+        .collect();
 
     if dims.len() > 2 {
         anyhow::bail!(
@@ -180,6 +202,11 @@ pub fn should_skip_row(dim: &str, raw_key: &str, valid_tenants: &HashSet<String>
     if dim == "language" && (raw_key.is_empty() || raw_key == "(unknown)") {
         return true;
     }
+    // Drop rows with no value for the optional per-item dimensions (NULL on
+    // older rows, deletes, and preamble updates) rather than render a blank key.
+    if matches!(dim, "file_type" | "embedding_engine") && raw_key.is_empty() {
+        return true;
+    }
     false
 }
 
@@ -270,6 +297,41 @@ mod tests {
     #[test]
     fn test_parse_group_by_too_many() {
         assert!(parse_group_by(Some("project,phase,language")).is_err());
+    }
+
+    #[test]
+    fn test_parse_group_by_new_dimensions() {
+        // E3: collection, file_type, embedding_engine are valid breakdown dims.
+        assert_eq!(
+            parse_group_by(Some("collection")).unwrap(),
+            vec!["collection"]
+        );
+        assert_eq!(
+            parse_group_by(Some("file_type,embedding_engine")).unwrap(),
+            vec!["file_type", "embedding_engine"]
+        );
+    }
+
+    #[test]
+    fn test_parse_group_by_operation_alias() {
+        // `operation` normalizes to the canonical `op`.
+        assert_eq!(parse_group_by(Some("operation")).unwrap(), vec!["op"]);
+        // ...and so a operation+op pair collapses to a duplicate and is rejected.
+        assert!(parse_group_by(Some("operation,op")).is_err());
+    }
+
+    #[test]
+    fn test_parse_group_by_unknown_dimension() {
+        assert!(parse_group_by(Some("file_size")).is_err());
+    }
+
+    #[test]
+    fn test_should_skip_blank_optional_dims() {
+        let valid = HashSet::new();
+        assert!(should_skip_row("file_type", "", &valid));
+        assert!(should_skip_row("embedding_engine", "", &valid));
+        assert!(!should_skip_row("file_type", "code", &valid));
+        assert!(!should_skip_row("embedding_engine", "fastembed", &valid));
     }
 
     #[test]

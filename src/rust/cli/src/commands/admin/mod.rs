@@ -145,8 +145,10 @@ enum AdminCommand {
         #[arg(long)]
         json: bool,
 
-        /// Group by 1-2 dimensions: project, phase, language, op (comma-separated)
-        #[arg(short = 'g', long)]
+        /// Break down by 1-2 dimensions (comma-separated): project, phase,
+        /// language, operation (alias: op), collection, file_type,
+        /// embedding_engine. `--by` is an alias of `--group-by`.
+        #[arg(short = 'g', long, visible_alias = "by")]
         group_by: Option<String>,
 
         /// Sort by column:direction (e.g. avg_ms:desc, count:asc)
