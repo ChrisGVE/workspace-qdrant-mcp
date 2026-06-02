@@ -63,7 +63,12 @@ impl Default for Http2Config {
 pub struct StorageConfig {
     /// Qdrant server URL
     pub url: String,
-    /// API key for authentication (optional)
+    /// API key for authentication (optional).
+    ///
+    /// Never serialized: secrets must come from the environment, not be written
+    /// back to a config file by `save_config` (WI-g1). Still deserialized so an
+    /// operator-provided file value loads into memory.
+    #[serde(skip_serializing)]
     pub api_key: Option<String>,
     /// Connection timeout in milliseconds
     pub timeout_ms: u64,
@@ -153,6 +158,27 @@ impl Default for MultiTenantConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_api_key_never_serialized() {
+        // WI-g1 / AC-g1.1: a configured api_key must not be written back.
+        let config = StorageConfig {
+            api_key: Some("sk-storage-secret".to_string()),
+            ..StorageConfig::default()
+        };
+        let json = serde_json::to_string(&config).expect("serialize");
+        assert!(
+            !json.contains("sk-storage-secret"),
+            "api_key leaked into serialized StorageConfig: {json}"
+        );
+        // AC-g1.2: deserialization still resolves an operator-provided value.
+        // Build a valid object from a key-less serialization, then inject the
+        // key (avoids hand-listing every field of StorageConfig).
+        let mut value = serde_json::to_value(StorageConfig::default()).expect("config to value");
+        value["api_key"] = serde_json::Value::String("sk-loaded".to_string());
+        let loaded: StorageConfig = serde_json::from_value(value).expect("load");
+        assert_eq!(loaded.api_key.as_deref(), Some("sk-loaded"));
+    }
 
     #[test]
     fn test_multi_tenant_config_default() {

@@ -24,7 +24,11 @@ pub struct DatabaseConfig {
 #[serde(rename_all = "camelCase")]
 pub struct QdrantConfig {
     pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Never serialized (WI-g1): secrets must not be written back to a config
+    // file. `skip_serializing_if` still emitted the key when present; use
+    // `skip_serializing` so it is always omitted. Deserialization still loads an
+    // operator-provided value.
+    #[serde(skip_serializing)]
     pub api_key: Option<String>,
     pub timeout: u64,
 }
@@ -470,5 +474,25 @@ mod tests {
         let json = serde_json::to_string(&cfg).expect("serialize");
         let back: ServerConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn qdrant_api_key_never_serialized() {
+        // WI-g1 / AC-g1.1: a configured api_key must not appear in serialized
+        // output (no cleartext written back to a config file).
+        let cfg = QdrantConfig {
+            url: "http://localhost:6333".to_string(),
+            api_key: Some("sk-secret-value".to_string()),
+            timeout: 30,
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        assert!(
+            !json.contains("sk-secret-value"),
+            "api_key leaked into JSON: {json}"
+        );
+        // AC-g1.2: a file that DOES carry the key still loads into memory.
+        let loaded: QdrantConfig =
+            serde_json::from_str(r#"{"url":"u","apiKey":"sk-x","timeout":1}"#).expect("load");
+        assert_eq!(loaded.api_key.as_deref(), Some("sk-x"));
     }
 }

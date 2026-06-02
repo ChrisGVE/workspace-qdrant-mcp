@@ -48,8 +48,12 @@ pub struct DaemonEndpointConfig {
     pub grpc_port: u16,
     /// Health check endpoint path
     pub health_endpoint: String,
-    /// Optional authentication token
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional authentication token.
+    ///
+    /// Never serialized (WI-g1): `skip_serializing_if` still wrote the token
+    /// when present. Use `skip_serializing` so `save_config` never persists the
+    /// secret; deserialization still loads an operator-provided value.
+    #[serde(skip_serializing)]
     pub auth_token: Option<String>,
 }
 
@@ -617,6 +621,26 @@ impl Default for Config {
 mod tests {
     use super::*;
     use crate::storage::TransportMode;
+
+    #[test]
+    fn daemon_endpoint_auth_token_never_serialized() {
+        // WI-g1 / AC-g1.1: auth_token must not be written back (skip_serializing,
+        // not skip_serializing_if which still emitted it when present).
+        let cfg = DaemonEndpointConfig {
+            auth_token: Some("secret-token-value".to_string()),
+            ..DaemonEndpointConfig::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("serialize");
+        assert!(
+            !json.contains("secret-token-value"),
+            "auth_token leaked into serialized config: {json}"
+        );
+        // AC-g1.2: an operator-provided token still loads into memory.
+        let mut value = serde_json::to_value(DaemonEndpointConfig::default()).unwrap();
+        value["auth_token"] = serde_json::Value::String("loaded-token".to_string());
+        let loaded: DaemonEndpointConfig = serde_json::from_value(value).expect("load");
+        assert_eq!(loaded.auth_token.as_deref(), Some("loaded-token"));
+    }
 
     #[test]
     fn test_daemon_config_defaults() {
