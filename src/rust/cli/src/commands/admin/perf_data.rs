@@ -74,13 +74,13 @@ pub fn truncate_key(key: &str, max_len: usize) -> String {
 // ─── Parsing ─────────────────────────────────────────────────────────────────
 
 /// Valid grouping dimensions. `operation` is accepted as an alias for `op`
-/// and normalized to `op` by [`parse_group_by`].
-const VALID_DIMENSIONS: &[&str] = &[
+/// (normalized to `op` by [`parse_group_by`] before this list is consulted, so
+/// it is intentionally not listed here).
+pub(crate) const VALID_DIMENSIONS: &[&str] = &[
     "project",
     "phase",
     "language",
     "op",
-    "operation",
     "collection",
     "file_type",
     "embedding_engine",
@@ -117,7 +117,7 @@ pub fn parse_group_by(input: Option<&str>) -> Result<Vec<String>> {
     for d in &dims {
         if !VALID_DIMENSIONS.contains(&d.as_str()) {
             anyhow::bail!(
-                "Unknown dimension '{}'. Valid: {}",
+                "Unknown dimension '{}'. Valid: {} (operation = alias of op)",
                 d,
                 VALID_DIMENSIONS.join(", ")
             );

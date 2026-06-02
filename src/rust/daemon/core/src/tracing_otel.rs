@@ -221,12 +221,15 @@ pub fn shutdown_tracer() {
     }
 }
 
-/// Initialize and globally install the OTLP **metrics** export path (Task 88).
+/// Initialize and globally install the OTLP **metrics** export provider (Task 88).
 ///
 /// Builds an [`SdkMeterProvider`] with a [`PeriodicReader`] over the configured
-/// OTLP transport, installs it as the global meter provider, retains it for
-/// [`shutdown_meter_provider`], and bridges the daemon's Prometheus
-/// gauge/counter registry onto OTel observable instruments so real data flows.
+/// OTLP transport, installs it as the global meter provider, and retains it for
+/// [`shutdown_meter_provider`]. The caller is responsible for then bridging the
+/// daemon's Prometheus registry onto OTel observable instruments via
+/// `monitoring::otlp_metrics_bridge::install_global_bridge` — that call is kept
+/// at the call site (memexd startup) so this tracing module does not depend on
+/// the metrics subsystem.
 ///
 /// This is the additive Phase-2 path: the Prometheus pull endpoint remains the
 /// primary metric transport. Returns `Ok(true)` when a provider was installed,
@@ -243,11 +246,6 @@ pub fn init_meter_provider(
             if let Ok(mut guard) = METER_PROVIDER.lock() {
                 *guard = Some(provider);
             }
-            let bridged = crate::monitoring::otlp_metrics_bridge::install_global_bridge();
-            tracing::info!(
-                bridged_instruments = bridged,
-                "OTLP metrics export path installed (additive to Prometheus pull)"
-            );
             Ok(true)
         }
         None => Ok(false),

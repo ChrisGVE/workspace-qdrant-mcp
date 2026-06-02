@@ -337,10 +337,19 @@ pub fn init_logging_with_telemetry(
                 cfg,
                 workspace_qdrant_core::tracing_otel::DEFAULT_OTLP_METRICS_INTERVAL,
             ) {
-                Ok(true) => tracing::info!(
-                    "OTLP export: metrics push enabled (additive); Prometheus pull \
-                     remains primary at /metrics"
-                ),
+                Ok(true) => {
+                    // Provider installed — now bridge the Prometheus registry
+                    // onto OTel observable instruments. Done here (not inside
+                    // init_meter_provider) so the core tracing module does not
+                    // depend on the metrics subsystem.
+                    let bridged =
+                        workspace_qdrant_core::monitoring::otlp_metrics_bridge::install_global_bridge();
+                    tracing::info!(
+                        bridged_instruments = bridged,
+                        "OTLP export: metrics push enabled (additive); Prometheus pull \
+                         remains primary at /metrics"
+                    );
+                }
                 Ok(false) => tracing::warn!(
                     "OTLP metrics requested but no endpoint configured; metrics push not installed"
                 ),

@@ -416,3 +416,27 @@ fn std_error(values: &[i64]) -> f64 {
         / (n as f64 - 1.0);
     variance.sqrt() / (n as f64).sqrt()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::dimension_column;
+
+    /// Guards against `VALID_DIMENSIONS` (accepted by `parse_group_by`) and
+    /// `dimension_column` (the SQL-column mapper) silently diverging: every
+    /// accepted dimension except `phase` must map to a non-default column, so a
+    /// dimension can never pass validation yet fall through to the `_ => "phase"`
+    /// default and silently group by the wrong column.
+    #[test]
+    fn every_valid_dimension_maps_to_a_column() {
+        for dim in super::super::perf_data::VALID_DIMENSIONS {
+            if *dim == "phase" {
+                continue;
+            }
+            assert_ne!(
+                dimension_column(dim),
+                "phase",
+                "dimension '{dim}' falls through to the default column in dimension_column"
+            );
+        }
+    }
+}
