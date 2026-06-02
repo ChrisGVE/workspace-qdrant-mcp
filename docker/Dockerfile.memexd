@@ -456,8 +456,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /home/memexd/.cache \
         /home/memexd/.local/state \
         /var/lib/wqm \
+        /var/lib/memexd \
     && chown -R memexd:memexd /home/memexd \
-    && chown memexd:memexd /var/lib/wqm
+    && chown memexd:memexd /var/lib/wqm /var/lib/memexd
 
 # libgit2 (used via the `git2` crate) runs its own ownership check on every
 # Repository::open; unlike the git CLI it ignores GIT_CONFIG_* env vars and
