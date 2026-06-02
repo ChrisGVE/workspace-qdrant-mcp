@@ -16,6 +16,7 @@ pub use path_env::{capture_user_path, setup_environment_path};
 use std::env;
 
 use wqm_common::cli_profiles::{load_cli_config, Profile};
+use wqm_common::config::{apply_env_overrides, validate_timeout, validate_url, EnvOverride};
 use wqm_common::yaml_defaults::DEFAULT_YAML_CONFIG;
 
 // Re-export shared path functions from wqm-common (single source of truth)
@@ -126,13 +127,23 @@ impl Config {
     /// - `NO_COLOR`: Disable colored output (any value)
     /// - `WQM_VERBOSE`: Enable verbose mode (any value)
     pub fn from_env() -> Self {
+        Self::from_env_with(&|key| env::var(key).ok())
+    }
+
+    /// Getter-injectable core of [`from_env`].
+    ///
+    /// The active cli-config profile is applied first (so explicit env vars win),
+    /// then the env overrides run through the shared declarative
+    /// [`apply_env_overrides`] engine. Profile loading still consults the real
+    /// process environment for `WQM_CLI_CONFIG`; only the override layer uses the
+    /// injected getter.
+    pub(crate) fn from_env_with(env_getter: &dyn Fn(&str) -> Option<String>) -> Self {
         let mut config = Self::default();
 
         // Apply the active profile first, so explicit env vars still override.
         match load_cli_config() {
             Ok(Some((file, _path))) => {
-                let profile_name = env::var("WQM_PROFILE")
-                    .ok()
+                let profile_name = env_getter("WQM_PROFILE")
                     .filter(|v| !v.is_empty())
                     .unwrap_or_else(|| file.active.clone());
                 if let Some(profile) = file.find(&profile_name) {
@@ -146,38 +157,26 @@ impl Config {
             }
         }
 
-        // Daemon address
-        if let Ok(addr) = env::var("WQM_DAEMON_ADDR") {
-            config.daemon_address = addr;
-        }
-
-        if let Ok(url) = env::var("WQM_QDRANT_URL") {
-            config.qdrant_url = url;
-        }
-
-        // Connection timeout
-        if let Ok(timeout) = env::var("WQM_TIMEOUT") {
-            if let Ok(secs) = timeout.parse::<u64>() {
-                config.connection_timeout_secs = secs;
-            }
-        }
-
-        // Output format
-        if let Ok(format) = env::var("WQM_OUTPUT_FORMAT") {
-            if let Some(fmt) = OutputFormat::from_str(&format) {
-                config.output_format = fmt;
-            }
-        }
-
-        // Color enabled (NO_COLOR is a standard env var)
-        if env::var("NO_COLOR").is_ok() {
-            config.color_enabled = false;
-        }
-
-        // Verbose mode
-        if env::var("WQM_VERBOSE").is_ok() {
-            config.verbose = true;
-        }
+        // Env overrides via the shared declarative engine. Parsing failures and
+        // presence-only flags (NO_COLOR / WQM_VERBOSE) are handled inside each
+        // setter, preserving the prior behaviour exactly.
+        let specs: Vec<EnvOverride<Config>> = vec![
+            EnvOverride::single("WQM_DAEMON_ADDR", |c: &mut Config, v| c.daemon_address = v),
+            EnvOverride::single("WQM_QDRANT_URL", |c: &mut Config, v| c.qdrant_url = v),
+            EnvOverride::single("WQM_TIMEOUT", |c: &mut Config, v| {
+                if let Ok(secs) = v.parse::<u64>() {
+                    c.connection_timeout_secs = secs;
+                }
+            }),
+            EnvOverride::single("WQM_OUTPUT_FORMAT", |c: &mut Config, v| {
+                if let Some(fmt) = OutputFormat::from_str(&v) {
+                    c.output_format = fmt;
+                }
+            }),
+            EnvOverride::single("NO_COLOR", |c: &mut Config, _v| c.color_enabled = false),
+            EnvOverride::single("WQM_VERBOSE", |c: &mut Config, _v| c.verbose = true),
+        ];
+        apply_env_overrides(&mut config, env_getter, &specs);
 
         config
     }
@@ -214,21 +213,17 @@ impl Config {
 
     /// Validate configuration
     pub fn validate(&self) -> Result<(), String> {
-        // Validate daemon address format
-        if !self.daemon_address.starts_with("http://")
-            && !self.daemon_address.starts_with("https://")
-        {
-            return Err(format!(
+        // Daemon address: shared http(s)-scheme check, CLI-specific message.
+        validate_url(&self.daemon_address).map_err(|_| {
+            format!(
                 "Invalid daemon address: {}. Must start with http:// or https://",
                 self.daemon_address
-            ));
-        }
+            )
+        })?;
 
-        // Validate timeout
-        if self.connection_timeout_secs == 0 {
-            return Err("Connection timeout must be greater than 0".to_string());
-        }
-
+        // Timeout: shared non-zero check, plus the CLI-specific upper bound.
+        validate_timeout(self.connection_timeout_secs)
+            .map_err(|_| "Connection timeout must be greater than 0".to_string())?;
         if self.connection_timeout_secs > 300 {
             return Err("Connection timeout must be less than 300 seconds".to_string());
         }

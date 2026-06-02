@@ -105,6 +105,78 @@ fn from_env_wqm_profile_overrides_active_field() {
     assert_eq!(resolved.active_profile, "docker-local");
 }
 
+fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+    let map: std::collections::HashMap<String, String> = pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    move |key: &str| map.get(key).cloned()
+}
+
+#[test]
+#[serial]
+fn from_env_with_empty_getter_yields_defaults() {
+    // AC-a2.4 PURE-DEFAULTS: no env overrides + no cli-config profile → the
+    // resolved config equals the compiled-in default view.
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    let resolved = Config::from_env_with(&env_from(&[]));
+    std::env::remove_var("WQM_CLI_CONFIG");
+    let default = Config::default();
+    assert_eq!(resolved.daemon_address, default.daemon_address);
+    assert_eq!(resolved.qdrant_url, default.qdrant_url);
+    assert_eq!(
+        resolved.connection_timeout_secs,
+        default.connection_timeout_secs
+    );
+    assert_eq!(resolved.output_format, default.output_format);
+    assert_eq!(resolved.color_enabled, default.color_enabled);
+    assert_eq!(resolved.verbose, default.verbose);
+}
+
+#[test]
+#[serial]
+fn from_env_with_applies_all_overrides() {
+    // AC-a2.2 PARITY: the shared declarative engine reproduces the prior
+    // per-variable override behaviour for every CLI env var.
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    let resolved = Config::from_env_with(&env_from(&[
+        ("WQM_DAEMON_ADDR", "http://10.0.0.5:60000"),
+        ("WQM_QDRANT_URL", "http://qd:6333"),
+        ("WQM_TIMEOUT", "42"),
+        ("WQM_OUTPUT_FORMAT", "json"),
+        ("NO_COLOR", "1"),
+        ("WQM_VERBOSE", "1"),
+    ]));
+    std::env::remove_var("WQM_CLI_CONFIG");
+    assert_eq!(resolved.daemon_address, "http://10.0.0.5:60000");
+    assert_eq!(resolved.qdrant_url, "http://qd:6333");
+    assert_eq!(resolved.connection_timeout_secs, 42);
+    assert_eq!(resolved.output_format, OutputFormat::Json);
+    assert!(!resolved.color_enabled);
+    assert!(resolved.verbose);
+}
+
+#[test]
+#[serial]
+fn from_env_with_ignores_unparseable_timeout_and_format() {
+    // Parse failures fall back to the default value (prior behaviour preserved).
+    scrub_profile_env();
+    point_cli_config_at_nonexistent_path();
+    let resolved = Config::from_env_with(&env_from(&[
+        ("WQM_TIMEOUT", "not-a-number"),
+        ("WQM_OUTPUT_FORMAT", "bogus"),
+    ]));
+    std::env::remove_var("WQM_CLI_CONFIG");
+    let default = Config::default();
+    assert_eq!(
+        resolved.connection_timeout_secs,
+        default.connection_timeout_secs
+    );
+    assert_eq!(resolved.output_format, default.output_format);
+}
+
 #[test]
 fn test_default_config() {
     let config = Config::default();
