@@ -373,9 +373,26 @@ impl TelemetryConfig {
 
         if let Ok(val) = env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
             if !val.trim().is_empty() {
+                // Set the endpoint only. Unlike the OTel CLI convention, a bare
+                // endpoint does NOT enable OTLP export: it stays opt-in via
+                // `telemetry.otlp.enabled` (YAML) or the explicit WQM_OTLP_ENABLED
+                // / WQM_OTLP_METRICS_ENABLED env gates. This prevents a stray or
+                // misconfigured endpoint env (e.g. an unreachable collector, or
+                // http/protobuf pointed at the gRPC port) from silently
+                // activating a failing exporter whose BatchSpanProcessor then
+                // floods the logs with "Spans emitted after Shutdown" (#85).
                 self.otlp.endpoint = val;
-                // Explicit endpoint implies the operator wants OTLP on.
-                self.otlp.enabled = true;
+            }
+        }
+
+        // Explicit opt-in for OTLP export. Mirrors the metrics gate below and the
+        // YAML `otlp.enabled` flag; keeps OTLP off-by-default unless the operator
+        // asks for it, independent of whether an endpoint env is present (#85).
+        if let Ok(val) = env::var("WQM_OTLP_ENABLED") {
+            match val.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => self.otlp.enabled = true,
+                "0" | "false" | "no" | "off" => self.otlp.enabled = false,
+                _ => {}
             }
         }
 
@@ -527,6 +544,7 @@ mod tests {
         "WQM_METRICS_PORT",
         "WQM_TRACE_TIER",
         "WQM_OTLP_METRICS_ENABLED",
+        "WQM_OTLP_ENABLED",
     ];
 
     struct TelemetryEnvGuard;
@@ -644,8 +662,34 @@ mod tests {
 
         assert_eq!(t.service_name, "custom-service");
         assert_eq!(t.otlp.endpoint, "http://collector:4318");
-        // explicit endpoint implies the operator wants OTLP on
+        // A bare endpoint env must NOT enable OTLP — export stays opt-in so a
+        // stray/misconfigured endpoint can't activate a failing exporter (#85).
+        assert!(!t.otlp.enabled);
+    }
+
+    #[test]
+    #[serial]
+    fn test_wqm_otlp_enabled_is_explicit_gate() {
+        let _g = TelemetryEnvGuard;
+
+        // Endpoint present but no explicit enable → stays disabled (#85).
+        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318");
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+        assert!(!t.otlp.enabled);
+
+        // Explicit opt-in enables it.
+        std::env::set_var("WQM_OTLP_ENABLED", "true");
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
         assert!(t.otlp.enabled);
+
+        // Explicit opt-out wins over a truthy metrics flag is not asserted here;
+        // a plain "off" disables.
+        std::env::set_var("WQM_OTLP_ENABLED", "off");
+        let mut t = TelemetryConfig::default();
+        t.apply_env_overrides();
+        assert!(!t.otlp.enabled);
     }
 
     #[test]
