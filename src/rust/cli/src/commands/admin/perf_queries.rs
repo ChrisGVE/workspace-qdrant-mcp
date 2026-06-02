@@ -160,7 +160,7 @@ pub fn query_grouped_stats(
         "SELECT COALESCE({col}, '') as grp, COUNT(*) \
          FROM processing_timings \
          WHERE created_at > datetime('now', ?1){coll_clause} \
-         GROUP BY grp ORDER BY grp"
+         GROUP BY COALESCE({col}, '') ORDER BY grp"
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -300,7 +300,7 @@ fn query_sub_groups(
         "SELECT COALESCE({col2}, '') as grp2, COUNT(*) \
          FROM processing_timings \
          WHERE created_at > datetime('now', ?1) AND COALESCE({col1}, '') = ?2{coll_clause2} \
-         GROUP BY grp2 ORDER BY grp2"
+         GROUP BY COALESCE({col2}, '') ORDER BY grp2"
     );
     let mut stmt2 = conn.prepare(&sql2)?;
     let sub_groups: Vec<(String, i64)> = if coll_params.is_empty() {

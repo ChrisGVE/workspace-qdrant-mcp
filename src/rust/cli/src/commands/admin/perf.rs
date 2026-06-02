@@ -65,8 +65,8 @@ pub async fn execute(
     sort: Option<String>,
     collection: Option<String>,
 ) -> Result<()> {
+    let cutoff = window_to_cutoff(window_hours)?;
     let conn = open_timings_db(&collection)?;
-    let cutoff = format!("-{} hours", window_hours as i64);
     let coll_filter = collection.as_deref();
 
     let total_items = query_total_items(&conn, &cutoff, coll_filter);
@@ -99,6 +99,19 @@ pub async fn execute(
         queue_depth,
         window_hours,
     )
+}
+
+/// Convert a `--window` value (hours, possibly fractional) into a SQLite
+/// `datetime('now', ?)` modifier. Uses minute granularity so sub-hour windows
+/// (e.g. `0.5`) are preserved instead of being truncated to `-0 hours` by an
+/// integer cast, which would silently match zero rows. Rejects non-positive and
+/// NaN inputs (the `!(x > 0.0)` form also catches NaN).
+fn window_to_cutoff(window_hours: f64) -> Result<String> {
+    if !(window_hours > 0.0) {
+        anyhow::bail!("--window must be greater than 0 (got {})", window_hours);
+    }
+    let cutoff_minutes = (window_hours * 60.0).round().max(1.0) as i64;
+    Ok(format!("-{} minutes", cutoff_minutes))
 }
 
 /// Open the database and validate the timings table exists.
@@ -321,6 +334,23 @@ fn group_to_json(s: &GroupStats) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_window_to_cutoff_fractional_preserved() {
+        // 0.5h must not truncate to "-0 hours"; it becomes 30 minutes.
+        assert_eq!(window_to_cutoff(0.5).unwrap(), "-30 minutes");
+        assert_eq!(window_to_cutoff(24.0).unwrap(), "-1440 minutes");
+        assert_eq!(window_to_cutoff(1.0).unwrap(), "-60 minutes");
+        // Tiny positive window clamps to at least one minute.
+        assert_eq!(window_to_cutoff(0.001).unwrap(), "-1 minutes");
+    }
+
+    #[test]
+    fn test_window_to_cutoff_rejects_non_positive_and_nan() {
+        assert!(window_to_cutoff(0.0).is_err());
+        assert!(window_to_cutoff(-1.0).is_err());
+        assert!(window_to_cutoff(f64::NAN).is_err());
+    }
 
     #[test]
     fn test_stats_to_row_preserves_formatting() {
