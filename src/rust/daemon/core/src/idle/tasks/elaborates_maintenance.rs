@@ -126,7 +126,7 @@ async fn run_elaborates_pass(
 
     // Generate ELABORATES edges for concepts with 2+ covering nodes.
     let mut new_edges: Vec<GraphEdge> = Vec::new();
-    for (_concept_id, concept_records) in &by_concept {
+    for concept_records in by_concept.values() {
         if cancel.is_cancelled() {
             return Err(ElaboratesError::Cancelled);
         }

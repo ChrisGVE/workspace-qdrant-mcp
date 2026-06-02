@@ -98,7 +98,7 @@ fn line_at_offset(content: &str, offset: usize) -> u32 {
 }
 
 /// Find the section span whose line range contains `line`.
-fn section_for_line<'a>(spans: &'a [SectionSpan], line: u32) -> Option<&'a SectionSpan> {
+fn section_for_line(spans: &[SectionSpan], line: u32) -> Option<&SectionSpan> {
     spans
         .iter()
         .find(|s| line >= s.start_line && line <= s.end_line)

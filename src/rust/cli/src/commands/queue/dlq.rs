@@ -71,8 +71,8 @@ async fn execute_list(
     }
 
     println!(
-        "{:<34} {:<10} {:<20} {:<20} {}",
-        "DLQ_ID", "TYPE", "CATEGORY", "MOVED_AT", "ERROR"
+        "{:<34} {:<10} {:<20} {:<20} ERROR",
+        "DLQ_ID", "TYPE", "CATEGORY", "MOVED_AT"
     );
     println!("{}", "-".repeat(110));
     for entry in &response.entries {

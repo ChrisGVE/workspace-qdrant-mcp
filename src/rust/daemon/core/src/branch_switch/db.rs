@@ -177,7 +177,7 @@ async fn update_qdrant_branches_batch(
     }
 
     // Deduplicate branches in each set
-    for (_, branches) in &mut by_base_point {
+    for branches in by_base_point.values_mut() {
         branches.sort();
         branches.dedup();
     }
