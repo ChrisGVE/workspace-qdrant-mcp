@@ -285,8 +285,8 @@
     },
     {
       "id": 8,
-      "title": "Pending Optimisations",
-      "description": "Number of collection segments currently being optimised (qdrant_collections_optimizers_status). A sustained non-zero value means ongoing compaction work.",
+      "title": "Update Queue Deferred Points (optimization backlog)",
+      "description": "Per-collection points deferred in the update queue (qdrant_collection_update_queue_deferred_points), a proxy for pending optimization/indexing work — a sustained non-zero value means the optimizer is behind. NOTE: this Qdrant build does not expose a dedicated qdrant_collections_optimizers_status metric, so optimizer state-timeline and segment-count panels are deferred (pending Qdrant upstream support).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -317,8 +317,150 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (collection_name, shard_id, optimizer_name) (qdrant_collections_optimizers_status) or vector(0)",
-          "legendFormat": "{{collection_name}} / {{optimizer_name}}",
+          "expr": "sum by (id) (qdrant_collection_update_queue_deferred_points{id=~\"$collection\"}) or vector(0)",
+          "legendFormat": "{{id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Per-Collection Stats",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "title": "Points per Collection",
+      "description": "Total points per collection (qdrant_collection_points), filtered by $collection (id label).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "qdrant_collection_points{id=~\"$collection\"}",
+          "legendFormat": "{{id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Vectors per Collection (dense / sparse)",
+      "description": "Stored vectors per collection broken down by vector kind (qdrant_collection_vectors). NOTE: this metric uses a `collection` label (not `id`); $collection values match.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (collection, vector) (qdrant_collection_vectors{collection=~\"$collection\"})",
+          "legendFormat": "{{collection}} / {{vector}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Indexed-Only Excluded Points",
+      "description": "Points excluded from indexed-only search per collection (qdrant_collection_indexed_only_excluded_points) — a high or growing value signals unindexed segments. Filtered by $collection (id label).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (id, vector) (qdrant_collection_indexed_only_excluded_points{id=~\"$collection\"})",
+          "legendFormat": "{{id}} / {{vector}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Request Health",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "title": "REST Error Rate by Status",
+      "description": "Rate of non-2xx REST responses by HTTP status and endpoint (qdrant_rest_responses_total{status!~\"2..\"}). Should be near zero in steady state. Per-collection REST latency is deferred (Qdrant exposes latency by endpoint only, not by collection — pending upstream support).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 12, "showPoints": "never", "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (status, endpoint) (rate(qdrant_rest_responses_total{status!~\"2..\"}[2m]))",
+          "legendFormat": "{{status}} {{endpoint}}",
           "refId": "A"
         }
       ]
@@ -327,7 +469,24 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["wqm", "qdrant"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "collection",
+        "label": "Collection",
+        "description": "Per-collection drill-down. Sourced from the id label of qdrant_collection_points; the same values key the other per-collection metrics (note: qdrant_collection_vectors uses a `collection` label with identical values). Defaults to All.",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": { "query": "label_values(qdrant_collection_points, id)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
