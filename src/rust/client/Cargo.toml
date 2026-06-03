@@ -30,6 +30,8 @@ tokio = { workspace = true }
 qdrant-client = "1.17"
 # API keys held as SecretString — never logged
 secrecy = { workspace = true }
+# Neutral result models (serde) + JSON payloads
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Errors + tracing
