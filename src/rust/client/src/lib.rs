@@ -11,6 +11,11 @@
 pub mod grpc;
 pub mod qdrant;
 
+// WI-c2 (#82 task 21): test-only guard enforcing "no direct Qdrant writes in the
+// shared client" — gRPC write-service requests to the daemon remain legitimate.
+#[cfg(test)]
+mod write_service_guard;
+
 pub use grpc::{ClientError, DaemonClient};
 pub use qdrant::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 

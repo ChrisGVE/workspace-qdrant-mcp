@@ -19,47 +19,7 @@ pub use client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 /// can thread scroll offsets without a direct `qdrant-client` dependency.
 pub use qdrant_client::qdrant::PointId;
 
-#[cfg(test)]
-mod write_guard {
-    //! CI guard: the read-only client source must contain no Qdrant write APIs
-    //! (AC-d3.2). Enforced by scanning the included source at test time, with a
-    //! negative test proving the guard actually fires on a write token.
-
-    /// The qdrant client source, included at compile time for scanning.
-    const CLIENT_SRC: &str = include_str!("client.rs");
-
-    /// Qdrant mutation APIs that must never appear in the read-only client.
-    const FORBIDDEN_WRITE_APIS: &[&str] = &[
-        "upsert",
-        "set_payload",
-        "delete_points",
-        "update_named",
-        "insert_point",
-        "delete_payload",
-        "create_collection",
-        "delete_collection",
-        "update_collection",
-    ];
-
-    #[test]
-    fn no_write_apis_in_read_only_client() {
-        for token in FORBIDDEN_WRITE_APIS {
-            assert!(
-                !CLIENT_SRC.contains(token),
-                "forbidden Qdrant write API `{token}` found in the read-only client source — \
-                 QdrantReadClient must expose read operations only (WI-d3)"
-            );
-        }
-    }
-
-    #[test]
-    fn guard_detects_injected_write_api() {
-        // Negative test: prove the scan would catch a write token if one were
-        // ever introduced, so a clean pass above is meaningful.
-        let injected = "pub async fn upsert(&self) { /* would violate single-writer */ }";
-        assert!(
-            FORBIDDEN_WRITE_APIS.iter().any(|t| injected.contains(t)),
-            "guard must detect an injected write API"
-        );
-    }
-}
+// The "no Qdrant write API" guard (AC-d3.2, WI-d3) is enforced crate-wide by
+// [`crate::write_service_guard`] (#82 task 21), which scans every wqm-client
+// source — including this `client.rs` — for direct Qdrant write methods and
+// includes a negative test. A single guard avoids two colliding token lists.
