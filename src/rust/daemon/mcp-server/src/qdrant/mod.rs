@@ -19,12 +19,17 @@
 //! All search/scroll/retrieve network calls carry the `#[cfg(not(feature = "integration-tests"))]`
 //! guard on their unit tests so the test suite stays hermetic.
 
-pub mod client;
 pub mod endpoint;
 pub mod filters;
 pub mod fusion;
 
-pub use client::QdrantReadClient;
+// QdrantReadClient (+ value types) now live in the shared wqm-client crate
+// (WI-d3, #82). Re-export the module so existing `crate::qdrant::client::{…}`
+// paths and the local `SearchQdrant for QdrantReadClient` adapter keep
+// resolving against the now-foreign type.
+pub use wqm_client::qdrant::client;
+
+pub use client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 pub use endpoint::grpc_endpoint;
 pub use filters::{build_filter, extract_glob_prefix, FilterParams};
 pub use fusion::{
