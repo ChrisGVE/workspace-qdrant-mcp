@@ -452,6 +452,60 @@ mod tests {
     }
 
     #[test]
+    fn walk_eligible_files_excludes_generated_with_realistic_global() {
+        // Reproduction of the live finding: with the FULL real global.wqmignore
+        // pattern set (re-inclusions + many rules), deep generated/ files under a
+        // DOC-V2-shaped tree must still be excluded by the post-filter.
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(
+            &global_ignore,
+            "**/bws-dev-plataform/testlink/**\n\
+             !**/bws-dev-plataform/testlink/cfg/\n\
+             !**/bws-dev-plataform/testlink/cfg/**\n\
+             **/zabbix/zabbix/**\n\
+             state/\n\
+             **/state/qdrant/\n\
+             node_modules/\n\
+             **/proto/src/generated/\n\
+             **/*_proto/\n\
+             **/generated/proto/\n\
+             **/*OuterClass.java\n\
+             **/proto/**/*.java\n\
+             **/*.pb.dart\n\
+             **/generated/\n\
+             **/lib/src/generated/\n\
+             **/packages/generated/\n",
+        )
+        .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let be = root.path().join("doc-backend/proto/src/generated/doc");
+        fs::create_dir_all(&be).unwrap();
+        fs::write(be.join("ScheduleOuterClass.java"), "// gen").unwrap();
+        let fe = root.path().join("doc-frontend/packages/generated/lib/protos");
+        fs::create_dir_all(&fe).unwrap();
+        fs::write(fe.join("shifts.pb.dart"), "// gen").unwrap();
+        let src = root.path().join("doc-backend/src/main/java/com/x");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("Service.java"), "class Service {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        assert!(
+            !files.iter().any(|f| f.contains("ScheduleOuterClass")),
+            "generated OuterClass.java must be excluded, got {files:?}"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("shifts.pb.dart")),
+            "generated .pb.dart must be excluded, got {files:?}"
+        );
+        assert!(
+            files.iter().any(|f| f.contains("Service.java")),
+            "hand-authored Service.java must be kept, got {files:?}"
+        );
+    }
+
+    #[test]
     fn walk_eligible_files_excludes_deep_global_match() {
         // Regression: `WalkBuilder::add_ignore` anchors global patterns to the
         // ignore file's parent dir, so a `**/`-pattern leaks for DEEP (depth-2+)
