@@ -34,3 +34,35 @@ src/typescript/mcp-server/src/**/*.spec.ts
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Runtime data — never part of the build context
+state/
+logs/
+
+# ML model cache (downloaded at runtime, not part of build)
+.fastembed_cache/
+
+# Fork/branch tracking state
+.wqm-fork/
+
+# GitHub Actions / CI configs
+.github/
+
+# Markdown docs (not needed inside the image)
+*.md
+!src/**/*.md
+
+# Install/deploy scripts (runtime only)
+install.sh
+install.ps1
+docker-up.ps1
+
+# Package manager / distribution configs
+Formula/
+manifests/
+smithery.yaml
+sentinel-config.yaml
+
+# Pre-commit / linting configs
+.pre-commit-config.yaml
+.gitleaks.toml
