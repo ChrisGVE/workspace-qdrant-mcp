@@ -137,13 +137,10 @@ pub fn detect_language_with_overrides(
 }
 
 /// Get the list of known grammar languages available for download.
-pub fn known_grammar_languages() -> Vec<&'static str> {
-    registry_data()
-        .known_languages_sorted
-        .iter()
-        .map(|s| s.as_str())
-        .collect()
-}
+///
+/// Relocated to `wqm_common::language_registry` (WI-b1); re-exported here so the
+/// `crate::tree_sitter::known_grammar_languages` path resolves unchanged.
+pub use wqm_common::language_registry::known_grammar_languages;
 
 /// Check if a language is supported for semantic chunking.
 ///

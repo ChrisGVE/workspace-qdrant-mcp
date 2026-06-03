@@ -59,6 +59,31 @@ impl RegistryReader {
     }
 }
 
+/// Sorted, de-duplicated list of language IDs that have at least one grammar
+/// source in the bundled registry — i.e. the grammars available for download.
+///
+/// Pure sync; the parsed result is cached for the process lifetime so the
+/// returned `&'static str` slices are valid. On a (compile-time-impossible)
+/// parse failure the list is empty.
+pub fn known_grammar_languages() -> Vec<&'static str> {
+    static LANGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LANGS
+        .get_or_init(|| {
+            let mut ids: Vec<String> = RegistryReader::bundled()
+                .unwrap_or_default()
+                .iter()
+                .filter(|d| d.has_grammar())
+                .map(|d| d.id())
+                .collect();
+            ids.sort();
+            ids.dedup();
+            ids
+        })
+        .iter()
+        .map(|s| s.as_str())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

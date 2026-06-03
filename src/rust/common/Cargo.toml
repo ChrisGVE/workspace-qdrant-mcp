@@ -28,6 +28,13 @@ thiserror = "2.0"
 # Crypto
 sha2 = "0.10"
 
+# Stable document/point ID generation (UUID v5)
+uuid = { version = "1.21", features = ["v4", "v5", "serde"] }
+
+# LSP binary detection (PATH + editor-managed dirs)
+which = "6.0"
+walkdir = "2.4"
+
 # JSON serialization (for payloads)
 serde_json = "1.0"
 
