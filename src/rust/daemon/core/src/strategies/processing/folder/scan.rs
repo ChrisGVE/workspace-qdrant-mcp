@@ -11,8 +11,8 @@ use wqm_common::paths::{CanonicalPath, RelativePath};
 use crate::allowed_extensions::AllowedExtensions;
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
-use crate::patterns::gitignore::ProjectIgnoreMatcher;
-use crate::patterns::global_ignore::is_globally_ignored;
+use crate::patterns::global_ignore;
+use crate::patterns::ignore_gate::IgnoreGate;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
@@ -45,13 +45,17 @@ pub(crate) async fn scan_directory_single_level(
     let mut errors = 0u64;
 
     let baseline: Option<SystemTime> = last_scan.and_then(parse_iso8601_to_system_time);
-    // Pass the watch-folder root so ignore rules cascade from ancestor dirs
-    // (issue #49). Passing `None` here used only the scanned subdirectory's own
-    // `.gitignore`/`.wqmignore`, so a project-root `.wqmignore` (e.g. excluding
-    // `src/typescript/mcp-server/reports/`) was IGNORED when scanning that
-    // subdirectory — letting eval-artifact/leakage files get indexed.
-    let ignore_matcher =
-        ProjectIgnoreMatcher::for_dir(dir_path, Some(Path::new(watch_folder_root.as_str())));
+    // One gate for the project `.gitignore`/`.wqmignore` cascade AND the
+    // daemon-wide `global.wqmignore`. The watch-folder root makes ignore rules
+    // cascade from ancestor dirs (issue #49) — passing `None` used only the
+    // scanned subdirectory's own files, so a project-root `.wqmignore` was
+    // missed when scanning a subdirectory. `IgnoreGate` is the same decision the
+    // reconciler uses, so the two walk paths can never disagree on eligibility.
+    let gate = IgnoreGate::for_dir(
+        dir_path,
+        Some(Path::new(watch_folder_root.as_str())),
+        global_ignore::resolve_global_ignore_path().as_deref(),
+    );
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!(
@@ -82,7 +86,7 @@ pub(crate) async fn scan_directory_single_level(
         };
 
         if file_type.is_dir() {
-            if is_ignored_by_matcher(&ignore_matcher, &path, true) {
+            if gate.is_ignored(&path, true) {
                 files_excluded += 1;
                 continue;
             }
@@ -97,7 +101,7 @@ pub(crate) async fn scan_directory_single_level(
             )
             .await;
         } else if file_type.is_file() {
-            if is_ignored_by_matcher(&ignore_matcher, &path, false) {
+            if gate.is_ignored(&path, false) {
                 files_excluded += 1;
                 continue;
             }
@@ -117,44 +121,6 @@ pub(crate) async fn scan_directory_single_level(
     }
 
     Ok((files_queued, dirs_queued, files_excluded, errors))
-}
-
-/// Check if a path is ignored by the project-level ignore matcher OR the
-/// daemon-wide `global.wqmignore`.
-///
-/// The folder-scan walk historically consulted only the per-project
-/// `.gitignore`/`.wqmignore` (via `ProjectIgnoreMatcher`), so a path excluded
-/// ONLY by `global.wqmignore` — e.g. generated protobuf under a project whose
-/// own `.gitignore` does not list it — was still enqueued here on every rescan.
-/// The reconciler (which DOES apply the global file) would then delete it,
-/// producing add/delete churn. Applying the global matcher here too closes that
-/// second leak, so the watcher fix and the walk fix agree on one ignore policy.
-fn is_ignored_by_matcher(
-    ignore_matcher: &Option<ProjectIgnoreMatcher>,
-    path: &Path,
-    is_dir: bool,
-) -> bool {
-    if let Some(ref m) = ignore_matcher {
-        if m.is_ignored(path, is_dir) {
-            let label = if is_dir { "directory" } else { "file" };
-            debug!(
-                "Gate 0: {} excluded by ignore file: {}",
-                label,
-                path.display()
-            );
-            return true;
-        }
-    }
-    if is_globally_ignored(path, is_dir) {
-        let label = if is_dir { "directory" } else { "file" };
-        debug!(
-            "Gate 0: {} excluded by global.wqmignore: {}",
-            label,
-            path.display()
-        );
-        return true;
-    }
-    false
 }
 
 /// Parse an ISO 8601 / RFC 3339 timestamp string into a `SystemTime`.

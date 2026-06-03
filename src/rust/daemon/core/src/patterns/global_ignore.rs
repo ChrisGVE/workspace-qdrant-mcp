@@ -40,7 +40,7 @@ static GLOBAL_IGNORE: Lazy<RwLock<Option<CachedMatcher>>> = Lazy::new(|| RwLock:
 /// Mirrors `watching_queue::ignore_watch::run_reconciliation` and
 /// `startup::reconciliation::ignore_sync`, so the watcher and the reconciler
 /// always read the exact same file.
-fn resolve_global_ignore_path() -> Option<PathBuf> {
+pub fn resolve_global_ignore_path() -> Option<PathBuf> {
     wqm_common::paths::get_database_path()
         .ok()
         .and_then(|p| p.parent().map(|dir| dir.join("global.wqmignore")))

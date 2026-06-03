@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use sqlx::Row;
 
-use crate::patterns::global_ignore;
+use crate::patterns::ignore_gate::IgnoreGate;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
@@ -284,24 +284,21 @@ fn walk_eligible_files(
         }
     }
 
-    // Belt-and-suspenders global filter. `WalkBuilder::add_ignore(global)` above
-    // anchors the global patterns to the file's parent dir (`/var/lib/memexd/`),
-    // which reliably matches only depth-1 project paths — nested matches leak
-    // (e.g. `state/qdrant/...`, `<proj>/generated/...` survive, so reconciliation
-    // never marks them stale and the residuals persist). Re-check every candidate
-    // against the SAME root-anchored matcher the watcher and folder-scan use
-    // (`patterns::global_ignore`), built once from the same file, so all three
-    // paths agree on eligibility. Only DROPS files (never adds), so it cannot
-    // resurrect a walk-pruned path.
-    let global_matcher = global_ignore_path.and_then(global_ignore::matcher_from);
+    // Authoritative post-filter via the shared IgnoreGate (project cascade +
+    // global.wqmignore, root-anchored). The WalkBuilder above keeps git_ignore on
+    // purely to prune huge dirs cheaply, but `add_ignore` only matches depth-1
+    // reliably — nested matches leak (`state/qdrant/...`, `<proj>/generated/...`
+    // survived reconciliation and were never marked stale). Re-checking every
+    // candidate through the SAME gate the folder-scan uses guarantees the two
+    // walk paths can never disagree. The gate only DROPS files (never adds), so
+    // it cannot resurrect a walk-pruned path.
+    let gate = IgnoreGate::for_dir(project_root, Some(project_root), global_ignore_path);
 
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
-            if let Some(ref m) = global_matcher {
-                if m.matched_path_or_any_parents(entry.path(), false).is_ignore() {
-                    continue;
-                }
+            if gate.is_ignored(entry.path(), false) {
+                continue;
             }
             if let Some(rel) = entry
                 .path()
@@ -510,8 +507,8 @@ mod tests {
         // Regression: `WalkBuilder::add_ignore` anchors global patterns to the
         // ignore file's parent dir, so a `**/`-pattern leaks for DEEP (depth-2+)
         // project paths — `state/qdrant/...` survived reconciliation and was
-        // never marked stale. The post-filter via `global_ignore::matcher_from`
-        // must drop it regardless of depth.
+        // never marked stale. The IgnoreGate post-filter must drop it
+        // regardless of depth.
         let global_dir = tempfile::tempdir().unwrap();
         let global_ignore = global_dir.path().join("global.wqmignore");
         fs::write(&global_ignore, "**/state/qdrant/\n**/generated/\n").unwrap();
