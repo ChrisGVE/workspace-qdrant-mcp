@@ -26,7 +26,14 @@ wqm-common = { path = "../common" }
 # Async runtime
 tokio = { workspace = true }
 
+# Read-only Qdrant client (pinned to match daemon/core + mcp-server usage)
+qdrant-client = "1.17"
+# API keys held as SecretString — never logged
+secrecy = { workspace = true }
+serde_json = { workspace = true }
+
 # Errors + tracing
+anyhow = { workspace = true }
 thiserror = "2.0"
 tracing = { workspace = true }
 

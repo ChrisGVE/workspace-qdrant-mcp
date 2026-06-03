@@ -9,8 +9,10 @@
 //! "daemon is the engine, clients talk to it" topology.
 
 pub mod grpc;
+pub mod qdrant;
 
 pub use grpc::{ClientError, DaemonClient};
+pub use qdrant::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 
 /// Re-export of the generated proto module so consumers can reach request /
 /// response message types without depending on `wqm-proto` directly.
