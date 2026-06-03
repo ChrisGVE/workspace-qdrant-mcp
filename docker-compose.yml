@@ -131,6 +131,12 @@ services:
       WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS: ${WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS:-8}
       WQM_RESOURCE_ONNX_INTRA_THREADS: ${WQM_RESOURCE_ONNX_INTRA_THREADS:-4}
       WQM_RESOURCE_INTER_ITEM_DELAY_MS: ${WQM_RESOURCE_INTER_ITEM_DELAY_MS:-0}
+      # CPU-pressure throttle threshold: loadavg(1m)/physical_cores > threshold.
+      # sysinfo reports physical_cores=8 inside WSL (SMT halves the 16 logical
+      # cores), so the 0.6 default trips at loadavg>4.8 — a false positive that
+      # engages the adaptive 25ms inter-item delay and caps embedding throughput.
+      # Default 1.2 (=0.6*16/8) restores the intended 60%-of-16-cores trigger.
+      WQM_RESOURCE_CPU_PRESSURE_THRESHOLD: ${WQM_RESOURCE_CPU_PRESSURE_THRESHOLD:-1.2}
       WQM_QUEUE_BATCH_SIZE: ${WQM_QUEUE_BATCH_SIZE:-32}
       WQM_QUEUE_POLL_INTERVAL_MS: ${WQM_QUEUE_POLL_INTERVAL_MS:-100}
       # Item-level dispatch concurrency within a batch. `1` is byte-identical

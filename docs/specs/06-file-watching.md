@@ -83,10 +83,13 @@ The system uses a two-layer watching approach based on whether the project is gi
 
 ### Ingestion Filtering
 
-Ingestion filtering operates at two levels:
+Ingestion filtering operates at three levels:
 
-- **System-wide**: defined in the YAML configuration file — applies to every watched project/library.
+- **System-wide (YAML)**: the file-type allowlist and mandatory exclusions defined in the YAML configuration file — applies to every watched project/library.
+- **System-wide (`global.wqmignore`)**: daemon-wide gitignore-syntax exclusions loaded from `dirname(WQM_DATABASE_PATH)/global.wqmignore`. Applied by all three enqueue paths — the file watcher (`is_globally_ignored()` in `watching_queue/file_watcher_ops.rs`), the folder-scan walk (`strategies/processing/folder/scan.rs`), and the ignore reconciler (`startup/reconciliation/ignore_sync.rs`). Use this for cross-project exclusions (e.g. the daemon's own `state/qdrant/`, vendored SDKs, generated code).
 - **Per-project**: defined in `.gitignore` and/or `.wqmignore` files inside the project tree — allows project-specific exclusions without touching the global config.
+
+> Re-inclusion (`!pattern`) gotcha: to re-include files under an otherwise-excluded directory, negate the **directory itself** (`!path/cfg/`) in addition to its contents (`!path/cfg/**`). A directory-pruning walk drops a still-ignored directory before descending into it, so a contents-only negation never fires. See `patterns/global_ignore.rs` tests.
 
 The system uses a multi-layered approach with the **file type allowlist** as the primary gate.
 
@@ -115,7 +118,7 @@ The allowlist is the **primary ingestion gate** — files not on the allowlist a
 Every file event passes through five gates in order:
 
 ```
-0. IGNORE FILES:     Must not be matched by .gitignore or .wqmignore   → YES = skip
+0. IGNORE FILES:     Must not match .gitignore, .wqmignore, OR global.wqmignore → YES = skip
 1. ALLOWLIST:        Extension or exact filename must be on the list    → NO  = skip
 2. EXCLUSION:        Must not match directory or pattern exclusions     → YES = skip
 3. SIZE LIMIT:       Must be under the global 100MB hard limit          → OVER = skip

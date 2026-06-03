@@ -15,6 +15,8 @@ pub mod eligibility_trie;
 pub mod exclusion;
 pub mod gitattributes;
 pub mod gitignore;
+pub mod global_ignore;
+pub mod ignore_gate;
 pub mod manager;
 pub mod project;
 

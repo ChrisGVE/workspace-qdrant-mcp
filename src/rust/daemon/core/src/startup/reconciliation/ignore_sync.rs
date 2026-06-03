@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use sqlx::Row;
 
+use crate::patterns::ignore_gate::IgnoreGate;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
@@ -283,9 +284,22 @@ fn walk_eligible_files(
         }
     }
 
+    // Authoritative post-filter via the shared IgnoreGate (project cascade +
+    // global.wqmignore, root-anchored). The WalkBuilder above keeps git_ignore on
+    // purely to prune huge dirs cheaply, but `add_ignore` only matches depth-1
+    // reliably — nested matches leak (`state/qdrant/...`, `<proj>/generated/...`
+    // survived reconciliation and were never marked stale). Re-checking every
+    // candidate through the SAME gate the folder-scan uses guarantees the two
+    // walk paths can never disagree. The gate only DROPS files (never adds), so
+    // it cannot resurrect a walk-pruned path.
+    let gate = IgnoreGate::for_dir(project_root, Some(project_root), global_ignore_path);
+
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
+            if gate.is_ignored(entry.path(), false) {
+                continue;
+            }
             if let Some(rel) = entry
                 .path()
                 .strip_prefix(project_root)
@@ -432,6 +446,92 @@ mod tests {
             "vendors/ should be excluded"
         );
         assert!(!files.contains("archive.zip"), "*.zip should be excluded");
+    }
+
+    #[test]
+    fn walk_eligible_files_excludes_generated_with_realistic_global() {
+        // Reproduction of the live finding: with the FULL real global.wqmignore
+        // pattern set (re-inclusions + many rules), deep generated/ files under a
+        // DOC-V2-shaped tree must still be excluded by the post-filter.
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(
+            &global_ignore,
+            "**/bws-dev-plataform/testlink/**\n\
+             !**/bws-dev-plataform/testlink/cfg/\n\
+             !**/bws-dev-plataform/testlink/cfg/**\n\
+             **/zabbix/zabbix/**\n\
+             state/\n\
+             **/state/qdrant/\n\
+             node_modules/\n\
+             **/proto/src/generated/\n\
+             **/*_proto/\n\
+             **/generated/proto/\n\
+             **/*OuterClass.java\n\
+             **/proto/**/*.java\n\
+             **/*.pb.dart\n\
+             **/generated/\n\
+             **/lib/src/generated/\n\
+             **/packages/generated/\n",
+        )
+        .unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let be = root.path().join("doc-backend/proto/src/generated/doc");
+        fs::create_dir_all(&be).unwrap();
+        fs::write(be.join("ScheduleOuterClass.java"), "// gen").unwrap();
+        let fe = root.path().join("doc-frontend/packages/generated/lib/protos");
+        fs::create_dir_all(&fe).unwrap();
+        fs::write(fe.join("shifts.pb.dart"), "// gen").unwrap();
+        let src = root.path().join("doc-backend/src/main/java/com/x");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("Service.java"), "class Service {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        assert!(
+            !files.iter().any(|f| f.contains("ScheduleOuterClass")),
+            "generated OuterClass.java must be excluded, got {files:?}"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("shifts.pb.dart")),
+            "generated .pb.dart must be excluded, got {files:?}"
+        );
+        assert!(
+            files.iter().any(|f| f.contains("Service.java")),
+            "hand-authored Service.java must be kept, got {files:?}"
+        );
+    }
+
+    #[test]
+    fn walk_eligible_files_excludes_deep_global_match() {
+        // Regression: `WalkBuilder::add_ignore` anchors global patterns to the
+        // ignore file's parent dir, so a `**/`-pattern leaks for DEEP (depth-2+)
+        // project paths — `state/qdrant/...` survived reconciliation and was
+        // never marked stale. The IgnoreGate post-filter must drop it
+        // regardless of depth.
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(&global_ignore, "**/state/qdrant/\n**/generated/\n").unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let deep = root.path().join("sub").join("state").join("qdrant");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("segment.json"), "{}").unwrap();
+        let gen = root.path().join("pkg").join("generated");
+        fs::create_dir_all(&gen).unwrap();
+        fs::write(gen.join("api.pb.dart"), "// gen").unwrap();
+        fs::write(root.path().join("keep.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        assert!(files.contains("keep.rs"), "hand-authored file kept, got {files:?}");
+        assert!(
+            !files.iter().any(|f| f.contains("state/qdrant")),
+            "deep state/qdrant must be excluded, got {files:?}"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("generated")),
+            "deep generated/ must be excluded, got {files:?}"
+        );
     }
 
     #[test]

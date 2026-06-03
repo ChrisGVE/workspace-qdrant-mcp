@@ -8,6 +8,7 @@ use tracing::error;
 
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::global_ignore::is_globally_ignored;
 use crate::queue_operations::QueueError;
 
 use super::error_state::WatchErrorTracker;
@@ -20,6 +21,11 @@ pub(super) async fn should_filter_debounced_event(
     allowed_extensions: &Arc<AllowedExtensions>,
     patterns: &Arc<RwLock<CompiledPatterns>>,
 ) -> bool {
+    // global.wqmignore applies to every event kind (incl. Remove) — see
+    // FileWatcherQueue::enqueue_file_operation for the rationale.
+    if is_globally_ignored(&event.path, false) {
+        return true;
+    }
     if !matches!(event.event_kind, EventKind::Remove(_)) {
         if should_exclude_file(&event.path.to_string_lossy()) {
             return true;

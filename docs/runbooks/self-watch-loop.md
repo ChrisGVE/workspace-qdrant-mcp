@@ -93,11 +93,19 @@ Copying the example into `state/memexd/global.wqmignore` is sufficient — no da
 
 ## Why This Happens
 
-The daemon's ignore reconciliation in `src/rust/daemon/core/src/startup/reconciliation/ignore_sync.rs` compares `tracked_files` against the filesystem subject to the active ignore rules. Without exclusions for `state/`, any file Qdrant writes under `state/qdrant/storage/segments/...` is considered an eligible project file. When Qdrant rotates segments (rename to `.deleted/`, then physically remove), the daemon sees these filesystem events through `notify-debouncer-full` and enqueues `Add`/`Update`/`Delete` operations.
+When Qdrant rotates segments (rename to `.deleted/`, then physically remove) under `state/qdrant/storage/segments/...`, the daemon sees those filesystem events through `notify-debouncer-full` and — unless the path is excluded — enqueues `Add`/`Update`/`Delete` operations. Each `Delete` calls `delete_by_filter` on Qdrant; for files that were never indexed as content the call returns `point_count=0` but still costs a network round-trip (~2s). While the daemon processes one loop item, Qdrant may rotate more segments, producing more loop items. Steady state: queue size oscillates around N, never zero.
 
-Each `Delete` calls `delete_by_filter` on Qdrant; for files that were never indexed as content the call returns `point_count=0` but still costs a network round-trip (~2s). While the daemon processes one loop item, Qdrant may rotate more segments, producing more loop items. Steady state: queue size oscillates around N, never zero.
+### Where `global.wqmignore` is enforced
 
-Adding `state/` and `.fastembed_cache/` to `global.wqmignore` breaks the loop at the source — filesystem events under those paths are filtered before they reach the queue.
+All three paths that can enqueue file work apply `global.wqmignore`, so an excluded path (`state/`, `.fastembed_cache/`, …) is dropped *before* it reaches the queue:
+
+- **File watcher** (`watching_queue/file_watcher_ops.rs`, `file_watcher_ops_helpers.rs`) — calls `patterns::global_ignore::is_globally_ignored()` in `should_filter_event`, `should_filter_debounced_event`, and the `enqueue_file_operation` chokepoint (gates `Add`/`Update`/`Delete`). **This is the gate that breaks the feedback loop at its source.**
+- **Folder scan** (`strategies/processing/folder/scan.rs`) — `is_ignored_by_matcher()` checks `is_globally_ignored()` for both directories (pruned before descent) and files, on top of per-project `.gitignore`/`.wqmignore`.
+- **Ignore reconciler** (`startup/reconciliation/ignore_sync.rs`) — `walk_eligible_files` walks with `WalkBuilder::add_ignore(global.wqmignore)` AND post-filters the eligible set through `global_ignore::matcher_from(global_path)` (root-anchored). `add_ignore` alone only matches depth-1 project paths reliably; the post-filter catches deep matches so the reconciler agrees with the watcher/folder-scan and marks stale (then deletes) residuals like `state/qdrant`/`generated`.
+
+> Historical note: before the watcher/folder-scan gates were added, *only* the reconciler honoured `global.wqmignore` — and only at depth-1 (its `add_ignore` anchor leaks deeper paths). Editing the file did not reliably stop the reconciler from re-adding deep `state/qdrant`/`generated`, and the live watcher kept enqueuing `op=Update` events on every segment rotation, so the loop returned after each restart. The `is_globally_ignored()` gates (watcher + folder-scan) plus the reconciler post-filter close the hole on all three paths. The matcher is rebuilt automatically when the file's mtime changes, so edits via the admin UI take effect without a restart.
+
+> Anchoring: the watcher/folder-scan matcher and the reconciler post-filter all anchor at `/` (root) via `global_ignore`. The reconciler's underlying `WalkBuilder::add_ignore` anchors at the ignore file's parent dir and leaks depth-2+ matches — which is exactly why the post-filter exists. Reserve root-anchored (`/foo`) patterns for project-level `.wqmignore`.
 
 ## Related
 
