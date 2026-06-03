@@ -6,7 +6,7 @@
 //! is in the bounded allow-set) or the sentinel [`OTHER`].
 //!
 //! The allow-set is seeded from the bundled Language Registry
-//! (`src/rust/daemon/core/src/language_registry/language_registry.yaml`) and is
+//! (`src/rust/common/src/language_registry/language_registry.yaml`) and is
 //! ordered by rough real-world prevalence (most common first). A configurable
 //! cap `N` (default [`DEFAULT_LABEL_CARDINALITY_CAP`], env
 //! `WQM_LABEL_CARDINALITY_CAP`) is enforced as a top-`N` truncation over that

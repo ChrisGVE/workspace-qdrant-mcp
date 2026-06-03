@@ -1,7 +1,8 @@
 //! Language registry provider — single source of truth.
 //!
-//! Embeds language definitions at compile time from `language_registry.yaml`.
-//! This provider serves as the offline fallback when no network
+//! Thin async wrapper over the pure-sync `wqm_common::language_registry`
+//! reader (WI-b1), which embeds the bundled `language_registry.yaml` at compile
+//! time. This provider serves as the offline fallback when no network
 //! providers are available.
 
 use async_trait::async_trait;
@@ -12,10 +13,9 @@ use crate::language_registry::types::{
     GrammarEntry, LanguageEntry, LspEntry, LspServerEntry, ProviderData,
 };
 use crate::language_registry::LanguageDefinition;
+use wqm_common::language_registry::RegistryReader;
 
-const REGISTRY_YAML: &str = include_str!("../language_registry.yaml");
-
-/// Provider that loads language definitions from the embedded registry YAML.
+/// Provider that loads language definitions from the bundled registry YAML.
 ///
 /// This provider has the lowest priority (255) and serves as the offline
 /// fallback when no network-based providers are available. All 44 known
@@ -30,11 +30,11 @@ impl RegistryProvider {
     ///
     /// # Errors
     ///
-    /// Returns `DaemonError::Config` if the embedded YAML fails to parse.
+    /// Returns `DaemonError::Other` if the embedded YAML fails to parse.
     /// This should never happen in practice since the YAML is validated
     /// at test time.
     pub fn new() -> Result<Self, DaemonError> {
-        let definitions: Vec<LanguageDefinition> = serde_yaml_ng::from_str(REGISTRY_YAML)
+        let definitions = RegistryReader::bundled()
             .map_err(|e| DaemonError::Other(format!("Failed to parse bundled languages: {e}")))?;
         Ok(Self { definitions })
     }
@@ -127,77 +127,6 @@ impl LanguageSourceProvider for RegistryProvider {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_bundled_yaml_parses() {
-        let provider = RegistryProvider::new().expect("bundled YAML should parse");
-        assert!(
-            provider.definitions.len() > 40,
-            "expected > 40 languages, got {}",
-            provider.definitions.len()
-        );
-    }
-
-    #[test]
-    fn test_all_44_languages_present() {
-        let provider = RegistryProvider::new().unwrap();
-        let ids: Vec<String> = provider.definitions.iter().map(|d| d.id()).collect();
-
-        let expected = [
-            "ada",
-            "bash",
-            "c",
-            "c-sharp",
-            "clojure",
-            "cpp",
-            "css",
-            "dart",
-            "elixir",
-            "elm",
-            "erlang",
-            "fortran",
-            "go",
-            "haskell",
-            "html",
-            "java",
-            "javascript",
-            "json",
-            "julia",
-            "kotlin",
-            "latex",
-            "lisp",
-            "lua",
-            "markdown",
-            "nix",
-            "ocaml",
-            "odin",
-            "pascal",
-            "perl",
-            "php",
-            "python",
-            "r",
-            "ruby",
-            "rust",
-            "scala",
-            "scheme",
-            "sql",
-            "swift",
-            "toml",
-            "tsx",
-            "typescript",
-            "vala",
-            "vue",
-            "yaml",
-            "zig",
-        ];
-
-        for lang in &expected {
-            assert!(
-                ids.contains(&(*lang).to_string()),
-                "missing language: {lang}"
-            );
-        }
-    }
-
     #[tokio::test]
     async fn test_bundled_languages_cover_known_grammars() {
         let provider = RegistryProvider::new().unwrap();
@@ -259,89 +188,5 @@ mod tests {
         assert_eq!(provider.priority(), 255);
         assert!(provider.last_updated().is_none());
         assert!(provider.is_enabled());
-    }
-
-    #[test]
-    fn test_semantic_patterns_present_for_extractors() {
-        let provider = RegistryProvider::new().unwrap();
-
-        let languages_with_patterns = [
-            "python",
-            "rust",
-            "go",
-            "java",
-            "javascript",
-            "typescript",
-            "tsx",
-            "c",
-            "cpp",
-            "ruby",
-            "swift",
-            "bash",
-            "lua",
-            "elixir",
-            "erlang",
-            "scala",
-            "haskell",
-            "zig",
-            "odin",
-            "clojure",
-            "ocaml",
-            "fortran",
-            "ada",
-            "perl",
-            "pascal",
-            "lisp",
-        ];
-
-        for lang_id in &languages_with_patterns {
-            let def = provider
-                .definitions
-                .iter()
-                .find(|d| d.id() == *lang_id)
-                .unwrap_or_else(|| panic!("missing language: {lang_id}"));
-            assert!(
-                def.has_semantic_patterns(),
-                "{lang_id} should have semantic patterns"
-            );
-        }
-    }
-
-    #[test]
-    fn test_grammar_quality_tiers() {
-        let provider = RegistryProvider::new().unwrap();
-
-        // Official grammars (tree-sitter org)
-        let rust_def = provider
-            .definitions
-            .iter()
-            .find(|d| d.id() == "rust")
-            .unwrap();
-        assert_eq!(
-            rust_def.grammar.sources[0].quality,
-            crate::language_registry::types::GrammarQuality::Official
-        );
-
-        // Curated grammars (tree-sitter-grammars org)
-        let lua_def = provider
-            .definitions
-            .iter()
-            .find(|d| d.id() == "lua")
-            .unwrap();
-        assert_eq!(
-            lua_def.grammar.sources[0].quality,
-            crate::language_registry::types::GrammarQuality::Curated
-        );
-
-        // Community grammars
-        let ada_def = provider
-            .definitions
-            .iter()
-            .find(|d| d.id() == "ada")
-            .unwrap();
-        assert_eq!(
-            ada_def.grammar.sources[0].quality,
-            crate::language_registry::types::GrammarQuality::Community
-        );
     }
 }

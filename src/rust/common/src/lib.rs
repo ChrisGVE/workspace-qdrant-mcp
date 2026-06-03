@@ -19,6 +19,7 @@ pub mod constants;
 pub mod duration_fmt;
 pub mod env_expand;
 pub mod hashing;
+pub mod language_registry;
 pub mod nlp;
 pub mod paths;
 pub mod payloads;
