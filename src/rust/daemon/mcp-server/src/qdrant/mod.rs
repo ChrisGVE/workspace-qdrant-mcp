@@ -20,14 +20,13 @@
 //! guard on their unit tests so the test suite stays hermetic.
 
 pub mod endpoint;
-pub mod filters;
-pub mod fusion;
 
-// QdrantReadClient (+ value types) now live in the shared wqm-client crate
-// (WI-d3, #82). Re-export the module so existing `crate::qdrant::client::{…}`
-// paths and the local `SearchQdrant for QdrantReadClient` adapter keep
-// resolving against the now-foreign type.
-pub use wqm_client::qdrant::client;
+// QdrantReadClient (+ value types), filter construction, and result-fusion all
+// now live in the shared wqm-client crate (WI-d3/WI-d4, #82). Re-export the
+// modules so existing `crate::qdrant::{client,filters,fusion}::{…}` paths and
+// the local `SearchQdrant for QdrantReadClient` adapter keep resolving against
+// the now-foreign types.
+pub use wqm_client::qdrant::{client, filters, fusion};
 
 pub use client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 pub use endpoint::grpc_endpoint;

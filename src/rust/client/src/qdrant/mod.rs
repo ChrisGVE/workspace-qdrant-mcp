@@ -12,8 +12,16 @@
 //! [`wqm_common::qdrant_endpoint::grpc_endpoint`].
 
 pub mod client;
+pub mod filters;
+pub mod fusion;
 
 pub use client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
+pub use filters::{build_filter, determine_collections, extract_glob_prefix, FilterParams};
+pub use fusion::{
+    apply_rrf_fusion, apply_score_threshold, compute_diversity_score, diversify_results,
+    point_to_tagged, DiversityConfig, SearchType, TaggedResult, DEFAULT_DIVERSITY_CONFIG,
+    DEFAULT_SCORE_THRESHOLD, DENSE_VECTOR_NAME, RRF_K, SPARSE_VECTOR_NAME,
+};
 
 /// Re-export of the Qdrant point-id type used in scroll pagination, so consumers
 /// can thread scroll offsets without a direct `qdrant-client` dependency.
