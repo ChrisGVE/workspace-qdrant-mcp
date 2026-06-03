@@ -28,6 +28,8 @@ clap_mangen = "0.2"
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 prost = "0.13"
 prost-types = "0.13"
+# Shared proto client stubs (single proto-compilation site)
+wqm-proto = { path = "../proto" }
 
 # Async runtime (with fs for update command)
 tokio = { version = "1.50", features = ["rt", "macros", "sync", "fs", "io-util", "time"] }
@@ -92,9 +94,6 @@ windows-service = "0.7"
 [dev-dependencies]
 tempfile = "3.26"
 serial_test = "3.4"
-
-[build-dependencies]
-tonic-build = { version = "0.12", features = ["prost"] }
 
 # Profiles are defined in workspace root Cargo.toml
 

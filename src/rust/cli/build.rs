@@ -1,22 +1,9 @@
-//! Build script for proto compilation and build metadata
+//! Build script for build metadata.
 //!
-//! Compiles workspace_daemon.proto for gRPC client usage only.
-//! Captures git commit count as a 4-digit hex build number.
+//! Proto compilation moved to the shared `wqm-proto` crate (WI-c1, #82); this
+//! script only captures the git commit count as a 4-digit hex build number.
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Compile protos from daemon workspace
-    // CLI only needs client stubs, not server code
-    tonic_build::configure()
-        .build_server(false) // Client only
-        .compile_protos(
-            &["../daemon/proto/workspace_daemon.proto"],
-            &["../daemon/proto"],
-        )?;
-
-    // Note: Legacy ingestion.proto was removed. All gRPC operations now use
-    // workspace_daemon.proto with services: SystemService, CollectionService,
-    // DocumentService, EmbeddingService, ProjectService.
-
     // Capture git commit count as build number
     let build_number = std::process::Command::new("git")
         .args(["rev-list", "--count", "HEAD"])

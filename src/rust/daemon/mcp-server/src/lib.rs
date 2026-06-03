@@ -17,13 +17,10 @@ pub mod sqlite;
 pub mod tools;
 pub mod transport;
 
-/// Generated gRPC client stubs from workspace_daemon.proto.
-///
-/// Mirrors the pattern in `wqm-cli/src/grpc/client.rs`.  Build-time codegen
-/// is performed by build.rs using `tonic_build::configure().build_server(false)`.
-pub mod proto {
-    tonic::include_proto!("workspace_daemon");
-}
+/// Generated gRPC client stubs, now sourced from the shared `wqm-proto` crate
+/// (WI-c1, #82) instead of compiled in this crate's build.rs. The `proto` alias
+/// keeps every existing `proto::` call site stable.
+pub use wqm_proto::workspace_daemon as proto;
 
 #[cfg(test)]
 mod tests {

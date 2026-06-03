@@ -54,6 +54,8 @@ url = "2.5"
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 prost = "0.13"
 prost-types = "0.13"
+# Shared proto client stubs (single proto-compilation site)
+wqm-proto = { path = "../../proto" }
 
 # Shared config, paths, constants, project-id, hashing, payloads
 wqm-common = { path = "../../common", features = ["sqlite"] }
@@ -95,9 +97,6 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
 prometheus = { version = "0.13", features = ["process"] }
 
-[build-dependencies]
-tonic-build = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }
 serial_test = { workspace = true }
@@ -110,6 +109,11 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [[bench]]
 name = "tool_overhead"
+harness = false
+
+# TEMPORARY (#82 task 1): fusion-pipeline baseline for the PR3 regression gate.
+[[bench]]
+name = "fusion_baseline"
 harness = false
 
 [features]

@@ -18,10 +18,9 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 use tonic::transport::Channel;
 
-/// Generated from workspace_daemon.proto
-pub mod workspace_daemon {
-    tonic::include_proto!("workspace_daemon");
-}
+/// Generated client stubs, now sourced from the shared `wqm-proto` crate
+/// (WI-c1, #82) instead of compiled in this crate's build.rs.
+pub use wqm_proto::workspace_daemon;
 
 use workspace_daemon::{
     admin_write_service_client::AdminWriteServiceClient,
