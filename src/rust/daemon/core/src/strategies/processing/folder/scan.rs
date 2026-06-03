@@ -12,6 +12,7 @@ use crate::allowed_extensions::AllowedExtensions;
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
 use crate::patterns::gitignore::ProjectIgnoreMatcher;
+use crate::patterns::global_ignore::is_globally_ignored;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
 use crate::unified_queue_schema::{
@@ -118,7 +119,16 @@ pub(crate) async fn scan_directory_single_level(
     Ok((files_queued, dirs_queued, files_excluded, errors))
 }
 
-/// Check if a path is ignored by the project-level ignore matcher.
+/// Check if a path is ignored by the project-level ignore matcher OR the
+/// daemon-wide `global.wqmignore`.
+///
+/// The folder-scan walk historically consulted only the per-project
+/// `.gitignore`/`.wqmignore` (via `ProjectIgnoreMatcher`), so a path excluded
+/// ONLY by `global.wqmignore` — e.g. generated protobuf under a project whose
+/// own `.gitignore` does not list it — was still enqueued here on every rescan.
+/// The reconciler (which DOES apply the global file) would then delete it,
+/// producing add/delete churn. Applying the global matcher here too closes that
+/// second leak, so the watcher fix and the walk fix agree on one ignore policy.
 fn is_ignored_by_matcher(
     ignore_matcher: &Option<ProjectIgnoreMatcher>,
     path: &Path,
@@ -134,6 +144,15 @@ fn is_ignored_by_matcher(
             );
             return true;
         }
+    }
+    if is_globally_ignored(path, is_dir) {
+        let label = if is_dir { "directory" } else { "file" };
+        debug!(
+            "Gate 0: {} excluded by global.wqmignore: {}",
+            label,
+            path.display()
+        );
+        return true;
     }
     false
 }

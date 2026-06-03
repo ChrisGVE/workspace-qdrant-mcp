@@ -215,6 +215,73 @@ mod tests {
         assert!(!is_ignored_by_file(&absent, p, false));
     }
 
+    // ── exclusion-with-re-inclusion patterns (testlink / zabbix) ──────────────
+
+    #[test]
+    fn zabbix_vendored_tree_is_ignored() {
+        let (_d, ig) = write_global("**/zabbix/zabbix/**\n");
+        let p = Path::new("/home/u/repos/bws-engineer/zabbix/zabbix/Dockerfiles/web/conf.d/x.conf");
+        assert!(is_ignored_by_file(&ig, p, false));
+    }
+
+    #[test]
+    fn testlink_non_reincluded_subtree_is_ignored() {
+        let (_d, ig) = write_global(
+            "**/bws-dev-plataform/testlink/**\n!**/bws-dev-plataform/testlink/cfg/**\n",
+        );
+        let p = Path::new("/home/u/repos/x/bws-dev-plataform/testlink/lib/api/foo.php");
+        assert!(
+            is_ignored_by_file(&ig, p, false),
+            "testlink files outside cfg/custom must stay excluded"
+        );
+    }
+
+    // Characterises the GOTCHA precisely. Contents-only `!.../cfg/**`
+    // re-includes the cfg FILE (matched_path_or_any_parents honours the `/**`
+    // negation), but does NOT re-include the bare cfg DIRECTORY. A
+    // directory-pruning walk (folder-scan / reconciler) tests the dir with
+    // is_dir=true, finds it still ignored, and never descends — so the cfg
+    // files are never reached during a scan. This is why cfg/custom showed 0
+    // indexed files despite the `!.../cfg/**` re-include.
+    #[test]
+    fn testlink_cfg_contents_only_reincludes_file_but_not_dir() {
+        let (_d, ig) = write_global(
+            "**/bws-dev-plataform/testlink/**\n!**/bws-dev-plataform/testlink/cfg/**\n",
+        );
+        let cfg_file = Path::new("/home/u/x/bws-dev-plataform/testlink/cfg/const.inc.php");
+        let cfg_dir = Path::new("/home/u/x/bws-dev-plataform/testlink/cfg");
+        assert!(
+            !is_ignored_by_file(&ig, cfg_file, false),
+            "the cfg FILE is re-included by !.../cfg/**"
+        );
+        assert!(
+            is_ignored_by_file(&ig, cfg_dir, true),
+            "but the bare cfg DIR is NOT re-included — a walk prunes it before descending"
+        );
+    }
+
+    // The fix: re-include the cfg DIRECTORY as well as its contents, so the walk
+    // descends into cfg and indexes the re-included files. Both the dir
+    // (is_dir=true) and the file (is_dir=false) must report not-ignored.
+    #[test]
+    fn testlink_cfg_reincluded_when_dir_and_contents_both_negated() {
+        let (_d, ig) = write_global(
+            "**/bws-dev-plataform/testlink/**\n\
+             !**/bws-dev-plataform/testlink/cfg/\n\
+             !**/bws-dev-plataform/testlink/cfg/**\n",
+        );
+        let cfg_file = Path::new("/home/u/x/bws-dev-plataform/testlink/cfg/const.inc.php");
+        let cfg_dir = Path::new("/home/u/x/bws-dev-plataform/testlink/cfg");
+        assert!(
+            !is_ignored_by_file(&ig, cfg_dir, true),
+            "dir-form !.../cfg/ re-includes the dir so the walk descends"
+        );
+        assert!(
+            !is_ignored_by_file(&ig, cfg_file, false),
+            "and the file stays re-included"
+        );
+    }
+
     // End-to-end through the PUBLIC `is_globally_ignored` — the exact function
     // the file-watcher enqueue path calls. Exercises WQM_DATABASE_PATH
     // resolution, the process-wide cache, and the matcher together, so it
