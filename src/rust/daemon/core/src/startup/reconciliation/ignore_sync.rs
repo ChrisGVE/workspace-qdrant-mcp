@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use sqlx::Row;
 
+use crate::patterns::global_ignore;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{ItemType, QueueOperation};
 
@@ -283,9 +284,25 @@ fn walk_eligible_files(
         }
     }
 
+    // Belt-and-suspenders global filter. `WalkBuilder::add_ignore(global)` above
+    // anchors the global patterns to the file's parent dir (`/var/lib/memexd/`),
+    // which reliably matches only depth-1 project paths — nested matches leak
+    // (e.g. `state/qdrant/...`, `<proj>/generated/...` survive, so reconciliation
+    // never marks them stale and the residuals persist). Re-check every candidate
+    // against the SAME root-anchored matcher the watcher and folder-scan use
+    // (`patterns::global_ignore`), built once from the same file, so all three
+    // paths agree on eligibility. Only DROPS files (never adds), so it cannot
+    // resurrect a walk-pruned path.
+    let global_matcher = global_ignore_path.and_then(global_ignore::matcher_from);
+
     let mut files = HashSet::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
+            if let Some(ref m) = global_matcher {
+                if m.matched_path_or_any_parents(entry.path(), false).is_ignore() {
+                    continue;
+                }
+            }
             if let Some(rel) = entry
                 .path()
                 .strip_prefix(project_root)
@@ -432,6 +449,38 @@ mod tests {
             "vendors/ should be excluded"
         );
         assert!(!files.contains("archive.zip"), "*.zip should be excluded");
+    }
+
+    #[test]
+    fn walk_eligible_files_excludes_deep_global_match() {
+        // Regression: `WalkBuilder::add_ignore` anchors global patterns to the
+        // ignore file's parent dir, so a `**/`-pattern leaks for DEEP (depth-2+)
+        // project paths — `state/qdrant/...` survived reconciliation and was
+        // never marked stale. The post-filter via `global_ignore::matcher_from`
+        // must drop it regardless of depth.
+        let global_dir = tempfile::tempdir().unwrap();
+        let global_ignore = global_dir.path().join("global.wqmignore");
+        fs::write(&global_ignore, "**/state/qdrant/\n**/generated/\n").unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let deep = root.path().join("sub").join("state").join("qdrant");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("segment.json"), "{}").unwrap();
+        let gen = root.path().join("pkg").join("generated");
+        fs::create_dir_all(&gen).unwrap();
+        fs::write(gen.join("api.pb.dart"), "// gen").unwrap();
+        fs::write(root.path().join("keep.rs"), "fn main() {}").unwrap();
+
+        let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
+        assert!(files.contains("keep.rs"), "hand-authored file kept, got {files:?}");
+        assert!(
+            !files.iter().any(|f| f.contains("state/qdrant")),
+            "deep state/qdrant must be excluded, got {files:?}"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("generated")),
+            "deep generated/ must be excluded, got {files:?}"
+        );
     }
 
     #[test]

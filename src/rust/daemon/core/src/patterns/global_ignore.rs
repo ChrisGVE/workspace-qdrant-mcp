@@ -78,6 +78,21 @@ fn build_matcher(path: &Path) -> Option<Gitignore> {
     }
 }
 
+/// Build a global-ignore matcher from an explicit file path, anchored at `/`.
+///
+/// For callers that already hold the resolved `global.wqmignore` path and walk
+/// many candidates (e.g. the ignore reconciler in
+/// `startup/reconciliation/ignore_sync.rs`): build the matcher once, then test
+/// each path with `matcher.matched_path_or_any_parents(path, is_dir).is_ignore()`.
+/// Anchored identically to [`is_globally_ignored`], so the reconciler's
+/// eligibility agrees with the watcher and folder-scan paths — `WalkBuilder::
+/// add_ignore` alone anchors to the file's parent dir and leaks nested matches
+/// (depth-2+), which let `state/qdrant`/`generated` survive reconciliation.
+/// Returns `None` if the file is absent or unreadable.
+pub fn matcher_from(ignore_file: &Path) -> Option<Gitignore> {
+    build_matcher(ignore_file)
+}
+
 /// Match `path` against the cached matcher, checking the path and every parent
 /// directory so a directory pattern (e.g. `**/state/qdrant/`) excludes the
 /// files nested beneath it.
