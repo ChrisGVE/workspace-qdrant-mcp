@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, Filter, GetPointsBuilder, PointId, QueryPointsBuilder, ScoredPoint,
-    ScrollPointsBuilder,
+    point_id::PointIdOptions, CountPointsBuilder, Filter, GetPointsBuilder, PointId,
+    QueryPointsBuilder, ScoredPoint, ScrollPointsBuilder,
 };
 use qdrant_client::Qdrant;
 use secrecy::{ExposeSecret, SecretString};
@@ -264,6 +264,27 @@ impl QdrantReadClient {
                 payload: decode_payload(p.payload),
             })
             .collect())
+    }
+
+    /// Exact point count for a collection.
+    ///
+    /// Read-only counterpart of the Qdrant REST `GET /collections/{c}`
+    /// `points_count`. Uses `exact(true)` so the count is authoritative rather
+    /// than an estimate.
+    ///
+    /// # Errors
+    /// Propagates a Qdrant error if the collection is missing or unreachable.
+    pub async fn count(&self, collection: &str) -> Result<u64> {
+        debug!(collection, "QdrantReadClient::count");
+
+        let builder = CountPointsBuilder::new(collection).exact(true);
+        let response = self
+            .inner
+            .count(builder)
+            .await
+            .with_context(|| format!("Qdrant count failed on collection={collection}"))?;
+
+        Ok(response.result.map(|r| r.count).unwrap_or(0))
     }
 
     /// Check whether a named collection exists.
