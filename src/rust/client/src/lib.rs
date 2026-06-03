@@ -10,6 +10,7 @@
 
 pub mod grpc;
 pub mod models;
+pub mod project;
 pub mod qdrant;
 
 // WI-c2 (#82 task 21): test-only guard enforcing "no direct Qdrant writes in the
