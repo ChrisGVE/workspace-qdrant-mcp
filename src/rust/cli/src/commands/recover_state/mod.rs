@@ -39,8 +39,7 @@ const ALL_COLLECTIONS: &[&str] = &[
 /// Scroll all collections and reconstruct SQLite state. Returns totals.
 async fn reconstruct_all_collections(
     conn: &rusqlite::Connection,
-    http_client: &reqwest::Client,
-    base_url: &str,
+    reader: &qdrant_helpers::QdrantReader,
 ) -> Result<(u64, u64, u64, u64, u64)> {
     let mut total_points = 0u64;
     let mut total_watch_folders = 0u64;
@@ -50,7 +49,7 @@ async fn reconstruct_all_collections(
 
     for collection in ALL_COLLECTIONS {
         output::info(format!("Scrolling {}...", collection));
-        let points = qdrant_helpers::scroll_all_points(http_client, base_url, collection).await?;
+        let points = reader.all_points(collection).await?;
 
         let count = points.len();
         total_points += count as u64;
@@ -130,15 +129,14 @@ pub async fn execute(confirm: bool) -> Result<()> {
     let conn = create_fresh_database(&db_path)?;
     output::success("Created fresh state.db with full schema");
 
-    // Step 3: Connect to Qdrant
-    let http_client = qdrant_helpers::build_qdrant_http_client()?;
-    let base_url = qdrant_helpers::qdrant_base_url();
-    output::kv("Qdrant URL", &base_url);
+    // Step 3: Connect to Qdrant (gRPC-primary read client, REST fallback)
+    let reader = qdrant_helpers::QdrantReader::from_config()?;
+    output::kv("Qdrant URL", reader.base_url());
     output::separator();
 
     // Step 4: Scroll each collection and reconstruct
     let (total_points, total_watch_folders, total_tracked_files, total_chunks, total_rules) =
-        reconstruct_all_collections(&conn, &http_client, &base_url).await?;
+        reconstruct_all_collections(&conn, &reader).await?;
 
     // Step 5: Summary
     output::separator();
@@ -157,6 +155,5 @@ pub async fn execute(confirm: bool) -> Result<()> {
 
 /// Check if the daemon is currently running by attempting a gRPC health check.
 async fn is_daemon_running() -> bool {
-    
     crate::grpc::connect_default().await.is_ok()
 }

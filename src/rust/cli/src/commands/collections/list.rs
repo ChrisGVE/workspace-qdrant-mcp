@@ -121,16 +121,13 @@ async fn build_collection_rows(
     collections: &[CollectionDescription],
 ) -> Result<Vec<CollectionRow>> {
     let db_conn = crate::data::db::connect_readonly().ok();
-    let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
-    let base_url = qdrant_helpers::qdrant_base_url();
+    let reader = qdrant_helpers::QdrantReader::from_config()?;
     let locale = NumberLocale::default();
 
     let mut rows: Vec<CollectionRow> = Vec::new();
 
     for col in collections {
-        let row =
-            build_single_collection_row(col, &qdrant_client, &base_url, db_conn.as_ref(), &locale)
-                .await?;
+        let row = build_single_collection_row(col, &reader, db_conn.as_ref(), &locale).await?;
         rows.push(row);
     }
 
@@ -139,34 +136,24 @@ async fn build_collection_rows(
 
 async fn build_single_collection_row(
     col: &CollectionDescription,
-    qdrant_client: &reqwest::Client,
-    base_url: &str,
+    reader: &qdrant_helpers::QdrantReader,
     db_conn: Option<&rusqlite::Connection>,
     locale: &NumberLocale,
 ) -> Result<CollectionRow> {
     let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
     let label = if is_canonical { "canonical" } else { "custom" };
 
-    let point_count =
-        qdrant_helpers::get_collection_point_count(qdrant_client, base_url, &col.name)
-            .await
-            .unwrap_or(None);
+    let point_count = reader
+        .collection_point_count(&col.name)
+        .await
+        .unwrap_or(None);
 
     let points_str = point_count
         .map(|c| format_usize(c as usize, locale))
         .unwrap_or_else(|| "?".to_string());
 
     if is_canonical {
-        build_canonical_row(
-            col,
-            qdrant_client,
-            base_url,
-            db_conn,
-            label,
-            points_str,
-            locale,
-        )
-        .await
+        build_canonical_row(col, reader, db_conn, label, points_str, locale).await
     } else {
         Ok(CollectionRow {
             name: col.name.clone(),
@@ -180,22 +167,17 @@ async fn build_single_collection_row(
 
 async fn build_canonical_row(
     col: &CollectionDescription,
-    qdrant_client: &reqwest::Client,
-    base_url: &str,
+    reader: &qdrant_helpers::QdrantReader,
     db_conn: Option<&rusqlite::Connection>,
     label: &str,
     points_str: String,
     locale: &NumberLocale,
 ) -> Result<CollectionRow> {
     let tenant_field = qdrant_helpers::tenant_field_for_collection(&col.name);
-    let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
-        qdrant_client,
-        base_url,
-        &col.name,
-        tenant_field,
-    )
-    .await
-    .unwrap_or_default();
+    let qdrant_tenants = reader
+        .unique_field_values(&col.name, tenant_field)
+        .await
+        .unwrap_or_default();
 
     let known_tenants = db_conn
         .map(|c| qdrant_helpers::get_known_tenants_for_collection(c, &col.name))

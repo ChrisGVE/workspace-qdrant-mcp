@@ -15,6 +15,10 @@ pub mod client;
 
 pub use client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 
+/// Re-export of the Qdrant point-id type used in scroll pagination, so consumers
+/// can thread scroll offsets without a direct `qdrant-client` dependency.
+pub use qdrant_client::qdrant::PointId;
+
 #[cfg(test)]
 mod write_guard {
     //! CI guard: the read-only client source must contain no Qdrant write APIs

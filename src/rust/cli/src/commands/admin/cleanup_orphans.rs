@@ -36,11 +36,9 @@ pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<
         }
     };
 
-    let http_client = qdrant_helpers::build_qdrant_http_client()?;
-    let base_url = qdrant_helpers::qdrant_base_url();
+    let reader = qdrant_helpers::QdrantReader::from_config()?;
 
-    let total_orphans =
-        scan_collections_for_orphans(&collections, &conn, &http_client, &base_url).await?;
+    let total_orphans = scan_collections_for_orphans(&collections, &conn, &reader).await?;
 
     output::separator();
 
@@ -68,8 +66,7 @@ pub async fn execute(delete: bool, collection_filter: Option<String>) -> Result<
 async fn scan_collections_for_orphans(
     collections: &[&str],
     conn: &Option<rusqlite::Connection>,
-    http_client: &reqwest::Client,
-    base_url: &str,
+    reader: &qdrant_helpers::QdrantReader,
 ) -> Result<Vec<(String, String)>> {
     use std::collections::HashSet;
 
@@ -82,13 +79,7 @@ async fn scan_collections_for_orphans(
             collection, tenant_field
         ));
 
-        let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
-            http_client,
-            base_url,
-            collection,
-            tenant_field,
-        )
-        .await?;
+        let qdrant_tenants = reader.unique_field_values(collection, tenant_field).await?;
 
         if qdrant_tenants.is_empty() {
             output::kv(format!("  {} tenants in Qdrant", collection), "0");

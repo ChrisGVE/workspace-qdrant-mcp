@@ -190,20 +190,20 @@ async fn fetch_async_data() -> AsyncDashboardData {
     let mut data = AsyncDashboardData::default();
     data.health = check_services_health().await;
 
-    if let Ok(client) = crate::commands::qdrant_helpers::build_qdrant_http_client() {
-        let base_url = crate::commands::qdrant_helpers::qdrant_base_url();
-        let scroll = crate::commands::qdrant_helpers::scroll_tenant_point_counts;
-
-        if let Ok(c) = scroll(&client, &base_url, "projects", "tenant_id").await {
+    if let Ok(reader) = crate::commands::qdrant_helpers::QdrantReader::from_config() {
+        if let Ok(c) = reader.tenant_point_counts("projects", "tenant_id").await {
             data.projects_points = c;
         }
-        if let Ok(c) = scroll(&client, &base_url, "libraries", "library_name").await {
+        if let Ok(c) = reader
+            .tenant_point_counts("libraries", "library_name")
+            .await
+        {
             data.libraries_points = c;
         }
-        if let Ok(c) = scroll(&client, &base_url, "scratchpad", "tenant_id").await {
+        if let Ok(c) = reader.tenant_point_counts("scratchpad", "tenant_id").await {
             data.scratchpad_points = c;
         }
-        if let Ok(c) = scroll(&client, &base_url, "rules", "tenant_id").await {
+        if let Ok(c) = reader.tenant_point_counts("rules", "tenant_id").await {
             data.rules_points = c;
         }
     }
