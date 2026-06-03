@@ -12,7 +12,7 @@ use colored::Colorize;
 use walkdir::WalkDir;
 
 use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::patterns::exclusion::{should_exclude_directory, should_exclude_file};
+use wqm_common::exclusion::{should_exclude_directory, should_exclude_file};
 use workspace_qdrant_core::tree_sitter::{detect_language, GrammarManager};
 
 use crate::output;

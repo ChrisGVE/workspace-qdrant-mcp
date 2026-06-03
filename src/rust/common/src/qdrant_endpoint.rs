@@ -7,15 +7,12 @@
 //! Rust MCP server) speaks **gRPC**, so it must dial `:6334` instead —
 //! otherwise the first call fails with an opaque `h2 protocol error`.
 //!
-//! This is the single source of truth for that `:6333` → `:6334` translation.
-//! Both `workspace-qdrant-core` (the daemon's `build_connection_url`) and the
-//! MCP server's `qdrant::endpoint` delegate here so the whole workspace shares
-//! one convention and the rule can never drift between copies.
-//!
-//! DEFERRED (GitHub #82): this helper is a stop-gap for the deeper problem —
-//! three parallel config modules (daemon/CLI/MCP) with no single canonical
-//! home. When config is consolidated into one shared module, fold this
-//! translation into that module's resolution and drop the delegation shims.
+//! This is the single source of truth for that `:6333` → `:6334` translation
+//! (WI-b1, #82). Both `workspace-qdrant-core` (the daemon's
+//! `build_connection_url`) and the MCP server's `qdrant::endpoint` delegate
+//! here, so the whole workspace shares one convention and the rule can never
+//! drift between copies. The CLI talks to Qdrant over REST and needs no
+//! translation. The thin per-component re-exports keep local call sites stable.
 
 /// The Qdrant REST API port.
 pub const QDRANT_REST_PORT: u16 = 6333;

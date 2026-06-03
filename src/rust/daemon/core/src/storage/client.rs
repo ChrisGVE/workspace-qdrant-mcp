@@ -236,9 +236,9 @@ impl Default for StorageClient {
 fn build_connection_url(config: &StorageConfig) -> String {
     match config.transport {
         // For gRPC, dial Qdrant's gRPC port (6334). The `:6333` → `:6334`
-        // translation is the canonical workspace-shared helper so the daemon,
-        // MCP server, and any future gRPC consumer never drift apart.
-        // DEFERRED (GitHub #82): fold into the consolidated config module.
+        // translation is the canonical workspace-shared helper (wqm-common,
+        // WI-b1/#82) so the daemon, MCP server, and any future gRPC consumer
+        // never drift apart.
         TransportMode::Grpc => wqm_common::qdrant_endpoint::grpc_endpoint(&config.url),
         TransportMode::Http => {
             if config.url.starts_with("http://") || config.url.starts_with("https://") {

@@ -262,3 +262,54 @@ fn test_should_exclude_directory() {
     assert!(!should_exclude_directory("tests"));
     assert!(!should_exclude_directory("docs"));
 }
+
+// ── WI-b1 (#82 task 15): thin wqm-common helpers vs full daemon engine ──────
+//
+// The CLI now uses the dependency-free `wqm_common::exclusion` helpers for its
+// filesystem walks instead of the daemon's `ExclusionEngine`. For the
+// well-known sample below the two must return identical verdicts; the thin
+// helpers intentionally cover only this critical set, not the engine's full
+// configurable pattern space.
+
+#[test]
+fn thin_helpers_match_engine_for_directory_sample() {
+    let sample = [
+        "target",
+        "node_modules",
+        "__pycache__",
+        ".git",
+        ".venv",
+        ".mypy_cache",
+        ".github",
+        "src",
+        "lib",
+        "tests",
+        "docs",
+    ];
+    for dir in sample {
+        assert_eq!(
+            wqm_common::exclusion::should_exclude_directory(dir),
+            should_exclude_directory(dir),
+            "directory verdict mismatch for {dir:?}"
+        );
+    }
+}
+
+#[test]
+fn thin_helpers_match_engine_for_file_sample() {
+    let sample = [
+        ".git/config",
+        "target/debug/app",
+        "node_modules/package.json",
+        ".DS_Store",
+        "path/to/.DS_Store",
+        "src/main.rs",
+    ];
+    for file in sample {
+        assert_eq!(
+            wqm_common::exclusion::should_exclude_file(file),
+            should_exclude_file(file),
+            "file verdict mismatch for {file:?}"
+        );
+    }
+}

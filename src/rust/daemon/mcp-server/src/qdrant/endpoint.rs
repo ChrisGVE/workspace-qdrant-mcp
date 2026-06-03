@@ -9,10 +9,7 @@
 //! The translation itself is the canonical
 //! [`wqm_common::qdrant_endpoint::grpc_endpoint`], shared with the daemon's
 //! `build_connection_url` so the whole workspace uses one `:6333` → `:6334`
-//! convention with no duplicated rule. This thin re-export keeps the local
-//! `qdrant::endpoint::grpc_endpoint` call site stable.
-//!
-//! DEFERRED (GitHub #82): consolidate config into one shared module and drop
-//! this shim along with the per-component config duplication.
+//! convention with no duplicated rule (WI-b1, #82). This thin re-export keeps
+//! the local `qdrant::endpoint::grpc_endpoint` call site stable.
 
 pub use wqm_common::qdrant_endpoint::grpc_endpoint;

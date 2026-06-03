@@ -19,6 +19,7 @@ pub mod constants;
 pub mod document_id;
 pub mod duration_fmt;
 pub mod env_expand;
+pub mod exclusion;
 pub mod hashing;
 pub mod language_registry;
 pub mod lsp_detection;
