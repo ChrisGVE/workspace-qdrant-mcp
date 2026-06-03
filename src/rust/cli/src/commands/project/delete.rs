@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::DeleteProjectRequest;
 use crate::output;
 
@@ -48,7 +47,7 @@ pub(super) async fn delete_project(
         return Ok(());
     }
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             let request = DeleteProjectRequest {
                 project_id: project_id.clone(),

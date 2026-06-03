@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use clap::ValueEnum;
 use wqm_common::paths::CanonicalPath;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
 
@@ -90,7 +89,7 @@ pub fn classify_document_extension(ext: &str) -> Option<(&'static str, &'static 
 /// Signal the daemon to process the ingest queue.
 /// Logs success/failure but does not propagate errors.
 pub async fn signal_daemon_ingest_queue() {
-    if let Ok(mut client) = DaemonClient::connect_default().await {
+    if let Ok(mut client) = crate::grpc::connect_default().await {
         let request = RefreshSignalRequest {
             queue_type: QueueType::IngestQueue as i32,
             lsp_languages: vec![],

@@ -230,7 +230,7 @@ async fn check_services_health() -> ServiceHealth {
         );
     }
 
-    match crate::grpc::client::DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             health.daemon_healthy = Some(client.system().health(()).await.is_ok());
         }

@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use crate::grpc::client::DaemonClient;
 
 /// Default PID file location written by `memexd` at startup.
 const DEFAULT_PID_FILE: &str = "/tmp/memexd.pid";
@@ -133,12 +132,12 @@ fn check_docker_container() -> bool {
 ///
 /// NOTE: Rather than pulling in `tonic-health` and the `grpc.health.v1`
 /// service (which the daemon does not currently implement), this performs a
-/// best-effort `DaemonClient::connect_default()` under a 1s deadline. A
+/// best-effort `crate::grpc::connect_default()` under a 1s deadline. A
 /// successful connect means the TCP port is accepting gRPC traffic, which is
 /// sufficient signal for "something is listening on 50051".
 #[allow(dead_code)] // wiring into service commands lands in task 11
 async fn check_grpc_health() -> bool {
-    match tokio::time::timeout(GRPC_PROBE_TIMEOUT, DaemonClient::connect_default()).await {
+    match tokio::time::timeout(GRPC_PROBE_TIMEOUT, crate::grpc::connect_default()).await {
         Ok(Ok(_client)) => true,
         // Connect failed OR outer timeout elapsed.
         _ => false,

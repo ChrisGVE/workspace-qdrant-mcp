@@ -15,7 +15,6 @@ use workspace_qdrant_core::lsp::detection::editor_paths::find_lsp_binary;
 use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
 
 use crate::commands::language::helpers::{find_language, load_definitions};
-use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
 /// Diagnose language support issues.
@@ -195,7 +194,7 @@ async fn check_daemon_language_support(language: &str, verbose: bool) {
 
     let lang_lower = language.to_lowercase();
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => match client.system().health(()).await {
             Ok(response) => {
                 let health = response.into_inner();

@@ -11,7 +11,6 @@ use serde::Serialize;
 use crate::grpc::client::workspace_daemon::{
     narrative_query_request::QueryTarget, NarrativeQueryRequest,
 };
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 use crate::output::{self};
 
@@ -91,7 +90,7 @@ pub async fn topics(concept: &str, tenant_id: Option<&str>, json: bool) -> Resul
         }
     };
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

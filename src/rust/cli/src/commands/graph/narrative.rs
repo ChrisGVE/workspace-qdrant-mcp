@@ -8,7 +8,6 @@ use serde::Serialize;
 use crate::grpc::client::workspace_daemon::{
     narrative_query_request::QueryTarget, NarrativeQueryRequest,
 };
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 
 /// Query target: either a symbol or a concept.
@@ -53,7 +52,7 @@ pub async fn narrative_query(
         Target::Concept(c) => ("Concept", c.as_str(), QueryTarget::ConceptName(c.clone())),
     };
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 
 use crate::grpc::client::workspace_daemon::PageRankRequest;
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn pagerank(
@@ -24,7 +23,7 @@ pub async fn pagerank(
     }
     output::separator();
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

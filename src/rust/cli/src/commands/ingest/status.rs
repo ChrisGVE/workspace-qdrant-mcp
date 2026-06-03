@@ -2,14 +2,13 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::output::style::home_to_tilde;
 use crate::output::{self, ServiceStatus};
 
 pub async fn ingest_status(verbose: bool) -> Result<()> {
     output::section("Ingestion Status");
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::status_line("Daemon", ServiceStatus::Healthy);
 

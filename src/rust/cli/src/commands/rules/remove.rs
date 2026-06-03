@@ -4,7 +4,6 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::DeleteDocumentRequest;
 use crate::output;
 
@@ -18,7 +17,7 @@ pub async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
     output::kv("Scope", scope_str);
     output::separator();
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             // Use label as document_id since we store rules with label as ID
             let request = DeleteDocumentRequest {

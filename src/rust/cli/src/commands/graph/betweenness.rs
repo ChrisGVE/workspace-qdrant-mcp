@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 
 use crate::grpc::client::workspace_daemon::BetweennessRequest;
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn betweenness(
@@ -22,7 +21,7 @@ pub async fn betweenness(
     }
     output::separator();
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

@@ -4,7 +4,6 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
 
@@ -36,7 +35,7 @@ pub async fn watch() -> Result<()> {
 
 /// Fetch active project names from daemon, returning None if unreachable.
 async fn fetch_active_projects() -> Option<Vec<String>> {
-    let mut client = DaemonClient::connect_default().await.ok()?;
+    let mut client = crate::grpc::connect_default().await.ok()?;
     let response = client.system().get_status(()).await.ok()?;
     Some(response.into_inner().active_projects)
 }

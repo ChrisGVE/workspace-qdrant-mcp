@@ -17,7 +17,6 @@ use workspace_qdrant_core::config::GrammarConfig;
 use wqm_common::exclusion::should_exclude_directory;
 use workspace_qdrant_core::tree_sitter::{detect_language, GrammarManager, GrammarStatus};
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::ListProjectsRequest;
 use crate::output::{self, ColumnHints};
 
@@ -171,7 +170,7 @@ fn build_lang_row(
 /// Fetch project list from the daemon via gRPC.
 /// Returns None if daemon is unreachable.
 async fn fetch_projects() -> Option<Vec<(String, String)>> {
-    let mut client = DaemonClient::connect_default().await.ok()?;
+    let mut client = crate::grpc::connect_default().await.ok()?;
     let request = ListProjectsRequest {
         priority_filter: None,
         active_only: false,

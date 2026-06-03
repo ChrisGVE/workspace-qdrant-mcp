@@ -6,7 +6,7 @@
 use crate::data::db::connect_readonly;
 use crate::data::health;
 use crate::data::queries::{self, HealthLevel, QueueStats};
-use crate::grpc::client::{workspace_daemon::SystemStatusResponse, DaemonClient};
+use crate::grpc::client::workspace_daemon::SystemStatusResponse;
 
 /// All data needed to render the status overview.
 pub(super) struct StatusData {
@@ -78,7 +78,7 @@ pub(super) async fn collect() -> StatusData {
 /// Probe the daemon via gRPC. Returns (up, status, elapsed_ms).
 async fn probe_daemon() -> (bool, Option<SystemStatusResponse>, u64) {
     let start = std::time::Instant::now();
-    let (up, status) = match DaemonClient::connect_default().await {
+    let (up, status) = match crate::grpc::connect_default().await {
         Ok(mut client) => {
             let status = client
                 .system()

@@ -5,14 +5,13 @@
 use anyhow::{Context, Result};
 
 use crate::grpc::client::workspace_daemon::GraphStatsRequest;
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
 use crate::output::gutter::Gutter;
 use crate::output::number::{format_usize, NumberLocale};
 
 pub async fn graph_stats(tenant_id: Option<String>) -> Result<()> {
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

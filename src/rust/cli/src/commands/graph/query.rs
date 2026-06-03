@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 
 use crate::grpc::client::workspace_daemon::QueryRelatedRequest;
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 pub async fn query_related(
@@ -21,7 +20,7 @@ pub async fn query_related(
     }
     output::separator();
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Cannot connect to daemon")?;
 

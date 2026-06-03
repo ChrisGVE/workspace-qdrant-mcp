@@ -5,7 +5,6 @@ use colored::Colorize;
 
 use workspace_qdrant_core::language_registry::types::{LanguageDefinition, LanguageType};
 
-use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
 use super::helpers::{find_language, load_definitions, which_cmd};
@@ -343,7 +342,7 @@ fn print_pattern_line(label: &str, types: &[String]) {
 }
 
 async fn print_daemon_language_components(verbose: bool) {
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::separator();
             output::info("Daemon Language Components:");

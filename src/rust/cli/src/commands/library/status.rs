@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 
 use crate::data::db::connect_readonly;
-use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
 /// Show watch status for all libraries
@@ -17,7 +16,7 @@ pub async fn execute() -> Result<()> {
 
 /// Check and display daemon health status
 async fn check_daemon_health() {
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::status_line("Daemon", ServiceStatus::Healthy);
 

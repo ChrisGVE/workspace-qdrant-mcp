@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use wqm_common::paths::CanonicalPath;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
 use crate::output::style::home_to_tilde;
@@ -51,7 +50,7 @@ pub async fn ingest_file(
     output::separator();
 
     // File ingestion goes through the daemon's queue
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::info("Signaling daemon to queue file for ingestion...");
 
@@ -126,7 +125,7 @@ pub async fn ingest_folder(
     ));
     output::separator();
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::info("Signaling daemon to scan folder...");
 

@@ -30,6 +30,8 @@ prost = "0.13"
 prost-types = "0.13"
 # Shared proto client stubs (single proto-compilation site)
 wqm-proto = { path = "../proto" }
+# Shared daemon gRPC client (DaemonClient — retry/timeout/typed RPC wrappers)
+wqm-client = { path = "../client" }
 
 # Async runtime (with fs for update command)
 tokio = { version = "1.50", features = ["rt", "macros", "sync", "fs", "io-util", "time"] }

@@ -42,7 +42,7 @@ pub fn get_service_manager() -> ServiceManager {
 
 /// Check if daemon is running by attempting gRPC connection
 pub async fn is_daemon_running() -> bool {
-    crate::grpc::client::DaemonClient::connect_default()
+    crate::grpc::connect_default()
         .await
         .is_ok()
 }

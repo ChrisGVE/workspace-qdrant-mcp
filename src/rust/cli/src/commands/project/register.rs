@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use wqm_common::paths::CanonicalPath;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::RegisterProjectRequest;
 use crate::output;
 
@@ -17,7 +16,7 @@ async fn call_daemon_register(
     project_name: String,
     git_remote: Option<String>,
 ) {
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             let request = RegisterProjectRequest {
                 path: abs_path.display().to_string(),

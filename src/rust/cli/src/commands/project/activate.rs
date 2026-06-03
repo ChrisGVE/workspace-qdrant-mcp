@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{DeprioritizeProjectRequest, RegisterProjectRequest};
 use crate::output;
 
@@ -11,7 +10,7 @@ use super::resolver::resolve_project_id_or_cwd;
 pub(super) async fn activate_project(project: Option<&str>) -> Result<()> {
     let project_id = resolve_project_id_or_cwd(project)?;
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             // Use RegisterProject with priority="high" and register_if_new=false
             let request = RegisterProjectRequest {
@@ -49,7 +48,7 @@ pub(super) async fn activate_project(project: Option<&str>) -> Result<()> {
 pub(super) async fn deactivate_project(project: Option<&str>) -> Result<()> {
     let project_id = resolve_project_id_or_cwd(project)?;
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             let request = DeprioritizeProjectRequest {
                 project_id: project_id.clone(),

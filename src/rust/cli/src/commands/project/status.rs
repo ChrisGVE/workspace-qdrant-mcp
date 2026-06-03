@@ -6,7 +6,6 @@ use anyhow::Result;
 
 use crate::data::db::connect_readonly;
 use crate::data::queries;
-use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::GetProjectStatusRequest;
 use crate::output::columnar::ColumnarBuilder;
 use crate::output::gutter::Gutter;
@@ -40,7 +39,7 @@ pub(super) async fn project_status(project: Option<&str>) -> Result<()> {
     canvas::print_title("Project Status");
     canvas::print_blank();
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             let request = GetProjectStatusRequest {
                 project_id: project_id.clone(),

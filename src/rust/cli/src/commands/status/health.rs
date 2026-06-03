@@ -25,7 +25,6 @@ use anyhow::Result;
 use colored::Colorize;
 
 use crate::grpc::client::workspace_daemon::ComponentHealth;
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
 use crate::output::gutter::Gutter;
@@ -149,7 +148,7 @@ pub async fn health(json: bool) -> Result<()> {
     };
 
     let daemon_probe_fut = async {
-        match DaemonClient::connect_default().await {
+        match crate::grpc::connect_default().await {
             Ok(mut client) => match client.system().health(()).await {
                 Ok(response) => Ok(response.into_inner()),
                 Err(e) => Err(format!("gRPC error: {e}")),

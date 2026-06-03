@@ -9,7 +9,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 /// Sentinel value meaning "search across all branches".
@@ -127,7 +126,7 @@ async fn search_project(
     output::separator();
 
     // Check daemon connection
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(_) => {
             output::info("Daemon connected.");
             output::separator();

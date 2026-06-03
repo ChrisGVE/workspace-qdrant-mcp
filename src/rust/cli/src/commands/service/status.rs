@@ -288,7 +288,7 @@ async fn probe_health(source: &DaemonSource, json: bool) -> Result<(bool, Health
     if !expect_grpc(source) {
         return Ok((false, Health::default()));
     }
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(client) => {
             let health = handle_connected(client, json).await?;
             Ok((true, health))

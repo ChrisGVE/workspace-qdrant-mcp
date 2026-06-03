@@ -10,7 +10,6 @@ use workspace_qdrant_core::language_registry::types::{LanguageDefinition, Langua
 use workspace_qdrant_core::lsp::detection::editor_paths::DetectionSource;
 use workspace_qdrant_core::tree_sitter::GrammarManager;
 
-use crate::grpc::client::DaemonClient;
 use crate::output::{self, ColumnHints, ServiceStatus};
 
 use super::helpers::{detect_available_servers, load_definitions, which_cmd};
@@ -52,7 +51,7 @@ pub async fn list_languages(
     }
     output::separator();
 
-    let daemon_connected = DaemonClient::connect_default().await.is_ok();
+    let daemon_connected = crate::grpc::connect_default().await.is_ok();
     let status = if daemon_connected {
         ServiceStatus::Healthy
     } else {

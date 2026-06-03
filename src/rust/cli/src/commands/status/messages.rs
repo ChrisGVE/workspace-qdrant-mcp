@@ -5,7 +5,6 @@
 use anyhow::Result;
 use clap::Subcommand;
 
-use crate::grpc::client::DaemonClient;
 use crate::output::canvas;
 use crate::output::columnar::ColumnarBuilder;
 
@@ -76,7 +75,7 @@ pub async fn errors(limit: usize) -> Result<()> {
 
 /// Fetch error-related metrics from daemon, returning None if unreachable.
 async fn fetch_error_metrics() -> Option<Vec<(String, f64)>> {
-    let mut client = DaemonClient::connect_default().await.ok()?;
+    let mut client = crate::grpc::connect_default().await.ok()?;
     let response = client.system().get_metrics(()).await.ok()?;
     let metrics_resp = response.into_inner();
 

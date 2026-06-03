@@ -157,6 +157,6 @@ pub async fn execute(confirm: bool) -> Result<()> {
 
 /// Check if the daemon is currently running by attempting a gRPC health check.
 async fn is_daemon_running() -> bool {
-    use crate::grpc::DaemonClient;
-    DaemonClient::connect_default().await.is_ok()
+    
+    crate::grpc::connect_default().await.is_ok()
 }

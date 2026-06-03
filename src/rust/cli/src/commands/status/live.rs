@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
 use super::types::format_bytes;
@@ -21,7 +20,7 @@ pub async fn live(interval: u64) -> Result<()> {
 
         output::section("Live Dashboard");
 
-        match DaemonClient::connect_default().await {
+        match crate::grpc::connect_default().await {
             Ok(mut client) => match client.system().get_status(()).await {
                 Ok(response) => {
                     let status = response.into_inner();

@@ -55,7 +55,7 @@ pub async fn search_project(
         max_results: limit as i32,
     };
 
-    let response = client.text_search().search(request).await?.into_inner();
+    let response = client.text_search_client().search(request).await?.into_inner();
 
     if response.matches.is_empty() {
         output::info("No matches found.");

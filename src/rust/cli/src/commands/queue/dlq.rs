@@ -36,7 +36,7 @@ pub enum DlqCommand {
 }
 
 pub async fn execute(cmd: DlqCommand) -> Result<()> {
-    let mut client = DaemonClient::connect_default().await?;
+    let mut client = crate::grpc::connect_default().await?;
     match cmd {
         DlqCommand::List {
             tenant,

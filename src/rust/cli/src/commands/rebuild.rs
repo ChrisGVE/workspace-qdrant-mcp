@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
 use crate::grpc::client::workspace_daemon::RebuildIndexRequest;
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 /// Rebuild command arguments
@@ -126,7 +125,7 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
         }
     };
 
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Failed to connect to daemon. Is memexd running?")?;
 

@@ -19,7 +19,7 @@ pub async fn errors(count: usize, component: Option<String>) -> Result<()> {
     output::separator();
 
     // Try to get errors from daemon health endpoint
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => {
             output::status_line("Daemon", ServiceStatus::Healthy);
             show_health_errors(&mut client, count, &component).await;

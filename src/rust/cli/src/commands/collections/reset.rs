@@ -4,7 +4,6 @@ use std::io::Write as _;
 
 use anyhow::{Context as _, Result};
 
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 use super::{build_client, qdrant_url, VALID_COLLECTIONS};
@@ -196,7 +195,7 @@ async fn reset_single_collection(
 
 /// Clean pending/failed queue items for specified collections via gRPC.
 async fn clean_queue_items(collections: &[String]) -> Result<usize> {
-    let mut client = DaemonClient::connect_default()
+    let mut client = crate::grpc::connect_default()
         .await
         .context("Failed to connect to daemon for queue cleanup")?;
 
@@ -215,7 +214,7 @@ async fn clean_queue_items(collections: &[String]) -> Result<usize> {
 
 /// Try to pause daemon watchers via gRPC. Returns true if daemon was reachable.
 async fn try_pause_daemon() -> bool {
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => match client.system().pause_all_watchers(()).await {
             Ok(_) => {
                 output::info("Daemon watchers paused");
@@ -235,7 +234,7 @@ async fn try_pause_daemon() -> bool {
 
 /// Try to resume daemon watchers via gRPC
 async fn try_resume_daemon() {
-    if let Ok(mut client) = DaemonClient::connect_default().await {
+    if let Ok(mut client) = crate::grpc::connect_default().await {
         match client.system().resume_all_watchers(()).await {
             Ok(_) => {
                 output::info("Daemon watchers resumed");

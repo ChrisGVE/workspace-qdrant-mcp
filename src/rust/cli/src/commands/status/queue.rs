@@ -2,14 +2,13 @@
 
 use anyhow::Result;
 
-use crate::grpc::client::DaemonClient;
 use crate::output;
 
 /// Show ingestion queue status.
 pub async fn queue(verbose: bool) -> Result<()> {
     output::section("Ingestion Queue");
 
-    match DaemonClient::connect_default().await {
+    match crate::grpc::connect_default().await {
         Ok(mut client) => match client.system().get_metrics(()).await {
             Ok(response) => {
                 let metrics_resp = response.into_inner();
