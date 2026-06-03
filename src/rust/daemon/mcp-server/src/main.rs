@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 /// On an invalid config endpoint we log and fall back to the default localhost
 /// client (lazy-connect, so an unreachable daemon is handled by degraded mode).
 fn build_daemon_client(config: &ServerConfig) -> anyhow::Result<DaemonClient> {
-    match DaemonClient::from_config(config) {
+    match DaemonClient::from_host_port(&config.daemon.grpc_host, config.daemon.grpc_port) {
         Ok(c) => Ok(c),
         Err(e) => {
             warn!(error = %e, "Invalid daemon endpoint in config; falling back to default endpoint");

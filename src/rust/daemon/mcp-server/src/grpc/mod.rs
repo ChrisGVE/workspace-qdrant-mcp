@@ -1,34 +1,17 @@
 //! gRPC client for the memexd daemon.
 //!
-//! Exposes a thin [`DaemonClient`] wrapper that adds retry/backoff and
-//! client-side timeout semantics matching the TypeScript MCP server.
+//! The implementation now lives in the shared [`wqm_client`] crate (WI-d1/d2,
+//! #82) — this module is a thin re-export so existing `crate::grpc::…` paths
+//! keep resolving. The typed per-service RPC wrappers, retry/backoff, and
+//! client-side timeout semantics are all provided by `wqm-client`.
 //!
-//! Sub-modules:
-//! - [`client`] — [`DaemonClient`] struct and channel construction.
-//! - [`retry`]   — `call_with_retry` with exponential backoff.
-//! - [`timeouts`] — per-method timeout resolution (5 s / 10 s).
-//! - [`system_methods`] — `health`, `get_status`, `get_embedding_provider_status`.
-//! - [`project_methods`] — `register_project`, `deprioritize_project`, `heartbeat`, `resolve_search_scope`.
-//! - [`embedding_methods`] — `embed_text`, `generate_sparse_vector`.
-//! - [`search_methods`] — `text_search`, `count_matches`.
-//! - [`graph_methods`] — `query_related`.
-//! - [`document_methods`] — `ingest_text` (DocumentService).
-//! - [`write_methods`] — `enqueue_item` (QueueWriteService); `upsert_rule_mirror`,
-//!   `delete_rule_mirror`, `upsert_scratchpad_mirror`, `delete_scratchpad_mirror`
-//!   (TrackingWriteService, fire-and-forget).
-//! - [`search_event_methods`] — `log_search_event`, `update_search_event`
-//!   (TrackingWriteService, fire-and-forget).
+//! Local trait impls that bridge `DaemonClient` to MCP-specific traits
+//! (e.g. `EmbedDaemon`, `StoreDaemon`, `RulesDaemon`, `DaemonOps`) live in the
+//! `tools`/`session` modules and remain valid — they implement *local* traits
+//! for the (now foreign) `DaemonClient` type.
 
-pub mod client;
-pub mod document_methods;
-pub mod embedding_methods;
-pub mod graph_methods;
-pub mod project_methods;
-pub mod retry;
-pub mod search_event_methods;
-pub mod search_methods;
-pub mod system_methods;
-pub mod timeouts;
-pub mod write_methods;
+/// Re-export of the shared client module so `crate::grpc::client::DaemonClient`
+/// continues to resolve.
+pub use wqm_client::grpc::client;
 
-pub use client::{ClientError, DaemonClient};
+pub use wqm_client::{ClientError, DaemonClient};
