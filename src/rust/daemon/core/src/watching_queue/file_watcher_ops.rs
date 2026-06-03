@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::file_classification::classify_file_type;
 use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::global_ignore::is_globally_ignored;
 use crate::queue_operations::{QueueError, QueueManager};
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp};
@@ -185,6 +186,14 @@ impl FileWatcherQueue {
         patterns: &Arc<RwLock<CompiledPatterns>>,
         events_filtered: &Arc<Mutex<u64>>,
     ) -> bool {
+        // global.wqmignore applies to every event kind (incl. Remove): a
+        // globally-ignored path was never indexed, so no watcher op is wanted.
+        if is_globally_ignored(&event.path, false) {
+            let mut count = events_filtered.lock().await;
+            *count += 1;
+            return true;
+        }
+
         if !matches!(event.event_kind, EventKind::Remove(_)) {
             let file_path_str = event.path.to_string_lossy();
             if should_exclude_file(&file_path_str) {
@@ -300,6 +309,22 @@ impl FileWatcherQueue {
         if should_exclude_file(&event.path.to_string_lossy()) {
             debug!(
                 "File excluded by exclusion engine, skipping: {}",
+                event.path.display()
+            );
+            return;
+        }
+
+        // Chokepoint enforcement of global.wqmignore. The directory-walk path
+        // applies it via the reconciler/folder-scan matcher, but watcher events
+        // (notify) reach the queue through here — without this check the daemon
+        // re-indexes its own Qdrant storage under <repo>/state/qdrant/ on every
+        // segment rotation, a self-sustaining feedback loop. Gates Add, Update,
+        // AND Delete: a globally-ignored path is never indexed, so it never
+        // needs a watcher-originated delete (the reconciler handles cleanup of
+        // anything indexed before the pattern was added).
+        if is_globally_ignored(&event.path, false) {
+            debug!(
+                "File excluded by global.wqmignore, skipping: {}",
                 event.path.display()
             );
             return;
