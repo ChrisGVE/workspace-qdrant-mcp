@@ -11,6 +11,7 @@ members = [
     "common",
     "common-node",
     "proto",
+    "client",
     "cli",
     "daemon/core",
     "daemon/grpc",

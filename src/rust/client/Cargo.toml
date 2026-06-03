@@ -1,0 +1,37 @@
+[package]
+name = "wqm-client"
+version = "0.1.0"
+edition = "2021"
+description = "Shared daemon gRPC + Qdrant read client for the wqm CLI and MCP server (WI-d1/d2/d3, #82)"
+authors = ["Chris Van Eerden"]
+license = "Apache-2.0"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[lib]
+name = "wqm_client"
+path = "src/lib.rs"
+
+[dependencies]
+# gRPC client stack (workspace versions)
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Shared proto client stubs (single proto-compilation site)
+wqm-proto = { path = "../proto" }
+
+# Shared config, paths, constants, project-id, hashing — NEVER workspace-qdrant-core
+wqm-common = { path = "../common" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Errors + tracing
+thiserror = "2.0"
+tracing = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+
+[lints]
+workspace = true
