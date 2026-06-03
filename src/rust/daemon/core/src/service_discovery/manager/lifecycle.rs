@@ -13,7 +13,6 @@ use super::super::{
     DiscoveryConfig, DiscoveryResult,
 };
 use super::core::DiscoveryManager;
-use crate::unified_config::UnifiedConfigManager;
 
 impl DiscoveryManager {
     /// Create a new discovery manager
@@ -47,7 +46,6 @@ impl DiscoveryManager {
         };
 
         let health_checker = HealthChecker::new(health_config)?;
-        let config_manager = UnifiedConfigManager::new::<std::path::PathBuf>(None);
 
         let (event_sender, _) = broadcast::channel(1000);
 
@@ -56,7 +54,6 @@ impl DiscoveryManager {
             network_discovery: network_discovery
                 .unwrap_or_else(|| NetworkDiscovery::new("239.255.42.42", 9999, None).unwrap()),
             health_checker,
-            config_manager,
             config: config.clone(),
             event_sender,
             known_services: Arc::new(RwLock::new(HashMap::new())),

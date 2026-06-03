@@ -239,8 +239,7 @@ mod tests {
         let cjk_word = "\u{4e16}\u{754c}"; // 2 chars, 6 bytes
                                            // Repeat to get ~100 words (split_whitespace), each 2 chars => 200 chars
                                            // We need < 200 chars, so use 90 words => 180 chars, 540 bytes
-        let content: String = std::iter::repeat(cjk_word)
-            .take(90)
+        let content: String = std::iter::repeat_n(cjk_word, 90)
             .collect::<Vec<_>>()
             .join(" ");
         let char_count = content.chars().count();

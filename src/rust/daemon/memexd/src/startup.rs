@@ -13,8 +13,7 @@ use clap::{Arg, Command};
 use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
-    config::DaemonConfig,
-    unified_config::{apply_env_overrides, UnifiedConfigError, UnifiedConfigManager},
+    config::{apply_env_overrides, load_config as core_load_config, ConfigError, DaemonConfig},
     LoggingConfig,
 };
 
@@ -511,11 +510,10 @@ pub fn check_stale_legacy_directory() {
 /// falls back to built-in defaults.
 pub fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
-    let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
 
     let daemon_config = match &args.config_file {
-        Some(config_path) => load_from_file(&config_manager, config_path, args.allow_default)?,
-        None => load_auto_discover(&config_manager, is_daemon_mode, args.allow_default)?,
+        Some(config_path) => load_from_file(config_path, args.allow_default)?,
+        None => load_auto_discover(is_daemon_mode, args.allow_default)?,
     };
 
     if let Some(port) = args.port {
@@ -531,17 +529,16 @@ pub fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error
 /// errors) is returned as `Err`. When true, parse errors fall back to
 /// built-in defaults with a warning log.
 fn load_from_file(
-    config_manager: &UnifiedConfigManager,
     config_path: &Path,
     allow_default: bool,
 ) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     info!("Loading configuration from {}", config_path.display());
-    match config_manager.load_config(Some(config_path)) {
+    match core_load_config(Some(config_path)) {
         Ok(daemon_config) => {
             info!("Configuration loaded successfully");
             Ok(daemon_config)
         }
-        Err(UnifiedConfigError::FileNotFound(path)) => {
+        Err(ConfigError::FileNotFound(path)) => {
             error!("Configuration file not found: {}", path.display());
             Err(format!("Configuration file not found: {}", path.display()).into())
         }
@@ -551,7 +548,7 @@ fn load_from_file(
                     "Configuration parse error (falling back to defaults): {}",
                     e
                 );
-                Ok(apply_env_overrides(DaemonConfig::default())?)
+                Ok(apply_env_overrides(DaemonConfig::default()))
             } else {
                 error!(
                     "Configuration parse error: {} — use --allow-default to fall back to \
@@ -569,17 +566,16 @@ fn load_from_file(
 /// When `allow_default` is false, a parse error on a discovered config file
 /// is fatal. When true the daemon logs a warning and uses built-in defaults.
 fn load_auto_discover(
-    config_manager: &UnifiedConfigManager,
     is_daemon_mode: bool,
     allow_default: bool,
 ) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     info!("Auto-discovering configuration files");
-    match config_manager.load_config(None) {
+    match core_load_config(None) {
         Ok(daemon_config) => {
             info!("Configuration auto-discovered");
             Ok(daemon_config)
         }
-        Err(UnifiedConfigError::FileNotFound(_)) | Err(UnifiedConfigError::IoError(_)) => {
+        Err(ConfigError::FileNotFound(_)) | Err(ConfigError::Io(_)) => {
             // No config found — this is expected; use defaults silently.
             info!("No configuration file found; using built-in defaults");
             let base = if is_daemon_mode {
@@ -587,7 +583,7 @@ fn load_auto_discover(
             } else {
                 DaemonConfig::default()
             };
-            Ok(apply_env_overrides(base)?)
+            Ok(apply_env_overrides(base))
         }
         Err(e) => {
             // A config file was found but could not be parsed.
@@ -601,7 +597,7 @@ fn load_auto_discover(
                 } else {
                     DaemonConfig::default()
                 };
-                Ok(apply_env_overrides(base)?)
+                Ok(apply_env_overrides(base))
             } else {
                 error!(
                     "Configuration parse error: {} — use --allow-default to fall back to \
@@ -648,20 +644,16 @@ mod tests {
     // ── load_from_file tests ─────────────────────────────────────────────────
 
     /// F-051: a well-formed YAML config file is loaded successfully.
+    ///
+    /// The on-disk format is the user-facing `YamlConfig` shape (e.g.
+    /// `performance.chunk_size`), NOT a serialized `DaemonConfig`. The loader
+    /// parses `YamlConfig` and converts via `From<&YamlConfig>`, layering
+    /// partial user configs over compiled-in defaults.
     #[test]
     fn test_load_from_file_valid_yaml_succeeds() {
-        // Produce a complete, valid YAML fixture by serialising the built-in defaults.
-        // This guarantees every required field is present.
-        let mut default_config = DaemonConfig::default();
-        default_config.chunk_size = 512;
-        let yaml =
-            serde_yaml_ng::to_string(&default_config).expect("default config must serialise");
-
         let mut f = NamedTempFile::new().unwrap();
-        f.write_all(yaml.as_bytes()).unwrap();
-
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
-        let result = load_from_file(&manager, f.path(), false);
+        f.write_all(b"performance:\n  chunk_size: 512\n").unwrap();
+        let result = load_from_file(f.path(), false);
         assert!(result.is_ok(), "valid YAML should load: {:?}", result.err());
         assert_eq!(result.unwrap().chunk_size, 512);
     }
@@ -671,9 +663,7 @@ mod tests {
     fn test_load_from_file_malformed_aborts() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "not: valid: yaml: structure: }}").unwrap();
-
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
-        let result = load_from_file(&manager, f.path(), false);
+        let result = load_from_file(f.path(), false);
         assert!(
             result.is_err(),
             "malformed YAML must return Err when allow_default=false"
@@ -685,9 +675,7 @@ mod tests {
     fn test_load_from_file_malformed_with_allow_default_falls_back() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "not: valid: yaml: structure: }}").unwrap();
-
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
-        let result = load_from_file(&manager, f.path(), true);
+        let result = load_from_file(f.path(), true);
         assert!(
             result.is_ok(),
             "allow_default=true must return Ok: {:?}",
@@ -704,9 +692,8 @@ mod tests {
     /// F-051: a missing file with allow_default=false must return Err.
     #[test]
     fn test_load_from_file_missing_aborts() {
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
         let missing = std::path::Path::new("/tmp/wqm-test-nonexistent-config-file.yaml");
-        let result = load_from_file(&manager, missing, false);
+        let result = load_from_file(missing, false);
         assert!(
             result.is_err(),
             "missing file must return Err when allow_default=false"
@@ -719,19 +706,16 @@ mod tests {
     /// allow_default=false must return Err.
     ///
     /// This test exercises the fatal-parse branch: a file exists at a search
-    /// path but cannot be parsed.  We use UnifiedConfigManager directly and
-    /// verify the error surfaces through load_from_file (same code path that
-    /// load_auto_discover uses when a file is found but unparseable).
+    /// path but cannot be parsed. It calls `load_from_file` directly (the same
+    /// code path `load_auto_discover` uses when a file is found but unparseable).
     #[test]
     fn test_load_from_file_parse_error_propagates_without_allow_default() {
         let mut f = NamedTempFile::new().unwrap();
         // Write clearly invalid YAML.
         writeln!(f, ": - invalid {{yaml}}:").unwrap();
-
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
         // load_from_file is the common implementation invoked from load_auto_discover
         // when a discovered file cannot be parsed.
-        let result = load_from_file(&manager, f.path(), false);
+        let result = load_from_file(f.path(), false);
         assert!(
             result.is_err(),
             "parse error without allow_default must be fatal"
@@ -750,11 +734,9 @@ mod tests {
     fn test_load_auto_discover_parse_error_with_allow_default_returns_defaults() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "not: valid: yaml: structure: }}").unwrap();
-
-        let manager = UnifiedConfigManager::new(None::<std::path::PathBuf>);
         // Mirrors exactly what load_auto_discover does when it finds a file
         // but it fails to parse: calls load_from_file with the same allow_default.
-        let result = load_from_file(&manager, f.path(), true);
+        let result = load_from_file(f.path(), true);
         assert!(
             result.is_ok(),
             "allow_default=true must return Ok on parse error: {:?}",

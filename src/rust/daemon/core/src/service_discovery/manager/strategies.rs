@@ -132,7 +132,7 @@ impl DiscoveryManager {
     ) -> DiscoveryResult<Option<ServiceInfo>> {
         debug!("Trying configuration discovery for: {}", service_name);
 
-        let daemon_config = match self.config_manager.load_config(None) {
+        let daemon_config = match crate::config::load_config(None) {
             Ok(config) => config,
             Err(e) => {
                 debug!("Configuration load failed: {}", e);

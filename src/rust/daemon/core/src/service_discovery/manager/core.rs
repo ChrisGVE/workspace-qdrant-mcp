@@ -11,7 +11,6 @@ use super::super::{
     DiscoveryConfig,
 };
 use super::types::{DiscoveryStrategy, ServiceDiscoveryEvent};
-use crate::unified_config::UnifiedConfigManager;
 
 /// Discovery manager orchestrating all discovery mechanisms
 pub struct DiscoveryManager {
@@ -23,9 +22,6 @@ pub struct DiscoveryManager {
 
     /// Health checker for service monitoring
     pub(super) health_checker: HealthChecker,
-
-    /// Unified configuration manager for fallback
-    pub(super) config_manager: UnifiedConfigManager,
 
     /// Discovery configuration
     pub(super) config: DiscoveryConfig,

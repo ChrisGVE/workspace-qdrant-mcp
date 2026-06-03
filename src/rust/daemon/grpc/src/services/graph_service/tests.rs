@@ -1115,7 +1115,7 @@ mod narrative_query {
 mod cross_boundary {
     use tonic::Request;
     use workspace_qdrant_core::graph::{
-        create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType,
+        create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, NodeType,
     };
 
     use crate::proto::graph_service_server::GraphService;

@@ -478,9 +478,9 @@ impl fmt::Display for ErrorSeverity {
     }
 }
 
-// Conversion from UnifiedConfigError
-impl From<crate::unified_config::UnifiedConfigError> for WorkspaceError {
-    fn from(error: crate::unified_config::UnifiedConfigError) -> Self {
+// Conversion from the daemon config loader error (WI-a2).
+impl From<crate::config::ConfigError> for WorkspaceError {
+    fn from(error: crate::config::ConfigError) -> Self {
         WorkspaceError::Configuration {
             message: error.to_string(),
             source: Some(Box::new(error)),
