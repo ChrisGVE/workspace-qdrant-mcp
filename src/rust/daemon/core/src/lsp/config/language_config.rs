@@ -266,7 +266,9 @@ fn ruby_config() -> LanguageConfig {
 
 fn php_config() -> LanguageConfig {
     LanguageConfig {
-        preferred_servers: vec!["phpactor".to_string(), "intelephense".to_string()],
+        // intelephense is the server bundled in the memexd image, so it is
+        // preferred; phpactor remains a fallback when present on PATH.
+        preferred_servers: vec!["intelephense".to_string(), "phpactor".to_string()],
         file_patterns: vec!["*.php".to_string()],
         enabled_features: standard_features(),
         ..LanguageConfig::default()

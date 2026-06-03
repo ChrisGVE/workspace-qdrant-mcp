@@ -47,6 +47,12 @@ pub(crate) fn server_launch_args(server_name: &str) -> &'static [&'static str] {
         // bash-language-server is launched via its `start` subcommand.
         "bash-language-server" => &["start"],
 
+        // PHP servers. intelephense (the bundled, preferred server) speaks
+        // LSP over stdio behind `--stdio`; phpactor uses a `language-server`
+        // subcommand and must NOT fall through to the `--stdio` default.
+        "intelephense" => &["--stdio"],
+        "phpactor" => &["language-server"],
+
         // Dart SDK: `dart language-server` speaks LSP over stdio by default
         // and covers both Dart and Flutter projects.
         "dart" => &["language-server"],
@@ -410,6 +416,17 @@ mod tests {
     #[test]
     fn test_bash_language_server_uses_start_subcommand() {
         assert_eq!(server_launch_args("bash-language-server"), &["start"]);
+    }
+
+    #[test]
+    fn test_php_servers_launch_args() {
+        // intelephense (bundled, preferred) speaks LSP over stdio.
+        assert_eq!(server_launch_args("intelephense"), &["--stdio"]);
+        // Regression guard: phpactor uses a `language-server` subcommand and
+        // must NOT fall through to the `--stdio` default.
+        let phpactor = server_launch_args("phpactor");
+        assert_eq!(phpactor, &["language-server"]);
+        assert!(!phpactor.contains(&"--stdio"));
     }
 
     #[test]

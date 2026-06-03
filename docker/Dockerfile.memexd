@@ -472,10 +472,20 @@ RUN printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig \
 
 # Install npm-based LSPs globally so the daemon can spawn them by name.
 # `--omit=dev` keeps the installed tree focused on runtime artefacts.
+#   pyright / typescript-language-server — Python and TypeScript/JavaScript
+#       (the latter also covers React .tsx/.jsx, which resolve to the
+#       TypeScript/JavaScript languages).
+#   bash-language-server — Shell .sh/.bash; launched via its `start`
+#       subcommand (see lsp/lifecycle/process.rs).
+#   intelephense — PHP; the daemon's preferred PHP server, launched with
+#       `--stdio`. Free mode already serves the enrichment signals the
+#       daemon uses (definition/references/hover/documentSymbol).
 RUN npm install --global --omit=dev \
         pyright@1.1.405 \
         typescript-language-server@4.3.4 \
         typescript@5.7.2 \
+        bash-language-server@5.6.0 \
+        intelephense@1.18.4 \
     && npm cache clean --force
 
 # pylsp — Python LSP fallback alongside pyright.
