@@ -225,3 +225,117 @@ async fn test_reconcile_no_flagged_files_is_noop() {
     assert_eq!(stats.reconciled, 0);
     assert_eq!(stats.reconcile_errors, 0);
 }
+
+/// A file whose on-disk hash diverges from the stored hash (edited while the
+/// daemon was down) must enqueue an Update when reconcile_modified is on. This
+/// is the root-cause fix for stale chunks surviving across a daemon restart.
+#[tokio::test]
+async fn test_process_tracked_file_modified_enqueues_update() {
+    let pool = create_test_pool().await;
+    setup_reconcile_tables(&pool).await;
+    let queue_manager = QueueManager::new(pool.clone());
+
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    let abs = tmp.path().join("src/main.rs");
+    std::fs::write(&abs, "fn main() { println!(\"v2\"); }").unwrap();
+
+    let mut stats = RecoveryStats::default();
+    let queued = super::process_tracked_file(
+        &queue_manager,
+        "tenant-rc",
+        "projects",
+        tmp.path(),
+        &abs,
+        "src/main.rs",
+        "stale_old_hash", // differs from the on-disk content hash
+        true,             // reconcile_modified
+        &mut stats,
+    )
+    .await;
+
+    assert_eq!(queued, 1);
+    assert_eq!(stats.files_to_update, 1);
+    assert_eq!(stats.files_unchanged, 0);
+
+    let op: String =
+        sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(op, "update");
+}
+
+/// A file whose on-disk hash matches the stored hash is counted as unchanged
+/// and enqueues nothing — no spurious churn for untouched files.
+#[tokio::test]
+async fn test_process_tracked_file_unchanged_enqueues_nothing() {
+    let pool = create_test_pool().await;
+    setup_reconcile_tables(&pool).await;
+    let queue_manager = QueueManager::new(pool.clone());
+
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    let abs = tmp.path().join("src/main.rs");
+    std::fs::write(&abs, "fn main() {}").unwrap();
+
+    // Stored hash == the real on-disk hash → unchanged.
+    let on_disk = wqm_common::hashing::compute_file_hash(&abs).unwrap();
+
+    let mut stats = RecoveryStats::default();
+    let queued = super::process_tracked_file(
+        &queue_manager,
+        "tenant-rc",
+        "projects",
+        tmp.path(),
+        &abs,
+        "src/main.rs",
+        &on_disk,
+        true,
+        &mut stats,
+    )
+    .await;
+
+    assert_eq!(queued, 0);
+    assert_eq!(stats.files_unchanged, 1);
+    assert_eq!(stats.files_to_update, 0);
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+}
+
+/// With reconcile_modified disabled, a modified file is left untouched — the
+/// feature is strictly opt-in via StartupConfig.
+#[tokio::test]
+async fn test_process_tracked_file_modified_skipped_when_reconcile_off() {
+    let pool = create_test_pool().await;
+    setup_reconcile_tables(&pool).await;
+    let queue_manager = QueueManager::new(pool.clone());
+
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    let abs = tmp.path().join("src/main.rs");
+    std::fs::write(&abs, "fn main() { /* edited */ }").unwrap();
+
+    let mut stats = RecoveryStats::default();
+    let queued = super::process_tracked_file(
+        &queue_manager,
+        "tenant-rc",
+        "projects",
+        tmp.path(),
+        &abs,
+        "src/main.rs",
+        "stale_old_hash",
+        false, // reconcile_modified OFF
+        &mut stats,
+    )
+    .await;
+
+    assert_eq!(queued, 0);
+    assert_eq!(stats.files_to_update, 0);
+    assert_eq!(stats.files_unchanged, 0);
+}

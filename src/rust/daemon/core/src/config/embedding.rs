@@ -157,23 +157,25 @@ impl EmbeddingSettings {
             self.provider = val;
         }
 
-        if self.provider == "fastembed" {
-            // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork. Align the
-            // reported model + dim with the actual provider and clear the
-            // base_url (a local model has no endpoint) — otherwise the embedding
-            // status surfaces the OpenAI-compatible config DEFAULTS
-            // (text-embedding-3-small / api.openai.com), which is misleading.
-            self.output_dim = FASTEMBED_OUTPUT_DIM;
-            self.model = "all-MiniLM-L6-v2".to_string();
-            self.base_url = String::new();
-        }
-
         if let Ok(val) = env::var("WQM_EMBEDDING_BASE_URL") {
             self.base_url = val;
         }
 
         if let Ok(val) = env::var("WQM_EMBEDDING_API_KEY_ENV_VAR") {
             self.api_key_env_var = val;
+        }
+
+        if self.provider == "fastembed" {
+            // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork. Align the
+            // reported model + dim with the actual provider and clear the
+            // base_url (a local model has no endpoint) — otherwise the embedding
+            // status surfaces the OpenAI-compatible config DEFAULTS
+            // (text-embedding-3-small / api.openai.com), which is misleading.
+            // Run LAST so a stray WQM_EMBEDDING_BASE_URL can't re-introduce an
+            // endpoint for what is a local, endpoint-less provider.
+            self.output_dim = FASTEMBED_OUTPUT_DIM;
+            self.model = "all-MiniLM-L6-v2".to_string();
+            self.base_url = String::new();
         }
     }
 }
@@ -234,9 +236,12 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_embedding_settings_env_overrides() {
+    fn test_embedding_settings_env_overrides_fastembed_pins_last() {
         let mut settings = EmbeddingSettings::default();
 
+        // Even with a stray BASE_URL set, the fastembed provider must end up
+        // endpoint-less and pinned to its real model/dim — the pinning runs
+        // AFTER the env overrides so it always wins for this local provider.
         std::env::set_var("WQM_EMBEDDING_PROVIDER", "fastembed");
         std::env::set_var("WQM_EMBEDDING_BASE_URL", "https://example.test");
         std::env::set_var("WQM_EMBEDDING_API_KEY_ENV_VAR", "MY_KEY");
@@ -245,12 +250,33 @@ mod tests {
 
         assert_eq!(settings.provider, "fastembed");
         assert_eq!(settings.output_dim, FASTEMBED_OUTPUT_DIM);
-        assert_eq!(settings.base_url, "https://example.test");
+        assert_eq!(settings.model, "all-MiniLM-L6-v2");
+        assert_eq!(settings.base_url, "", "fastembed base_url must be cleared even if env sets one");
+        // Non-endpoint overrides are still honored.
         assert_eq!(settings.api_key_env_var, "MY_KEY");
 
         std::env::remove_var("WQM_EMBEDDING_PROVIDER");
         std::env::remove_var("WQM_EMBEDDING_BASE_URL");
         std::env::remove_var("WQM_EMBEDDING_API_KEY_ENV_VAR");
+    }
+
+    #[test]
+    #[serial]
+    fn test_embedding_settings_env_overrides_openai_compatible_keeps_base_url() {
+        let mut settings = EmbeddingSettings::default();
+
+        // For a remote provider the BASE_URL override must survive — the
+        // fastembed pinning only applies when provider == "fastembed".
+        std::env::set_var("WQM_EMBEDDING_PROVIDER", "openai_compatible");
+        std::env::set_var("WQM_EMBEDDING_BASE_URL", "https://example.test");
+
+        settings.apply_env_overrides();
+
+        assert_eq!(settings.provider, "openai_compatible");
+        assert_eq!(settings.base_url, "https://example.test");
+
+        std::env::remove_var("WQM_EMBEDDING_PROVIDER");
+        std::env::remove_var("WQM_EMBEDDING_BASE_URL");
     }
 
     #[test]

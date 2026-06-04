@@ -166,13 +166,55 @@ export class ScratchpadTool {
     }
   }
 
+  /**
+   * Does a scratchpad note with EXACTLY this content exist for the tenant?
+   * update/delete are content-addressed (document_id = hash(tenant, content)),
+   * so a near-miss (e.g. a truncated `search` hit) would otherwise silently
+   * no-op. Fails OPEN on a Qdrant error — never blocks the mutation.
+   */
+  private async noteExists(tenantId: string, content: string): Promise<boolean> {
+    try {
+      const res = await this.qdrantClient.scroll(COLLECTION_SCRATCHPAD, {
+        filter: {
+          must: [
+            { key: FIELD_TENANT_ID, match: { value: tenantId } },
+            { key: FIELD_CONTENT, match: { value: content } },
+          ],
+        },
+        limit: 1,
+        with_payload: false,
+      });
+      return (res.points?.length ?? 0) > 0;
+    } catch {
+      return true; // fail open: a transient lookup error must not block the op
+    }
+  }
+
+  /** Shared "exact content not found" message for update/delete. */
+  private notFoundMessage(tenantId: string): string {
+    return (
+      `No scratchpad entry with that exact content was found for ${tenantId}. ` +
+      'Entries are content-addressed, so the text must match the note VERBATIM — ' +
+      'get it from `scratchpad list` (which returns full, untruncated content), ' +
+      'not from a `search` hit (whose content may be truncated).'
+    );
+  }
+
   private async delete(tenantId: string, content: string | undefined): Promise<ScratchpadResponse> {
     if (!content?.trim()) {
       return {
         success: false,
         action: 'delete',
         message:
-          'content is required for delete — the current text of the note to remove (from a search/list result).',
+          'content is required for delete — the current text of the note to remove (from `scratchpad list`).',
+      };
+    }
+    if (!(await this.noteExists(tenantId, content.trim()))) {
+      return {
+        success: false,
+        action: 'delete',
+        message: this.notFoundMessage(tenantId),
+        tenant_id: tenantId,
       };
     }
     const result = await this.stateManager.enqueueUnified(
@@ -217,6 +259,14 @@ export class ScratchpadTool {
         success: false,
         action: 'update',
         message: 'newContent is required for update — the replacement text.',
+      };
+    }
+    if (!(await this.noteExists(tenantId, oldContent.trim()))) {
+      return {
+        success: false,
+        action: 'update',
+        message: this.notFoundMessage(tenantId),
+        tenant_id: tenantId,
       };
     }
 

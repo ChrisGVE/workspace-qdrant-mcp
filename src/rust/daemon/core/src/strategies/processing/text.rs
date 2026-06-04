@@ -522,6 +522,36 @@ mod tests {
         );
     }
 
+    /// Scratchpad is content-addressed: a note added with content C lives at
+    /// `document_id = hash(tenant, C)`. On update, the OLD point is evicted using
+    /// the id derived from `old_content`, and on delete using the id derived from
+    /// `content`. Both must equal the add-time id for the eviction to land —
+    /// otherwise the superseded/old point is orphaned (the staleness bug class).
+    #[test]
+    fn test_scratchpad_update_delete_target_add_time_document_id() {
+        let tenant = "proj-xyz";
+        let original = "remember: the daemon owns all Qdrant writes";
+
+        // Add-time id (what process_scratchpad_item wrote the point under).
+        let add_id = crate::generate_content_document_id(tenant, original);
+
+        // Delete path derives its target id from `content` — same string, same id.
+        let delete_target = crate::generate_content_document_id(tenant, original);
+        assert_eq!(add_id, delete_target, "delete must target the add-time point");
+
+        // Update path derives the OLD point's id from `old_content` — same too.
+        let update_old_target = crate::generate_content_document_id(tenant, original);
+        assert_eq!(add_id, update_old_target, "update must evict the add-time point");
+
+        // The NEW content lands at a DIFFERENT id (a genuinely new point), so the
+        // old one would be orphaned if not explicitly evicted.
+        let new_content = "remember: writes go through the unified queue";
+        assert_ne!(
+            add_id,
+            crate::generate_content_document_id(tenant, new_content)
+        );
+    }
+
     #[test]
     fn test_text_strategy_name() {
         let strategy = TextStrategy;

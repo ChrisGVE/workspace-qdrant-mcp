@@ -5,7 +5,7 @@
 export const scratchpadToolDefinition = {
   name: 'scratchpad',
   description:
-    'Manage existing scratchpad notes: list, update, or delete. Create notes with store(type:"scratchpad"). Notes are project-scoped — pass projectId (the tenant_id seen in a search/list result) to target a specific project, or cwd to auto-detect it. update/delete identify a note by its CURRENT content (content-addressed), which you get from a prior search or scratchpad list.',
+    'Manage existing scratchpad notes: list, update, or delete. Create notes with store(type:"scratchpad"). Notes are project-scoped — pass projectId (the tenant_id seen in a search/list result) to target a specific project, or cwd to auto-detect it. update/delete identify a note by its CURRENT content (content-addressed), which must match VERBATIM — get it from `scratchpad list` (returns full, untruncated content), NOT from a `search` hit (whose content may be truncated). If no entry matches exactly, the op fails with a clear error instead of silently doing nothing.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -17,7 +17,7 @@ export const scratchpadToolDefinition = {
       content: {
         type: 'string',
         description:
-          'For update/delete: the CURRENT text of the note to target (its identity). Get it from a search or scratchpad list result.',
+          'For update/delete: the CURRENT text of the note to target (its identity). Must match VERBATIM — get it from `scratchpad list` (full content), not a `search` hit (may be truncated).',
       },
       newContent: {
         type: 'string',

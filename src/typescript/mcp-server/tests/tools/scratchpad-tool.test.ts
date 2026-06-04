@@ -13,23 +13,42 @@ import type { ProjectDetector } from '../../src/utils/project-detector.js';
 
 let lastScrollFilter: unknown;
 
+/**
+ * Contents that "exist" in the mock store. The noteExists() pre-check scrolls
+ * with a tenant + content filter (2 `must` entries); a content not in this set
+ * returns zero points so the delete/update fails loudly instead of no-op'ing.
+ */
+const EXISTING_CONTENTS = new Set(['a note', 'old text', 'x']);
+
+interface MatchCond {
+  match?: { value?: unknown };
+}
+interface ScrollReq {
+  filter?: { must?: MatchCond[] };
+}
+
 vi.mock('@qdrant/js-client-rest', () => ({
   QdrantClient: vi.fn().mockImplementation(() => ({
-    scroll: vi.fn().mockImplementation((_coll: string, req: { filter?: unknown }) => {
+    scroll: vi.fn().mockImplementation((_coll: string, req: ScrollReq) => {
       lastScrollFilter = req.filter;
-      return Promise.resolve({
-        points: [
-          {
-            id: 'pt-1',
-            payload: {
-              content: 'a project note',
-              title: 'T',
-              tags: ['x'],
-              created_at: '2026-06-04T00:00:00Z',
-            },
-          },
-        ],
-      });
+      const must = req.filter?.must ?? [];
+      const defaultPoint = {
+        id: 'pt-1',
+        payload: {
+          content: 'a project note',
+          title: 'T',
+          tags: ['x'],
+          created_at: '2026-06-04T00:00:00Z',
+        },
+      };
+      // Existence pre-check (tenant + content) → 2 must entries. Echo a point
+      // only when one of the matched values is a known-existing content.
+      if (must.length >= 2) {
+        const hit = must.some((c) => EXISTING_CONTENTS.has(c.match?.value as string));
+        return Promise.resolve({ points: hit ? [defaultPoint] : [] });
+      }
+      // Tenant-only filter (list) → always return the default point.
+      return Promise.resolve({ points: [defaultPoint] });
     }),
   })),
 }));
@@ -78,6 +97,32 @@ describe('ScratchpadTool', () => {
     const res = await tool.execute({ action: 'delete', projectId: 't1' });
     expect(res.success).toBe(false);
     expect(sm.enqueueUnified).not.toHaveBeenCalled();
+  });
+
+  it('delete with non-matching content fails loudly instead of no-op enqueue', async () => {
+    const res = await tool.execute({
+      action: 'delete',
+      content: 'truncated search hit…',
+      projectId: 't1',
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.message).toMatch(/exact content/i);
+    expect(sm.enqueueUnified).not.toHaveBeenCalled();
+  });
+
+  it('update with non-matching content fails before enqueue or mirror write', async () => {
+    const res = await tool.execute({
+      action: 'update',
+      content: 'not the real note',
+      newContent: 'whatever',
+      projectId: 't1',
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.message).toMatch(/exact content/i);
+    expect(sm.enqueueUnified).not.toHaveBeenCalled();
+    expect(sm.upsertScratchpadMirror).not.toHaveBeenCalled();
   });
 
   it('update enqueues new content + old_content and refreshes the mirror', async () => {
