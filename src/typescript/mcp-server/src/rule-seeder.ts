@@ -89,6 +89,38 @@ const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
     priority: 85,
   },
   {
+    label: 'graph-impact',
+    title: 'Use the graph for impact and relationships',
+    content: [
+      'For code-relationship questions ("what calls X", "what breaks if I change Y") and BEFORE refactoring or',
+      'renaming a widely-used symbol, use the `graph` tool: `impact` to assess the blast radius, and relationship',
+      'queries to find callers/dependencies that plain `search`/`grep` miss.',
+      'Prefer it over guessing whenever a change is non-local.',
+    ].join(' '),
+    priority: 75,
+  },
+  {
+    label: 'record-rules',
+    title: 'Record durable conventions as rules',
+    content: [
+      'When you discover a durable project convention or preference (build/test commands, libraries to prefer,',
+      'patterns to follow or avoid), record it with the `rules` tool (action="add") so it persists across sessions —',
+      'scope it to the project unless it is clearly global. Keep rules short and imperative, and update an existing',
+      'rule instead of adding a near-duplicate. Do NOT record one-off, task-specific details — those belong in the scratchpad.',
+    ].join(' '),
+    priority: 70,
+  },
+  {
+    label: 'retrieve-by-id',
+    title: 'Retrieve by ID instead of re-searching',
+    content: [
+      'When you already know a document\'s ID or metadata (e.g. from a prior `search`/`list` result), use the',
+      '`retrieve` tool to fetch it directly instead of issuing another `search` — it is cheaper and exact.',
+      'Reserve `search` for discovery by concept or content.',
+    ].join(' '),
+    priority: 65,
+  },
+  {
     label: 'confirm-mut',
     title: 'Confirm mutating index actions',
     content: [
