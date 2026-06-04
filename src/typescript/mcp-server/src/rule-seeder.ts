@@ -22,7 +22,7 @@ interface DefaultRule {
  * project (current and future) inherits them as global defaults — these are
  * the same rules the server advertises in its MCP instructions.
  */
-const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
+export const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
   {
     label: 'search-first',
     title: 'Always search before answering',
@@ -146,20 +146,28 @@ const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
 ];
 
 /**
- * Seed the default global rule set if the rules collection has no global
- * rules yet. Only runs once per fresh installation; skipped entirely if any
- * global rule already exists (so existing installs are left untouched — no
- * migration effort, no duplicates).
+ * Seed the default global rule set, idempotently PER LABEL.
+ *
+ * A fresh install gets all defaults; an install already holding some of them
+ * gets only the missing labels backfilled. Dedup-by-label is the guard: it can
+ * never create a duplicate of an existing default, even if invoked repeatedly or
+ * after a partial earlier run (the failure mode that left duplicate rows in
+ * production). If the list call fails we skip entirely — without the existing
+ * set we cannot dedup safely.
  */
 export async function seedDefaultRule(rulesTool: RulesTool): Promise<void> {
   try {
     const listResult = await rulesTool.execute({ action: 'list', scope: TENANT_GLOBAL });
-    if (!listResult.success || (listResult.rules && listResult.rules.length > 0)) {
-      return; // Rules exist or list failed — skip seeding
+    if (!listResult.success) {
+      return; // list failed — skip seeding (cannot safely dedup)
     }
+    const existingLabels = new Set(
+      (listResult.rules ?? []).map((r) => r.label).filter((l): l is string => Boolean(l))
+    );
 
     let seeded = 0;
     for (const rule of DEFAULT_RULES) {
+      if (existingLabels.has(rule.label)) continue; // already present — never duplicate
       const addResult = await rulesTool.execute({
         action: 'add',
         label: rule.label,

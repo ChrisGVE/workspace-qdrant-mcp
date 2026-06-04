@@ -260,14 +260,17 @@ function buildUpdateQueueOp(
 }
 
 /**
- * Resolve a rule's Qdrant point UUID from its label+scope+tenant.
+ * Resolve a rule's stored `document_id` from its label+scope+tenant.
  *
- * The daemon's ingestText handler validates that `document_id` is a UUID
- * (Qdrant point ids are UUIDs). For updates, the caller supplies a label,
- * not the UUID — so we have to look the UUID up before we can upsert.
+ * For updates the caller has a label, not the document_id — but the daemon
+ * DERIVES the Qdrant point id from `(tenant, branch, document_id, chunk)`, so an
+ * update must re-supply the ORIGINAL `document_id` to land on the same point.
+ * The Qdrant point id is NOT the document_id (it is the derived hash), so we
+ * must read it back from the payload. Returning the point id here would make the
+ * daemon derive a fresh point id and create a DUPLICATE instead of updating.
  *
  * Returns:
- *  - the point id as string when exactly one match exists.
+ *  - the stored `document_id` as string when exactly one match exists.
  *  - null when no rule with that (label, scope, project_id) tuple exists.
  *  - throws on Qdrant errors (caller decides whether to fall back to queue).
  */
@@ -287,11 +290,13 @@ export async function findRuleIdByLabel(
   const result = await qdrantClient.scroll(RULES_COLLECTION, {
     filter: { must },
     limit: 1,
-    with_payload: false,
+    with_payload: true,
   });
   const first = result.points?.[0];
   if (!first) return null;
-  return String(first.id);
+  const docId = (first.payload as Record<string, unknown> | undefined)?.['document_id'];
+  // Fall back to the point id only if a legacy point lacks a stored document_id.
+  return docId !== undefined && docId !== null ? String(docId) : String(first.id);
 }
 
 export async function persistUpdateRule(
