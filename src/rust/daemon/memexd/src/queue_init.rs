@@ -37,9 +37,13 @@ pub struct QueueComponents {
     pub watch_pool: SqlitePool,
     /// Mirror storage for rules backfill.
     pub mirror_storage: Arc<StorageClient>,
-    /// Active dense embedding provider, shared with gRPC services and the
-    /// background `ProviderHealthMonitor`.
+    /// Active dense embedding provider used by the indexing/queue path and the
+    /// background `ProviderHealthMonitor` / watchdog.
     pub dense_provider: Arc<dyn DenseProvider>,
+    /// Dedicated dense embedding provider for interactive gRPC query embeds
+    /// (search/store). A separate model instance so query latency is not
+    /// starved by indexing batches contending on the shared model mutex.
+    pub query_dense_provider: Arc<dyn DenseProvider>,
 }
 
 /// Initialize the IPC server with spill-to-disk and rollback storage.
@@ -98,7 +102,14 @@ fn resolve_model_cache_dir(configured: Option<std::path::PathBuf>) -> std::path:
 fn create_embedding_generator(
     daemon_config: &DaemonConfig,
     config: &Config,
-) -> Result<(Arc<EmbeddingGenerator>, Arc<dyn DenseProvider>), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        Arc<EmbeddingGenerator>,
+        Arc<dyn DenseProvider>,
+        Arc<dyn DenseProvider>,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let model_cache_dir = resolve_model_cache_dir(daemon_config.embedding.model_cache_dir.clone());
     info!("Model cache directory: {}", model_cache_dir.display());
 
@@ -111,6 +122,19 @@ fn create_embedding_generator(
     )
     .map_err(|e| format!("Failed to build dense embedding provider: {}", e))?;
 
+    // A SECOND, dedicated provider instance for interactive gRPC query embeds
+    // (search/store). The model is serialized behind a per-instance mutex, so
+    // sharing one instance with indexing lets a big indexing batch starve a
+    // query embed — the first interactive call under re-index load then waits
+    // behind multi-hundred-ms batches and the MCP client times out. A separate
+    // instance gives queries their own model/mutex, decoupling interactive
+    // latency from indexing throughput at the cost of a second (small) model.
+    let query_provider = build_dense_provider(
+        &embedding_settings,
+        Some(config.resource_limits.onnx_intra_threads),
+    )
+    .map_err(|e| format!("Failed to build query embedding provider: {}", e))?;
+
     let embedding_config = EmbeddingConfig {
         max_cache_size: daemon_config.embedding.cache_max_entries,
         model_cache_dir: Some(model_cache_dir),
@@ -120,7 +144,7 @@ fn create_embedding_generator(
 
     let generator = EmbeddingGenerator::new(embedding_config, Arc::clone(&dense_provider))
         .map_err(|e| format!("Failed to create embedding generator: {}", e))?;
-    Ok((Arc::new(generator), dense_provider))
+    Ok((Arc::new(generator), dense_provider, query_provider))
 }
 
 /// Wait for Qdrant to become available on gRPC, then initialize collections.
@@ -292,27 +316,31 @@ pub async fn initialize(
         ..ProcessorConfig::default()
     };
 
-    let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
+    let (embedding_generator, dense_provider, query_provider) =
+        create_embedding_generator(daemon_config, config)?;
 
-    // Eagerly warm up the dense embedding model in the background so the FIRST
-    // real embed/search request doesn't pay the lazy model load. After a
-    // container restart the in-memory model is gone; the first call would
-    // otherwise block on load + first inference and can exceed the MCP client's
-    // request timeout ("-32001: Request timed out", retry then succeeds).
-    // `probe()` runs `ensure_initialized()` + a dummy embed, so this loads the
-    // model and primes the first inference. Best-effort and idempotent (the
-    // `initialized` flag makes the real first call a no-op); failures are
-    // retried by the existing health-probe loop and the lazy path still works.
+    // Eagerly warm up BOTH embedding model instances (indexing + interactive
+    // query) in the background so the FIRST real embed/search request doesn't
+    // pay the lazy model load. After a container restart the in-memory models
+    // are gone; the first call would otherwise block on load + first inference
+    // and can exceed the MCP client's request timeout ("-32001: Request timed
+    // out", retry then succeeds). `probe()` runs `ensure_initialized()` + a
+    // dummy embed, loading the model and priming the first inference.
+    // Best-effort and idempotent (the `initialized` flag makes the real first
+    // call a no-op); failures fall back to the lazy path + health-probe loop.
     {
-        let warmup_provider = Arc::clone(&dense_provider);
+        let warm_index = Arc::clone(&dense_provider);
+        let warm_query = Arc::clone(&query_provider);
         tokio::spawn(async move {
             let start = std::time::Instant::now();
-            match warmup_provider.probe().await {
-                Ok(()) => info!("Embedding model warm-up complete in {:?}", start.elapsed()),
-                Err(e) => {
-                    warn!("Embedding model warm-up failed (lazy load will retry): {}", e)
-                }
+            let (index_res, query_res) = tokio::join!(warm_index.probe(), warm_query.probe());
+            if let Err(e) = index_res {
+                warn!("Indexing embedding warm-up failed (lazy load will retry): {}", e);
             }
+            if let Err(e) = query_res {
+                warn!("Query embedding warm-up failed (lazy load will retry): {}", e);
+            }
+            info!("Embedding model warm-up complete in {:?}", start.elapsed());
         });
     }
 
@@ -371,6 +399,7 @@ pub async fn initialize(
         watch_pool,
         mirror_storage,
         dense_provider,
+        query_dense_provider: query_provider,
     })
 }
 

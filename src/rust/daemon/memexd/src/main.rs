@@ -96,7 +96,9 @@ fn wire_grpc(
         lsp_manager.clone(),
         Arc::clone(&qc.hierarchy_builder),
         qc.watch_pool.clone(),
-        Arc::clone(&qc.dense_provider),
+        // Interactive query embeds (search/store) use the dedicated provider so
+        // they aren't starved by indexing batches on the shared model mutex.
+        Arc::clone(&qc.query_dense_provider),
         embedding_settings,
     )
 }
