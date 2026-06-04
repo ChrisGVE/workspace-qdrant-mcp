@@ -46,7 +46,7 @@ async function dispatchStore(
     return registerProjectFromTool(args, sessionState, components.daemonClient);
   if (storeType === 'url') return storeUrl(args, components.stateManager, sessionState);
   if (storeType === 'scratchpad')
-    return storeScratchpad(args, components.stateManager, sessionState);
+    return storeScratchpad(args, components.stateManager, components.projectDetector, sessionState);
   return components.storeTool.store(buildStoreOptions(args, sessionState));
 }
 

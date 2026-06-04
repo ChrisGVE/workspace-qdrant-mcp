@@ -5,9 +5,11 @@
 import { randomUUID } from 'node:crypto';
 
 import type { SqliteStateManager } from './clients/sqlite-state-manager.js';
+import type { ProjectDetector } from './utils/project-detector.js';
 import type { SessionState } from './server-types.js';
 import { COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
+import { getEffectiveCwd } from './utils/request-context.js';
 import { utcNow } from './utils/timestamps.js';
 
 type StoreResult = {
@@ -158,9 +160,38 @@ function buildScratchpadPayload(
   return payload;
 }
 
+/**
+ * Resolve the tenant a scratchpad note belongs to. Resolution order:
+ *   1. An explicitly activated session project (`sessionState.projectId`).
+ *   2. The project detected from the effective cwd — the body `cwd` arg /
+ *      `X-MCP-Host-Cwd` header, the same signal `search`/`rules` use over HTTP.
+ *   3. The global tenant, only when neither resolves.
+ *
+ * Step 2 is what makes a note actually reachable: the scratchpad recall lane
+ * filters by tenant, so a note must carry the project's tenant_id to surface on
+ * project-scoped search. Without it (pre-fix) every HTTP-stored note landed in
+ * the global tenant and the lane — being tenant-strict — never found it.
+ */
+async function resolveScratchpadTenant(
+  projectDetector: ProjectDetector,
+  sessionState: Pick<SessionState, 'projectId'>
+): Promise<string> {
+  if (sessionState.projectId) return sessionState.projectId;
+  try {
+    const info = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
+      fallbackToSoleProject: true,
+    });
+    if (info?.projectId) return info.projectId;
+  } catch {
+    // Detection failed (no project at cwd / ambiguous) — fall through to global.
+  }
+  return TENANT_GLOBAL;
+}
+
 export async function storeScratchpad(
   args: Record<string, unknown> | undefined,
   stateManager: SqliteStateManager,
+  projectDetector: ProjectDetector,
   sessionState: Pick<SessionState, 'projectId'>
 ): Promise<StoreResult> {
   const content = args?.['content'] as string;
@@ -173,7 +204,7 @@ export async function storeScratchpad(
 
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
-  const tenantId = sessionState.projectId || TENANT_GLOBAL;
+  const tenantId = await resolveScratchpadTenant(projectDetector, sessionState);
   const payload = buildScratchpadPayload(content, title, tags);
 
   return enqueueScratchpadEntry(stateManager, payload, tenantId, content, title, tags);

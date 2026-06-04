@@ -19,6 +19,11 @@ export const storeToolDefinition = {
         type: 'string',
         description: 'Content to store (required for type "library")',
       },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. For type "scratchpad", pass this so the note is tagged with the current project (over HTTP the server cannot otherwise detect it) — this is what lets the note surface in project-scoped search. Without it the note falls back to the global tenant.',
+      },
       libraryName: {
         type: 'string',
         description: 'Library name (required for type "library" unless forProject is true)',
