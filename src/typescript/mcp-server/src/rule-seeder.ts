@@ -76,6 +76,19 @@ const DEFAULT_RULES: ReadonlyArray<DefaultRule> = [
     priority: 80,
   },
   {
+    label: 'scratch-memory',
+    title: 'Record durable knowledge to the scratchpad',
+    content: [
+      'As you work, proactively record durable project knowledge to the scratchpad via `store` with type="scratchpad":',
+      'decisions and their rationale, non-obvious gotchas, conventions, and context worth recalling in a later session.',
+      'Keep each note self-contained and specific.',
+      'Notes are project-scoped and resurface automatically — the project-scoped `search` recall lane appends the most',
+      'relevant ones after the code hits, so you need not query the scratchpad explicitly.',
+      'To revise or remove a note, use the `scratchpad` tool (update/delete) instead of creating near-duplicates.',
+    ].join(' '),
+    priority: 85,
+  },
+  {
     label: 'confirm-mut',
     title: 'Confirm mutating index actions',
     content: [
