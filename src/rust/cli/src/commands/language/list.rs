@@ -5,14 +5,14 @@ use colored::Colorize;
 use serde::Serialize;
 use tabled::Tabled;
 
-use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::language_registry::types::{LanguageDefinition, LanguageType};
-use workspace_qdrant_core::lsp::detection::editor_paths::DetectionSource;
-use workspace_qdrant_core::tree_sitter::GrammarManager;
+use wqm_common::language_registry::types::{LanguageDefinition, LanguageType};
+use wqm_common::lsp_detection::DetectionSource;
 
 use crate::output::{self, ColumnHints, ServiceStatus};
 
-use super::helpers::{detect_available_servers, load_definitions, which_cmd};
+use super::helpers::{
+    detect_available_servers, load_definitions, try_grammar_cached_and_status, which_cmd,
+};
 
 /// Row for the language list table.
 #[derive(Tabled, Serialize)]
@@ -65,9 +65,12 @@ pub async fn list_languages(
     defs.sort_by_key(|d| d.language.to_lowercase());
 
     let detected_servers = detect_available_servers();
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config.clone());
-    let cached_grammars = manager.cached_languages().unwrap_or_default();
+    // Live cached-grammar set from the daemon (best-effort; empty if down).
+    let cached_grammars: Vec<String> = try_grammar_cached_and_status()
+        .await
+        .0
+        .into_iter()
+        .collect();
 
     let rows = build_language_rows(&defs, &cached_grammars, &detected_servers, installed);
 

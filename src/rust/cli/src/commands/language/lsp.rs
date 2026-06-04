@@ -240,9 +240,7 @@ pub async fn lsp_search(language: &str) -> Result<()> {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn show_install_options(
-    lsp_servers: &[workspace_qdrant_core::language_registry::types::LspServerEntry],
-) {
+fn show_install_options(lsp_servers: &[wqm_common::language_registry::types::LspServerEntry]) {
     output::info("No LSP server found. Install options:");
     output::separator();
 

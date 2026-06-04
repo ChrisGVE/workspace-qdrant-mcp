@@ -9,14 +9,17 @@ use colored::Colorize;
 use serde::Serialize;
 use tabled::Tabled;
 
-use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::language_registry::types::LanguageDefinition;
-use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+use wqm_common::language_registry::types::LanguageDefinition;
 
 use crate::output::{self, ColumnHints};
 
-use super::helpers::{find_language, load_definitions, which_cmd};
+use super::helpers::{
+    find_language, load_definitions, try_grammar_status, try_grammar_status_map, which_cmd,
+};
 use super::preferences;
+
+/// Grammar status when the daemon is unreachable (registry-only view).
+const STATUS_UNKNOWN: &str = "not_available";
 
 /// List all languages with grammar/LSP status and user preferences.
 pub async fn query_all() -> Result<()> {
@@ -26,15 +29,19 @@ pub async fn query_all() -> Result<()> {
         return Ok(());
     }
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
+    // Best-effort live grammar status; registry-only when the daemon is down.
+    let status_map = try_grammar_status_map().await;
     let prefs = preferences::load_preferences().unwrap_or_default();
 
     let mut rows: Vec<QueryRow> = Vec::with_capacity(defs.len());
 
     for def in &defs {
         let lang_id = def.id();
-        let grammar_str = format_grammar_status(manager.grammar_status(&lang_id));
+        let status = status_map
+            .get(&lang_id)
+            .map(String::as_str)
+            .unwrap_or(STATUS_UNKNOWN);
+        let grammar_str = format_grammar_status(status);
         let lsp_str = format_lsp_status(def);
         let pref_str = format_preference(&lang_id, &prefs);
 
@@ -74,14 +81,13 @@ pub async fn query_language(language: &str) -> Result<()> {
     };
 
     let lang_id = def.id();
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
+    let grammar_status = try_grammar_status(&lang_id).await;
     let prefs = preferences::load_preferences().unwrap_or_default();
 
     output::section(format!("Language: {}", def.language));
 
     print_query_identity(&def, &lang_id);
-    print_query_grammar_sources(&def, &lang_id, &manager);
+    print_query_grammar_sources(&def, &grammar_status);
     print_query_lsp_servers(&def, &lang_id);
     print_query_user_preference(&lang_id, &prefs);
 
@@ -102,12 +108,12 @@ fn print_query_identity(def: &LanguageDefinition, lang_id: &str) {
     println!();
 }
 
-fn print_query_grammar_sources(def: &LanguageDefinition, lang_id: &str, manager: &GrammarManager) {
+fn print_query_grammar_sources(def: &LanguageDefinition, grammar_status: &str) {
+    let lang_id = def.id();
     println!("{}", "Grammar Sources".cyan().bold());
-    let grammar_status = manager.grammar_status(lang_id);
     output::kv("  Status", format_grammar_verbose(grammar_status));
 
-    let resolved_grammar = preferences::resolve_grammar(lang_id);
+    let resolved_grammar = preferences::resolve_grammar(&lang_id);
     if let Some(ref repo) = resolved_grammar {
         output::kv("  Active", repo);
     }
@@ -200,23 +206,23 @@ fn print_query_user_preference(lang_id: &str, prefs: &preferences::LanguagePrefe
 
 // ── Formatting helpers ───────────────────────────────────────────────
 
-fn format_grammar_status(status: GrammarStatus) -> String {
+fn format_grammar_status(status: &str) -> String {
     match status {
-        GrammarStatus::Loaded => format!("{} loaded", "~".green()),
-        GrammarStatus::Cached => format!("{} cached", "~".blue()),
-        GrammarStatus::NeedsDownload => format!("{} download", "v".yellow()),
-        GrammarStatus::IncompatibleVersion => format!("{} compat", "!".yellow()),
-        GrammarStatus::NotAvailable => format!("{} none", "x".red()),
+        "loaded" => format!("{} loaded", "~".green()),
+        "cached" => format!("{} cached", "~".blue()),
+        "needs_download" => format!("{} download", "v".yellow()),
+        "incompatible_version" => format!("{} compat", "!".yellow()),
+        _ => format!("{} none", "x".red()),
     }
 }
 
-fn format_grammar_verbose(status: GrammarStatus) -> String {
+fn format_grammar_verbose(status: &str) -> String {
     match status {
-        GrammarStatus::Loaded => "Loaded (in memory)".green().to_string(),
-        GrammarStatus::Cached => "Cached (on disk)".blue().to_string(),
-        GrammarStatus::NeedsDownload => "Available (needs download)".yellow().to_string(),
-        GrammarStatus::IncompatibleVersion => "Incompatible version".yellow().to_string(),
-        GrammarStatus::NotAvailable => "Not available".red().to_string(),
+        "loaded" => "Loaded (in memory)".green().to_string(),
+        "cached" => "Cached (on disk)".blue().to_string(),
+        "needs_download" => "Available (needs download)".yellow().to_string(),
+        "incompatible_version" => "Incompatible version".yellow().to_string(),
+        _ => "Not available".red().to_string(),
     }
 }
 
@@ -297,11 +303,15 @@ mod tests {
 
     #[test]
     fn format_grammar_status_variants() {
-        assert!(!format_grammar_status(GrammarStatus::Loaded).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::Cached).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::NeedsDownload).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::IncompatibleVersion).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::NotAvailable).is_empty());
+        for s in [
+            "loaded",
+            "cached",
+            "needs_download",
+            "incompatible_version",
+            "not_available",
+        ] {
+            assert!(!format_grammar_status(s).is_empty());
+        }
     }
 
     #[test]

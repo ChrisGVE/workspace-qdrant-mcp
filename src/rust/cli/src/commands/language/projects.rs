@@ -4,7 +4,7 @@
 //! languages, and cross-references with grammar/LSP availability. Works
 //! without the daemon by scanning the filesystem directly.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use anyhow::Result;
@@ -13,14 +13,13 @@ use serde::Serialize;
 use tabled::Tabled;
 use walkdir::WalkDir;
 
-use workspace_qdrant_core::config::GrammarConfig;
 use wqm_common::exclusion::should_exclude_directory;
-use workspace_qdrant_core::tree_sitter::{detect_language, GrammarManager, GrammarStatus};
+use wqm_common::language_registry::types::LanguageDefinition;
 
 use crate::grpc::proto::ListProjectsRequest;
 use crate::output::{self, ColumnHints};
 
-use super::helpers::{load_definitions, which_cmd};
+use super::helpers::{build_extension_map, load_definitions, try_grammar_status_map, which_cmd};
 
 /// Row for the per-project language gap table.
 #[derive(Tabled, Serialize)]
@@ -61,15 +60,16 @@ pub async fn language_projects(gaps_only: bool) -> Result<()> {
         }
     };
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
     let defs = load_definitions();
+    let ext_map = build_extension_map(&defs);
+    // Best-effort live grammar status from the daemon (empty when down).
+    let status_map = try_grammar_status_map().await;
 
     let mut rows: Vec<ProjectLangRow> = Vec::new();
     let mut total_gaps = 0usize;
 
     for (name, root) in &projects {
-        let languages = scan_project_languages(root);
+        let languages = scan_project_languages(root, &ext_map);
         if languages.is_empty() {
             continue;
         }
@@ -81,7 +81,7 @@ pub async fn language_projects(gaps_only: bool) -> Result<()> {
                 lang_id,
                 *count,
                 &display_name,
-                &manager,
+                &status_map,
                 &defs,
                 gaps_only,
                 &mut total_gaps,
@@ -116,15 +116,14 @@ fn build_lang_row(
     lang_id: &str,
     count: usize,
     display_name: &str,
-    manager: &GrammarManager,
-    defs: &[workspace_qdrant_core::language_registry::types::LanguageDefinition],
+    status_map: &HashMap<String, String>,
+    defs: &[LanguageDefinition],
     gaps_only: bool,
     total_gaps: &mut usize,
 ) -> Option<ProjectLangRow> {
-    let grammar_status = manager.grammar_status(lang_id);
     let grammar_ok = matches!(
-        grammar_status,
-        GrammarStatus::Loaded | GrammarStatus::Cached
+        status_map.get(lang_id).map(String::as_str),
+        Some("loaded") | Some("cached")
     );
 
     let lsp_ok = defs
@@ -186,8 +185,12 @@ async fn fetch_projects() -> Option<Vec<(String, String)>> {
     )
 }
 
-/// Scan a project directory for file extensions and count files per language.
-fn scan_project_languages(project_root: &str) -> BTreeMap<String, usize> {
+/// Scan a project directory for file extensions and count files per language,
+/// resolving extensions via the registry-derived `ext_map`.
+fn scan_project_languages(
+    project_root: &str,
+    ext_map: &HashMap<String, String>,
+) -> BTreeMap<String, usize> {
     let path = Path::new(project_root);
     if !path.is_dir() {
         return BTreeMap::new();
@@ -212,8 +215,12 @@ fn scan_project_languages(project_root: &str) -> BTreeMap<String, usize> {
         if !entry.file_type().is_file() {
             continue;
         }
-        if let Some(lang) = detect_language(entry.path()) {
-            *counts.entry(lang.to_string()).or_insert(0) += 1;
+        let ext = entry
+            .path()
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase());
+        if let Some(lang) = ext.and_then(|e| ext_map.get(&e)) {
+            *counts.entry(lang.clone()).or_insert(0) += 1;
         }
     }
 
@@ -247,12 +254,14 @@ mod tests {
 
     #[test]
     fn scan_nonexistent_dir_returns_empty() {
-        let result = scan_project_languages("/nonexistent/path/12345");
+        let ext_map = build_extension_map(&load_definitions());
+        let result = scan_project_languages("/nonexistent/path/12345", &ext_map);
         assert!(result.is_empty());
     }
 
     #[test]
     fn scan_detects_languages_with_counts() {
+        let ext_map = build_extension_map(&load_definitions());
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path().join("testproject");
         std::fs::create_dir_all(&project).unwrap();
@@ -261,7 +270,7 @@ mod tests {
         std::fs::write(project.join("lib.rs"), "pub fn x() {}").unwrap();
         std::fs::write(project.join("app.py"), "print('hi')").unwrap();
 
-        let result = scan_project_languages(project.to_str().unwrap());
+        let result = scan_project_languages(project.to_str().unwrap(), &ext_map);
         assert_eq!(result.get("rust"), Some(&2));
         assert_eq!(result.get("python"), Some(&1));
     }

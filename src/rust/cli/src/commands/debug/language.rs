@@ -3,18 +3,17 @@
 //! Checks LSP server availability, tree-sitter grammar presence,
 //! daemon language support status, and file extension mappings.
 //!
-//! All language metadata is sourced from the bundled language registry
-//! via `workspace_qdrant_core` — no hardcoded language lists.
+//! All language metadata is sourced from the bundled language registry via
+//! `wqm-common`; grammar cache status comes from the daemon's LanguageService
+//! (best-effort) — no `workspace-qdrant-core` link, no hardcoded language lists.
 
 use anyhow::Result;
 use std::process::Command;
 
-use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::language_registry::types::LanguageDefinition;
-use workspace_qdrant_core::lsp::detection::editor_paths::find_lsp_binary;
-use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
+use wqm_common::language_registry::types::LanguageDefinition;
+use wqm_common::lsp_detection::find_lsp_binary;
 
-use crate::commands::language::helpers::{find_language, load_definitions};
+use crate::commands::language::helpers::{find_language, load_definitions, try_grammar_status};
 use crate::output::{self, ServiceStatus};
 
 /// Diagnose language support issues.
@@ -30,7 +29,7 @@ pub async fn diagnose_language(language: &str, verbose: bool) -> Result<()> {
     output::separator();
 
     // 2. Check Tree-sitter grammar
-    let grammar_found = check_tree_sitter_grammar(language, verbose);
+    let grammar_found = check_tree_sitter_grammar(language, verbose).await;
 
     output::separator();
 
@@ -126,36 +125,29 @@ fn show_lsp_install_suggestions(def: &LanguageDefinition) {
     }
 }
 
-/// Check tree-sitter grammar availability using GrammarManager.
-fn check_tree_sitter_grammar(language: &str, verbose: bool) -> bool {
+/// Check tree-sitter grammar availability via the daemon's LanguageService
+/// (best-effort; reports not-available when the daemon is unreachable).
+async fn check_tree_sitter_grammar(language: &str, verbose: bool) -> bool {
     output::info("2. Tree-sitter Grammar Check");
 
     let lang_id = resolve_grammar_language_id(language);
+    let status = try_grammar_status(&lang_id).await;
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
-
-    let status = manager.grammar_status(&lang_id);
-
-    match status {
-        GrammarStatus::Loaded => {
+    match status.as_str() {
+        "loaded" => {
             output::success(format!("  Grammar loaded: {}", lang_id));
             true
         }
-        GrammarStatus::Cached => {
+        "cached" => {
             output::success(format!("  Grammar cached: {}", lang_id));
-            if verbose {
-                let path = manager.cache_paths().grammar_path(&lang_id);
-                output::kv("    Path", path.display());
-            }
             true
         }
-        GrammarStatus::NeedsDownload => {
+        "needs_download" => {
             output::warning(format!("  Grammar not cached: {}", lang_id));
             output::info("  Install with: wqm language ts-install <language>");
             false
         }
-        GrammarStatus::IncompatibleVersion => {
+        "incompatible_version" => {
             output::warning(format!(
                 "  Grammar cached but incompatible version: {}",
                 lang_id
@@ -163,7 +155,7 @@ fn check_tree_sitter_grammar(language: &str, verbose: bool) -> bool {
             output::info("  Reinstall with: wqm language ts-install --force <language>");
             false
         }
-        GrammarStatus::NotAvailable => {
+        _ => {
             output::warning(format!(
                 "  No tree-sitter grammar available for {}",
                 lang_id

@@ -1,93 +1,87 @@
 //! `language ts-install`, `language ts-remove`, and `language ts-search` subcommands
+//!
+//! The tree-sitter grammar engine (download / compile / dlopen + on-disk cache)
+//! lives in the daemon (WI-e1/e2, #82). These commands drive it over the
+//! `LanguageService` gRPC surface via the shared `wqm_client::DaemonClient`;
+//! registry display data (repos, quality, patterns) is read locally from
+//! `wqm-common` with no `workspace-qdrant-core` link.
 
 use anyhow::{anyhow, Result};
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
 
 use crate::output;
 
-use super::helpers::{find_language, load_definitions};
+use super::helpers::{
+    find_language, load_definitions, try_grammar_cached_and_status, try_grammar_status,
+};
 
-/// Install a Tree-sitter grammar.
+/// Map a daemon `GrammarStatus` string to the CLI's coloured status label.
+fn grammar_status_label(status: &str) -> ColoredString {
+    match status {
+        "loaded" => "Loaded".green(),
+        "cached" => "Cached".blue(),
+        "needs_download" => "Available".yellow(),
+        "incompatible_version" => "Incompat".red(),
+        "not_available" => "N/A".dimmed(),
+        other => other.dimmed(),
+    }
+}
+
+/// Install a Tree-sitter grammar via the daemon's LanguageService.
 pub async fn ts_install(language: &str, force: bool) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
-
     output::section(format!("Installing Tree-sitter Grammar: {}", language));
 
-    let mut config = GrammarConfig::default();
-    config.auto_download = true;
+    let mut client = crate::grpc::ensure_daemon_available().await?;
 
-    let mut manager = GrammarManager::new(config);
-
-    // Check if already cached
-    if !force && manager.cache_paths().grammar_exists(language) {
-        output::warning("Grammar already cached. Use --force to reinstall.");
-        return Ok(());
-    }
-
-    // If force, clear existing cache first
-    if force {
-        match manager.clear_cache(language) {
-            Ok(true) => output::info("Cleared existing cache"),
-            Ok(false) => {}
-            Err(e) => output::warning(format!("Could not clear cache: {}", e)),
-        }
-    }
-
-    // Attempt to download and load
-    output::info("Downloading grammar...");
-    match manager.get_grammar(language).await {
-        Ok(_) => {
-            output::success("Grammar installed successfully");
-
-            // Verify compatibility
-            let info = manager.grammar_info(language);
-            if let Some(compat) = info.compatibility {
-                if compat.is_compatible() {
-                    output::success("Version compatible");
-                } else {
-                    output::warning("Version may have compatibility issues");
-                }
+    // Already cached? (skip unless --force) — mirror the prior local guard.
+    if !force {
+        if let Ok(q) = client.query_language(language.to_string()).await {
+            if q.found && matches!(q.grammar_status.as_str(), "cached" | "loaded") {
+                output::warning("Grammar already cached. Use --force to reinstall.");
+                return Ok(());
             }
         }
-        Err(e) => {
-            return Err(anyhow!("Failed to install grammar: {}", e));
+    }
+
+    output::info("Downloading grammar...");
+    match client.install_grammar(language.to_string(), force).await {
+        Ok(resp) => {
+            output::success("Grammar installed successfully");
+            output::kv("Status", &resp.status);
+        }
+        Err(status) => {
+            return Err(anyhow!("Failed to install grammar: {}", status.message()));
         }
     }
 
     Ok(())
 }
 
-/// Remove a Tree-sitter grammar.
+/// Remove a Tree-sitter grammar (or all) via the daemon's LanguageService.
 pub async fn ts_remove(language: &str) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
-
     output::section(format!("Removing Tree-sitter Grammar: {}", language));
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
+    let mut client = crate::grpc::ensure_daemon_available().await?;
 
     if language == "all" {
-        match manager.clear_all_cache() {
-            Ok(count) => {
-                output::success(format!("Removed {} grammar(s) from cache", count));
-            }
-            Err(e) => {
-                return Err(anyhow!("Failed to clear cache: {}", e));
+        let listed = client
+            .list_grammars()
+            .await
+            .map_err(|s| anyhow!("Failed to list grammars: {}", s.message()))?;
+        let mut count = 0usize;
+        for lang in listed.cached {
+            if let Ok(resp) = client.remove_grammar(lang).await {
+                if resp.removed {
+                    count += 1;
+                }
             }
         }
+        output::success(format!("Removed {} grammar(s) from cache", count));
     } else {
-        match manager.clear_cache(language) {
-            Ok(true) => {
-                output::success("Grammar removed from cache");
-            }
-            Ok(false) => {
-                output::warning("Grammar not found in cache");
-            }
-            Err(e) => {
-                return Err(anyhow!("Failed to remove grammar: {}", e));
-            }
+        match client.remove_grammar(language.to_string()).await {
+            Ok(resp) if resp.removed => output::success("Grammar removed from cache"),
+            Ok(_) => output::warning("Grammar not found in cache"),
+            Err(s) => return Err(anyhow!("Failed to remove grammar: {}", s.message())),
         }
     }
 
@@ -96,14 +90,10 @@ pub async fn ts_remove(language: &str) -> Result<()> {
 
 /// List Tree-sitter grammars with cache and registry status.
 pub async fn ts_list(show_all: bool) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
-
     output::section("Tree-sitter Grammars");
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
-    let cached = manager.cached_languages().unwrap_or_default();
+    // Best-effort: live cache status when the daemon is up; registry-only otherwise.
+    let (cached, status_map) = try_grammar_cached_and_status().await;
 
     let mut defs = load_definitions();
     defs.sort_by_key(|d| d.language.to_lowercase());
@@ -127,19 +117,16 @@ pub async fn ts_list(show_all: bool) -> Result<()> {
 
         let lang_id = def.id();
         let is_cached = cached.contains(&lang_id);
-        let status = manager.grammar_status(&lang_id);
 
         if !show_all && !is_cached {
             continue;
         }
 
-        let status_str = match status {
-            GrammarStatus::Loaded => "Loaded".green(),
-            GrammarStatus::Cached => "Cached".blue(),
-            GrammarStatus::NeedsDownload => "Available".yellow(),
-            GrammarStatus::NotAvailable => "N/A".dimmed(),
-            GrammarStatus::IncompatibleVersion => "Incompat".red(),
-        };
+        let status = status_map
+            .get(&lang_id)
+            .map(String::as_str)
+            .unwrap_or("not_available");
+        let status_str = grammar_status_label(status);
 
         let repo = def
             .grammar
@@ -178,9 +165,7 @@ pub async fn ts_list(show_all: bool) -> Result<()> {
 
 /// Search available Tree-sitter grammars for a language.
 pub async fn ts_search(language: &str) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::language_registry::types::GrammarQuality;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
+    use wqm_common::language_registry::types::GrammarQuality;
 
     output::section(format!("Grammar Search: {}", language));
 
@@ -193,12 +178,10 @@ pub async fn ts_search(language: &str) -> Result<()> {
         }
     };
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
-    let status = manager.grammar_status(&def.id());
+    let status = try_grammar_status(language).await;
 
     output::kv("Language", &def.language);
-    output::kv("Status", &format!("{:?}", status));
+    output::kv("Status", &status);
     output::separator();
 
     if def.grammar.sources.is_empty() {

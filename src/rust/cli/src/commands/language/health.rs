@@ -5,12 +5,9 @@ use colored::Colorize;
 use serde::Serialize;
 use tabled::Tabled;
 
-use workspace_qdrant_core::config::GrammarConfig;
-use workspace_qdrant_core::tree_sitter::{GrammarManager, GrammarStatus};
-
 use crate::output::{self, ColumnHints};
 
-use super::helpers::{load_definitions, which_cmd};
+use super::helpers::{load_definitions, try_grammar_status_map, which_cmd};
 
 /// Row for the language health table.
 #[derive(Tabled, Serialize)]
@@ -41,21 +38,25 @@ pub async fn language_health() -> Result<()> {
         return Ok(());
     }
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config);
+    // Best-effort live grammar status; registry-only when the daemon is down.
+    let status_map = try_grammar_status_map().await;
 
     let mut rows: Vec<HealthRow> = Vec::with_capacity(defs.len());
     let mut stats = HealthStats::default();
 
     for def in &defs {
         let lang_id = def.id();
+        let status = status_map
+            .get(&lang_id)
+            .map(String::as_str)
+            .unwrap_or("not_available");
 
-        let grammar_str = format_grammar_status(manager.grammar_status(&lang_id));
+        let grammar_str = format_grammar_status(status);
         let lsp_str = format_lsp_status(def);
 
         // Track stats
-        match manager.grammar_status(&lang_id) {
-            GrammarStatus::Loaded | GrammarStatus::Cached => stats.grammar_ok += 1,
+        match status {
+            "loaded" | "cached" => stats.grammar_ok += 1,
             _ => stats.grammar_missing += 1,
         }
         if def
@@ -94,19 +95,17 @@ pub async fn language_health() -> Result<()> {
     Ok(())
 }
 
-fn format_grammar_status(status: GrammarStatus) -> String {
+fn format_grammar_status(status: &str) -> String {
     match status {
-        GrammarStatus::Loaded => format!("{} loaded", "~".green()),
-        GrammarStatus::Cached => format!("{} cached", "~".blue()),
-        GrammarStatus::NeedsDownload => format!("{} download", "v".yellow()),
-        GrammarStatus::IncompatibleVersion => format!("{} compat", "!".yellow()),
-        GrammarStatus::NotAvailable => format!("{} none", "x".red()),
+        "loaded" => format!("{} loaded", "~".green()),
+        "cached" => format!("{} cached", "~".blue()),
+        "needs_download" => format!("{} download", "v".yellow()),
+        "incompatible_version" => format!("{} compat", "!".yellow()),
+        _ => format!("{} none", "x".red()),
     }
 }
 
-fn format_lsp_status(
-    def: &workspace_qdrant_core::language_registry::types::LanguageDefinition,
-) -> String {
+fn format_lsp_status(def: &wqm_common::language_registry::types::LanguageDefinition) -> String {
     if def.lsp_servers.is_empty() {
         return format!("{} n/a", "-".dimmed());
     }
@@ -150,10 +149,14 @@ mod tests {
 
     #[test]
     fn format_grammar_status_variants() {
-        assert!(!format_grammar_status(GrammarStatus::Loaded).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::Cached).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::NeedsDownload).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::IncompatibleVersion).is_empty());
-        assert!(!format_grammar_status(GrammarStatus::NotAvailable).is_empty());
+        for s in [
+            "loaded",
+            "cached",
+            "needs_download",
+            "incompatible_version",
+            "not_available",
+        ] {
+            assert!(!format_grammar_status(s).is_empty());
+        }
     }
 }

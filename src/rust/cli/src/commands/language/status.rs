@@ -1,40 +1,42 @@
-//! `language status` subcommand
+//! `language status`, `language info`, and `language refresh` subcommands
+//!
+//! Grammar cache status comes from the daemon's `LanguageService` (best-effort —
+//! registry data still renders offline); the registry refresh is delegated to
+//! the daemon's `RefreshLanguageRegistry` RPC instead of building an in-process
+//! multi-source provider stack. No `workspace-qdrant-core` link (WI-e2, #82).
 
 use anyhow::Result;
 use colored::Colorize;
 
-use workspace_qdrant_core::language_registry::types::{LanguageDefinition, LanguageType};
+use wqm_common::language_registry::types::{LanguageDefinition, LanguageType};
 
 use crate::output::{self, ServiceStatus};
 
-use super::helpers::{find_language, load_definitions, which_cmd};
+use super::helpers::{
+    find_language, load_definitions, try_grammar_cached_and_status, try_grammar_status, which_cmd,
+};
 
 /// Show language support status (LSP + grammar availability).
 pub async fn language_status(language: Option<String>, verbose: bool) -> Result<()> {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::known_grammar_languages;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
-
     output::section("Language Support Status");
 
-    let config = GrammarConfig::default();
-    let manager = GrammarManager::new(config.clone());
-    let cached = manager.cached_languages().unwrap_or_default();
-    let known = known_grammar_languages();
+    let defs = load_definitions();
+    let known_count = defs.iter().filter(|d| d.has_grammar()).count();
+    // Best-effort live cache status from the daemon (empty when down).
+    let (cached, status_map) = try_grammar_cached_and_status().await;
 
-    print_grammar_config_summary(&config, cached.len(), known.len());
+    print_grammar_status_summary(cached.len(), known_count);
 
     if let Some(ref lang) = language {
         output::kv("Language", lang);
         output::separator();
-        check_single_language(lang.as_str(), &manager, verbose);
+        check_single_language(lang.as_str(), &status_map, verbose);
     } else {
         output::info("Checking all languages with LSP support...");
         output::separator();
-        let defs = load_definitions();
         for def in &defs {
             if def.has_lsp() {
-                check_single_language(&def.id(), &manager, verbose);
+                check_single_language(&def.id(), &status_map, verbose);
             }
         }
     }
@@ -46,43 +48,22 @@ pub async fn language_status(language: Option<String>, verbose: bool) -> Result<
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn print_grammar_config_summary(
-    config: &workspace_qdrant_core::config::GrammarConfig,
-    cached_count: usize,
-    known_count: usize,
-) {
+fn print_grammar_status_summary(cached_count: usize, known_count: usize) {
     println!("{}", "Tree-sitter Grammar Settings".cyan().bold());
-    output::kv(
-        "  Auto-download",
-        if config.auto_download {
-            "enabled"
-        } else {
-            "disabled"
-        },
-    );
     output::kv(
         "  Cached grammars",
         format!("{}/{}", cached_count, known_count),
     );
-    let idle_status = if config.idle_update_check_enabled {
-        format!(
-            "enabled (every {} hours, after {}s idle)",
-            config.check_interval_hours, config.idle_update_check_delay_secs
-        )
-    } else {
-        "disabled".to_string()
-    };
-    output::kv("  Idle update checks", &idle_status);
     output::separator();
 }
 
+/// Render a single language's LSP + grammar status. `status_map` is the daemon's
+/// `language id → grammar-status` map (empty when the daemon is unreachable).
 fn check_single_language(
     lang: &str,
-    manager: &workspace_qdrant_core::tree_sitter::GrammarManager,
+    status_map: &std::collections::HashMap<String, String>,
     verbose: bool,
 ) {
-    use workspace_qdrant_core::tree_sitter::GrammarStatus;
-
     println!("{}", format!("  {}", lang).cyan().bold());
 
     let def = find_language(lang);
@@ -107,16 +88,16 @@ fn check_single_language(
         println!("    LSP: {} unknown language", "?".yellow());
     }
 
-    match manager.grammar_status(lang) {
-        GrammarStatus::Loaded => println!("    Grammar: {} loaded", "✓".green()),
-        GrammarStatus::Cached => println!("    Grammar: {} cached", "●".blue()),
-        GrammarStatus::NeedsDownload => {
-            println!("    Grammar: {} available (needs download)", "↓".yellow())
-        }
-        GrammarStatus::NotAvailable => println!("    Grammar: {} not available", "✗".red()),
-        GrammarStatus::IncompatibleVersion => {
-            println!("    Grammar: {} incompatible version", "!".yellow())
-        }
+    let status = status_map
+        .get(lang)
+        .map(String::as_str)
+        .unwrap_or("not_available");
+    match status {
+        "loaded" => println!("    Grammar: {} loaded", "✓".green()),
+        "cached" => println!("    Grammar: {} cached", "●".blue()),
+        "needs_download" => println!("    Grammar: {} available (needs download)", "↓".yellow()),
+        "incompatible_version" => println!("    Grammar: {} incompatible version", "!".yellow()),
+        _ => println!("    Grammar: {} not available", "✗".red()),
     }
 
     println!();
@@ -135,8 +116,9 @@ pub async fn language_info(language: &str) -> Result<()> {
 
     output::section(format!("Language: {}", def.language));
 
+    let grammar_status = try_grammar_status(&def.id()).await;
     print_identity_section(&def);
-    print_grammar_section(&def);
+    print_grammar_section(&def, &grammar_status);
     print_semantic_patterns_section(&def);
     print_lsp_servers_section(&def);
 
@@ -163,18 +145,12 @@ fn print_identity_section(def: &LanguageDefinition) {
     println!();
 }
 
-fn print_grammar_section(def: &LanguageDefinition) {
-    use workspace_qdrant_core::config::GrammarConfig;
-    use workspace_qdrant_core::tree_sitter::GrammarManager;
-
+fn print_grammar_section(def: &LanguageDefinition, grammar_status: &str) {
     println!("{}", "Grammar".cyan().bold());
     if def.grammar.sources.is_empty() {
         println!("  No grammar sources configured");
     } else {
-        let config = GrammarConfig::default();
-        let manager = GrammarManager::new(config);
-        let status = manager.grammar_status(&def.id());
-        output::kv("  Status", &format!("{:?}", status));
+        output::kv("  Status", grammar_status);
 
         for (i, src) in def.grammar.sources.iter().enumerate() {
             let quality = format!("{:?}", src.quality);
@@ -261,74 +237,31 @@ fn print_lsp_servers_section(def: &LanguageDefinition) {
     }
 }
 
-/// Refresh language registry from upstream providers.
+/// Refresh the language registry via the daemon's `RefreshLanguageRegistry` RPC.
+///
+/// The multi-source upstream provider stack (Linguist / Mason / nvim-treesitter
+/// / tree-sitter-grammars / bundled) lives daemon-side now (the daemon owns the
+/// registry + grammar cache); the CLI no longer builds it in-process.
 pub async fn language_refresh() -> Result<()> {
-    use workspace_qdrant_core::language_registry::providers::linguist::LinguistProvider;
-    use workspace_qdrant_core::language_registry::providers::mason::MasonProvider;
-    use workspace_qdrant_core::language_registry::providers::nvim_treesitter::NvimTreesitterProvider;
-    use workspace_qdrant_core::language_registry::providers::registry::RegistryProvider;
-    use workspace_qdrant_core::language_registry::providers::ts_grammars_org::TreeSitterGrammarsOrgProvider;
-    use workspace_qdrant_core::language_registry::registry::LanguageRegistry;
-
     output::section("Refreshing Language Registry");
 
-    let mut registry = LanguageRegistry::new();
+    let mut client = crate::grpc::ensure_daemon_available().await?;
+    output::info("Requesting registry refresh from the daemon...");
 
-    // Register all providers
-    output::info("Registering providers...");
-
-    match RegistryProvider::new() {
-        Ok(bundled) => {
-            output::info("  Bundled definitions (priority 255, offline)");
-            registry.register_provider(Box::new(bundled));
-        }
-        Err(e) => output::warning(format!("  Bundled provider failed: {e}")),
-    }
-
-    let upstream_providers: Vec<(
-        &str,
-        u8,
-        Box<dyn workspace_qdrant_core::language_registry::provider::LanguageSourceProvider>,
-    )> = vec![
-        ("GitHub Linguist", 10, Box::new(LinguistProvider::new())),
-        (
-            "tree-sitter-grammars org",
-            15,
-            Box::new(TreeSitterGrammarsOrgProvider::new()),
-        ),
-        (
-            "nvim-treesitter",
-            20,
-            Box::new(NvimTreesitterProvider::new()),
-        ),
-        ("mason-registry", 30, Box::new(MasonProvider::new())),
-    ];
-
-    for (name, priority, provider) in upstream_providers {
-        output::info(format!("  {} (priority {})", name, priority));
-        registry.register_provider(provider);
-    }
-
-    output::separator();
-    output::info("Fetching from upstream sources...");
-
-    match registry.load().await {
-        Ok(()) => {
-            let all = registry.all().await;
-            let with_grammars = all.values().filter(|d| d.has_grammar()).count();
-            let with_lsp = all.values().filter(|d| d.has_lsp()).count();
-            let with_patterns = all.values().filter(|d| d.has_semantic_patterns()).count();
-
+    match client.refresh_language_registry().await {
+        Ok(s) => {
             output::separator();
             output::success("Registry refreshed successfully");
-            output::kv("Total languages", format!("{}", all.len()));
-            output::kv("With grammars", format!("{}", with_grammars));
-            output::kv("With LSP servers", format!("{}", with_lsp));
-            output::kv("With semantic patterns", format!("{}", with_patterns));
+            output::kv("Total languages", format!("{}", s.total));
+            output::kv("With grammars", format!("{}", s.with_grammars));
+            output::kv("With LSP servers", format!("{}", s.with_lsp));
+            output::kv(
+                "With semantic patterns",
+                format!("{}", s.with_semantic_patterns),
+            );
         }
         Err(e) => {
-            output::warning(format!("Registry load completed with errors: {e}"));
-            output::info("Some providers may have failed. Bundled data is always available.");
+            output::warning(format!("Registry refresh failed: {}", e.message()));
         }
     }
 
