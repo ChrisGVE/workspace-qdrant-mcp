@@ -1,7 +1,7 @@
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::idle_detection::{is_cpu_under_pressure, IdleDetector};
+use super::idle_detection::{external_pressure_exceeds, is_cpu_under_pressure, IdleDetector};
 use super::*;
 use crate::config::ResourceLimitsConfig;
 
@@ -304,12 +304,22 @@ fn test_heartbeat_interval_calculation() {
 
 #[test]
 fn test_cpu_pressure_check() {
-    // Use an absurdly high threshold that real load can never reach,
-    // so the assertion is stable regardless of system load during test runs.
+    // Absurdly high threshold can never be exceeded regardless of real load.
     assert!(!is_cpu_under_pressure(10_000.0, 1));
-    // Threshold of 0.0 means any non-zero load triggers pressure.
-    // On a running system, 1-min load average is always > 0.
-    assert!(is_cpu_under_pressure(0.0, 1));
+    // Smoke: a zero-threshold call must not panic. The result is no longer
+    // deterministic (it depends on whether OTHER processes contribute load,
+    // since our own share is subtracted), so we only assert it doesn't crash.
+    let _ = is_cpu_under_pressure(0.0, 1);
+}
+
+#[test]
+fn test_external_pressure_subtracts_self() {
+    // System busy (0.9/core) but it's almost all US (0.8) -> external 0.1, below 0.5.
+    assert!(!external_pressure_exceeds(0.9, 0.8, 0.5));
+    // System busy (0.9/core) and it's NOT us (0.1) -> external 0.8, above 0.5.
+    assert!(external_pressure_exceeds(0.9, 0.1, 0.5));
+    // Self share exceeding system load must clamp at 0, never underflow to true.
+    assert!(!external_pressure_exceeds(0.2, 0.9, 0.0));
 }
 
 // --- IdleDetector construction tests ---

@@ -330,3 +330,25 @@ async fn test_project_language_key_hash_equality() {
     set.insert(key4.clone());
     assert_eq!(set.len(), 3); // Only 3 unique keys
 }
+
+#[tokio::test]
+async fn test_global_server_cap_refuses_when_at_limit() {
+    // With the global cap at 0, the very first start_server must be refused
+    // BEFORE any process is spawned — proving the fan-out guard fires. This is
+    // the safety valve against N-projects × M-languages spawning multi-GB
+    // servers and OOM'ing the host.
+    let mut config = create_test_project_config();
+    config.max_global_servers = 0;
+    let manager = LanguageServerManager::new(config).await.unwrap();
+
+    let result = manager
+        .start_server("p1", Language::Rust, std::path::Path::new("/tmp"))
+        .await;
+
+    assert!(
+        result.is_err(),
+        "start_server must be refused when the global server cap is reached"
+    );
+    // No server was registered.
+    assert!(!manager.is_server_running("p1", Language::Rust).await);
+}

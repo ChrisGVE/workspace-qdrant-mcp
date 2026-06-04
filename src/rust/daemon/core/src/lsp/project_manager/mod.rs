@@ -126,6 +126,18 @@ pub struct ProjectServerState {
     pub marked_unavailable: bool,
 }
 
+/// Env-aware default for the global LSP server cap. Defaults to 3 — enough for
+/// the active project's primary languages without letting a multi-project
+/// workspace spawn a dozen multi-GB servers. `WQM_LSP_MAX_GLOBAL_SERVERS=0` is
+/// ignored (falls back to 3) to avoid accidentally disabling LSP entirely.
+fn default_max_global_servers() -> usize {
+    std::env::var("WQM_LSP_MAX_GLOBAL_SERVERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(3)
+}
+
 /// Configuration for per-project LSP management
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectLspConfig {
@@ -135,6 +147,11 @@ pub struct ProjectLspConfig {
     pub user_path: Option<String>,
     /// Maximum servers per project
     pub max_servers_per_project: usize,
+    /// Hard cap on the TOTAL number of running LSP servers across ALL projects.
+    /// LSP servers (rust-analyzer, tsserver, …) are multi-GB each; without this
+    /// cap, N active projects × M languages eagerly spawn N×M heavyweight
+    /// processes and exhaust host memory. Override: `WQM_LSP_MAX_GLOBAL_SERVERS`.
+    pub max_global_servers: usize,
     /// Whether to auto-start servers on project activation
     pub auto_start_on_activation: bool,
     /// Delay before stopping servers after project deactivation (seconds)
@@ -161,6 +178,7 @@ impl Default for ProjectLspConfig {
             lsp_config: LspConfig::default(),
             user_path: None,
             max_servers_per_project: 3,
+            max_global_servers: default_max_global_servers(),
             auto_start_on_activation: true,
             deactivation_delay_secs: 60,
             enable_enrichment_cache: true,
@@ -190,6 +208,7 @@ impl From<LspSettings> for ProjectLspConfig {
             lsp_config,
             user_path: settings.user_path,
             max_servers_per_project: settings.max_servers_per_project,
+            max_global_servers: default_max_global_servers(),
             auto_start_on_activation: settings.auto_start_on_activation,
             deactivation_delay_secs: settings.deactivation_delay_secs,
             enable_enrichment_cache: settings.enable_enrichment_cache,

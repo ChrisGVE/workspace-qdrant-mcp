@@ -390,10 +390,53 @@ pub(super) mod linux_idle {
     }
 }
 
-/// Check if CPU load is too high for burst mode.
+/// Pure pressure decision: does the load attributable to OTHER processes
+/// exceed the per-core threshold? Subtracting our own share is the whole point —
+/// the daemon's own worker/blocking threads otherwise inflate the system load
+/// average it reads, so a busy daemon would mistake its own work for external
+/// pressure and permanently refuse to ramp up (the death spiral the runaway
+/// exploited). Clamped at 0 so heavy self-load can't underflow.
+pub(super) fn external_pressure_exceeds(
+    system_normalized: f64,
+    self_normalized: f64,
+    threshold: f64,
+) -> bool {
+    (system_normalized - self_normalized).max(0.0) > threshold
+}
+
+/// Check if CPU load from OTHER processes is too high for burst mode.
+///
+/// Reads the system 1-minute load average, then subtracts this process's own
+/// CPU usage before comparing to `threshold`. Both are normalized to "fraction
+/// of one core". NOTE: this mixes a 1-minute load average with an instantaneous
+/// self-CPU sample — it is a heuristic to gate burst ramp-up, not a precise
+/// accounting.
 pub(super) fn is_cpu_under_pressure(threshold: f64, physical_cores: usize) -> bool {
-    use sysinfo::System;
-    let load = System::load_average();
-    let normalized = load.one / physical_cores as f64;
-    normalized > threshold
+    use std::sync::{Mutex, OnceLock};
+    use sysinfo::{Pid, System};
+    let cores = physical_cores.max(1) as f64;
+    let system_normalized = System::load_average().one / cores;
+
+    // Persistent sampler: `cpu_usage()` reports the delta since the PREVIOUS
+    // refresh — i.e. since the last poll (~poll_interval seconds). This avoids
+    // an in-call `thread::sleep` (which would block the async adaptive loop this
+    // runs on) and gives a wider, steadier window than a sub-second snapshot.
+    // The first call reads ~0 (no baseline yet), which is harmless.
+    static SAMPLER: OnceLock<Mutex<System>> = OnceLock::new();
+    let self_normalized = {
+        let mtx = SAMPLER.get_or_init(|| Mutex::new(System::new()));
+        let pid = Pid::from_u32(std::process::id());
+        match mtx.lock() {
+            Ok(mut sys) => {
+                sys.refresh_process(pid);
+                sys.process(pid)
+                    .map(|p| p.cpu_usage() as f64 / 100.0)
+                    .unwrap_or(0.0)
+                    / cores
+            }
+            Err(_) => 0.0, // poisoned lock: skip self-subtraction this tick
+        }
+    };
+
+    external_pressure_exceeds(system_normalized, self_normalized, threshold)
 }

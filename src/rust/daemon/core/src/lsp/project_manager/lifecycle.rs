@@ -39,6 +39,38 @@ impl LanguageServerManager {
             }
         }
 
+        // Global fan-out guard: LSP servers are multi-GB each, so cap the TOTAL
+        // running across all projects. Without this, N active projects × M
+        // languages eagerly spawn N×M heavyweight processes and exhaust host
+        // memory (the OOM/host-freeze runaway). Counts already-registered
+        // running/initializing servers; a fresh server is only created below.
+        // This is a check-then-act under a read lock (not a reservation), so
+        // highly-concurrent starts may overshoot the cap by the number of
+        // in-flight calls — acceptable for a safety valve whose job is to
+        // prevent a dozen servers, not to enforce an exact count.
+        {
+            let servers = self.servers.read().await;
+            let running = servers
+                .values()
+                .filter(|s| {
+                    matches!(s.status, ServerStatus::Running | ServerStatus::Initializing)
+                })
+                .count();
+            if running >= self.config.max_global_servers {
+                tracing::warn!(
+                    project_id = project_id,
+                    language = ?language,
+                    running,
+                    max = self.config.max_global_servers,
+                    "Global LSP server cap reached; refusing to start new server"
+                );
+                return Err(ProjectLspError::ServerUnavailable {
+                    project_id: project_id.to_string(),
+                    language: language.clone(),
+                });
+            }
+        }
+
         // Check if we have a server available for this language
         let available = self.available_servers.read().await;
         let server_names =

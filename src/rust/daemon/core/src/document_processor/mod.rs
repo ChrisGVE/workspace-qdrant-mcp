@@ -43,6 +43,36 @@ use self::extraction::{
     extract_spreadsheet, extract_text_with_encoding,
 };
 
+use std::sync::OnceLock;
+
+/// Process-wide cap on concurrent blocking document-processing tasks. Every
+/// direct caller (queue dispatch, startup reconcile, file watching, ingestion)
+/// otherwise grabs its own tokio blocking thread, so a multi-project reconcile
+/// can spawn hundreds–thousands of threads, each holding a chunked document in
+/// memory. Acquiring the permit on the async side provides natural backpressure
+/// (callers await instead of piling up threads). Override:
+/// `WQM_DOC_PROCESSING_CONCURRENCY`.
+fn doc_processing_semaphore() -> &'static tokio::sync::Semaphore {
+    static SEM: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    SEM.get_or_init(|| tokio::sync::Semaphore::new(default_doc_processing_concurrency()))
+}
+
+/// Default concurrency = `max(2, cores/2)`: keeps cores busy without the
+/// unbounded thread explosion. `WQM_DOC_PROCESSING_CONCURRENCY` overrides (>0).
+pub(crate) fn default_doc_processing_concurrency() -> usize {
+    if let Some(n) = std::env::var("WQM_DOC_PROCESSING_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+    {
+        return n;
+    }
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    std::cmp::max(2, cores / 2)
+}
+
 /// Document processor for extracting text from various file formats
 #[derive(Debug)]
 pub struct DocumentProcessor {
@@ -126,6 +156,11 @@ impl DocumentProcessor {
         #[cfg(feature = "ocr")]
         let ocr = self.ocr_engine.clone();
 
+        // Bound concurrent blocking processing (backpressure, not a thread storm).
+        let _permit = doc_processing_semaphore()
+            .acquire()
+            .await
+            .expect("doc processing semaphore is never closed");
         // Run blocking file processing in a separate thread
         let content = tokio::task::spawn_blocking(move || {
             #[cfg(feature = "ocr")]
@@ -167,6 +202,11 @@ impl DocumentProcessor {
         #[cfg(feature = "ocr")]
         let ocr = self.ocr_engine.clone();
 
+        // Bound concurrent blocking processing (backpressure, not a thread storm).
+        let _permit = doc_processing_semaphore()
+            .acquire()
+            .await
+            .expect("doc processing semaphore is never closed");
         // Run blocking file processing in a separate thread
         let result = tokio::task::spawn_blocking(move || {
             #[cfg(feature = "ocr")]
@@ -201,6 +241,11 @@ impl DocumentProcessor {
         #[cfg(feature = "ocr")]
         let ocr = self.ocr_engine.clone();
 
+        // Bound concurrent blocking processing (backpressure, not a thread storm).
+        let _permit = doc_processing_semaphore()
+            .acquire()
+            .await
+            .expect("doc processing semaphore is never closed");
         let result = tokio::task::spawn_blocking(move || {
             #[cfg(feature = "ocr")]
             {
