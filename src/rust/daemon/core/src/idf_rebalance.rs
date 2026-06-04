@@ -292,7 +292,10 @@ fn build_correction_batch(
         let corrected: HashMap<u32, f32> = sparse_map
             .into_iter()
             .map(|(term_id, val)| {
-                let df = df_map.get(&term_id).copied().unwrap_or(1);
+                // A term absent from sparse_vocabulary (pruned / cross-collection)
+                // must be left UNCHANGED, not corrected with a fabricated df=1.
+                // df=0 makes idf_correction return 1.0 via its `df == 0` guard.
+                let df = df_map.get(&term_id).copied().unwrap_or(0);
                 (term_id, val * idf_correction(old_n, current_n, df))
             })
             .collect();
@@ -391,5 +394,24 @@ mod tests {
         assert_eq!(updates.len(), 1);
         assert_eq!(updates[0].0, "c");
         assert_eq!(epochs, vec![("c".to_string(), 1000)]);
+    }
+
+    #[test]
+    fn build_batch_leaves_unknown_vocab_terms_unchanged() {
+        // term 99 is NOT in df_map → must be left unchanged (factor 1.0), not
+        // corrected with a fabricated df.
+        let df_map = HashMap::from([(1u32, 5u64)]);
+        let points = vec![SparsePointData {
+            id: "p".into(),
+            idf_epoch: Some(100),
+            sparse_vector: Some(HashMap::from([(99u32, 3.5f32)])),
+        }];
+        let (updates, _) = build_correction_batch(&points, 1000, &df_map);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0].1.get(&99),
+            Some(&3.5f32),
+            "unknown term unchanged"
+        );
     }
 }
