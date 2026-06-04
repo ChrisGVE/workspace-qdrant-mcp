@@ -1,8 +1,7 @@
 //! Configuration types for the MCP server.
 //!
-//! Mirrors the TypeScript interface in `src/typescript/mcp-server/src/types/config.ts`
-//! field-for-field so that YAML config files are interchangeable between the two
-//! implementations.  YAML keys use camelCase to match the TS schema.
+//! YAML keys use camelCase. (The schema originated as a field-for-field port
+//! of the now-removed TypeScript MCP server's config interface.)
 
 use serde::{Deserialize, Serialize};
 
@@ -134,7 +133,7 @@ pub struct ServerConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Default values (mirrors generated-defaults.ts / DEFAULT_CONFIG)
+// Default values
 // ---------------------------------------------------------------------------
 
 impl Default for DatabaseConfig {
@@ -286,7 +285,7 @@ impl Default for ServerConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Path helpers (mirrors TypeScript paths.ts)
+// Path helpers
 // ---------------------------------------------------------------------------
 
 /// Returns the canonical data directory.
@@ -379,106 +378,6 @@ mod tests {
             .watching
             .ignore_patterns
             .contains(&"target/*".to_string()));
-    }
-
-    /// Full parity test: assert `watching.patterns` and `watching.ignore_patterns`
-    /// are byte-identical (in order) to the arrays in
-    /// `src/typescript/mcp-server/src/types/generated-defaults.ts`.
-    ///
-    /// This locks the lists against future drift between the TS and Rust
-    /// implementations.
-    #[test]
-    fn watching_patterns_full_parity_with_ts_defaults() {
-        let cfg = ServerConfig::default();
-
-        // TS generated-defaults.ts line ~29: patterns: ['*.py','*.rs','*.md','*.js','*.ts']
-        let expected_patterns: Vec<&str> = vec!["*.py", "*.rs", "*.md", "*.js", "*.ts"];
-        assert_eq!(
-            cfg.watching.patterns,
-            expected_patterns
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>(),
-            "watching.patterns must exactly match TS generated-defaults.ts"
-        );
-
-        // TS generated-defaults.ts lines ~30-92: ignorePatterns (61 entries, in order)
-        let expected_ignore: Vec<&str> = vec![
-            "*.pyc",
-            "*.class",
-            "*.o",
-            "*.obj",
-            "*.lock",
-            "*.min.js",
-            "*.min.css",
-            "*.map",
-            "*.bundle.js",
-            "*.chunk.js",
-            "node_modules/*",
-            "target/*",
-            "build/*",
-            "dist/*",
-            "out/*",
-            ".git/*",
-            "__pycache__/*",
-            ".venv/*",
-            "venv/*",
-            ".env/*",
-            ".tox/*",
-            ".mypy_cache/*",
-            ".pytest_cache/*",
-            ".ruff_cache/*",
-            ".gradle/*",
-            ".next/*",
-            ".nuxt/*",
-            ".svelte-kit/*",
-            ".astro/*",
-            "Pods/*",
-            "DerivedData/*",
-            ".build/*",
-            ".swiftpm/*",
-            ".fastembed_cache/*",
-            ".terraform/*",
-            ".terragrunt-cache/*",
-            "coverage/*",
-            ".nyc_output/*",
-            ".cargo/*",
-            ".rustup/*",
-            "vendor/*",
-            ".bundle/*",
-            ".cache/*",
-            ".tmp/*",
-            "tmp/*",
-            ".DS_Store/*",
-            ".idea/*",
-            ".vscode/*",
-            ".settings/*",
-            ".project/*",
-            ".classpath/*",
-            "bin/*",
-            "obj/*",
-            ".zig-cache/*",
-            "zig-out/*",
-            "elm-stuff/*",
-            ".stack-work/*",
-            "_build/*",
-            "deps/*",
-            ".dart_tool/*",
-            ".pub-cache/*",
-        ];
-        assert_eq!(
-            cfg.watching.ignore_patterns,
-            expected_ignore
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>(),
-            "watching.ignore_patterns must exactly match TS generated-defaults.ts (61 entries, in order)"
-        );
-        assert_eq!(
-            cfg.watching.ignore_patterns.len(),
-            61,
-            "expecting exactly 61 ignore_patterns entries"
-        );
     }
 
     #[test]
