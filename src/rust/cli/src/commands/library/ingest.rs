@@ -74,7 +74,7 @@ pub async fn execute(
 
     // Generate doc_id (UUID v5 from library_name + relative path).
     let doc_id =
-        workspace_qdrant_core::generate_document_id(library, relative_document_path.as_str());
+        wqm_common::document_id::generate_document_id(library, relative_document_path.as_str());
     output::kv("  Doc ID", &doc_id);
 
     // Calculate doc_fingerprint (SHA256 of file bytes)
