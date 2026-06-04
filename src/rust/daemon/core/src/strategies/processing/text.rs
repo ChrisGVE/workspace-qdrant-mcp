@@ -186,11 +186,19 @@ impl TextStrategy {
     }
 
     /// Process a scratchpad item -- persistent LLM scratch space.
+    ///
+    /// `Delete` removes the point identified by `(tenant_id, document_id)`
+    /// (and its mirror row); `Add`/`Update` upsert. On `Update`, if the
+    /// content changed, the superseded point is also removed (see below).
     async fn process_scratchpad_item(
         ctx: &ProcessingContext,
         item: &UnifiedQueueItem,
     ) -> UnifiedProcessorResult<()> {
         let payload: ScratchpadPayload = parse_payload(item)?;
+
+        if item.op == QueueOperation::Delete {
+            return Self::handle_scratchpad_delete(ctx, item, &payload).await;
+        }
 
         let now = wqm_common::timestamps::now_utc();
 
@@ -240,6 +248,30 @@ impl TextStrategy {
             "Successfully processed scratchpad item {} (tenant={}, title={:?}) -> {}",
             item.queue_id, item.tenant_id, payload.title, item.collection
         );
+
+        // On update, the new content was just upserted under its own
+        // document_id. If the content changed, the previous point (keyed by the
+        // OLD content's document_id) is now orphaned — remove it and its mirror
+        // row. Best-effort: a failure here must not fail the update itself.
+        if item.op == QueueOperation::Update {
+            if let Some(old_content) = &payload.old_content {
+                let old_doc_id = crate::generate_content_document_id(&item.tenant_id, old_content);
+                if old_doc_id != content_doc_id {
+                    let _ = ctx
+                        .storage_client
+                        .delete_points_by_payload_fields(
+                            &item.collection,
+                            &[
+                                ("tenant_id", item.tenant_id.as_str()),
+                                ("document_id", old_doc_id.as_str()),
+                            ],
+                        )
+                        .await;
+                    Self::delete_scratchpad_mirror_by_content(ctx, &item.tenant_id, old_content)
+                        .await;
+                }
+            }
+        }
 
         Ok(())
     }
@@ -340,6 +372,63 @@ impl TextStrategy {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// Delete a scratchpad point scoped by `(tenant_id, document_id)`, where
+    /// `document_id = hash(tenant_id, content)` — the same derivation used on
+    /// write, so the delete matches the original point. Also removes the
+    /// best-effort `scratchpad_mirror` row(s). Tenant scope prevents a delete
+    /// queued by project A from evicting project B's note.
+    async fn handle_scratchpad_delete(
+        ctx: &ProcessingContext,
+        item: &UnifiedQueueItem,
+        payload: &ScratchpadPayload,
+    ) -> UnifiedProcessorResult<()> {
+        let document_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
+        info!(
+            "Deleting scratchpad point: tenant={} document_id={} -> collection={}",
+            item.tenant_id, document_id, item.collection
+        );
+
+        ctx.storage_client
+            .delete_points_by_payload_fields(
+                &item.collection,
+                &[
+                    ("tenant_id", item.tenant_id.as_str()),
+                    ("document_id", document_id.as_str()),
+                ],
+            )
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        Self::delete_scratchpad_mirror_by_content(ctx, &item.tenant_id, &payload.content).await;
+
+        Ok(())
+    }
+
+    /// Best-effort removal of `scratchpad_mirror` row(s) for a note, matched by
+    /// `(content, tenant_id)`. The mirror is advisory (rebuild / Qdrant-down
+    /// fallback) so a failure is logged, never fatal.
+    async fn delete_scratchpad_mirror_by_content(
+        ctx: &ProcessingContext,
+        tenant_id: &str,
+        content: &str,
+    ) {
+        let pool = ctx.queue_manager.pool();
+        let result = sqlx::query(
+            "DELETE FROM scratchpad_mirror WHERE content = ?1 AND (tenant_id = ?2 OR tenant_id IS NULL)",
+        )
+        .bind(content)
+        .bind(tenant_id)
+        .execute(pool)
+        .await;
+        if let Err(e) = result {
+            warn!(
+                "Failed to delete scratchpad_mirror row(s) for tenant_id={}: {}",
+                tenant_id, e
+            );
+        }
     }
 }
 

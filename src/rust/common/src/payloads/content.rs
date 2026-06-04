@@ -32,6 +32,13 @@ pub struct ScratchpadPayload {
     /// Source type (always "scratchpad")
     #[serde(default = "default_scratchpad_source")]
     pub source_type: String,
+    /// For `update` ops: the previous content of the entry being edited.
+    /// Because a scratchpad point's identity is `document_id =
+    /// hash(tenant, content)`, changing the content moves the point — so the
+    /// update path upserts the new content and deletes the superseded point
+    /// identified by `hash(tenant, old_content)`. Ignored for add/delete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_content: Option<String>,
 }
 
 /// Deserialize tags from either a JSON array or a stringified JSON array.
@@ -205,6 +212,7 @@ mod tests {
             title: Some("Search Architecture".to_string()),
             tags: vec!["architecture".to_string(), "search".to_string()],
             source_type: "scratchpad".to_string(),
+            old_content: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("design decision"));
