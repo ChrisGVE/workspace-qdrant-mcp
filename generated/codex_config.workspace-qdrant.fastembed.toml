@@ -5,7 +5,7 @@ args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescri
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 required = true
-enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index", "graph"]
+enabled_tools = ["search", "retrieve", "grep", "list", "store", "scratchpad", "rules", "workspace_index", "graph"]
 
 [mcp_servers.workspace-qdrant.env]
 QDRANT_URL = "http://localhost:6333"

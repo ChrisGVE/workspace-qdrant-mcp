@@ -13,6 +13,7 @@ import {
   buildRetrieveOptions,
   buildRuleOptions,
   buildStoreOptions,
+  buildScratchpadOptions,
   buildGrepOptions,
   buildListOptions,
 } from './tool-builders/index.js';
@@ -86,6 +87,8 @@ async function routeTool(
       return rulesTool.execute(buildRuleOptions(args));
     case 'store':
       return dispatchStore(args, components, sessionState);
+    case 'scratchpad':
+      return components.scratchpadTool.execute(buildScratchpadOptions(args));
     case 'grep':
       return grepTool.grep(buildGrepOptions(args, { branch: sessionState.currentBranch }));
     case 'list':

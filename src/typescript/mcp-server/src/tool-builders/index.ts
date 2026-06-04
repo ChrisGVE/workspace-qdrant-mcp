@@ -14,6 +14,8 @@ export { buildRuleOptions } from './rules.js';
 export type { StoreOptions } from './store.js';
 export { buildStoreOptions } from './store.js';
 
+export { buildScratchpadOptions } from './scratchpad.js';
+
 export type { GrepOptions } from './grep.js';
 export { buildGrepOptions } from './grep.js';
 

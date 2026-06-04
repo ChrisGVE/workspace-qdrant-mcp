@@ -11,6 +11,7 @@ import { SearchTool } from './tools/search.js';
 import { RetrieveTool } from './tools/retrieve.js';
 import { RulesTool } from './tools/rules.js';
 import { StoreTool } from './tools/store.js';
+import { ScratchpadTool } from './tools/scratchpad.js';
 import { GrepTool } from './tools/grep.js';
 import { ListFilesTool } from './tools/list-files/index.js';
 import type { ServerConfig } from './types/index.js';
@@ -26,6 +27,7 @@ export interface ServerComponents {
   retrieveTool: RetrieveTool;
   rulesTool: RulesTool;
   storeTool: StoreTool;
+  scratchpadTool: ScratchpadTool;
   grepTool: GrepTool;
   listTool: ListFilesTool;
   qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string };
@@ -58,8 +60,9 @@ function createTools(
   const rulesTool = new RulesTool(rulesConfig, daemonClient, stateManager, projectDetector);
   const grepTool = new GrepTool(daemonClient, projectDetector);
   const storeTool = new StoreTool({}, stateManager);
+  const scratchpadTool = new ScratchpadTool(qdrantConfig, stateManager, projectDetector);
   const listTool = new ListFilesTool(stateManager, projectDetector);
-  return { searchTool, retrieveTool, rulesTool, grepTool, storeTool, listTool };
+  return { searchTool, retrieveTool, rulesTool, grepTool, storeTool, scratchpadTool, listTool };
 }
 
 /** Instantiate all server components from config. */

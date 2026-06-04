@@ -6,6 +6,7 @@
     "grep",
     "list",
     "store",
+    "scratchpad",
     "rules",
     "workspace_index",
     "graph"
