@@ -21,7 +21,7 @@
 //! `grpc/write_methods.rs` — e.g. `upsert_rule_mirror`, `delete_rule_mirror`,
 //! which merely *ask the daemon* to write — do not false-match.
 //!
-//! Direct-write enforcement across the `wqm-cli` / `wqm-mcp` *binaries* is the
+//! Direct-write enforcement across the `wqm` / `workspace-qdrant-mcp` *binaries* is the
 //! job of the no-CLI-write CI grep (WI-e1, #82 task 38), after the remaining
 //! direct-write violations (WI-f1 RebalanceIdf, etc.) are removed.
 

@@ -1,5 +1,5 @@
 //! AC-T2: in stdio mode, stdout must carry only JSON-RPC frames — never log
-//! lines.  This test runs the compiled `wqm-mcp` binary (which currently
+//! lines.  This test runs the compiled `workspace-qdrant-mcp` binary (which currently
 //! initialises logging in stdio mode and emits its startup banner) and asserts
 //! that the banner went to stderr, leaving stdout free of log contamination.
 //!
@@ -12,7 +12,7 @@ use std::process::Command;
 /// Path to the compiled binary under test, provided by Cargo to integration
 /// tests via the `CARGO_BIN_EXE_<name>` environment variable.
 fn binary_path() -> &'static str {
-    env!("CARGO_BIN_EXE_wqm-mcp")
+    env!("CARGO_BIN_EXE_workspace-qdrant-mcp")
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn stdio_mode_stdout_has_no_log_contamination() {
         // Ensure no inherited override forces a different sink.
         .env_remove("WQM_MCP_LOG_LEVEL")
         .output()
-        .expect("failed to run wqm-mcp binary");
+        .expect("failed to run workspace-qdrant-mcp binary");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
