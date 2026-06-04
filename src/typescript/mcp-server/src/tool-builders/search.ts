@@ -14,6 +14,7 @@ export type SearchOptions = {
   branch?: string;
   fileType?: string;
   includeLibraries?: boolean;
+  includeScratchpad?: boolean;
   tag?: string;
   tags?: string[];
   pathGlob?: string;
@@ -63,6 +64,9 @@ function extractIdentifierOptions(
 
   const includeLibraries = args?.['includeLibraries'] as boolean | undefined;
   if (includeLibraries !== undefined) options.includeLibraries = includeLibraries;
+
+  const includeScratchpad = args?.['includeScratchpad'] as boolean | undefined;
+  if (includeScratchpad !== undefined) options.includeScratchpad = includeScratchpad;
 }
 
 function extractFilterOptions(
