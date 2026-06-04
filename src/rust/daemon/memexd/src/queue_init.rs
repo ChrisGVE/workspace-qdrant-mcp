@@ -293,6 +293,29 @@ pub async fn initialize(
     };
 
     let (embedding_generator, dense_provider) = create_embedding_generator(daemon_config, config)?;
+
+    // Eagerly warm up the dense embedding model in the background so the FIRST
+    // real embed/search request doesn't pay the lazy model load. After a
+    // container restart the in-memory model is gone; the first call would
+    // otherwise block on load + first inference and can exceed the MCP client's
+    // request timeout ("-32001: Request timed out", retry then succeeds).
+    // `probe()` runs `ensure_initialized()` + a dummy embed, so this loads the
+    // model and primes the first inference. Best-effort and idempotent (the
+    // `initialized` flag makes the real first call a no-op); failures are
+    // retried by the existing health-probe loop and the lazy path still works.
+    {
+        let warmup_provider = Arc::clone(&dense_provider);
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+            match warmup_provider.probe().await {
+                Ok(()) => info!("Embedding model warm-up complete in {:?}", start.elapsed()),
+                Err(e) => {
+                    warn!("Embedding model warm-up failed (lazy load will retry): {}", e)
+                }
+            }
+        });
+    }
+
     let storage_config = StorageConfig::daemon_mode();
     info!("Connecting to Qdrant at: {}", storage_config.url);
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
