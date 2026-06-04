@@ -324,17 +324,38 @@ export class SearchTool {
     denseEmbedding: number[] | undefined,
     sparseVector: Record<number, number> | undefined
   ): Promise<SearchResponse> {
-    const collectionsResult = await this.runSearchCollections(
-      options,
-      mode,
-      limit,
-      scope,
-      collectionsToSearch,
-      currentProjectId,
-      basePoints,
-      denseEmbedding,
-      sparseVector
-    );
+    // Project-memory recall lane: enabled only for the default project scope,
+    // when not targeting an explicit collection, with the lane on and a tenant
+    // resolved. Resolve its tenant up front so the lane runs CONCURRENTLY with
+    // the main collection fan-out — it reuses the same embeddings, so there is
+    // no reason to serialize it behind the code search. `undefined` skips the
+    // lane (resolves to []); failures inside the lane also degrade to [].
+    const laneProjectId =
+      scope === 'project' && !options.collection && options.includeScratchpad !== false
+        ? currentProjectId
+        : undefined;
+    const [collectionsResult, scratchpadHits] = await Promise.all([
+      this.runSearchCollections(
+        options,
+        mode,
+        limit,
+        scope,
+        collectionsToSearch,
+        currentProjectId,
+        basePoints,
+        denseEmbedding,
+        sparseVector
+      ),
+      laneProjectId
+        ? searchScratchpadLane(this.qdrantClient, {
+            projectId: laneProjectId,
+            mode,
+            denseEmbedding,
+            sparseVector,
+            scoreThreshold: options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD,
+          })
+        : Promise.resolve<SearchResult[]>([]),
+    ]);
     let { status, statusReason } = collectionsResult;
     if (basePointsDegraded) {
       // F-014: merge the explicit degradation message into the final
@@ -342,24 +363,6 @@ export class SearchTool {
       status = 'uncertain';
       const reason = formatBasePointsDegradedReason(basePointsActiveCount);
       statusReason = statusReason ? `${statusReason}; ${reason}` : reason;
-    }
-    // Project-memory recall lane: only for the default project scope, when not
-    // targeting an explicit collection, with the lane enabled and a resolved
-    // tenant. Reuses the embeddings already computed; failures degrade to [].
-    let scratchpadHits: SearchResult[] = [];
-    if (
-      scope === 'project' &&
-      !options.collection &&
-      options.includeScratchpad !== false &&
-      currentProjectId
-    ) {
-      scratchpadHits = await searchScratchpadLane(this.qdrantClient, {
-        projectId: currentProjectId,
-        mode,
-        denseEmbedding,
-        sparseVector,
-        scoreThreshold: options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD,
-      });
     }
     return finalizeResults(this.qdrantClient, this.daemonClient, this._stateManager, {
       allResults: collectionsResult.allResults,

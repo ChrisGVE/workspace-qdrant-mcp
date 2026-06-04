@@ -17,20 +17,33 @@ import type { DaemonClient } from '../../src/clients/daemon-client.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
 
-// Qdrant mock: returns one scratchpad note for the `scratchpad` collection and
-// nothing for any other collection. Both the dense and sparse legs of
-// searchCollection hit this, exercising the lane's per-id dedup.
+// Qdrant mock: returns one code hit for `projects` and one note for
+// `scratchpad`, nothing for any other collection. Both the dense and sparse
+// legs of searchCollection hit these, exercising RRF fusion (code) and the
+// lane's per-id dedup (note).
 vi.mock('@qdrant/js-client-rest', () => ({
   QdrantClient: vi.fn().mockImplementation(() => ({
-    search: vi
-      .fn()
-      .mockImplementation((collection: string) =>
-        Promise.resolve(
-          collection === 'scratchpad'
-            ? [{ id: 'note-1', score: 0.7, payload: { content: 'remember: ext4 for repos' } }]
-            : []
-        )
-      ),
+    search: vi.fn().mockImplementation((collection: string) => {
+      if (collection === 'scratchpad') {
+        return Promise.resolve([
+          { id: 'note-1', score: 0.7, payload: { content: 'remember: ext4 for repos' } },
+        ]);
+      }
+      if (collection === 'projects') {
+        return Promise.resolve([
+          {
+            id: 'code-1',
+            score: 0.9,
+            payload: {
+              content: 'fn handle_ext4()',
+              document_id: 'doc-1',
+              relative_path: 'src/ext4.rs',
+            },
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    }),
     scroll: vi.fn().mockResolvedValue({ points: [] }),
     retrieve: vi.fn().mockResolvedValue([]),
     getCollection: vi.fn().mockResolvedValue({ status: 'green' }),
@@ -90,16 +103,23 @@ describe('SearchTool — scratchpad recall lane', () => {
     );
   });
 
-  it('appends scratchpad notes (deduped) after code for default project scope', async () => {
+  it('appends scratchpad notes (deduped) for default project scope', async () => {
     const result = await searchTool.search({ query: 'ext4' });
 
     const scratchpadHits = result.results.filter((r) => r.collection === 'scratchpad');
     expect(scratchpadHits).toHaveLength(1); // dense+sparse legs collapsed to one
     expect(scratchpadHits[0]?.content).toContain('ext4');
-    // Lane hits are appended after code; with no code results here the note is
-    // the only hit, but it is still tagged as scratchpad and the collection is
-    // recorded as searched.
     expect(result.collections_searched).toContain('scratchpad');
+  });
+
+  it('appends notes AFTER code so they never displace the code top-k', async () => {
+    const result = await searchTool.search({ query: 'ext4' });
+
+    const collections = result.results.map((r) => r.collection);
+    const codeIdx = collections.indexOf('projects');
+    const noteIdx = collections.indexOf('scratchpad');
+    expect(codeIdx).toBeGreaterThanOrEqual(0); // code hit present
+    expect(noteIdx).toBeGreaterThan(codeIdx); // and the note comes after it
   });
 
   it('does not run the lane when includeScratchpad is false', async () => {
