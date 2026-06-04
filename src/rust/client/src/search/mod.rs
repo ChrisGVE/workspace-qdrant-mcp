@@ -30,6 +30,9 @@ pub mod metrics;
 pub mod options;
 pub mod scope;
 
+#[cfg(test)]
+mod pipeline_parity_tests;
+
 pub use exact::{search_exact, ExactSearchDaemon};
 pub use flow::{run_search_pipeline, EmbedDaemon, SearchQdrant};
 pub use flow_fallback::{f001_refusal_reason, fallback_search, FALLBACK_STATUS_REASON};
