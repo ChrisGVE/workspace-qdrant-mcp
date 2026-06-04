@@ -19,7 +19,7 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::flow::SearchQdrant;
 use super::options::SearchOptions;
-use super::types::{ParentContext, Provenance, SearchMode, SearchResult};
+use crate::models::{ParentContext, Provenance, SearchMode, SearchResult};
 
 // ---------------------------------------------------------------------------
 // Fusion + finalize phases

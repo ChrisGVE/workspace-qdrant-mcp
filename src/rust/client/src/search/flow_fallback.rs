@@ -14,7 +14,7 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use super::flow::SearchQdrant;
 use super::options::SearchOptions;
-use super::types::{SearchResponse, SearchResult, SearchScope};
+use crate::models::{SearchResponse, SearchResult, SearchScope};
 
 // ---------------------------------------------------------------------------
 // F-001 refusal constants
@@ -119,7 +119,7 @@ where
 ///
 /// Mirrors TS `!currentProjectId` (empty string is falsy — M2 fix).
 /// Both `None` and `Some("")` / `Some("   ")` are considered unresolved.
-pub(super) fn project_id_is_unresolved(project_id: Option<&str>) -> bool {
+pub fn project_id_is_unresolved(project_id: Option<&str>) -> bool {
     match project_id {
         None => true,
         Some(s) => s.trim().is_empty(),

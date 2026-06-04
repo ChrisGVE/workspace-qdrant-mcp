@@ -34,6 +34,9 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Graph node-id hashing (search graph context/fusion) — SHA256
+sha2 = { workspace = true }
+
 # Errors + tracing
 anyhow = { workspace = true }
 thiserror = "2.0"

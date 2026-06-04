@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::*;
-use crate::proto::{QueryRelatedResponse, TraversalNodeProto};
 use crate::qdrant::fusion::{SearchType, TaggedResult};
+use crate::workspace_daemon::{QueryRelatedResponse, TraversalNodeProto};
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ struct MapDaemon {
 impl GraphQueryDaemon for MapDaemon {
     async fn query_related(
         &mut self,
-        request: crate::proto::QueryRelatedRequest,
+        request: crate::workspace_daemon::QueryRelatedRequest,
     ) -> Result<QueryRelatedResponse, tonic::Status> {
         if self.fail {
             return Err(tonic::Status::unavailable("down"));
@@ -238,7 +238,7 @@ async fn expanded_node_converts_to_narrow_search_result() {
         .into_iter()
         .find(|r| r.id == "expanded_1")
         .expect("expanded node present");
-    let sr = crate::tools::search::flow_collect::tagged_to_search_result(expanded);
+    let sr = crate::search::flow_collect::tagged_to_search_result(expanded);
     assert_eq!(sr.title.as_deref(), Some("bar"));
     assert_eq!(sr.content, "function bar in src/other.rs");
     assert!(sr.provenance.is_none(), "graph nodes carry no provenance");

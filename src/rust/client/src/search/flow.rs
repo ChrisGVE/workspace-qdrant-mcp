@@ -18,19 +18,19 @@
 
 use std::collections::HashMap;
 
-// rusqlite::Connection is no longer imported here — expansion keywords are
-// pre-computed by the caller (search_tool) synchronously before any await,
-// then passed as an owned Vec<String> so the future remains Send.
+// No SQLite handle is imported here — expansion keywords are pre-computed by
+// the caller (search_tool) synchronously before any await, then passed as an
+// owned Vec<String> so the future remains Send.
 
-use crate::observability::metrics::record_daemon_fallback;
 use crate::qdrant::client::{QdrantPoint, QdrantReadClient, QdrantRetrievedPoint};
 use crate::qdrant::filters::{build_filter, determine_collections, FilterParams};
 use crate::qdrant::fusion::TaggedResult;
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 
 use super::graph_context::{expand_graph_context, GraphQueryDaemon};
+use super::metrics::FallbackMetrics;
 use super::options::{SearchOptions, DEFAULT_EXPANSION_WEIGHT};
-use super::types::{SearchMode, SearchResponse, SearchResult, SearchScope};
+use crate::models::{SearchMode, SearchResponse, SearchResult, SearchScope};
 
 pub use super::flow_collect::{
     build_provenance, diversify_slice_convert, expand_parent_context, fuse_and_sort,
@@ -181,11 +181,11 @@ impl SearchQdrant for QdrantReadClient {
 /// double-borrow when the same `DaemonClient` is used for both phases.
 /// Run the hybrid / semantic / keyword search pipeline.
 ///
-/// `expansion_keywords` replaces the former `conn: Option<&Connection>` to keep
-/// the future `Send`.  Callers must pre-compute expansion keywords synchronously
-/// (via [`super::expansion::collect_expansion_keywords`] while holding the
-/// SQLite lock) and pass the result here.  An empty `Vec` is equivalent to
-/// `None` — no tag-basket expansion is performed.
+/// `expansion_keywords` replaces a former SQLite-handle argument to keep the
+/// future `Send`.  Callers must pre-compute expansion keywords synchronously
+/// (via the MCP server's SQLite-bound `collect_expansion_keywords` adapter while
+/// holding the SQLite lock) and pass the result here.  An empty `Vec` is
+/// equivalent to `None` — no tag-basket expansion is performed.
 pub async fn run_search_pipeline<D, Q>(
     daemon: &mut D,
     qdrant: &Q,
@@ -194,6 +194,7 @@ pub async fn run_search_pipeline<D, Q>(
     project_id: Option<&str>,
     enable_tag_expansion: bool,
     scope_ctx: &super::scope::ScopeContext,
+    metrics: &dyn FallbackMetrics,
 ) -> SearchResponse
 where
     D: EmbedDaemon + GraphQueryDaemon,
@@ -219,7 +220,7 @@ where
     {
         Ok(pair) => pair,
         Err(_) => {
-            record_daemon_fallback("search", "embed_failed");
+            metrics.record_daemon_fallback("search", "embed_failed");
             return fallback_search(qdrant, opts, &collections, project_id, scope_ctx).await;
         }
     };

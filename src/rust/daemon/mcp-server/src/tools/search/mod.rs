@@ -17,14 +17,20 @@
 //! trait bounds used by the pipeline sub-modules so all internal logic stays
 //! hermetically testable.
 
-pub mod exact;
+// The SQLite-free search pipeline now lives in the shared `wqm-client` crate
+// (`wqm_client::search`, WI-d4 #82). Re-export the moved modules so existing
+// `crate::tools::search::{flow,exact,…}::…` paths — and the hermetic stub tests
+// that exercise them — keep resolving against the now-foreign types. The
+// `DaemonClient` adapter impls for `EmbedDaemon` / `ExactSearchDaemon` /
+// `GraphQueryDaemon` moved with the traits (orphan rule).
+pub use wqm_client::search::{
+    exact, flow, flow_collect, flow_fallback, graph_context, graph_fusion, options,
+};
+
+// SQLite-bound adapters (base-point resolution, tag-basket keyword collection)
+// stay local — they read the state DB and pre-resolve owned values for the
+// pipeline.
 pub mod expansion;
-pub mod flow;
-pub mod flow_collect;
-pub mod flow_fallback;
-pub mod graph_context;
-pub mod graph_fusion;
-pub mod options;
 pub mod scope;
 pub mod types;
 
@@ -44,50 +50,17 @@ pub use self::options::{SearchInput, SearchOptions, DEFAULT_SCORE_THRESHOLD};
 pub use self::types::{SearchMode, SearchResponse, SearchResult, SearchScope};
 
 // ---------------------------------------------------------------------------
-// DaemonClient adapter impls
+// Fallback metrics hook
 // ---------------------------------------------------------------------------
 
-impl flow::EmbedDaemon for DaemonClient {
-    fn embed_text(
-        &mut self,
-        text: &str,
-    ) -> impl std::future::Future<Output = Result<Vec<f32>, tonic::Status>> + Send {
-        let text = text.to_string();
-        async move {
-            let resp = DaemonClient::embed_text(self, &text).await?;
-            Ok(resp.embedding)
-        }
-    }
+/// Routes the shared pipeline's `FallbackMetrics` calls to the MCP server's
+/// Prometheus counter. The pipeline depends only on the trait; the concrete
+/// registry stays here.
+struct PrometheusFallback;
 
-    fn generate_sparse_vector(
-        &mut self,
-        text: &str,
-    ) -> impl std::future::Future<Output = Result<HashMap<u32, f32>, tonic::Status>> + Send {
-        let text = text.to_string();
-        async move {
-            let resp = DaemonClient::generate_sparse_vector(self, &text).await?;
-            Ok(resp.indices_values)
-        }
-    }
-}
-
-impl exact::ExactSearchDaemon for DaemonClient {
-    fn text_search(
-        &mut self,
-        request: crate::proto::TextSearchRequest,
-    ) -> impl std::future::Future<Output = Result<crate::proto::TextSearchResponse, tonic::Status>> + Send
-    {
-        DaemonClient::text_search(self, request)
-    }
-}
-
-impl graph_context::GraphQueryDaemon for DaemonClient {
-    fn query_related(
-        &mut self,
-        request: crate::proto::QueryRelatedRequest,
-    ) -> impl std::future::Future<Output = Result<crate::proto::QueryRelatedResponse, tonic::Status>>
-           + Send {
-        DaemonClient::query_related(self, request)
+impl wqm_client::search::FallbackMetrics for PrometheusFallback {
+    fn record_daemon_fallback(&self, tool: &str, reason: &str) {
+        crate::observability::metrics::record_daemon_fallback(tool, reason);
     }
 }
 
@@ -193,6 +166,7 @@ pub async fn search_tool(
                 project_id.as_deref(),
                 true, // enable_tag_expansion
                 &scope_ctx,
+                &PrometheusFallback,
             )
             .await;
             // F-014: base-point isolation degraded → uncertain + reason.

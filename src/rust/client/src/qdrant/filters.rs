@@ -58,7 +58,7 @@ pub struct FilterParams {
 ///
 /// Examples
 /// ```
-/// # use mcp_server::qdrant::filters::extract_glob_prefix;
+/// # use wqm_client::qdrant::filters::extract_glob_prefix;
 /// assert_eq!(extract_glob_prefix("src/**/*.rs"), "src/");
 /// assert_eq!(extract_glob_prefix("**/*.rs"),     "");
 /// assert_eq!(extract_glob_prefix("src/main.rs"), "src/main.rs");

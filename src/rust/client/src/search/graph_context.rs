@@ -12,8 +12,8 @@
 
 use sha2::{Digest, Sha256};
 
-use super::types::{GraphContext, GraphContextNode, SearchResult};
-use crate::proto::{QueryRelatedRequest, QueryRelatedResponse};
+use crate::models::{GraphContext, GraphContextNode, SearchResult};
+use crate::workspace_daemon::{QueryRelatedRequest, QueryRelatedResponse};
 
 // ---------------------------------------------------------------------------
 // Constants (mirrors search-graph-context.ts)

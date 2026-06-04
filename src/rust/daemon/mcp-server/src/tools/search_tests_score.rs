@@ -120,6 +120,7 @@ async fn score_threshold_forwarded_to_qdrant_legs_only() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -184,6 +185,7 @@ async fn semantic_mode_dense_threshold_forwarded_no_sparse_leg() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -452,6 +454,7 @@ async fn scores_are_raw_unrounded() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -484,6 +487,7 @@ async fn scores_raw_after_rrf_fusion() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 

@@ -6,9 +6,11 @@
 //! client-side timeout semantics are all provided by `wqm-client`.
 //!
 //! Local trait impls that bridge `DaemonClient` to MCP-specific traits
-//! (e.g. `EmbedDaemon`, `StoreDaemon`, `RulesDaemon`, `DaemonOps`) live in the
-//! `tools`/`session` modules and remain valid — they implement *local* traits
-//! for the (now foreign) `DaemonClient` type.
+//! (e.g. `StoreDaemon`, `RulesDaemon`, `DaemonOps`) live in the `tools`/`session`
+//! modules and remain valid — they implement *local* traits for the (now
+//! foreign) `DaemonClient` type. The search-pipeline traits (`EmbedDaemon`,
+//! `ExactSearchDaemon`, `GraphQueryDaemon`) and their `DaemonClient` adapters
+//! moved into `wqm_client::search` (WI-d4, #82).
 
 /// Re-export of the shared client module so `crate::grpc::client::DaemonClient`
 /// continues to resolve.

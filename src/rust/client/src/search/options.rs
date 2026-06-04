@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use super::types::{SearchMode, SearchScope};
+use crate::models::{SearchMode, SearchScope};
 
 // ---------------------------------------------------------------------------
 // Default constants (mirrors search-types.ts)

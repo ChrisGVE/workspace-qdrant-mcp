@@ -41,6 +41,7 @@ async fn ac_s4_daemon_down_triggers_fallback_search() {
         Some("tenant_abc"),
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -87,6 +88,7 @@ async fn ac_s4b_daemon_down_no_match_still_degraded() {
         Some("tenant_abc"),
         false,
         &Default::default(),
+        &(),
     )
     .await;
 

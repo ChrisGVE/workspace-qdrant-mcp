@@ -280,6 +280,7 @@ async fn ac_s1_hybrid_mode_fires_both_legs() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -369,6 +370,7 @@ async fn ac_s2_semantic_mode_dense_only() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -439,6 +441,7 @@ async fn ac_s3_keyword_mode_sparse_only() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 

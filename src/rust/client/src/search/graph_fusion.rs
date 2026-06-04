@@ -18,8 +18,8 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use super::graph_context::{compute_node_id, GraphQueryDaemon};
-use crate::proto::QueryRelatedRequest;
 use crate::qdrant::fusion::{SearchType, TaggedResult};
+use crate::workspace_daemon::QueryRelatedRequest;
 
 // ── Constants (mirror search-graph-expansion.ts) ─────────────────────────────
 
@@ -112,7 +112,7 @@ fn graph_proximity_score(depth: u32) -> f64 {
 
 /// Build an expanded result node (TS `nodeToSearchResult`, then `score = (1-ALPHA)*proximity`).
 fn node_to_tagged(
-    node: &crate::proto::TraversalNodeProto,
+    node: &crate::workspace_daemon::TraversalNodeProto,
     collection: &str,
     tenant_id: &str,
     proximity: f64,

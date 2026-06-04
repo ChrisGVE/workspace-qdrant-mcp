@@ -127,6 +127,7 @@ async fn m3_leg_failure_keeps_partial_results_status_ok() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -172,6 +173,7 @@ async fn m3_dense_leg_failure_silent_sparse_results_kept() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 
@@ -205,6 +207,7 @@ async fn m3_all_legs_succeed_no_uncertain_status() {
         None,
         false,
         &Default::default(),
+        &(),
     )
     .await;
 

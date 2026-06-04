@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::options::{SearchOptions, DEFAULT_EXACT_LIMIT};
-use super::types::{SearchMode, SearchResponse, SearchResult};
-use crate::proto::TextSearchRequest;
+use crate::models::{SearchMode, SearchResponse, SearchResult};
+use crate::workspace_daemon::TextSearchRequest;
 use wqm_common::constants::COLLECTION_PROJECTS;
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,9 @@ pub trait ExactSearchDaemon: Send + Sync {
     fn text_search(
         &mut self,
         request: TextSearchRequest,
-    ) -> impl std::future::Future<Output = Result<crate::proto::TextSearchResponse, tonic::Status>> + Send;
+    ) -> impl std::future::Future<
+        Output = Result<crate::workspace_daemon::TextSearchResponse, tonic::Status>,
+    > + Send;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,7 +42,7 @@ enum TenantResolution {
 }
 
 fn resolve_tenant(opts: &SearchOptions) -> TenantResolution {
-    if opts.scope == crate::tools::search::types::SearchScope::All {
+    if opts.scope == crate::models::SearchScope::All {
         return TenantResolution::Unscoped;
     }
     if let Some(ref pid) = opts.project_id {
@@ -57,7 +59,7 @@ fn resolve_tenant(opts: &SearchOptions) -> TenantResolution {
 ///
 /// Mirrors `mapExactResults` in `search-exact.ts:39-65`.
 /// Score: `1.0 - idx * 0.001` (search-exact.ts:52).
-fn map_exact_results(matches: Vec<crate::proto::TextSearchMatch>) -> Vec<SearchResult> {
+fn map_exact_results(matches: Vec<crate::workspace_daemon::TextSearchMatch>) -> Vec<SearchResult> {
     matches
         .into_iter()
         .enumerate()
