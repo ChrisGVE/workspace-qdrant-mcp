@@ -41,6 +41,41 @@ import { runWithRequestContext, type RequestContext } from './utils/request-cont
  *  Lower-case form because Node normalizes incoming header names. */
 const HOST_CWD_HEADER = 'x-mcp-host-cwd';
 
+/** Evict a stateful session whose last request is older than this. A reconnect
+ *  that lost its SSE stream re-`initialize`s with a NEW session id and never
+ *  DELETEs the old one, so without this the per-session transport + MCP server
+ *  instance (and its daemon gRPC connection) would leak forever. */
+const SESSION_IDLE_TTL_MS = ((): number => {
+  const raw = Number(process.env['WQM_MCP_SESSION_TTL_MS']);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10 * 60_000; // 10 min default
+})();
+/** How often the idle-session reaper runs. */
+const SESSION_REAP_INTERVAL_MS = 60_000;
+
+/**
+ * Close sessions whose last activity is older than `ttlMs`. Returns the evicted
+ * session ids. Closing each transport fires its `onclose`, which removes it from
+ * `transports`/`lastSeen` and shuts down the per-session MCP server instance.
+ *
+ * Exported for unit testing the eviction predicate without a live HTTP server.
+ */
+export function reapIdleSessions(
+  transports: Map<string, StreamableHTTPServerTransport>,
+  lastSeen: Map<string, number>,
+  nowMs: number,
+  ttlMs: number
+): string[] {
+  const evicted: string[] = [];
+  for (const sessionId of transports.keys()) {
+    if (nowMs - (lastSeen.get(sessionId) ?? 0) > ttlMs) evicted.push(sessionId);
+  }
+  // Close AFTER collecting so we never mutate `transports` mid-iteration.
+  for (const sessionId of evicted) {
+    void transports.get(sessionId)?.close();
+  }
+  return evicted;
+}
+
 /** Extract the per-request context (currently just the host CWD) from headers. */
 function buildRequestContext(req: IncomingMessage): RequestContext {
   const raw = req.headers[HOST_CWD_HEADER];
@@ -60,6 +95,8 @@ export interface McpHttpServerHandle {
   path: string;
   /** `true` when native TLS termination is active (`https` server). */
   tlsEnabled: boolean;
+  /** Periodic idle-session reaper; cleared on shutdown. */
+  reaper: NodeJS.Timeout;
 }
 
 /**
@@ -81,6 +118,24 @@ async function createBoundHttpServer(
         requestHandler
       ) as unknown as NodeHttpServer)
     : createHttpServer(requestHandler);
+
+  // Streamable HTTP keeps a long-lived SSE stream open for server->client
+  // messages. Node's DEFAULT per-request timeout (`requestTimeout`, 300s on
+  // Node >= 18) aborts that stream after 5 minutes — the client's undici then
+  // reports `SSE stream disconnected: TypeError: terminated` and reconnects,
+  // spawning a fresh MCP instance each time (a reconnect storm). Disable the
+  // request/header/keep-alive timeouts so streaming requests are never capped,
+  // and enable TCP keepalive so an idle stream survives the localhost relay
+  // (Windows -> WSL2 -> docker), which silently drops idle connections.
+  httpServer.requestTimeout = 0; // no cap on a single (streaming) request
+  httpServer.headersTimeout = 0; // header phase is instant for SSE; don't cap
+  httpServer.keepAliveTimeout = 0; // keep idle keep-alive sockets open
+  httpServer.timeout = 0; // no socket inactivity timeout
+  httpServer.on('connection', (socket) => {
+    socket.setKeepAlive(true, 30_000); // probe every 30s so relays keep the conn
+    socket.setNoDelay(true);
+  });
+
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
     httpServer.listen(options.port, options.host, () => {
@@ -98,6 +153,7 @@ export async function startMcpHttpServer(
   adminDeps?: AdminDeps
 ): Promise<McpHttpServerHandle> {
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  const lastSeen = new Map<string, number>();
 
   const authMiddleware = createAuthMiddleware(authConfig);
   const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
@@ -107,6 +163,7 @@ export async function startMcpHttpServer(
         req,
         res,
         transports,
+        lastSeen,
         createMcpServer,
         options.path,
         authMiddleware,
@@ -117,11 +174,22 @@ export async function startMcpHttpServer(
 
   const { httpServer, tlsEnabled } = await createBoundHttpServer(options, requestHandler);
 
+  // Reclaim leaked sessions (reconnect-without-DELETE). unref() so the timer
+  // never keeps the process alive on its own.
+  const reaper = setInterval(() => {
+    const evicted = reapIdleSessions(transports, lastSeen, Date.now(), SESSION_IDLE_TTL_MS);
+    if (evicted.length > 0) {
+      logInfo('Reaped idle MCP sessions', { count: evicted.length });
+    }
+  }, SESSION_REAP_INTERVAL_MS);
+  reaper.unref();
+
   logInfo('MCP HTTP transport listening', {
     host: options.host,
     port: options.port,
     path: options.path,
     scheme: tlsEnabled ? 'https' : 'http',
+    sessionIdleTtlMs: SESSION_IDLE_TTL_MS,
   });
 
   return {
@@ -131,6 +199,7 @@ export async function startMcpHttpServer(
     port: options.port,
     path: options.path,
     tlsEnabled,
+    reaper,
   };
 }
 
@@ -163,6 +232,7 @@ function readPem(path: string, envName: string): Buffer {
  * the transport's in-flight SSE streams.
  */
 export async function stopMcpHttpServer(handle: McpHttpServerHandle): Promise<void> {
+  clearInterval(handle.reaper);
   await new Promise<void>((resolve) => {
     handle.httpServer.close(() => resolve());
     // `close` only waits for idle connections — force-close active SSE streams.
@@ -195,6 +265,7 @@ async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
   transports: Map<string, StreamableHTTPServerTransport>,
+  lastSeen: Map<string, number>,
   createMcpServer: () => Promise<McpServer>,
   mcpPath: string,
   authMiddleware: (req: IncomingMessage, res: ServerResponse) => { authorized: boolean },
@@ -242,7 +313,8 @@ async function handleRequest(
 
   const sessionId = getSessionId(req);
   const existingTransport = sessionId ? transports.get(sessionId) : undefined;
-  if (existingTransport) {
+  if (existingTransport && sessionId) {
+    lastSeen.set(sessionId, Date.now()); // refresh idle TTL on every request
     await dispatchToTransport(req, res, existingTransport);
     return;
   }
@@ -269,6 +341,7 @@ async function handleRequest(
     sessionIdGenerator: (): string => randomUUID(),
     onsessioninitialized: (newSessionId: string): void => {
       transports.set(newSessionId, transport);
+      lastSeen.set(newSessionId, Date.now());
       logInfo('MCP HTTP session initialized', { sessionId: newSessionId });
     },
   });
@@ -278,6 +351,7 @@ async function handleRequest(
     const closedSessionId = transport.sessionId;
     if (closedSessionId) {
       transports.delete(closedSessionId);
+      lastSeen.delete(closedSessionId);
       logInfo('MCP HTTP session closed', { sessionId: closedSessionId });
     }
     void mcpServer.close();
