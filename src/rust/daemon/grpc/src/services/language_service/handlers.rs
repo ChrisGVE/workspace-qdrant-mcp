@@ -63,33 +63,36 @@ impl LanguageService for LanguageServiceImpl {
             (cfg.download_base_url.clone(), cfg.verify_checksums)
         };
 
-        // SECURITY GATE — runs BEFORE any download / compile / dlopen.
-        validate_install_request(&req.language, &base_url, verify).map_err(|e| {
+        // SECURITY GATE — runs BEFORE any download / compile / dlopen. Returns
+        // the matched registry definition; use its CANONICAL id downstream rather
+        // than the raw client string (defence-in-depth — never thread the
+        // unvalidated input into cache paths / downloads).
+        let def = validate_install_request(&req.language, &base_url, verify).map_err(|e| {
             warn!(language = %req.language, error = %e, "InstallGrammar rejected by security gate");
             map_install_err(e)
         })?;
+        let lang = def.id();
 
         if req.force {
             // Best-effort clear so the next load re-downloads + re-verifies.
-            if let Err(e) = mgr.clear_cache(&req.language) {
-                warn!(language = %req.language, error = %e, "force clear_cache failed");
+            if let Err(e) = mgr.clear_cache(&lang) {
+                warn!(language = %lang, error = %e, "force clear_cache failed");
             }
         }
 
-        match mgr.get_grammar(&req.language).await {
+        match mgr.get_grammar(&lang).await {
             Ok(_) => {
-                let status = mgr.grammar_status(&req.language);
-                info!(language = %req.language, status = status_str(&status), "grammar installed");
+                let status = mgr.grammar_status(&lang);
+                info!(language = %lang, status = status_str(&status), "grammar installed");
                 Ok(Response::new(InstallGrammarResponse {
-                    language: req.language.clone(),
+                    language: lang.clone(),
                     status: status_str(&status).to_string(),
                     installed: true,
-                    message: format!("grammar for '{}' ready", req.language),
+                    message: format!("grammar for '{lang}' ready"),
                 }))
             }
             Err(e) => Err(Status::internal(format!(
-                "grammar install failed for '{}': {e}",
-                req.language
+                "grammar install failed for '{lang}': {e}"
             ))),
         }
     }

@@ -57,7 +57,10 @@ pub struct RebalanceReport {
 
 /// IDF formula: `ln((N - df + 0.5) / (df + 0.5))`, floored at 0.
 fn bm25_idf(n: u64, df: u64) -> f64 {
-    if n == 0 || df == 0 {
+    // `df > n` (corrupt / partially-updated vocabulary) makes the numerator
+    // negative → `ln()` is NaN, and `NaN.max(0.0)` is NaN in Rust (not 0), which
+    // would silently poison the stored sparse weights. Treat it as 0.
+    if n == 0 || df == 0 || df > n {
         return 0.0;
     }
     let n = n as f64;
@@ -131,9 +134,21 @@ async fn rebalance_collection(
 ) -> Result<CollectionRebalance, RebalanceError> {
     let (current_n, last_corrected_n) = read_corpus_n(pool, collection).await?;
 
-    // Growth guard (idempotency): skip when below the threshold.
+    // Growth guard (idempotency): skip when the corpus has not grown enough.
     if last_corrected_n > 0 {
-        let growth = (current_n as f64 - last_corrected_n as f64) / last_corrected_n as f64 * 100.0;
+        // Shrinkage / no growth: a NEGATIVE growth would satisfy
+        // `growth < min_growth_pct` and wrongly trigger a correction run with
+        // old_n > new_n. Skip explicitly before computing the percentage.
+        if current_n <= last_corrected_n {
+            return Ok(CollectionRebalance {
+                collection: collection.to_string(),
+                current_n,
+                updated: 0,
+                skipped_reason: Some("corpus has not grown since last correction".to_string()),
+                persist_n: false,
+            });
+        }
+        let growth = (current_n - last_corrected_n) as f64 / last_corrected_n as f64 * 100.0;
         if growth < min_growth_pct {
             return Ok(CollectionRebalance {
                 collection: collection.to_string(),
@@ -219,24 +234,31 @@ async fn scroll_and_correct(
             .scroll_with_sparse_vectors(collection, SCROLL_BATCH_SIZE, offset.clone())
             .await?;
 
-        if points.is_empty() {
-            break;
-        }
+        // Process this page only when non-empty, but DON'T terminate on an empty
+        // page: a page can legitimately come back empty (all points filtered) while
+        // a `next_cursor` remains — terminating here would skip later pages.
+        if !points.is_empty() {
+            let (batch_updates, updated_epochs) =
+                build_correction_batch(&points, current_n, df_map);
+            total_updated += batch_updates.len() as u64;
 
-        let (batch_updates, updated_epochs) = build_correction_batch(&points, current_n, df_map);
-        total_updated += batch_updates.len() as u64;
-
-        if !dry_run && !batch_updates.is_empty() {
-            storage
-                .update_named_sparse_vectors(collection, batch_updates)
-                .await?;
-            for (pid, new_epoch) in updated_epochs {
-                // Best-effort: the sparse vector is already corrected.
-                let mut payload = HashMap::new();
-                payload.insert("idf_epoch".to_string(), serde_json::json!(new_epoch));
-                let _ = storage
-                    .set_payload_on_point(collection, &pid, payload)
-                    .await;
+            if !dry_run && !batch_updates.is_empty() {
+                storage
+                    .update_named_sparse_vectors(collection, batch_updates)
+                    .await?;
+                for (pid, new_epoch) in updated_epochs {
+                    // Best-effort: the sparse vector is already corrected. A failed
+                    // epoch write leaves a stale idf_epoch → the next run would
+                    // re-correct (compounding); warn so operators can detect it.
+                    let mut payload = HashMap::new();
+                    payload.insert("idf_epoch".to_string(), serde_json::json!(new_epoch));
+                    if let Err(e) = storage
+                        .set_payload_on_point(collection, &pid, payload)
+                        .await
+                    {
+                        tracing::warn!(point = %pid, error = %e, "idf_epoch payload write failed; sparse vector corrected but epoch is stale");
+                    }
+                }
             }
         }
 
@@ -328,6 +350,18 @@ mod tests {
     fn bm25_idf_floored_at_zero() {
         let idf = bm25_idf(10, 9); // ln((10-9+0.5)/(9+0.5)) < 0
         assert_eq!(idf, 0.0, "IDF should be floored at 0 for common terms");
+    }
+
+    #[test]
+    fn bm25_idf_df_exceeds_n_returns_zero_not_nan() {
+        // df > n (corrupt vocabulary) would make ln() NaN; NaN.max(0.0) is NaN in
+        // Rust, so the guard must short-circuit to 0.
+        let idf = bm25_idf(5, 20);
+        assert!(!idf.is_nan(), "df > n must not yield NaN");
+        assert_eq!(idf, 0.0);
+        // And the correction factor stays finite (1.0) for df > n.
+        let f = idf_correction(100, 200, 250);
+        assert!(f.is_finite() && (f - 1.0).abs() < 1e-9);
     }
 
     #[test]
