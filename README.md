@@ -69,8 +69,7 @@ See [Installation Reference](docs/reference/installation.md) for detailed instru
 {
   "mcpServers": {
     "workspace-qdrant-mcp": {
-      "command": "node",
-      "args": ["/path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"],
+      "command": "workspace-qdrant-mcp",
       "env": {
         "QDRANT_URL": "http://localhost:6333"
       }
@@ -82,7 +81,7 @@ See [Installation Reference](docs/reference/installation.md) for detailed instru
 **Claude Code**:
 
 ```bash
-claude mcp add workspace-qdrant-mcp -- node /path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js
+claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
 ```
 
 ### Verify
@@ -333,10 +332,8 @@ See the [Documentation Index](docs/INDEX.md) for specifications, ADRs, and devel
 ## Development
 
 ```bash
-# TypeScript MCP server
-cd src/typescript/mcp-server && npm install && npm run build && npm test
-
-# Rust daemon and CLI (from src/rust/)
+# Rust daemon, CLI, and MCP server (from src/rust/)
+# Builds memexd (daemon), wqm (CLI), and workspace-qdrant-mcp (MCP server)
 cargo build --release
 cargo test
 

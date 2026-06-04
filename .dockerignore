@@ -7,10 +7,6 @@ src/rust/target/
 src/rust/**/target/
 src/rust/**/*.d
 
-# Node.js dependencies (rebuilt in Docker)
-src/typescript/mcp-server/node_modules/
-src/typescript/mcp-server/dist/
-
 # Docker support files: exclude everything except entrypoint scripts
 # Dockerfile.memexd (built from repo root via CI) copies
 # docker/memexd-entrypoint.sh into the image (line 289), so the docker/
@@ -37,10 +33,6 @@ tmp/
 # Documentation and research (not needed for build)
 docs/
 research/
-
-# Test files
-src/typescript/mcp-server/src/**/*.test.ts
-src/typescript/mcp-server/src/**/*.spec.ts
 
 # OS artifacts
 .DS_Store
