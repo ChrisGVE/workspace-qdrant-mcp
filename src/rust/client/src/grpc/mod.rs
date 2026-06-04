@@ -17,6 +17,7 @@ pub mod connection;
 pub mod document_methods;
 pub mod embedding_methods;
 pub mod graph_methods;
+pub mod language_methods;
 pub mod project_methods;
 pub mod retry;
 pub mod search_event_methods;
