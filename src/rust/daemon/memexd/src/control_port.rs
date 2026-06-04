@@ -374,6 +374,10 @@ pub fn acquire(port: u16, mode: DeploymentMode) -> Result<ControlPortGuard, Cont
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Tests that mutate process-global env vars (WQM_CONTROL_PORT,
+    // WQM_DEPLOYMENT_MODE) must not run concurrently with each other or they
+    // race; `#[serial]` enforces that under any `--test-threads` setting.
+    use serial_test::serial;
 
     /// Reserve a free localhost port for tests by binding then dropping a
     /// listener — the OS hands the same port back on the immediate
@@ -395,6 +399,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn resolve_port_env_var_takes_precedence_over_config() {
         // Use a unique env-var name guard via a one-off process-global lock
         // would be ideal; instead, scope to a unique value and clean up.
@@ -410,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn resolve_port_env_var_invalid_returns_error() {
         std::env::remove_var(CONTROL_PORT_ENV);
         std::env::set_var(CONTROL_PORT_ENV, "not-a-number");
@@ -419,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn resolve_port_falls_back_to_config_then_default() {
         std::env::remove_var(CONTROL_PORT_ENV);
         assert_eq!(resolve_port(None, Some(7800)).unwrap(), 7800);
@@ -426,6 +433,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn deployment_mode_env_override_recognised() {
         std::env::remove_var("WQM_DEPLOYMENT_MODE");
         std::env::set_var("WQM_DEPLOYMENT_MODE", "docker");
@@ -435,6 +443,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn deployment_mode_env_override_host() {
         std::env::remove_var("WQM_DEPLOYMENT_MODE");
         std::env::set_var("WQM_DEPLOYMENT_MODE", "HOST");

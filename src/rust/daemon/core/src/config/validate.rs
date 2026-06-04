@@ -162,200 +162,200 @@ mod tests {
     use crate::config::DaemonConfig;
     use wqm_common::yaml_defaults::YamlMountEntry;
 
-// ── Mount-map (T3) tests ────────────────────────────────────────────────
+    // ── Mount-map (T3) tests ────────────────────────────────────────────────
 
-fn mk_mount(host: &str, container: &str) -> YamlMountEntry {
-    YamlMountEntry {
-        host: host.to_string(),
-        container: container.to_string(),
+    fn mk_mount(host: &str, container: &str) -> YamlMountEntry {
+        YamlMountEntry {
+            host: host.to_string(),
+            container: container.to_string(),
+        }
     }
-}
 
-#[test]
-fn mounts_empty_yields_identity_map() {
-    // T3.10: default DaemonConfig has no mount entries → identity map.
-    let cfg = DaemonConfig::default();
-    assert!(cfg.mounts.is_empty(), "default mounts list must be empty");
-    let map = cfg.build_mount_map().expect("identity map always builds");
-    assert!(
-        map.is_identity(),
-        "empty mounts list must yield identity map"
-    );
-    assert_eq!(map.len(), 0);
-    assert!(cfg.validate_mounts().is_ok());
-}
+    #[test]
+    fn mounts_empty_yields_identity_map() {
+        // T3.10: default DaemonConfig has no mount entries → identity map.
+        let cfg = DaemonConfig::default();
+        assert!(cfg.mounts.is_empty(), "default mounts list must be empty");
+        let map = cfg.build_mount_map().expect("identity map always builds");
+        assert!(
+            map.is_identity(),
+            "empty mounts list must yield identity map"
+        );
+        assert_eq!(map.len(), 0);
+        assert!(cfg.validate_mounts().is_ok());
+    }
 
-#[test]
-fn mounts_valid_entries_with_tilde_expansion_load() {
-    // T3.11: a leading `~` is expanded once on load.
-    let home = dirs::home_dir().expect("HOME must be set");
-    let home_str = home.to_str().expect("home path must be UTF-8");
+    #[test]
+    fn mounts_valid_entries_with_tilde_expansion_load() {
+        // T3.11: a leading `~` is expanded once on load.
+        let home = dirs::home_dir().expect("HOME must be set");
+        let home_str = home.to_str().expect("home path must be UTF-8");
 
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![
-        mk_mount("/Users/chris/dev", "/Users/chris/dev"),
-        mk_mount("~/reference", "/mnt/reference"),
-    ];
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![
+            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("~/reference", "/mnt/reference"),
+        ];
 
-    let map = cfg.build_mount_map().expect("valid mounts must load");
-    assert_eq!(map.len(), 2);
-    assert!(!map.is_identity());
+        let map = cfg.build_mount_map().expect("valid mounts must load");
+        assert_eq!(map.len(), 2);
+        assert!(!map.is_identity());
 
-    let expanded = format!("{home_str}/reference");
-    let canon = wqm_common::paths::CanonicalPath::from_user_input(&expanded)
-        .expect("expanded path must canonicalise");
-    assert!(canon.as_str().starts_with(home_str));
-    assert!(cfg.validate_mounts().is_ok());
-}
+        let expanded = format!("{home_str}/reference");
+        let canon = wqm_common::paths::CanonicalPath::from_user_input(&expanded)
+            .expect("expanded path must canonicalise");
+        assert!(canon.as_str().starts_with(home_str));
+        assert!(cfg.validate_mounts().is_ok());
+    }
 
-#[test]
-fn mounts_overlapping_entries_allowed() {
-    // T3.12: overlap (one entry's host is a prefix of another) is allowed.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![
-        mk_mount("/Users/chris", "/mnt/user"),
-        mk_mount("/Users/chris/dev", "/mnt/dev"),
-    ];
-    let map = cfg.build_mount_map().expect("overlap must be allowed");
-    assert_eq!(map.len(), 2);
-    assert!(cfg.validate_mounts().is_ok());
-}
+    #[test]
+    fn mounts_overlapping_entries_allowed() {
+        // T3.12: overlap (one entry's host is a prefix of another) is allowed.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![
+            mk_mount("/Users/chris", "/mnt/user"),
+            mk_mount("/Users/chris/dev", "/mnt/dev"),
+        ];
+        let map = cfg.build_mount_map().expect("overlap must be allowed");
+        assert_eq!(map.len(), 2);
+        assert!(cfg.validate_mounts().is_ok());
+    }
 
-#[test]
-fn mounts_duplicate_host_prefix_rejected() {
-    // T3.13: two entries with identical canonical host → reject.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![
-        mk_mount("/Users/chris", "/mnt/a"),
-        mk_mount("/Users/chris", "/mnt/b"),
-    ];
-    let err = cfg
-        .build_mount_map()
-        .expect_err("duplicate host must error");
-    assert!(
-        err.contains("duplicate host"),
-        "expected duplicate-host message in '{err}'"
-    );
-    assert!(cfg.validate_mounts().is_err());
-}
+    #[test]
+    fn mounts_duplicate_host_prefix_rejected() {
+        // T3.13: two entries with identical canonical host → reject.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![
+            mk_mount("/Users/chris", "/mnt/a"),
+            mk_mount("/Users/chris", "/mnt/b"),
+        ];
+        let err = cfg
+            .build_mount_map()
+            .expect_err("duplicate host must error");
+        assert!(
+            err.contains("duplicate host"),
+            "expected duplicate-host message in '{err}'"
+        );
+        assert!(cfg.validate_mounts().is_err());
+    }
 
-#[test]
-fn mounts_duplicate_container_prefix_rejected() {
-    // T3.14: duplicate container canonical form → reject.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![
-        mk_mount("/Users/chris/a", "/mnt/shared"),
-        mk_mount("/Users/chris/b", "/mnt/shared"),
-    ];
-    let err = cfg
-        .build_mount_map()
-        .expect_err("duplicate container must error");
-    assert!(
-        err.contains("duplicate container"),
-        "expected duplicate-container message in '{err}'"
-    );
-    assert!(cfg.validate_mounts().is_err());
-}
+    #[test]
+    fn mounts_duplicate_container_prefix_rejected() {
+        // T3.14: duplicate container canonical form → reject.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![
+            mk_mount("/Users/chris/a", "/mnt/shared"),
+            mk_mount("/Users/chris/b", "/mnt/shared"),
+        ];
+        let err = cfg
+            .build_mount_map()
+            .expect_err("duplicate container must error");
+        assert!(
+            err.contains("duplicate container"),
+            "expected duplicate-container message in '{err}'"
+        );
+        assert!(cfg.validate_mounts().is_err());
+    }
 
-#[test]
-fn mounts_relative_host_path_rejected() {
-    // T3.15: a relative host path is rejected.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![mk_mount("relative/host", "/mnt/x")];
-    assert!(cfg.build_mount_map().is_err());
-    assert!(cfg.validate_mounts().is_err());
-}
+    #[test]
+    fn mounts_relative_host_path_rejected() {
+        // T3.15: a relative host path is rejected.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![mk_mount("relative/host", "/mnt/x")];
+        assert!(cfg.build_mount_map().is_err());
+        assert!(cfg.validate_mounts().is_err());
+    }
 
-#[test]
-fn mounts_relative_container_path_rejected() {
-    // T3.16: a relative container path is rejected.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![mk_mount("/Users/chris/dev", "relative/container")];
-    assert!(cfg.build_mount_map().is_err());
-    assert!(cfg.validate_mounts().is_err());
-}
+    #[test]
+    fn mounts_relative_container_path_rejected() {
+        // T3.16: a relative container path is rejected.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![mk_mount("/Users/chris/dev", "relative/container")];
+        assert!(cfg.build_mount_map().is_err());
+        assert!(cfg.validate_mounts().is_err());
+    }
 
-#[test]
-fn mounts_parent_dir_segment_rejected() {
-    // Spec §3.1 rule 4: `..` in either host or container is rejected.
-    let mut cfg_host = DaemonConfig::default();
-    cfg_host.mounts = vec![mk_mount("/Users/chris/../other", "/mnt/x")];
-    assert!(cfg_host.build_mount_map().is_err());
+    #[test]
+    fn mounts_parent_dir_segment_rejected() {
+        // Spec §3.1 rule 4: `..` in either host or container is rejected.
+        let mut cfg_host = DaemonConfig::default();
+        cfg_host.mounts = vec![mk_mount("/Users/chris/../other", "/mnt/x")];
+        assert!(cfg_host.build_mount_map().is_err());
 
-    let mut cfg_container = DaemonConfig::default();
-    cfg_container.mounts = vec![mk_mount("/Users/chris/dev", "/mnt/../other")];
-    assert!(cfg_container.build_mount_map().is_err());
-}
+        let mut cfg_container = DaemonConfig::default();
+        cfg_container.mounts = vec![mk_mount("/Users/chris/dev", "/mnt/../other")];
+        assert!(cfg_container.build_mount_map().is_err());
+    }
 
-#[test]
-fn mounts_validate_chain_surfaces_mounts_prefix() {
-    // T3.9 / T3.17: DaemonConfig::validate() routes mount errors with the
-    // `mounts:` prefix so log readers can identify the failing section.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![mk_mount("relative/path", "/mnt/x")];
-    let err = cfg
-        .validate()
-        .expect_err("invalid mount must fail validate");
-    assert!(
-        err.starts_with("mounts:"),
-        "expected 'mounts:' prefix in '{err}'"
-    );
-}
+    #[test]
+    fn mounts_validate_chain_surfaces_mounts_prefix() {
+        // T3.9 / T3.17: DaemonConfig::validate() routes mount errors with the
+        // `mounts:` prefix so log readers can identify the failing section.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![mk_mount("relative/path", "/mnt/x")];
+        let err = cfg
+            .validate()
+            .expect_err("invalid mount must fail validate");
+        assert!(
+            err.starts_with("mounts:"),
+            "expected 'mounts:' prefix in '{err}'"
+        );
+    }
 
-#[test]
-fn mounts_yaml_round_trip_preserves_entries() {
-    // Acceptance (T3.19): full config-load round-trip survives the new
-    // section without loss.
-    let mut original = DaemonConfig::default();
-    original.mounts = vec![
-        mk_mount("/Users/chris/dev", "/Users/chris/dev"),
-        mk_mount("/Volumes/External/books", "/mnt/external-books"),
-    ];
-    let yaml = serde_yaml_ng::to_string(&original).expect("serialise");
-    let restored: DaemonConfig = serde_yaml_ng::from_str(&yaml).expect("deserialise");
-    assert_eq!(restored.mounts, original.mounts);
-    assert_eq!(restored.mounts.len(), 2);
-    assert!(restored.validate().is_ok());
-}
+    #[test]
+    fn mounts_yaml_round_trip_preserves_entries() {
+        // Acceptance (T3.19): full config-load round-trip survives the new
+        // section without loss.
+        let mut original = DaemonConfig::default();
+        original.mounts = vec![
+            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("/Volumes/External/books", "/mnt/external-books"),
+        ];
+        let yaml = serde_yaml_ng::to_string(&original).expect("serialise");
+        let restored: DaemonConfig = serde_yaml_ng::from_str(&yaml).expect("deserialise");
+        assert_eq!(restored.mounts, original.mounts);
+        assert_eq!(restored.mounts.len(), 2);
+        assert!(restored.validate().is_ok());
+    }
 
-#[test]
-fn mounts_acceptance_edge_cases() {
-    // T3.20: edge cases bundled into a single acceptance test.
+    #[test]
+    fn mounts_acceptance_edge_cases() {
+        // T3.20: edge cases bundled into a single acceptance test.
 
-    // 1. Missing `mounts:` section.
-    let full = serde_yaml_ng::to_string(&DaemonConfig::default()).expect("serialise default");
-    let no_section: String = full
-        .lines()
-        .filter(|l| !l.starts_with("mounts:"))
-        .map(|l| format!("{l}\n"))
-        .collect();
-    let cfg: DaemonConfig = serde_yaml_ng::from_str(&no_section)
-        .expect("DaemonConfig must deserialise without mounts section");
-    assert!(cfg.mounts.is_empty());
-    assert!(cfg.build_mount_map().unwrap().is_identity());
+        // 1. Missing `mounts:` section.
+        let full = serde_yaml_ng::to_string(&DaemonConfig::default()).expect("serialise default");
+        let no_section: String = full
+            .lines()
+            .filter(|l| !l.starts_with("mounts:"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let cfg: DaemonConfig = serde_yaml_ng::from_str(&no_section)
+            .expect("DaemonConfig must deserialise without mounts section");
+        assert!(cfg.mounts.is_empty());
+        assert!(cfg.build_mount_map().unwrap().is_identity());
 
-    // 2. Explicit empty list embedded in an otherwise complete config.
-    let mut empty = DaemonConfig::default();
-    empty.mounts.clear();
-    let yaml_empty = serde_yaml_ng::to_string(&empty).expect("serialise");
-    let cfg: DaemonConfig = serde_yaml_ng::from_str(&yaml_empty).expect("empty mounts list parses");
-    assert!(cfg.mounts.is_empty());
+        // 2. Explicit empty list embedded in an otherwise complete config.
+        let mut empty = DaemonConfig::default();
+        empty.mounts.clear();
+        let yaml_empty = serde_yaml_ng::to_string(&empty).expect("serialise");
+        let cfg: DaemonConfig =
+            serde_yaml_ng::from_str(&yaml_empty).expect("empty mounts list parses");
+        assert!(cfg.mounts.is_empty());
 
-    // 3. Mirror mount — identical host and container.
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![mk_mount("/Users/chris/dev", "/Users/chris/dev")];
-    let map = cfg.build_mount_map().expect("mirror is valid");
-    assert_eq!(map.len(), 1);
-    assert!(!map.is_identity(), "mirror is not the identity map");
+        // 3. Mirror mount — identical host and container.
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![mk_mount("/Users/chris/dev", "/Users/chris/dev")];
+        let map = cfg.build_mount_map().expect("mirror is valid");
+        assert_eq!(map.len(), 1);
+        assert!(!map.is_identity(), "mirror is not the identity map");
 
-    // 4. Three-entry mount set survives end-to-end validate().
-    let mut cfg = DaemonConfig::default();
-    cfg.mounts = vec![
-        mk_mount("/Users/chris/dev", "/Users/chris/dev"),
-        mk_mount("/Volumes/External/books", "/mnt/external-books"),
-        mk_mount("/Users/chris/reference", "/mnt/reference"),
-    ];
-    assert!(cfg.validate().is_ok());
-}
-
+        // 4. Three-entry mount set survives end-to-end validate().
+        let mut cfg = DaemonConfig::default();
+        cfg.mounts = vec![
+            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("/Volumes/External/books", "/mnt/external-books"),
+            mk_mount("/Users/chris/reference", "/mnt/reference"),
+        ];
+        assert!(cfg.validate().is_ok());
+    }
 }

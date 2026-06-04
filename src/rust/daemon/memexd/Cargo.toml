@@ -53,6 +53,8 @@ windows-service = "0.7"
 [dev-dependencies]
 tempfile = { workspace = true }
 serde_yaml_ng = { workspace = true }
+# Serialize tests that mutate process-global env vars (control_port).
+serial_test = { workspace = true }
 
 [features]
 default = []

@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-
 /// Default PID file location written by `memexd` at startup.
 const DEFAULT_PID_FILE: &str = "/tmp/memexd.pid";
 

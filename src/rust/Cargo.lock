@@ -3649,6 +3649,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "serial_test",
  "sqlx",
  "tempfile",
  "thiserror 1.0.69",
