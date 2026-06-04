@@ -1,8 +1,37 @@
 //! Tarball extraction and `src/` directory discovery for downloaded grammars.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::{DownloadError, DownloadResult};
+
+/// Join an untrusted tar-header `entry_path` under `dest`, stripping any
+/// component that could escape `dest` (`..`, absolute roots, drive prefixes,
+/// `.`). Returns `None` when nothing safe remains so the caller skips the entry.
+///
+/// Defends against tar path traversal / zip-slip (CWE-22): a malicious or
+/// MITM'd release tarball can carry entries like `../../../../etc/cron.d/evil`,
+/// and `dest.join(path)` would resolve above `dest` without error. Filtering to
+/// `Normal` components neutralizes both `..` sequences and absolute paths; the
+/// `starts_with(dest)` check is a final guard. (Symlink entries are never
+/// unpacked — `extract_tarball` only handles dir/file types — so symlink-based
+/// traversal is not reachable here.)
+fn sanitized_dest(dest: &Path, entry_path: &Path) -> Option<PathBuf> {
+    let mut rel = PathBuf::new();
+    for comp in entry_path.components() {
+        match comp {
+            Component::Normal(c) => rel.push(c),
+            Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_)
+            | Component::CurDir => {}
+        }
+    }
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    let full = dest.join(&rel);
+    full.starts_with(dest).then_some(full)
+}
 
 /// Extract a gzipped tarball into a directory.
 ///
@@ -25,7 +54,11 @@ pub(super) fn extract_tarball(bytes: &[u8], dest: &Path) -> DownloadResult<()> {
         let path = entry
             .path()
             .map_err(|e| DownloadError::ExtractionFailed(format!("Invalid entry path: {}", e)))?;
-        let full_path = dest.join(&*path);
+        // Sanitize the untrusted header path; skip entries that would escape dest.
+        let full_path = match sanitized_dest(dest, &path) {
+            Some(p) => p,
+            None => continue,
+        };
 
         if entry.header().entry_type().is_dir() {
             std::fs::create_dir_all(&full_path).ok();
@@ -110,4 +143,51 @@ pub(super) fn find_src_dir(extract_dir: &Path, subdir: Option<&str>) -> Download
         "Could not find parser.c in extracted archive at {}",
         extract_dir.display()
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitized_dest_keeps_normal_paths_inside_dest() {
+        let dest = Path::new("/tmp/extract");
+        let got = sanitized_dest(dest, Path::new("pkg/src/parser.c")).unwrap();
+        assert_eq!(got, Path::new("/tmp/extract/pkg/src/parser.c"));
+        assert!(got.starts_with(dest));
+    }
+
+    #[test]
+    fn sanitized_dest_strips_parent_dir_escapes() {
+        let dest = Path::new("/tmp/extract");
+        // Classic zip-slip payload must not escape dest.
+        let got = sanitized_dest(dest, Path::new("../../../../etc/cron.d/evil")).unwrap();
+        assert_eq!(got, Path::new("/tmp/extract/etc/cron.d/evil"));
+        assert!(got.starts_with(dest));
+    }
+
+    #[test]
+    fn sanitized_dest_strips_absolute_root() {
+        let dest = Path::new("/tmp/extract");
+        let got = sanitized_dest(dest, Path::new("/etc/passwd")).unwrap();
+        assert_eq!(got, Path::new("/tmp/extract/etc/passwd"));
+        assert!(got.starts_with(dest));
+    }
+
+    #[test]
+    fn sanitized_dest_strips_interior_parent_refs() {
+        let dest = Path::new("/tmp/extract");
+        // Interleaved `..` must not climb above dest.
+        let got = sanitized_dest(dest, Path::new("a/../../../b")).unwrap();
+        assert_eq!(got, Path::new("/tmp/extract/a/b"));
+        assert!(got.starts_with(dest));
+    }
+
+    #[test]
+    fn sanitized_dest_skips_empty_after_strip() {
+        let dest = Path::new("/tmp/extract");
+        assert!(sanitized_dest(dest, Path::new("../..")).is_none());
+        assert!(sanitized_dest(dest, Path::new("/")).is_none());
+        assert!(sanitized_dest(dest, Path::new(".")).is_none());
+    }
 }

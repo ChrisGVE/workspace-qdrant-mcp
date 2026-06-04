@@ -8,10 +8,15 @@
 //! 1. the language name is a safe identifier (no path separators / URL
 //!    metacharacters) — it is used to build cache paths and a download URL;
 //! 2. the name is in the bundled registry allowlist AND has a grammar source;
-//! 3. the configured grammar source base URL uses `https://` (pinned, no
-//!    plaintext / non-TLS fetch);
-//! 4. checksum verification is enabled (the downloader refuses to load a grammar
-//!    whose checksum does not match before compile/dlopen).
+//! 3. the configured grammar source base URL uses `https://` (config-sanity
+//!    guard). Note: the actual fetch URLs are derived from the bundled grammar
+//!    registry and are hardcoded `https://github.com/{owner}/{repo}/...` — so
+//!    the transport is HTTPS-pinned by construction regardless of this value;
+//! 4. checksum verification is enabled (fail-closed config gate). Note: the
+//!    downloader currently records the compiled-library checksum as metadata but
+//!    does NOT yet verify the downloaded tarball against a pinned expected
+//!    checksum — tarball checksum pinning is tracked as a follow-up. This gate
+//!    only refuses installs when verification is configured off.
 //!
 //! [`registry_summary`] backs `RefreshLanguageRegistry`.
 
