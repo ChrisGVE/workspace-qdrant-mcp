@@ -158,9 +158,14 @@ impl EmbeddingSettings {
         }
 
         if self.provider == "fastembed" {
-            // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork, so keep the
-            // authoritative dim aligned with the provider selection.
+            // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork. Align the
+            // reported model + dim with the actual provider and clear the
+            // base_url (a local model has no endpoint) — otherwise the embedding
+            // status surfaces the OpenAI-compatible config DEFAULTS
+            // (text-embedding-3-small / api.openai.com), which is misleading.
             self.output_dim = FASTEMBED_OUTPUT_DIM;
+            self.model = "all-MiniLM-L6-v2".to_string();
+            self.base_url = String::new();
         }
 
         if let Ok(val) = env::var("WQM_EMBEDDING_BASE_URL") {

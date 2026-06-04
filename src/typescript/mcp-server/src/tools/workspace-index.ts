@@ -327,7 +327,8 @@ function formatEtaSeconds(seconds: number): string {
  */
 async function handleIndexingStatus(
   args: JsonObject,
-  daemonClient: DaemonClient
+  daemonClient: DaemonClient,
+  actionLabel: 'indexing_status' | 'project_status' = 'indexing_status'
 ): Promise<unknown> {
   let projectId = stringArg(args, 'projectId');
 
@@ -339,7 +340,7 @@ async function handleIndexingStatus(
     } catch (err) {
       return {
         success: false,
-        action: 'indexing_status',
+        action: actionLabel,
         error: `Failed to enumerate active projects: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
@@ -348,7 +349,7 @@ async function handleIndexingStatus(
   if (!projectId) {
     return {
       success: false,
-      action: 'indexing_status',
+      action: actionLabel,
       error:
         'No projectId provided and no active project found. Pass `projectId` explicitly or register a project first.',
     };
@@ -359,7 +360,7 @@ async function handleIndexingStatus(
     if (!status.found) {
       return {
         success: false,
-        action: 'indexing_status',
+        action: actionLabel,
         project_id: projectId,
         error: 'Project not registered with daemon',
       };
@@ -394,7 +395,7 @@ async function handleIndexingStatus(
 
     return {
       success: true,
-      action: 'indexing_status',
+      action: actionLabel,
       project_id: projectId,
       project_name: status.project_name,
       project_root: status.project_root,
@@ -405,7 +406,7 @@ async function handleIndexingStatus(
   } catch (err) {
     return {
       success: false,
-      action: 'indexing_status',
+      action: actionLabel,
       project_id: projectId,
       error: `Failed to fetch project status: ${err instanceof Error ? err.message : String(err)}`,
     };
@@ -540,7 +541,13 @@ function dispatchTsAction(
     }
     // ── Phase 2: observation/status surface ─────────────────────────────
     case 'project_status':
-      return runProjectStatus(projectArgs, daemonClient);
+      // Prefer the daemon-direct status (source of truth; works in the
+      // container, where the `.wqm-fork/indexed-projects.json` registry the
+      // PowerShell path reads is empty → "project not found" for a valid
+      // tenant). Fall back to the registry/PowerShell path only without a daemon.
+      return daemonClient
+        ? handleIndexingStatus(args, daemonClient, 'project_status')
+        : runProjectStatus(projectArgs, daemonClient);
     case 'status_all':
       return runStatusAll(base, daemonClient);
     case 'observe_project':
