@@ -5,21 +5,15 @@
 # ```mermaid
 # graph TB
 #   A[Push to main/dev or PR to main] --> B{Path Filter}
-#   B -->|Docker files changed| C{Parallel Jobs}
-#   C --> D[test-memexd]
-#   C --> E[test-mcp]
-#   D --> F[Build memexd image]
-#   D --> G[Health check /health endpoint]
-#   D --> H[Validate /metrics output]
-#   D --> I[Check container logs]
-#   E --> J[Build MCP image]
-#   E --> K[Sanity check node --version]
-#   E --> L[HTTP mode metrics test]
-#   E --> M[Stdio mode startup test]
+#   B -->|Docker files changed| C[test-memexd]
+#   C --> F[Build memexd image]
+#   C --> G[Health check /health endpoint]
+#   C --> H[Validate /metrics output]
+#   C --> I[Check container logs]
 # ```
 #
 # Triggers: push to main/dev branches, pull requests targeting main (with path filtering)
-# Images: memexd (Rust daemon), workspace-qdrant-mcp (TypeScript MCP server)
+# Images: memexd (Rust daemon)
 # Platform: linux/amd64 only (arm64 via QEMU too slow for PR testing)
 # Cache: GitHub Actions cache for faster rebuilds
 
@@ -32,7 +26,6 @@ on:
       - 'docker/**'
       - '.github/workflows/docker-test.yml'
       - 'src/rust/**'
-      - 'src/typescript/mcp-server/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
   pull_request:
@@ -41,7 +34,6 @@ on:
       - 'docker/**'
       - '.github/workflows/docker-test.yml'
       - 'src/rust/**'
-      - 'src/typescript/mcp-server/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
 
@@ -154,124 +146,3 @@ jobs:
           name: memexd-logs
           path: |
             docker logs memexd-test > memexd-test.log 2>&1 || true
-
-  test-mcp:
-    name: Test MCP Docker image
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build MCP image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.mcp
-          load: true
-          platforms: linux/amd64
-          tags: mcp:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Sanity check - Node.js version
-        run: |
-          echo "Testing basic Node.js functionality..."
-          node_version=$(docker run --rm mcp:test node --version)
-          echo "Node.js version: $node_version"
-          if [[ ! "$node_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "ERROR: Invalid Node.js version format"
-            exit 1
-          fi
-          echo "✓ Node.js sanity check passed"
-
-      - name: Test MCP in HTTP mode
-        run: |
-          echo "Testing MCP server in HTTP mode..."
-          # The HTTP transport refuses to start without a bearer token —
-          # generate one and reuse it for the probe below.
-          MCP_TEST_TOKEN=$(openssl rand -hex 32)
-          docker run -d --name mcp-http \
-            -e MCP_SERVER_MODE=http \
-            -e MCP_HTTP_HOST=0.0.0.0 \
-            -e MCP_HTTP_PORT=6335 \
-            -e "MCP_HTTP_TOKEN=${MCP_TEST_TOKEN}" \
-            -p 6335:6335 \
-            -p 9092:9092 \
-            mcp:test
-
-          echo "Waiting for HTTP server to start..."
-          for i in {1..15}; do
-            if curl -fsS http://localhost:6335/healthz >/dev/null 2>&1; then
-              echo "MCP /healthz responded after ${i} attempts"
-              break
-            fi
-            if [ $i -eq 15 ]; then
-              echo "ERROR: MCP /healthz did not respond within 30s"
-              docker logs mcp-http
-              exit 1
-            fi
-            sleep 2
-          done
-
-          echo "Checking auth enforcement on /mcp..."
-          unauth_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:6335/mcp)
-          if [ "$unauth_status" != "401" ]; then
-            echo "ERROR: expected 401 without bearer, got ${unauth_status}"
-            docker logs mcp-http
-            exit 1
-          fi
-          echo "✓ /mcp correctly rejects unauthed requests (401)"
-
-          echo "Checking /metrics content..."
-          metrics_output=$(curl -fsS http://localhost:9092/metrics)
-          if ! echo "$metrics_output" | grep -q "wqm_mcp_"; then
-            echo "ERROR: No wqm_mcp_* metrics found in output"
-            echo "Metrics output:"
-            echo "$metrics_output"
-            exit 1
-          fi
-          echo "✓ Found wqm_mcp_* metrics"
-
-          docker stop mcp-http
-          docker rm mcp-http
-
-      - name: Test MCP in stdio mode
-        run: |
-          echo "Testing MCP server in stdio mode..."
-          # Run for 5 seconds max, expecting timeout (exit code 124)
-          set +e
-          timeout 5 docker run -i --rm mcp:test </dev/null
-          exit_code=$?
-          set -e
-
-          if [ $exit_code -eq 124 ]; then
-            echo "✓ Stdio mode test passed (timeout as expected)"
-          elif [ $exit_code -eq 0 ]; then
-            echo "✓ Stdio mode test passed (clean exit)"
-          else
-            echo "ERROR: MCP server crashed immediately in stdio mode (exit code: $exit_code)"
-            exit 1
-          fi
-
-      - name: Cleanup MCP containers
-        if: always()
-        run: |
-          if docker ps -q -f name=mcp-http; then
-            docker stop mcp-http
-          fi
-          if docker ps -aq -f name=mcp-http; then
-            docker rm mcp-http
-          fi
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mcp-logs
-          path: |
-            docker logs mcp-http > mcp-http.log 2>&1 || true

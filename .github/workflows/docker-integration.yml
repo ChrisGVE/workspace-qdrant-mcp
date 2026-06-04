@@ -18,7 +18,6 @@ on:
   pull_request:
     paths:
       - 'docker/**'
-      - 'src/typescript/mcp-server/**'
       - 'src/rust/**/Dockerfile*'
       - 'tests/integration/docker/**'
       - '.github/workflows/docker-integration.yml'

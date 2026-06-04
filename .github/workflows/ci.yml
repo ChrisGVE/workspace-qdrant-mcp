@@ -8,7 +8,6 @@ on:
     branches: [main, dev]
     paths:
       - 'src/rust/**'
-      - 'src/typescript/**'
       - 'tests/**'
       - 'assets/**'
       - '.github/workflows/ci.yml'
@@ -16,7 +15,6 @@ on:
     branches: [main, dev]
     paths:
       - 'src/rust/**'
-      - 'src/typescript/**'
       - 'tests/**'
       - 'assets/**'
       - '.github/workflows/ci.yml'
@@ -167,80 +165,6 @@ jobs:
         working-directory: src/rust
         # Exclude workspace-qdrant-grpc integration tests (require running Qdrant)
         run: cargo test --release --workspace --exclude workspace-qdrant-grpc
-
-  # TypeScript MCP server — build, unit tests, and integration tests
-  # Full test suite requires wqm-common-node native addon (Rust napi build)
-  # which needs the Rust toolchain. Tests run in the release workflow instead.
-  typescript:
-    name: TypeScript MCP server
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        working-directory: src/typescript/mcp-server
-        run: npm ci
-
-      - name: Rebuild native addons
-        working-directory: src/typescript/mcp-server
-        run: npm rebuild better-sqlite3
-
-      - name: Type-check and build
-        working-directory: src/typescript/mcp-server
-        run: npm run build
-
-      - name: Lint — path-discipline rule (src/common/paths.ts)
-        working-directory: src/typescript/mcp-server
-        # Enforce the no-restricted-syntax ESLint rule that bans
-        # `as CanonicalPath` / `as LocalPath` casts outside paths.ts.
-        # Only src/common/paths.ts is linted here; the broader src/ lint
-        # has pre-existing issues tracked separately.
-        # See docs/specs/16-path-abstraction.md §4.2.
-        run: node_modules/.bin/eslint src/common/paths.ts src/common/index.ts
-
-      - name: Unit tests
-        working-directory: src/typescript/mcp-server
-        # Run tests that don't require the wqm-common-node native addon.
-        # Tests needing the Rust native bridge are excluded in vitest.config.ci.ts.
-        # Full test suite (including native-addon-dependent tests) runs in the
-        # release workflow where the Rust toolchain is available.
-        run: npx vitest run --config vitest.config.ci.ts
-
-  # TypeScript integration tests — require live daemon or Qdrant
-  # These are allowed to skip in CI (no live services available).
-  typescript-integration:
-    name: TypeScript integration tests
-    needs: typescript
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        working-directory: src/typescript/mcp-server
-        run: npm ci
-
-      - name: Rebuild native addons
-        working-directory: src/typescript/mcp-server
-        run: npm rebuild better-sqlite3
-
-      - name: Build
-        working-directory: src/typescript/mcp-server
-        run: npm run build
-
-      - name: Integration tests (live services)
-        working-directory: src/typescript/mcp-server
-        # vitest 2.x dropped the `--include` CLI flag (config-only); pass the
-        # directory as a positional path filter instead.
-        run: npm test -- tests/integration/ --reporter=verbose
 
   # memexd control-port discipline (spec 16 §10.1).
   # Verifies the cross-process single-instance lock primitive in

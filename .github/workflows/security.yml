@@ -69,24 +69,6 @@ jobs:
             --ignore RUSTSEC-2026-0099 \
             --ignore RUSTSEC-2026-0104
 
-  npm-audit:
-    name: npm dependency audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        working-directory: src/typescript/mcp-server
-        run: npm ci
-
-      - name: Run npm audit
-        working-directory: src/typescript/mcp-server
-        run: npm audit --omit=dev
-
   secrets-scan:
     name: Secrets scan
     runs-on: ubuntu-latest
