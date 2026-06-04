@@ -32,7 +32,20 @@ function tenantOf(sm: SqliteStateManager): unknown {
 }
 
 describe('storeScratchpad — tenant resolution', () => {
-  it('prefers the active session project (no detection)', async () => {
+  it('prefers an explicit projectId arg over everything else', async () => {
+    const sm = mockStateManager();
+    const detector = mockDetector('detected-xyz');
+
+    const res = await storeScratchpad({ content: 'note', projectId: 'explicit-123' }, sm, detector, {
+      projectId: 'session-abc',
+    });
+
+    expect(res.success).toBe(true);
+    expect(detector.getProjectInfo).not.toHaveBeenCalled();
+    expect(tenantOf(sm)).toBe('explicit-123');
+  });
+
+  it('prefers the active session project when no projectId arg (no detection)', async () => {
     const sm = mockStateManager();
     const detector = mockDetector('detected-xyz');
 

@@ -162,20 +162,27 @@ function buildScratchpadPayload(
 
 /**
  * Resolve the tenant a scratchpad note belongs to. Resolution order:
- *   1. An explicitly activated session project (`sessionState.projectId`).
- *   2. The project detected from the effective cwd — the body `cwd` arg /
- *      `X-MCP-Host-Cwd` header, the same signal `search`/`rules` use over HTTP.
- *   3. The global tenant, only when neither resolves.
+ *   1. An explicit `projectId` arg — the reliable path for HTTP clients whose
+ *      host cwd can't be path-matched inside the container (mirrors how
+ *      `search`/`rules` accept an explicit projectId).
+ *   2. An explicitly activated session project (`sessionState.projectId`).
+ *   3. The project detected from the effective cwd — the body `cwd` arg /
+ *      `X-MCP-Host-Cwd` header (best effort; depends on the cwd resolving to a
+ *      registered project inside the container).
+ *   4. The global tenant, only when none resolves.
  *
- * Step 2 is what makes a note actually reachable: the scratchpad recall lane
- * filters by tenant, so a note must carry the project's tenant_id to surface on
+ * This is what makes a note reachable: the scratchpad recall lane filters by
+ * tenant, so a note must carry the project's tenant_id to surface on
  * project-scoped search. Without it (pre-fix) every HTTP-stored note landed in
  * the global tenant and the lane — being tenant-strict — never found it.
  */
 async function resolveScratchpadTenant(
+  args: Record<string, unknown> | undefined,
   projectDetector: ProjectDetector,
   sessionState: Pick<SessionState, 'projectId'>
 ): Promise<string> {
+  const explicit = args?.['projectId'];
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
   if (sessionState.projectId) return sessionState.projectId;
   try {
     const info = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
@@ -204,7 +211,7 @@ export async function storeScratchpad(
 
   const title = args?.['title'] as string | undefined;
   const tags = (args?.['tags'] as string[] | undefined) ?? [];
-  const tenantId = await resolveScratchpadTenant(projectDetector, sessionState);
+  const tenantId = await resolveScratchpadTenant(args, projectDetector, sessionState);
   const payload = buildScratchpadPayload(content, title, tags);
 
   return enqueueScratchpadEntry(stateManager, payload, tenantId, content, title, tags);

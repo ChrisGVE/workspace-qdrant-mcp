@@ -19,10 +19,15 @@ export const storeToolDefinition = {
         type: 'string',
         description: 'Content to store (required for type "library")',
       },
+      projectId: {
+        type: 'string',
+        description:
+          'For type "scratchpad": tenant the note belongs to. The reliable way to tag a note with a project (takes precedence over cwd) — pass the project_id returned by store(type:"project") or seen in search results. Without it (and without a resolvable cwd) the note falls back to the global tenant.',
+      },
       cwd: {
         type: 'string',
         description:
-          'Absolute path of your current working directory. For type "scratchpad", pass this so the note is tagged with the current project (over HTTP the server cannot otherwise detect it) — this is what lets the note surface in project-scoped search. Without it the note falls back to the global tenant.',
+          'Absolute path of your current working directory. For type "scratchpad", a best-effort fallback to projectId: the server tries to detect the project from it so the note is tagged correctly (works when the path resolves to a registered project inside the server). Prefer projectId when you have it.',
       },
       libraryName: {
         type: 'string',
