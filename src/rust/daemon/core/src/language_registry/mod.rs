@@ -30,6 +30,7 @@
 //! ```
 
 pub mod auto_discovery;
+pub mod grammar_install;
 pub mod intelligence_provider;
 pub mod provider;
 pub mod providers;
@@ -38,6 +39,10 @@ pub mod syntax_provider;
 pub mod types;
 
 // Re-export key types for convenience.
+pub use grammar_install::{
+    find_language, registry_summary, validate_install_request, validate_language_name,
+    GrammarInstallError, RegistrySummary,
+};
 pub use intelligence_provider::{
     Capability, CodeIntelligenceProvider, EnrichedSymbols, SymbolReference, SymbolTypeInfo,
 };

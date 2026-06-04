@@ -113,6 +113,19 @@ impl GrpcServer {
         self
     }
 
+    /// Set the shared grammar manager for LanguageService.
+    ///
+    /// If provided, LanguageService is registered with the gRPC server, exposing
+    /// grammar install/remove/list/query + registry refresh so the CLI can drop
+    /// its direct `workspace-qdrant-core` dependency.
+    pub fn with_language_manager(
+        mut self,
+        manager: Arc<tokio::sync::Mutex<workspace_qdrant_core::tree_sitter::GrammarManager>>,
+    ) -> Self {
+        self.language_manager = Some(manager);
+        self
+    }
+
     /// Set the lexicon manager for vocabulary rebuild via RebuildIndex RPC.
     pub fn with_lexicon_manager(
         mut self,

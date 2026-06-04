@@ -318,6 +318,15 @@ impl GrpcServer {
                 auth_fn.clone(),
             ));
         }
+        if let Some(language_manager) = self.language_manager.take() {
+            tracing::info!("Registering LanguageService gRPC endpoint");
+            router = router.add_service(InterceptedService::new(
+                proto::language_service_server::LanguageServiceServer::new(
+                    crate::services::LanguageServiceImpl::new(language_manager),
+                ),
+                auth_fn.clone(),
+            ));
+        }
 
         router = self.register_write_services(router, &local_storage_client, auth_fn.clone());
 

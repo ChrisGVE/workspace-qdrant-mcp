@@ -67,6 +67,7 @@ pub fn spawn_grpc_server(
     probe_cache: Arc<
         tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>,
     >,
+    grammar_config: workspace_qdrant_core::config::GrammarConfig,
 ) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port)
@@ -77,6 +78,14 @@ pub fn spawn_grpc_server(
     let grpc_lexicon_manager = Arc::new(workspace_qdrant_core::LexiconManager::new(
         lexicon_pool,
         workspace_qdrant_core::EmbeddingConfig::default().bm25_k1,
+    ));
+
+    // Grammar manager for LanguageService — its own handle over the shared
+    // on-disk grammar cache (the queue processor keeps a separate handle; both
+    // operate on the same cache dir, so an install populates the cache the queue
+    // loads from). Mutex because install/remove need &mut.
+    let language_manager = Arc::new(tokio::sync::Mutex::new(
+        workspace_qdrant_core::tree_sitter::create_grammar_manager(grammar_config),
     ));
 
     info!("Starting gRPC server on port {}", grpc_port);
@@ -92,7 +101,8 @@ pub fn spawn_grpc_server(
             .with_lexicon_manager(grpc_lexicon_manager)
             .with_dense_provider(dense_provider)
             .with_embedding_settings(embedding_settings)
-            .with_probe_cache(probe_cache);
+            .with_probe_cache(probe_cache)
+            .with_language_manager(language_manager);
 
         if let Some(lsp_manager) = lsp_manager {
             grpc_server = grpc_server.with_lsp_manager(lsp_manager);

@@ -899,6 +899,88 @@ message NarrativeNode {
 }
 
 // -----------------------------------------------------------------------------
+// 7b. LanguageService (5 RPCs)  [#82 WI-e1]
+// -----------------------------------------------------------------------------
+// Purpose: tree-sitter grammar lifecycle + language-registry queries for the
+//          CLI (`wqm language …`). The grammar engine (download / compile /
+//          dlopen) stays daemon-side; clients call these RPCs instead of
+//          linking workspace-qdrant-core. InstallGrammar validates the language
+//          name against the registry allowlist, rejects path/URL metacharacters,
+//          requires an https pinned source, and verifies checksums before any
+//          compile/dlopen (handlers delegate the gate to core::language_registry).
+
+service LanguageService {
+    // Install (download + compile + load) a grammar for a language.
+    rpc InstallGrammar(InstallGrammarRequest) returns (InstallGrammarResponse);
+
+    // Remove a cached grammar (and metadata) for a language.
+    rpc RemoveGrammar(RemoveGrammarRequest) returns (RemoveGrammarResponse);
+
+    // List cached and known grammars.
+    rpc ListGrammars(google.protobuf.Empty) returns (ListGrammarsResponse);
+
+    // Query a single language's definition + grammar status.
+    rpc QueryLanguage(QueryLanguageRequest) returns (QueryLanguageResponse);
+
+    // Refresh the language registry and return summary counts.
+    rpc RefreshLanguageRegistry(google.protobuf.Empty) returns (RefreshLanguageRegistryResponse);
+}
+
+message InstallGrammarRequest {
+    string language = 1;   // Canonical language name (must be in registry allowlist)
+    bool force = 2;        // Re-download even if already cached
+}
+
+message InstallGrammarResponse {
+    string language = 1;
+    string status = 2;     // GrammarStatus as string (e.g. "loaded", "cached")
+    bool installed = 3;    // True if a (re)install actually happened
+    string message = 4;
+}
+
+message RemoveGrammarRequest {
+    string language = 1;
+}
+
+message RemoveGrammarResponse {
+    string language = 1;
+    bool removed = 2;      // True if a cached grammar file was removed
+}
+
+// A known grammar and its current cache status.
+message GrammarEntryProto {
+    string language = 1;
+    string status = 2;     // GrammarStatus as string
+}
+
+message ListGrammarsResponse {
+    repeated string cached = 1;            // Languages with an on-disk cached grammar
+    repeated GrammarEntryProto known = 2;  // Registry languages with grammar support + status
+}
+
+message QueryLanguageRequest {
+    string language = 1;
+}
+
+message QueryLanguageResponse {
+    bool found = 1;                  // Language present in the registry allowlist
+    string language = 2;             // Canonical name
+    string grammar_status = 3;       // GrammarStatus as string
+    bool has_grammar = 4;
+    bool has_lsp = 5;
+    bool has_semantic_patterns = 6;
+    repeated string extensions = 7;
+    repeated string aliases = 8;
+}
+
+message RefreshLanguageRegistryResponse {
+    uint32 total = 1;
+    uint32 with_grammars = 2;
+    uint32 with_lsp = 3;
+    uint32 with_semantic_patterns = 4;
+}
+
+// -----------------------------------------------------------------------------
 // 8. QueueWriteService (6 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Queue item lifecycle mutations. Daemon-exclusive writes to

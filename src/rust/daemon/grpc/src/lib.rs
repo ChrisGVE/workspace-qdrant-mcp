@@ -325,6 +325,9 @@ pub struct GrpcServer {
     pub(crate) probe_cache: Option<
         Arc<tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>>,
     >,
+    /// Shared grammar manager for LanguageService (grammar install/list/query).
+    pub(crate) language_manager:
+        Option<Arc<tokio::sync::Mutex<workspace_qdrant_core::tree_sitter::GrammarManager>>>,
 }
 
 /// Server metrics for monitoring
@@ -359,6 +362,7 @@ impl GrpcServer {
             dense_provider: None,
             embedding_settings: None,
             probe_cache: None,
+            language_manager: None,
         }
     }
 }

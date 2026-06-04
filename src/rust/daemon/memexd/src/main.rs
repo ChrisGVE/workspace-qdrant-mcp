@@ -86,6 +86,7 @@ fn wire_grpc(
     probe_cache: Arc<
         tokio::sync::Mutex<workspace_qdrant_core::embedding::provider::SharedProbeCache>,
     >,
+    grammar_config: workspace_qdrant_core::config::GrammarConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     grpc_setup::spawn_grpc_server(
         args,
@@ -102,6 +103,7 @@ fn wire_grpc(
         Arc::clone(&qc.dense_provider),
         embedding_settings,
         probe_cache,
+        grammar_config,
     )
 }
 
@@ -194,6 +196,7 @@ async fn run_daemon(
         &watch_refresh_signal,
         embedding_settings,
         probe_cache,
+        daemon_config.grammars.clone(),
     )?);
     queue_init::start_processor(&mut qc.unified_queue_processor, &daemon_config).await?;
     queue_init::spawn_recovery_tasks(
