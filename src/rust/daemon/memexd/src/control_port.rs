@@ -493,6 +493,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn identity_stamp_writes_and_drops_under_data_dir() {
         // Force host mode + isolated data dir via WQM_DATA_DIR.
         let tmp = tempfile::tempdir().expect("create tempdir");
