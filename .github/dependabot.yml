@@ -1,10 +1,10 @@
 # Dependabot: workspace-wide dependency monitoring
 #
-# Covers all Rust and TypeScript dependencies with grouping to keep
-# PR volume manageable. Specialized version bump workflows handle:
+# Covers all Rust dependencies with grouping to keep PR volume
+# manageable. Specialized version bump workflows handle:
 #   - tree-sitter-version-bump.yml (daily crates.io check)
 #   - onnx-runtime-version-bump.yml (daily crates.io check)
-#   - security.yml (cargo audit + npm audit for vulnerability alerts)
+#   - security.yml (cargo audit for vulnerability alerts)
 #
 # Pre-release policy: alpha, beta, and rc versions are ignored.
 
@@ -43,35 +43,6 @@ updates:
         patterns:
           - "sqlx"
           - "sqlx-*"
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
-    ignore:
-      - dependency-name: "*"
-        versions: ["*-alpha*", "*-beta*", "*-rc*", "*-pre*"]
-
-  # TypeScript MCP server
-  - package-ecosystem: "npm"
-    directory: "/src/typescript/mcp-server"
-    schedule:
-      interval: "weekly"
-      day: "wednesday"
-      time: "04:00"
-    open-pull-requests-limit: 5
-    reviewers:
-      - "ChrisGVE"
-    commit-message:
-      prefix: "build(deps)"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "typescript"
-    groups:
-      mcp-and-qdrant:
-        patterns:
-          - "@modelcontextprotocol/*"
-          - "@qdrant/*"
       minor-and-patch:
         update-types:
           - "minor"
