@@ -14,9 +14,9 @@ use wqm_common::timestamps;
 use crate::proto::{
     system_service_server::SystemService, ComponentHealth, DlqEntry as ProtoDlqEntry,
     GetEmbeddingProviderStatusResponse, HealthResponse, ListDlqRequest, ListDlqResponse, Metric,
-    MetricsResponse, QueueStatsResponse, QueueType, RebuildIndexRequest, RebuildIndexResponse,
-    RefreshSignalRequest, ServerState, ServerStatusNotification, ServiceStatus, SystemMetrics,
-    SystemStatusResponse,
+    MetricsResponse, PruneLogCandidate, PruneLogsRequest, PruneLogsResponse, QueueStatsResponse,
+    QueueType, RebuildIndexRequest, RebuildIndexResponse, RefreshSignalRequest, ServerState,
+    ServerStatusNotification, ServiceStatus, SystemMetrics, SystemStatusResponse,
 };
 
 use super::rebuild;
@@ -559,6 +559,39 @@ impl SystemService for SystemServiceImpl {
         Ok(Response::new(ListDlqResponse {
             entries: proto_entries,
             total: total as i32,
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "SystemService.prune_logs"))]
+    async fn prune_logs(
+        &self,
+        request: Request<PruneLogsRequest>,
+    ) -> Result<Response<PruneLogsResponse>, Status> {
+        let req = request.into_inner();
+        // The daemon owns its canonical log directory; the CLI no longer links
+        // the core log pruner (#82 WI-e3).
+        let log_dir = wqm_common::paths::get_canonical_log_dir();
+        let result = workspace_qdrant_core::log_pruner::prune_now(
+            &log_dir,
+            req.retention_hours,
+            req.dry_run,
+        )
+        .map_err(|e| Status::internal(format!("log prune failed: {e}")))?;
+
+        let candidates = result
+            .candidates
+            .into_iter()
+            .map(|c| PruneLogCandidate {
+                path: c.path.display().to_string(),
+                size: c.size,
+                age_hours: c.age_hours,
+            })
+            .collect();
+
+        Ok(Response::new(PruneLogsResponse {
+            candidates,
+            files_deleted: result.files_deleted as u64,
+            bytes_freed: result.bytes_freed,
         }))
     }
 }

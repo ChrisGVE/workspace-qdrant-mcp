@@ -1,6 +1,6 @@
 //! Prune-logs subcommand handler
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tabled::Tabled;
 
 use crate::output;
@@ -36,8 +36,11 @@ impl ColumnHints for PruneRow {
     }
 }
 
-/// Prune old log files from the canonical log directory
-pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
+/// Prune old daemon log files via the daemon's `SystemService::PruneLogs` RPC.
+///
+/// The daemon owns its canonical log directory and performs the filesystem op;
+/// the CLI no longer links the core log pruner (#82 WI-e3).
+pub async fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
     let log_dir = wqm_common::paths::get_canonical_log_dir();
 
     output::section("Log Pruning");
@@ -51,8 +54,11 @@ pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
     }
     output::separator();
 
-    let result = workspace_qdrant_core::log_pruner::prune_now(&log_dir, retention_hours, dry_run)
-        .context("Failed to prune logs")?;
+    let mut client = crate::grpc::ensure_daemon_available().await?;
+    let result = client
+        .prune_logs(retention_hours, dry_run)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to prune logs: {}", e.message()))?;
 
     if result.candidates.is_empty() {
         output::success("No log files older than the retention period.");
@@ -63,8 +69,7 @@ pub fn execute(dry_run: bool, retention_hours: u64) -> Result<()> {
         .candidates
         .iter()
         .map(|c| PruneRow {
-            file: c
-                .path
+            file: std::path::Path::new(&c.path)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("?")

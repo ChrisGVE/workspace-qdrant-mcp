@@ -15,12 +15,38 @@
 use tonic::Status;
 
 use wqm_proto::workspace_daemon::{
-    GetEmbeddingProviderStatusResponse, HealthResponse, SystemStatusResponse,
+    GetEmbeddingProviderStatusResponse, HealthResponse, PruneLogsRequest, PruneLogsResponse,
+    SystemStatusResponse,
 };
 
 use super::client::DaemonClient;
 
 impl DaemonClient {
+    /// Prune rotated/compressed daemon log files older than `retention_hours`.
+    ///
+    /// Calls `SystemService::PruneLogs`. The daemon prunes its own canonical log
+    /// directory; `dry_run` reports candidates without deleting.
+    pub async fn prune_logs(
+        &mut self,
+        retention_hours: u64,
+        dry_run: bool,
+    ) -> Result<PruneLogsResponse, Status> {
+        let client = self.system.clone();
+        self.call("pruneLogs", None, || {
+            let mut c = client.clone();
+            let req = PruneLogsRequest {
+                retention_hours,
+                dry_run,
+            };
+            async move {
+                c.prune_logs(tonic::Request::new(req))
+                    .await
+                    .map(|r| r.into_inner())
+            }
+        })
+        .await
+    }
+
     /// Quick health check — mirrors TS `healthCheck()` in system-methods.ts.
     ///
     /// Calls `SystemService::Health` with an empty request.

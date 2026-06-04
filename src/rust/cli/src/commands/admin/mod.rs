@@ -223,7 +223,7 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         AdminCommand::PruneLogs {
             dry_run,
             retention_hours,
-        } => prune_logs::execute(dry_run, retention_hours),
+        } => prune_logs::execute(dry_run, retention_hours).await,
         AdminCommand::CleanupOrphans { delete, collection } => {
             cleanup_orphans::execute(delete, collection).await
         }

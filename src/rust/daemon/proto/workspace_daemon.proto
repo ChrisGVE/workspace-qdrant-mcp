@@ -80,6 +80,29 @@ service SystemService {
 
     // List dead letter queue entries with optional filtering
     rpc ListDlq(ListDlqRequest) returns (ListDlqResponse);
+
+    // Prune rotated/compressed daemon log files older than retention_hours
+    // (active log files are never pruned). Daemon-owned filesystem op so the
+    // CLI does not link the core log pruner (#82 WI-e3).
+    rpc PruneLogs(PruneLogsRequest) returns (PruneLogsResponse);
+}
+
+// PruneLogs request/response (#82 WI-e3).
+message PruneLogsRequest {
+    uint64 retention_hours = 1;   // Files older than this are eligible
+    bool dry_run = 2;             // Report candidates without deleting
+}
+
+message PruneLogCandidate {
+    string path = 1;              // Absolute path of the (would-be) pruned file
+    uint64 size = 2;              // Size in bytes
+    double age_hours = 3;         // Age in hours at prune time
+}
+
+message PruneLogsResponse {
+    repeated PruneLogCandidate candidates = 1;  // Pruned (or, in dry-run, eligible) files
+    uint64 files_deleted = 2;                   // 0 in dry-run
+    uint64 bytes_freed = 3;                     // 0 in dry-run
 }
 
 // -----------------------------------------------------------------------------
