@@ -31,7 +31,8 @@ pub use schema::{
 pub use operations::{
     compute_content_hash, compute_file_hash, compute_relative_path, delete_qdrant_chunks,
     delete_tracked_file, get_chunk_point_ids, get_file_mtime, get_tracked_file_paths,
-    get_tracked_files_by_prefix, insert_qdrant_chunks, insert_tracked_file, is_incremental,
+    get_tracked_files_by_prefix, get_tracked_files_with_hashes, insert_qdrant_chunks,
+    insert_tracked_file, is_incremental,
     lookup_tracked_file, lookup_watch_folder, set_incremental, update_tracked_file,
 };
 
