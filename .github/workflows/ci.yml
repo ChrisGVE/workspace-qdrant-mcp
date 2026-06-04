@@ -83,6 +83,36 @@ jobs:
       - name: Check for unmarked canonicalize() calls
         run: bash scripts/ci/forbid_canonicalize.sh
 
+  # Single-writer discipline (#82): the CLI performs no direct Qdrant/graph
+  # writes — only daemon gRPC write RPCs + SQLite reads/UPDATEs.
+  cli-no-writes:
+    name: CLI write-ownership (#82 WI-f5)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the guard
+        run: SELFTEST=1 bash scripts/ci/cli-no-writes.sh
+      - name: Scan CLI for direct write surface
+        run: bash scripts/ci/cli-no-writes.sh
+
+  # Crate-DAG discipline (#82): the DEFAULT wqm-cli build links no
+  # workspace-qdrant-core (clients talk to the daemon over gRPC); core is a
+  # dev-only `bench`-feature edge.
+  cli-no-core:
+    name: CLI core-isolation (#82 WI-e3)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install protobuf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev
+      - name: Check CLI does not link core in the default build
+        run: bash scripts/ci/cli-no-core.sh
+
 
   # Rust build, lint, and test
   rust:
