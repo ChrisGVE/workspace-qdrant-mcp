@@ -3,7 +3,7 @@
 //! Thin client wrapper (WI-f1, #82). The whole engine — reading
 //! `corpus_statistics`/`sparse_vocabulary`, computing IDF with daemon BM25,
 //! performing the Qdrant sparse-vector writes, and persisting `last_corrected_n`
-//! — lives daemon-side in `workspace_qdrant_core::idf_rebalance` behind
+//! — lives daemon-side in the core `idf_rebalance` engine behind
 //! `AdminWriteService::RebalanceIdf`. The CLI no longer opens state.db
 //! read-write nor links the Qdrant write client; it issues one gRPC call.
 

@@ -50,5 +50,6 @@ pub mod hooks;
 pub mod init;
 pub mod man;
 
-// Benchmarking
+// Benchmarking — dev-only, gated behind the `bench` feature (links core; #82).
+#[cfg(feature = "bench")]
 pub mod benchmark;

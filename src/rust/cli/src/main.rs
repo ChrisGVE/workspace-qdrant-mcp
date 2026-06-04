@@ -369,7 +369,8 @@ enum Commands {
     )]
     Debug(commands::debug::DebugArgs),
 
-    /// Benchmarking tools (sparse vectors, search engines)
+    /// Benchmarking tools (sparse vectors, search engines) — `bench` feature only
+    #[cfg(feature = "bench")]
     #[command(
         display_order = 63,
         long_about = "Run performance benchmarks for sparse vector generation and search \
@@ -497,6 +498,7 @@ async fn main() -> Result<()> {
         }
         Commands::Update(args) => commands::update::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
+        #[cfg(feature = "bench")]
         Commands::Benchmark(args) => commands::benchmark::execute(args).await,
 
         // Hidden backward-compat aliases (delegate to same handlers)

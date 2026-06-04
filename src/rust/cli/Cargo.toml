@@ -16,8 +16,10 @@ path = "src/main.rs"
 # Shared configuration (paths, YAML defaults, env expansion)
 wqm-common = { path = "../common", features = ["sqlite"] }
 
-# Core library (for grammar management)
-workspace-qdrant-core = { path = "../daemon/core" }
+# Core library — DEV-ONLY (local benchmark diagnostics). Optional so the
+# default `wqm` build links NO daemon engine (#82 WI-e/f: clients talk to the
+# daemon over gRPC). Enabled only by the `bench` feature.
+workspace-qdrant-core = { path = "../daemon/core", optional = true }
 
 # CLI framework
 clap = { version = "4.5", features = ["derive", "string", "wrap_help", "cargo", "env"] }
@@ -104,6 +106,9 @@ serial_test = "3.4"
 [features]
 default = ["tui"]
 tui = ["dep:ratatui", "dep:crossterm"]
+# Local benchmark diagnostics (BM25/SPLADE++ sparse, FTS5 vs ripgrep search).
+# The ONLY sanctioned CLI→core edge — dev-only, off by default (ARCH §6 V2).
+bench = ["dep:workspace-qdrant-core"]
 
 [lints]
 workspace = true
