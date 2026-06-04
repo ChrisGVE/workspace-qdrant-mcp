@@ -8773,6 +8773,7 @@ name = "wqm-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "criterion",
  "prost 0.13.5",
  "prost-types 0.13.5",
  "qdrant-client",

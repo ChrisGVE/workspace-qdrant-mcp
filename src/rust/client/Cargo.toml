@@ -44,6 +44,12 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
+# Criterion benchmark harness (pinned 0.5.x — stable API, no nightly required).
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "fusion_pipeline"
+harness = false
 
 [lints]
 workspace = true

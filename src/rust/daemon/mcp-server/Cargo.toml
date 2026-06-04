@@ -113,11 +113,6 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 name = "tool_overhead"
 harness = false
 
-# TEMPORARY (#82 task 1): fusion-pipeline baseline for the PR3 regression gate.
-[[bench]]
-name = "fusion_baseline"
-harness = false
-
 [features]
 # Gates integration tests that require a live daemon + Qdrant
 integration-tests = []
