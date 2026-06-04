@@ -41,6 +41,12 @@ export interface SearchOptions {
   projectId?: string;
   libraryName?: string;
   includeLibraries?: boolean;
+  /** Append a small, tenant-filtered scratchpad recall lane to project-scoped
+   *  searches so project notes/snippets surface automatically alongside code
+   *  (labeled `collection: "scratchpad"`, capped, never displacing code hits).
+   *  Default: true for scope="project". Set false to skip. No effect for
+   *  global/all scopes or when an explicit `collection` is targeted. */
+  includeScratchpad?: boolean;
   tag?: string;
   /** Filter results by multiple concept tags (OR logic) */
   tags?: string[];

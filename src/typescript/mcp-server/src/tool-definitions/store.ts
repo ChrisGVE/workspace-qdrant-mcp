@@ -5,7 +5,7 @@
 export const storeToolDefinition = {
   name: 'store',
   description:
-    'Store content or register a project. Use type "library" (default) to store reference documentation, type "url" to fetch and ingest a web page, type "scratchpad" to save persistent notes/scratch space, or type "project" to register a project directory for file watching and ingestion.',
+    'Store content or register a project. Use type "scratchpad" for ad-hoc/persistent notes and snippets (the right target for working notes; these are project-scoped and surface automatically in project-scoped search), type "library" (default) to store reference documentation, type "url" to fetch and ingest a web page, or type "project" to register a project directory for file watching and ingestion. Note: omitting type defaults to "library" (which requires libraryName) — pass type:"scratchpad" explicitly for notes.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -13,7 +13,7 @@ export const storeToolDefinition = {
         type: 'string',
         enum: ['library', 'url', 'scratchpad', 'project'],
         description:
-          'What to store: "library" for reference docs (default), "url" to fetch and ingest a web page, "scratchpad" for persistent notes, "project" to register a project directory',
+          'What to store: "scratchpad" for ad-hoc/persistent notes & snippets (project-scoped), "library" for reference docs (default; requires libraryName), "url" to fetch and ingest a web page, "project" to register a project directory',
       },
       content: {
         type: 'string',

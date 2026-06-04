@@ -26,7 +26,8 @@ export const rulesToolDefinition = {
       scope: {
         type: 'string',
         enum: ['global', 'project'],
-        description: 'Rule scope (default: global)',
+        description:
+          'Rule scope (default: project). "project" ties the rule to the current project (resolved from cwd/projectId); "global" applies it across all projects. Pass scope:"global" explicitly for cross-project rules.',
       },
       projectId: {
         type: 'string',

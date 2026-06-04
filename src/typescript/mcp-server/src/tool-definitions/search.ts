@@ -69,6 +69,11 @@ export const searchToolDefinition = {
         type: 'boolean',
         description: 'Include libraries in search (default: false)',
       },
+      includeScratchpad: {
+        type: 'boolean',
+        description:
+          'Append a small, tenant-filtered scratchpad recall lane to project-scoped searches so project notes/snippets surface automatically (labeled collection:"scratchpad", capped, never displacing code hits). Default: true for scope="project"; ignored for global/all or when an explicit collection is set.',
+      },
       tag: {
         type: 'string',
         description: 'Filter results by concept tag (exact match)',

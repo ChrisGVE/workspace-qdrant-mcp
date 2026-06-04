@@ -24,7 +24,7 @@ import type {
   FilterParams,
   SearchCollectionParams,
 } from './search-types.js';
-import { PROJECTS_COLLECTION } from './search-types.js';
+import { PROJECTS_COLLECTION, SCRATCHPAD_COLLECTION } from './search-types.js';
 import { buildFilter } from './search-filters.js';
 import {
   searchCollection,
@@ -331,6 +331,75 @@ export async function searchAllCollections(
   return { allResults, status, statusReason };
 }
 
+/** Max scratchpad notes appended by the project-memory recall lane. Small by
+ *  design: the lane is a recall nudge, not a primary result set — it must never
+ *  crowd code hits or inflate the response. */
+export const SCRATCHPAD_LANE_LIMIT = 3;
+
+/**
+ * Project-memory recall lane: a small, tenant-filtered scratchpad query whose
+ * hits are appended AFTER the code results so notes never displace code in the
+ * ranked top-k. Reuses the embeddings already computed for the main search.
+ *
+ * Best-effort and self-contained: any failure (including an absent/empty
+ * scratchpad collection) degrades to `[]` so it never marks the main search
+ * `uncertain` or throws. Tenant scoping comes from `buildFilter` with
+ * scope='project' + projectId; results self-label via `SearchResult.collection`.
+ */
+export async function searchScratchpadLane(
+  qdrantClient: QdrantClient,
+  params: {
+    projectId: string;
+    mode: SearchMode;
+    denseEmbedding: number[] | undefined;
+    sparseVector: Record<number, number> | undefined;
+    scoreThreshold: number;
+  }
+): Promise<SearchResult[]> {
+  const filterParams: FilterParams = {
+    collection: SCRATCHPAD_COLLECTION,
+    scope: 'project',
+    projectId: params.projectId,
+    branch: undefined,
+    fileType: undefined,
+    libraryName: undefined,
+    tag: undefined,
+    tags: undefined,
+    pathGlob: undefined,
+    component: undefined,
+    basePoints: undefined,
+  };
+  try {
+    const hits = await searchCollection(qdrantClient, {
+      collection: SCRATCHPAD_COLLECTION,
+      mode: params.mode,
+      denseEmbedding: params.denseEmbedding,
+      sparseVector: params.sparseVector,
+      filter: buildFilter(filterParams),
+      limit: SCRATCHPAD_LANE_LIMIT,
+      scoreThreshold: params.scoreThreshold,
+    });
+    // searchCollection concatenates the dense + sparse legs WITHOUT fusion, so
+    // in hybrid mode the same note arrives twice. Collapse by id (keep the
+    // better score) and cap — the lane is a small recall nudge, not a ranked
+    // result set, so a coarse score max across legs is sufficient here.
+    const byId = new Map<string, SearchResult>();
+    for (const h of hits) {
+      const existing = byId.get(h.id);
+      if (!existing || h.score > existing.score) byId.set(h.id, h);
+    }
+    return Array.from(byId.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SCRATCHPAD_LANE_LIMIT);
+  } catch (err) {
+    logDebug('Scratchpad recall lane failed; omitting', {
+      project_id: params.projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
 export interface FinalizeResultsParams {
   allResults: SearchResult[];
   mode: SearchMode;
@@ -346,6 +415,10 @@ export interface FinalizeResultsParams {
   /** Resolved tenant_id for the current search. Drives the optional
    *  per-response `indexing` block when scope === 'project'. */
   currentProjectId: string | undefined;
+  /** Project-memory recall lane hits (scope="project" only). Appended AFTER
+   *  the code top-k, never fused/deduped with it. Empty when the lane is
+   *  disabled, no tenant resolved, or it returned nothing. */
+  scratchpadHits?: SearchResult[];
 }
 
 /** Record search telemetry and build the final SearchResponse. */
@@ -557,10 +630,28 @@ export async function finalizeResults(
       : deduped;
   const finalResults = ranked.slice(0, params.limit);
 
+  // Context expansion applies to the code results only — scratchpad notes carry
+  // no parent unit or graph node, so they are appended afterwards untouched.
   if (params.options.expandContext) await expandParentContext(qdrantClient, finalResults);
   if (params.options.includeGraphContext) await expandGraphContext(daemonClient, finalResults);
 
-  const response = recordAndBuildResponse(stateManager, finalResults, params, params.searchStartMs);
+  // Append the project-memory recall lane AFTER the code top-k so notes never
+  // displace code. They are tenant-filtered + capped upstream and self-label via
+  // `collection: "scratchpad"`.
+  const scratchpadHits = params.scratchpadHits ?? [];
+  const combinedResults =
+    scratchpadHits.length > 0 ? [...finalResults, ...scratchpadHits] : finalResults;
+  const collectionsSearched =
+    scratchpadHits.length > 0 && !params.collectionsToSearch.includes(SCRATCHPAD_COLLECTION)
+      ? [...params.collectionsToSearch, SCRATCHPAD_COLLECTION]
+      : params.collectionsToSearch;
+
+  const response = recordAndBuildResponse(
+    stateManager,
+    combinedResults,
+    { ...params, collectionsToSearch: collectionsSearched },
+    params.searchStartMs
+  );
   await attachIndexingProgress(
     response,
     daemonClient,

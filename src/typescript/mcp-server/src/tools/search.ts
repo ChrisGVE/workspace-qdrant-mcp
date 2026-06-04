@@ -37,6 +37,7 @@ import type {
   SearchResponse,
   SearchToolConfig,
   ParentContext,
+  SearchResult,
 } from './search-types.js';
 import {
   DEFAULT_LIMIT,
@@ -55,6 +56,7 @@ import {
   logSearchEventPre,
   generateEmbeddings,
   searchAllCollections,
+  searchScratchpadLane,
   finalizeResults,
 } from './search-helpers.js';
 
@@ -341,6 +343,24 @@ export class SearchTool {
       const reason = formatBasePointsDegradedReason(basePointsActiveCount);
       statusReason = statusReason ? `${statusReason}; ${reason}` : reason;
     }
+    // Project-memory recall lane: only for the default project scope, when not
+    // targeting an explicit collection, with the lane enabled and a resolved
+    // tenant. Reuses the embeddings already computed; failures degrade to [].
+    let scratchpadHits: SearchResult[] = [];
+    if (
+      scope === 'project' &&
+      !options.collection &&
+      options.includeScratchpad !== false &&
+      currentProjectId
+    ) {
+      scratchpadHits = await searchScratchpadLane(this.qdrantClient, {
+        projectId: currentProjectId,
+        mode,
+        denseEmbedding,
+        sparseVector,
+        scoreThreshold: options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD,
+      });
+    }
     return finalizeResults(this.qdrantClient, this.daemonClient, this._stateManager, {
       allResults: collectionsResult.allResults,
       mode,
@@ -354,6 +374,7 @@ export class SearchTool {
       status,
       statusReason,
       currentProjectId,
+      scratchpadHits,
     });
   }
 
