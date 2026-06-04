@@ -1,28 +1,18 @@
 /**
- * Search tool argument builder — parse raw MCP tool arguments into SearchOptions
+ * Search tool argument builder — parse raw MCP tool arguments into SearchOptions.
+ *
+ * The result type is the canonical {@link SearchOptions} from the search tool
+ * itself — NOT a local copy. A local subset used to drift: a field added to the
+ * canonical type / tool schema was silently dropped here until mapped by hand
+ * (this is how `includeScratchpad`, `summary`, `maxBytesPerHit`, `expandContext`
+ * and `rerank` all failed to take effect). Reusing the canonical type means the
+ * extractors below must cover every arg-derived field, and adding a field there
+ * surfaces here as the single source of truth.
  */
 
-export type SearchOptions = {
-  query: string;
-  collection?: string;
-  mode?: 'hybrid' | 'semantic' | 'keyword';
-  scope?: 'project' | 'global' | 'all';
-  limit?: number;
-  scoreThreshold?: number;
-  projectId?: string;
-  libraryName?: string;
-  branch?: string;
-  fileType?: string;
-  includeLibraries?: boolean;
-  includeScratchpad?: boolean;
-  tag?: string;
-  tags?: string[];
-  pathGlob?: string;
-  component?: string;
-  exact?: boolean;
-  contextLines?: number;
-  includeGraphContext?: boolean;
-};
+import type { SearchOptions } from '../tools/search-types.js';
+
+export type { SearchOptions };
 
 // ── Option group extractors ───────────────────────────────────────────────
 
@@ -98,6 +88,18 @@ function extractOutputOptions(
 
   const includeGraphContext = args?.['includeGraphContext'] as boolean | undefined;
   if (includeGraphContext !== undefined) options.includeGraphContext = includeGraphContext;
+
+  const expandContext = args?.['expandContext'] as boolean | undefined;
+  if (expandContext !== undefined) options.expandContext = expandContext;
+
+  const rerank = args?.['rerank'] as boolean | undefined;
+  if (rerank !== undefined) options.rerank = rerank;
+
+  const maxBytesPerHit = args?.['maxBytesPerHit'] as number | undefined;
+  if (maxBytesPerHit !== undefined) options.maxBytesPerHit = maxBytesPerHit;
+
+  const summary = args?.['summary'] as boolean | undefined;
+  if (summary !== undefined) options.summary = summary;
 }
 
 /** Build search options from raw tool arguments.

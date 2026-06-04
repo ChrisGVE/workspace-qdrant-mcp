@@ -25,3 +25,23 @@ describe('buildSearchOptions — includeScratchpad', () => {
     expect(opts.includeScratchpad).toBeUndefined();
   });
 });
+
+describe('buildSearchOptions — previously-dropped output options', () => {
+  it('maps summary through to options', () => {
+    expect(buildSearchOptions({ query: 'x', summary: true }).summary).toBe(true);
+    expect(buildSearchOptions({ query: 'x' }).summary).toBeUndefined();
+  });
+
+  it('maps maxBytesPerHit through (including 0, which disables truncation)', () => {
+    expect(buildSearchOptions({ query: 'x', maxBytesPerHit: 0 }).maxBytesPerHit).toBe(0);
+    expect(buildSearchOptions({ query: 'x', maxBytesPerHit: 500 }).maxBytesPerHit).toBe(500);
+  });
+
+  it('maps expandContext through to options', () => {
+    expect(buildSearchOptions({ query: 'x', expandContext: true }).expandContext).toBe(true);
+  });
+
+  it('maps rerank through to options', () => {
+    expect(buildSearchOptions({ query: 'x', rerank: true }).rerank).toBe(true);
+  });
+});
