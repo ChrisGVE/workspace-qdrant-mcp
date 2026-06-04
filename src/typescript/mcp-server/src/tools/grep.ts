@@ -231,7 +231,7 @@ export class GrepTool {
           outcome: 'unresolved_tenant',
         });
         return grepError(
-          'Could not detect project ID. Use scope "all" or provide projectId.',
+          'Could not detect the project. Pass `cwd` (to auto-detect the project) or `projectId`, or use scope "all".',
           Date.now() - startTime
         );
       }

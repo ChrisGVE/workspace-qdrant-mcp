@@ -74,8 +74,8 @@ function unresolvedTenantResponse(collection: RetrieveCollectionType): RetrieveR
     hasMore: false,
     message:
       `Cannot retrieve from "${collection}" without a resolvable scope. ` +
-      'Pass `projectId` (for projects) or `libraryName` (for libraries), ' +
-      'or run from a registered project directory.',
+      'Pass `cwd` (to auto-detect the project) or `projectId` (for projects), ' +
+      'or `libraryName` (for libraries).',
   };
 }
 

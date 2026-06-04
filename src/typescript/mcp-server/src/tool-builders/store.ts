@@ -29,8 +29,9 @@ function validateStoreArgs(args: Record<string, unknown> | undefined): string {
 
   if (!forProject && !libraryName) {
     throw new Error(
-      'libraryName is required - store tool is for libraries collection only. ' +
-      'Use forProject: true to store to the current project\'s library.'
+      'libraryName is required for type "library" (the default). ' +
+      "Use forProject: true to store to the current project's library, " +
+      'or pass type: "scratchpad" to save an ad-hoc/persistent note instead.'
     );
   }
 

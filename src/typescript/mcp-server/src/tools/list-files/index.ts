@@ -125,7 +125,7 @@ export class ListFilesTool {
     const projectId = options.projectId ?? (await this.resolveProjectId());
     if (!projectId) {
       const response = errorResponse(
-        'Could not detect project. Use projectId parameter.',
+        'Could not detect the project. Pass `cwd` (to auto-detect the project) or the `projectId` parameter.',
         basePath,
         format
       );

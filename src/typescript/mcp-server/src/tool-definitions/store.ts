@@ -17,7 +17,7 @@ export const storeToolDefinition = {
       },
       content: {
         type: 'string',
-        description: 'Content to store (required for type "library")',
+        description: 'Content to store — required for type "library" and type "scratchpad".',
       },
       projectId: {
         type: 'string',
@@ -49,7 +49,7 @@ export const storeToolDefinition = {
       },
       title: {
         type: 'string',
-        description: 'Content title (for type "library")',
+        description: 'Content title — applies to type "library" and type "scratchpad" (optional).',
       },
       url: {
         type: 'string',
@@ -62,7 +62,7 @@ export const storeToolDefinition = {
       tags: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Tags for scratchpad entries',
+        description: 'Tags — applies to type "scratchpad" only (ignored for other types).',
       },
       sourceType: {
         type: 'string',
