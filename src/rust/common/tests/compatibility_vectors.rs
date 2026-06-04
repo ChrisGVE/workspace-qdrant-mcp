@@ -1,8 +1,8 @@
 //! Cross-language compatibility test vectors
 //!
-//! These tests generate known outputs that the TypeScript native bridge
-//! tests validate against. If either side changes, both test suites
-//! will detect the divergence.
+//! Frozen golden vectors for hashing, idempotency-key, git-URL normalization,
+//! and tokenization. Originally cross-checked against the (now retired)
+//! TypeScript native bridge; retained as regression guards on the Rust side.
 
 use wqm_common::constants::*;
 use wqm_common::hashing::{compute_content_hash, generate_idempotency_key};
@@ -45,7 +45,7 @@ fn test_operation_constants_match_expected() {
 
 #[test]
 fn test_git_url_normalization_vectors() {
-    // These vectors must match TypeScript native-bridge.test.ts
+    // Frozen golden vectors (formerly cross-checked against the TS native bridge).
     assert_eq!(
         ProjectIdCalculator::normalize_git_url("https://github.com/user/repo.git"),
         "github.com/user/repo"
@@ -118,7 +118,7 @@ fn test_project_id_vectors() {
 
 #[test]
 fn test_content_hash_vector() {
-    // Known SHA256 of "hello world" — must match TypeScript test
+    // Known SHA256 of "hello world" (frozen golden vector).
     assert_eq!(
         compute_content_hash("hello world"),
         "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
@@ -127,7 +127,7 @@ fn test_content_hash_vector() {
 
 #[test]
 fn test_idempotency_key_vectors() {
-    // Must match TypeScript native-bridge.test.ts
+    // Frozen golden vectors (formerly cross-checked against the TS native bridge).
     let key = generate_idempotency_key(
         ItemType::File,
         QueueOperation::Add,
@@ -174,7 +174,7 @@ fn test_idempotency_key_vectors() {
 
 #[test]
 fn test_tokenization_vectors() {
-    // Must match TypeScript native-bridge.test.ts
+    // Frozen golden vectors (formerly cross-checked against the TS native bridge).
     let tokens = tokenize("Hello World, this is a test!");
     assert!(tokens.contains(&"hello".to_string()));
     assert!(tokens.contains(&"world".to_string()));

@@ -134,7 +134,7 @@ pub fn build_rule_payload(input: RulePayloadInput<'_>) -> String {
 ///
 /// `metadata` is **always** present even when the map is empty (`{}`).
 ///
-/// Field name constants (from `native-bridge.ts` / `wqm_common::constants::field`):
+/// Field name constants (mirror `wqm_common::constants::field`):
 /// - `FIELD_CONTENT`      = `"content"`
 /// - `FIELD_DOCUMENT_ID`  = `"document_id"`
 /// - `FIELD_SOURCE_TYPE`  = `"source_type"`

@@ -9,7 +9,6 @@
 resolver = "2"
 members = [
     "common",
-    "common-node",
     "proto",
     "client",
     "cli",

@@ -35,7 +35,7 @@ pub const DEFAULT_DUPLICATION_THRESHOLD: f64 = 0.7;
 // List — Qdrant-first, mirror fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Payload field constants — mirrors `FIELD_*` from `native-bridge.ts`.
+/// Payload field constants — mirror `wqm_common::constants::field`.
 const FIELD_CONTENT: &str = "content";
 const FIELD_PROJECT_ID: &str = "project_id";
 const FIELD_TITLE: &str = "title";
