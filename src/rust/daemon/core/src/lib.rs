@@ -28,6 +28,7 @@ pub mod fts_batch_processor;
 pub mod git;
 pub mod graph;
 pub mod grouping;
+pub mod idf_rebalance;
 pub mod idle;
 pub mod idle_history;
 pub mod ignore_mtime;

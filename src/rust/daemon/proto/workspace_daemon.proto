@@ -1462,16 +1462,30 @@ message RenameTenantAdminResponse {
     string message = 3;
 }
 
-// RebalanceIdf Request
+// RebalanceIdf Request (#82 WI-f1 — full daemon-side engine).
+// The daemon reads corpus_statistics/sparse_vocabulary, computes IDF, performs
+// the Qdrant sparse-vector writes, and persists last_corrected_n itself.
 message RebalanceIdfRequest {
-    string collection = 1;                            // Collection to rebalance
-    int64 last_corrected_n = 2;                       // New last_corrected_n value
+    optional string collection = 1;   // Single collection, or all (with corpus stats) when unset
+    bool dry_run = 2;                 // Report would-be corrections without writing
+    double min_growth_pct = 3;        // Skip a collection whose N grew less than this since last run
 }
 
-// RebalanceIdf Response
+// Per-collection rebalance outcome.
+message PerCollectionRebalance {
+    string collection = 1;
+    uint64 current_n = 2;             // Corpus size used for correction
+    uint64 updated = 3;               // Points corrected (or, in dry-run, eligible)
+    optional string skipped_reason = 4;  // Set when the collection was skipped
+}
+
+// RebalanceIdf Response.
 message RebalanceIdfResponse {
     bool success = 1;
-    string message = 2;
+    bool dry_run = 2;
+    uint64 total_updated = 3;
+    repeated PerCollectionRebalance per_collection = 4;
+    string message = 5;
 }
 
 // TriggerReembed Request

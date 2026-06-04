@@ -397,6 +397,18 @@ impl GrpcServer {
             );
         }
 
+        // RebalanceIdf engine wiring: Qdrant client + SQLite pool (WI-f1).
+        if let Some(pool) = self.db_pool.clone() {
+            let storage_for_rebalance = self
+                .storage_client
+                .clone()
+                .unwrap_or_else(|| Arc::clone(local_storage_client));
+            admin_impl = admin_impl.with_rebalance_context(storage_for_rebalance, pool);
+            tracing::info!("AdminWriteService RebalanceIdf engine wiring complete");
+        } else {
+            tracing::warn!("AdminWriteService RebalanceIdf NOT wired: missing db_pool");
+        }
+
         tracing::info!(
             "Registered 5 write services via WriteActor for serialized SQLite mutations"
         );

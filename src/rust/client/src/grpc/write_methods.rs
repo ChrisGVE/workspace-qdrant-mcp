@@ -50,10 +50,47 @@ use tracing::warn;
 
 use wqm_proto::workspace_daemon::{
     DeleteRuleMirrorRequest, DeleteScratchpadMirrorRequest, EnqueueItemRequest,
-    EnqueueItemResponse, UpsertRuleMirrorRequest, UpsertScratchpadMirrorRequest,
+    EnqueueItemResponse, RebalanceIdfRequest, RebalanceIdfResponse, UpsertRuleMirrorRequest,
+    UpsertScratchpadMirrorRequest,
 };
 
 use super::client::DaemonClient;
+
+// =============================================================================
+// AdminWriteService — narrow allowlisted accessors
+// =============================================================================
+
+impl DaemonClient {
+    /// Run IDF drift correction (WI-f1, #82). The daemon owns the engine — it
+    /// reads corpus stats, corrects Qdrant sparse vectors, and persists
+    /// `last_corrected_n`. `collection = None` processes every collection with
+    /// corpus statistics; `dry_run` reports without writing.
+    ///
+    /// A narrow typed accessor so the CLI does not reach the raw
+    /// `AdminWriteService` client.
+    pub async fn rebalance_idf(
+        &mut self,
+        collection: Option<String>,
+        dry_run: bool,
+        min_growth_pct: f64,
+    ) -> Result<RebalanceIdfResponse, Status> {
+        let client = self.admin_write.clone();
+        self.call("rebalanceIdf", None, move || {
+            let mut c = client.clone();
+            let req = RebalanceIdfRequest {
+                collection: collection.clone(),
+                dry_run,
+                min_growth_pct,
+            };
+            async move {
+                c.rebalance_idf(tonic::Request::new(req))
+                    .await
+                    .map(|r| r.into_inner())
+            }
+        })
+        .await
+    }
+}
 
 // =============================================================================
 // QueueWriteService
