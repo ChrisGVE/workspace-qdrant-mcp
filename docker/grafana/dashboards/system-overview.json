@@ -1354,11 +1354,74 @@
       ]
     },
     {
+      "id": 31,
+      "title": "memexd CPU (%)",
+      "description": "memexd process CPU usage (100% = one full core), self-sampled from /proc/self/stat. Works on WSL2/Docker-Desktop where cAdvisor cannot see the container cgroups.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "memexd_process_cpu_percent",
+          "legendFormat": "memexd cpu %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "memexd Memory (RSS)",
+      "description": "memexd process resident set size, self-sampled from /proc/self/statm. Under jemalloc this stays bounded (~2-4 GB) instead of climbing toward host memory.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never", "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 6000000000 },
+              { "color": "red", "value": 10000000000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "memexd_process_resident_memory_bytes",
+          "legendFormat": "memexd rss",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 30,
       "title": "Recent Error Traces",
       "description": "Spans reported with status=error, from Tempo (TraceQL `{ status = error }`). Click a Trace ID to open the full trace. Empty = no error spans in the window.",
       "type": "table",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 64 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 72 },
       "datasource": { "type": "tempo", "uid": "tempo" },
       "options": { "showHeader": true },
       "targets": [
