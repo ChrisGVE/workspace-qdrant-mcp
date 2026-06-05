@@ -100,7 +100,25 @@ async fn empty_pattern_returns_error() {
     let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
-    assert_eq!(resp.message.as_deref(), Some("Search pattern is required"));
+    assert_eq!(
+        resp.message.as_deref(),
+        Some("Search pattern is required (pass it as 'pattern')")
+    );
+}
+
+#[test]
+fn from_args_accepts_query_alias_for_pattern() {
+    // #87: callers carry the `search` tool's "query" argument name over.
+    let args: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(r#"{"query": "needle"}"#).unwrap();
+    let input = GrepInput::from_args(&args);
+    assert_eq!(input.pattern, "needle");
+
+    // Canonical "pattern" wins when both are present.
+    let args: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(r#"{"pattern": "canonical", "query": "alias"}"#).unwrap();
+    let input = GrepInput::from_args(&args);
+    assert_eq!(input.pattern, "canonical");
 }
 
 #[tokio::test]

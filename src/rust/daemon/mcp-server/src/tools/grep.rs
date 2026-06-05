@@ -80,8 +80,12 @@ impl GrepInput {
     ///
     /// Mirrors the destructuring defaults in grep.ts lines 120-130.
     pub fn from_args(args: &serde_json::Map<String, serde_json::Value>) -> Self {
+        // "query" is accepted as an alias: the sibling `search` tool names its
+        // text argument "query", and callers regularly carry that habit over
+        // (#87). The schema documents "pattern" as canonical.
         let pattern = args
             .get("pattern")
+            .or_else(|| args.get("query"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -215,7 +219,7 @@ where
     // Mirror: check pattern BEFORE creating the timer; use literal 0 latency.
     if input.pattern.is_empty() {
         return ok_text(&grep_error(
-            "Search pattern is required".to_string(),
+            "Search pattern is required (pass it as 'pattern')".to_string(),
             0, // TS: grepError(..., 0) — literal zero, timer not yet started
         ));
     }
