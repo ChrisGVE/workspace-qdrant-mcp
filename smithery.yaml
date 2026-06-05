@@ -1,13 +1,21 @@
-# Smithery configuration: https://smithery.ai/docs/config#smitheryyaml
+# Smithery configuration: https://smithery.ai/docs/build/project-config/smithery.yaml
 #
-# This launches the Rust `workspace-qdrant-mcp` binary in stdio mode.
+# Docker-based deployment: Smithery builds docker/Dockerfile.mcp with the
+# repository root as build context and runs the Rust `workspace-qdrant-mcp`
+# binary inside the container over stdio.
 #
-# Prerequisites (NOT auto-installed by Smithery — the binary is not an npm
-# package): install the workspace-qdrant stack first (see the repo install.sh /
-# release archives), which provides `workspace-qdrant-mcp`, the `memexd` daemon,
-# and `wqm` on PATH. The MCP server is a read-only client: it reaches the
-# running memexd over gRPC (WQM_DAEMON_ENDPOINT, default localhost:50051) and
-# reads Qdrant directly (QDRANT_URL). memexd + Qdrant must be running.
+# The container holds ONLY the MCP server — a read-only client. It requires a
+# separately running memexd daemon (gRPC, `daemonEndpoint`) and a Qdrant
+# instance (`qdrantUrl` / `qdrantApiKey`); point both at your own
+# infrastructure. Endpoints must be reachable from wherever the container
+# runs — `localhost` inside a hosted container is the container itself, so
+# use a routable host or tunnel for remote deployments.
+
+build:
+  # Path to the Dockerfile, relative to the build context.
+  dockerfile: docker/Dockerfile.mcp
+  # Build context: repository root (the Dockerfile COPYs src/rust/ and assets/).
+  dockerBuildPath: .
 
 startCommand:
   type: stdio
@@ -18,7 +26,7 @@ startCommand:
     properties:
       qdrantUrl:
         type: string
-        description: URL of the Qdrant instance to connect to.
+        description: URL of the Qdrant REST endpoint the MCP server reads from.
         default: "http://localhost:6333"
       qdrantApiKey:
         type: string
@@ -26,8 +34,15 @@ startCommand:
         default: ""
       daemonEndpoint:
         type: string
-        description: gRPC endpoint of the memexd daemon (host:port).
+        description: gRPC endpoint (host:port) of your running memexd daemon.
         default: "localhost:50051"
+      httpToken:
+        type: string
+        description: >-
+          Optional bearer token (>=16 chars) for http-mode deployments
+          (MCP_SERVER_MODE=http); also reused as the metrics scrape token.
+          stdio deployments (the Smithery default) ignore it.
+        default: ""
   commandFunction:
     |-
     (config) => ({
@@ -37,9 +52,11 @@ startCommand:
         QDRANT_URL: config.qdrantUrl,
         ...(config.qdrantApiKey ? { QDRANT_API_KEY: config.qdrantApiKey } : {}),
         ...(config.daemonEndpoint ? { WQM_DAEMON_ENDPOINT: config.daemonEndpoint } : {}),
+        ...(config.httpToken ? { MCP_HTTP_TOKEN: config.httpToken, MCP_METRICS_TOKEN: config.httpToken } : {}),
       }
     })
   exampleConfig:
     qdrantUrl: "http://localhost:6333"
     qdrantApiKey: ""
     daemonEndpoint: "localhost:50051"
+    httpToken: ""
