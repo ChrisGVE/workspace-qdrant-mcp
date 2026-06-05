@@ -14,8 +14,8 @@ The system consists of three primary components that work together:
                       │ MCP Protocol (stdio)
                       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     MCP Server (TypeScript)                     │
-│                  src/typescript/mcp-server/                     │
+│              MCP Server (Rust: workspace-qdrant-mcp)            │
+│              src/rust/daemon/mcp-server/                        │
 │         Exposes: search, retrieve, rules, store tools           │
 └──────────┬──────────────────────────────────────────┬───────────┘
            │ gRPC (localhost:50051)                   │ HTTP REST
@@ -167,6 +167,7 @@ Expand-Archive wqm.zip -DestinationPath "$env:LOCALAPPDATA\Programs\wqm"
 Each release includes:
 - `wqm` - CLI binary
 - `memexd` - Daemon binary
+- `workspace-qdrant-mcp` - MCP server binary
 - `grammars/` - Pre-compiled tree-sitter grammars
 - `assets/` - Default configuration files
 
@@ -177,7 +178,6 @@ For development or custom builds:
 ```bash
 # Prerequisites
 # - Rust 1.75+ (rustup recommended)
-# - Node.js 18+ with npm
 # - Protocol Buffers compiler (protoc)
 
 # Clone and build
@@ -188,12 +188,12 @@ cd workspace-qdrant-mcp
 ./install.sh                    # Interactive mode
 ./install.sh --release          # Release build
 ./install.sh --prefix=/usr/local # Custom install location
-./install.sh --no-daemon        # CLI only, no daemon
+./install.sh --cli-only         # CLI only, skip daemon and MCP server
 
 # Or build manually
-cd src/rust/daemon && cargo build --release
-cd src/rust/cli && cargo build --release
-cd src/typescript/mcp-server && npm install && npm run build
+cd src/rust && cargo build --release -p memexd
+cd src/rust && cargo build --release -p wqm-cli
+cd src/rust && cargo build --release -p mcp-server
 ```
 
 **Install Script Options:**
@@ -205,19 +205,6 @@ cd src/typescript/mcp-server && npm install && npm run build
 | `--cli-only` | Build only CLI, skip daemon |
 | `--no-service` | Skip daemon service setup instructions |
 | `--no-verify` | Skip verification steps |
-
-#### npm Global Install (MCP Server Only)
-
-For MCP server without daemon:
-
-```bash
-npm install -g workspace-qdrant-mcp
-
-# Verify installation
-npx workspace-qdrant-mcp --version
-```
-
-> **Note:** The npm package only includes the MCP server. For full functionality, install the Rust daemon separately.
 
 #### Package Managers
 
@@ -384,14 +371,13 @@ On first run, the system initializes automatically:
 
 #### MCP Client Configuration
 
-**Claude Desktop (`~/.config/claude/config.json`):**
+**Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):**
 
 ```json
 {
   "mcpServers": {
-    "workspace-qdrant": {
-      "command": "npx",
-      "args": ["workspace-qdrant-mcp"],
+    "workspace-qdrant-mcp": {
+      "command": "workspace-qdrant-mcp",
       "env": {
         "QDRANT_URL": "http://localhost:6333"
       }
@@ -400,21 +386,13 @@ On first run, the system initializes automatically:
 }
 ```
 
-**Claude Code (`.mcp.json` in project root):**
+**Claude Code:**
 
-```json
-{
-  "mcpServers": {
-    "workspace-qdrant": {
-      "command": "npx",
-      "args": ["workspace-qdrant-mcp"],
-      "env": {
-        "QDRANT_URL": "http://localhost:6333"
-      }
-    }
-  }
-}
+```bash
+claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
 ```
+
+The `workspace-qdrant-mcp` binary must be on `PATH` (installed by `install.sh` or from a release archive). It connects to `memexd` via `WQM_DAEMON_ENDPOINT` (default `localhost:50051`) and reads Qdrant directly via `QDRANT_URL`.
 
 ### Service Management
 
