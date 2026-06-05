@@ -56,18 +56,16 @@ jobs:
       - name: Run cargo audit
         working-directory: src/rust
         run: |
+          # Remaining accepted findings:
+          #   RUSTSEC-2023-0071 (rsa, Marvin timing sidechannel): pulled in
+          #     only as sqlx's optional mysql backend, which no workspace
+          #     crate enables — the code is never compiled. No patched
+          #     release exists upstream.
+          #   RUSTSEC-2026-0002 (lru IterMut unsoundness): transitive via
+          #     ratatui 0.29 (wqm-cli TUI); cleared by a future ratatui bump.
           cargo audit --ignore yanked \
-            --ignore RUSTSEC-2024-0437 \
             --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2021-0145 \
-            --ignore RUSTSEC-2026-0002 \
-            --ignore RUSTSEC-2026-0066 \
-            --ignore RUSTSEC-2026-0112 \
-            --ignore RUSTSEC-2026-0113 \
-            --ignore RUSTSEC-2026-0145 \
-            --ignore RUSTSEC-2026-0098 \
-            --ignore RUSTSEC-2026-0099 \
-            --ignore RUSTSEC-2026-0104
+            --ignore RUSTSEC-2026-0002
 
   secrets-scan:
     name: Secrets scan
