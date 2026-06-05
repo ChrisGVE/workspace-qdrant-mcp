@@ -91,10 +91,16 @@ jobs:
 
       # Host port 9091 maps to container port 6337 — the image CMD starts
       # memexd with `--metrics-port 6337` (EXPOSE 6337 in Dockerfile.memexd).
+      #
+      # OPENAI_API_KEY: the baked-in default config selects the
+      # openai_compatible dense embedding provider, whose constructor
+      # requires the key env var to exist; startup aborts without it. The
+      # smoke test never embeds anything, so a placeholder value is enough.
       - name: Start memexd container
         run: |
           docker run -d --name memexd-test \
             -e QDRANT_URL=http://localhost:6333 \
+            -e OPENAI_API_KEY=ci-smoke-test-placeholder \
             -v /tmp/wqm-ci/config.yaml:/etc/wqm/config.yaml:ro \
             -v /tmp/wqm-ci/override.yaml:/etc/docker-compose-wqm.override.yaml:ro \
             -p 9091:6337 \
@@ -145,8 +151,12 @@ jobs:
           echo "Checking container logs for errors..."
           logs=$(docker logs memexd-test)
 
-          # Check for ERROR or FATAL patterns, but exclude expected Qdrant connection failures
-          if echo "$logs" | grep -i -E "(ERROR|FATAL)" | grep -v -i -E "(qdrant.*connection|qdrant.*unreachable|qdrant.*failed to connect)"; then
+          # Match only ERROR/FATAL log-level tokens (uppercase, word-bounded) —
+          # a case-insensitive substring match also fired on benign WARN lines
+          # like "frame size errors persist". Any line mentioning Qdrant is
+          # excluded: this smoke test runs no Qdrant service, so connection
+          # errors are expected regardless of their exact phrasing.
+          if echo "$logs" | grep -E "\b(ERROR|FATAL)\b" | grep -v -i "qdrant"; then
             echo "ERROR: Found unexpected error messages in logs"
             echo "Full logs:"
             echo "$logs"
