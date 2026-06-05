@@ -426,7 +426,7 @@ fn test_extract_text_rejects_binary_nul_bytes() {
     // Mach-O-like header: magic + NUL padding (exactly what `bookshelf` looked like).
     let mut tmp = NamedTempFile::new().unwrap();
     let mut buf = vec![0xCF, 0xFA, 0xED, 0xFE];
-    buf.extend(std::iter::repeat(0u8).take(64));
+    buf.extend(std::iter::repeat_n(0u8, 64));
     buf.extend_from_slice(b"__TEXT__text");
     tmp.write_all(&buf).unwrap();
     tmp.flush().unwrap();
