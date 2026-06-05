@@ -4,9 +4,9 @@ workspace-qdrant-mcp consists of three components:
 
 - **memexd** — Rust daemon for file watching, embedding generation, and queue processing
 - **wqm** — Rust CLI for service management, configuration, and queue inspection
-- **MCP Server** — TypeScript server exposing the 6 MCP tools to LLM clients
+- **workspace-qdrant-mcp** — Rust MCP server exposing the MCP tools to LLM clients
 
-All three components must be installed for full functionality. The MCP Server and CLI can operate without the daemon for limited read-only queries, but file indexing and write operations require `memexd`.
+All three components must be installed for full functionality. The MCP server connects to `memexd` over gRPC and reads Qdrant directly; both `memexd` and Qdrant must be running for full operation.
 
 ---
 
@@ -163,21 +163,6 @@ $env:PATH += ";$env:LOCALAPPDATA\wqm\bin"
 
 ---
 
-### npm Global Install (MCP Server only)
-
-The MCP Server can be installed independently via npm. This does not install the daemon or CLI.
-
-```bash
-npm install -g workspace-qdrant-mcp
-
-# Verify
-npx workspace-qdrant-mcp --version
-```
-
-The npm package is the recommended installation method when you only need the MCP Server and manage the daemon separately.
-
----
-
 ### Build from Source
 
 Use this method for development or when pre-built binaries are unavailable for your platform.
@@ -188,7 +173,6 @@ Use this method for development or when pre-built binaries are unavailable for y
 |-------------|-----------------|-------|
 | Rust (via rustup) | 1.75 | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | ONNX Runtime static library | 1.23.x | See below |
-| Node.js | 18 | Required for MCP Server only |
 | protoc | Any recent | Required for gRPC code generation |
 
 #### ONNX Runtime static library
@@ -234,9 +218,10 @@ ORT_LIB_LOCATION=/path/to/onnxruntime/lib \
   --package wqm-cli
 
 # Build MCP Server
-cd src/typescript/mcp-server
-npm install
-npm run build
+ORT_LIB_LOCATION=/path/to/onnxruntime/lib \
+  cargo build --release \
+  --manifest-path src/rust/Cargo.toml \
+  --package mcp-server
 ```
 
 Replace `/path/to/onnxruntime/lib` with the absolute path to your ONNX Runtime library directory (e.g. `$HOME/.onnxruntime-static/lib`). Do not use `$HOME` in the value — shell variable expansion may not occur in all invocation contexts. Use an explicit absolute path.
@@ -247,6 +232,7 @@ Replace `/path/to/onnxruntime/lib` with the absolute path to your ONNX Runtime l
 # Copy to ~/.local/bin (or any directory on your PATH)
 cp src/rust/target/release/memexd ~/.local/bin/memexd
 cp src/rust/target/release/wqm ~/.local/bin/wqm
+cp src/rust/target/release/workspace-qdrant-mcp ~/.local/bin/workspace-qdrant-mcp
 ```
 
 ---
