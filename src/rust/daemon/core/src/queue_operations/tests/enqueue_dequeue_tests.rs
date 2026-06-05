@@ -286,9 +286,15 @@ async fn test_depth_by_type_status_excludes_done() {
 /// Regression for issue #59: a single `enqueue_unified_batch` call must
 /// commit hundreds of rows in one SQLite transaction (one commit) rather
 /// than the N transactions that per-row `enqueue_unified` calls would
-/// generate. We rely on the fact that SQLite's `data_version` PRAGMA is
-/// bumped once per write commit, so a 10-row batch advances it by
-/// exactly 1 — not 10.
+/// generate.
+///
+/// `PRAGMA data_version` changes only when a *different* connection
+/// commits — a connection's own writes never bump its view. Both reads
+/// therefore pin one dedicated probe connection (held across the batch so
+/// the write checks out a different pooled connection); the probe then
+/// observes exactly one increment per external commit. Reading through the
+/// pool instead would be racy: if the `after` read landed on the very
+/// connection that performed the batch, the delta would be 0.
 #[tokio::test]
 async fn test_enqueue_unified_batch_is_single_transaction() {
     let temp_dir = tempdir().unwrap();
@@ -298,8 +304,12 @@ async fn test_enqueue_unified_batch_is_single_transaction() {
     let manager = QueueManager::new(pool.clone());
     manager.init_unified_queue().await.unwrap();
 
+    // Dedicated probe connection (pool max_connections = 10, so holding it
+    // cannot starve the batch write below).
+    let mut probe = pool.acquire().await.unwrap();
+
     let before: i64 = sqlx::query_scalar("PRAGMA data_version")
-        .fetch_one(&pool)
+        .fetch_one(&mut *probe)
         .await
         .unwrap();
 
@@ -320,7 +330,7 @@ async fn test_enqueue_unified_batch_is_single_transaction() {
         .unwrap();
 
     let after: i64 = sqlx::query_scalar("PRAGMA data_version")
-        .fetch_one(&pool)
+        .fetch_one(&mut *probe)
         .await
         .unwrap();
 
