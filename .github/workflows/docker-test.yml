@@ -185,7 +185,6 @@ jobs:
             -e MCP_HTTP_HOST=0.0.0.0 \
             -e MCP_HTTP_TOKEN=testtokenfortesting1234 \
             -p 6335:6335 \
-            -p 9092:9092 \
             wqm-mcp:test
 
       - name: Wait for MCP HTTP healthz
@@ -216,8 +215,12 @@ jobs:
 
       - name: Validate /metrics endpoint (http mode)
         run: |
-          echo "Checking /metrics endpoint..."
-          metrics_output=$(curl -fsS http://localhost:9092/metrics)
+          # The metrics server binds MCP_METRICS_HOST (default 127.0.0.1) and,
+          # when bound non-loopback, requires a bearer token (MCP_METRICS_TOKEN,
+          # fail-closed). Here it binds loopback inside the container, so probe it
+          # over loopback via `docker exec` rather than the published port.
+          echo "Checking /metrics endpoint (in-container loopback)..."
+          metrics_output=$(docker exec wqm-mcp-http curl -fsS http://127.0.0.1:9092/metrics)
           echo "Metrics output preview:"
           echo "$metrics_output" | head -10
           echo "✓ /metrics endpoint reachable"
