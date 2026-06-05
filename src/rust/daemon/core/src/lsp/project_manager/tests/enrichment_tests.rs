@@ -442,3 +442,61 @@ async fn test_warmup_grace_defers_then_allows_readiness() {
         "server should be ready after warm-up grace elapses"
     );
 }
+
+#[tokio::test]
+async fn test_ready_signal_promotes_before_grace() {
+    use crate::lsp::detection::{DetectedServer, ServerCapabilities};
+    use crate::lsp::{LspConfig, ServerInstance};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    let manager = LanguageServerManager::new(ProjectLspConfig::default())
+        .await
+        .unwrap();
+    let project = "signal-proj";
+    let file = Path::new("/test/lib.rs"); // → Language::Rust
+    let key = ProjectLanguageKey::new(project, Language::Rust);
+
+    let detected = DetectedServer {
+        name: "rust-analyzer".to_string(),
+        path: PathBuf::from("/usr/bin/rust-analyzer"),
+        languages: vec![Language::Rust],
+        version: None,
+        capabilities: ServerCapabilities::default(),
+        priority: 1,
+    };
+    let instance = ServerInstance::new(detected, LspConfig::default())
+        .await
+        .unwrap();
+    manager
+        .instances
+        .write()
+        .await
+        .insert(key.clone(), Arc::new(tokio::sync::Mutex::new(instance)));
+
+    // Warm-up far in the FUTURE (grace would say "not ready")…
+    manager
+        .ready_at
+        .write()
+        .await
+        .insert(key.clone(), Instant::now() + Duration::from_secs(600));
+    // …but the server signalled indexing-done → ready now.
+    let sig = Arc::new(AtomicBool::new(true));
+    manager
+        .ready_signals
+        .write()
+        .await
+        .insert(key.clone(), sig.clone());
+    assert!(
+        manager.is_server_ready_for_file(project, file).await,
+        "ready signal should promote readiness ahead of the warm-up grace"
+    );
+
+    // Clearing the signal falls back to the (future) grace → not ready.
+    sig.store(false, Ordering::Relaxed);
+    assert!(
+        !manager.is_server_ready_for_file(project, file).await,
+        "without the signal, the future grace should keep it not-ready"
+    );
+}

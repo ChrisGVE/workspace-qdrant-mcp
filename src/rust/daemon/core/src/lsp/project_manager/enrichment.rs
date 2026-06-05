@@ -51,7 +51,21 @@ impl LanguageServerManager {
             return false;
         }
 
-        // …and it must be past its warm-up grace. Firing enrichment at a server
+        // Fast path (Phase 2): the server signalled it finished its initial
+        // indexing → ready now, ahead of the warm-up grace.
+        {
+            let signals = self.ready_signals.read().await;
+            let signalled = signals
+                .iter()
+                .find(|(k, _)| k.project_id == project_id && k.language == language)
+                .map(|(_, s)| s.load(std::sync::atomic::Ordering::Relaxed))
+                .unwrap_or(false);
+            if signalled {
+                return true;
+            }
+        }
+
+        // …otherwise it must be past its warm-up grace. Firing enrichment at a server
         // still building its initial index makes the first request time out;
         // instead we defer (the chunk is marked pending and re-enriched later by
         // the metadata-uplift pass). A missing ready-at entry (legacy/restored

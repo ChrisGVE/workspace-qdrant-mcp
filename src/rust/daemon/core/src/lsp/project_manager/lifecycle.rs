@@ -123,6 +123,19 @@ impl LanguageServerManager {
             "Starting language server"
         );
 
+        // Phase 3 stagger: hold a start permit through the server's start +
+        // warm-up/index window so at most `max_concurrent_starts` heavyweight
+        // indexers run concurrently. Acquired before spawn; released after the
+        // warm-up grace (the proxy for "initial indexing done"). The semaphore is
+        // never closed, so acquire_owned cannot fail. If `create_and_start_instance`
+        // errors below, the permit is dropped on return (releases immediately).
+        let permit = self
+            .start_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("LSP start semaphore is never closed");
+
         // Create and start the server instance
         let instance = self
             .create_and_start_instance(
@@ -138,6 +151,21 @@ impl LanguageServerManager {
         // Store the state and instance
         self.register_server(&key, project_id, &language, project_root, &instance)
             .await;
+
+        // Release the permit once this server is ready — either it signalled that
+        // its initial indexing finished (Phase 2) or the warm-up grace elapsed as
+        // a fallback — so the next queued start only begins after a slot frees up.
+        let grace = warmup_grace_for(&language, self.config.lsp_config.warmup_grace);
+        let ready_signal = instance.ready_signal();
+        tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + grace;
+            while !ready_signal.load(std::sync::atomic::Ordering::Relaxed)
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            drop(permit);
+        });
 
         Ok(Arc::new(instance))
     }
@@ -233,6 +261,12 @@ impl LanguageServerManager {
             let mut ready_at = self.ready_at.write().await;
             ready_at.insert(key.clone(), Instant::now() + grace);
         }
+        {
+            // Phase 2: share the instance's indexing-done signal so the readiness
+            // check can promote the server to ready ahead of the grace.
+            let mut ready_signals = self.ready_signals.write().await;
+            ready_signals.insert(key.clone(), instance.ready_signal());
+        }
 
         tracing::info!(
             project_id = project_id,
@@ -269,6 +303,10 @@ impl LanguageServerManager {
         {
             let mut ready_at = self.ready_at.write().await;
             ready_at.remove(&key);
+        }
+        {
+            let mut ready_signals = self.ready_signals.write().await;
+            ready_signals.remove(&key);
         }
 
         if let Some(instance) = instance_opt {

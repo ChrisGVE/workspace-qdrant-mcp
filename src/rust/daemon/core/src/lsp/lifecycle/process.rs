@@ -3,9 +3,10 @@
 //! Handles spawning LSP server processes with stdio transport,
 //! process lifecycle (start, stop, shutdown), and accessor methods.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -75,6 +76,26 @@ pub struct ServerInstance {
     pub(super) shutdown_signal: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     pub(super) restart_policy: RestartPolicy,
     pub(super) config: LspConfig,
+    /// Flipped true when the server signals it finished its initial indexing
+    /// (a workDoneProgress "end" for an indexing token, or a jdtls
+    /// `language/status` Started/ServiceReady). Lets enrichment start as soon as
+    /// the server is genuinely ready, ahead of the fixed warm-up grace. Shared
+    /// (Arc) across clones and with the manager's readiness check.
+    pub(super) ready_signal: Arc<AtomicBool>,
+}
+
+/// Heuristic: does a workDoneProgress title denote initial indexing/loading?
+/// Matches the progress titles heavy servers emit while building their index
+/// (rust-analyzer "Indexing"/"Roots Scanned", gopls "Setting up workspace",
+/// clangd "indexing", jdtls build/import). Used to avoid treating unrelated
+/// progress (e.g. a single request) as "server ready".
+fn is_indexing_title(title: &str) -> bool {
+    let t = title.to_ascii_lowercase();
+    [
+        "index", "cache", "load", "workspace", "scan", "building", "roots", "metadata",
+    ]
+    .iter()
+    .any(|kw| t.contains(kw))
 }
 
 impl ServerInstance {
@@ -106,6 +127,7 @@ impl ServerInstance {
             shutdown_signal: Arc::new(Mutex::new(None)),
             restart_policy: RestartPolicy::default(),
             config,
+            ready_signal: Arc::new(AtomicBool::new(false)),
         };
 
         Ok(instance)
@@ -166,6 +188,68 @@ impl ServerInstance {
             if let Some(stdin) = child.stdin.take() {
                 self.rpc_client.connect_stdio(stdin, stdout).await?;
             }
+        }
+
+        // Phase 2: flip `ready_signal` when the server reports it finished its
+        // initial indexing, so enrichment can begin ahead of the fixed warm-up
+        // grace. Correlates workDoneProgress begin/end by token, only treating
+        // ends of indexing-titled progress as "ready" (avoids false-early on
+        // unrelated progress), plus jdtls `language/status` Started/ServiceReady.
+        {
+            let ready_signal = self.ready_signal.clone();
+            let indexing_tokens: Arc<StdMutex<HashSet<String>>> =
+                Arc::new(StdMutex::new(HashSet::new()));
+            self.rpc_client
+                .set_notification_handler(move |notif| {
+                    let params = match notif.params.as_ref() {
+                        Some(p) => p,
+                        None => return,
+                    };
+                    match notif.method.as_str() {
+                        "$/progress" => {
+                            let token = params.get("token").map(|t| t.to_string());
+                            let value = params.get("value");
+                            match value.and_then(|v| v.get("kind")).and_then(|k| k.as_str()) {
+                                Some("begin") => {
+                                    let title = value
+                                        .and_then(|v| v.get("title"))
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or("");
+                                    if is_indexing_title(title) {
+                                        if let (Some(tok), Ok(mut set)) =
+                                            (token, indexing_tokens.lock())
+                                        {
+                                            set.insert(tok);
+                                        }
+                                    }
+                                }
+                                Some("end") => {
+                                    if let Some(tok) = token {
+                                        let was_indexing = indexing_tokens
+                                            .lock()
+                                            .map(|mut s| s.remove(&tok))
+                                            .unwrap_or(false);
+                                        if was_indexing {
+                                            ready_signal.store(true, Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        "language/status" => {
+                            let ty =
+                                params.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            if ty.eq_ignore_ascii_case("Started")
+                                || ty.eq_ignore_ascii_case("ServiceReady")
+                            {
+                                ready_signal.store(true, Ordering::Relaxed);
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .await;
         }
 
         // Store the process
@@ -311,6 +395,13 @@ impl ServerInstance {
         self.rpc_client.clone()
     }
 
+    /// Shared "initial indexing finished" signal (Phase 2 readiness). The
+    /// manager clones this to gate enrichment on real readiness instead of the
+    /// fixed warm-up grace alone.
+    pub fn ready_signal(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.ready_signal.clone()
+    }
+
     /// Get health metrics (read-write access for manager/restart logic)
     pub fn health_metrics(&self) -> &Arc<RwLock<HealthMetrics>> {
         &self.health_metrics
@@ -360,6 +451,7 @@ impl Clone for ServerInstance {
             shutdown_signal: Arc::new(Mutex::new(None)),
             restart_policy: self.restart_policy.clone(),
             config: self.config.clone(),
+            ready_signal: self.ready_signal.clone(),
         }
     }
 }
@@ -378,6 +470,20 @@ mod tests {
         assert!(server_launch_args("gopls").is_empty());
         // jdtls is wrapped; the wrapper supplies every java flag itself.
         assert!(server_launch_args("jdtls").is_empty());
+    }
+
+    #[test]
+    fn test_is_indexing_title() {
+        // Indexing/loading progress titles → treated as warm-up signals.
+        assert!(is_indexing_title("Indexing"));
+        assert!(is_indexing_title("Roots Scanned 1/3"));
+        assert!(is_indexing_title("Setting up workspace"));
+        assert!(is_indexing_title("Loading build metadata"));
+        assert!(is_indexing_title("Building cache"));
+        // Unrelated progress must NOT be treated as readiness.
+        assert!(!is_indexing_title("Formatting document"));
+        assert!(!is_indexing_title("Running tests"));
+        assert!(!is_indexing_title(""));
     }
 
     #[test]

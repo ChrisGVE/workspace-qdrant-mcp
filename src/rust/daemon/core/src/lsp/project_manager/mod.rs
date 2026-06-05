@@ -33,6 +33,7 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,7 +41,7 @@ use chrono::{DateTime, Utc};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use super::{Language, LspConfig, LspError, ServerInstance, ServerStatus};
 use crate::config::LspSettings;
@@ -136,6 +137,19 @@ fn default_max_global_servers() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(3)
+}
+
+/// Max LSP servers allowed to be in their start + warm-up/index window at once.
+/// Each permit is held from spawn until the server's warm-up grace elapses (the
+/// proxy for "initial indexing done"), so activating many projects doesn't fire
+/// a thundering herd of heavyweight indexers simultaneously. Override:
+/// `WQM_LSP_MAX_CONCURRENT_STARTS`. Defaults to 2; clamped to >= 1.
+fn default_max_concurrent_starts() -> usize {
+    std::env::var("WQM_LSP_MAX_CONCURRENT_STARTS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(2)
 }
 
 /// Configuration for per-project LSP management
@@ -406,6 +420,11 @@ pub struct LanguageServerManager {
     /// requests that time out. Kept separate from the instance `Mutex` so the
     /// readiness check never blocks behind an in-flight LSP request.
     pub(crate) ready_at: Arc<RwLock<HashMap<ProjectLanguageKey, std::time::Instant>>>,
+    /// Per-server "initial indexing finished" signals (Phase 2). When set, the
+    /// server is treated as ready ahead of its warm-up grace. Cloned from each
+    /// instance at registration so the readiness check is lock-free (an atomic
+    /// load) and never blocks behind an in-flight LSP request on the instance.
+    pub(crate) ready_signals: Arc<RwLock<HashMap<ProjectLanguageKey, Arc<AtomicBool>>>>,
     /// Enrichment cache: (project_id, file_path, position) -> enrichment.
     /// Bounded LRU — see `ENRICHMENT_CACHE_CAPACITY`. `LruCache::get` mutates
     /// recency, so this is a `Mutex` (not `RwLock`): even reads take the lock.
@@ -418,6 +437,10 @@ pub struct LanguageServerManager {
     pub(crate) metrics: Arc<RwLock<LspMetrics>>,
     /// Set of currently active project IDs (for restore filtering)
     pub(crate) active_projects: Arc<RwLock<HashSet<String>>>,
+    /// Limits how many servers may be in their start + warm-up/index window at
+    /// once (Phase 3 stagger). A permit is acquired before spawning and released
+    /// after the warm-up grace, so heavy indexers don't all run concurrently.
+    pub(crate) start_semaphore: Arc<Semaphore>,
 }
 
 impl LanguageServerManager {
@@ -428,11 +451,13 @@ impl LanguageServerManager {
             servers: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
             ready_at: Arc::new(RwLock::new(HashMap::new())),
+            ready_signals: Arc::new(RwLock::new(HashMap::new())),
             cache: Arc::new(Mutex::new(LruCache::new(enrichment_cache_capacity()))),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(LspMetrics::new())),
             active_projects: Arc::new(RwLock::new(HashSet::new())),
+            start_semaphore: Arc::new(Semaphore::new(default_max_concurrent_starts())),
         })
     }
 
