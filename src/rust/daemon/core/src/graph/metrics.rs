@@ -633,11 +633,7 @@ mod tests {
                     "{} missing graph_type",
                     f.name()
                 );
-                assert!(
-                    labels.contains(&"backend"),
-                    "{} missing backend",
-                    f.name()
-                );
+                assert!(labels.contains(&"backend"), "{} missing backend", f.name());
                 let has_layer = labels.contains(&"layer");
                 if f.name() == "wqm_memexd_graph_extract_duration_seconds" {
                     assert!(has_layer, "extract_duration must carry layer");

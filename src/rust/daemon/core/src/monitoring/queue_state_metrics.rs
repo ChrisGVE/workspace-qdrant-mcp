@@ -134,11 +134,7 @@ mod tests {
             // All four fixed labels emitted, none outside the enum.
             assert_eq!(fam.get_metric().len(), 4, "{name} emits all four statuses");
             for metric in fam.get_metric() {
-                let status = metric
-                    .get_label()
-                    .first()
-                    .map(|l| l.value())
-                    .unwrap_or("");
+                let status = metric.get_label().first().map(|l| l.value()).unwrap_or("");
                 assert!(
                     DESTINATION_STATUSES.contains(&status),
                     "unexpected status label: {status}"

@@ -145,9 +145,7 @@ fn build_snapshot() -> HashMap<String, FamilySamples> {
             let attributes: Vec<KeyValue> = metric
                 .get_label()
                 .iter()
-                .map(|label| {
-                    KeyValue::new(label.name().to_string(), label.value().to_string())
-                })
+                .map(|label| KeyValue::new(label.name().to_string(), label.value().to_string()))
                 .collect();
             let value = match ty {
                 MetricType::GAUGE => metric.get_gauge().value(),
