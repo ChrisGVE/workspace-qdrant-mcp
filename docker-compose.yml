@@ -86,14 +86,16 @@ services:
     # zombies under PID 1 — they accumulate and eventually wedge the container so
     # Docker cannot even stop it ("PID <n> is zombie and can not be killed").
     init: true
-    # Cap the cgroup memory — page cache INCLUDED. The runaway that froze the
-    # host was page cache from heavy indexing I/O ballooning the WSL2 VM, NOT the
-    # daemon's heap (its RSS-based breaker never fired; RSS stayed <2GB). The
-    # RSS breaker can't see cache; a cgroup limit forces the kernel to reclaim
-    # cache within the limit instead of filling the VM. 8GB leaves ~6GB of cache
-    # headroom above the <2GB working set. Tune via WQM_MEMEXD_MEM_LIMIT.
-    mem_limit: ${WQM_MEMEXD_MEM_LIMIT:-8g}
-    mem_reservation: 2g
+    # NOTE: a hard `mem_limit` (cgroup memory.max) is intentionally NOT set here.
+    # The runaway memory is page cache from heavy indexing I/O — and Linux page
+    # cache ALWAYS grows to fill whatever memory.max you give it, then trips the
+    # cgroup "oom" pressure event (oom_kill=0, it's reclaimable cache), which
+    # Docker turns into a container restart → a ~40s restart loop. RSS (anon)
+    # stays <2GB, so a per-container cap is the wrong tool. Host protection lives
+    # at the WSL2 layer instead: ~/.wslconfig caps the VM (memory=80GB) and
+    # autoMemoryReclaim returns idle cache to Windows, so cache can grow/reclaim
+    # freely inside the VM without starving the host. The real reduction is a
+    # narrower watch scope (see WQM_DEV_ROOT / active projects).
     <<: *restart
     logging: *default-logging
     depends_on:
