@@ -93,6 +93,7 @@ claude mcp list
 | `QDRANT_URL` | No | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | No | (none) | API key for Qdrant Cloud |
 | `WQM_DAEMON_ENDPOINT` | No | `localhost:50051` | gRPC address of the memexd daemon |
+| `WQM_DATABASE_PATH` | No | (XDG state path) | Override path to the read-only state SQLite DB used for project/queue lookups |
 | `WQM_LOG_LEVEL` | No | `INFO` | Log level: DEBUG, INFO, WARN, ERROR |
 
 ---

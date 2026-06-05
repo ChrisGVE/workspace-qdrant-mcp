@@ -244,3 +244,40 @@ fn session_state_clone() {
     assert!(s2.daemon_connected);
     assert_eq!(s2.project_id, s.project_id);
 }
+
+// ── CLI early-exit flags (--version / --help) ──────────────────────────────
+
+#[test]
+fn cli_early_exit_version_flag() {
+    let out = cli_early_exit(["--version"]).expect("--version should produce output");
+    assert!(out.starts_with(SERVER_NAME));
+    assert!(out.contains(SERVER_VERSION_BASE));
+}
+
+#[test]
+fn cli_early_exit_short_version_flag() {
+    assert!(cli_early_exit(["-V"]).is_some());
+}
+
+#[test]
+fn cli_early_exit_help_flag() {
+    let out = cli_early_exit(["--help"]).expect("--help should produce output");
+    assert!(out.contains("USAGE"));
+    assert!(out.contains("MCP_SERVER_MODE"));
+}
+
+#[test]
+fn cli_early_exit_short_help_flag() {
+    assert!(cli_early_exit(["-h"]).is_some());
+}
+
+#[test]
+fn cli_early_exit_none_for_no_flags() {
+    assert!(cli_early_exit(Vec::<String>::new()).is_none());
+    assert!(cli_early_exit(["foo", "bar"]).is_none());
+}
+
+#[test]
+fn cli_early_exit_finds_flag_among_args() {
+    assert!(cli_early_exit(["foo", "--version"]).is_some());
+}

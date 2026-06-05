@@ -40,6 +40,14 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 0. Answer `--version` / `--help` without launching the server. The binary
+    //    takes no positional args (transport is env-selected), and starting the
+    //    stdio server would block on stdin — so intercept these flags first.
+    if let Some(output) = mcp_server::server_types::cli_early_exit(std::env::args().skip(1)) {
+        println!("{output}");
+        return Ok(());
+    }
+
     // 1. Resolve operating mode from env (default: stdio).
     let mode = resolve_mode();
 

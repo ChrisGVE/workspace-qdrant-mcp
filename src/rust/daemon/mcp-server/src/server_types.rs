@@ -53,6 +53,52 @@ pub fn server_version_string() -> String {
     format!("{} ({})", SERVER_VERSION_BASE, BUILD_NUMBER)
 }
 
+/// Short `--help` text for the binary.
+///
+/// The server takes no positional arguments; its transport is selected from
+/// `MCP_SERVER_MODE` (`stdio` default | `http`). This text documents that so a
+/// `--help` invocation does not silently start the stdio server.
+pub fn help_text() -> String {
+    format!(
+        "{name} {version}\n\
+         \n\
+         Project-scoped Qdrant MCP server. Reaches the memexd daemon over gRPC\n\
+         and reads Qdrant directly; it is a read-only client.\n\
+         \n\
+         USAGE:\n    {name} [--version | --help]\n\
+         \n\
+         The transport is selected by environment, not flags:\n\
+         \x20   MCP_SERVER_MODE=stdio   JSON-RPC over stdin/stdout (default)\n\
+         \x20   MCP_SERVER_MODE=http    Streamable HTTP (see MCP_HTTP_* env vars)\n",
+        name = SERVER_NAME,
+        version = server_version_string(),
+    )
+}
+
+/// Handle the early-exit CLI flags (`--version`/`-V`, `--help`/`-h`).
+///
+/// Returns `Some(output)` to print and exit when such a flag is present, or
+/// `None` to proceed with normal env-driven startup. This exists because the
+/// binary otherwise ignores argv and immediately launches the stdio/HTTP
+/// server (which blocks on stdin) — so `--version` must be intercepted here
+/// rather than starting the server.
+pub fn cli_early_exit<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    for arg in args {
+        match arg.as_ref() {
+            "--version" | "-V" => {
+                return Some(format!("{} {}", SERVER_NAME, server_version_string()));
+            }
+            "--help" | "-h" => return Some(help_text()),
+            _ => {}
+        }
+    }
+    None
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // HTTP defaults
 // ──────────────────────────────────────────────────────────────────────────────
