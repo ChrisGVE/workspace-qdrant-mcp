@@ -83,6 +83,22 @@ function registerSignalHandlers(shutdown: () => Promise<void>): void {
   };
   process.on('SIGINT', handleSignal);
   process.on('SIGTERM', handleSignal);
+
+  // Survive transient faults instead of crashing. The decisive case is a daemon
+  // (memexd) restart: it drops the gRPC channel mid-session, and the session
+  // cleanup path previously surfaced a stray unhandled rejection
+  // (RangeError during retry/teardown) that, with no handler installed, took the
+  // whole MCP process down — killing every connected client's SSE session
+  // (observed as "SSE stream disconnected" + 404 on the client's reconnect).
+  // Log and keep running; the gRPC client self-heals on the next request and the
+  // existing session stays alive.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[wqm] Unhandled promise rejection (non-fatal):', reason);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('[wqm] Uncaught exception (non-fatal):', error);
+  });
+
   if (isStdioMode) {
     process.on('exit', () => {
       process.stderr.write('[wqm-metrics] process exit\n');
