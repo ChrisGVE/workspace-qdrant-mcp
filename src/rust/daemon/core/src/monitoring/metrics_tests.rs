@@ -218,7 +218,7 @@ mod tests {
         metrics.set_unified_queue_stale_items(3);
         let value = metrics
             .unified_queue_stale_items
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .get();
         assert_eq!(value, 3);
 

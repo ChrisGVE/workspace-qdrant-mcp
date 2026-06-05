@@ -308,14 +308,14 @@ mod tests {
         let families = METRICS.registry.gather();
         let fam = families
             .iter()
-            .find(|f| f.get_name() == "wqm_memexd_state_db_table_rows")
+            .find(|f| f.name() == "wqm_memexd_state_db_table_rows")
             .expect("table_rows metric family present");
         for metric in fam.get_metric() {
             let label = metric
                 .get_label()
                 .iter()
-                .find(|l| l.get_name() == "table")
-                .map(|l| l.get_value())
+                .find(|l| l.name() == "table")
+                .map(|l| l.value())
                 .unwrap_or("");
             assert!(
                 CANONICAL_TABLES.contains(&label),

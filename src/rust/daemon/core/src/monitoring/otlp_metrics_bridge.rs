@@ -70,7 +70,7 @@ pub fn install_global_bridge() -> usize {
     let mut count = 0usize;
 
     for family in &families {
-        let name = family.get_name().to_string();
+        let name = family.name().to_string();
         match family.get_field_type() {
             MetricType::GAUGE => {
                 let family_name = name.clone();
@@ -146,17 +146,17 @@ fn build_snapshot() -> HashMap<String, FamilySamples> {
                 .get_label()
                 .iter()
                 .map(|label| {
-                    KeyValue::new(label.get_name().to_string(), label.get_value().to_string())
+                    KeyValue::new(label.name().to_string(), label.value().to_string())
                 })
                 .collect();
             let value = match ty {
-                MetricType::GAUGE => metric.get_gauge().get_value(),
-                MetricType::COUNTER => metric.get_counter().get_value(),
+                MetricType::GAUGE => metric.get_gauge().value(),
+                MetricType::COUNTER => metric.get_counter().value(),
                 _ => continue,
             };
             samples.push((attributes, value));
         }
-        map.insert(family.get_name().to_string(), samples);
+        map.insert(family.name().to_string(), samples);
     }
     map
 }

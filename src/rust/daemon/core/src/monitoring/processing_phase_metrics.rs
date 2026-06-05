@@ -122,14 +122,14 @@ mod tests {
         let families = METRICS.registry.gather();
         let dur = families
             .iter()
-            .find(|f| f.get_name() == "wqm_memexd_processing_phase_duration_seconds")
+            .find(|f| f.name() == "wqm_memexd_processing_phase_duration_seconds")
             .expect("duration family present");
         for metric in dur.get_metric() {
             let phase = metric
                 .get_label()
                 .iter()
-                .find(|l| l.get_name() == "phase")
-                .map(|l| l.get_value())
+                .find(|l| l.name() == "phase")
+                .map(|l| l.value())
                 .unwrap_or("");
             assert!(
                 CANONICAL_PHASES.contains(&phase),
@@ -144,12 +144,12 @@ mod tests {
         let families = METRICS.registry.gather();
         let dur = families
             .iter()
-            .find(|f| f.get_name() == "wqm_memexd_processing_phase_duration_seconds")
+            .find(|f| f.name() == "wqm_memexd_processing_phase_duration_seconds")
             .expect("duration family present");
         for metric in dur.get_metric() {
             for label in metric.get_label() {
                 assert_ne!(
-                    label.get_name(),
+                    label.name(),
                     "layer",
                     "processing_phase_duration_seconds must not carry a layer label"
                 );

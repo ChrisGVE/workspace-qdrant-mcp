@@ -90,7 +90,7 @@ impl DaemonMetrics {
 
     /// Update daemon uptime
     pub fn set_uptime(&self, seconds: f64) {
-        self.uptime_seconds.with_label_values(&[]).set(seconds);
+        self.uptime_seconds.with_label_values::<&str>(&[]).set(seconds);
     }
 
     /// Record an ingestion error
@@ -143,17 +143,17 @@ impl DaemonMetrics {
 
     /// Set the total number of watches currently in backoff
     pub fn set_watches_in_backoff(&self, count: i64) {
-        self.watches_in_backoff.with_label_values(&[]).set(count);
+        self.watches_in_backoff.with_label_values::<&str>(&[]).set(count);
     }
 
     /// Increment watches in backoff count
     pub fn inc_watches_in_backoff(&self) {
-        self.watches_in_backoff.with_label_values(&[]).inc();
+        self.watches_in_backoff.with_label_values::<&str>(&[]).inc();
     }
 
     /// Decrement watches in backoff count
     pub fn dec_watches_in_backoff(&self) {
-        self.watches_in_backoff.with_label_values(&[]).dec();
+        self.watches_in_backoff.with_label_values::<&str>(&[]).dec();
     }
 
     /// Record watch recovery time (from first error to recovery)
@@ -213,7 +213,7 @@ impl DaemonMetrics {
     /// Set count of stale lease items
     pub fn set_unified_queue_stale_items(&self, count: i64) {
         self.unified_queue_stale_items
-            .with_label_values(&[])
+            .with_label_values::<&str>(&[])
             .set(count);
     }
 

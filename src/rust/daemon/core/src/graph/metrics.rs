@@ -618,7 +618,7 @@ mod tests {
         let families = METRICS.registry.gather();
         let graph_families: Vec<_> = families
             .iter()
-            .filter(|f| f.get_name().starts_with("wqm_memexd_graph_"))
+            .filter(|f| f.name().starts_with("wqm_memexd_graph_"))
             .collect();
         assert!(
             graph_families.len() >= 13,
@@ -627,28 +627,28 @@ mod tests {
         );
         for f in graph_families {
             for m in f.get_metric() {
-                let labels: Vec<&str> = m.get_label().iter().map(|l| l.get_name()).collect();
+                let labels: Vec<&str> = m.get_label().iter().map(|l| l.name()).collect();
                 assert!(
                     labels.contains(&"graph_type"),
                     "{} missing graph_type",
-                    f.get_name()
+                    f.name()
                 );
                 assert!(
                     labels.contains(&"backend"),
                     "{} missing backend",
-                    f.get_name()
+                    f.name()
                 );
                 let has_layer = labels.contains(&"layer");
-                if f.get_name() == "wqm_memexd_graph_extract_duration_seconds" {
+                if f.name() == "wqm_memexd_graph_extract_duration_seconds" {
                     assert!(has_layer, "extract_duration must carry layer");
                 } else {
-                    assert!(!has_layer, "{} must NOT carry layer", f.get_name());
+                    assert!(!has_layer, "{} must NOT carry layer", f.name());
                 }
                 // tenant label, when present, is exactly `tenant_id`.
                 assert!(
                     !labels.contains(&"tenant"),
                     "{} uses bare `tenant`; must be `tenant_id`",
-                    f.get_name()
+                    f.name()
                 );
             }
         }

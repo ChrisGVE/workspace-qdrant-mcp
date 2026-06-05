@@ -130,7 +130,7 @@ fn sum_int_gauge(metric: &impl Collector) -> i64 {
         .collect()
         .iter()
         .flat_map(|m| m.get_metric())
-        .map(|m| m.get_gauge().get_value() as i64)
+        .map(|m| m.get_gauge().value() as i64)
         .sum()
 }
 
@@ -140,7 +140,7 @@ fn sum_int_counter(metric: &impl Collector) -> u64 {
         .collect()
         .iter()
         .flat_map(|m| m.get_metric())
-        .map(|m| m.get_counter().get_value() as u64)
+        .map(|m| m.get_counter().value() as u64)
         .sum()
 }
 
@@ -152,7 +152,7 @@ fn labeled_gauge_map(metric: &impl Collector) -> HashMap<String, i64> {
         .flat_map(|m| m.get_metric())
         .map(|m| {
             let key = first_label(m);
-            (key, m.get_gauge().get_value() as i64)
+            (key, m.get_gauge().value() as i64)
         })
         .collect()
 }
@@ -165,7 +165,7 @@ fn labeled_counter_map(metric: &impl Collector) -> HashMap<String, u64> {
         .flat_map(|m| m.get_metric())
         .map(|m| {
             let key = first_label(m);
-            (key, m.get_counter().get_value() as u64)
+            (key, m.get_counter().value() as u64)
         })
         .collect()
 }
@@ -174,7 +174,7 @@ fn labeled_counter_map(metric: &impl Collector) -> HashMap<String, u64> {
 fn first_label(m: &prometheus::proto::Metric) -> String {
     m.get_label()
         .first()
-        .map_or_else(String::new, |l| l.get_value().to_string())
+        .map_or_else(String::new, |l| l.value().to_string())
 }
 
 /// Metrics snapshot for CLI/API consumption
@@ -206,7 +206,7 @@ impl MetricsSnapshot {
             .collect()
             .first()
             .and_then(|m| m.get_metric().first())
-            .map(|m| m.get_gauge().get_value())
+            .map(|m| m.get_gauge().value())
             .unwrap_or(0.0);
 
         Self {

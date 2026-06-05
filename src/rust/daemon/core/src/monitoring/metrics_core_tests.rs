@@ -212,7 +212,7 @@ fn live_bucket_bounds(h: &prometheus::HistogramVec, labels: &[&str]) -> Vec<f64>
         .get_histogram()
         .get_bucket()
         .iter()
-        .map(|b| b.get_upper_bound())
+        .map(|b| b.upper_bound())
         .collect()
 }
 
@@ -255,8 +255,8 @@ fn processing_label_values(m: &DaemonMetrics, label: &str) -> BTreeSet<String> {
     for mf in m.processing_duration_seconds.collect() {
         for metric in mf.get_metric() {
             for lp in metric.get_label() {
-                if lp.get_name() == label {
-                    set.insert(lp.get_value().to_string());
+                if lp.name() == label {
+                    set.insert(lp.value().to_string());
                 }
             }
         }
