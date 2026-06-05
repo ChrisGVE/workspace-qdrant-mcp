@@ -18,7 +18,9 @@ ARG BUILDKIT_INLINE_CACHE=1
 
 # Bundled LSP binary versions. Pinned so image builds are reproducible; bump
 # these in a PR and the image is rebuilt with the new toolchain.
-ARG RUST_ANALYZER_VERSION=2026-04-14
+# 2026-04-14 was never a published tag (rust-analyzer releases land on
+# Mondays); 2026-06-01 is a verified-live release with both linux assets.
+ARG RUST_ANALYZER_VERSION=2026-06-01
 ARG GOPLS_VERSION=0.19.1
 
 # ─────────────────────────────────────────────
@@ -209,7 +211,8 @@ RUN set -eux; \
 # against the pinned version. The golang base image handles cross-compilation
 # via GOOS/GOARCH automatically when invoked via buildx.
 # ─────────────────────────────────────────────
-FROM golang:1.23-${DEBIAN_CODENAME} AS gopls-build
+# gopls v0.19.1 requires go >= 1.24.2 (1.23 fails with GOTOOLCHAIN=local).
+FROM golang:1.24-${DEBIAN_CODENAME} AS gopls-build
 
 ARG GOPLS_VERSION
 
