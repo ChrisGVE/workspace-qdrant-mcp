@@ -26,6 +26,9 @@ fortran/bookshelf
 pascal/src/bookshelf
 ada/bookshelf
 odin/bookshelf
+# Pascal: build.sh moves the fpc output from src/bookshelf to pascal/bookshelf,
+# so ignore the final (moved) location, not just the pre-move one below.
+pascal/bookshelf
 # Clojure
 .cpcache/
 

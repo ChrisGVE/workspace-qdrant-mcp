@@ -94,10 +94,20 @@ fn split_chunk_with_overlap(chunk: &SemanticChunk, max_chunk_size: usize) -> Vec
 
     let mut fragment_index = 0;
     while start < content.len() {
-        let end = safe_char_boundary(content, (start + target_size).min(content.len()));
+        let window_end = safe_char_boundary(content, (start + target_size).min(content.len()));
 
-        // Try to break at a line boundary
-        let actual_end = find_line_boundary(content, start, end);
+        // Prefer to break at a line boundary, but only when that boundary still
+        // covers at least one full stride. A long run without line breaks (e.g.
+        // minified JS, single-line JSON, lockfiles, base64 blobs) would otherwise
+        // make `find_line_boundary` snap `actual_end` back to the same early
+        // newline every iteration; combined with the old overlap pull-back the
+        // loop would never advance `start`, allocating fragments without bound
+        // until the process exhausts memory. Falling back to `window_end`
+        // guarantees `actual_end >= start + step_size`, keeping the stride below
+        // strictly forward with no coverage gap.
+        let line_end = find_line_boundary(content, start, window_end);
+        let min_end = (start + step_size).min(content.len());
+        let actual_end = if line_end >= min_end { line_end } else { window_end };
 
         let fragment_content = &content[start..actual_end];
 
@@ -136,22 +146,18 @@ fn split_chunk_with_overlap(chunk: &SemanticChunk, max_chunk_size: usize) -> Vec
 
         fragment_index += 1;
 
-        // Move start forward, with overlap if there's more content
         if actual_end >= content.len() {
             break;
         }
-        // Use saturating_sub to avoid overflow
-        let overlap = if actual_end > FRAGMENT_OVERLAP {
-            FRAGMENT_OVERLAP
-        } else {
-            0
-        };
-        start = safe_char_boundary(content, actual_end - overlap);
-
-        // Safety check to prevent infinite loops
-        if start >= content.len() || start >= actual_end {
-            break;
-        }
+        // Stride strictly forward by `step_size`, which yields the intended
+        // `FRAGMENT_OVERLAP`-char overlap between consecutive fragments
+        // (step_size = target_size - FRAGMENT_OVERLAP). Because `actual_end` is
+        // guaranteed `>= start + step_size` above, this never leaves a gap. The
+        // `actual_end` fallback covers the degenerate `step_size == 1` case
+        // where char-boundary rounding could otherwise stall `start` and loop
+        // forever.
+        let next_start = safe_char_boundary(content, start + step_size);
+        start = if next_start > start { next_start } else { actual_end };
     }
 
     fragments
