@@ -2,7 +2,8 @@
   "__inputs": [],
   "__requires": [
     { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "datasource", "id": "tempo", "name": "Tempo", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
   "description": "High-level health overview: service up/down, runtime activity, queue freshness, storage inventory, latency, indexed project inventory and recent error rates.",
@@ -1349,6 +1350,25 @@
           "legendFormat": "error ratio",
           "refId": "A",
           "instant": true
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Recent Error Traces",
+      "description": "Spans reported with status=error, from Tempo (TraceQL `{ status = error }`). Click a Trace ID to open the full trace. Empty = no error spans in the window.",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 64 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{ status = error }",
+          "tableType": "traces",
+          "limit": 20,
+          "refId": "A"
         }
       ]
     }
