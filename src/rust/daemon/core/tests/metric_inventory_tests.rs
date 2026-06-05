@@ -19,6 +19,7 @@ fn manifest_dir() -> PathBuf {
 fn repo_root() -> PathBuf {
     manifest_dir()
         .join("../../../..")
+        // CATEGORY-B: test-local repo-root resolution; never persisted or sent.
         .canonicalize()
         .expect("resolve repo root from CARGO_MANIFEST_DIR")
 }
@@ -32,7 +33,7 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
         if p.is_dir() {
             collect_rs(&p, out);
         } else if p.extension().map_or(false, |x| x == "rs") {
-            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            let name = p.file_name().unwrap().to_string_lossy();
             if !name.ends_with("_tests.rs") && name != "tests.rs" {
                 out.push(p);
             }

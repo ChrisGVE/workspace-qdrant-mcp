@@ -96,6 +96,9 @@ fn git_toplevel(path: &std::path::Path) -> Option<PathBuf> {
     if top.is_empty() {
         return None;
     }
+    // Process-local only: the canonical toplevel is compared against another
+    // local toplevel in is_distinct_git_boundary and never persisted or sent.
+    // CATEGORY-B: comparison-only use.
     std::fs::canonicalize(top).ok()
 }
 

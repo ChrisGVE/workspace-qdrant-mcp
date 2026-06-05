@@ -75,6 +75,7 @@ fn task2_worktree_commondir_resolves_to_main() {
     let wt_gitdir = PathBuf::from(gitdir_line);
 
     let resolved = find_main_worktree_path(&wt_gitdir).expect("commondir must resolve");
+    // CATEGORY-B: test-local assertion path; never persisted or sent.
     let expected = fx.main_path.canonicalize().unwrap();
     assert_eq!(resolved, expected);
 }

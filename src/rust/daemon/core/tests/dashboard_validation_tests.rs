@@ -46,6 +46,7 @@ fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = <repo>/src/rust/daemon/core
     manifest_dir()
         .join("../../../..")
+        // CATEGORY-B: test-local repo-root resolution; never persisted or sent.
         .canonicalize()
         .expect("resolve repo root from CARGO_MANIFEST_DIR")
 }
@@ -63,7 +64,7 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
         if p.is_dir() {
             collect_rs(&p, out);
         } else if p.extension().map_or(false, |x| x == "rs") {
-            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            let name = p.file_name().unwrap().to_string_lossy();
             // Skip dedicated test files (they may contain illustrative,
             // non-real metric names).
             if !name.ends_with("_tests.rs") && name != "tests.rs" {
