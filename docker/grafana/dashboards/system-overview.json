@@ -691,8 +691,8 @@
     },
     {
       "id": 17,
-      "title": "Unified Queue Depth",
-      "description": "Current unified queue depth by item type and status.",
+      "title": "Unified Queue Depth + Graph Backlog",
+      "description": "Index queue depth by item type and status (left axis). The code graph is built INLINE as each file is indexed — it has no separate queue — so its closest backlog analog, unresolved stub edges, is overlaid on the right axis.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
@@ -714,7 +714,18 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "graph: unresolved stubs" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "graph stubs (backlog)" },
+              { "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineStyle", "value": { "dash": [6, 4], "fill": "dash" } }
+            ]
+          }
+        ]
       },
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
@@ -726,6 +737,12 @@
           "expr": "sum by (item_type, status) (memexd_unified_queue_depth)",
           "legendFormat": "{{item_type}} / {{status}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(memexd_graph_unresolved_stubs)",
+          "legendFormat": "graph: unresolved stubs",
+          "refId": "B"
         }
       ]
     },
@@ -1351,6 +1368,77 @@
           "instant": true
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 76 },
+      "id": 200,
+      "title": "Code Graph",
+      "type": "row"
+    },
+    {
+      "id": 201,
+      "title": "Graph Edges (total)",
+      "description": "Total code-relationship edges across all projects (CALLS + IMPORTS + USES_TYPE + CONTAINS). Per-project detail is on the dedicated 'Code Graph Observability' dashboard.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_graph_edges)", "refId": "A", "instant": true } ]
+    },
+    {
+      "id": 202,
+      "title": "Graph Nodes (total)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_graph_nodes)", "refId": "A", "instant": true } ]
+    },
+    {
+      "id": 203,
+      "title": "Edges / Node",
+      "description": "Edge-to-node ratio across all projects. Near-zero means the graph is dangling (edges not built). Healthy code graphs are typically > 0.5.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.2 }, { "color": "green", "value": 0.5 } ] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_graph_edges) / clamp_min(sum(memexd_graph_nodes), 1)", "refId": "A", "instant": true } ]
+    },
+    {
+      "id": 204,
+      "title": "Unresolved Stubs",
+      "description": "Stub nodes (empty file_path) — name-only callee/import targets the resolver hasn't repointed yet. This is the graph's backlog (same series overlaid on the Unified Queue Depth panel).",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 2000 } ] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_graph_unresolved_stubs)", "refId": "A", "instant": true } ]
+    },
+    {
+      "id": 205,
+      "title": "CALLS Edges",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(memexd_graph_edges{edge_type=\"CALLS\"})", "refId": "A", "instant": true } ]
+    },
+    {
+      "id": 206,
+      "title": "Edges Ingested / s",
+      "description": "Rate of graph edges written during file ingestion (5m window). Spikes while indexing/reembedding; 0 at idle. This is the graph's processing throughput — it runs inline with the index queue.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 77 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "purple" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(memexd_graph_edges_ingested_total[5m]))", "refId": "A", "instant": true } ]
     }
   ],
   "refresh": "30s",
@@ -1362,5 +1450,5 @@
   "timezone": "browser",
   "title": "WQM — System Overview",
   "uid": "wqm-system",
-  "version": 5
+  "version": 7
 }

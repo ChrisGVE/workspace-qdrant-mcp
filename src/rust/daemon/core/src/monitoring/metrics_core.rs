@@ -12,11 +12,11 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_file_metadata_metrics, create_indexed_project_metrics,
-    create_lsp_metrics, create_per_tenant_eta_metric, create_per_tenant_indexing_metric,
-    create_queue_metrics, create_session_metrics, create_system_metrics,
-    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
-    create_watch_metrics, register_all,
+    create_dependency_metrics, create_file_metadata_metrics, create_graph_metrics,
+    create_indexed_project_metrics, create_lsp_metrics, create_per_tenant_eta_metric,
+    create_per_tenant_indexing_metric, create_queue_metrics, create_session_metrics,
+    create_system_metrics, create_telemetry_extension_metrics, create_tenant_metrics,
+    create_unified_queue_metrics, create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -232,6 +232,22 @@ pub struct DaemonMetrics {
 
     /// Number of LSP server instances currently running across all projects.
     pub lsp_active_servers: IntGauge,
+
+    // ── Code-relationship graph observability ─────────────────────────────
+    /// Graph node count by tenant and node type. Labels: tenant_id, node_type
+    pub graph_nodes: IntGaugeVec,
+
+    /// Graph edge count by tenant and edge type. Labels: tenant_id, edge_type
+    pub graph_edges: IntGaugeVec,
+
+    /// Unresolved stub nodes (empty file_path) by tenant. Labels: tenant_id
+    pub graph_unresolved_stubs: IntGaugeVec,
+
+    /// Cumulative stub edges repointed by the resolver. Labels: tenant_id
+    pub graph_stub_resolved_total: IntCounterVec,
+
+    /// Cumulative graph edges written during ingest. Labels: tenant_id, edge_type
+    pub graph_edges_ingested_total: IntCounterVec,
 }
 
 /// Intermediate struct holding all created metrics before registration.
@@ -285,6 +301,11 @@ struct CreatedMetrics {
     lsp_enrichments_total: IntCounterVec,
     lsp_available_languages: IntGauge,
     lsp_active_servers: IntGauge,
+    graph_nodes: IntGaugeVec,
+    graph_edges: IntGaugeVec,
+    graph_unresolved_stubs: IntGaugeVec,
+    graph_stub_resolved_total: IntCounterVec,
+    graph_edges_ingested_total: IntCounterVec,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -362,6 +383,14 @@ fn create_all_metrics() -> CreatedMetrics {
     )
     .expect("metric can be created");
 
+    let (
+        graph_nodes,
+        graph_edges,
+        graph_unresolved_stubs,
+        graph_stub_resolved_total,
+        graph_edges_ingested_total,
+    ) = create_graph_metrics();
+
     CreatedMetrics {
         active_sessions,
         total_sessions,
@@ -412,6 +441,11 @@ fn create_all_metrics() -> CreatedMetrics {
         lsp_enrichments_total,
         lsp_available_languages,
         lsp_active_servers,
+        graph_nodes,
+        graph_edges,
+        graph_unresolved_stubs,
+        graph_stub_resolved_total,
+        graph_edges_ingested_total,
     }
 }
 
@@ -469,6 +503,11 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.lsp_enrichments_total.clone()),
             Box::new(m.lsp_available_languages.clone()),
             Box::new(m.lsp_active_servers.clone()),
+            Box::new(m.graph_nodes.clone()),
+            Box::new(m.graph_edges.clone()),
+            Box::new(m.graph_unresolved_stubs.clone()),
+            Box::new(m.graph_stub_resolved_total.clone()),
+            Box::new(m.graph_edges_ingested_total.clone()),
         ],
     );
 }
@@ -531,6 +570,11 @@ impl DaemonMetrics {
             lsp_enrichments_total: m.lsp_enrichments_total,
             lsp_available_languages: m.lsp_available_languages,
             lsp_active_servers: m.lsp_active_servers,
+            graph_nodes: m.graph_nodes,
+            graph_edges: m.graph_edges,
+            graph_unresolved_stubs: m.graph_unresolved_stubs,
+            graph_stub_resolved_total: m.graph_stub_resolved_total,
+            graph_edges_ingested_total: m.graph_edges_ingested_total,
         }
     }
 

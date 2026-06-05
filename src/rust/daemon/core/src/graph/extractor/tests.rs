@@ -157,6 +157,59 @@ fn test_go_import_path() {
     assert_eq!(imports, vec!["json"]);
 }
 
+// -- parse_java_import ----------------------------------------------------
+
+#[test]
+fn test_java_import_simple() {
+    let imports = import_parsers::parse_java_import("import com.example.Foo;");
+    assert_eq!(imports, vec!["Foo"]);
+}
+
+#[test]
+fn test_java_import_static() {
+    let imports = import_parsers::parse_java_import("import static com.example.Bar.baz;");
+    assert_eq!(imports, vec!["baz"]);
+}
+
+#[test]
+fn test_java_import_wildcard_skipped() {
+    let imports = import_parsers::parse_java_import("import com.example.*;");
+    assert!(imports.is_empty());
+}
+
+#[test]
+fn test_kotlin_import_alias_uses_symbol() {
+    // Kotlin `as` aliases the local binding; the imported symbol is the tail.
+    let imports = import_parsers::parse_java_import("import com.example.Foo as Bar");
+    assert_eq!(imports, vec!["Foo"]);
+}
+
+// -- parse_dart_import ----------------------------------------------------
+
+#[test]
+fn test_dart_import_package() {
+    let imports = import_parsers::parse_dart_import("import 'package:flutter/material.dart';");
+    assert_eq!(imports, vec!["material"]);
+}
+
+#[test]
+fn test_dart_import_sdk() {
+    let imports = import_parsers::parse_dart_import("import 'dart:async';");
+    assert_eq!(imports, vec!["async"]);
+}
+
+#[test]
+fn test_dart_import_alias_wins() {
+    let imports = import_parsers::parse_dart_import("import 'widgets/foo.dart' as foo;");
+    assert_eq!(imports, vec!["foo"]);
+}
+
+#[test]
+fn test_dart_export_relative() {
+    let imports = import_parsers::parse_dart_import("export 'src/bar.dart';");
+    assert_eq!(imports, vec!["bar"]);
+}
+
 // -- extract_edges integration --------------------------------------------
 
 #[test]

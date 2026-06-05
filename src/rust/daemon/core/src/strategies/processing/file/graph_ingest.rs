@@ -61,14 +61,31 @@ pub(super) async fn ingest_graph_edges(
         file_path
     );
 
-    if let Err(e) = graph_store
+    match graph_store
         .reingest_file(tenant_id, file_path, &nodes, &edges)
         .await
     {
-        warn!(
-            "Graph ingestion failed for {} (tenant {}): {}",
-            file_path, tenant_id, e
-        );
+        Ok(()) => {
+            // Throughput metric: count freshly-written edges by type so the
+            // Grafana "Code Graph" dashboard can show ingest rate per edge type.
+            let mut by_type: std::collections::HashMap<&str, u64> =
+                std::collections::HashMap::new();
+            for edge in &edges {
+                *by_type.entry(edge.edge_type.as_str()).or_default() += 1;
+            }
+            for (edge_type, count) in by_type {
+                crate::monitoring::metrics_core::METRICS
+                    .graph_edges_ingested_total
+                    .with_label_values(&[tenant_id, edge_type])
+                    .inc_by(count);
+            }
+        }
+        Err(e) => {
+            warn!(
+                "Graph ingestion failed for {} (tenant {}): {}",
+                file_path, tenant_id, e
+            );
+        }
     }
 }
 
