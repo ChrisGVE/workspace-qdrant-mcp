@@ -34,7 +34,7 @@ Scrape interval: 15 s. Rule evaluation interval: 15 s.
 
 ## MCP server metrics
 
-Source: `src/typescript/mcp-server/src/telemetry/metrics.ts`
+Source: `src/rust/daemon/mcp-server/src/observability/metrics.rs`
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|

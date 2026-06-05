@@ -35,7 +35,7 @@ local Docker Desktop). They are qualitative guides, not SLAs.
 | MCP restart | All in-flight sessions are lost. Clients must re-`initialize`. | ≤5s | The MCP Streamable HTTP transport is stateful in memory; restart is equivalent to session rotation. |
 | Qdrant SIGTERM | Volume bind-mount keeps storage intact. On cold boot Qdrant replays its WAL. | ≤10s | Verified manually; not in CI because the cold-boot time is too variable. |
 | memexd SIGTERM | Drains the queue, flushes SQLite, returns exit 0 within ~2s under typical load. CI asserts ≤15s. | — | The compose `stop_grace_period` is 10s by default; longer-running drains require raising it. |
-| MCP SIGTERM | Node process flushes pending OTLP batches (1s timeout, non-blocking) then exits 0. | — | Measured in `src/typescript/mcp-server/src/telemetry/otlp.ts`. |
+| MCP SIGTERM | Process flushes pending OTLP batches then exits 0. | — | Handled in `src/rust/daemon/mcp-server/src/observability/`. |
 
 ## What the chaos test does **not** cover
 
