@@ -89,14 +89,16 @@ WORKDIR /build
 COPY src/rust/Cargo.toml src/rust/Cargo.lock ./
 
 # Copy every member Cargo.toml so the workspace resolver works without full source.
-COPY src/rust/common/Cargo.toml                   common/
-COPY src/rust/common-node/Cargo.toml              common-node/
-COPY src/rust/cli/Cargo.toml                      cli/
-COPY src/rust/daemon/core/Cargo.toml              daemon/core/
-COPY src/rust/daemon/grpc/Cargo.toml              daemon/grpc/
-COPY src/rust/daemon/memexd/Cargo.toml            daemon/memexd/
-COPY src/rust/daemon/shared-test-utils/Cargo.toml daemon/shared-test-utils/
-COPY src/rust/tools/registry-updater/Cargo.toml   tools/registry-updater/
+COPY src/rust/common/Cargo.toml                       common/
+COPY src/rust/proto/Cargo.toml                        proto/
+COPY src/rust/client/Cargo.toml                       client/
+COPY src/rust/cli/Cargo.toml                          cli/
+COPY src/rust/daemon/core/Cargo.toml                  daemon/core/
+COPY src/rust/daemon/grpc/Cargo.toml                  daemon/grpc/
+COPY src/rust/daemon/memexd/Cargo.toml                daemon/memexd/
+COPY src/rust/daemon/mcp-server/Cargo.toml            daemon/mcp-server/
+COPY src/rust/daemon/shared-test-utils/Cargo.toml     daemon/shared-test-utils/
+COPY src/rust/tools/registry-updater/Cargo.toml       tools/registry-updater/
 
 # [patch.crates-io] in the workspace Cargo.toml points to patches/fastembed.
 # Copy the entire patches/ tree so cargo fetch can resolve the patch source.
@@ -107,8 +109,8 @@ COPY src/rust/patches/                            patches/
 # declared in daemon/core/Cargo.toml — cargo validates bench paths even for
 # `cargo fetch`, so missing files abort manifest parsing.
 RUN set -eux; \
-    for member in common common-node cli \
-                  daemon/core daemon/grpc daemon/shared-test-utils \
+    for member in common proto client cli \
+                  daemon/core daemon/grpc daemon/mcp-server daemon/shared-test-utils \
                   tools/registry-updater; do \
         mkdir -p ${member}/src; \
         echo 'fn main() {}' > ${member}/src/main.rs 2>/dev/null || true; \
