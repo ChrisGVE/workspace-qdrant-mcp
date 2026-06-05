@@ -2,9 +2,9 @@
 //!
 //! Provides LoggingConfig, PerformanceMetrics, and the initialize_logging function.
 
-use atty::Stream;
 use std::collections::HashMap;
 use std::env;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
@@ -276,7 +276,7 @@ fn determine_disable_ansi(daemon_mode: bool, force_disable_ansi: Option<bool>) -
         {
             return true;
         }
-        let tty_check = !atty::is(Stream::Stdout);
+        let tty_check = !std::io::stdout().is_terminal();
         let xpc_is_service = env::var("XPC_SERVICE_NAME")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(false);
