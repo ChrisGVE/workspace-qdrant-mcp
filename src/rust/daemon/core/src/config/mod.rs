@@ -320,6 +320,7 @@ fn build_lsp_settings(yaml: &YamlConfig) -> LspSettings {
         cache_ttl_secs: yaml.lsp.cache_ttl_secs,
         startup_timeout_secs: yaml.lsp.startup_timeout_secs,
         request_timeout_secs: yaml.lsp.request_timeout_secs,
+        warmup_grace_secs: yaml.lsp.warmup_grace_secs,
         health_check_interval_secs: yaml.lsp.health_check_interval_secs,
         max_restart_attempts: yaml.lsp.max_restart_attempts,
         restart_backoff_multiplier: yaml.lsp.restart_backoff_multiplier,

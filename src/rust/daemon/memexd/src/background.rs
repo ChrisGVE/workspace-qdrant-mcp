@@ -81,11 +81,69 @@ pub fn resolve_prometheus_config(
 pub fn start_uptime_tracker() -> JoinHandle<()> {
     let start_time = std::time::Instant::now();
     tokio::spawn(async move {
+        let mut last_cpu = read_proc_cpu_seconds();
+        let mut last_at = std::time::Instant::now();
         loop {
             METRICS.set_uptime(start_time.elapsed().as_secs_f64());
+
+            // Process RSS + CPU% sampled from /proc/self. Each container reads
+            // its own process, so this works on WSL2/Docker-Desktop where an
+            // external cAdvisor cannot see the workload container cgroups.
+            if let Some(rss) = read_process_rss_bytes() {
+                METRICS.set_process_resident_memory_bytes(rss as i64);
+            }
+            let now_cpu = read_proc_cpu_seconds();
+            let now_at = std::time::Instant::now();
+            let dt = now_at.duration_since(last_at).as_secs_f64();
+            if dt > 0.0 {
+                let pct = ((now_cpu - last_cpu) / dt) * 100.0;
+                METRICS.set_process_cpu_percent(pct.max(0.0));
+            }
+            last_cpu = now_cpu;
+            last_at = now_at;
+
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     })
+}
+
+/// Resident set size of this process in bytes, from `/proc/self/statm`.
+fn read_process_rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    // 4 KiB pages on the linux/amd64 runtime image.
+    parse_rss_pages(&statm).map(|pages| pages * 4096)
+}
+
+/// Parse the resident-pages field (field 2) of `/proc/self/statm`.
+fn parse_rss_pages(statm: &str) -> Option<u64> {
+    statm.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// Cumulative CPU seconds (user + system) for this process, from
+/// `/proc/self/stat`. Returns 0 if unreadable.
+fn read_proc_cpu_seconds() -> f64 {
+    std::fs::read_to_string("/proc/self/stat")
+        .map(|s| parse_cpu_seconds(&s))
+        .unwrap_or(0.0)
+}
+
+/// Parse cumulative CPU seconds from a `/proc/self/stat` line: fields 14 utime +
+/// 15 stime (in clock ticks, CLK_TCK=100). The `comm` field may contain spaces
+/// and parens, so fields are taken after the final ')'.
+fn parse_cpu_seconds(stat: &str) -> f64 {
+    let after = match stat.rfind(')') {
+        Some(i) => &stat[i + 1..],
+        None => return 0.0,
+    };
+    let fields: Vec<&str> = after.split_whitespace().collect();
+    // After ')', index 0 = state (field 3); utime → index 11, stime → index 12.
+    if fields.len() > 12 {
+        let utime: f64 = fields[11].parse().unwrap_or(0.0);
+        let stime: f64 = fields[12].parse().unwrap_or(0.0);
+        (utime + stime) / 100.0
+    } else {
+        0.0
+    }
 }
 
 /// Start periodic DB polling for CLI-driven pause state changes (Task 543.10).
@@ -606,6 +664,10 @@ pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStor
             for tenant in tenants {
                 match graph_store.resolve_stub_edges(&tenant).await {
                     Ok(n) if n > 0 => {
+                        METRICS
+                            .graph_stub_resolved_total
+                            .with_label_values(&[tenant.as_str()])
+                            .inc_by(n as u64);
                         info!(tenant = %tenant, repointed = n, "Graph stub resolver repointed edges")
                     }
                     Ok(_) => {}
@@ -613,6 +675,79 @@ pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStor
                         warn!(tenant = %tenant, error = %e, "Graph stub resolution failed")
                     }
                 }
+            }
+        }
+    })
+}
+
+/// Spawn the graph metrics exporter (60-second loop).
+///
+/// Refreshes the per-tenant graph gauges (`graph_nodes`, `graph_edges`,
+/// `graph_unresolved_stubs`) from `graph.db` so the Grafana "Code Graph"
+/// dashboard reflects current node/edge-type distribution and the
+/// unresolved-stub pollution that centrality excludes. Gauges are `reset()`
+/// each tick so tenants/types that vanish stop reporting stale series. Query
+/// latency is NOT exported here — it is already covered by
+/// `grpc_request_duration_seconds{service="GraphService"}`.
+pub fn start_graph_metrics_refresh(
+    graph_store: crate::database::ConcreteGraphStore,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        info!("Graph metrics exporter started (60s interval)");
+        loop {
+            interval.tick().await;
+
+            // Snapshot counts under the read guard, then drop it before touching
+            // the Prometheus registry (mirrors start_graph_stub_resolver, which
+            // also avoids holding the store lock across unrelated work).
+            let (nodes, stubs, edges) = {
+                let guard = graph_store.read().await;
+                let pool = guard.pool();
+                let nodes: Vec<(String, String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, symbol_type, COUNT(*) \
+                     FROM graph_nodes GROUP BY tenant_id, symbol_type",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                let stubs: Vec<(String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, COUNT(*) \
+                     FROM graph_nodes WHERE file_path = '' GROUP BY tenant_id",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                let edges: Vec<(String, String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, edge_type, COUNT(*) \
+                     FROM graph_edges GROUP BY tenant_id, edge_type",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                (nodes, stubs, edges)
+            };
+
+            METRICS.graph_nodes.reset();
+            METRICS.graph_edges.reset();
+            METRICS.graph_unresolved_stubs.reset();
+            for (tenant, node_type, n) in &nodes {
+                METRICS
+                    .graph_nodes
+                    .with_label_values(&[tenant.as_str(), node_type.as_str()])
+                    .set(*n);
+            }
+            for (tenant, n) in &stubs {
+                METRICS
+                    .graph_unresolved_stubs
+                    .with_label_values(&[tenant.as_str()])
+                    .set(*n);
+            }
+            for (tenant, edge_type, n) in &edges {
+                METRICS
+                    .graph_edges
+                    .with_label_values(&[tenant.as_str(), edge_type.as_str()])
+                    .set(*n);
             }
         }
     })
@@ -649,5 +784,27 @@ pub fn spawn_all(
         grpc_handle: None,      // Filled in later by grpc_setup
         metrics_handle,
         lsp_metrics_handle: None, // Filled in after Phase 4 (LSP manager init)
+    }
+}
+
+#[cfg(test)]
+mod proc_sampling_tests {
+    use super::{parse_cpu_seconds, parse_rss_pages};
+
+    #[test]
+    fn rss_pages_from_statm() {
+        // statm: size resident shared text lib data dt
+        assert_eq!(parse_rss_pages("1234 567 12 0 0 90 0"), Some(567));
+        assert_eq!(parse_rss_pages(""), None);
+        assert_eq!(parse_rss_pages("only-one-field"), None);
+    }
+
+    #[test]
+    fn cpu_seconds_from_stat() {
+        // comm with spaces + parens; after ')': state(0) … utime(11) stime(12).
+        let stat = "1 (memexd worker) S 0 0 0 0 -1 0 0 0 0 0 100 50 0 0 20 0 1 0 1";
+        assert_eq!(parse_cpu_seconds(stat), (100.0 + 50.0) / 100.0);
+        // Malformed → 0.0, no panic.
+        assert_eq!(parse_cpu_seconds("garbage no paren"), 0.0);
     }
 }

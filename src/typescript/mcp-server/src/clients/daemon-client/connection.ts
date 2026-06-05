@@ -193,6 +193,14 @@ export class DaemonClientBase {
    */
   private connecting = false;
 
+  /**
+   * Set once `close()` runs. Stops the auto-reconnect machinery from
+   * resurrecting a torn-down client (e.g. a stray RPC racing session cleanup
+   * after a daemon restart), which otherwise re-enters connect → healthCheck →
+   * callWithRetry and can recurse/throw during teardown.
+   */
+  private closed = false;
+
   constructor(config: DaemonClientConfig = {}) {
     this.host = config.host ?? DEFAULT_HOST;
     this.port = config.port ?? DEFAULT_PORT;
@@ -285,6 +293,7 @@ export class DaemonClientBase {
   }
 
   close(): void {
+    this.closed = true;
     const clients = [
       this.systemClient,
       this.projectClient,
@@ -296,7 +305,15 @@ export class DaemonClientBase {
       this.trackingWriteClient,
     ];
     for (const c of clients) {
-      if (c) grpc.closeClient(c as unknown as grpc.Client);
+      // Best-effort: closing an already-broken channel can throw; teardown must
+      // never propagate (it runs from session cleanup / onclose).
+      if (c) {
+        try {
+          grpc.closeClient(c as unknown as grpc.Client);
+        } catch {
+          /* ignore — channel already gone */
+        }
+      }
     }
     this.connectionState = { connected: false };
   }
@@ -312,6 +329,7 @@ export class DaemonClientBase {
    * on the next user action. See issue #55.
    */
   protected async ensureConnected(): Promise<void> {
+    if (this.closed) return; // torn down — do not resurrect during/after cleanup
     if (this.connecting) return; // connect() is in flight — let it finish
     if (this.connectionState.connected && this.systemClient) return;
     this.connecting = true;
@@ -346,7 +364,7 @@ export class DaemonClientBase {
     }
 
     this.connectionState = { connected: false, lastError: lastError?.message };
-    throw lastError;
+    throw lastError ?? new Error('daemon RPC failed after retries');
   }
 
   protected isRetryableError(error: Error): boolean {

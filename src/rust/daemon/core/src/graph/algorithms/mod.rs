@@ -54,13 +54,25 @@ pub(super) async fn load_adjacency_graph(
 
     let mut nodes = HashMap::with_capacity(node_rows.len());
     for row in &node_rows {
+        let file_path: String = row.get("file_path");
+        // Skip unresolved stub nodes. `GraphNode::stub` keys a node on its bare
+        // symbol name with an EMPTY file_path, so every same-named symbol across
+        // the tenant (stdlib `push`/`join`/`log`, a never-resolved import, a
+        // builtin) collapses into ONE tenant-wide mega-node. Left in, those
+        // dangling stubs dominate PageRank/community/betweenness and bury the
+        // real, file-backed hotspots. Centrality should rank only resolved
+        // nodes; an edge that still points at a skipped stub simply contributes
+        // no rank (its id is absent from `nodes`, treated as 0.0 downstream).
+        if file_path.is_empty() {
+            continue;
+        }
         let node_id: String = row.get("node_id");
         nodes.insert(
             node_id,
             NodeInfo {
                 symbol_name: row.get("symbol_name"),
                 symbol_type: row.get("symbol_type"),
-                file_path: row.get("file_path"),
+                file_path,
             },
         );
     }

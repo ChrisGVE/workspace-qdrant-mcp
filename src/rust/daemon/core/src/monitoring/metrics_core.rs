@@ -7,16 +7,16 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, Encoder, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry,
+    self, Encoder, Gauge, GaugeVec, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Registry,
     TextEncoder,
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_file_metadata_metrics, create_indexed_project_metrics,
-    create_lsp_metrics, create_per_tenant_eta_metric, create_per_tenant_indexing_metric,
-    create_queue_metrics, create_session_metrics, create_system_metrics,
-    create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
-    create_watch_metrics, register_all,
+    create_dependency_metrics, create_file_metadata_metrics, create_graph_metrics,
+    create_indexed_project_metrics, create_lsp_metrics, create_per_tenant_eta_metric,
+    create_per_tenant_indexing_metric, create_queue_metrics, create_session_metrics,
+    create_system_metrics, create_telemetry_extension_metrics, create_tenant_metrics,
+    create_unified_queue_metrics, create_watch_metrics, register_all,
 };
 
 /// Global metrics registry
@@ -163,6 +163,12 @@ pub struct DaemonMetrics {
     /// Age in seconds of the oldest pending queue item (0 if none)
     pub queue_oldest_pending_age_seconds: IntGauge,
 
+    // Process resource metrics (sampled every second from /proc/self).
+    /// Resident set size of the memexd process in bytes
+    pub process_resident_memory_bytes: IntGauge,
+    /// CPU usage of the memexd process in percent (100 = one full core)
+    pub process_cpu_percent: Gauge,
+
     // Telemetry extension metrics (issue-64 Task 2)
     /// Total filesystem watcher events by event_type
     /// Labels: event_type (create, modify, delete, rename)
@@ -232,6 +238,22 @@ pub struct DaemonMetrics {
 
     /// Number of LSP server instances currently running across all projects.
     pub lsp_active_servers: IntGauge,
+
+    // ── Code-relationship graph observability ─────────────────────────────
+    /// Graph node count by tenant and node type. Labels: tenant_id, node_type
+    pub graph_nodes: IntGaugeVec,
+
+    /// Graph edge count by tenant and edge type. Labels: tenant_id, edge_type
+    pub graph_edges: IntGaugeVec,
+
+    /// Unresolved stub nodes (empty file_path) by tenant. Labels: tenant_id
+    pub graph_unresolved_stubs: IntGaugeVec,
+
+    /// Cumulative stub edges repointed by the resolver. Labels: tenant_id
+    pub graph_stub_resolved_total: IntCounterVec,
+
+    /// Cumulative graph edges written during ingest. Labels: tenant_id, edge_type
+    pub graph_edges_ingested_total: IntCounterVec,
 }
 
 /// Intermediate struct holding all created metrics before registration.
@@ -268,6 +290,8 @@ struct CreatedMetrics {
     unified_queue_stale_items: IntGaugeVec,
     unified_queue_retries_total: IntCounterVec,
     queue_oldest_pending_age_seconds: IntGauge,
+    process_resident_memory_bytes: IntGauge,
+    process_cpu_percent: Gauge,
     watcher_events_total: IntCounterVec,
     watcher_coalesced_total: IntCounterVec,
     grpc_requests_total: IntCounterVec,
@@ -285,6 +309,11 @@ struct CreatedMetrics {
     lsp_enrichments_total: IntCounterVec,
     lsp_available_languages: IntGauge,
     lsp_active_servers: IntGauge,
+    graph_nodes: IntGaugeVec,
+    graph_edges: IntGaugeVec,
+    graph_unresolved_stubs: IntGaugeVec,
+    graph_stub_resolved_total: IntCounterVec,
+    graph_edges_ingested_total: IntCounterVec,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -341,6 +370,17 @@ fn create_all_metrics() -> CreatedMetrics {
     )
     .expect("metric can be created");
 
+    let process_resident_memory_bytes = IntGauge::new(
+        "memexd_process_resident_memory_bytes",
+        "Resident set size of the memexd process in bytes",
+    )
+    .expect("metric can be created");
+    let process_cpu_percent = Gauge::new(
+        "memexd_process_cpu_percent",
+        "CPU usage of the memexd process in percent (100 = one full core)",
+    )
+    .expect("metric can be created");
+
     let (
         indexed_files_count,
         indexed_files_total_bytes,
@@ -361,6 +401,14 @@ fn create_all_metrics() -> CreatedMetrics {
         "LSP server instances currently running across all projects",
     )
     .expect("metric can be created");
+
+    let (
+        graph_nodes,
+        graph_edges,
+        graph_unresolved_stubs,
+        graph_stub_resolved_total,
+        graph_edges_ingested_total,
+    ) = create_graph_metrics();
 
     CreatedMetrics {
         active_sessions,
@@ -395,6 +443,8 @@ fn create_all_metrics() -> CreatedMetrics {
         unified_queue_stale_items,
         unified_queue_retries_total,
         queue_oldest_pending_age_seconds,
+        process_resident_memory_bytes,
+        process_cpu_percent,
         watcher_events_total,
         watcher_coalesced_total,
         grpc_requests_total,
@@ -412,6 +462,11 @@ fn create_all_metrics() -> CreatedMetrics {
         lsp_enrichments_total,
         lsp_available_languages,
         lsp_active_servers,
+        graph_nodes,
+        graph_edges,
+        graph_unresolved_stubs,
+        graph_stub_resolved_total,
+        graph_edges_ingested_total,
     }
 }
 
@@ -452,6 +507,8 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.unified_queue_stale_items.clone()),
             Box::new(m.unified_queue_retries_total.clone()),
             Box::new(m.queue_oldest_pending_age_seconds.clone()),
+            Box::new(m.process_resident_memory_bytes.clone()),
+            Box::new(m.process_cpu_percent.clone()),
             Box::new(m.watcher_events_total.clone()),
             Box::new(m.watcher_coalesced_total.clone()),
             Box::new(m.grpc_requests_total.clone()),
@@ -469,6 +526,11 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.lsp_enrichments_total.clone()),
             Box::new(m.lsp_available_languages.clone()),
             Box::new(m.lsp_active_servers.clone()),
+            Box::new(m.graph_nodes.clone()),
+            Box::new(m.graph_edges.clone()),
+            Box::new(m.graph_unresolved_stubs.clone()),
+            Box::new(m.graph_stub_resolved_total.clone()),
+            Box::new(m.graph_edges_ingested_total.clone()),
         ],
     );
 }
@@ -514,6 +576,8 @@ impl DaemonMetrics {
             unified_queue_stale_items: m.unified_queue_stale_items,
             unified_queue_retries_total: m.unified_queue_retries_total,
             queue_oldest_pending_age_seconds: m.queue_oldest_pending_age_seconds,
+            process_resident_memory_bytes: m.process_resident_memory_bytes,
+            process_cpu_percent: m.process_cpu_percent,
             watcher_events_total: m.watcher_events_total,
             watcher_coalesced_total: m.watcher_coalesced_total,
             grpc_requests_total: m.grpc_requests_total,
@@ -531,6 +595,11 @@ impl DaemonMetrics {
             lsp_enrichments_total: m.lsp_enrichments_total,
             lsp_available_languages: m.lsp_available_languages,
             lsp_active_servers: m.lsp_active_servers,
+            graph_nodes: m.graph_nodes,
+            graph_edges: m.graph_edges,
+            graph_unresolved_stubs: m.graph_unresolved_stubs,
+            graph_stub_resolved_total: m.graph_stub_resolved_total,
+            graph_edges_ingested_total: m.graph_edges_ingested_total,
         }
     }
 

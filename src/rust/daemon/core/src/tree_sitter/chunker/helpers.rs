@@ -31,8 +31,34 @@ pub fn find_children_by_kind<'a>(node: &'a Node<'a>, kind: &str) -> Vec<Node<'a>
         .collect()
 }
 
+/// Default call-expression node kinds recognized across grammars when a
+/// language declares no extra `call_nodes` in the registry: the C-family / JS
+/// `call_expression`, Python/Ruby `call`, C# `invocation_expression`, the
+/// generic `function_call`, and Java/Kotlin `method_invocation` /
+/// `object_creation_expression`.
+pub const DEFAULT_CALL_NODE_KINDS: &[&str] = &[
+    "call_expression",
+    "function_call",
+    "invocation_expression",
+    "call",
+    "method_invocation",
+    "object_creation_expression",
+];
+
+/// Whether `kind` is a call-expression node. The registry-supplied
+/// `extra_call_kinds` (per-language `SemanticPatterns::call_nodes`) are matched
+/// IN ADDITION to [`DEFAULT_CALL_NODE_KINDS`], so a language extends recognition
+/// (e.g. PHP `member_call_expression`) without losing the common ones.
+fn is_call_node(kind: &str, extra_call_kinds: &[String]) -> bool {
+    DEFAULT_CALL_NODE_KINDS.contains(&kind) || extra_call_kinds.iter().any(|k| k == kind)
+}
+
 /// Helper to extract function calls from a node.
-pub fn extract_function_calls(node: &Node, source: &str) -> Vec<String> {
+///
+/// `extra_call_kinds` are language-specific call-node kinds from the registry
+/// (`SemanticPatterns::call_nodes`); pass an empty slice to recognize only the
+/// universal [`DEFAULT_CALL_NODE_KINDS`].
+pub fn extract_function_calls(node: &Node, source: &str, extra_call_kinds: &[String]) -> Vec<String> {
     let mut calls = Vec::new();
     let mut cursor = node.walk();
 
@@ -41,39 +67,45 @@ pub fn extract_function_calls(node: &Node, source: &str) -> Vec<String> {
         source: &str,
         calls: &mut Vec<String>,
         cursor: &mut tree_sitter::TreeCursor,
+        extra_call_kinds: &[String],
     ) {
-        match node.kind() {
-            "call_expression" | "function_call" | "invocation_expression" | "call" => {
-                // Try to get the function name
-                if let Some(callee) = node
-                    .child_by_field_name("function")
-                    .or_else(|| node.child_by_field_name("callee"))
-                    .or_else(|| node.child(0))
-                {
-                    let name = node_text(&callee, source);
-                    // Reduce the callee expression to its bare function name.
-                    // Generic/turbofish arguments are stripped first, so a call
-                    // like `foo::<String, _>()` yields `foo` rather than the
-                    // type-argument fragments `<String` / `_>`.
-                    if let Some(clean_name) = clean_callee_name(name) {
-                        if !calls.contains(&clean_name) {
-                            calls.push(clean_name);
-                        }
+        if is_call_node(node.kind(), extra_call_kinds) {
+            // Resolve the callee node. `function`/`callee` cover the C-family
+            // and JS grammars; `name` is the method identifier on Java/Kotlin
+            // `method_invocation`; `type` is the constructed class on
+            // `object_creation_expression`. `child(0)` is the last-resort
+            // fallback for bare `call` nodes — kept LAST so it never wins over
+            // the named fields above (which would otherwise yield the receiver
+            // object `a` for `a.b()` instead of `b`).
+            if let Some(callee) = node
+                .child_by_field_name("function")
+                .or_else(|| node.child_by_field_name("callee"))
+                .or_else(|| node.child_by_field_name("name"))
+                .or_else(|| node.child_by_field_name("type"))
+                .or_else(|| node.child(0))
+            {
+                let name = node_text(&callee, source);
+                // Reduce the callee expression to its bare function name.
+                // Generic/turbofish arguments are stripped first, so a call like
+                // `foo::<String, _>()` yields `foo` rather than the type-argument
+                // fragments `<String` / `_>`.
+                if let Some(clean_name) = clean_callee_name(name) {
+                    if !calls.contains(&clean_name) {
+                        calls.push(clean_name);
                     }
                 }
             }
-            _ => {}
         }
 
         // Visit children
         for i in 0..node.child_count() {
             if let Some(child) = node.child(i as u32) {
-                visit(&child, source, calls, cursor);
+                visit(&child, source, calls, cursor, extra_call_kinds);
             }
         }
     }
 
-    visit(node, source, &mut calls, &mut cursor);
+    visit(node, source, &mut calls, &mut cursor, extra_call_kinds);
     calls
 }
 

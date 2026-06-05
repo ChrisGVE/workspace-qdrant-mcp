@@ -413,3 +413,63 @@ mod ocr_integration_tests {
         assert!(processor.ocr_engine.is_none());
     }
 }
+
+// --- Binary-content gate (regression for the memexd OOM on a Mach-O fixture) ---
+
+/// A file containing NUL bytes must be rejected as binary, never lossy-decoded
+/// into garbage "text" and fed to the chunker.
+#[test]
+fn test_extract_text_rejects_binary_nul_bytes() {
+    use super::super::extraction::extract_text_with_encoding;
+    use super::super::types::DocumentProcessorError;
+
+    // Mach-O-like header: magic + NUL padding (exactly what `bookshelf` looked like).
+    let mut tmp = NamedTempFile::new().unwrap();
+    let mut buf = vec![0xCF, 0xFA, 0xED, 0xFE];
+    buf.extend(std::iter::repeat_n(0u8, 64));
+    buf.extend_from_slice(b"__TEXT__text");
+    tmp.write_all(&buf).unwrap();
+    tmp.flush().unwrap();
+
+    let err = extract_text_with_encoding(tmp.path()).unwrap_err();
+    assert!(
+        matches!(err, DocumentProcessorError::BinaryFile(_)),
+        "expected BinaryFile, got {err:?}"
+    );
+}
+
+/// Plain UTF-8 text (no NUL) must still extract cleanly.
+#[test]
+fn test_extract_text_accepts_utf8() {
+    use super::super::extraction::extract_text_with_encoding;
+
+    let mut tmp = NamedTempFile::new().unwrap();
+    tmp.write_all("fn main() {}\nlet x = 1;\n".as_bytes()).unwrap();
+    tmp.flush().unwrap();
+
+    let (text, meta) = extract_text_with_encoding(tmp.path()).unwrap();
+    assert!(text.contains("fn main"));
+    assert_eq!(meta.get("encoding").map(String::as_str), Some("utf-8"));
+}
+
+/// UTF-16 LE text carries NUL bytes but a BOM — the gate must NOT reject it.
+#[test]
+fn test_extract_text_utf16_bom_not_treated_as_binary() {
+    use super::super::extraction::extract_text_with_encoding;
+
+    let mut tmp = NamedTempFile::new().unwrap();
+    let mut buf = vec![0xFF, 0xFE]; // UTF-16 LE BOM
+    for b in "hello".encode_utf16() {
+        buf.extend_from_slice(&b.to_le_bytes());
+    }
+    tmp.write_all(&buf).unwrap();
+    tmp.flush().unwrap();
+
+    // Must not be a BinaryFile rejection (decodes via the encoding path).
+    let res = extract_text_with_encoding(tmp.path());
+    assert!(
+        res.is_ok(),
+        "UTF-16 BOM text wrongly rejected: {:?}",
+        res.err()
+    );
+}

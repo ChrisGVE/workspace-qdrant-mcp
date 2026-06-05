@@ -26,6 +26,11 @@ pub struct LspConfig {
     pub request_timeout: Duration,
     pub shutdown_timeout: Duration,
 
+    /// Warm-up grace before a freshly-started server is treated as query-ready
+    /// (global floor; per-language minimums apply on top). See
+    /// `LspSettings::warmup_grace_secs`.
+    pub warmup_grace: Duration,
+
     /// Health check configuration
     pub health_check_interval: Duration,
     pub health_check_timeout: Duration,
@@ -106,6 +111,7 @@ impl Default for LspConfig {
             startup_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),
             shutdown_timeout: Duration::from_secs(10),
+            warmup_grace: Duration::from_secs(15),
 
             health_check_interval: Duration::from_secs(60),
             health_check_timeout: Duration::from_secs(5),

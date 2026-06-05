@@ -190,12 +190,12 @@ impl GenericExtractor {
             let body_node_type = self.patterns.body_node.as_deref();
             if let Some(body_type) = body_node_type {
                 if let Some(body) = find_child_by_kind(node, body_type) {
-                    extract_function_calls(&body, source)
+                    extract_function_calls(&body, source, &self.patterns.call_nodes)
                 } else {
-                    extract_function_calls(node, source)
+                    extract_function_calls(node, source, &self.patterns.call_nodes)
                 }
             } else {
-                extract_function_calls(node, source)
+                extract_function_calls(node, source, &self.patterns.call_nodes)
             }
         } else {
             Vec::new()
@@ -271,16 +271,24 @@ impl GenericExtractor {
         parent_name: &str,
         chunks: &mut Vec<SemanticChunk>,
     ) {
+        // The configured `body_node` is the *method/function* body kind (e.g.
+        // Java `block`). A container (class/interface/enum/impl) wraps its
+        // members in a DIFFERENT node — `class_body`, `declaration_list`, … —
+        // so probing only the configured kind on a container finds nothing and
+        // silently extracts ZERO methods. That left every Java class
+        // method-less, so the call graph had no Java CALLS edges at all. Try
+        // the configured kind first (correct for languages whose class and
+        // method bodies share a kind), then fall back to the common container
+        // bodies.
         let body_type = self.patterns.body_node.as_deref();
-        let body = if let Some(bt) = body_type {
-            find_child_by_kind(node, bt)
-        } else {
-            // Try common body containers
-            find_child_by_kind(node, "block")
-                .or_else(|| find_child_by_kind(node, "body"))
-                .or_else(|| find_child_by_kind(node, "class_body"))
-                .or_else(|| find_child_by_kind(node, "declaration_list"))
-        };
+        let body = body_type
+            .and_then(|bt| find_child_by_kind(node, bt))
+            .or_else(|| find_child_by_kind(node, "class_body"))
+            .or_else(|| find_child_by_kind(node, "declaration_list"))
+            .or_else(|| find_child_by_kind(node, "enum_body"))
+            .or_else(|| find_child_by_kind(node, "interface_body"))
+            .or_else(|| find_child_by_kind(node, "block"))
+            .or_else(|| find_child_by_kind(node, "body"));
 
         let body = match body {
             Some(b) => b,

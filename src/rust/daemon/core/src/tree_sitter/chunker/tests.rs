@@ -477,3 +477,76 @@ fn test_split_fragment_indices_sequential() {
         );
     }
 }
+
+/// Regression: a long run without line breaks must not loop forever.
+///
+/// Reproduces the daemon OOM where `split_chunk_with_overlap` allocated
+/// fragments without bound (~10 GB Vec + ~14 GB of fragment Strings) on
+/// minified / single-line content. `find_line_boundary` snapped `actual_end`
+/// back to the same early newline every iteration while the overlap pull-back
+/// failed to advance `start`. Must now terminate with a bounded number of
+/// gap-free fragments.
+#[test]
+fn test_split_no_newline_tail_terminates() {
+    let chunker = SemanticChunker::new(200); // target_size = 800, step_size = 300
+
+    // Early newline followed by a long unbroken run — the exact stall trigger.
+    let content = format!("preamble\n{}", "x".repeat(60_000));
+    assert!(content.len() > 800);
+
+    let chunk = SemanticChunk::new(
+        ChunkType::Function,
+        "minified",
+        &content,
+        1,
+        1,
+        "javascript",
+        "bundle.min.js",
+    );
+
+    let fragments = chunker.split_oversized_chunk(&chunk);
+
+    assert!(fragments.len() >= 2, "long content should split");
+    // Bounded: count is ~content.len()/step_size, never per-character explosion.
+    assert!(
+        fragments.len() < content.len() / 100,
+        "fragment count {} is unbounded for {}-char input",
+        fragments.len(),
+        content.len()
+    );
+    // Coverage: first fragment starts at the beginning, last reaches the end.
+    assert!(
+        content.starts_with(fragments[0].content.as_str()),
+        "first fragment must cover the start"
+    );
+    assert!(
+        content.ends_with(fragments.last().unwrap().content.as_str()),
+        "last fragment must cover the end"
+    );
+}
+
+/// Regression: a single giant line with no newline at all.
+#[test]
+fn test_split_single_giant_line_terminates() {
+    let chunker = SemanticChunker::new(200);
+    let content = "a".repeat(100_000); // no '\n' anywhere
+
+    let chunk = SemanticChunk::new(
+        ChunkType::Text,
+        "blob",
+        &content,
+        1,
+        1,
+        "json",
+        "data.json",
+    );
+
+    let fragments = chunker.split_oversized_chunk(&chunk);
+    assert!(fragments.len() >= 2);
+    assert!(
+        fragments.len() < content.len() / 100,
+        "fragment count {} unbounded",
+        fragments.len()
+    );
+    assert!(content.ends_with(fragments.last().unwrap().content.as_str()));
+}

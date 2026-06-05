@@ -1978,6 +1978,19 @@ lsp:
   # Default reasoning: 10 seconds handles typical queries
   request_timeout_secs: 10
 
+  # warmup_grace_secs: Grace period before a freshly-started server is queried
+  # Purpose: A new LSP server accepts `initialize` immediately but still needs
+  #   time to build its initial index (rust-analyzer runs cargo metadata, jdtls
+  #   indexes the workspace, gopls loads the module). Querying before then makes
+  #   the first request time out. This grace defers enrichment until the server
+  #   is likely ready; chunks indexed during warm-up are marked `pending` and
+  #   backfilled by the metadata-uplift re-enrichment pass.
+  # Per-language floors apply ON TOP of this value (heavy servers wait longer):
+  #   java=120s, rust=60s, go/c/cpp=30s, others=5s.
+  # Format: Integer seconds >= 0 (acts as a global minimum)
+  # Default reasoning: 15s global floor; per-language minimums cover the rest.
+  warmup_grace_secs: 15
+
   # health_check_interval_secs: Interval between server health checks
   # Purpose: How often to verify LSP servers are responding
   # Detection: Catches crashed or unresponsive servers
