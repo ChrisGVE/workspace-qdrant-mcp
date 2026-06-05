@@ -1,0 +1,206 @@
+# syntax=docker/dockerfile:1.7
+# Multi-stage, multi-arch Dockerfile for the workspace-qdrant-mcp Rust MCP server.
+#
+# Build: docker buildx build --platform linux/amd64,linux/arm64 \
+#          -f docker/Dockerfile.mcp -t workspace-qdrant-mcp:latest --push .
+#
+# This image is intentionally lighter than Dockerfile.memexd:
+#   - No ONNX/ORT — the MCP server is a read-only gRPC client; embeddings are
+#     produced by the daemon's EmbeddingService.
+#   - No LSP toolchain (rust-analyzer, gopls, pyright) — daemon-only concern.
+#   - The wqm-proto crate compiles workspace_daemon.proto at build time, so
+#     protobuf-compiler + libprotobuf-dev are still required in the builder.
+#
+# Runtime contract (verified from src/rust/daemon/mcp-server/src/):
+#   MCP_SERVER_MODE   stdio (default) | http
+#   MCP_HTTP_HOST     127.0.0.1 (default; containers should set 0.0.0.0)
+#   MCP_HTTP_PORT     6335 (default)
+#   MCP_HTTP_PATH     /mcp (default)
+#   MCP_HTTP_TOKEN    required in http mode (≥16 chars bearer token)
+#   MCP_METRICS_PORT  9092 (default; http mode only)
+#   GET /healthz      unauthenticated liveness probe on MCP_HTTP_PORT
+#   GET /metrics      Prometheus metrics on MCP_METRICS_PORT (http mode)
+
+ARG RUST_VERSION=1.90
+ARG DEBIAN_CODENAME=bookworm
+ARG BUILDKIT_INLINE_CACHE=1
+
+# ─────────────────────────────────────────────
+# Stage 1: Rust build
+# ─────────────────────────────────────────────
+FROM rust:${RUST_VERSION}-${DEBIAN_CODENAME} AS builder
+
+ARG TARGETPLATFORM
+
+# Build-time system dependencies:
+#   git              — mcp-server/build.rs calls `git rev-list --count HEAD` for
+#                      BUILD_NUMBER; proto/build.rs also benefits from the git
+#                      rerun-if-changed hint.
+#   protobuf-compiler + libprotobuf-dev — wqm-proto/build.rs compiles
+#                      workspace_daemon.proto into gRPC client stubs.
+#   libssl-dev + pkg-config — tonic TLS feature links against OpenSSL.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        git \
+        libprotobuf-dev \
+        libssl-dev \
+        pkg-config \
+        protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# ── Dependency pre-fetch layer ──────────────────────────────────────────────
+# Copy workspace manifests first. This layer is cached as long as Cargo.toml /
+# Cargo.lock do not change, even when application source changes.
+COPY src/rust/Cargo.toml src/rust/Cargo.lock ./
+
+# Copy every member Cargo.toml so the workspace resolver works without full
+# source.  List must match [workspace.members] in src/rust/Cargo.toml exactly.
+COPY src/rust/common/Cargo.toml                       common/
+COPY src/rust/proto/Cargo.toml                        proto/
+COPY src/rust/client/Cargo.toml                       client/
+COPY src/rust/cli/Cargo.toml                          cli/
+COPY src/rust/daemon/core/Cargo.toml                  daemon/core/
+COPY src/rust/daemon/grpc/Cargo.toml                  daemon/grpc/
+COPY src/rust/daemon/memexd/Cargo.toml                daemon/memexd/
+COPY src/rust/daemon/mcp-server/Cargo.toml            daemon/mcp-server/
+COPY src/rust/daemon/shared-test-utils/Cargo.toml     daemon/shared-test-utils/
+COPY src/rust/tools/registry-updater/Cargo.toml       tools/registry-updater/
+
+# [patch.crates-io] points to patches/fastembed.  Copy it so cargo fetch can
+# resolve the patch source (the actual fastembed patch is a workspace dep even
+# though mcp-server itself does not use it; the resolver requires it present).
+COPY src/rust/patches/                                patches/
+
+# Create stub lib.rs / main.rs for every crate so `cargo fetch` resolves
+# without needing the full source tree.  Bench stubs are required for any
+# [[bench]] entries declared in Cargo.toml — cargo validates paths even for
+# `cargo fetch`.
+RUN set -eux; \
+    for member in common proto client cli \
+                  daemon/core daemon/grpc daemon/mcp-server daemon/shared-test-utils \
+                  tools/registry-updater; do \
+        mkdir -p ${member}/src; \
+        printf 'fn main() {}\n' > ${member}/src/main.rs 2>/dev/null || true; \
+        printf '' > ${member}/src/lib.rs 2>/dev/null || true; \
+    done; \
+    mkdir -p daemon/memexd/src; \
+    printf 'fn main() {}\n' > daemon/memexd/src/main.rs; \
+    mkdir -p daemon/core/benches; \
+    for bench in cross_platform_benchmarks queue_processor_bench \
+                 stress_benchmarks example_benchmark qdrant_ingestion_bench \
+                 fts5_search_bench graph_bench perf_extract_benchmarks \
+                 perf_extract_comparison; do \
+        printf 'fn main() {}\n' > daemon/core/benches/${bench}.rs; \
+    done; \
+    mkdir -p daemon/mcp-server/benches; \
+    printf 'fn main() {}\n' > daemon/mcp-server/benches/tool_overhead.rs; \
+    mkdir -p client/benches; \
+    printf 'fn main() {}\n' > client/benches/fusion_pipeline.rs
+
+# Copy the mcp-server build.rs and proto build.rs so cargo fetch sees them.
+COPY src/rust/daemon/mcp-server/build.rs daemon/mcp-server/build.rs
+COPY src/rust/proto/build.rs             proto/build.rs
+
+# Fetch all dependencies into the cargo registry cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo fetch --manifest-path /build/Cargo.toml
+
+# ── Full source copy ──────────────────────────────────────────────────────────
+# Invalidates when actual Rust source changes; the dependency layers above remain cached.
+COPY src/rust/ .
+
+# wqm-common embeds assets/default_configuration.yaml via include_str! with a
+# root-relative path (../../../../../assets/default_configuration.yaml from
+# src/rust/common/src/yaml_defaults/mod.rs).  In this flat /build layout that
+# resolves to /assets/default_configuration.yaml.
+COPY assets/default_configuration.yaml /assets/default_configuration.yaml
+
+# The proto file is referenced by proto/build.rs relative to daemon/proto/.
+# src/rust/ was already copied above, so it is present under daemon/proto/.
+# Verify the path is correct — no additional COPY required.
+
+# Initialise a minimal git repo so mcp-server/build.rs can obtain BUILD_NUMBER.
+# If a real .git directory is present in the build context it will be used instead.
+RUN if [ ! -d .git ] && [ ! -f .git ]; then \
+        git init -q; \
+        git config user.email "build@docker.local"; \
+        git config user.name "docker-build"; \
+        git add -A; \
+        git commit -q -m "docker-build"; \
+    fi
+
+# ── Compile ───────────────────────────────────────────────────────────────────
+# No ORT_LIB_LOCATION — the MCP server has no ONNX dependency.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/build/target,sharing=locked \
+    cargo build --release --package mcp-server
+
+# Copy the binary out of the cache mount so the next stage can access it.
+RUN --mount=type=cache,target=/build/target,sharing=locked \
+    cp /build/target/release/workspace-qdrant-mcp /usr/local/bin/workspace-qdrant-mcp
+
+# ─────────────────────────────────────────────
+# Stage 2: Runtime image
+# ─────────────────────────────────────────────
+FROM debian:${DEBIAN_CODENAME}-slim AS runtime
+
+ARG UID=1000
+
+# Runtime dependencies:
+#   curl            — used by the HEALTHCHECK instruction below
+#   ca-certificates — TLS certificate validation for gRPC connections to memexd
+#                     and Qdrant
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid ${UID} wqm \
+    && useradd --uid ${UID} --gid ${UID} --create-home --shell /usr/sbin/nologin wqm \
+    && mkdir -p \
+        /home/wqm/.local/share/workspace-qdrant \
+        /home/wqm/.config/workspace-qdrant \
+        /home/wqm/.cache \
+        /home/wqm/.local/state \
+    && chown -R wqm:wqm /home/wqm
+
+LABEL org.opencontainers.image.title="workspace-qdrant-mcp" \
+      org.opencontainers.image.description="workspace-qdrant-mcp Rust MCP server" \
+      org.opencontainers.image.version="0.1.3" \
+      org.opencontainers.image.source="https://github.com/ChrisGVE/workspace-qdrant-mcp" \
+      org.opencontainers.image.licenses="MIT"
+
+COPY --from=builder /usr/local/bin/workspace-qdrant-mcp /usr/local/bin/workspace-qdrant-mcp
+
+# Note: the Cargo release profile sets strip=true, so the binary arrives
+# already stripped from the builder stage.  No extra strip pass needed.
+
+USER wqm
+ENV HOME=/home/wqm
+
+# MCP Streamable HTTP port (MCP_HTTP_PORT; default 6335)
+EXPOSE 6335
+# Prometheus metrics port (MCP_METRICS_PORT; default 9092; active in http mode)
+EXPOSE 9092
+
+# Health check behaviour depends on MCP_SERVER_MODE:
+#   http  — probe GET /healthz (unauthenticated) on the HTTP port
+#   stdio — verify the process is still running via kill -0
+#
+# The shell-form HEALTHCHECK reads MCP_HTTP_PORT at probe time so overrides
+# in `docker run -e MCP_HTTP_PORT=...` are respected automatically.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD if [ "${MCP_SERVER_MODE:-stdio}" = "http" ]; then \
+            curl -f "http://127.0.0.1:${MCP_HTTP_PORT:-6335}/healthz" || exit 1; \
+        else \
+            kill -0 1 2>/dev/null || exit 1; \
+        fi
+
+# Default mode is stdio so the image works as a drop-in for Claude Code's
+# process-spawn pattern without any additional environment variables.
+# Override with -e MCP_SERVER_MODE=http for network deployments.
+ENTRYPOINT ["/usr/local/bin/workspace-qdrant-mcp"]

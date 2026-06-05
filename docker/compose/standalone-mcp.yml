@@ -11,8 +11,8 @@
 # One-liner equivalent:
 #   docker run -d \
 #     -e WQM_DAEMON_ENDPOINT=<memexd-host>:50051 \
-#     -v "${HOME}/.local/share/workspace-qdrant:/home/node/.local/share/workspace-qdrant" \
-#     -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
+#     -v "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant" \
+#     -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
 #     -p 9092:9092 \
 #     chrisgve/workspace-qdrant-mcp:v0.1.3
 
@@ -32,8 +32,8 @@ services:
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
     volumes:
-      - "${HOME}/.local/share/workspace-qdrant:/home/node/.local/share/workspace-qdrant"
-      - "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant"
+      - "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant"
+      - "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant"
     ports:
       - "${MCP_METRICS_PORT:-9092}:9092"
     labels:

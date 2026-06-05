@@ -58,8 +58,8 @@ x-memexd-volumes: &memexd-volumes
   - "${HOME}/dev:/home/memexd/dev:ro"
 
 x-mcp-volumes: &mcp-volumes
-  - "${HOME}/.local/share/workspace-qdrant:/home/node/.local/share/workspace-qdrant"
-  - "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant"
+  - "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant"
+  - "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant"
 
 # ─────────────────────────────────────────────────────────────────────────────
 
