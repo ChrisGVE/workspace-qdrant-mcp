@@ -40,10 +40,28 @@ impl LanguageServerManager {
             return false;
         };
 
-        let instances = self.instances.read().await;
-        instances
+        // A server process must exist for this project+language…
+        let exists = {
+            let instances = self.instances.read().await;
+            instances
+                .iter()
+                .any(|(k, _)| k.project_id == project_id && k.language == language)
+        };
+        if !exists {
+            return false;
+        }
+
+        // …and it must be past its warm-up grace. Firing enrichment at a server
+        // still building its initial index makes the first request time out;
+        // instead we defer (the chunk is marked pending and re-enriched later by
+        // the metadata-uplift pass). A missing ready-at entry (legacy/restored
+        // state) is treated as ready for backward compatibility.
+        let ready_at = self.ready_at.read().await;
+        ready_at
             .iter()
-            .any(|(k, _)| k.project_id == project_id && k.language == language)
+            .find(|(k, _)| k.project_id == project_id && k.language == language)
+            .map(|(_, &t)| std::time::Instant::now() >= t)
+            .unwrap_or(true)
     }
 
     /// Enrich a semantic chunk with LSP data

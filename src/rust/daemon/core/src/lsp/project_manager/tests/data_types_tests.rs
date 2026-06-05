@@ -371,6 +371,7 @@ async fn test_project_lsp_config_from_lsp_settings() {
         cache_ttl_secs: 600,
         startup_timeout_secs: 45,
         request_timeout_secs: 15,
+        warmup_grace_secs: 45,
         health_check_interval_secs: 90,
         max_restart_attempts: 5,
         restart_backoff_multiplier: 3.0,
@@ -387,6 +388,10 @@ async fn test_project_lsp_config_from_lsp_settings() {
     assert_eq!(config.deactivation_delay_secs, 120);
     assert!(!config.enable_enrichment_cache);
     assert_eq!(config.cache_ttl_secs, 600);
+    assert_eq!(
+        config.lsp_config.warmup_grace,
+        std::time::Duration::from_secs(45)
+    );
     assert_eq!(config.health_check_interval_secs, 90);
     assert_eq!(config.max_restarts, 5);
     assert!(!config.enable_auto_restart);

@@ -387,3 +387,58 @@ async fn test_evict_idle_servers_keeps_recent() {
     let servers = manager.servers.read().await;
     assert!(servers.contains_key(&key));
 }
+
+#[tokio::test]
+async fn test_warmup_grace_defers_then_allows_readiness() {
+    use crate::lsp::detection::{DetectedServer, ServerCapabilities};
+    use crate::lsp::{LspConfig, ServerInstance};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    let manager = LanguageServerManager::new(ProjectLspConfig::default())
+        .await
+        .unwrap();
+    let project = "warmup-proj";
+    let file = Path::new("/test/lib.rs"); // → Language::Rust
+    let key = ProjectLanguageKey::new(project, Language::Rust);
+
+    // Register a process-less server instance so the existence check passes.
+    let detected = DetectedServer {
+        name: "rust-analyzer".to_string(),
+        path: PathBuf::from("/usr/bin/rust-analyzer"),
+        languages: vec![Language::Rust],
+        version: None,
+        capabilities: ServerCapabilities::default(),
+        priority: 1,
+    };
+    let instance = ServerInstance::new(detected, LspConfig::default())
+        .await
+        .unwrap();
+    manager
+        .instances
+        .write()
+        .await
+        .insert(key.clone(), Arc::new(tokio::sync::Mutex::new(instance)));
+
+    // Still inside the warm-up window → enrichment is deferred (not ready).
+    manager
+        .ready_at
+        .write()
+        .await
+        .insert(key.clone(), Instant::now() + Duration::from_secs(60));
+    assert!(
+        !manager.is_server_ready_for_file(project, file).await,
+        "server should not be ready during warm-up grace"
+    );
+
+    // Warm-up elapsed → ready to enrich.
+    manager
+        .ready_at
+        .write()
+        .await
+        .insert(key.clone(), Instant::now() - Duration::from_secs(1));
+    assert!(
+        manager.is_server_ready_for_file(project, file).await,
+        "server should be ready after warm-up grace elapses"
+    );
+}

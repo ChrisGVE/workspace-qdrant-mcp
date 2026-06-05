@@ -24,6 +24,9 @@ fn default_startup_timeout() -> u64 {
 fn default_request_timeout() -> u64 {
     10
 }
+fn default_warmup_grace() -> u64 {
+    15
+}
 fn default_health_check_interval() -> u64 {
     60
 }
@@ -81,6 +84,15 @@ pub struct LspSettings {
     #[serde(default = "default_request_timeout")]
     pub request_timeout_secs: u64,
 
+    /// Warm-up grace in seconds before a freshly-started LSP server is treated
+    /// as query-ready. Prevents the first enrichment query from timing out while
+    /// the server is still building its initial index. Acts as a global floor;
+    /// heavy servers (rust-analyzer, jdtls, gopls) get a higher per-language
+    /// minimum on top. Chunks indexed during warm-up are deferred (marked
+    /// pending) and backfilled by the metadata-uplift re-enrichment pass.
+    #[serde(default = "default_warmup_grace")]
+    pub warmup_grace_secs: u64,
+
     /// Interval in seconds between health checks
     #[serde(default = "default_health_check_interval")]
     pub health_check_interval_secs: u64,
@@ -117,6 +129,7 @@ impl Default for LspSettings {
             cache_ttl_secs: default_cache_ttl(),
             startup_timeout_secs: default_startup_timeout(),
             request_timeout_secs: default_request_timeout(),
+            warmup_grace_secs: default_warmup_grace(),
             health_check_interval_secs: default_health_check_interval(),
             max_restart_attempts: default_max_restart_attempts(),
             restart_backoff_multiplier: default_backoff_multiplier(),

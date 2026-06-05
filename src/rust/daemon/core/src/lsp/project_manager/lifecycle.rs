@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
@@ -10,6 +11,25 @@ use super::{
     ProjectServerState, ServerInstance, ServerStatus,
 };
 use crate::lsp::Language;
+
+/// Per-language warm-up grace before a freshly-started LSP server is treated as
+/// query-ready. Heavy indexers need longer before their first request stops
+/// timing out (the server is still building its initial index); light servers
+/// are ready almost immediately. `floor` is the configured global
+/// `lsp.warmup_grace_secs`, applied as a minimum to every language.
+fn warmup_grace_for(language: &Language, floor: Duration) -> Duration {
+    let lang_min = match language {
+        // jdtls indexes the whole workspace + resolves the build before answering.
+        Language::Java => Duration::from_secs(120),
+        // rust-analyzer runs `cargo metadata` and indexes the crate graph.
+        Language::Rust => Duration::from_secs(60),
+        // gopls loads the module/workspace; clangd parses the compile DB.
+        Language::Go | Language::C | Language::Cpp => Duration::from_secs(30),
+        // pyright / tsserver / bash-ls / dart / intelephense: fast to answer.
+        _ => Duration::from_secs(5),
+    };
+    floor.max(lang_min)
+}
 
 impl LanguageServerManager {
     /// Start a server for a specific project and language
@@ -206,10 +226,19 @@ impl LanguageServerManager {
                 Arc::new(tokio::sync::Mutex::new(instance.clone())),
             );
         }
+        {
+            // Defer enrichment for this server until it has had time to index,
+            // so the first query doesn't time out against a still-warming server.
+            let grace = warmup_grace_for(language, self.config.lsp_config.warmup_grace);
+            let mut ready_at = self.ready_at.write().await;
+            ready_at.insert(key.clone(), Instant::now() + grace);
+        }
 
         tracing::info!(
             project_id = project_id,
             language = ?language,
+            warmup_grace_secs =
+                warmup_grace_for(language, self.config.lsp_config.warmup_grace).as_secs(),
             "Language server started successfully"
         );
 
@@ -237,6 +266,10 @@ impl LanguageServerManager {
             let mut instances = self.instances.write().await;
             instances.remove(&key)
         };
+        {
+            let mut ready_at = self.ready_at.write().await;
+            ready_at.remove(&key);
+        }
 
         if let Some(instance) = instance_opt {
             tracing::info!(
@@ -354,5 +387,55 @@ impl LanguageServerManager {
 
         tracing::info!("LanguageServerManager shutdown complete");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod warmup_grace_tests {
+    use super::warmup_grace_for;
+    use crate::lsp::Language;
+    use std::time::Duration;
+
+    #[test]
+    fn heavy_languages_wait_longer_than_the_floor() {
+        let floor = Duration::from_secs(15);
+        assert_eq!(
+            warmup_grace_for(&Language::Java, floor),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            warmup_grace_for(&Language::Rust, floor),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            warmup_grace_for(&Language::Go, floor),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            warmup_grace_for(&Language::Cpp, floor),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn light_languages_use_the_configured_floor() {
+        // Floor (15s) above the light minimum (5s) → floor wins.
+        assert_eq!(
+            warmup_grace_for(&Language::Python, Duration::from_secs(15)),
+            Duration::from_secs(15)
+        );
+        // Floor below the light minimum → the 5s minimum wins.
+        assert_eq!(
+            warmup_grace_for(&Language::Python, Duration::from_secs(2)),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn a_high_floor_raises_even_heavy_languages() {
+        assert_eq!(
+            warmup_grace_for(&Language::Go, Duration::from_secs(90)),
+            Duration::from_secs(90)
+        );
     }
 }

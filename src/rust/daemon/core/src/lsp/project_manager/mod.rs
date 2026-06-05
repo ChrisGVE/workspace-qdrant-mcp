@@ -199,6 +199,7 @@ impl From<LspSettings> for ProjectLspConfig {
 
         lsp_config.startup_timeout = Duration::from_secs(settings.startup_timeout_secs);
         lsp_config.request_timeout = Duration::from_secs(settings.request_timeout_secs);
+        lsp_config.warmup_grace = Duration::from_secs(settings.warmup_grace_secs);
         lsp_config.health_check_interval = Duration::from_secs(settings.health_check_interval_secs);
         lsp_config.enable_auto_restart = settings.enable_auto_restart;
         lsp_config.max_restart_attempts = settings.max_restart_attempts;
@@ -399,6 +400,12 @@ pub struct LanguageServerManager {
     /// Running server instances by (project_id, language)
     pub(crate) instances:
         Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,
+    /// Earliest instant each server is treated as query-ready (start + warm-up
+    /// grace). Read by `is_server_ready_for_file` to defer enrichment cleanly
+    /// while a freshly-started server is still indexing, instead of firing
+    /// requests that time out. Kept separate from the instance `Mutex` so the
+    /// readiness check never blocks behind an in-flight LSP request.
+    pub(crate) ready_at: Arc<RwLock<HashMap<ProjectLanguageKey, std::time::Instant>>>,
     /// Enrichment cache: (project_id, file_path, position) -> enrichment.
     /// Bounded LRU — see `ENRICHMENT_CACHE_CAPACITY`. `LruCache::get` mutates
     /// recency, so this is a `Mutex` (not `RwLock`): even reads take the lock.
@@ -420,6 +427,7 @@ impl LanguageServerManager {
             config,
             servers: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
+            ready_at: Arc::new(RwLock::new(HashMap::new())),
             cache: Arc::new(Mutex::new(LruCache::new(enrichment_cache_capacity()))),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
