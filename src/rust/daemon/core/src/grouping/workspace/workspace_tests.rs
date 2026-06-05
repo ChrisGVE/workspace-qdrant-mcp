@@ -215,23 +215,14 @@ async fn setup_pool() -> SqlitePool {
         .await
         .unwrap();
 
-    // Minimal watch_folders table
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS watch_folders (
-            watch_id TEXT PRIMARY KEY,
-            folder_path TEXT NOT NULL,
-            watch_type TEXT NOT NULL DEFAULT 'project',
-            tenant_id TEXT NOT NULL,
-            git_remote_url TEXT,
-            is_active INTEGER DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    // Real watch_folders schema — fixtures must not drift from production
+    // (a hand-rolled folder_path/watch_type table masked a column-name bug).
+    for stmt in include_str!("../../schema/watch_folders_schema.sql").split(';') {
+        let stmt = stmt.trim();
+        if !stmt.is_empty() {
+            sqlx::query(stmt).execute(&pool).await.unwrap();
+        }
+    }
 
     sqlx::query(schema::CREATE_PROJECT_GROUPS_SQL)
         .execute(&pool)
@@ -264,7 +255,10 @@ async fn test_compute_workspace_groups_cargo() {
     let app_path = root.join("app").to_string_lossy().to_string();
     let lib_path = root.join("lib").to_string_lossy().to_string();
 
-    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?, ?, 'projects', ?, datetime('now'), datetime('now'))",
+    )
         .bind("w1")
         .bind(&app_path)
         .bind("tenant-app")
@@ -272,7 +266,10 @@ async fn test_compute_workspace_groups_cargo() {
         .await
         .unwrap();
 
-    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?, ?, 'projects', ?, datetime('now'), datetime('now'))",
+    )
         .bind("w2")
         .bind(&lib_path)
         .bind("tenant-lib")
@@ -308,7 +305,10 @@ async fn test_update_single_project_workspace() {
 
     // Register svc-a first
     let svc_a_path = root.join("svc-a").to_string_lossy().to_string();
-    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?, ?, 'projects', ?, datetime('now'), datetime('now'))",
+    )
         .bind("w1")
         .bind(&svc_a_path)
         .bind("tenant-a")
@@ -318,7 +318,10 @@ async fn test_update_single_project_workspace() {
 
     // Then register svc-b and update groups
     let svc_b_path = root.join("svc-b").to_string_lossy().to_string();
-    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?, ?, 'projects', ?, datetime('now'), datetime('now'))",
+    )
         .bind("w2")
         .bind(&svc_b_path)
         .bind("tenant-b")
@@ -345,7 +348,10 @@ async fn test_no_workspace_no_group() {
     let pool = setup_pool().await;
 
     let path = root.to_string_lossy().to_string();
-    sqlx::query("INSERT INTO watch_folders (watch_id, folder_path, tenant_id) VALUES (?, ?, ?)")
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at) \
+         VALUES (?, ?, 'projects', ?, datetime('now'), datetime('now'))",
+    )
         .bind("w1")
         .bind(&path)
         .bind("tenant-solo")

@@ -33,9 +33,9 @@ pub async fn compute_workspace_groups(pool: &SqlitePool) -> Result<usize, sqlx::
 
     let rows = sqlx::query(
         r#"
-        SELECT tenant_id, folder_path
+        SELECT tenant_id, path
         FROM watch_folders
-        WHERE watch_type = 'project'
+        WHERE collection = 'projects'
         "#,
     )
     .fetch_all(pool)
@@ -45,7 +45,7 @@ pub async fn compute_workspace_groups(pool: &SqlitePool) -> Result<usize, sqlx::
 
     for row in &rows {
         let tenant_id: String = row.get("tenant_id");
-        let folder_path: String = row.get("folder_path");
+        let folder_path: String = row.get("path");
         let project_path = Path::new(&folder_path);
 
         let workspace = detect_cargo_workspace(project_path)
@@ -149,9 +149,9 @@ pub async fn update_project_workspace_group(
 
     let peer_rows = sqlx::query(
         r#"
-        SELECT tenant_id, folder_path
+        SELECT tenant_id, path
         FROM watch_folders
-        WHERE watch_type = 'project' AND tenant_id != ?
+        WHERE collection = 'projects' AND tenant_id != ?
         "#,
     )
     .bind(tenant_id)
@@ -160,7 +160,7 @@ pub async fn update_project_workspace_group(
 
     for row in &peer_rows {
         let peer_tenant: String = row.get("tenant_id");
-        let peer_path_str: String = row.get("folder_path");
+        let peer_path_str: String = row.get("path");
         let peer_path = Path::new(&peer_path_str);
 
         let is_member = ws

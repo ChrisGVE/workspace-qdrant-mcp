@@ -463,15 +463,14 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS watch_folders \
-             (tenant_id TEXT PRIMARY KEY, folder_path TEXT, watch_type TEXT, \
-              is_active INTEGER DEFAULT 1, last_activity_at TEXT, updated_at TEXT, \
-              git_remote_url TEXT, name TEXT)",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
+        // Real watch_folders schema — fixtures must not drift from production
+        // (a hand-rolled folder_path/watch_type table masked a column-name bug).
+        for stmt in include_str!("../schema/watch_folders_schema.sql").split(';') {
+            let stmt = stmt.trim();
+            if !stmt.is_empty() {
+                sqlx::query(stmt).execute(pool).await.unwrap();
+            }
+        }
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS project_embeddings \

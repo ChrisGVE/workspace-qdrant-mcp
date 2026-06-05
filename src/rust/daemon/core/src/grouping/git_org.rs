@@ -308,23 +308,14 @@ mod tests {
             .await
             .unwrap();
 
-        // Create watch_folders table (minimal for our needs)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS watch_folders (
-                watch_id TEXT PRIMARY KEY,
-                folder_path TEXT NOT NULL,
-                watch_type TEXT NOT NULL DEFAULT 'project',
-                tenant_id TEXT NOT NULL,
-                git_remote_url TEXT,
-                is_active INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        // Real watch_folders schema — fixtures must not drift from production
+        // (a hand-rolled folder_path/watch_type table masked a column-name bug).
+        for stmt in include_str!("../schema/watch_folders_schema.sql").split(';') {
+            let stmt = stmt.trim();
+            if !stmt.is_empty() {
+                sqlx::query(stmt).execute(&pool).await.unwrap();
+            }
+        }
 
         // Create project_groups tables
         sqlx::query(schema::CREATE_PROJECT_GROUPS_SQL)
@@ -341,8 +332,9 @@ mod tests {
     async fn insert_watch_folder(pool: &SqlitePool, tenant_id: &str, remote_url: &str) {
         sqlx::query(
             r#"
-            INSERT INTO watch_folders (watch_id, folder_path, tenant_id, git_remote_url)
-            VALUES (?, '/tmp/' || ?, ?, ?)
+            INSERT INTO watch_folders
+                (watch_id, path, collection, tenant_id, git_remote_url, created_at, updated_at)
+            VALUES (?, '/tmp/' || ?, 'projects', ?, ?, datetime('now'), datetime('now'))
             "#,
         )
         .bind(tenant_id) // use tenant_id as watch_id for simplicity
