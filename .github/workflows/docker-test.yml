@@ -6,14 +6,18 @@
 # graph TB
 #   A[Push to main/dev or PR to main] --> B{Path Filter}
 #   B -->|Docker files changed| C[test-memexd]
+#   B -->|Docker files changed| D[test-mcp]
 #   C --> F[Build memexd image]
 #   C --> G[Health check /health endpoint]
 #   C --> H[Validate /metrics output]
 #   C --> I[Check container logs]
+#   D --> J[Build MCP image]
+#   D --> K[HTTP mode: healthz + metrics endpoints]
+#   D --> L[Stdio mode: container starts cleanly]
 # ```
 #
 # Triggers: push to main/dev branches, pull requests targeting main (with path filtering)
-# Images: memexd (Rust daemon)
+# Images: memexd (Rust daemon), workspace-qdrant-mcp (Rust MCP server)
 # Platform: linux/amd64 only (arm64 via QEMU too slow for PR testing)
 # Cache: GitHub Actions cache for faster rebuilds
 
@@ -146,3 +150,141 @@ jobs:
           name: memexd-logs
           path: |
             docker logs memexd-test > memexd-test.log 2>&1 || true
+
+  test-mcp:
+    name: Test workspace-qdrant-mcp Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.mcp
+          load: true
+          platforms: linux/amd64
+          tags: wqm-mcp:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── HTTP mode smoke test ──────────────────────────────────────────────────
+      # Starts the MCP server in http mode, waits for /healthz to return 200,
+      # and validates the /metrics endpoint is reachable on the metrics port.
+
+      - name: Start MCP container (http mode)
+        run: |
+          docker run -d --name wqm-mcp-http \
+            -e MCP_SERVER_MODE=http \
+            -e MCP_HTTP_HOST=0.0.0.0 \
+            -e MCP_HTTP_TOKEN=testtokenfortesting1234 \
+            -p 6335:6335 \
+            -p 9092:9092 \
+            wqm-mcp:test
+
+      - name: Wait for MCP HTTP healthz
+        run: |
+          echo "Waiting for MCP server to start (http mode)..."
+          for i in {1..20}; do
+            if curl -fsS http://localhost:6335/healthz >/dev/null 2>&1; then
+              echo "Health check passed after ${i} attempts"
+              break
+            fi
+            if [ $i -eq 20 ]; then
+              echo "Health check failed after 40 seconds"
+              docker logs wqm-mcp-http
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Validate /healthz returns 200 ok
+        run: |
+          body=$(curl -fsS http://localhost:6335/healthz)
+          echo "Response body: ${body}"
+          if [ "${body}" != "ok" ]; then
+            echo "ERROR: /healthz did not return 'ok'"
+            exit 1
+          fi
+          echo "✓ /healthz returned 'ok'"
+
+      - name: Validate /metrics endpoint (http mode)
+        run: |
+          echo "Checking /metrics endpoint..."
+          metrics_output=$(curl -fsS http://localhost:9092/metrics)
+          echo "Metrics output preview:"
+          echo "$metrics_output" | head -10
+          echo "✓ /metrics endpoint reachable"
+
+      - name: Check MCP container is still running
+        run: |
+          if [ "$(docker inspect --format '{{.State.Running}}' wqm-mcp-http)" != "true" ]; then
+            echo "ERROR: MCP container exited unexpectedly"
+            docker logs wqm-mcp-http
+            exit 1
+          fi
+          echo "✓ MCP container running"
+
+      - name: Stop http-mode container
+        run: |
+          docker stop wqm-mcp-http
+          docker rm wqm-mcp-http
+
+      # ── Stdio mode smoke test ─────────────────────────────────────────────────
+      # Starts the MCP server in stdio mode (default) and verifies it does not
+      # crash immediately.  Stdio mode reads JSON-RPC from stdin; feeding an
+      # empty stdin causes the server to exit cleanly rather than hang, so we
+      # use a brief sleep-and-inspect pattern to confirm a clean start.
+
+      - name: Start MCP container (stdio mode)
+        run: |
+          # Run with a short sleep piped to stdin so the process starts but
+          # exits cleanly once stdin closes.  The container must reach running
+          # state before stdin EOF arrives.
+          docker run -d --name wqm-mcp-stdio \
+            -e MCP_SERVER_MODE=stdio \
+            wqm-mcp:test
+
+      - name: Verify stdio-mode container started without immediate crash
+        run: |
+          sleep 3
+          state=$(docker inspect --format '{{.State.Status}}' wqm-mcp-stdio 2>/dev/null || echo "missing")
+          echo "Container state: ${state}"
+          # Accept running or exited (clean EOF exit); reject any OOMKilled /
+          # container-not-found state which would indicate a startup crash.
+          if [ "${state}" = "missing" ]; then
+            echo "ERROR: Container disappeared — possible startup crash"
+            exit 1
+          fi
+          exit_code=$(docker inspect --format '{{.State.ExitCode}}' wqm-mcp-stdio 2>/dev/null || echo "255")
+          # ExitCode 0 = clean EOF exit; ExitCode 255 = unknown (inspect failed).
+          # Any non-zero exit other than 0 for a clean run would indicate a crash.
+          if [ "${state}" = "exited" ] && [ "${exit_code}" != "0" ]; then
+            echo "ERROR: stdio-mode container exited with code ${exit_code}"
+            docker logs wqm-mcp-stdio
+            exit 1
+          fi
+          echo "✓ stdio-mode container started cleanly (state=${state}, exit=${exit_code})"
+
+      - name: Cleanup MCP containers
+        if: always()
+        run: |
+          for name in wqm-mcp-http wqm-mcp-stdio; do
+            docker stop  "$name" 2>/dev/null || true
+            docker rm    "$name" 2>/dev/null || true
+          done
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-logs
+          path: |
+            docker logs wqm-mcp-http  > wqm-mcp-http.log  2>&1 || true
+            docker logs wqm-mcp-stdio > wqm-mcp-stdio.log 2>&1 || true
