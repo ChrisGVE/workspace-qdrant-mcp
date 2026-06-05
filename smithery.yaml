@@ -1,4 +1,13 @@
 # Smithery configuration: https://smithery.ai/docs/config#smitheryyaml
+#
+# This launches the Rust `workspace-qdrant-mcp` binary in stdio mode.
+#
+# Prerequisites (NOT auto-installed by Smithery — the binary is not an npm
+# package): install the workspace-qdrant stack first (see the repo install.sh /
+# release archives), which provides `workspace-qdrant-mcp`, the `memexd` daemon,
+# and `wqm` on PATH. The MCP server is a read-only client: it reaches the
+# running memexd over gRPC (WQM_DAEMON_ENDPOINT, default localhost:50051) and
+# reads Qdrant directly (QDRANT_URL). memexd + Qdrant must be running.
 
 startCommand:
   type: stdio
@@ -15,16 +24,22 @@ startCommand:
         type: string
         description: API key for Qdrant Cloud (optional, leave empty for local Qdrant).
         default: ""
+      daemonEndpoint:
+        type: string
+        description: gRPC endpoint of the memexd daemon (host:port).
+        default: "localhost:50051"
   commandFunction:
     |-
     (config) => ({
-      command: "npx",
-      args: ["-y", "workspace-qdrant-mcp@latest"],
+      command: "workspace-qdrant-mcp",
+      args: [],
       env: {
         QDRANT_URL: config.qdrantUrl,
         ...(config.qdrantApiKey ? { QDRANT_API_KEY: config.qdrantApiKey } : {}),
+        ...(config.daemonEndpoint ? { WQM_DAEMON_ENDPOINT: config.daemonEndpoint } : {}),
       }
     })
   exampleConfig:
     qdrantUrl: "http://localhost:6333"
     qdrantApiKey: ""
+    daemonEndpoint: "localhost:50051"
