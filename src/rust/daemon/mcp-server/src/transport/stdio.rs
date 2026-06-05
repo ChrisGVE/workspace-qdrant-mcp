@@ -64,8 +64,10 @@ use crate::tools::ToolsHandler;
 /// # Errors
 ///
 /// Returns `Err` if the rmcp initialization handshake fails (e.g. the client
-/// sent a malformed `initialize` request).  Transport errors after
-/// initialization are logged and result in a clean exit.
+/// sent a malformed `initialize` request).  Stdin closing *before* any
+/// `initialize` request arrives (EOF — e.g. the binary was launched with no
+/// MCP client attached) is a clean shutdown, not an error.  Transport errors
+/// after initialization are logged and result in a clean exit.
 pub async fn serve_stdio(
     daemon: DaemonClient,
     qdrant: QdrantReadClient,
@@ -96,10 +98,22 @@ pub async fn serve_stdio(
 
     // Serve over (stdin, stdout).  rmcp's `transport-io` feature adapts the
     // tokio AsyncRead/AsyncWrite pair to the line-delimited JSON framing.
-    let running = serve_server(handler, stdio()).await.map_err(|e| {
-        error!(error = %e, "MCP server initialization failed");
-        anyhow::anyhow!("MCP server initialization failed: {e}")
-    })?;
+    let running = match serve_server(handler, stdio()).await {
+        Ok(running) => running,
+        // Stdin reached EOF before the client sent an initialize request —
+        // e.g. launched detached (`docker run -d`) or piped from a closed
+        // stdin. Nothing was served and nothing failed; mirror plain UNIX
+        // EOF behaviour and exit cleanly instead of reporting a startup
+        // failure (no session exists yet, so no cleanup is needed).
+        Err(rmcp::service::ServerInitializeError::ConnectionClosed(context)) => {
+            info!(context = %context, "stdin closed before initialize — clean shutdown");
+            return Ok(());
+        }
+        Err(e) => {
+            error!(error = %e, "MCP server initialization failed");
+            return Err(anyhow::anyhow!("MCP server initialization failed: {e}"));
+        }
+    };
 
     debug!("MCP handshake complete — entering serve loop");
 
