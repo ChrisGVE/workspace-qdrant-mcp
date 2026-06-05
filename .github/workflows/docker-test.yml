@@ -72,11 +72,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The entrypoint (docker/memexd-entrypoint.sh) enforces the spec 16 §9.1
+      # three-layer mount validation: it requires /etc/wqm/config.yaml and a
+      # generated override file whose `# wqm-config-hash:` header matches the
+      # hash of the config's `mounts:` section. CI declares no mounts, so we
+      # generate a minimal config and compute the matching hash the same way
+      # the entrypoint does (PyYAML safe_dump of the normalised mount list).
+      - name: Generate entrypoint validation files
+        run: |
+          python3 -c "import yaml" 2>/dev/null || pip install pyyaml
+          mkdir -p /tmp/wqm-ci
+          printf '# CI minimal config: no host mounts declared.\nmounts: []\n' \
+            > /tmp/wqm-ci/config.yaml
+          hash=$(python3 -c 'import hashlib, yaml; ser = yaml.safe_dump([], default_flow_style=False, sort_keys=False); print(hashlib.sha256(ser.encode("utf-8")).hexdigest())')
+          printf '# wqm-config-hash: %s\nservices: {}\n' "$hash" \
+            > /tmp/wqm-ci/override.yaml
+          echo "Generated override hash: $hash"
+
+      # Host port 9091 maps to container port 6337 — the image CMD starts
+      # memexd with `--metrics-port 6337` (EXPOSE 6337 in Dockerfile.memexd).
       - name: Start memexd container
         run: |
           docker run -d --name memexd-test \
             -e QDRANT_URL=http://localhost:6333 \
-            -p 9091:9091 \
+            -v /tmp/wqm-ci/config.yaml:/etc/wqm/config.yaml:ro \
+            -v /tmp/wqm-ci/override.yaml:/etc/docker-compose-wqm.override.yaml:ro \
+            -p 9091:6337 \
             memexd:test
 
       - name: Wait for memexd startup
