@@ -98,6 +98,18 @@ Queue processor overrides:
 | `WQM_QUEUE_TARGET_THROUGHPUT` | Target docs/min for monitoring |
 | `WQM_QUEUE_ENABLE_METRICS` | Enable queue performance metrics |
 
+LSP overrides:
+
+| Variable | Description |
+|----------|-------------|
+| `WQM_LSP_MAX_GLOBAL_SERVERS` | Hard cap on total LSP servers across all projects (default 3) |
+| `WQM_LSP_MAX_CONCURRENT_STARTS` | Max servers in their start + warm-up/index window at once — staggers heavy indexers when many projects activate (default 2) |
+
+> Memory note: the daemon container runs under jemalloc (`LD_PRELOAD` + `MALLOC_CONF=background_thread:true,…`
+> baked into `docker/Dockerfile.memexd`) so RSS tracks the live heap instead of glibc arena retention. LSP
+> server processes are separate and **not** bounded by it — keep `WQM_LSP_MAX_GLOBAL_SERVERS` /
+> `WQM_LSP_MAX_CONCURRENT_STARTS` conservative on memory-constrained hosts.
+
 Other subsystem overrides:
 
 | Variable | Description |
@@ -269,6 +281,7 @@ Language Server Protocol integration settings.
 | `cache_ttl_secs` | integer | `300` | LSP enrichment cache TTL |
 | `startup_timeout_secs` | integer | `30` | Timeout for LSP server initialization |
 | `request_timeout_secs` | integer | `10` | Timeout per LSP request |
+| `warmup_grace_secs` | integer | `15` | Global warm-up grace before a freshly-started server is queried, so the first enrichment doesn't time out while the server is still indexing. Per-language minimums apply on top (java 120s, rust 60s, go/c/cpp 30s, others 5s). Servers also become ready early via `$/progress`/`language/status` signals. |
 | `health_check_interval_secs` | integer | `60` | Interval between LSP server health checks |
 | `max_restart_attempts` | integer | `3` | Maximum restart attempts for a crashed LSP server |
 | `restart_backoff_multiplier` | float | `2.0` | Exponential backoff multiplier between restarts |
