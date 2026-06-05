@@ -126,7 +126,11 @@ RUN set -eux; \
                  fts5_search_bench graph_bench perf_extract_benchmarks \
                  perf_extract_comparison; do \
         echo 'fn main() {}' > daemon/core/benches/${bench}.rs; \
-    done
+    done; \
+    mkdir -p daemon/mcp-server/benches; \
+    echo 'fn main() {}' > daemon/mcp-server/benches/tool_overhead.rs; \
+    mkdir -p client/benches; \
+    echo 'fn main() {}' > client/benches/fusion_pipeline.rs
 
 # Build.rs for daemon/memexd uses git; provide a stub BUILD_NUMBER env fallback
 # in case there is no git history inside the Docker build context.
