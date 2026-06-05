@@ -109,13 +109,23 @@ pub(crate) fn compile_glob_matcher(
 /// The glob matcher (if any) is applied in Rust after SQL results are fetched.
 pub(crate) fn resolve_path_filter(options: &SearchOptions) -> (Option<String>, SearchOptions) {
     if let Some(ref glob) = options.path_glob {
-        let prefix = extract_glob_prefix(glob);
+        // Indexed file paths are absolute, and glob::Pattern anchors at the
+        // start of the string — a relative-looking glob like "src/**/*.rs"
+        // would silently match nothing (#94). Anchor such globs with "**/"
+        // so they match the path suffix the caller intended. Globs that are
+        // already absolute or "**"-anchored pass through unchanged.
+        let normalized = if glob.starts_with('/') || glob.starts_with("**") {
+            glob.clone()
+        } else {
+            format!("**/{glob}")
+        };
+        let prefix = extract_glob_prefix(&normalized);
         let mut effective = options.clone();
         // Replace path_prefix with the extracted glob prefix for SQL pre-filtering
         effective.path_prefix = prefix;
         // Clear path_glob in effective options so query builder uses path_prefix
         effective.path_glob = None;
-        (Some(glob.clone()), effective)
+        (Some(normalized), effective)
     } else {
         (None, options.clone())
     }
@@ -236,5 +246,43 @@ mod tests {
     fn test_compile_glob_matcher_invalid() {
         let result = compile_glob_matcher("[invalid");
         assert!(result.is_err());
+    }
+
+    // ── resolve_path_filter glob anchoring (#94) ──
+
+    fn options_with_glob(glob: &str) -> SearchOptions {
+        SearchOptions {
+            path_glob: Some(glob.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_path_filter_anchors_relative_glob() {
+        let (glob, effective) = resolve_path_filter(&options_with_glob("src/rust/**/*.rs"));
+        assert_eq!(glob.as_deref(), Some("**/src/rust/**/*.rs"));
+        // The "**" anchor yields no usable SQL prefix.
+        assert_eq!(effective.path_prefix, None);
+        assert_eq!(effective.path_glob, None);
+
+        // The normalized glob must match absolute indexed paths.
+        let matcher = compile_glob_matcher(glob.as_deref().unwrap()).unwrap();
+        assert!(matcher(
+            "/home/user/project/src/rust/daemon/core/src/lib.rs"
+        ));
+        assert!(!matcher("/home/user/project/src/python/main.py"));
+    }
+
+    #[test]
+    fn test_resolve_path_filter_keeps_absolute_glob() {
+        let (glob, effective) = resolve_path_filter(&options_with_glob("/abs/path/**/*.rs"));
+        assert_eq!(glob.as_deref(), Some("/abs/path/**/*.rs"));
+        assert_eq!(effective.path_prefix.as_deref(), Some("/abs/path/"));
+    }
+
+    #[test]
+    fn test_resolve_path_filter_keeps_star_star_anchored_glob() {
+        let (glob, _) = resolve_path_filter(&options_with_glob("**/*.rs"));
+        assert_eq!(glob.as_deref(), Some("**/*.rs"));
     }
 }
