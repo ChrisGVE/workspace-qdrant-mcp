@@ -151,9 +151,11 @@ COPY src/rust/ .
 # resolve to the filesystem root.  Copy the referenced files there.
 #   - common/src/yaml_defaults/mod.rs         → /assets/default_configuration.yaml
 #   - daemon/core/src/patterns/comprehensive.rs → /assets/internal_configuration.yaml
+#   - daemon/core/src/tagging/{startup,taxonomy}.rs → /assets/taxonomy.yaml
 #   - daemon/core/src/patterns/manager.rs     → /patterns/*.yaml
 COPY assets/default_configuration.yaml /assets/default_configuration.yaml
 COPY assets/internal_configuration.yaml /assets/internal_configuration.yaml
+COPY assets/taxonomy.yaml /assets/taxonomy.yaml
 COPY patterns/ /patterns/
 
 # Initialise a minimal git repo so build.rs can obtain BUILD_NUMBER.
