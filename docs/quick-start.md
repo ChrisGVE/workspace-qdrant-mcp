@@ -54,9 +54,8 @@ wqm search "error handling" --collection libraries  # Search docs
 ```json
 {
   "mcpServers": {
-    "workspace-qdrant": {
-      "command": "node",
-      "args": ["<install-path>/src/typescript/mcp-server/dist/index.js"],
+    "workspace-qdrant-mcp": {
+      "command": "workspace-qdrant-mcp",
       "env": { "QDRANT_URL": "http://localhost:6333" }
     }
   }
@@ -66,7 +65,7 @@ wqm search "error handling" --collection libraries  # Search docs
 **Claude Code:**
 
 ```bash
-claude mcp add workspace-qdrant -- node <install-path>/src/typescript/mcp-server/dist/index.js
+claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
 ```
 
 ## Next steps

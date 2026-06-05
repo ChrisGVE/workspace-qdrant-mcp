@@ -38,9 +38,8 @@ Add to your `claude_desktop_config.json` (located at `~/Library/Application Supp
 ```json
 {
   "mcpServers": {
-    "workspace-qdrant": {
-      "command": "node",
-      "args": ["/path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"],
+    "workspace-qdrant-mcp": {
+      "command": "workspace-qdrant-mcp",
       "env": {
         "QDRANT_URL": "http://localhost:6333"
       }
@@ -54,9 +53,8 @@ For Qdrant Cloud, add the API key:
 ```json
 {
   "mcpServers": {
-    "workspace-qdrant": {
-      "command": "node",
-      "args": ["/path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"],
+    "workspace-qdrant-mcp": {
+      "command": "workspace-qdrant-mcp",
       "env": {
         "QDRANT_URL": "https://your-cluster.qdrant.io",
         "QDRANT_API_KEY": "your-api-key"
@@ -71,15 +69,15 @@ For Qdrant Cloud, add the API key:
 Use the `claude mcp add` command to register the server:
 
 ```bash
-claude mcp add workspace-qdrant -- node /path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js
+claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
 ```
 
 To include environment variables:
 
 ```bash
-claude mcp add workspace-qdrant \
+claude mcp add workspace-qdrant-mcp \
   -e QDRANT_URL=http://localhost:6333 \
-  -- node /path/to/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js
+  -- workspace-qdrant-mcp
 ```
 
 Verify registration:
@@ -94,8 +92,7 @@ claude mcp list
 |----------|----------|---------|-------------|
 | `QDRANT_URL` | No | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | No | (none) | API key for Qdrant Cloud |
-| `FASTEMBED_MODEL` | No | `all-MiniLM-L6-v2` | Embedding model (384-dim) |
-| `WQM_DATABASE_PATH` | No | `~/.local/share/workspace-qdrant/state.db` | Override SQLite state path |
+| `WQM_DAEMON_ENDPOINT` | No | `localhost:50051` | gRPC address of the memexd daemon |
 | `WQM_LOG_LEVEL` | No | `INFO` | Log level: DEBUG, INFO, WARN, ERROR |
 
 ---
