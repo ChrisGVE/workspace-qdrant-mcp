@@ -462,6 +462,33 @@ pub fn spawn_recovery_tasks(
     spawn_startup_recovery(uqp, allowed_extensions, daemon_config);
     spawn_rules_mirror_backfill(uqp, mirror_storage);
     spawn_component_backfill(uqp);
+    spawn_stale_lease_reaper(uqp);
+}
+
+/// Periodically reclaim queue leases orphaned by a worker that died mid-process
+/// (panic, OOM-kill, SIGKILL) so items don't stay stuck `in_progress` until the
+/// next daemon restart. Startup recovery handles the restart case; this covers
+/// the daemon-keeps-running case. Resets `in_progress` rows whose lease has
+/// expired back to `pending` (the generous lease window keeps live long-running
+/// workers from being reclaimed; any rare double-dispatch is idempotency-safe).
+fn spawn_stale_lease_reaper(uqp: &UnifiedQueueProcessor) {
+    let qm = uqp.queue_manager().clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Skip the immediate first tick — startup recovery already ran.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match qm.recover_stale_unified_leases().await {
+                Ok(n) if n > 0 => {
+                    info!("Stale-lease reaper recovered {} orphaned queue item(s)", n)
+                }
+                Ok(_) => {}
+                Err(e) => warn!("Stale-lease reaper failed (non-fatal): {}", e),
+            }
+        }
+    });
 }
 
 fn spawn_base_point_migration(uqp: &UnifiedQueueProcessor) {
