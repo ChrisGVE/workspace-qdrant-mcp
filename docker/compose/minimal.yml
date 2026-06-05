@@ -69,9 +69,21 @@ services:
     environment:
       - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-memexd:50051}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
-      - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
+      # A containerized MCP server always runs Streamable HTTP: stdio mode
+      # needs a client attached to stdin, which a detached container lacks,
+      # and the /metrics endpoint only exists in http mode.
+      - MCP_SERVER_MODE=http
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=6335
+      - MCP_HTTP_TOKEN=${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
+      # Metrics bind 0.0.0.0 for Prometheus scrapes over the compose network;
+      # non-loopback binds require a bearer token (MCP_HTTP_TOKEN reused —
+      # hosted deployments should issue a dedicated secret instead).
+      - MCP_METRICS_HOST=0.0.0.0
+      - MCP_METRICS_TOKEN=${MCP_HTTP_TOKEN}
     volumes: *mcp-volumes
     ports:
+      - "${MCP_HTTP_PORT:-6335}:6335"
       - "${MCP_METRICS_PORT:-9092}:9092"
     depends_on:
       memexd:

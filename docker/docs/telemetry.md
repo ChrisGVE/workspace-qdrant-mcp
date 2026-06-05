@@ -6,29 +6,36 @@
 memexd daemon  ──scrape──▶  Prometheus ──▶  Grafana
                  :6337
 MCP server     ──scrape──▶  Prometheus ──▶  Grafana
-(http mode)      :9092
+(http mode)      :9092 (bearer token)
 
-MCP server     ──push──▶  otel-collector ──▶  Prometheus ──▶  Grafana
-(stdio mode)     OTLP
+memexd daemon  ──push──▶  otel-collector ──▶  Prometheus ──▶  Grafana
+                 OTLP (traces + metrics bridge)
 ```
 
-In `stdio` mode (default), the MCP server cannot serve an HTTP endpoint. It
-pushes accumulated metrics to the OpenTelemetry Collector via OTLP on process
-exit. The otel-collector then exposes them at `:8888` for Prometheus to scrape.
+The MCP server serves `/metrics` only in `http` mode (`MCP_SERVER_MODE=http`)
+at `:9092`. In `stdio` mode no metrics endpoint exists and nothing is pushed —
+the Rust server has no OTLP exporter. All compose topologies therefore run the
+MCP server in http mode.
 
-In `http` mode (`MCP_SERVER_MODE=http`), the MCP server serves `/metrics`
-directly at `:9092`.
+When the metrics endpoint binds a non-loopback address (required for container
+scrapes), it demands a bearer token (`MCP_METRICS_TOKEN`; the local stack
+reuses `MCP_HTTP_TOKEN`). Prometheus presents it via
+`authorization.credentials_file` — see `docker/prometheus/prometheus.yml` and
+the token-file mount in `docker/compose/observability.yml`.
+
+The otel-collector receives OTLP from **memexd** (tracing spans and the
+daemon's OTLP metrics bridge) and exposes its own metrics at `:8888`.
 
 ## Prometheus scrape jobs
 
 Defined in `docker/prometheus/prometheus.yml`:
 
-| Job | Target | Scrape path |
-|---|---|---|
-| `memexd` | `memexd:6337` | `/metrics` |
-| `mcp` | `mcp:9092` | `/metrics` |
-| `qdrant` | `qdrant:6333` | `/metrics` |
-| `otel-collector` | `otel-collector:8888` | `/metrics` |
+| Job | Target | Scrape path | Auth |
+|---|---|---|---|
+| `memexd` | `memexd:6337` | `/metrics` | none |
+| `mcp` | `mcp:9092` | `/metrics` | Bearer (`credentials_file: /etc/prometheus/mcp_token`) |
+| `qdrant` | `qdrant:6333` | `/metrics` | none |
+| `otel-collector` | `otel-collector:8888` | `/metrics` | none |
 
 Scrape interval: 15 s. Rule evaluation interval: 15 s.
 
@@ -363,8 +370,9 @@ alert fires on no matches (rate == 0), meaning `QueueFailedWarning` and
 
 Config: `docker/otel/otel-collector-config.yml`
 
-The collector receives OTLP metrics (from the MCP server in stdio mode) and
-exposes them as a Prometheus scrape target at `:8888`. Batch size: 10 items,
+The collector receives OTLP from memexd (tracing spans and the daemon's OTLP
+metrics bridge — the Rust MCP server has no OTLP exporter) and exposes its own
+metrics as a Prometheus scrape target at `:8888`. Batch size: 10 items,
 timeout: 10 s.
 
 ## Adaptive resource management in containers

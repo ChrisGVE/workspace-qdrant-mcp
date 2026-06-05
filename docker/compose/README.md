@@ -93,6 +93,20 @@ overlay joins `workspace-network`, so Prometheus reaches the memexd
 (`:6337`) and MCP (`:9092`) metrics endpoints by service DNS without
 publishing extra host ports.
 
+The MCP `/metrics` endpoint binds non-loopback inside the container and
+therefore requires a bearer token (the local stack reuses
+`MCP_HTTP_TOKEN`; hosted deployments should issue a dedicated secret).
+Materialize the token file Prometheus mounts **before** `up`:
+
+```bash
+mkdir -p docker/secrets
+printf '%s' "<your MCP_HTTP_TOKEN value>" > docker/secrets/mcp_token
+```
+
+`docker/secrets/` is gitignored; override the file location with
+`MCP_METRICS_TOKEN_FILE` in `.env` if you keep it elsewhere. memexd
+metrics (`:6337`) are unauthenticated and need no token.
+
 Extra `.env` values (all optional):
 
 ```
@@ -101,6 +115,7 @@ GRAFANA_PORT=3000
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=change-me
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+MCP_METRICS_TOKEN_FILE=../secrets/mcp_token
 ```
 
 Launch:
@@ -113,7 +128,8 @@ docker compose \
 ```
 
 Prometheus scrape targets live in `docker/prometheus/prometheus.yml`
-(already wired to `memexd`, `mcp`, `qdrant`, `otel-collector`).
+(already wired to `memexd`, `mcp` — bearer auth via
+`/etc/prometheus/mcp_token` — `qdrant`, and `otel-collector`).
 Grafana picks up `docker/grafana/provisioning/` on first boot.
 
 Already running `main-docker`? Use `full-stack.yml` instead — it

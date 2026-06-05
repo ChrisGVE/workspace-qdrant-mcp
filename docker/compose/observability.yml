@@ -6,6 +6,11 @@
 #
 # Usage (reference stack — recommended for single-host deployments):
 #   cp docker/.env.example docker/.env   # then edit values
+#   # Materialize the bearer token Prometheus needs to scrape mcp:9092
+#   # (the mcp /metrics endpoint binds non-loopback → token required;
+#   # the local stack reuses MCP_HTTP_TOKEN):
+#   mkdir -p docker/secrets
+#   printf '%s' "<your MCP_HTTP_TOKEN value>" > docker/secrets/mcp_token
 #   docker compose \
 #     -f docker/compose/reference.yml \
 #     -f docker/compose/observability.yml \
@@ -56,6 +61,11 @@ services:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - ../prometheus/wqm_graph_aggregates.yml:/etc/prometheus/wqm_graph_aggregates.yml:ro
+      # Bearer token for the mcp scrape job (prometheus.yml
+      # authorization.credentials_file). Create it before `up`:
+      #   mkdir -p docker/secrets && printf '%s' "$MCP_HTTP_TOKEN" > docker/secrets/mcp_token
+      # Override the host path with MCP_METRICS_TOKEN_FILE in .env.
+      - ${MCP_METRICS_TOKEN_FILE:-../secrets/mcp_token}:/etc/prometheus/mcp_token:ro
       - prometheus_data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"

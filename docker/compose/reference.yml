@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp reference stack.
 #
 # Three services: Qdrant vector store, memexd (Rust daemon), and the
-# TypeScript MCP server (Streamable HTTP transport). Ship as a self-contained
+# Rust MCP server (Streamable HTTP transport). Ship as a self-contained
 # deployment suitable for a single host; overlay `reference.tls.yml` for
 # Let's Encrypt HTTPS via Caddy.
 #
@@ -99,7 +99,7 @@ services:
       - workspace-network
 
   # ─────────────────────────────────────────────
-  # workspace-qdrant-mcp — TypeScript MCP server (Streamable HTTP)
+  # workspace-qdrant-mcp — Rust MCP server (Streamable HTTP)
   # ─────────────────────────────────────────────
   mcp:
     image: ${MCP_IMAGE:-ghcr.io/chrisgve/workspace-qdrant-mcp:${WQM_VERSION:-latest}}
@@ -119,11 +119,16 @@ services:
       MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
       MCP_HTTP_RATE_LIMIT: ${MCP_HTTP_RATE_LIMIT:-100}
       MCP_HTTP_CORS_ORIGINS: ${MCP_HTTP_CORS_ORIGINS:-}
+      # Metrics endpoint must bind 0.0.0.0 to be reachable by Prometheus over
+      # the compose network. Non-loopback binds require a bearer token; the
+      # local stack reuses MCP_HTTP_TOKEN (hosted deployments should issue a
+      # dedicated secret instead).
+      MCP_METRICS_HOST: 0.0.0.0
+      MCP_METRICS_TOKEN: ${MCP_HTTP_TOKEN}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WQM_DAEMON_ENDPOINT: memexd:50051
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     networks:
       - workspace-network
 

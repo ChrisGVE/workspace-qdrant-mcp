@@ -14,7 +14,7 @@ docker run -d \
   -e QDRANT_URL=http://host.docker.internal:6333 \
   -e QDRANT_API_KEY= \
   -e WQM_LOG_LEVEL=INFO \
-  -v "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant" \
+  -v "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
   -v "${HOME}/dev:/home/memexd/dev:ro" \
   -p 50051:50051 \
@@ -32,18 +32,27 @@ curl -s http://localhost:6337/metrics | head -10
 ## Standalone MCP server
 
 Start the MCP server only. A running memexd instance must be reachable at
-`MEMEXD_GRPC_URL`. This can be the standalone-memexd container above, or any
-other memexd instance on the network.
+`WQM_DAEMON_ENDPOINT`. This can be the standalone-memexd container above, or
+any other memexd instance on the network.
+
+A containerized MCP server always runs http mode: stdio mode needs a client
+attached to stdin, which a detached container lacks. Clients connect with
+`Authorization: Bearer $MCP_HTTP_TOKEN` at `http://<host>:6335/mcp`.
 
 ```bash
 docker run -d \
   --name workspace-qdrant-mcp \
   --restart unless-stopped \
-  -e MEMEXD_GRPC_URL=http://host.docker.internal:50051 \
+  -e WQM_DAEMON_ENDPOINT=host.docker.internal:50051 \
   -e WQM_LOG_LEVEL=INFO \
-  -e MCP_SERVER_MODE=stdio \
-  -v "${HOME}/.workspace-qdrant:/home/wqm/.workspace-qdrant" \
+  -e MCP_SERVER_MODE=http \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_TOKEN="$(openssl rand -hex 32)" \
+  -e MCP_METRICS_HOST=0.0.0.0 \
+  -e MCP_METRICS_TOKEN="<same-or-dedicated-token>" \
+  -v "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
+  -p 6335:6335 \
   -p 9092:9092 \
   chrisgve/workspace-qdrant-mcp:v0.1.3
 ```
@@ -63,7 +72,7 @@ docker run -d \
   --restart unless-stopped \
   -e QDRANT_URL=http://host.docker.internal:6333 \
   -e WQM_LOG_LEVEL=INFO \
-  -v "${HOME}/.workspace-qdrant:/home/memexd/.workspace-qdrant" \
+  -v "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
   -v "${HOME}/dev:/home/memexd/dev:ro" \
   -p 50051:50051 \
@@ -75,11 +84,16 @@ docker run -d \
   --name workspace-qdrant-mcp \
   --network wqm-net \
   --restart unless-stopped \
-  -e MEMEXD_GRPC_URL=http://memexd:50051 \
+  -e WQM_DAEMON_ENDPOINT=memexd:50051 \
   -e WQM_LOG_LEVEL=INFO \
-  -e MCP_SERVER_MODE=stdio \
-  -v "${HOME}/.workspace-qdrant:/home/wqm/.workspace-qdrant" \
+  -e MCP_SERVER_MODE=http \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e MCP_HTTP_TOKEN="$(openssl rand -hex 32)" \
+  -e MCP_METRICS_HOST=0.0.0.0 \
+  -e MCP_METRICS_TOKEN="<same-or-dedicated-token>" \
+  -v "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant" \
   -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
+  -p 6335:6335 \
   -p 9092:9092 \
   chrisgve/workspace-qdrant-mcp:v0.1.3
 ```
@@ -109,10 +123,11 @@ docker compose -f docker/compose/standalone-mcp.yml   --env-file docker/.env up 
 |---|---|---|---|
 | `memexd` | 50051 | gRPC | MCP server connection, wqm CLI |
 | `memexd` | 6337 | HTTP | `/health` health check, `/metrics` Prometheus |
-| `workspace-qdrant-mcp` | 9092 | HTTP | `/metrics` Prometheus (HTTP mode only) |
+| `workspace-qdrant-mcp` | 6335 | HTTP | MCP Streamable HTTP (`/mcp`, `/healthz`) |
+| `workspace-qdrant-mcp` | 9092 | HTTP | `/metrics` Prometheus (bearer-authenticated) |
 
-Port 9092 on the MCP server is only active when `MCP_SERVER_MODE=http`. In the
-default `stdio` mode the metrics endpoint is not served.
+The metrics endpoint exists only in http mode and, bound non-loopback,
+requires `Authorization: Bearer $MCP_METRICS_TOKEN` on every scrape.
 
 ## Data persistence
 
@@ -123,7 +138,7 @@ preserved.
 To start fresh, remove the host directories:
 
 ```bash
-rm -rf "${HOME}/.workspace-qdrant"
+rm -rf "${HOME}/.local/share/workspace-qdrant"
 ```
 
 This also removes the SQLite database used by memexd. Qdrant data stored

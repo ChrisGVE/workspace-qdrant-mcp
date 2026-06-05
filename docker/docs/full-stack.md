@@ -58,6 +58,7 @@ Edit `docker/.env`:
 QDRANT_URL=http://qdrant:6333
 QDRANT_API_KEY=                     # empty unless Qdrant is secured
 WQM_LOG_LEVEL=INFO
+MCP_HTTP_TOKEN=<openssl rand -hex 32>   # required — mcp runs Streamable HTTP
 ```
 
 Other variables use the defaults defined in `.env.example` and are safe to leave
@@ -119,14 +120,26 @@ Copy the three job blocks from `docker/prometheus/prometheus.yml` — `memexd`,
 `mcp`, and (optionally) `otel-collector` — into the `scrape_configs:` section
 of main-docker's prometheus.yml.
 
+The `mcp` job needs a bearer token: the MCP `/metrics` endpoint binds
+non-loopback and rejects unauthenticated scrapes (this stack reuses
+`MCP_HTTP_TOKEN` as `MCP_METRICS_TOKEN`). Write the token to a file readable
+by main-docker's prometheus container, mount it (e.g. at
+`/etc/prometheus/mcp_token`), and keep the job's `authorization` block:
+
+```yaml
+authorization:
+  type: Bearer
+  credentials_file: /etc/prometheus/mcp_token
+```
+
 Then reload Prometheus without restarting it:
 
 ```bash
 curl -X POST http://localhost:9090/-/reload
 ```
 
-The `memexd` job scrapes `memexd:6337` and the `mcp` job scrapes
-`workspace-qdrant-mcp:9092`. Both container names are reachable over
+The `memexd` job scrapes `memexd:6337` (no auth) and the `mcp` job scrapes
+`workspace-qdrant-mcp:9092` (bearer). Both container names are reachable over
 `main-docker_default`.
 
 ### 6. Import Grafana dashboards
@@ -163,7 +176,8 @@ No ports are published to the host. Container-internal ports:
 |---|---|---|---|
 | `memexd` | 50051 | gRPC | `workspace-qdrant-mcp` |
 | `memexd` | 6337 | HTTP | Prometheus scrape job `memexd` |
-| `workspace-qdrant-mcp` | 9092 | HTTP | Prometheus scrape job `mcp` |
+| `workspace-qdrant-mcp` | 6335 | HTTP | MCP clients on the shared network (`/mcp`, bearer auth) |
+| `workspace-qdrant-mcp` | 9092 | HTTP | Prometheus scrape job `mcp` (bearer auth) |
 
 ## Stopping
 

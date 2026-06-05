@@ -75,6 +75,8 @@ docker/test-*.Dockerfile
 docker/integration-tests/
 docker/k8s/
 docker/nginx/
+# Local secrets materialized for compose (e.g. Prometheus mcp scrape token)
+docker/secrets/
 
 # Submodule paths (not used)
 web-ui/

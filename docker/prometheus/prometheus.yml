@@ -35,6 +35,13 @@ scrape_configs:
     static_configs:
       - targets: [mcp:9092]
     metrics_path: /metrics
+    # The mcp /metrics endpoint binds non-loopback inside the container and
+    # therefore requires a bearer token (the local stack reuses
+    # MCP_HTTP_TOKEN). observability.yml mounts the token file here:
+    #   mkdir -p docker/secrets && printf '%s' "$MCP_HTTP_TOKEN" > docker/secrets/mcp_token
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/mcp_token
 
   - job_name: qdrant
     static_configs:

@@ -26,6 +26,15 @@
 #   The mcp job target is 'workspace-qdrant-mcp:9092' on the
 #   main-docker network (container name below matches).
 #
+#   The mcp /metrics endpoint binds non-loopback and therefore requires a
+#   bearer token (the stack reuses MCP_HTTP_TOKEN). main-docker's Prometheus
+#   must send it: write the token to a file readable by the prometheus
+#   container and add to the mcp job:
+#     authorization:
+#       type: Bearer
+#       credentials_file: /etc/prometheus/mcp_token
+#   (docker/prometheus/prometheus.yml shows the wired-up reference job.)
+#
 # Ports are NOT published to the host in this mode; Prometheus reaches the
 # metrics endpoints over the shared Docker network.
 #
@@ -107,9 +116,22 @@ services:
     environment:
       - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-memexd:50051}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
-      - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
+      # A containerized MCP server always runs Streamable HTTP: stdio mode
+      # needs a client attached to stdin, which a detached container lacks,
+      # and the /metrics endpoint only exists in http mode.
+      - MCP_SERVER_MODE=http
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=6335
+      - MCP_HTTP_TOKEN=${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
+      # Metrics bind 0.0.0.0 so main-docker's Prometheus can scrape over the
+      # shared network; non-loopback binds require a bearer token
+      # (MCP_HTTP_TOKEN reused — hosted deployments should issue a dedicated
+      # secret instead). See the header comment for the Prometheus side.
+      - MCP_METRICS_HOST=0.0.0.0
+      - MCP_METRICS_TOKEN=${MCP_HTTP_TOKEN}
     volumes: *mcp-volumes
     expose:
+      - "6335"
       - "9092"
     depends_on:
       memexd:

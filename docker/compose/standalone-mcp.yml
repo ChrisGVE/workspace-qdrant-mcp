@@ -1,18 +1,29 @@
 # docker/compose/standalone-mcp.yml
 #
-# Standalone MCP server only.  Requires a running memexd reachable via
-# WQM_DAEMON_ENDPOINT (gRPC).  Point to the standalone-memexd container, or any
-# other memexd instance on the network.
+# Standalone MCP server only (Streamable HTTP).  Requires a running memexd
+# reachable via WQM_DAEMON_ENDPOINT (gRPC).  Point to the standalone-memexd
+# container, or any other memexd instance on the network.
+#
+# A containerized MCP server always runs http mode: stdio mode needs a client
+# attached to stdin, which a detached container lacks, and the /metrics
+# endpoint only exists in http mode.  Clients connect with
+# `Authorization: Bearer $MCP_HTTP_TOKEN` at http://<host>:6335/mcp.
 #
 # Usage:
-#   cp docker/.env.example docker/.env   # then edit values
+#   cp docker/.env.example docker/.env   # then edit values (MCP_HTTP_TOKEN required)
 #   docker compose -f docker/compose/standalone-mcp.yml --env-file docker/.env up -d
 #
 # One-liner equivalent:
 #   docker run -d \
 #     -e WQM_DAEMON_ENDPOINT=<memexd-host>:50051 \
+#     -e MCP_SERVER_MODE=http \
+#     -e MCP_HTTP_HOST=0.0.0.0 \
+#     -e MCP_HTTP_TOKEN=<openssl rand -hex 32> \
+#     -e MCP_METRICS_HOST=0.0.0.0 \
+#     -e MCP_METRICS_TOKEN=<same-or-dedicated-token> \
 #     -v "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant" \
 #     -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
+#     -p 6335:6335 \
 #     -p 9092:9092 \
 #     chrisgve/workspace-qdrant-mcp:v0.1.3
 
@@ -30,11 +41,20 @@ services:
     environment:
       - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-host.docker.internal:50051}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
-      - MCP_SERVER_MODE=${MCP_SERVER_MODE:-stdio}
+      - MCP_SERVER_MODE=http
+      - MCP_HTTP_HOST=0.0.0.0
+      - MCP_HTTP_PORT=6335
+      - MCP_HTTP_TOKEN=${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
+      # Metrics bind 0.0.0.0; non-loopback binds require a bearer token
+      # (MCP_HTTP_TOKEN reused — hosted deployments should issue a dedicated
+      # secret instead).
+      - MCP_METRICS_HOST=0.0.0.0
+      - MCP_METRICS_TOKEN=${MCP_HTTP_TOKEN}
     volumes:
       - "${HOME}/.local/share/workspace-qdrant:/home/wqm/.local/share/workspace-qdrant"
       - "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant"
     ports:
+      - "${MCP_HTTP_PORT:-6335}:6335"
       - "${MCP_METRICS_PORT:-9092}:9092"
     labels:
       <<: *watchtower-off
