@@ -114,8 +114,8 @@ restarts and the daemon can watch the developer's working tree:
 | `~/.workspace-qdrant` | `/home/memexd/.workspace-qdrant` | SQLite database |
 | `~/.config/workspace-qdrant` | `/home/memexd/.config/workspace-qdrant` | Runtime config |
 | `~/dev` | `/home/memexd/dev` | Source tree (read-only) |
-| `~/.workspace-qdrant` | `/home/node/.workspace-qdrant` | MCP server state |
-| `~/.config/workspace-qdrant` | `/home/node/.config/workspace-qdrant` | MCP server config |
+| `~/.workspace-qdrant` | `/home/wqm/.workspace-qdrant` | MCP server state |
+| `~/.config/workspace-qdrant` | `/home/wqm/.config/workspace-qdrant` | MCP server config |
 
 The `~/dev` mount is read-only. The daemon watches files under this path and
 indexes them. Adjust the path in `docker/compose/minimal.yml` if your code lives

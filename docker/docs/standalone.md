@@ -42,8 +42,8 @@ docker run -d \
   -e MEMEXD_GRPC_URL=http://host.docker.internal:50051 \
   -e WQM_LOG_LEVEL=INFO \
   -e MCP_SERVER_MODE=stdio \
-  -v "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant" \
-  -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
+  -v "${HOME}/.workspace-qdrant:/home/wqm/.workspace-qdrant" \
+  -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
   -p 9092:9092 \
   chrisgve/workspace-qdrant-mcp:v0.1.3
 ```
@@ -78,8 +78,8 @@ docker run -d \
   -e MEMEXD_GRPC_URL=http://memexd:50051 \
   -e WQM_LOG_LEVEL=INFO \
   -e MCP_SERVER_MODE=stdio \
-  -v "${HOME}/.workspace-qdrant:/home/node/.workspace-qdrant" \
-  -v "${HOME}/.config/workspace-qdrant:/home/node/.config/workspace-qdrant" \
+  -v "${HOME}/.workspace-qdrant:/home/wqm/.workspace-qdrant" \
+  -v "${HOME}/.config/workspace-qdrant:/home/wqm/.config/workspace-qdrant" \
   -p 9092:9092 \
   chrisgve/workspace-qdrant-mcp:v0.1.3
 ```
