@@ -302,11 +302,16 @@ pub async fn snapshot_graph_metrics(pool: &SqlitePool) -> Result<(), sqlx::Error
             let cnt: i64 = row.get("cnt");
             total_nodes += cnt;
             gm.graph_nodes_by_type
-                .with_label_values(&[&tid, &node_type, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+                .with_label_values(&[
+                    tid.as_str(),
+                    node_type.as_str(),
+                    GRAPH_TYPE_CODE,
+                    BACKEND_SQLITE,
+                ])
                 .set(cnt);
         }
         gm.graph_nodes
-            .with_label_values(&[&tid, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .with_label_values(&[tid.as_str(), GRAPH_TYPE_CODE, BACKEND_SQLITE])
             .set(total_nodes);
 
         let edge_rows = sqlx::query(
@@ -322,11 +327,16 @@ pub async fn snapshot_graph_metrics(pool: &SqlitePool) -> Result<(), sqlx::Error
             let cnt: i64 = row.get("cnt");
             total_edges += cnt;
             gm.graph_edges_by_type
-                .with_label_values(&[&tid, &edge_type, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+                .with_label_values(&[
+                    tid.as_str(),
+                    edge_type.as_str(),
+                    GRAPH_TYPE_CODE,
+                    BACKEND_SQLITE,
+                ])
                 .set(cnt);
         }
         gm.graph_edges
-            .with_label_values(&[&tid, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .with_label_values(&[tid.as_str(), GRAPH_TYPE_CODE, BACKEND_SQLITE])
             .set(total_edges);
 
         let orphaned: i64 = sqlx::query_scalar(
@@ -341,7 +351,7 @@ pub async fn snapshot_graph_metrics(pool: &SqlitePool) -> Result<(), sqlx::Error
         .fetch_one(&mut *tx)
         .await?;
         gm.graph_orphaned_nodes
-            .with_label_values(&[&tid, GRAPH_TYPE_CODE, BACKEND_SQLITE])
+            .with_label_values(&[tid.as_str(), GRAPH_TYPE_CODE, BACKEND_SQLITE])
             .set(orphaned);
     }
 
