@@ -614,6 +614,20 @@ The candidate that emerges is no longer "biggest folder" but "biggest folder tha
 
 Qdrant's Distance Matrix API can compute pairwise distances between points using the `dense` vector. This could power interactive code intelligence visualizations showing clusters of semantically related files, functions, or documentation. Could serve as a stepping stone toward full Graph RAG by revealing natural code clusters. See the [Qdrant Dashboard Visualization](12-configuration.md#qdrant-dashboard-visualization) section for current capabilities.
 
+### Registry-Driven `semantic_patterns` from tree-sitter `tags.scm` (stop hand-maintaining language config)
+
+**Problem (found 2026-06-05):** `semantic_patterns` — the node-kind → role map (which AST nodes are class / method / function / **call**) — is supplied ONLY by the embedded-YAML `RegistryProvider` (the only provider with `full_definitions()`; see [15-language-registry.md](15-language-registry.md) §Providers). No upstream provider feeds it, so it is **hand-authored per language**. Consequence: roughly 30 of the 44 bundled languages (Dart, Kotlin, PHP, and most "community"-quality grammars) ship with EMPTY `semantic_patterns`, so the chunker extracts no classes/methods/functions for them and the code graph has ~zero CALLS. The `call_nodes` field (added 2026-06-05 to make call recognition registry-driven instead of a hardcoded allowlist in `extract_function_calls`) is hand-maintained the same way. Grammars themselves are NOT the burden — they auto-download and their repo mappings refresh from nvim-treesitter/ts-grammars-org/Linguist; only the semantic map is manual.
+
+**Approach:** Derive `semantic_patterns` (and `call_nodes`) from the tree-sitter **tags** convention. Each grammar publishes `queries/tags.scm` whose captures ARE the semantic map: `@definition.class` / `@definition.interface` / `@definition.function` / `@definition.method` / `@definition.module` → the definition node patterns, and **`@reference.call` → the call nodes**. nvim-treesitter (already a provider source, currently used only for the grammar→repo lockfile) ships these queries for 200+ languages. Two options:
+1. **New provider** that fetches `tags.scm` per grammar and emits `LanguageDefinition.semantic_patterns` (+ `call_nodes`), merged like the other providers.
+2. **Better — query-driven extraction:** run `tree_sitter::Query` against `tags.scm` directly in `generic_extractor`, the architecture GitHub code-nav / `tree-sitter tags` use, replacing the manual node-kind matching entirely.
+
+**Benefit:** Flips the model from "hand-author all 44+ languages" to "auto-derive from upstream, hand-tune the few exceptions," and stays in sync as grammars update (re-fetch the query, no re-authoring). Auto-covers the long tail of community languages.
+
+**Caveats:** Medium refactor (query-driven vs node-kind-list extraction). Coverage is excellent for mainstream grammars; some community grammars may not ship `tags.scm` or ship it partially, and a few (notably the Dart grammar) represent calls structurally rather than as a dedicated call node — those still need occasional hand-tuning or custom handling. Removes the bulk of the manual burden, not 100%.
+
+**Related work already landed (2026-06-05):** the `call_nodes` registry field, the `body_node` container-body fallback in `extract_methods_from_body` (fixed Java methods never being extracted → no Java CALLS), and the `method_invocation`/`object_creation_expression` defaults. Those make per-language CALLS *possible*; this item makes them *low-maintenance*.
+
 ---
 
 ## Cleanup Backlog (Deferred Removals & Tech Debt)

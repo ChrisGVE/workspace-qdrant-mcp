@@ -455,3 +455,47 @@ pub(super) fn create_lsp_metrics() -> (IntGaugeVec, IntCounterVec) {
     );
     (lsp_server_state, lsp_enrichments_total)
 }
+
+/// Code-relationship graph metrics.
+///
+/// Gauges are refreshed periodically from `graph.db` by the graph metrics
+/// exporter; counters are incremented inline at the ingest / stub-resolution
+/// call sites. Query latency is intentionally NOT duplicated here — it is
+/// already covered per-action by `grpc_request_duration_seconds{service="GraphService"}`.
+#[allow(clippy::type_complexity)]
+pub(super) fn create_graph_metrics(
+) -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec, IntCounterVec) {
+    let graph_nodes = int_gauge_vec(
+        "graph_nodes",
+        "Code-relationship graph node count by tenant and node type",
+        &["tenant_id", "node_type"],
+    );
+    let graph_edges = int_gauge_vec(
+        "graph_edges",
+        "Code-relationship graph edge count by tenant and edge type",
+        &["tenant_id", "edge_type"],
+    );
+    let graph_unresolved_stubs = int_gauge_vec(
+        "graph_unresolved_stubs",
+        "Unresolved stub nodes (empty file_path) by tenant — name-only callee/import \
+         targets not yet repointed to a real symbol; high values pollute centrality",
+        &["tenant_id"],
+    );
+    let graph_stub_resolved_total = int_counter_vec(
+        "graph_stub_resolved_total",
+        "Cumulative stub edges repointed to real project symbols by the stub resolver",
+        &["tenant_id"],
+    );
+    let graph_edges_ingested_total = int_counter_vec(
+        "graph_edges_ingested_total",
+        "Cumulative graph edges written during file ingestion, by tenant and edge type",
+        &["tenant_id", "edge_type"],
+    );
+    (
+        graph_nodes,
+        graph_edges,
+        graph_unresolved_stubs,
+        graph_stub_resolved_total,
+        graph_edges_ingested_total,
+    )
+}

@@ -1,4 +1,5 @@
-//! Import statement parsers for Rust, Python, JavaScript/TypeScript, and Go.
+//! Import statement parsers for Rust, Python, JavaScript/TypeScript, Go,
+//! Java/Kotlin, and Dart.
 //!
 //! Each parser extracts imported symbol names from a single line of source code.
 
@@ -47,6 +48,8 @@ fn parse_import_line(line: &str, language: &str) -> Vec<String> {
         "python" => parse_python_import(line),
         "javascript" | "typescript" | "tsx" | "jsx" => parse_js_import(line),
         "go" => parse_go_import(line),
+        "java" | "kotlin" => parse_java_import(line),
+        "dart" => parse_dart_import(line),
         _ => vec![],
     }
 }
@@ -215,6 +218,80 @@ pub(crate) fn parse_go_import(line: &str) -> Vec<String> {
             let path = &line[start + 1..start + 1 + end];
             // Use last path segment as the import name
             let name = path.rsplit('/').next().unwrap_or(path);
+            if !name.is_empty() {
+                return vec![name.to_string()];
+            }
+        }
+    }
+
+    vec![]
+}
+
+/// Parse Java/Kotlin import statements.
+///
+/// Examples:
+/// - `import com.example.Foo;` -> ["Foo"]
+/// - `import static com.example.Bar.baz;` -> ["baz"]
+/// - `import com.example.Foo as Bar` (Kotlin alias) -> ["Foo"]
+/// - `import com.example.*;` -> [] (wildcard, skip)
+pub(crate) fn parse_java_import(line: &str) -> Vec<String> {
+    let line = line.trim().trim_end_matches(';').trim();
+    let rest = match line
+        .strip_prefix("import static ")
+        .or_else(|| line.strip_prefix("import "))
+    {
+        Some(r) => r.trim(),
+        None => return vec![],
+    };
+
+    // Drop a Kotlin `as <alias>` suffix; the imported symbol is the path tail.
+    let rest = rest.split(" as ").next().unwrap_or(rest).trim();
+    if rest.is_empty() || rest.ends_with(".*") {
+        return vec![];
+    }
+
+    let name = rest.rsplit('.').next().unwrap_or(rest).trim();
+    if name.is_empty() {
+        vec![]
+    } else {
+        vec![name.to_string()]
+    }
+}
+
+/// Parse Dart import/export directives.
+///
+/// Examples:
+/// - `import 'package:flutter/material.dart';` -> ["material"]
+/// - `import 'dart:async';` -> ["async"]
+/// - `import 'widgets/foo.dart' as foo;` -> ["foo"] (alias wins)
+/// - `export 'src/bar.dart';` -> ["bar"]
+pub(crate) fn parse_dart_import(line: &str) -> Vec<String> {
+    let line = line.trim();
+    if !(line.starts_with("import ") || line.starts_with("export ")) {
+        return vec![];
+    }
+
+    // A trailing `as <alias>` names the binding the file uses locally.
+    if let Some(as_pos) = line.find(" as ") {
+        let after = line[as_pos + 4..].trim_end_matches(';');
+        if let Some(alias) = after.split_whitespace().next() {
+            if !alias.is_empty() {
+                return vec![alias.to_string()];
+            }
+        }
+    }
+
+    // Otherwise derive a name from the quoted URI's final segment.
+    let bytes = line.as_bytes();
+    if let Some(start) = line.find(['\'', '"']) {
+        let quote = bytes[start] as char;
+        if let Some(rel_end) = line[start + 1..].find(quote) {
+            let uri = &line[start + 1..start + 1 + rel_end];
+            let seg = uri.rsplit('/').next().unwrap_or(uri);
+            // `dart:async` -> `async`; a path segment has no colon so this is a
+            // no-op there.
+            let seg = seg.rsplit(':').next().unwrap_or(seg);
+            let name = seg.trim_end_matches(".dart").trim();
             if !name.is_empty() {
                 return vec![name.to_string()];
             }

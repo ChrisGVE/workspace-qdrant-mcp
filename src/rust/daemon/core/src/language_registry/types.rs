@@ -210,6 +210,16 @@ pub struct SemanticPatterns {
     /// (e.g., Ada's `compilation_unit`, Pascal's `unit`).
     #[serde(default)]
     pub root_wrappers: Vec<String>,
+    /// AST node kinds that represent a function/method/constructor call, used
+    /// to build the code-relationship CALLS graph. These EXTEND the universal
+    /// defaults (`call_expression`, `function_call`, `invocation_expression`,
+    /// `call`, `method_invocation`, `object_creation_expression`), so a
+    /// language only needs to list kinds the defaults miss (e.g. PHP's
+    /// `member_call_expression` / `scoped_call_expression`). Empty = defaults
+    /// only. Without this the call extractor was a hardcoded allowlist, so any
+    /// language whose call node was not one of the defaults built ZERO CALLS.
+    #[serde(default)]
+    pub call_nodes: Vec<String>,
 }
 
 /// A group of AST node types matching a semantic category.

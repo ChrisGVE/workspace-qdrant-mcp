@@ -388,7 +388,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (tenant_id, status) (memexd_unified_queue_depth_by_tenant) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
-          "legendFormat": "{{repo}} {{tenant_id}} / {{status}}",
+          "legendFormat": "{{repo}} / {{status}}",
           "refId": "A"
         }
       ]
@@ -410,7 +410,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "topk(10, sum by (tenant_id) (memexd_unified_queue_depth_by_tenant{status=\"pending\"}) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0))",
-          "legendFormat": "{{repo}} {{tenant_id}}",
+          "legendFormat": "{{repo}}",
           "refId": "A"
         }
       ]
@@ -436,7 +436,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "(memexd_indexing_eta_seconds_by_tenant >= 0) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
-          "legendFormat": "{{repo}} {{tenant_id}}",
+          "legendFormat": "{{repo}}",
           "refId": "A"
         }
       ]
@@ -473,6 +473,6 @@
   "timezone": "",
   "title": "WQM — memexd Daemon",
   "uid": "wqm-memexd",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

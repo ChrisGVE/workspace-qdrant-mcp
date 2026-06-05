@@ -81,7 +81,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "bytes" } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" },
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(1, sum by (tenant_id) (memexd_indexed_files_total_bytes))", "legendFormat": "{{tenant_id}}", "refId": "A" }]
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(1, sum by (repo) (memexd_indexed_files_total_bytes * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)))", "legendFormat": "{{repo}}", "refId": "A" }]
     },
     {
       "id": 6,
@@ -108,8 +108,8 @@
       "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "memexd_indexed_files_count",
-        "legendFormat": "{{tenant_id}}/{{branch}}",
+        "expr": "memexd_indexed_files_count * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
+        "legendFormat": "{{repo}}/{{branch}}",
         "refId": "A",
         "instant": true
       }]
@@ -130,8 +130,8 @@
       "options": { "orientation": "horizontal", "showValue": "auto", "stacking": "none", "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "memexd_indexed_files_total_bytes",
-        "legendFormat": "{{tenant_id}}/{{branch}}",
+        "expr": "memexd_indexed_files_total_bytes * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
+        "legendFormat": "{{repo}}/{{branch}}",
         "refId": "A",
         "instant": true
       }]
@@ -152,8 +152,8 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["last", "max", "sum"] }, "tooltip": { "mode": "multi" } },
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "sum by (tenant_id) (rate(memexd_fts5_skipped_files_total[5m])) * 60",
-        "legendFormat": "{{tenant_id}}",
+        "expr": "sum by (repo) (rate(memexd_fts5_skipped_files_total[5m]) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)) * 60",
+        "legendFormat": "{{repo}}",
         "refId": "A"
       }]
     },
@@ -175,14 +175,14 @@
       "options": { "showHeader": true, "footer": { "show": true, "reducer": ["sum"], "fields": ["Value"] } },
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "memexd_fts5_skipped_files_count > 0",
+        "expr": "(memexd_fts5_skipped_files_count > 0) * on (tenant_id) group_left (repo) (max by (tenant_id, repo) (label_replace(memexd_indexed_project_tracked_files, \"repo\", \"$1\", \"path\", \".*/([^/]+)/?$\")) >= bool 0)",
         "legendFormat": "__auto",
         "refId": "A",
         "instant": true,
         "format": "table"
       }],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true }, "indexByName": { "tenant_id": 0, "branch": 1, "Value": 2 } } }
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true }, "indexByName": { "repo": 0, "branch": 1, "Value": 2, "tenant_id": 3 }, "renameByName": { "repo": "project", "tenant_id": "tenant" } } }
       ]
     }
   ],
@@ -195,6 +195,6 @@
   "timezone": "",
   "title": "FTS5 / file_metadata pressure",
   "uid": "wqm-fts5-pressure",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

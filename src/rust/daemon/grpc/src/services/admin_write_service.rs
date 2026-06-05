@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tonic::{Request, Response, Status};
+use tracing::{error, info};
 use workspace_qdrant_core::write_actor::{
     RebalanceIdfData, ReembedTenantData, RenameTenantAdminData, WriteActorHandle,
 };
@@ -115,12 +116,35 @@ impl AdminWriteService for AdminWriteServiceImpl {
             )
         })?;
 
-        let recreator = StorageClientRecreator {
-            storage: Arc::clone(&ctx.storage_client),
-        };
-        let resp =
-            execute_reembed(&ctx, &recreator, REEMBED_DRAIN_TIMEOUT, REEMBED_DRAIN_POLL).await?;
-        Ok(Response::new(resp))
+        // Run the reembed DETACHED and return an immediate ack. The reembed is a
+        // long, multi-step operation (drain-to-quiescence up to 60s, recreate the
+        // 4 canonical collections, re-enqueue every watch folder). Done inline,
+        // the RPC outlived the client's gRPC deadline, and on the client cancel
+        // tonic dropped this handler's future mid-flight — sometimes after the
+        // pause flag was set but BEFORE the folder scans were enqueued, leaving
+        // the whole call a silent no-op. Spawning detaches it from the RPC
+        // lifetime so the client deadline can no longer abort it; the actual
+        // re-embedding then always runs via the queue.
+        tokio::spawn(async move {
+            let recreator = StorageClientRecreator {
+                storage: Arc::clone(&ctx.storage_client),
+            };
+            match execute_reembed(&ctx, &recreator, REEMBED_DRAIN_TIMEOUT, REEMBED_DRAIN_POLL).await
+            {
+                Ok(resp) => info!("TriggerReembed complete: {}", resp.message),
+                Err(e) => error!("TriggerReembed failed in background: {}", e),
+            }
+        });
+
+        Ok(Response::new(TriggerReembedResponse {
+            files_enqueued: 0,
+            rules_enqueued: 0,
+            scratchpad_enqueued: 0,
+            message: "reembed started in background: the 4 canonical collections will be \
+                      recreated and every watch folder re-enqueued. Track progress with \
+                      `wqm queue stats` or the Grafana queue panels."
+                .to_string(),
+        }))
     }
 
     async fn reapply_ignore_rules(

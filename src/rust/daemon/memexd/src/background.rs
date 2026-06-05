@@ -664,6 +664,10 @@ pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStor
             for tenant in tenants {
                 match graph_store.resolve_stub_edges(&tenant).await {
                     Ok(n) if n > 0 => {
+                        METRICS
+                            .graph_stub_resolved_total
+                            .with_label_values(&[tenant.as_str()])
+                            .inc_by(n as u64);
                         info!(tenant = %tenant, repointed = n, "Graph stub resolver repointed edges")
                     }
                     Ok(_) => {}
@@ -671,6 +675,79 @@ pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStor
                         warn!(tenant = %tenant, error = %e, "Graph stub resolution failed")
                     }
                 }
+            }
+        }
+    })
+}
+
+/// Spawn the graph metrics exporter (60-second loop).
+///
+/// Refreshes the per-tenant graph gauges (`graph_nodes`, `graph_edges`,
+/// `graph_unresolved_stubs`) from `graph.db` so the Grafana "Code Graph"
+/// dashboard reflects current node/edge-type distribution and the
+/// unresolved-stub pollution that centrality excludes. Gauges are `reset()`
+/// each tick so tenants/types that vanish stop reporting stale series. Query
+/// latency is NOT exported here — it is already covered by
+/// `grpc_request_duration_seconds{service="GraphService"}`.
+pub fn start_graph_metrics_refresh(
+    graph_store: crate::database::ConcreteGraphStore,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        info!("Graph metrics exporter started (60s interval)");
+        loop {
+            interval.tick().await;
+
+            // Snapshot counts under the read guard, then drop it before touching
+            // the Prometheus registry (mirrors start_graph_stub_resolver, which
+            // also avoids holding the store lock across unrelated work).
+            let (nodes, stubs, edges) = {
+                let guard = graph_store.read().await;
+                let pool = guard.pool();
+                let nodes: Vec<(String, String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, symbol_type, COUNT(*) \
+                     FROM graph_nodes GROUP BY tenant_id, symbol_type",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                let stubs: Vec<(String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, COUNT(*) \
+                     FROM graph_nodes WHERE file_path = '' GROUP BY tenant_id",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                let edges: Vec<(String, String, i64)> = sqlx::query_as(
+                    "SELECT tenant_id, edge_type, COUNT(*) \
+                     FROM graph_edges GROUP BY tenant_id, edge_type",
+                )
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+                (nodes, stubs, edges)
+            };
+
+            METRICS.graph_nodes.reset();
+            METRICS.graph_edges.reset();
+            METRICS.graph_unresolved_stubs.reset();
+            for (tenant, node_type, n) in &nodes {
+                METRICS
+                    .graph_nodes
+                    .with_label_values(&[tenant.as_str(), node_type.as_str()])
+                    .set(*n);
+            }
+            for (tenant, n) in &stubs {
+                METRICS
+                    .graph_unresolved_stubs
+                    .with_label_values(&[tenant.as_str()])
+                    .set(*n);
+            }
+            for (tenant, edge_type, n) in &edges {
+                METRICS
+                    .graph_edges
+                    .with_label_values(&[tenant.as_str(), edge_type.as_str()])
+                    .set(*n);
             }
         }
     })
