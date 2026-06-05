@@ -69,7 +69,6 @@ docker/docker-compose.prod.yml
 docker/entrypoint.sh
 docker/build-and-push.sh
 docker/deploy.sh
-docker/README.md
 docker/test-*.yaml
 docker/test-*.Dockerfile
 docker/integration-tests/
