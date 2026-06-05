@@ -354,8 +354,7 @@ async fn enqueue_library_file(
         }
     };
 
-    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
-    if metadata.len() > MAX_FILE_SIZE {
+    if metadata.len() > crate::strategies::processing::max_ingest_file_bytes() {
         debug!(
             "Skipping large file: {} ({} bytes)",
             abs_path,

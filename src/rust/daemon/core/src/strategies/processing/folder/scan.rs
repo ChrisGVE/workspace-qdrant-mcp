@@ -287,9 +287,6 @@ async fn enqueue_subdirectory(
     }
 }
 
-/// Maximum file size (100 MB) for scan ingestion.
-const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
-
 /// Process a single file entry encountered during scan.
 ///
 /// `baseline` is the parsed mtime pruning threshold: files with
@@ -334,7 +331,7 @@ pub(crate) async fn process_file_entry(
         return 0;
     }
 
-    if metadata.len() > MAX_FILE_SIZE {
+    if metadata.len() > crate::strategies::processing::max_ingest_file_bytes() {
         debug!(
             "Skipping large file: {} ({} bytes)",
             abs_path,
