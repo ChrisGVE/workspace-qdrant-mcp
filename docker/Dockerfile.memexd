@@ -447,6 +447,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         g++ \
         libc6-dev \
+        libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid ${UID} memexd \
     && useradd --uid ${UID} --gid ${UID} --create-home --shell /usr/sbin/nologin memexd \
@@ -547,6 +548,17 @@ RUN sed -i 's/\r$//' /usr/local/bin/memexd-entrypoint.sh \
 
 USER memexd
 ENV HOME=/home/memexd
+
+# jemalloc: bound RSS under sustained embedding load. The system glibc allocator
+# retains freed arenas instead of returning them to the OS, so RSS inflates to
+# 10 GB+ while the live heap stays ~3 GB (dominated by the ONNX Runtime
+# BFCArena). jemalloc's background purge thread returns dirty/muzzy pages to the
+# OS, keeping RSS tracking the live heap. LD_PRELOAD by soname resolves via
+# ldconfig on either arch (libjemalloc2 installed above). Confirmed with jemalloc
+# heap profiling: same reindex load peaked ~4.5 GB and receded to ~2.9 GB vs
+# 11 GB under glibc. See docs/runbooks/memexd-heap-profiling.md.
+ENV LD_PRELOAD=libjemalloc.so.2
+ENV MALLOC_CONF=background_thread:true,dirty_decay_ms:10000,muzzy_decay_ms:10000
 
 # gRPC service port
 EXPOSE 50051

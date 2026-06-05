@@ -248,6 +248,37 @@ stride inteiro — termina em ~`total_fragments` iterações, mantém o overlap,
 gaps. + 2 testes de regressão em `chunker/tests.rs` (linha gigante sem `\n`;
 tail longo após newline).
 
+## Segundo fenômeno: RSS infla a 11GB mas NÃO é leak (retenção do glibc)
+
+Depois de corrigir o burst, sob **reindex completo dos 10 projetos** o RSS subia
+devagar de ~3.5GB até ~11GB e **não recuava** — parecia um segundo leak. Era
+**retenção do alocador**, não código.
+
+**Como distinguir leak de retenção (decisivo):** rode a MESMA carga sob jemalloc
+(que devolve páginas ao SO via `background_thread`) e compare o RSS.
+- glibc: RSS foi a 11GB e ficou.
+- jemalloc: mesma carga, RSS foi a ~4.5GB de pico e **recuou pra ~2.9GB**.
+- `jeprof --inuse_space` no pico: heap **vivo** = ~3GB, **71% em
+  `onnxruntime::BFCArena::Extend`** (arena do ONNX, retida por design durante
+  embedding concorrente). Nada de unbounded no código do projeto.
+
+→ O glibc malloc **não devolve arenas liberadas ao SO** (fragmentação); o RSS
+infla mas o heap vivo é limitado. Confirme que o heap vivo é estável/recua antes
+de caçar um "leak" inexistente.
+
+**Fix permanente (em `docker/Dockerfile.memexd`):** rodar o memexd sob jemalloc.
+```dockerfile
+# no apt da runtime stage:
+libjemalloc2 \
+# depois de USER memexd:
+ENV LD_PRELOAD=libjemalloc.so.2
+ENV MALLOC_CONF=background_thread:true,dirty_decay_ms:10000,muzzy_decay_ms:10000
+```
+Validação: drenando 2480 itens de fila, RSS ficou **flat ~2.4GB** (vs 11GB no
+glibc). `LD_PRELOAD` por soname resolve via ldconfig nas duas arquiteturas;
+confirme que está mapeado mesmo: `grep -c jemalloc /proc/<memexd-pid>/maps`
+(um LD_PRELOAD que falha é silencioso — o processo roda com glibc).
+
 ## Auto-stop seguro (não use `bc` com "GiB" — parsing quebra)
 
 Leia o cgroup em **bytes** e compare numericamente:
