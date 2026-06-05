@@ -29,7 +29,13 @@ jobs:
   graph-bench:
     name: Graph Performance
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 minutes was a death loop: the release build of core + criterion
+    # exceeded it, the timeout-cancel killed the job before the cache post
+    # step could save, so every subsequent run started cold and timed out
+    # too — every run of this workflow ever recorded ended cancelled at
+    # exactly 30:00. Once one run completes, the warmed cache brings later
+    # runs well under the old limit.
+    timeout-minutes: 75
 
     steps:
       - name: Checkout repository
