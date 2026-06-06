@@ -155,6 +155,8 @@ mod tests {
                     repo: "tree-sitter/tree-sitter-rust".to_string(),
                     origin: None,
                     quality: GrammarQuality::Curated,
+                    git_ref: None,
+                    sha256: None,
                 }],
                 ..Default::default()
             },

@@ -84,6 +84,19 @@ pub struct GrammarSourceEntry {
     /// Quality tier.
     #[serde(default = "default_grammar_quality")]
     pub quality: GrammarQuality,
+    /// Immutable git ref (tag or commit SHA) pinning archive downloads.
+    /// When set, the downloader fetches `archive/{git_ref}.tar.gz` instead of
+    /// the moving `releases/latest` / branch-head targets. `None` keeps the
+    /// unpinned behavior (back-compat for entries the updater has not
+    /// re-scraped yet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+    /// Expected SHA256 (hex) of the source tarball at `git_ref`. When set —
+    /// and checksum verification is enabled — the downloader rejects tarballs
+    /// whose hash differs. Only meaningful together with `git_ref` (a hash
+    /// over a moving target would self-destruct on every upstream push).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 fn default_grammar_quality() -> GrammarQuality {

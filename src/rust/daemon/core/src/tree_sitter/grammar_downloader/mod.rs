@@ -69,6 +69,24 @@ pub enum DownloadError {
 /// Result type for download operations.
 pub type DownloadResult<T> = Result<T, DownloadError>;
 
+/// Verify downloaded tarball bytes against an expected SHA256 (hex).
+///
+/// Comparison is case-insensitive on the hex digits. Returns
+/// [`DownloadError::ChecksumMismatch`] on any difference.
+pub(crate) fn verify_tarball_checksum(bytes: &[u8], expected: &str) -> DownloadResult<()> {
+    use sha2::{Digest, Sha256};
+
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual.eq_ignore_ascii_case(expected.trim()) {
+        Ok(())
+    } else {
+        Err(DownloadError::ChecksumMismatch {
+            expected: expected.trim().to_lowercase(),
+            actual,
+        })
+    }
+}
+
 /// Information about a downloaded grammar.
 #[derive(Debug, Clone)]
 pub struct DownloadedGrammar {
@@ -146,8 +164,17 @@ impl GrammarDownloader {
         let platform = &self.cache_paths.platform;
         info!(language, %platform, repo = %source.repo, "Downloading grammar source");
 
-        // Try release tarball first, then archive fallback
+        // Pinned ref when present, else release tarball then archive fallback
         let tarball_bytes = fetch::fetch_grammar_source(&self.client, language, &source).await?;
+
+        // Verify the tarball against the registry's pinned sha256 (only
+        // meaningful for pinned refs — moving targets have no stable hash).
+        if self.verify_checksums {
+            if let Some(ref expected) = source.sha256 {
+                verify_tarball_checksum(&tarball_bytes, expected)?;
+                info!(language, "Tarball sha256 verified against registry pin");
+            }
+        }
 
         // Extract and compile in a temp directory
         let temp_dir = tempfile::tempdir()?;
@@ -176,10 +203,14 @@ impl GrammarDownloader {
 
         let checksum = compute_checksum(&grammar_path)?;
 
+        // Record the pinned ref as the installed version when one exists —
+        // it identifies the exact source bytes, unlike the caller's hint.
+        let effective_version = source.git_ref.as_deref().unwrap_or(version);
+
         let metadata = GrammarMetadata::new(
             language,
             &self.cache_paths.tree_sitter_version,
-            version,
+            effective_version,
             platform,
             &checksum,
         );
@@ -196,7 +227,7 @@ impl GrammarDownloader {
             path: grammar_path,
             checksum,
             language: language.to_string(),
-            version: version.to_string(),
+            version: effective_version.to_string(),
             platform: platform.to_string(),
         })
     }

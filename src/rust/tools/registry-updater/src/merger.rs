@@ -120,6 +120,8 @@ fn merge_grammar_entry(
             repo: grammar.repo.clone(),
             origin: None,
             quality: grammar.quality,
+            git_ref: None,
+            sha256: None,
         });
     }
 

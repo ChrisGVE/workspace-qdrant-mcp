@@ -31,6 +31,13 @@ pub struct GrammarSource {
     /// Defaults to trying "main" then "master". Some repos keep
     /// generated parser.c only on a "release" branch.
     pub archive_branch: Option<String>,
+    /// Immutable git ref (tag or commit SHA) pinning the source download.
+    /// When set, the downloader fetches `archive/{git_ref}.tar.gz` ONLY —
+    /// no moving-target release/branch fallback.
+    pub git_ref: Option<String>,
+    /// Expected SHA256 (hex) of the tarball at `git_ref`. Verified after
+    /// download when checksum verification is enabled.
+    pub sha256: Option<String>,
 }
 
 impl GrammarSource {
@@ -56,6 +63,16 @@ impl GrammarSource {
     pub fn archive_tarball_url(&self, git_ref: &str) -> String {
         format!(
             "https://github.com/{}/{}/archive/refs/heads/{}.tar.gz",
+            self.owner, self.repo, git_ref
+        )
+    }
+
+    /// Get the GitHub archive URL for the pinned immutable ref (tag or commit
+    /// SHA). The bare `archive/{ref}.tar.gz` form resolves tags, SHAs, and
+    /// branches alike — used only when `git_ref` is pinned.
+    pub fn pinned_archive_url(&self, git_ref: &str) -> String {
+        format!(
+            "https://github.com/{}/{}/archive/{}.tar.gz",
             self.owner, self.repo, git_ref
         )
     }
@@ -106,6 +123,8 @@ fn registry_data() -> &'static GrammarRegistryData {
                         has_cpp_scanner: def.grammar.has_cpp_scanner,
                         src_subdir: def.grammar.src_subdir.clone(),
                         archive_branch: def.grammar.archive_branch.clone(),
+                        git_ref: src.git_ref.clone(),
+                        sha256: src.sha256.clone(),
                     },
                 );
             }
@@ -210,6 +229,29 @@ mod tests {
             rust.release_tarball_url("v0.24.0"),
             "https://github.com/tree-sitter/tree-sitter-rust/releases/download/v0.24.0/tree-sitter-rust.tar.gz"
         );
+    }
+
+    #[test]
+    fn test_pinned_archive_url() {
+        let rust = lookup("rust").unwrap();
+        // Tag and commit-SHA refs use the bare archive form (immutable).
+        assert_eq!(
+            rust.pinned_archive_url("v0.24.0"),
+            "https://github.com/tree-sitter/tree-sitter-rust/archive/v0.24.0.tar.gz"
+        );
+        assert_eq!(
+            rust.pinned_archive_url("9c84af007b0f144954adb26b3f336495cbb320a7"),
+            "https://github.com/tree-sitter/tree-sitter-rust/archive/9c84af007b0f144954adb26b3f336495cbb320a7.tar.gz"
+        );
+    }
+
+    #[test]
+    fn test_bundled_registry_pins_are_optional() {
+        // Bundled YAML entries without git_ref/sha256 must load as unpinned
+        // (back-compat: pinning rolls out incrementally via registry-updater).
+        let rust = lookup("rust").unwrap();
+        assert!(rust.git_ref.is_none() || !rust.git_ref.as_deref().unwrap().is_empty());
+        assert!(rust.sha256.is_none() || rust.sha256.as_deref().unwrap().len() == 64);
     }
 
     #[test]

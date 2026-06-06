@@ -48,6 +48,15 @@ wqm language refresh                     # Refresh registry from upstream provid
 3. If grammar version mismatches tree-sitter runtime version, replace with compatible version
 4. If `auto_download: false` and grammar missing, log warning and fall back to text chunking
 
+**Download pinning (issue #88):** when a registry source carries a `git_ref`
+(immutable tag or commit SHA), the downloader fetches ONLY
+`archive/{git_ref}.tar.gz` — no moving-target release/branch fallback — and,
+with `verify_checksums: true`, rejects tarballs whose SHA256 differs from the
+registry's pinned `sha256`. Sources without a pin keep the original behavior
+(latest release tarball, then branch-archive fallback) and download unverified.
+Pins are captured by `registry-updater --pin`, which resolves each repo's
+latest release tag (or HEAD commit SHA) and hashes the tarball at that ref.
+
 ### Manual Updates via CLI
 
 ```bash

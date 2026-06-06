@@ -6,13 +6,25 @@ use tracing::{debug, info};
 use super::{DownloadError, DownloadResult};
 use crate::tree_sitter::grammar_registry;
 
-/// Fetch grammar source tarball, trying a GitHub release URL first then an
-/// archive fallback.
+/// Fetch grammar source tarball.
+///
+/// When the registry pins an immutable `git_ref`, ONLY the pinned archive URL
+/// is fetched — falling back to a moving target would defeat the pin (and any
+/// sha256 over different bytes would fail anyway). Unpinned sources keep the
+/// original behavior: GitHub release URL first, then branch-archive fallback.
 pub(super) async fn fetch_grammar_source(
     client: &Client,
     language: &str,
     source: &grammar_registry::GrammarSource,
 ) -> DownloadResult<Vec<u8>> {
+    if let Some(ref git_ref) = source.git_ref {
+        let pinned_url = source.pinned_archive_url(git_ref);
+        debug!(language, url = %pinned_url, "Fetching pinned archive tarball");
+        let bytes = fetch_bytes(client, &pinned_url, language, git_ref).await?;
+        info!(language, git_ref, "Downloaded pinned archive");
+        return Ok(bytes);
+    }
+
     // Try the GitHub release tarball first (most grammars have releases).
     // The redirect URL resolves to the latest release asset.
     let release_url = format!(

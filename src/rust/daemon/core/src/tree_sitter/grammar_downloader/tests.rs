@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use super::compile::{compile_c_args, find_compiler, link_args};
 use super::extract::{extract_tarball, find_src_dir};
-use super::GrammarDownloader;
+use super::{verify_tarball_checksum, DownloadError, GrammarDownloader};
 use crate::tree_sitter::grammar_cache::GrammarCachePaths;
 
 #[test]
@@ -91,6 +91,32 @@ fn test_link_args() {
     assert!(args.contains(&"-shared".to_string()));
     assert!(args.contains(&"/tmp/a.o".to_string()));
     assert!(args.contains(&"/tmp/b.o".to_string()));
+}
+
+#[test]
+fn test_verify_tarball_checksum_match() {
+    // sha256("hello world") — well-known vector.
+    let expected = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+    verify_tarball_checksum(b"hello world", expected).expect("matching checksum must pass");
+    // Case-insensitive + surrounding whitespace tolerated.
+    verify_tarball_checksum(b"hello world", &format!(" {} ", expected.to_uppercase()))
+        .expect("case/whitespace variants must pass");
+}
+
+#[test]
+fn test_verify_tarball_checksum_mismatch() {
+    let err = verify_tarball_checksum(b"hello world", &"0".repeat(64))
+        .expect_err("wrong checksum must fail");
+    match err {
+        DownloadError::ChecksumMismatch { expected, actual } => {
+            assert_eq!(expected, "0".repeat(64));
+            assert_eq!(
+                actual,
+                "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+            );
+        }
+        other => panic!("expected ChecksumMismatch, got {other:?}"),
+    }
 }
 
 #[test]

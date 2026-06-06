@@ -285,6 +285,8 @@ fn merge_grammar_entries(
                 repo: grammar.repo.clone(),
                 origin: Some(provider_name.to_string()),
                 quality: grammar.quality,
+                git_ref: None,
+                sha256: None,
             });
         }
 
