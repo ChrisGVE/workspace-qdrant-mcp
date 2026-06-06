@@ -47,12 +47,13 @@ impl GrpcServer {
         let storage_client = self.create_storage_client();
         let system_service = self.build_system_service(&storage_client);
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
-        let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
         let dense_provider = self.dense_provider.clone().ok_or_else(|| {
             GrpcError::Configuration(
                 "GrpcServer requires a DenseProvider — call .with_dense_provider(...) before start()".to_string(),
             )
         })?;
+        let document_service =
+            DocumentServiceImpl::new(Arc::clone(&storage_client), Arc::clone(&dense_provider));
         let embedding_service = EmbeddingServiceImpl::new(dense_provider);
         let project_service = self.build_project_service(&storage_client).await;
 

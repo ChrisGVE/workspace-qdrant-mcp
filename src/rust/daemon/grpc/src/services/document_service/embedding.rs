@@ -1,173 +1,32 @@
-//! Embedding generation and caching for DocumentService
+//! BM25 sparse-vector generation for DocumentService
 //!
-//! Manages the global FastEmbed model, LRU embedding cache, and BM25 sparse
-//! vector generation. All global state is lazily initialized and thread-safe.
-//!
-//! # Error handling
-//!
-//! Initialization failures (missing model files, download errors, ORT runtime
-//! issues) are captured as `tonic::Status::failed_precondition` instead of
-//! panicking the service. Once a failure is recorded it is cached so
-//! subsequent calls return the same error immediately (F-048).
+//! Dense embeddings are produced by the daemon-wide injected
+//! `Arc<dyn DenseProvider>` (see `DocumentServiceImpl`), so this module only
+//! manages the service-local BM25 corpus used for sparse vectors. The BM25
+//! state is lazily initialized and thread-safe.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use lru::LruCache;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
 use tonic::Status;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use workspace_qdrant_core::BM25;
-
-/// Global embedding model instance (lazy-initialized, thread-safe).
-///
-/// Stores a `Result` so that initialization failures are recorded once and
-/// returned on every subsequent call rather than panicking the service.
-static EMBEDDING_MODEL: OnceLock<Result<TokioMutex<TextEmbedding>, String>> = OnceLock::new();
-
-/// Global embedding cache (content hash -> embedding vector)
-/// Improves performance by caching embeddings for repeated content
-static EMBEDDING_CACHE: OnceLock<TokioMutex<LruCache<u64, Vec<f32>>>> = OnceLock::new();
 
 /// Global BM25 instance for sparse vector generation (thread-safe, read-write lock)
 /// Uses RwLock because reads (generate_sparse_vector) are frequent and concurrent,
 /// while writes (add_document) are less frequent during ingestion
 static BM25_MODEL: OnceLock<TokioRwLock<BM25>> = OnceLock::new();
 
-/// Default cache size (number of entries)
-const DEFAULT_CACHE_SIZE: usize = 1000;
-
 /// Default BM25 parameters (standard values from research)
 const DEFAULT_BM25_K1: f32 = 1.2;
 
-/// Default vector dimension for embeddings (all-MiniLM-L6-v2)
-pub(crate) const DEFAULT_VECTOR_SIZE: u64 = 384;
-
-/// Cache metrics for monitoring
-pub struct EmbeddingCacheMetrics {
-    pub hits: AtomicU64,
-    pub misses: AtomicU64,
-    pub evictions: AtomicU64,
-}
-
-impl Default for EmbeddingCacheMetrics {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl EmbeddingCacheMetrics {
-    pub const fn new() -> Self {
-        Self {
-            hits: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            evictions: AtomicU64::new(0),
-        }
-    }
-
-    pub fn hit_rate(&self) -> f64 {
-        let hits = self.hits.load(Ordering::Relaxed);
-        let misses = self.misses.load(Ordering::Relaxed);
-        let total = hits + misses;
-        if total == 0 {
-            0.0
-        } else {
-            hits as f64 / total as f64
-        }
-    }
-}
-
-/// Global cache metrics instance
-pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
-
-/// Convert an embedding-init error message into a gRPC `FAILED_PRECONDITION`.
-fn model_init_status(err: &str) -> Status {
-    Status::failed_precondition(format!("FastEmbed model unavailable: {err}"))
-}
-
-/// Initialize the global embedding model, cache, and BM25 if not already
-/// initialized.
-///
-/// Returns `Err(Status::failed_precondition)` when the FastEmbed model cannot
-/// be loaded (missing model files, download failure, ORT error). The error is
-/// cached so repeated calls return the same status without retrying.
-pub(crate) fn init_embedding_model() -> Result<(), Status> {
-    let model_result = EMBEDDING_MODEL.get_or_init(|| {
-        info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
-        match TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(true),
-        ) {
-            Ok(model) => {
-                info!("FastEmbed model initialized successfully");
-                Ok(TokioMutex::new(model))
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    "FastEmbed model initialization failed — embedding operations \
-                     will return FAILED_PRECONDITION until the service is restarted"
-                );
-                Err(format!("{e}"))
-            }
-        }
-    });
-
-    // Propagate cached init failure.
-    if let Err(msg) = model_result {
-        return Err(model_init_status(msg));
-    }
-
-    init_cache();
-    init_bm25();
-
-    Ok(())
-}
-
-/// Initialize the LRU embedding cache (infallible, constant size).
-fn init_cache() {
-    EMBEDDING_CACHE.get_or_init(|| {
-        // DEFAULT_CACHE_SIZE is a non-zero compile-time constant; unwrap is safe.
-        let cache_size =
-            NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("DEFAULT_CACHE_SIZE is non-zero");
-        info!(
-            "Initializing embedding cache with {} entries",
-            DEFAULT_CACHE_SIZE
-        );
-        TokioMutex::new(LruCache::new(cache_size))
-    });
-}
-
 /// Initialize the BM25 sparse-vector model (infallible).
-fn init_bm25() {
+fn init_bm25() -> &'static TokioRwLock<BM25> {
     BM25_MODEL.get_or_init(|| {
         info!("Initializing BM25 model (k1={})...", DEFAULT_BM25_K1);
         TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))
-    });
-}
-
-/// Return a reference to the initialized embedding model mutex, or a gRPC
-/// error if initialization failed.
-fn get_model() -> Result<&'static TokioMutex<TextEmbedding>, Status> {
-    let result = EMBEDDING_MODEL
-        .get()
-        .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
-    match result {
-        Ok(model) => Ok(model),
-        Err(msg) => Err(model_init_status(msg)),
-    }
-}
-
-/// Compute a hash of the input text for cache lookup
-pub(crate) fn content_hash(text: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    text.hash(&mut hasher);
-    hasher.finish()
+    })
 }
 
 /// Simple tokenization for BM25 sparse vector generation
@@ -178,13 +37,8 @@ pub(crate) fn tokenize(text: &str) -> Vec<String> {
 /// Generate sparse vector using BM25 algorithm.
 ///
 /// First adds document to corpus, then generates sparse vector.
-/// Returns `FAILED_PRECONDITION` if the embedding model failed to initialize.
 pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f32>, Status> {
-    init_embedding_model()?;
-
-    let bm25 = BM25_MODEL
-        .get()
-        .ok_or_else(|| Status::internal("BM25 model not initialized"))?;
+    let bm25 = init_bm25();
 
     let tokens = tokenize(text);
 
@@ -210,100 +64,9 @@ pub(crate) async fn generate_sparse_vector(text: &str) -> Result<HashMap<u32, f3
     Ok(sparse_map)
 }
 
-/// Generate embedding for text using FastEmbed (all-MiniLM-L6-v2).
-///
-/// Returns 384-dimensional dense vector for semantic search.
-/// Uses LRU cache to avoid redundant computation for repeated content.
-/// Returns `FAILED_PRECONDITION` if the embedding model failed to initialize.
-pub(crate) async fn generate_embedding(text: &str) -> Result<Vec<f32>, Status> {
-    init_embedding_model()?;
-
-    let hash = content_hash(text);
-    if let Some(cache) = EMBEDDING_CACHE.get() {
-        let mut cache_guard = cache.lock().await;
-        if let Some(cached_embedding) = cache_guard.get(&hash) {
-            CACHE_METRICS.hits.fetch_add(1, Ordering::Relaxed);
-            debug!("Cache hit for content hash {}", hash);
-            return Ok(cached_embedding.clone());
-        }
-    }
-
-    CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
-
-    let model = get_model()?;
-
-    let text_owned = text.to_string();
-
-    let embedding = {
-        let mut model_guard = model.lock().await;
-
-        let documents = vec![text_owned.as_str()];
-
-        match model_guard.embed(documents, None) {
-            Ok(embeddings) => {
-                if embeddings.is_empty() {
-                    return Err(Status::internal("FastEmbed returned empty embeddings"));
-                }
-                embeddings
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| Status::internal("FastEmbed returned no embeddings"))?
-            }
-            Err(e) => {
-                error!("FastEmbed embedding generation failed: {:?}", e);
-                return Err(Status::internal(format!(
-                    "Embedding generation failed: {}",
-                    e
-                )));
-            }
-        }
-    };
-
-    if embedding.len() != DEFAULT_VECTOR_SIZE as usize {
-        warn!(
-            "Embedding dimension mismatch: expected {}, got {}",
-            DEFAULT_VECTOR_SIZE,
-            embedding.len()
-        );
-    }
-
-    if let Some(cache) = EMBEDDING_CACHE.get() {
-        let mut cache_guard = cache.lock().await;
-        if cache_guard.len() >= DEFAULT_CACHE_SIZE {
-            CACHE_METRICS.evictions.fetch_add(1, Ordering::Relaxed);
-        }
-        cache_guard.put(hash, embedding.clone());
-    }
-
-    debug!(
-        "Generated {}-dimensional embedding (cached)",
-        embedding.len()
-    );
-    Ok(embedding)
-}
-
-/// Get embedding cache metrics for monitoring
-pub fn get_cache_metrics() -> (u64, u64, u64, f64) {
-    let hits = CACHE_METRICS.hits.load(Ordering::Relaxed);
-    let misses = CACHE_METRICS.misses.load(Ordering::Relaxed);
-    let evictions = CACHE_METRICS.evictions.load(Ordering::Relaxed);
-    let hit_rate = CACHE_METRICS.hit_rate();
-    (hits, misses, evictions, hit_rate)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_content_hash() {
-        let hash1 = content_hash("test content");
-        let hash2 = content_hash("test content");
-        assert_eq!(hash1, hash2);
-
-        let hash3 = content_hash("different content");
-        assert_ne!(hash1, hash3);
-    }
 
     #[test]
     fn test_tokenize() {
@@ -332,87 +95,6 @@ mod tests {
         assert!(tokens4.contains(&"world".to_string()));
         assert!(tokens4.contains(&"test".to_string()));
         assert!(tokens4.contains(&"case".to_string()));
-    }
-
-    #[test]
-    fn test_model_init_status_returns_failed_precondition() {
-        let status = model_init_status("test error");
-        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
-        assert!(status.message().contains("test error"));
-        assert!(status.message().contains("FastEmbed model unavailable"));
-    }
-
-    #[tokio::test]
-    async fn test_generate_embedding() {
-        let text = "Test text for embedding";
-        let embedding = generate_embedding(text)
-            .await
-            .expect("Failed to generate embedding");
-
-        assert_eq!(embedding.len(), DEFAULT_VECTOR_SIZE as usize);
-        assert!(embedding.iter().all(|&x| x.is_finite()));
-
-        let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (magnitude - 1.0).abs() < 0.1,
-            "Embedding not normalized: {}",
-            magnitude
-        );
-
-        let embedding2 = generate_embedding(text)
-            .await
-            .expect("Failed to generate second embedding");
-        assert_eq!(
-            embedding, embedding2,
-            "Same text should produce same embedding"
-        );
-
-        let different_embedding = generate_embedding("Different text for comparison")
-            .await
-            .expect("Failed to generate different embedding");
-        assert_ne!(
-            embedding, different_embedding,
-            "Different text should produce different embedding"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_embedding_cache() {
-        CACHE_METRICS.hits.store(0, Ordering::Relaxed);
-        CACHE_METRICS.misses.store(0, Ordering::Relaxed);
-        CACHE_METRICS.evictions.store(0, Ordering::Relaxed);
-
-        let text = "Text for cache testing";
-        let embedding1 = generate_embedding(text)
-            .await
-            .expect("Failed to generate embedding");
-
-        let embedding2 = generate_embedding(text)
-            .await
-            .expect("Failed to generate cached embedding");
-
-        assert_eq!(
-            embedding1, embedding2,
-            "Cached embedding should match original"
-        );
-
-        let (hits, misses, _evictions, _hit_rate) = get_cache_metrics();
-        assert!(
-            misses >= 1,
-            "Expected at least 1 cache miss, got {}",
-            misses
-        );
-        assert!(hits >= 1, "Expected at least 1 cache hit, got {}", hits);
-
-        let _embedding3 = generate_embedding("Different unique text")
-            .await
-            .expect("Failed to generate different embedding");
-
-        let (_hits2, misses2, _, _) = get_cache_metrics();
-        assert!(
-            misses2 > misses,
-            "Expected additional cache miss for different text"
-        );
     }
 
     #[tokio::test]

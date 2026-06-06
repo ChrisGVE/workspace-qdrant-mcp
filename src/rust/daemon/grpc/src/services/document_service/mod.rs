@@ -29,55 +29,53 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::storage::StorageClient;
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS};
 use wqm_common::timestamps;
-
-pub use embedding::{EmbeddingCacheMetrics, CACHE_METRICS};
 
 use crate::proto::{
     document_service_server::DocumentService, DeleteDocumentRequest, IngestTextRequest,
     IngestTextResponse, UpdateDocumentRequest, UpdateDocumentResponse,
 };
 
-/// DocumentService implementation with text chunking and embedding generation
+/// DocumentService implementation with text chunking and embedding generation.
+///
+/// Dense embeddings come from the daemon-wide injected provider (issue #95) —
+/// the same backend the EmbeddingService and health check use — so ingestion
+/// never falls back to a separately initialized local model.
 pub struct DocumentServiceImpl {
     storage_client: Arc<StorageClient>,
+    dense_provider: Arc<dyn DenseProvider>,
     chunk_size: usize,
     chunk_overlap: usize,
 }
 
 impl DocumentServiceImpl {
-    /// Create a new DocumentService with the provided storage client
-    pub fn new(storage_client: Arc<StorageClient>) -> Self {
+    /// Create a new DocumentService with the provided storage client and
+    /// dense-embedding provider.
+    pub fn new(storage_client: Arc<StorageClient>, dense_provider: Arc<dyn DenseProvider>) -> Self {
         Self {
             storage_client,
+            dense_provider,
             chunk_size: ingestion::DEFAULT_CHUNK_SIZE,
             chunk_overlap: ingestion::DEFAULT_CHUNK_OVERLAP,
         }
     }
 
-    /// Create with default storage client
-    pub fn default() -> Self {
-        Self::new(Arc::new(StorageClient::new()))
-    }
-
     /// Create with custom chunking configuration
     pub fn with_config(
         storage_client: Arc<StorageClient>,
+        dense_provider: Arc<dyn DenseProvider>,
         chunk_size: usize,
         chunk_overlap: usize,
     ) -> Self {
         Self {
             storage_client,
+            dense_provider,
             chunk_size,
             chunk_overlap,
         }
-    }
-
-    /// Get embedding cache metrics for monitoring
-    pub fn get_cache_metrics() -> (u64, u64, u64, f64) {
-        embedding::get_cache_metrics()
     }
 }
 
@@ -125,6 +123,7 @@ impl DocumentService for DocumentServiceImpl {
 
         let response = ingestion::ingest_text_internal(
             &self.storage_client,
+            &self.dense_provider,
             req.content,
             collection_name,
             document_id,
@@ -187,6 +186,7 @@ impl DocumentService for DocumentServiceImpl {
 
         let response = ingestion::ingest_text_internal(
             &self.storage_client,
+            &self.dense_provider,
             req.content,
             collection_name,
             req.document_id.clone(),

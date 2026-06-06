@@ -422,28 +422,28 @@ Collection CRUD and alias management. Most methods are daemon-internal.
 
 #### DocumentService (3 RPCs)
 
-Document ingestion and management. Reserved for admin/diagnostic use.
+Document ingestion and management for direct (non-file) text content.
 
-| Method           | Status       | Notes                     |
-| ---------------- | ------------ | ------------------------- |
-| `IngestText`     | **Reserved** | Admin/diagnostic use only |
-| `UpdateDocument` | **Reserved** | Admin/diagnostic use only |
-| `DeleteDocument` | **Reserved** | Admin/diagnostic use only |
+| Method           | Used By | Notes                                                 |
+| ---------------- | ------- | ----------------------------------------------------- |
+| `IngestText`     | MCP     | `rules` tool persists rule adds/updates via this RPC  |
+| `UpdateDocument` | —       | Reserved: admin/diagnostic use only                   |
+| `DeleteDocument` | —       | Reserved: admin/diagnostic use only                   |
 
-**Production writes use SQLite queue.** These methods exist for administrative and diagnostic purposes but are not called by MCP or CLI in normal operation.
+**File-based production writes use the SQLite queue.** DocumentService is the direct-write path for rule documents and admin/diagnostic text ingestion. Dense embeddings come from the daemon's configured dense provider (the same injected `DenseProvider` the EmbeddingService and health check use — issue #95); collection creation uses the provider's `output_dim()`.
 
 #### EmbeddingService (2 RPCs)
 
-Embedding generation for TypeScript MCP server. Centralizes embedding model in daemon.
+Embedding generation for the MCP server. Centralizes the embedding backend in the daemon.
 
-| Method                 | Used By | Purpose                           | Status     |
-| ---------------------- | ------- | --------------------------------- | ---------- |
-| `EmbedText`            | MCP     | Generate dense vector (384 dims)  | Production |
-| `GenerateSparseVector` | MCP     | Generate BM25 sparse vector       | Production |
+| Method                 | Used By | Purpose                                     | Status     |
+| ---------------------- | ------- | ------------------------------------------- | ---------- |
+| `EmbedText`            | MCP     | Generate dense vector (provider dimensions) | Production |
+| `GenerateSparseVector` | MCP     | Generate BM25 sparse vector                 | Production |
 
 **Usage:**
-- TypeScript MCP server calls `EmbedText` when performing hybrid search
-- Dense vectors use FastEmbed `all-MiniLM-L6-v2` model (384 dimensions)
+- The MCP server calls `EmbedText` when performing hybrid search
+- Dense vectors come from the configured dense provider (`fastembed` local or `openai_compatible` remote); dimensionality is the provider's `output_dim()` (384 for the default `all-MiniLM-L6-v2`)
 - Sparse vectors use BM25 algorithm with IDF weighting: `IDF * (k1 * tf) / (tf + k1)` where `IDF = ln((N - df + 0.5) / (df + 0.5))`, clamped at 0. IDF vocabulary and corpus statistics are persisted in `sparse_vocabulary` and `corpus_statistics` SQLite tables (schema v15). Per-collection BM25 instances maintain independent document frequency counts.
 
 #### TextSearchService (2 RPCs)

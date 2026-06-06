@@ -8,7 +8,9 @@
 
 use prost::Message;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tonic::{Code, Request};
+use workspace_qdrant_core::embedding::provider::{DenseProvider, FastEmbedProvider};
 use workspace_qdrant_core::StorageClient;
 use workspace_qdrant_grpc::proto::{
     document_service_server::DocumentService, DeleteDocumentRequest, IngestTextRequest,
@@ -16,9 +18,11 @@ use workspace_qdrant_grpc::proto::{
 };
 use workspace_qdrant_grpc::services::DocumentServiceImpl;
 
-/// Test helper to create DocumentService instance
+/// Test helper to create DocumentService instance with a local FastEmbed
+/// provider (same backend the EmbeddingService tests use).
 fn create_service() -> DocumentServiceImpl {
-    DocumentServiceImpl::default()
+    let provider: Arc<dyn DenseProvider> = Arc::new(FastEmbedProvider::new(32, None, None));
+    DocumentServiceImpl::new(Arc::new(StorageClient::new()), provider)
 }
 
 /// Clean up any test data written to a real Qdrant instance.
