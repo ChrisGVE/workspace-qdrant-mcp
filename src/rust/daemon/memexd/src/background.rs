@@ -684,8 +684,9 @@ pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStor
 ///
 /// Refreshes the per-tenant graph gauges (`graph_nodes`, `graph_edges`,
 /// `graph_unresolved_stubs`) from `graph.db` so the Grafana "Code Graph"
-/// dashboard reflects current node/edge-type distribution and the
-/// unresolved-stub pollution that centrality excludes. Gauges are `reset()`
+/// dashboard reflects current node/edge-type distribution and the count of
+/// *internal* stubs the resolver still owes (external/stdlib refs are excluded
+/// — see the query). Gauges are `reset()`
 /// each tick so tenants/types that vanish stop reporting stale series. Query
 /// latency is NOT exported here — it is already covered by
 /// `grpc_request_duration_seconds{service="GraphService"}`.
@@ -711,9 +712,25 @@ pub fn start_graph_metrics_refresh(
                 .fetch_all(pool)
                 .await
                 .unwrap_or_default();
+                // Count only *actionable* unresolved stubs: a stub (empty
+                // file_path) whose symbol_name DOES have a real in-project
+                // definition (file_path <> '') but stayed dangling — i.e. the
+                // resolver should have repointed it. Stubs with no in-project
+                // match are external/stdlib refs (e.g. Override, ByteString,
+                // assertThat) — an expected, permanent floor that only pollutes
+                // the metric, so they are excluded. The (tenant_id, symbol_name)
+                // index keeps the EXISTS check cheap.
                 let stubs: Vec<(String, i64)> = sqlx::query_as(
-                    "SELECT tenant_id, COUNT(*) \
-                     FROM graph_nodes WHERE file_path = '' GROUP BY tenant_id",
+                    "SELECT s.tenant_id, COUNT(*) \
+                     FROM graph_nodes s \
+                     WHERE s.file_path = '' \
+                       AND EXISTS ( \
+                         SELECT 1 FROM graph_nodes r \
+                         WHERE r.tenant_id = s.tenant_id \
+                           AND r.symbol_name = s.symbol_name \
+                           AND r.file_path <> '' \
+                       ) \
+                     GROUP BY s.tenant_id",
                 )
                 .fetch_all(pool)
                 .await

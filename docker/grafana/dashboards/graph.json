@@ -105,8 +105,8 @@
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
       "id": 4,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
-      "description": "Stub nodes with an empty file_path: name-only callee/import targets not yet repointed to a real symbol. These are excluded from centrality; a large or growing value means the stub resolver is behind or names are unresolvable (stdlib/external).",
-      "title": "Unresolved Stubs",
+      "description": "Internal unresolved stubs: name-only targets whose symbol HAS a real in-project definition but were not yet repointed by the resolver. External/stdlib refs with no project definition are EXCLUDED (they never resolve by design). A non-zero value means the resolver is behind or hit ambiguous names; steady state should be ~0.",
+      "title": "Unresolved Stubs (internal)",
       "type": "stat",
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(memexd_graph_unresolved_stubs{tenant_id=\"$tenant\"})", "legendFormat": "stubs", "refId": "A" }
@@ -268,8 +268,8 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
       "id": 22,
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom" } },
-      "description": "Unresolved stub count over time. Should trend down as the resolver runs; a flat non-zero floor is stdlib/external names with no project definition (expected).",
-      "title": "Unresolved Stubs (trend)",
+      "description": "Internal unresolved stub count over time (external/stdlib refs excluded). Should trend to ~0 as the resolver runs; a persistent non-zero value means resolvable in-project names the resolver hasn't repointed (e.g. ambiguous same-name symbols).",
+      "title": "Unresolved Stubs (internal, trend)",
       "type": "timeseries",
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(memexd_graph_unresolved_stubs{tenant_id=\"$tenant\"})", "legendFormat": "unresolved stubs", "refId": "A" }
@@ -336,5 +336,5 @@
   "timezone": "browser",
   "title": "Code Graph Observability",
   "uid": "memexd-code-graph",
-  "version": 2
+  "version": 3
 }
