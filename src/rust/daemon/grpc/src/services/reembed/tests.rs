@@ -139,6 +139,32 @@ async fn fresh_pool() -> SqlitePool {
     .await
     .unwrap();
 
+    sqlx::query(
+        "CREATE TABLE tracked_files (
+                file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_folder_id TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                branch TEXT,
+                file_hash TEXT NOT NULL,
+                collection TEXT NOT NULL DEFAULT 'projects'
+            )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE qdrant_chunks (
+                chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER NOT NULL,
+                point_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL
+            )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     pool
 }
 
@@ -183,6 +209,119 @@ async fn fails_when_probe_dim_disagrees_with_settings() {
     assert!(recreator.calls.lock().unwrap().is_empty());
     // pause_flag must NOT be left set
     assert!(!ctx.pause_flag.load(Ordering::SeqCst));
+}
+
+/// Regression for the "reembed completes but does not re-ingest" bug: the flush
+/// must delete ALL canonical-collection queue rows (including `done`), not just
+/// `pending`. Leaving `done` rows behind dedups the re-enqueued File/Add via
+/// `INSERT OR IGNORE` on idempotency_key, so files were never re-ingested.
+#[tokio::test]
+async fn flush_clears_done_rows_and_spares_non_canonical() {
+    let pool = fresh_pool().await;
+    for (qid, ik, coll, status) in [
+        ("q1", "k1", "projects", "done"),
+        ("q2", "k2", "projects", "pending"),
+        ("q3", "k3", "rules", "done"),
+        ("q4", "k4", "_internal", "done"), // non-canonical: must survive
+    ] {
+        sqlx::query(
+            "INSERT INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, created_at, updated_at) \
+             VALUES (?1, ?2, 'File', 'Add', 't1', ?3, ?4, 'now', 'now')",
+        )
+        .bind(qid)
+        .bind(ik)
+        .bind(coll)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Seed per-file hash tracking: a canonical-collection file (must be
+    // cleared so re-ingestion doesn't skip on hash-match) with a dependent
+    // qdrant_chunks row, plus a non-canonical file that must survive.
+    sqlx::query(
+        "INSERT INTO tracked_files (file_id, watch_folder_id, relative_path, branch, file_hash, collection) \
+         VALUES (1, 'w1', 'a.rs', 'main', 'h1', 'projects'), \
+                (2, 'w2', 'b.txt', 'main', 'h2', '_internal')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO qdrant_chunks (chunk_id, file_id, point_id, chunk_index) \
+         VALUES (1, 1, 'p1', 0), (2, 2, 'p2', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ctx = ctx_with(pool.clone(), 384);
+    let deleted = flush_and_clear_state(&ctx).await.unwrap();
+
+    // 2 projects (done+pending) + 1 rules (done) removed.
+    assert_eq!(deleted, 3, "must delete done rows too, not just pending");
+    let surviving: Vec<String> =
+        sqlx::query_scalar("SELECT collection FROM unified_queue ORDER BY collection")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(surviving, vec!["_internal".to_string()]);
+
+    // Canonical file's hash tracking + its chunks are cleared; the
+    // non-canonical file's tracking survives.
+    let tracked: Vec<String> =
+        sqlx::query_scalar("SELECT collection FROM tracked_files ORDER BY collection")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(tracked, vec!["_internal".to_string()]);
+    let chunk_files: Vec<i64> =
+        sqlx::query_scalar("SELECT file_id FROM qdrant_chunks ORDER BY file_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(chunk_files, vec![2], "canonical file's chunks must be cleared");
+}
+
+/// Regression for the "reembed completes but re-ingests nothing" bug: the
+/// re-enqueued folder scan must carry `folder_path: null` (scan the watch-folder
+/// root), NOT the absolute root path. The folder-scan strategy joins a non-null
+/// `folder_path` onto the root it looks up, so passing the absolute root yielded
+/// a doubled path (`/repo/x/repo/x`) that "is not a directory" — every reembed
+/// scan enqueued zero files.
+#[tokio::test]
+async fn folder_scan_enqueue_uses_null_path_for_root() {
+    let pool = fresh_pool().await;
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, enabled) \
+         VALUES ('w1', '/home/u/repos/DOC-V2', 'projects', 't1', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let n = super::enqueue::enqueue_folder_scans(&pool, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+
+    let payload: String =
+        sqlx::query_scalar("SELECT payload_json FROM unified_queue WHERE item_type = 'folder'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(
+        v.get("folder_path"),
+        Some(&serde_json::Value::Null),
+        "folder_path must be null (root scan), not the absolute path; got payload {payload}"
+    );
+    assert!(
+        !payload.contains("/home/u/repos/DOC-V2"),
+        "payload must not embed the absolute root path: {payload}"
+    );
 }
 
 #[tokio::test]
