@@ -12,7 +12,7 @@
 #     -e XDG_CONFIG_HOME=/home/memexd/.config \
 #     -e XDG_CACHE_HOME=/home/memexd/.cache \
 #     -e XDG_STATE_HOME=/home/memexd/.local/state \
-#     -e QDRANT_URL=http://host.docker.internal:6334 \
+#     -e QDRANT_URL=http://host.docker.internal:6333 \
 #     -v "${HOME}/.local/share/workspace-qdrant:/home/memexd/.local/share/workspace-qdrant" \
 #     -v "${HOME}/.config/workspace-qdrant:/home/memexd/.config/workspace-qdrant" \
 #     -v "${HOME}/dev:/home/memexd/dev:ro" \
@@ -35,7 +35,9 @@ services:
       - XDG_CONFIG_HOME=/home/memexd/.config
       - XDG_CACHE_HOME=/home/memexd/.cache
       - XDG_STATE_HOME=/home/memexd/.local/state
-      - QDRANT_URL=${QDRANT_URL:-http://host.docker.internal:6334}
+      # REST-style URL; memexd translates :6333 → :6334 automatically
+      # (wqm_common::qdrant_endpoint).
+      - QDRANT_URL=${QDRANT_URL:-http://host.docker.internal:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       - WQM_DATABASE_PATH=/home/memexd/.local/share/workspace-qdrant/memexd.db

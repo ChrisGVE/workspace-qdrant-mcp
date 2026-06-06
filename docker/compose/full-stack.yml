@@ -85,8 +85,10 @@ services:
       - XDG_CONFIG_HOME=/home/memexd/.config
       - XDG_CACHE_HOME=/home/memexd/.cache
       - XDG_STATE_HOME=/home/memexd/.local/state
-      # "qdrant" is the service name in main-docker; port 6334 is the gRPC port.
-      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6334}
+      # "qdrant" is the service name in main-docker. REST-style URL; gRPC
+      # consumers translate :6333 → :6334 automatically
+      # (wqm_common::qdrant_endpoint, shared by memexd and the mcp server).
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       - WQM_DATABASE_PATH=/home/memexd/.local/share/workspace-qdrant/memexd.db
@@ -115,6 +117,10 @@ services:
         required: false
     environment:
       - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-memexd:50051}
+      # Same REST-style URL as memexd; the mcp server translates :6333 → :6334
+      # automatically (wqm_common::qdrant_endpoint).
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       # A containerized MCP server always runs Streamable HTTP: stdio mode
       # needs a client attached to stdin, which a detached container lacks,

@@ -37,7 +37,16 @@ services:
 
   memexd:
     environment:
-      - QDRANT_URL=http://qdrant:6334
+      # REST-style URL; gRPC consumers translate :6333 → :6334 automatically
+      # (wqm_common::qdrant_endpoint, shared by memexd and the mcp server).
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  mcp:
+    environment:
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       qdrant:
         condition: service_healthy

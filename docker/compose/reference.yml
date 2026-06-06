@@ -85,7 +85,9 @@ services:
       XDG_CONFIG_HOME: /home/memexd/.config
       XDG_CACHE_HOME: /home/memexd/.cache
       XDG_STATE_HOME: /home/memexd/.local/state
-      QDRANT_URL: http://qdrant:6334
+      # REST-style URL; gRPC consumers translate :6333 → :6334 automatically
+      # (wqm_common::qdrant_endpoint, shared by memexd and the mcp server).
+      QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
