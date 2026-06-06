@@ -129,7 +129,6 @@ fn test_chunker_language_provider_snapshot() {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download: false,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168,

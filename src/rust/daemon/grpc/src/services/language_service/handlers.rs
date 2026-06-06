@@ -39,8 +39,7 @@ fn map_install_err(e: GrammarInstallError) -> Status {
         GrammarInstallError::InvalidName(_)
         | GrammarInstallError::UnknownLanguage(_)
         | GrammarInstallError::NoGrammarSource(_) => Status::invalid_argument(e.to_string()),
-        GrammarInstallError::InsecureSource(_)
-        | GrammarInstallError::ChecksumVerificationDisabled => {
+        GrammarInstallError::ChecksumVerificationDisabled => {
             Status::failed_precondition(e.to_string())
         }
         GrammarInstallError::Registry(_) => Status::internal(e.to_string()),
@@ -57,17 +56,14 @@ impl LanguageService for LanguageServiceImpl {
         let req = request.into_inner();
         let mut mgr = self.grammar_manager.lock().await;
 
-        // Read the pinned source config so the gate can enforce https + checksums.
-        let (base_url, verify) = {
-            let cfg = mgr.config();
-            (cfg.download_base_url.clone(), cfg.verify_checksums)
-        };
+        // Read the source config so the gate can enforce checksum verification.
+        let verify = mgr.config().verify_checksums;
 
         // SECURITY GATE — runs BEFORE any download / compile / dlopen. Returns
         // the matched registry definition; use its CANONICAL id downstream rather
         // than the raw client string (defence-in-depth — never thread the
         // unvalidated input into cache paths / downloads).
-        let def = validate_install_request(&req.language, &base_url, verify).map_err(|e| {
+        let def = validate_install_request(&req.language, verify).map_err(|e| {
             warn!(language = %req.language, error = %e, "InstallGrammar rejected by security gate");
             map_install_err(e)
         })?;

@@ -19,11 +19,11 @@ use super::service_impl::LanguageServiceImpl;
 
 /// Build a service over a throwaway grammar cache dir (no writes happen in these
 /// tests, but keep it off the real cache regardless).
-fn service_with(base_url: &str) -> LanguageServiceImpl {
+fn service_with(verify_checksums: bool) -> LanguageServiceImpl {
     let cache_dir = std::env::temp_dir().join("wqm-langservice-test-cache");
     let config = GrammarConfig {
         cache_dir,
-        download_base_url: base_url.to_string(),
+        verify_checksums,
         ..GrammarConfig::default()
     };
     let manager = Arc::new(Mutex::new(create_grammar_manager(config)));
@@ -31,7 +31,7 @@ fn service_with(base_url: &str) -> LanguageServiceImpl {
 }
 
 fn default_service() -> LanguageServiceImpl {
-    service_with(&GrammarConfig::default().download_base_url)
+    service_with(GrammarConfig::default().verify_checksums)
 }
 
 #[tokio::test]
@@ -131,10 +131,10 @@ async fn install_rejects_out_of_allowlist_name_invalid_argument() {
 }
 
 #[tokio::test]
-async fn install_rejects_non_https_source_failed_precondition() {
-    // A known language but the configured source is http:// → fail closed before
-    // any download.
-    let svc = service_with("http://insecure.example/{language}.so");
+async fn install_rejects_checksum_verification_disabled_failed_precondition() {
+    // A known language but checksum verification is configured off → fail
+    // closed before any download.
+    let svc = service_with(false);
     let err = svc
         .install_grammar(Request::new(InstallGrammarRequest {
             language: "rust".to_string(),

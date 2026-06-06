@@ -173,9 +173,6 @@ fn default_required_grammars() -> Vec<String> {
 fn default_tree_sitter_version() -> String {
     env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string()
 }
-fn default_download_base_url() -> String {
-    "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}".to_string()
-}
 
 /// Tree-sitter grammar configuration for dynamic grammar loading
 ///
@@ -200,11 +197,6 @@ pub struct GrammarConfig {
     /// Expected tree-sitter ABI version for grammar compatibility
     #[serde(default = "default_tree_sitter_version")]
     pub tree_sitter_version: String,
-
-    /// Base URL template for grammar downloads
-    /// Supports {language}, {version}, {platform}, {ext} placeholders
-    #[serde(default = "default_download_base_url")]
-    pub download_base_url: String,
 
     /// Verify checksums of downloaded grammars
     #[serde(default = "default_true")]
@@ -243,7 +235,6 @@ impl Default for GrammarConfig {
             required: default_required_grammars(),
             auto_download: default_true(),
             tree_sitter_version: default_tree_sitter_version(),
-            download_base_url: default_download_base_url(),
             verify_checksums: default_true(),
             lazy_loading: default_true(),
             check_interval_hours: default_grammar_check_interval(),
@@ -259,9 +250,6 @@ impl GrammarConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.tree_sitter_version.is_empty() {
             return Err("tree_sitter_version cannot be empty".to_string());
-        }
-        if self.download_base_url.is_empty() && self.auto_download {
-            return Err("download_base_url required when auto_download is enabled".to_string());
         }
         if self.idle_update_check_delay_secs == 0 {
             return Err("idle_update_check_delay_secs must be greater than 0".to_string());
@@ -400,13 +388,6 @@ mod tests {
         assert!(config.validate().is_err());
         config.tree_sitter_version = env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string();
 
-        // Invalid download_base_url when auto_download enabled
-        config.download_base_url = String::new();
-        assert!(config.validate().is_err());
-        config.auto_download = false;
-        assert!(config.validate().is_ok()); // Empty URL ok when auto_download disabled
-        config = GrammarConfig::default(); // Reset
-
         // Invalid idle_update_check_delay_secs = 0
         config.idle_update_check_delay_secs = 0;
         assert!(config.validate().is_err());
@@ -442,7 +423,6 @@ mod tests {
             required: vec!["rust".to_string(), "python".to_string()],
             auto_download: false,
             tree_sitter_version: env!("TREE_SITTER_VERSION_MAJOR_MINOR").to_string(),
-            download_base_url: "https://example.com".to_string(),
             verify_checksums: true,
             lazy_loading: true,
             check_interval_hours: 168,
@@ -475,7 +455,6 @@ mod tests {
             "required": ["rust"],
             "auto_download": true,
             "tree_sitter_version": "{}",
-            "download_base_url": "https://example.com",
             "verify_checksums": true,
             "lazy_loading": true,
             "check_interval_hours": 168

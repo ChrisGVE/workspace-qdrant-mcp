@@ -101,13 +101,9 @@ pub struct GrammarDownloader {
 impl GrammarDownloader {
     /// Create a new grammar downloader.
     ///
-    /// The `_base_url_template` parameter is accepted for backward compatibility
-    /// but ignored — URLs are now derived from the grammar registry.
-    pub fn new(
-        cache_paths: GrammarCachePaths,
-        _base_url_template: impl Into<String>,
-        verify_checksums: bool,
-    ) -> Self {
+    /// Download URLs are derived from the grammar registry; the only knobs are
+    /// the cache location and whether tarball checksums are verified.
+    pub fn new(cache_paths: GrammarCachePaths, verify_checksums: bool) -> Self {
         let cc_path = compile::find_compiler("cc")
             .or_else(|| compile::find_compiler("gcc"))
             .or_else(|| compile::find_compiler("clang"));
@@ -122,11 +118,6 @@ impl GrammarDownloader {
             cc_path,
             cxx_path,
         }
-    }
-
-    /// Create a downloader with default settings.
-    pub fn with_default_url(cache_paths: GrammarCachePaths, verify_checksums: bool) -> Self {
-        Self::new(cache_paths, "", verify_checksums)
     }
 
     /// Download and compile a grammar for the specified language.

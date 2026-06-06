@@ -118,11 +118,7 @@ impl GrammarManager {
         let loader = GrammarLoader::new(cache_paths.clone());
 
         let downloader = if config.auto_download {
-            Some(GrammarDownloader::new(
-                cache_paths,
-                &config.download_base_url,
-                config.verify_checksums,
-            ))
+            Some(GrammarDownloader::new(cache_paths, config.verify_checksums))
         } else {
             None
         };

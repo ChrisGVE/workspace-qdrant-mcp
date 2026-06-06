@@ -2134,18 +2134,6 @@ grammars:
   # Default reasoning: Matches current tree-sitter dependency version
   tree_sitter_version: "0.26"
 
-  # download_base_url: Base URL template for grammar downloads
-  # Purpose: Where to download grammar shared libraries from
-  # Template variables:
-  #   {language} - Language name (e.g., "rust", "python")
-  #   {version} - Grammar version
-  #   {platform} - Platform triple (e.g., "x86_64-apple-darwin")
-  #   {ext} - Library extension (.so, .dylib, .dll)
-  # Custom sources: Change to internal mirror for corporate environments
-  # Format: URL template string
-  # Default reasoning: Official tree-sitter grammar release URLs
-  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}"
-
   # verify_checksums: Verify downloaded grammar checksums
   # Purpose: Ensures downloaded grammars are authentic and uncorrupted
   # Security: Prevents use of tampered or corrupted grammar files

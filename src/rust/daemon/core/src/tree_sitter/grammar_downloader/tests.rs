@@ -32,7 +32,7 @@ fn test_download_platform() {
 fn test_needs_download_no_cache() {
     let temp_dir = TempDir::new().unwrap();
     let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.26");
-    let downloader = GrammarDownloader::with_default_url(cache_paths, false);
+    let downloader = GrammarDownloader::new(cache_paths, false);
 
     assert!(downloader.needs_download("rust", "0.24.0"));
 }
@@ -46,7 +46,7 @@ fn test_needs_download_with_cache() {
     cache_paths.create_directories("rust").unwrap();
     std::fs::write(cache_paths.grammar_path("rust"), "fake grammar").unwrap();
 
-    let downloader = GrammarDownloader::with_default_url(cache_paths, false);
+    let downloader = GrammarDownloader::new(cache_paths, false);
 
     // Cached grammar exists, no download needed
     assert!(!downloader.needs_download("rust", "0.24.0"));
@@ -56,7 +56,7 @@ fn test_needs_download_with_cache() {
 fn test_downloader_debug() {
     let temp_dir = TempDir::new().unwrap();
     let cache_paths = GrammarCachePaths::with_root(temp_dir.path(), "0.26");
-    let downloader = GrammarDownloader::with_default_url(cache_paths, true);
+    let downloader = GrammarDownloader::new(cache_paths, true);
 
     let debug_str = format!("{:?}", downloader);
     assert!(debug_str.contains("GrammarDownloader"));

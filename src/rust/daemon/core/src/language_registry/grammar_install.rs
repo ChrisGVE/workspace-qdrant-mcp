@@ -7,16 +7,16 @@
 //!
 //! 1. the language name is a safe identifier (no path separators / URL
 //!    metacharacters) — it is used to build cache paths and a download URL;
-//! 2. the name is in the bundled registry allowlist AND has a grammar source;
-//! 3. the configured grammar source base URL uses `https://` (config-sanity
-//!    guard). Note: the actual fetch URLs are derived from the bundled grammar
-//!    registry and are hardcoded `https://github.com/{owner}/{repo}/...` — so
-//!    the transport is HTTPS-pinned by construction regardless of this value;
-//! 4. checksum verification is enabled (fail-closed config gate). Note: the
-//!    downloader currently records the compiled-library checksum as metadata but
-//!    does NOT yet verify the downloaded tarball against a pinned expected
-//!    checksum — tarball checksum pinning is tracked as a follow-up. This gate
-//!    only refuses installs when verification is configured off.
+//! 2. the name is in the bundled registry allowlist AND has a grammar source.
+//!    Fetch URLs are derived from the bundled grammar registry and are
+//!    hardcoded `https://github.com/{owner}/{repo}/...` — the transport is
+//!    HTTPS-pinned by construction;
+//! 3. checksum verification is enabled (fail-closed config gate). The
+//!    downloader verifies the tarball against the registry's pinned sha256
+//!    when the source carries one (see `grammar_downloader`); sources without
+//!    a pin download unverified (the registry-updater populates pins
+//!    incrementally). This gate refuses installs when verification is
+//!    configured off.
 //!
 //! [`registry_summary`] backs `RefreshLanguageRegistry`.
 
@@ -38,10 +38,6 @@ pub enum GrammarInstallError {
     /// The language is known but has no grammar source defined.
     #[error("language has no grammar source: {0}")]
     NoGrammarSource(String),
-
-    /// The configured grammar source base URL is not `https://`.
-    #[error("insecure grammar source URL (https required): {0}")]
-    InsecureSource(String),
 
     /// Checksum verification is disabled — installs are refused fail-closed.
     #[error("checksum verification is disabled; refusing to install grammars")]
@@ -82,25 +78,17 @@ pub fn validate_language_name(name: &str) -> Result<(), GrammarInstallError> {
 
 /// The single security gate for `InstallGrammar`.
 ///
-/// Runs the four checks documented at the module level and, on success, returns
+/// Runs the three checks documented at the module level and, on success, returns
 /// the matched [`LanguageDefinition`] (so the handler can report status without a
 /// second registry lookup). Performs NO download / compile / dlopen itself.
 pub fn validate_install_request(
     name: &str,
-    download_base_url: &str,
     verify_checksums: bool,
 ) -> Result<LanguageDefinition, GrammarInstallError> {
     // (1) safe identifier — before any path/URL construction.
     validate_language_name(name)?;
 
-    // (3) pinned https source.
-    if !is_https_url(download_base_url) {
-        return Err(GrammarInstallError::InsecureSource(
-            download_base_url.to_string(),
-        ));
-    }
-
-    // (4) checksum verification must be on — fail closed.
+    // (3) checksum verification must be on — fail closed.
     if !verify_checksums {
         return Err(GrammarInstallError::ChecksumVerificationDisabled);
     }
@@ -112,12 +100,6 @@ pub fn validate_install_request(
         return Err(GrammarInstallError::NoGrammarSource(name.to_string()));
     }
     Ok(def)
-}
-
-/// True when `url` is a syntactically https URL (scheme check only).
-fn is_https_url(url: &str) -> bool {
-    let lower = url.trim().to_ascii_lowercase();
-    lower.starts_with("https://") && lower.len() > "https://".len()
 }
 
 /// Look up a language definition by canonical id (lowercased name) in the
@@ -159,8 +141,6 @@ pub fn registry_summary() -> Result<RegistrySummary, GrammarInstallError> {
 mod tests {
     use super::*;
 
-    const HTTPS: &str = "https://github.com/example/grammars/releases/download";
-
     #[test]
     fn rejects_path_separators_and_metacharacters() {
         for bad in [
@@ -200,7 +180,7 @@ mod tests {
     #[test]
     fn out_of_allowlist_name_is_rejected_without_touching_the_downloader() {
         // A well-formed but unknown language must fail at the allowlist step.
-        let err = validate_install_request("definitelynotalanguage", HTTPS, true).unwrap_err();
+        let err = validate_install_request("definitelynotalanguage", true).unwrap_err();
         assert_eq!(
             err,
             GrammarInstallError::UnknownLanguage("definitelynotalanguage".to_string())
@@ -208,21 +188,15 @@ mod tests {
     }
 
     #[test]
-    fn non_https_source_is_rejected() {
-        let err = validate_install_request("rust", "http://insecure/grammars", true).unwrap_err();
-        assert!(matches!(err, GrammarInstallError::InsecureSource(_)));
-    }
-
-    #[test]
     fn checksum_disabled_is_rejected_fail_closed() {
-        let err = validate_install_request("rust", HTTPS, false).unwrap_err();
+        let err = validate_install_request("rust", false).unwrap_err();
         assert_eq!(err, GrammarInstallError::ChecksumVerificationDisabled);
     }
 
     #[test]
     fn valid_known_language_passes_the_gate() {
         // `rust` is in the bundled registry with a grammar source.
-        let def = validate_install_request("rust", HTTPS, true).expect("rust must pass the gate");
+        let def = validate_install_request("rust", true).expect("rust must pass the gate");
         assert_eq!(def.id(), "rust");
         assert!(def.has_grammar());
     }

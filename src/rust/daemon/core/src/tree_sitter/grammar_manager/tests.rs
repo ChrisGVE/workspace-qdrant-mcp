@@ -11,7 +11,6 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168, // Weekly
@@ -364,20 +363,6 @@ fn test_needs_periodic_check_disabled() {
 
     // check_interval_hours = 0 disables periodic checks
     assert!(!manager.needs_periodic_check());
-}
-
-#[test]
-fn test_default_url_template_has_all_placeholders() {
-    // Verify the default URL template contains all required placeholders
-    let config = GrammarConfig::default();
-    assert!(config.download_base_url.contains("{language}"));
-    assert!(config.download_base_url.contains("{version}"));
-    assert!(config.download_base_url.contains("{platform}"));
-    assert!(config.download_base_url.contains("{ext}"));
-    // Verify it's a complete URL, not just a base path
-    assert!(config
-        .download_base_url
-        .contains("tree-sitter-{language}-{platform}"));
 }
 
 #[tokio::test]

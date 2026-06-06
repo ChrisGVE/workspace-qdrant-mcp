@@ -212,7 +212,6 @@ fn build_grammar_config(yaml: &YamlConfig) -> GrammarConfig {
         required: yaml.grammars.required.clone(),
         auto_download: yaml.grammars.auto_download,
         tree_sitter_version: yaml.grammars.tree_sitter_version.clone(),
-        download_base_url: yaml.grammars.download_base_url.clone(),
         verify_checksums: yaml.grammars.verify_checksums,
         lazy_loading: yaml.grammars.lazy_loading,
         check_interval_hours: yaml.grammars.check_interval_hours,

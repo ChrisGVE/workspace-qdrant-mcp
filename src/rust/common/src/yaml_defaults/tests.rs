@@ -194,27 +194,12 @@ fn test_resource_limits_defaults() {
 }
 
 #[test]
-fn test_grammar_download_url_is_full_template() {
-    // Verify YAML defaults contain the complete URL template with all placeholders,
-    // not just a base URL prefix. This prevents grammar downloads from producing
-    // incomplete artifact URLs.
+fn test_grammar_defaults_fail_closed() {
+    // Checksum verification must default ON — the install security gate
+    // refuses grammar installs when it is configured off.
     let defaults = YamlGrammarsConfig::default();
-    assert!(
-        defaults.download_base_url.contains("{language}"),
-        "Missing {{language}} placeholder"
-    );
-    assert!(
-        defaults.download_base_url.contains("{version}"),
-        "Missing {{version}} placeholder"
-    );
-    assert!(
-        defaults.download_base_url.contains("{platform}"),
-        "Missing {{platform}} placeholder"
-    );
-    assert!(
-        defaults.download_base_url.contains("{ext}"),
-        "Missing {{ext}} placeholder"
-    );
+    assert!(defaults.verify_checksums);
+    assert!(defaults.auto_download);
 }
 
 #[test]

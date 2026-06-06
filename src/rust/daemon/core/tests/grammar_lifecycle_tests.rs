@@ -16,7 +16,6 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         required: vec!["rust".to_string(), "python".to_string()],
         auto_download,
         tree_sitter_version: "0.24".to_string(),
-        download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
         check_interval_hours: 168,
