@@ -52,21 +52,29 @@ async fn drain_to_quiescence(
     }
 }
 
-/// Flush stale pending queue items and clear vector-derived SQLite state.
+/// Flush ALL queue rows for the canonical collections and clear
+/// vector-derived SQLite state.
 ///
-/// Returns the number of stale rows deleted for logging.
+/// Deletes every `unified_queue` row (not just `pending`) for the four
+/// canonical collections. The re-embed re-enqueues a fresh `File/Add` for every
+/// watched file, and `enqueue_unified` dedups on `idempotency_key` via
+/// `INSERT OR IGNORE`; leaving completed (`done`) rows behind silently dropped
+/// those re-enqueues, so files were never re-ingested and a re-embed could
+/// "complete" without rebuilding the index or code graph. Clearing the `done`
+/// rows too lets the re-enqueue actually take effect.
+///
+/// Returns the number of rows deleted for logging.
 async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
     let stale_deleted = sqlx::query(
         "DELETE FROM unified_queue \
-         WHERE status = 'pending' \
-         AND collection IN ('projects','libraries','rules','scratchpad')",
+         WHERE collection IN ('projects','libraries','rules','scratchpad')",
     )
     .execute(&ctx.pool)
     .await
-    .map_err(|e| Status::internal(format!("flush stale pending failed: {e}")))?;
+    .map_err(|e| Status::internal(format!("flush queue rows failed: {e}")))?;
     info!(
         rows = stale_deleted.rows_affected(),
-        "reembed: flushed stale pending"
+        "reembed: flushed all canonical-collection queue rows (incl. done, to clear idempotency dedup)"
     );
 
     let mut tx = ctx
@@ -82,9 +90,37 @@ async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
         .execute(&mut *tx)
         .await
         .map_err(|e| Status::internal(format!("clear canonical_tags: {e}")))?;
+    // Clear per-file content-hash tracking for the canonical collections.
+    // Recreating the Qdrant collections empties them, but `prepare_update`
+    // skips re-ingesting a file whose `tracked_files.file_hash` still matches
+    // ("File unchanged (hash match), skipping update") — so without this the
+    // re-enqueued scans would no-op against the now-empty collections and the
+    // index/graph would never repopulate. Delete the dependent `qdrant_chunks`
+    // first (don't rely on the FK CASCADE pragma being enabled on this pool),
+    // then the `tracked_files` rows; re-ingestion then re-tracks every file.
+    let chunks_cleared = sqlx::query(
+        "DELETE FROM qdrant_chunks WHERE file_id IN \
+         (SELECT file_id FROM tracked_files \
+          WHERE collection IN ('projects','libraries','rules','scratchpad'))",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("clear qdrant_chunks: {e}")))?;
+    let tracked_cleared = sqlx::query(
+        "DELETE FROM tracked_files \
+         WHERE collection IN ('projects','libraries','rules','scratchpad')",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("clear tracked_files: {e}")))?;
     tx.commit()
         .await
         .map_err(|e| Status::internal(format!("clear-state tx commit failed: {e}")))?;
+    info!(
+        tracked_files = tracked_cleared.rows_affected(),
+        qdrant_chunks = chunks_cleared.rows_affected(),
+        "reembed: cleared per-file hash tracking so re-ingestion repopulates"
+    );
 
     Ok(stale_deleted.rows_affected() as u32)
 }
@@ -123,6 +159,11 @@ pub async fn execute_reembed<R: CollectionRecreator + ?Sized>(
     let recreate_dim = cfg_dim as u64;
     for name in CANONICAL_COLLECTIONS {
         recreator.recreate(name, recreate_dim).await?;
+        info!(
+            collection = name,
+            dim = recreate_dim,
+            "reembed: recreated canonical collection (dropped + created)"
+        );
     }
 
     // ── 7. Enqueue 4 collection-reembed traceability items ───────────────

@@ -3,17 +3,28 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 /// Enqueue a `folder|scan` item for every enabled `watch_folders` row.
+///
+/// Each row IS a watch-folder root, so the scan must target that root. The
+/// folder-scan strategy resolves the root from `watch_folders` by
+/// `(tenant_id, collection)` and treats `payload.folder_path` as **relative**
+/// to it: `None` => scan the root, `Some(rel)` => `root.join(rel)`. Passing the
+/// absolute root path as `folder_path` made the strategy join it onto the root
+/// (`root.join(absolute_root)`), producing a doubled, non-existent path like
+/// `/repo/x/repo/x` — every reembed scan then logged "target is not a
+/// directory", enqueued zero files, and the re-embed "completed" without
+/// re-ingesting anything. Emit `folder_path: null` so the strategy scans the
+/// actual root (and takes the git-index fast path for project scans).
 pub(super) async fn enqueue_folder_scans(pool: &SqlitePool, now: &str) -> Result<u32, sqlx::Error> {
-    let folders = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT path, collection, tenant_id FROM watch_folders WHERE enabled = 1",
+    let folders = sqlx::query_as::<_, (String, String)>(
+        "SELECT collection, tenant_id FROM watch_folders WHERE enabled = 1",
     )
     .fetch_all(pool)
     .await?;
 
     let mut count = 0u32;
-    for (path, collection, tenant_id) in &folders {
+    for (collection, tenant_id) in &folders {
         let payload = serde_json::json!({
-            "folder_path": path,
+            "folder_path": null,
             "recursive": true,
             "recursive_depth": 10,
             "patterns": [],
