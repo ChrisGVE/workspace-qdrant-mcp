@@ -13,6 +13,7 @@
 //! ```
 
 mod merger;
+mod pinner;
 mod query_parser;
 mod scraper;
 mod validator;
@@ -48,6 +49,13 @@ struct Cli {
     /// Path to the current language_registry.yaml for diff comparison.
     #[arg(long)]
     current: Option<PathBuf>,
+
+    /// Pin each language's preferred grammar source to an immutable git ref
+    /// and record the source tarball's SHA256 (issue #88). Downloads one
+    /// tarball per grammar-bearing language — pass --github-token to avoid
+    /// API rate limits on repos without releases.
+    #[arg(long, default_value_t = false)]
+    pin: bool,
 
     /// GitHub API token for higher rate limits (optional).
     #[arg(long, env = "GITHUB_TOKEN")]
@@ -86,9 +94,20 @@ async fn main() -> Result<()> {
     );
 
     // Phase 2: Merge scraped data into unified definitions
-    let merged = merger::merge_all(&scraped)?;
+    let mut merged = merger::merge_all(&scraped)?;
 
     tracing::info!(total_languages = merged.len(), "Merge complete");
+
+    // Phase 2.5: Pin grammar sources to immutable refs + checksums (#88)
+    if cli.pin {
+        let stats = pinner::pin_definitions(&mut merged, cli.github_token.as_deref()).await?;
+        tracing::info!(
+            pinned = stats.pinned,
+            failed = stats.failed,
+            skipped = stats.skipped,
+            "Grammar source pinning complete"
+        );
+    }
 
     // Phase 3: Diff against current registry if provided
     if let Some(ref current_path) = cli.current {

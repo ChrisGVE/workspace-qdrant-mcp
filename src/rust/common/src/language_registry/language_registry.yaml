@@ -19,6 +19,8 @@
     sources:
       - repo: briot/tree-sitter-ada
         quality: community
+        git_ref: "6b58259a08b1a22ba0247a7ce30be384db618da6"
+        sha256: b3f3cb2d702ea2f15bff0b76ba5e763e7d68b1911374f3f0413f7dd19f5e7efe
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -65,6 +67,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-bash
         quality: official
+        git_ref: "v0.25.1"
+        sha256: 2e785a761225b6c433410ef9c7b63cfb0a4e83a35a19e0f2aec140b42c06b52d
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -116,6 +120,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-c
         quality: official
+        git_ref: "v0.24.2"
+        sha256: 2eeb4db31f8fa0865e45488503d13403923bcb485a1bdb637abff8c42dd97364
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -177,6 +183,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-c-sharp
         quality: official
+        git_ref: "v0.23.5"
+        sha256: 9628b164369071019368618bdefa446f0aab8acaac47b75d5dfb209e93b8903b
     has_cpp_scanner: true
     symbol_name: c_sharp
   lsp_servers: []
@@ -191,6 +199,8 @@
     sources:
       - repo: sogaiu/tree-sitter-clojure
         quality: community
+        git_ref: "e43eff80d17cf34852dcd92ca5e6986d23a7040f"
+        sha256: 61ad9510735908e6a6588b3a89a5af5659d89392e2b48663977b5fa02ea64522
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -235,6 +245,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-cpp
         quality: official
+        git_ref: "v0.23.4"
+        sha256: 7a2c55afe3028f4105f25762ea58cc16537d1f5a1dcd9cca90410b3cd5d46051
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -297,6 +309,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-css
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 03965344d8c0435dc54fb45b281578420bb7db8b99df4d34e7e74105a274cb79
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -308,8 +322,10 @@
   type: programming
   grammar:
     sources:
-      - repo: UserNobworthy/tree-sitter-dart
+      - repo: UserNobody14/tree-sitter-dart
         quality: community
+        git_ref: "a9bdfa3db2fbc9b9f12c93450d04a671f33a5102"
+        sha256: 295f48209a1241f580e5d6094a2e7412a0b4f740ca8b2be2c9f83163f19615ae
     has_cpp_scanner: true
   lsp_servers: []
 
@@ -323,6 +339,8 @@
     sources:
       - repo: elixir-lang/tree-sitter-elixir
         quality: community
+        git_ref: "v0.3.5"
+        sha256: 7d8bf37949e2bea75a19d38491d7680ed1c9f0f5a41a5235832d718ec174c7c4
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -367,6 +385,8 @@
     sources:
       - repo: elm-tooling/tree-sitter-elm
         quality: community
+        git_ref: "v5.9.0"
+        sha256: d75fa6e37bdff5be89b76ba56b34283fb672aa7d1d05b373f69d2ef2a7566a27
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -380,6 +400,8 @@
     sources:
       - repo: WhatsApp/tree-sitter-erlang
         quality: community
+        git_ref: "0.19"
+        sha256: b184d5b6e715ba621e38c1c97895520836546127231934ab48ec3f75c14918f8
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -424,6 +446,8 @@
     sources:
       - repo: stadelmanma/tree-sitter-fortran
         quality: community
+        git_ref: "7edacd2b21aa80057d9725384a1304a1c758e0f8"
+        sha256: 112157434f0e8c31bcff92ef07d56be3c75dc2af2e8f5db8789044c55766b2d9
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -468,6 +492,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-go
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 2dc241b97872c53195e01b86542b411a3c1a6201d9c946c78d5c60c063bba1ef
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -520,6 +546,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-haskell
         quality: official
+        git_ref: "v0.23.1"
+        sha256: bac7d0a37730af62d883e2bdbafb68f47e7ab4f5e744c7586bffc589906a8cc2
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -564,6 +592,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-html
         quality: official
+        git_ref: "v0.23.2"
+        sha256: 21fa4f2d4dcb890ef12d09f4979a0007814f67f1c7294a9b17b0108a09e45ef7
     has_cpp_scanner: true
   lsp_servers:
     - name: vscode-html-languageserver
@@ -584,6 +614,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-java
         quality: official
+        git_ref: "v0.23.5"
+        sha256: cb199e0faae4b2c08425f88cbb51c1a9319612e7b96315a174a624db9bf3d9f0
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -637,6 +669,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-javascript
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 9712fc283d3dc01d996d20b6392143445d05867a7aad76fdd723824468428b86
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -690,6 +724,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-json
         quality: official
+        git_ref: "v0.24.8"
+        sha256: acf6e8362457e819ed8b613f2ad9a0e1b621a77556c296f3abea58f7880a9213
     has_cpp_scanner: false
   lsp_servers:
     - name: vscode-json-languageserver
@@ -710,6 +746,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-julia
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 5ab5fefc1459cff08efa28aeacf028c6e812d9f7552a758fda8c0d65c2abae54
     has_cpp_scanner: true
   lsp_servers: []
 
@@ -723,6 +761,8 @@
     sources:
       - repo: fwcd/tree-sitter-kotlin
         quality: community
+        git_ref: "0.3.8"
+        sha256: 7dd60975786bf9cb4be6a5176f5ccb5fed505f9929a012da30762505b1015669
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -736,6 +776,8 @@
     sources:
       - repo: latex-lsp/tree-sitter-latex
         quality: community
+        git_ref: "v0.6.0"
+        sha256: 90d2085c9a46f5da0918ead2fa9b764defd57c34d493f06160f796014d2fd16a
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -749,6 +791,8 @@
     sources:
       - repo: theHamsta/tree-sitter-commonlisp
         quality: community
+        git_ref: "v0.4.1"
+        sha256: f9767782bf94e82b847094f632f2db95b342e0ab54b1b8c8234cc1d6ac6c69a5
     has_cpp_scanner: false
     symbol_name: commonlisp
   semantic_patterns:
@@ -793,6 +837,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-lua
         quality: curated
+        git_ref: "v0.5.0"
+        sha256: cf01b93f4b61b96a6d27942cf28eeda4cbce7d503c3bef773a8930b3d778a2d9
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -839,6 +885,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-markdown
         quality: curated
+        git_ref: "v0.5.3"
+        sha256: df845b1ab7c7c163ec57d7fa17170c92b04be199bddab02523636efec5224ab6
     has_cpp_scanner: false
     src_subdir: tree-sitter-markdown
   lsp_servers: []
@@ -853,6 +901,8 @@
     sources:
       - repo: nix-community/tree-sitter-nix
         quality: community
+        git_ref: "69fbfb02896cdd27cb7ff3cd61f7f3f6bde4f017"
+        sha256: 777b68900c29dc6b53a5e7a689d93dbacfe47ef60cec322fffec3aa77d03b3ee
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -866,6 +916,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-ocaml
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 577575c3fd77438f6862156190d890421a2014e6cc2b8420c21e61aae1abc5e3
     has_cpp_scanner: true
     src_subdir: grammars/ocaml
   semantic_patterns:
@@ -911,6 +963,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-odin
         quality: curated
+        git_ref: "v1.3.0"
+        sha256: c5df9999aa6bf5eef3b363a4fd6040b8cde664b069f76e1eaa064baf7f6421be
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -956,6 +1010,8 @@
     sources:
       - repo: Isopod/tree-sitter-pascal
         quality: community
+        git_ref: "042119eca2e18a60e56317fb06ee3ba5c32cb447"
+        sha256: 5a34529704e9e089930d278d8679c8371f3ee28879b20b8dda0b5d40b9f53820
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -1001,6 +1057,8 @@
     sources:
       - repo: tree-sitter-perl/tree-sitter-perl
         quality: community
+        git_ref: "v1.0.3"
+        sha256: 3e7052a1d3672802068e594fbf9710844ca1814e1b638bbc1fd9aa54759366cf
     has_cpp_scanner: true
     archive_branch: release
   semantic_patterns:
@@ -1047,6 +1105,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-php
         quality: official
+        git_ref: "v0.24.2"
+        sha256: 0e73ad63dda67ac12c0e012726a4e1a9811c26b020a0a2dea3e889f8246d9cf4
     has_cpp_scanner: true
     src_subdir: php
   lsp_servers:
@@ -1075,6 +1135,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-python
         quality: official
+        git_ref: "v0.25.0"
+        sha256: 4609a3665a620e117acf795ff01b9e965880f81745f287a16336f4ca86cf270c
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -1145,6 +1207,8 @@
     sources:
       - repo: r-lib/tree-sitter-r
         quality: community
+        git_ref: "v1.2.0"
+        sha256: a95b6e79a40b6b906a3b61ec040c15422c549d599e01d87092bf7ae78ebcadc5
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -1158,6 +1222,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-ruby
         quality: official
+        git_ref: "v0.23.1"
+        sha256: e7e49577ddc1f2de8e42d42353b477e338c15bbb95b2558e123ddc13d88789f0
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -1218,6 +1284,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-rust
         quality: official
+        git_ref: "v0.24.2"
+        sha256: 061e90a539a55a6aa65dceb0ad6425c50ab1a6e3e6d4ba430e2795ed4550f10e
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
@@ -1273,6 +1341,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-scala
         quality: official
+        git_ref: "v0.26.0"
+        sha256: ab3d79043b9b07dbda407ce4b9fcb07ece2b3e1892966eaf2092294b39745d52
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -1319,6 +1389,8 @@
     sources:
       - repo: 6cdh/tree-sitter-scheme
         quality: community
+        git_ref: "c6cb7c7d7a04b3f5d999c28e2e9c0c31b2d50ece"
+        sha256: 8b782df80fcb6d96c2f552940ce572f7e9e4647d2fa08a22699b8dce86d91a85
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -1332,6 +1404,8 @@
     sources:
       - repo: derekstride/tree-sitter-sql
         quality: community
+        git_ref: "v0.3.11"
+        sha256: 1fe13cb1e50dd9da9f22aed3cb9430fc9dae05a734a6049926fc12f6d8ecd3ae
     has_cpp_scanner: true
   lsp_servers: []
 
@@ -1345,6 +1419,8 @@
     sources:
       - repo: alex-pinkus/tree-sitter-swift
         quality: community
+        git_ref: "0.7.3"
+        sha256: e380cd99f7e3d8ef784550afbfba67690c6e905d5bb64232264b39a22d03d28b
     has_cpp_scanner: true
   semantic_patterns:
     preamble:
@@ -1391,6 +1467,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-toml
         quality: curated
+        git_ref: "v0.7.0"
+        sha256: 7d52a7d4884f307aabc872867c69084d94456d8afcdc63b0a73031a8b29036dc
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -1404,6 +1482,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-typescript
         quality: official
+        git_ref: "v0.23.2"
+        sha256: 2c4ce711ae8d1218a3b2f899189298159d672870b5b34dff5d937bed2f3e8983
     has_cpp_scanner: true
     src_subdir: tsx
   semantic_patterns:
@@ -1458,6 +1538,8 @@
     sources:
       - repo: tree-sitter/tree-sitter-typescript
         quality: official
+        git_ref: "v0.23.2"
+        sha256: 2c4ce711ae8d1218a3b2f899189298159d672870b5b34dff5d937bed2f3e8983
     has_cpp_scanner: true
     src_subdir: typescript
   semantic_patterns:
@@ -1512,6 +1594,8 @@
     sources:
       - repo: vala-lang/tree-sitter-vala
         quality: community
+        git_ref: "97e6db3c8c73b15a9541a458d8e797a07f588ef4"
+        sha256: a53037a628b4cf2421b40265824bdb0b382c815426096d2d07cb6718ba5c09a0
     has_cpp_scanner: false
   lsp_servers: []
 
@@ -1525,6 +1609,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-vue
         quality: curated
+        git_ref: "ce8011a414fdf8091f4e4071752efc376f4afb08"
+        sha256: e62913c5709ed1e68616bb85aedb2641a0c35c6b6709986ab71487d54b16ad0d
     has_cpp_scanner: true
   lsp_servers: []
 
@@ -1538,6 +1624,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-yaml
         quality: curated
+        git_ref: "v0.7.2"
+        sha256: aeaff5731bb8b66c7054c8aed33cd5edea5f4cd2ac71654f3f6c2ba2073d8fac
     has_cpp_scanner: true
   lsp_servers: []
 
@@ -1551,6 +1639,8 @@
     sources:
       - repo: tree-sitter-grammars/tree-sitter-zig
         quality: curated
+        git_ref: "v1.1.2"
+        sha256: 612d67059faa90ec7691e5d786d70d8f7c2c8b15b83de901b9b801122ad4cf25
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
