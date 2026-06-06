@@ -1,6 +1,7 @@
 use super::recreator::collection_reembed_idempotency_key;
 use super::*;
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -269,6 +270,85 @@ async fn flushes_stale_pending_items() {
             .await
             .unwrap();
     assert_eq!(stale_remaining, 0, "stale pending row must be flushed");
+}
+
+#[tokio::test]
+async fn flushes_done_rows_so_reembed_reenqueues() {
+    // #96: a prior reembed/index leaves `done` folder|scan rows. Re-enqueue is
+    // INSERT OR IGNORE on idempotency_key, so a surviving `done` row with the
+    // same key silently deduped the re-enqueue → reembed processed nothing.
+    // Fix 3 flushes ALL canonical-collection rows (not just pending), freeing
+    // the key so the scan re-enqueues.
+    let pool = fresh_pool().await;
+    sqlx::query(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, enabled) \
+             VALUES ('w1','/tmp/p1','projects','t1',1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Pre-insert a DONE folder|scan with the exact key enqueue_folder_scans
+    // will regenerate for this watch folder.
+    let payload = serde_json::json!({
+        "folder_path": "/tmp/p1",
+        "recursive": true,
+        "recursive_depth": 10,
+        "patterns": [],
+        "ignore_patterns": []
+    })
+    .to_string();
+    let idem_input = format!("folder|scan|{}|{}|{}", "t1", "projects", payload);
+    let mut hasher = Sha256::new();
+    hasher.update(idem_input.as_bytes());
+    let idem_key: String = hasher
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    sqlx::query(
+        "INSERT INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
+              status, payload_json, created_at, updated_at) \
+             VALUES ('old-scan', ?1, 'folder', 'scan', 't1', 'projects', 'done', ?2, \
+                     '2024-01-01T00:00:00.000Z','2024-01-01T00:00:00.000Z')",
+    )
+    .bind(&idem_key)
+    .bind(&payload)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ctx = ctx_with(pool.clone(), 384);
+    let recreator = MockRecreator::default();
+    let resp = execute_reembed(
+        &ctx,
+        &recreator,
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        resp.files_enqueued, 1,
+        "a surviving done folder|scan must not dedupe the re-enqueue (#96)"
+    );
+    let pending_scans: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue \
+             WHERE item_type='folder' AND op='scan' AND status='pending'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pending_scans, 1, "exactly one fresh pending folder|scan");
+    let old_remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE queue_id = 'old-scan'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(old_remaining, 0, "the done row must be flushed");
 }
 
 #[tokio::test]

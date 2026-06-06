@@ -52,21 +52,30 @@ async fn drain_to_quiescence(
     }
 }
 
-/// Flush stale pending queue items and clear vector-derived SQLite state.
+/// Flush ALL queue rows for the canonical collections and clear vector-derived
+/// SQLite state.
 ///
-/// Returns the number of stale rows deleted for logging.
+/// Returns the number of rows deleted for logging.
+///
+/// Deleting only `pending` rows (the historical behavior) left `done` rows in
+/// place. Re-enqueue uses `INSERT OR IGNORE` on a globally-unique
+/// `idempotency_key` (plus a status-agnostic composite UNIQUE index on
+/// `(tenant, branch, collection, item_type, op, file_path)`), so a surviving
+/// `done` `folder|scan` / `File|Add` row silently deduped the re-enqueue and
+/// reembed processed nothing (#96). The queue is paused and drained to
+/// quiescence before this runs, so removing every row for these collections
+/// (regardless of status) is safe and frees the dedup keys.
 async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
     let stale_deleted = sqlx::query(
         "DELETE FROM unified_queue \
-         WHERE status = 'pending' \
-         AND collection IN ('projects','libraries','rules','scratchpad')",
+         WHERE collection IN ('projects','libraries','rules','scratchpad')",
     )
     .execute(&ctx.pool)
     .await
-    .map_err(|e| Status::internal(format!("flush stale pending failed: {e}")))?;
+    .map_err(|e| Status::internal(format!("flush queue rows failed: {e}")))?;
     info!(
         rows = stale_deleted.rows_affected(),
-        "reembed: flushed stale pending"
+        "reembed: flushed all queue rows for canonical collections"
     );
 
     let mut tx = ctx
