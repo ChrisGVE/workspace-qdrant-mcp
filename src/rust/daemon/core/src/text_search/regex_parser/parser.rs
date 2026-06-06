@@ -201,6 +201,69 @@ pub(super) fn process_group_with_affixes(
     }
 }
 
+/// Returns true if `pattern` has an unparenthesized top-level alternation.
+pub(super) fn has_top_level_alternation(pattern: &str) -> bool {
+    split_alternation(pattern).len() > 1
+}
+
+/// Extract literals for a pattern whose top level is an alternation `a|b|c`.
+///
+/// All branches OR into a **single** alternation group — a necessary-condition
+/// FTS5 prefilter: a candidate that matches the regex matches one branch, so
+/// it contains at least one of the group's literals. (This deliberately mirrors
+/// [`process_group_with_affixes`] with empty affixes; the difference from the
+/// char-walk's per-branch recursion is that there it emitted one group *per*
+/// branch, which `build_fts5_query` AND'd together — see #90.)
+///
+/// Soundness guard: if any branch yields no usable literal (e.g. `.*`), an OR
+/// prefilter would silently drop candidates that match only via that branch.
+/// In that case the whole extraction is abandoned — `result` is left empty so
+/// the caller falls back to a full scan rather than a false negative.
+pub(super) fn extract_top_level_alternation(pattern: &str, result: &mut RegexLiterals) {
+    let branches = split_alternation(pattern);
+    let mut alt_group: Vec<String> = Vec::new();
+
+    for branch in &branches {
+        let mut branch_result = RegexLiterals {
+            mandatory: Vec::new(),
+            alternations: Vec::new(),
+        };
+        extract_literals_recursive(branch, &mut branch_result);
+
+        // A branch's representative literals: its mandatory runs, plus the
+        // terms of any nested alternation it carries (e.g. `pub (fn|struct)`).
+        let mut branch_terms: Vec<String> = Vec::new();
+        for lit in &branch_result.mandatory {
+            if lit.len() >= 3 {
+                branch_terms.push(lit.clone());
+            }
+        }
+        for group in &branch_result.alternations {
+            for term in group {
+                if term.len() >= 3 {
+                    branch_terms.push(term.clone());
+                }
+            }
+        }
+        // Last resort: a pure-literal branch the char-walk didn't flush.
+        if branch_terms.is_empty() && is_all_literal(branch) && branch.len() >= 3 {
+            branch_terms.push(branch.clone());
+        }
+
+        if branch_terms.is_empty() {
+            // Unrepresentable branch → prefilter unsound → abandon entirely.
+            result.mandatory.clear();
+            result.alternations.clear();
+            return;
+        }
+        alt_group.append(&mut branch_terms);
+    }
+
+    if !alt_group.is_empty() {
+        result.alternations.push(alt_group);
+    }
+}
+
 /// Split a group's content by top-level `|` (respecting nested parens).
 fn split_alternation(content: &str) -> Vec<String> {
     let mut branches = Vec::new();

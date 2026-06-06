@@ -23,7 +23,18 @@ pub fn extract_literals_from_regex(pattern: &str) -> RegexLiterals {
         mandatory: Vec::new(),
         alternations: Vec::new(),
     };
-    parser::extract_literals_recursive(pattern, &mut result);
+    // A top-level (unparenthesized) alternation `a|b|c` means "match if ANY
+    // branch matches", so every branch's literals belong in ONE OR'd group.
+    // The char-walk recursion instead emits a separate alternation group per
+    // branch, which `build_fts5_query` then AND's together — turning `a|b|c`
+    // into `a AND b AND c` and silently matching nothing (#90). Route the
+    // whole pattern through the same single-group path that parenthesized
+    // group alternations already use.
+    if parser::has_top_level_alternation(pattern) {
+        parser::extract_top_level_alternation(pattern, &mut result);
+    } else {
+        parser::extract_literals_recursive(pattern, &mut result);
+    }
     result
 }
 
@@ -77,6 +88,47 @@ mod tests {
         assert_eq!(lits.alternations.len(), 1);
         assert!(lits.alternations[0].contains(&"async".to_string()));
         assert!(lits.alternations[0].contains(&"await".to_string()));
+    }
+
+    #[test]
+    fn test_extract_literals_three_way_top_level_alternation() {
+        // #90: three+ top-level branches must collapse into ONE OR group, not
+        // one group per branch (which build_fts5_query would AND together).
+        let lits = extract_literals_from_regex("async|await|yield");
+        assert!(lits.mandatory.is_empty());
+        assert_eq!(lits.alternations.len(), 1, "expected a single OR group");
+        assert!(lits.alternations[0].contains(&"async".to_string()));
+        assert!(lits.alternations[0].contains(&"await".to_string()));
+        assert!(lits.alternations[0].contains(&"yield".to_string()));
+    }
+
+    #[test]
+    fn test_build_fts5_query_four_way_top_level_or() {
+        // #90 reproduction: `comment_prefix|line_comment|"//"|DoubleSlash`.
+        // The quote chars and `//` survive as literal runs; the four branches
+        // must OR, never AND (no single line carries all four).
+        let lits = extract_literals_from_regex("comment_prefix|line_comment|\"//\"|DoubleSlash");
+        let query = build_fts5_query(&lits).expect("expected a usable FTS5 query");
+        assert!(
+            !query.contains(" AND "),
+            "branches must OR, not AND — got {query:?}"
+        );
+        assert!(query.contains(" OR "), "expected OR fusion — got {query:?}");
+        assert!(query.contains("comment_prefix"));
+        assert!(query.contains("line_comment"));
+        assert!(query.contains("DoubleSlash"));
+    }
+
+    #[test]
+    fn test_top_level_alternation_literalless_branch_drops_prefilter() {
+        // Soundness: if a branch has no usable literal (e.g. `.*`), candidates
+        // matching only via that branch would be dropped by an OR prefilter.
+        // The whole prefilter must be abandoned (None → full scan), never a
+        // silent false negative.
+        let lits = extract_literals_from_regex("foobar|.*|bazqux");
+        assert!(lits.mandatory.is_empty());
+        assert!(lits.alternations.is_empty());
+        assert_eq!(build_fts5_query(&lits), None);
     }
 
     #[test]
