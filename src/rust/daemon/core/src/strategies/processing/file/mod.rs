@@ -153,7 +153,19 @@ impl FileStrategy {
             .await;
         }
 
-        if item.op == QueueOperation::Update {
+        if item.op == QueueOperation::Update || item.op == QueueOperation::Add {
+            // For Update this is the hash compare + reference-counted deletion
+            // of the prior generation. For Add it closes a GC gap: Qdrant point
+            // IDs are deterministic per content hash, so re-Adding an
+            // already-tracked file whose content changed produces NEW point IDs
+            // that do NOT overwrite the old generation — leaking the old points
+            // and growing the `projects` collection without bound on re-scans.
+            // Reuse the same safe, reference-counted deletion. Only do the
+            // defensive filter-delete for *untracked* files on Update: for an
+            // untracked Add (a genuinely new file, or a post-reembed re-ingest
+            // against a freshly-recreated collection) it would be a no-op round
+            // trip at best and a cross-branch over-delete risk at worst.
+            let defensive_delete_untracked = item.op == QueueOperation::Update;
             if prepare_update(
                 ctx,
                 item,
@@ -163,6 +175,7 @@ impl FileStrategy {
                 relative_path,
                 &abs_file_path,
                 &payload,
+                defensive_delete_untracked,
             )
             .await?
                 == UpdateAction::Skip
@@ -307,6 +320,10 @@ async fn prepare_update(
     relative_path: &str,
     abs_file_path: &str,
     payload: &FilePayload,
+    // When the file is NOT tracked, also issue a defensive delete-by-filter to
+    // sweep any orphaned points. Safe for Update; skipped for Add to avoid a
+    // per-new-file round trip and a cross-branch over-delete on shared paths.
+    defensive_delete_untracked: bool,
 ) -> UnifiedProcessorResult<UpdateAction> {
     let new_hash = tracked_files_schema::compute_file_hash(file_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e))
@@ -339,7 +356,7 @@ async fn prepare_update(
             &new_hash,
         )
         .await?;
-    } else {
+    } else if defensive_delete_untracked {
         // Not tracked yet — defensive cleanup via filter (filter matches
         // the absolute path stored in the Qdrant payload's `file_path`
         // field; the queue payload itself is relative).

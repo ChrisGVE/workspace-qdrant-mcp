@@ -65,7 +65,17 @@ impl UnifiedQueueProcessor {
             // Processing errors -- check message for permanent vs transient
             UnifiedProcessorError::ProcessingFailed(msg) => {
                 let lower = msg.to_lowercase();
-                if lower.contains("permission denied") || lower.contains("access denied") {
+                if lower.contains("permission denied")
+                    || lower.contains("access denied")
+                    // A handler that stringifies a missing-file error into
+                    // ProcessingFailed (instead of the FileNotFound variant)
+                    // must NOT be retried forever: the file is gone on disk, so
+                    // every retry re-fails and the item lingers in_progress,
+                    // blocking reembed's drain-to-quiescence. Treat as gone.
+                    || lower.contains("file not found")
+                    || lower.contains("no such file")
+                    || lower.contains("does not exist")
+                {
                     "permanent_gone"
                 } else if lower.contains("invalid format")
                     || lower.contains("malformed")
