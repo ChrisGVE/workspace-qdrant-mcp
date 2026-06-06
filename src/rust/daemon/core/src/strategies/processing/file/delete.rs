@@ -200,13 +200,14 @@ async fn delete_qdrant_points(
     abs_file_path: &str,
     existing: &tracked_files_schema::TrackedFile,
 ) -> UnifiedProcessorResult<()> {
+    // Always issue the filter delete, even when qdrant_chunks has no rows for
+    // this file: a changed-content re-ingest may have left orphaned points from
+    // an earlier generation that are no longer tracked in SQLite (#92). The
+    // delete is scoped by (file_path, tenant_id), so it sweeps every generation
+    // of the path and is harmless (Ok with zero affected) when none match.
     let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
         .await
         .unwrap_or_default();
-
-    if point_ids.is_empty() {
-        return Ok(());
-    }
 
     ctx.storage_client
         .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
@@ -377,24 +378,25 @@ pub(super) async fn cleanup_missing_file(
             relative_path
         );
 
-        // Get point IDs from qdrant_chunks before deletion
+        // Get point IDs from qdrant_chunks before deletion (for logging only)
         let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
             .await
             .unwrap_or_default();
 
-        // Delete Qdrant points first (irreversible), scoped to tenant.
+        // Delete Qdrant points first (irreversible), scoped to (file_path,
+        // tenant). Issue it unconditionally — orphaned points from an earlier
+        // generation may exist even when qdrant_chunks is empty (#92), and the
+        // filter is a no-op when nothing matches.
         // F-035: surface Qdrant errors so the queue row can retry with metadata.
-        if !point_ids.is_empty() {
-            ctx.storage_client
-                .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
-                .await
-                .map_err(|e| {
-                    UnifiedProcessorError::Storage(format!(
-                        "Qdrant delete for missing file {} failed: {}",
-                        relative_path, e
-                    ))
-                })?;
-        }
+        ctx.storage_client
+            .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
+            .await
+            .map_err(|e| {
+                UnifiedProcessorError::Storage(format!(
+                    "Qdrant delete for missing file {} failed: {}",
+                    relative_path, e
+                ))
+            })?;
 
         // Clean up SQLite records in a transaction (CASCADE handles qdrant_chunks)
         let tx_result: Result<(), UnifiedProcessorError> = async {

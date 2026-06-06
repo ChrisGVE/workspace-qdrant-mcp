@@ -57,17 +57,8 @@ pub(super) async fn upsert_and_track(
     component: Option<String>,
     detected_branch: &str,
 ) -> Result<i64, UnifiedProcessorError> {
-    upsert_to_qdrant(
-        ctx,
-        item,
-        pool,
-        points,
-        chunk_records,
-        watch_folder_id,
-        relative_path,
-    )
-    .await?;
-
+    // Look the file up BEFORE upserting so a changed-content re-ingest can GC
+    // its previous generation of Qdrant points first.
     let existing = tracked_files_schema::lookup_tracked_file(
         pool,
         watch_folder_id,
@@ -78,6 +69,35 @@ pub(super) async fn upsert_and_track(
     .map_err(|e| {
         UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e))
     })?;
+
+    // GC superseded Qdrant points on the Add path. Point IDs embed the content
+    // hash (base_point = SHA256(tenant|path|file_hash)), so re-ingesting changed
+    // content produces brand-new IDs and the old generation is orphaned — the
+    // Update path deletes the old points in its preamble, but the Add path
+    // (folder rescans, reembed, startup recovery) historically did not. The
+    // orphans surfaced as phantom/duplicate search hits (#92) and unbounded
+    // Qdrant growth across reembeds (#96). Mirror the Update path's
+    // reference-counted delete-by-filter (see update_preamble::execute_update_deletion).
+    gc_superseded_points(
+        ctx,
+        item,
+        existing.as_ref(),
+        watch_folder_id,
+        base_point,
+        file_path,
+    )
+    .await?;
+
+    upsert_to_qdrant(
+        ctx,
+        item,
+        pool,
+        points,
+        chunk_records,
+        watch_folder_id,
+        relative_path,
+    )
+    .await?;
 
     let chunk_tuples = build_chunk_tuples(chunk_records);
 
@@ -118,6 +138,65 @@ pub(super) async fn upsert_and_track(
     }
 
     tx_result
+}
+
+/// Delete a tracked file's previous Qdrant generation before an Add re-ingest.
+///
+/// No-op when the file is new (`existing` is `None`) or its content is
+/// unchanged (`base_point` matches) — in the unchanged case the new point IDs
+/// equal the old ones, so the upsert overwrites in place and there is nothing
+/// to GC. When the content changed, the old generation's IDs differ and would
+/// be orphaned, so they are deleted by `(file_path, tenant_id)` filter —
+/// reference-counted exactly like the Update path: if another watch folder
+/// still references the old `base_point` (content-hash dedup across clones),
+/// the points are shared and must NOT be deleted.
+async fn gc_superseded_points(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    existing: Option<&TrackedFile>,
+    watch_folder_id: &str,
+    new_base_point: &str,
+    file_path: &Path,
+) -> Result<(), UnifiedProcessorError> {
+    let Some(existing_file) = existing else {
+        return Ok(());
+    };
+    let old_base_point = existing_file.base_point.as_deref();
+    if old_base_point == Some(new_base_point) {
+        return Ok(());
+    }
+
+    let delete_old = match old_base_point {
+        Some(old_bp) => !ctx
+            .queue_manager
+            .has_other_references(old_bp, watch_folder_id)
+            .await
+            .unwrap_or(false),
+        None => true,
+    };
+    if !delete_old {
+        info!(
+            "Add-path GC: old base_point still referenced by another watch folder, keeping superseded points for: {}",
+            file_path.display()
+        );
+        return Ok(());
+    }
+
+    let abs_file_path = file_path.to_string_lossy();
+    ctx.storage_client
+        .delete_points_by_filter(&item.collection, &abs_file_path, &item.tenant_id)
+        .await
+        .map_err(|e| {
+            UnifiedProcessorError::Storage(format!(
+                "Add-path GC delete failed for {}: {}",
+                abs_file_path, e
+            ))
+        })?;
+    debug!(
+        "Add-path GC: deleted superseded Qdrant points for changed file: {}",
+        file_path.display()
+    );
+    Ok(())
 }
 
 /// Upsert document points to Qdrant. On failure, cleans up stale SQLite state

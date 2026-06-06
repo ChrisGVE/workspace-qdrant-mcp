@@ -64,6 +64,7 @@ impl LoopState {
         maintenance_scheduler
             .register(Box::new(crate::idle::tasks::FilesystemReconcileTask::new()));
         maintenance_scheduler.register(Box::new(crate::idle::tasks::OrphanCleanupTask::new()));
+        maintenance_scheduler.register(Box::new(crate::idle::tasks::QueueCleanupTask::new()));
         maintenance_scheduler.register(Box::new(
             crate::idle::tasks::StaleProjectDeactivationTask::new(),
         ));
