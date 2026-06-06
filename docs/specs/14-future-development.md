@@ -628,6 +628,20 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 **Related work already landed (2026-06-05):** the `call_nodes` registry field, the `body_node` container-body fallback in `extract_methods_from_body` (fixed Java methods never being extracted → no Java CALLS), and the `method_invocation`/`object_creation_expression` defaults. Those make per-language CALLS *possible*; this item makes them *low-maintenance*.
 
+### Import/type-aware stub-edge resolution (reduce ambiguous unresolved stubs)
+
+**Problem (found 2026-06-06):** the call graph is built by emitting a name-only **stub** node for every CALLS/USES_TYPE target, then a periodic background pass (`GraphStore::resolve_stub_edges`, `graph/sqlite_store.rs`) repoints each dangling edge to the real same-name symbol. Its matching is **name-only**: it picks a definition in the caller's own file, else the *unique* tenant-wide same-name node, else **skips** (to avoid creating a wrong edge). So calls to **ambiguous names** — common identifiers with >1 in-project definition and none in the caller's file (`build`, `get`, `of`, `map`, overloaded methods, same-name methods across classes) — stay dangling permanently. Measured on DOC-V2 after a full re-ingest: ~5,266 such internal stubs persist (a stable residual, not a draining backlog). Separately, ~all of the remaining stubs are genuinely external/stdlib refs (`@Override`, `ByteString`, AssertJ `assertThat`) which correctly never resolve. The `graph_unresolved_stubs` metric was narrowed (PR #79) to count only the *internal* (name-matched) residual; this item is about actually shrinking it.
+
+**Approach:** disambiguate using context the name-only pass ignores:
+1. **Import-aware:** consult the caller file's IMPORTS edges / import statements to pick which `build`/`Foo` is in scope (the symbol actually imported into that file wins).
+2. **Receiver-type-aware:** for `obj.method()`, resolve `obj`'s type (from local decls / USES_TYPE / LSP hover) and pick that class's `method`.
+3. **Signature/arity:** when the call site records arg count, prefer the matching overload.
+4. **LSP fallback:** for active projects, the LSP already resolves references precisely — use it to repoint the hard cases.
+
+**Benefit:** turns ambiguous-name CALLS from dangling stubs into real intra-project edges, improving impact/relations/centrality precision for call-heavy OO codebases (Java/Kotlin/Dart).
+
+**Caveats:** this is partial type/scope inference — non-trivial. Name-only resolution is deliberately conservative (skip rather than mis-link); any heuristic here must preserve that (prefer leaving dangling over creating a wrong edge). **Not currently harmful:** centrality algorithms already exclude all stub nodes (`load_adjacency_graph`), so the residual only affects how complete the call graph is, not correctness of existing rankings. Low priority.
+
 ---
 
 ## Cleanup Backlog (Deferred Removals & Tech Debt)
