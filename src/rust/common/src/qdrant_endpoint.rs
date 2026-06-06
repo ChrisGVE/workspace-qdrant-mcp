@@ -1,11 +1,12 @@
 //! Canonical Qdrant gRPC endpoint resolution.
 //!
 //! Qdrant serves its REST API on port `6333` and its gRPC API on port `6334`.
-//! Operators and the TypeScript MCP server set `QDRANT_URL` (and the config
-//! default [`crate::constants::DEFAULT_QDRANT_URL`]) to a REST-style `:6333`
-//! URL. Every Rust component that uses `qdrant_client` (the daemon, and the
-//! Rust MCP server) speaks **gRPC**, so it must dial `:6334` instead —
-//! otherwise the first call fails with an opaque `h2 protocol error`.
+//! Operators set `QDRANT_URL` (and the config default
+//! [`crate::constants::DEFAULT_QDRANT_URL`]) to a REST-style `:6333` URL —
+//! one value serves every service. Every component that uses `qdrant_client`
+//! (the daemon, and the MCP server) speaks **gRPC**, so it must dial `:6334`
+//! instead — otherwise the first call fails with an opaque `h2 protocol
+//! error`.
 //!
 //! This is the single source of truth for that `:6333` → `:6334` translation
 //! (WI-b1, #82). Both `workspace-qdrant-core` (the daemon's

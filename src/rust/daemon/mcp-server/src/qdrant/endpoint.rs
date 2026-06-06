@@ -1,8 +1,7 @@
 //! gRPC endpoint resolution for the Qdrant read client.
 //!
-//! The TypeScript MCP server talks to Qdrant over its **REST** API (default
-//! port `6333`), so deployments set `QDRANT_URL` (and the config default) to a
-//! `:6333` URL. The Rust port uses `qdrant_client::Qdrant`, which speaks
+//! Deployments set `QDRANT_URL` (and the config default) to a REST-style
+//! `:6333` URL. This server uses `qdrant_client::Qdrant`, which speaks
 //! **gRPC** — served by Qdrant on port `6334`. Pointing the gRPC client at the
 //! REST port yields an opaque `h2 protocol error` on the first call.
 //!

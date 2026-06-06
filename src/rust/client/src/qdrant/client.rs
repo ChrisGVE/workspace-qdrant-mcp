@@ -73,7 +73,7 @@ impl QdrantReadClient {
     /// (via `expose_secret()`) when building the underlying Qdrant config.
     /// It is never written to logs or debug output.
     ///
-    /// The `url` is REST-style (`:6333`, the TypeScript server's convention);
+    /// The `url` is REST-style (`:6333`, the deployment-wide convention);
     /// it is translated to the gRPC port (`:6334`) via
     /// [`grpc_endpoint`](wqm_common::qdrant_endpoint::grpc_endpoint) because the
     /// `qdrant_client` crate speaks gRPC, not REST.
