@@ -378,6 +378,22 @@ mod tests {
             UnifiedQueueProcessor::classify_error(&err),
             "permanent_data"
         );
+
+        // ProcessingFailed stringifying a missing file -> permanent_gone, so a
+        // deleted/moved file is dequeued instead of retried forever (a poison
+        // item that lingers in_progress and blocks reembed's drain).
+        for msg in [
+            "Processing failed: File not found",
+            "open failed: No such file or directory",
+            "path does not exist",
+        ] {
+            let err = UnifiedProcessorError::ProcessingFailed(msg.into());
+            assert_eq!(
+                UnifiedQueueProcessor::classify_error(&err),
+                "permanent_gone",
+                "message {msg:?} must classify as permanent_gone"
+            );
+        }
     }
 
     #[test]
