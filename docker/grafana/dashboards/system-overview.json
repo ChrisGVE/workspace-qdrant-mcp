@@ -1111,7 +1111,7 @@
     {
       "id": 17,
       "title": "Unified Queue Depth + Graph Backlog",
-      "description": "Index queue depth by item type and status (left axis). The code graph is built INLINE as each file is indexed \u2014 it has no separate queue \u2014 so its closest backlog analog, unresolved stub edges, is overlaid on the right axis.",
+      "description": "Index queue depth by item type and status (left axis). The code graph is built INLINE as each file is indexed \u2014 it has no separate queue \u2014 so its closest backlog analog, internal unresolved stubs (external/stdlib refs excluded), is overlaid on the right axis.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -2889,5 +2889,5 @@
   "timezone": "browser",
   "title": "WQM \u2014 System Overview",
   "uid": "wqm-system",
-  "version": 30
+  "version": 31
 }

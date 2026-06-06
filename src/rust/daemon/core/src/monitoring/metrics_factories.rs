@@ -477,8 +477,10 @@ pub(super) fn create_graph_metrics(
     );
     let graph_unresolved_stubs = int_gauge_vec(
         "graph_unresolved_stubs",
-        "Unresolved stub nodes (empty file_path) by tenant — name-only callee/import \
-         targets not yet repointed to a real symbol; high values pollute centrality",
+        "Internal unresolved stub nodes by tenant — stubs whose symbol_name HAS a \
+         real in-project definition but were not yet repointed by the resolver \
+         (actionable). External/stdlib refs with no in-project definition are \
+         excluded, since they never resolve by design and only inflate the count",
         &["tenant_id"],
     );
     let graph_stub_resolved_total = int_counter_vec(

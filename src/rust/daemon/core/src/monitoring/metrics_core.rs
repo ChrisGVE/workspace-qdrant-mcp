@@ -246,7 +246,9 @@ pub struct DaemonMetrics {
     /// Graph edge count by tenant and edge type. Labels: tenant_id, edge_type
     pub graph_edges: IntGaugeVec,
 
-    /// Unresolved stub nodes (empty file_path) by tenant. Labels: tenant_id
+    /// Internal unresolved stub nodes by tenant (stubs whose name has a real
+    /// in-project definition but stayed dangling; external refs excluded).
+    /// Labels: tenant_id
     pub graph_unresolved_stubs: IntGaugeVec,
 
     /// Cumulative stub edges repointed by the resolver. Labels: tenant_id
