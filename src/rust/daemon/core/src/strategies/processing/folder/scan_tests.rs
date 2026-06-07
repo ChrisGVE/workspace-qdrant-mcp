@@ -144,6 +144,57 @@ async fn root_wqmignore_cascades_into_subdirectory_scan() {
     );
 }
 
+/// A queued scan of a directory INSIDE an ignored tree must enqueue nothing
+/// (#103/#105 storm self-sustain): before ancestor-aware matching, pattern
+/// `session-env/` did not match `session-env/subdir`, so already-enqueued
+/// scans of inner directories kept re-spawning children.
+#[tokio::test]
+async fn scan_inside_ignored_tree_enqueues_nothing() {
+    let temp = tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::write(root.join(".wqmignore"), "session-env/\n").unwrap();
+
+    // Simulate an already-enqueued scan targeting a dir INSIDE session-env.
+    let inner = root.join("claude-max").join("session-env").join("envs");
+    std::fs::create_dir_all(inner.join("child-dir")).unwrap();
+    std::fs::write(inner.join("state.md"), "state").unwrap();
+
+    let queue_manager = test_queue_manager(root).await;
+    let allowed = Arc::new(AllowedExtensions::default());
+    let watch_root = CanonicalPath::from_user_input(root.to_str().unwrap()).unwrap();
+    let item = scan_item("tenant-scan-inner");
+
+    let dir_path = Path::new(watch_root.as_str())
+        .join("claude-max")
+        .join("session-env")
+        .join("envs");
+    let (files_queued, dirs_queued, files_excluded, errors) = scan_directory_single_level(
+        &dir_path,
+        &watch_root,
+        &item,
+        &queue_manager,
+        &allowed,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(errors, 0);
+    assert_eq!(
+        (files_queued, dirs_queued),
+        (0, 0),
+        "everything under an ignored tree must be excluded"
+    );
+    assert_eq!(files_excluded, 2, "child-dir and state.md both excluded");
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue")
+        .fetch_one(queue_manager.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "no items enqueued from inside ignored tree");
+}
+
 /// Same cascade applies to FILE patterns: a root `.gitignore` excluding
 /// `draft-*.md` must suppress file enqueueing in subdirectory scans. The
 /// pattern targets an allowlisted extension (.md) so the assertion proves

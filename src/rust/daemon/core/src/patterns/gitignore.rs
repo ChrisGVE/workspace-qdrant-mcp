@@ -47,6 +47,10 @@ use tracing::warn;
 /// then test every entry with [`ProjectIgnoreMatcher::is_ignored`] before
 /// applying any other exclusion rules.
 pub struct ProjectIgnoreMatcher {
+    /// Root the matcher was built against (project root, or the scanned dir
+    /// in legacy dir-only mode). Paths under this root use ancestor-aware
+    /// matching so descendants of ignored directories are also ignored.
+    root: std::path::PathBuf,
     /// Combined .gitignore + .wqmignore exclusion patterns
     exclusions: Gitignore,
     /// .wqmignore re-inclusion patterns (lines starting with `- `)
@@ -111,6 +115,7 @@ impl ProjectIgnoreMatcher {
         };
 
         Some(Self {
+            root: root.to_path_buf(),
             exclusions,
             reinclusions,
         })
@@ -123,12 +128,35 @@ impl ProjectIgnoreMatcher {
     pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
         // Re-inclusions override: if path matches a `- pattern`, it's NOT ignored
         if let Some(ref reinc) = self.reinclusions {
-            if reinc.matched(path, is_dir).is_ignore() {
+            if self.matched(reinc, path, is_dir) {
                 return false;
             }
         }
 
-        self.exclusions.matched(path, is_dir).is_ignore()
+        self.matched(&self.exclusions, path, is_dir)
+    }
+
+    /// Match `path` against `matcher`, treating descendants of matched
+    /// directories as matched too (#105).
+    ///
+    /// `Gitignore::matched` tests only the path itself: pattern `foo/` matches
+    /// `foo` but NOT `foo/bar`. Real gitignore handles this by pruning the
+    /// walk at `foo`, but queued Folder/Scan items target arbitrary depths —
+    /// a scan of a directory INSIDE an ignored tree must still see its
+    /// ancestors as ignored, or already-enqueued scans keep re-spawning
+    /// children (session-env scan storm, #103).
+    ///
+    /// `matched_path_or_any_parents` panics for paths outside the matcher
+    /// root, so fall back to direct matching in that case (legacy dir-only
+    /// mode where `dir` is not under `project_root`).
+    fn matched(&self, matcher: &Gitignore, path: &Path, is_dir: bool) -> bool {
+        if path.starts_with(&self.root) {
+            matcher
+                .matched_path_or_any_parents(path, is_dir)
+                .is_ignore()
+        } else {
+            matcher.matched(path, is_dir).is_ignore()
+        }
     }
 }
 
@@ -501,5 +529,52 @@ mod tests {
 
         // Without project_root, subdir has no ignore files → None
         assert!(ProjectIgnoreMatcher::for_dir(&subdir, None).is_none());
+    }
+
+    // ── descendant matching (#105) ─────────────────────────────────────────
+
+    #[test]
+    fn descendants_of_ignored_directory_are_ignored() {
+        let root = tmp();
+        fs::write(root.path().join(".wqmignore"), "session-env/\n").unwrap();
+        let deep = root.path().join("claude-max").join("session-env").join("a");
+        fs::create_dir_all(&deep).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(root.path(), Some(root.path())).unwrap();
+        // The ignored directory itself
+        assert!(m.is_ignored(&root.path().join("claude-max").join("session-env"), true));
+        // A directory INSIDE the ignored tree: `Gitignore::matched` alone
+        // does not match this — ancestor-aware matching must.
+        assert!(m.is_ignored(&deep, true));
+        // A file inside the ignored tree
+        assert!(m.is_ignored(&deep.join("state.json"), false));
+    }
+
+    #[test]
+    fn reinclusion_of_directory_rescues_descendants() {
+        let root = tmp();
+        fs::write(root.path().join(".gitignore"), "vendor/\n").unwrap();
+        fs::write(root.path().join(".wqmignore"), "!vendor/\n").unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(root.path(), Some(root.path())).unwrap();
+        // Descendant of a re-included directory is not ignored
+        assert!(!m.is_ignored(&root.path().join("vendor").join("lib").join("a.rs"), false));
+    }
+
+    #[test]
+    fn descendant_matching_outside_root_falls_back_to_direct_match() {
+        let root = tmp();
+        fs::write(root.path().join(".gitignore"), "dist/\n").unwrap();
+        let elsewhere = tmp();
+        let foreign = elsewhere.path().join("dist");
+        fs::create_dir_all(&foreign).unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(root.path(), Some(root.path())).unwrap();
+        // Path outside the matcher root must not panic (the ancestor-aware
+        // API panics on foreign paths; is_ignored must route around it).
+        // The match outcome for foreign paths is unspecified — only the
+        // no-panic guarantee matters here.
+        let _ = m.is_ignored(&foreign, true);
+        let _ = m.is_ignored(&foreign.join("bundle.js"), false);
     }
 }
