@@ -143,6 +143,10 @@ pub struct DaemonMetrics {
     // runaway alerts instead of killing the daemon).
     /// Resident set size of the memexd process in bytes
     pub process_resident_memory_bytes: IntGauge,
+    /// Dirty (physical) footprint of the memexd process in bytes. On macOS
+    /// RSS counts allocator-cached freed pages and overstates real usage by
+    /// several×; this gauge is the honest signal to alert on.
+    pub process_footprint_bytes: IntGauge,
     /// CPU usage of the memexd process in percent (100 = one full core)
     pub process_cpu_percent: Gauge,
 
@@ -237,6 +241,7 @@ struct CreatedMetrics {
     queue_oldest_pending_age_seconds: IntGauge,
     circuit_breaker_pauses_total: IntCounterVec,
     process_resident_memory_bytes: IntGauge,
+    process_footprint_bytes: IntGauge,
     process_cpu_percent: Gauge,
     watcher_events_total: IntCounterVec,
     watcher_coalesced_total: IntCounterVec,
@@ -308,6 +313,12 @@ fn create_all_metrics() -> CreatedMetrics {
         "Resident set size of the memexd process in bytes",
     )
     .expect("metric can be created");
+    let process_footprint_bytes = IntGauge::new(
+        "wqm_memexd_process_footprint_bytes",
+        "Dirty (physical) footprint of the memexd process in bytes — the honest \
+         memory signal; RSS overstates by counting allocator-cached freed pages",
+    )
+    .expect("metric can be created");
     let process_cpu_percent = Gauge::new(
         "wqm_memexd_process_cpu_percent",
         "CPU usage of the memexd process in percent (100 = one full core)",
@@ -352,6 +363,7 @@ fn create_all_metrics() -> CreatedMetrics {
         queue_oldest_pending_age_seconds,
         circuit_breaker_pauses_total,
         process_resident_memory_bytes,
+        process_footprint_bytes,
         process_cpu_percent,
         watcher_events_total,
         watcher_coalesced_total,
@@ -403,6 +415,7 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.queue_oldest_pending_age_seconds.clone()),
             Box::new(m.circuit_breaker_pauses_total.clone()),
             Box::new(m.process_resident_memory_bytes.clone()),
+            Box::new(m.process_footprint_bytes.clone()),
             Box::new(m.process_cpu_percent.clone()),
             Box::new(m.watcher_events_total.clone()),
             Box::new(m.watcher_coalesced_total.clone()),
@@ -463,6 +476,7 @@ impl DaemonMetrics {
             queue_oldest_pending_age_seconds: m.queue_oldest_pending_age_seconds,
             circuit_breaker_pauses_total: m.circuit_breaker_pauses_total,
             process_resident_memory_bytes: m.process_resident_memory_bytes,
+            process_footprint_bytes: m.process_footprint_bytes,
             process_cpu_percent: m.process_cpu_percent,
             watcher_events_total: m.watcher_events_total,
             watcher_coalesced_total: m.watcher_coalesced_total,

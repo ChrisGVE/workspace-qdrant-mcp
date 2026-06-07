@@ -115,6 +115,9 @@ pub fn start_uptime_tracker() -> JoinHandle<()> {
             if let Some(rss) = process_rss_bytes() {
                 METRICS.set_process_resident_memory_bytes(rss as i64);
             }
+            if let Some(fp) = process_footprint_bytes() {
+                METRICS.set_process_footprint_bytes(fp as i64);
+            }
             if let Some(now_cpu) = process_cpu_seconds() {
                 let now_at = std::time::Instant::now();
                 let dt = now_at.duration_since(last_at).as_secs_f64();
@@ -152,6 +155,56 @@ fn process_rss_bytes() -> Option<u64> {
         )
     };
     (kr == KERN_SUCCESS).then_some(info.resident_size)
+}
+
+/// Dirty (physical) footprint of this process in bytes (macOS: task_vm_info).
+///
+/// This is what `footprint(1)` reports and what the kernel actually charges
+/// the process: anonymous dirty + compressed pages. macOS RSS additionally
+/// counts allocator-cached freed pages, overstating real usage by several×
+/// under churn — alert on THIS gauge, read RSS as allocator behavior.
+#[cfg(target_os = "macos")]
+fn process_footprint_bytes() -> Option<u64> {
+    use mach2::kern_return::KERN_SUCCESS;
+    use mach2::message::mach_msg_type_number_t;
+    use mach2::task::task_info;
+    use mach2::task_info::{task_info_t, task_vm_info, TASK_VM_INFO};
+    use mach2::traps::mach_task_self;
+    use mach2::vm_types::natural_t;
+
+    let mut info: task_vm_info = unsafe { std::mem::zeroed() };
+    let mut count = (std::mem::size_of::<task_vm_info>() / std::mem::size_of::<natural_t>())
+        as mach_msg_type_number_t;
+    let kr = unsafe {
+        task_info(
+            mach_task_self(),
+            TASK_VM_INFO as natural_t,
+            &mut info as *mut _ as task_info_t,
+            &mut count,
+        )
+    };
+    (kr == KERN_SUCCESS).then_some(info.phys_footprint)
+}
+
+/// Dirty footprint on Linux: proportional set size from smaps_rollup (Pss),
+/// falling back to statm RSS where smaps_rollup is unavailable (<4.14).
+#[cfg(target_os = "linux")]
+fn process_footprint_bytes() -> Option<u64> {
+    if let Ok(rollup) = std::fs::read_to_string("/proc/self/smaps_rollup") {
+        for line in rollup.lines() {
+            if let Some(rest) = line.strip_prefix("Pss:") {
+                let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+                return Some(kb * 1024);
+            }
+        }
+    }
+    process_rss_bytes()
+}
+
+/// Fallback for platforms without a footprint reader: gauge stays unset.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn process_footprint_bytes() -> Option<u64> {
+    None
 }
 
 /// Current resident set size of this process in bytes (Linux: /proc/self/statm).

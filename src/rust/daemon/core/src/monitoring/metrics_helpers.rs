@@ -100,6 +100,11 @@ impl DaemonMetrics {
         self.process_resident_memory_bytes.set(bytes);
     }
 
+    /// Set the process dirty (physical) footprint in bytes (#103).
+    pub fn set_process_footprint_bytes(&self, bytes: i64) {
+        self.process_footprint_bytes.set(bytes);
+    }
+
     /// Set the process CPU usage in percent (100 = one full core).
     pub fn set_process_cpu_percent(&self, percent: f64) {
         self.process_cpu_percent.set(percent);
