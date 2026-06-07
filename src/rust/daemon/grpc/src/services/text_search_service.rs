@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
+#[cfg(test)]
+use workspace_qdrant_core::text_search::SearchMatch;
 use workspace_qdrant_core::text_search::{
     attach_context_lines, search_exact, search_regex, SearchOptions, SearchResults,
 };
@@ -243,7 +245,7 @@ impl TextSearchServiceImpl {
             context_lines: 0,
         };
 
-        let results = if req.regex {
+        let mut results = if req.regex {
             search_regex(&self.search_db, &req.pattern, &options).await
         } else {
             search_exact(&self.search_db, &req.pattern, &options).await
@@ -253,9 +255,32 @@ impl TextSearchServiceImpl {
             Status::internal(format!("Search failed: {e}"))
         })?;
 
+        // Defensive dedup (#102): without a branch filter, the FTS query joins
+        // code_lines × ALL file_metadata branch rows for a file, emitting one
+        // duplicate match per branch row (including stale rows for deleted
+        // branches). Collapse to one match per (tenant, file, line). Applied
+        // before caching so Search and CountMatches stay consistent.
+        if options.branch.is_none() {
+            dedup_matches(&mut results);
+        }
+
         self.cache_put(key, results.clone()).await;
         Ok(results)
     }
+}
+
+/// Collapse duplicate matches to one per (tenant_id, file_path, line_number),
+/// keeping the first occurrence (#102).
+///
+/// Without a branch filter, the FTS query joins `code_lines` against ALL
+/// `file_metadata` branch rows for a file — each extra branch row (including
+/// stale rows for deleted branches) duplicates every match in that file.
+fn dedup_matches(results: &mut SearchResults) {
+    let mut seen: std::collections::HashSet<(String, String, i64)> =
+        std::collections::HashSet::new();
+    results
+        .matches
+        .retain(|m| seen.insert((m.tenant_id.clone(), m.file_path.clone(), m.line_number)));
 }
 
 #[tonic::async_trait]
@@ -524,6 +549,60 @@ mod tests {
             total_matches > capped_count,
             "total_matches must exceed the capped response length when truncated"
         );
+    }
+
+    // ── dedup_matches (#102) ──
+
+    fn mk_match(tenant: &str, file: &str, line: i64, branch: Option<&str>) -> SearchMatch {
+        SearchMatch {
+            line_id: line,
+            file_id: 1,
+            line_number: line,
+            content: "x".to_string(),
+            file_path: file.to_string(),
+            tenant_id: tenant.to_string(),
+            branch: branch.map(str::to_string),
+            context_before: vec![],
+            context_after: vec![],
+        }
+    }
+
+    fn mk_results(matches: Vec<SearchMatch>) -> SearchResults {
+        SearchResults {
+            pattern: "x".to_string(),
+            matches,
+            truncated: false,
+            query_time_ms: 0,
+            search_engine: "fts5".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_dedup_collapses_per_branch_duplicates() {
+        // Same file:line surfaced once per file_metadata branch row (#102).
+        let mut results = mk_results(vec![
+            mk_match("t1", "a.rs", 181, Some("main")),
+            mk_match("t1", "a.rs", 181, Some("feat/observability")),
+            mk_match("t1", "a.rs", 200, Some("main")),
+        ]);
+        dedup_matches(&mut results);
+        assert_eq!(results.matches.len(), 2);
+        assert_eq!(results.matches[0].line_number, 181);
+        // First occurrence wins.
+        assert_eq!(results.matches[0].branch.as_deref(), Some("main"));
+        assert_eq!(results.matches[1].line_number, 200);
+    }
+
+    #[test]
+    fn test_dedup_keeps_distinct_tenants_files_lines() {
+        let mut results = mk_results(vec![
+            mk_match("t1", "a.rs", 1, None),
+            mk_match("t2", "a.rs", 1, None),
+            mk_match("t1", "b.rs", 1, None),
+            mk_match("t1", "a.rs", 2, None),
+        ]);
+        dedup_matches(&mut results);
+        assert_eq!(results.matches.len(), 4, "no false-positive dedup");
     }
 
     /// When raw result count is within the cap, total_matches equals the
