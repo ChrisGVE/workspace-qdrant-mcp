@@ -86,6 +86,9 @@ impl UnifiedQueueProcessor {
             || lower.contains("invalid format")
             || lower.contains("malformed")
             || lower.contains("unsupported")
+            // Binary files have no extractable text — retrying never helps
+            // (DocumentProcessorError::BinaryFile stringified by handlers, #103)
+            || lower.contains("binary file")
         {
             "permanent_data"
         } else {

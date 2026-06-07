@@ -45,6 +45,9 @@ pub enum DocumentProcessorError {
     #[error("Empty file: {0}")]
     EmptyFile(String),
 
+    #[error("Binary file (no extractable text): {0}")]
+    BinaryFile(String),
+
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
 
