@@ -195,6 +195,7 @@ fn build_lsp_settings(yaml: &YamlConfig) -> LspSettings {
         deactivation_delay_secs: yaml.lsp.deactivation_delay_secs,
         enable_enrichment_cache: yaml.lsp.enable_enrichment_cache,
         cache_ttl_secs: yaml.lsp.cache_ttl_secs,
+        enrichment_cache_capacity: yaml.lsp.enrichment_cache_capacity,
         startup_timeout_secs: yaml.lsp.startup_timeout_secs,
         request_timeout_secs: yaml.lsp.request_timeout_secs,
         health_check_interval_secs: yaml.lsp.health_check_interval_secs,

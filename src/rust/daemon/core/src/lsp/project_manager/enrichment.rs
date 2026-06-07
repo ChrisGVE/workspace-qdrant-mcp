@@ -438,25 +438,26 @@ impl LanguageServerManager {
         })
     }
 
-    /// Check the cache for an enrichment entry and track hit/miss
+    /// Check the cache for an enrichment entry and track hit/miss.
+    /// Takes the write lock: `LruCache::get` updates recency order.
     pub(crate) async fn check_cache(&self, cache_key: &str) -> Option<LspEnrichment> {
-        let cache = self.cache.read().await;
-        if let Some(enrichment) = cache.get(cache_key) {
-            let mut metrics = self.metrics.write().await;
+        let hit = {
+            let mut cache = self.cache.write().await;
+            cache.get(cache_key).cloned()
+        };
+        let mut metrics = self.metrics.write().await;
+        if hit.is_some() {
             metrics.cache_hits += 1;
-            Some(enrichment.clone())
         } else {
-            drop(cache);
-            let mut metrics = self.metrics.write().await;
             metrics.cache_misses += 1;
-            None
         }
+        hit
     }
 
-    /// Store an enrichment entry in the cache
+    /// Store an enrichment entry in the cache (evicts LRU entry when full)
     pub(crate) async fn store_in_cache(&self, key: String, enrichment: LspEnrichment) {
         let mut cache = self.cache.write().await;
-        cache.insert(key, enrichment);
+        cache.put(key, enrichment);
     }
 
     /// Find a server instance matching the file's language

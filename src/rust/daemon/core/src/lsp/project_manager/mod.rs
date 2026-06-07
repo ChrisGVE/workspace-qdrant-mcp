@@ -136,6 +136,8 @@ pub struct ProjectLspConfig {
     pub enable_enrichment_cache: bool,
     /// Cache TTL in seconds
     pub cache_ttl_secs: u64,
+    /// Maximum enrichment cache entries (LRU eviction, #103)
+    pub enrichment_cache_capacity: usize,
     /// Health check interval in seconds (default 30)
     pub health_check_interval_secs: u64,
     /// Maximum restart attempts before marking server unavailable (default 3)
@@ -158,6 +160,7 @@ impl Default for ProjectLspConfig {
             deactivation_delay_secs: 60,
             enable_enrichment_cache: true,
             cache_ttl_secs: 300,
+            enrichment_cache_capacity: 10_000,
             health_check_interval_secs: 30,
             max_restarts: 3,
             stability_reset_secs: 3600,
@@ -187,6 +190,7 @@ impl From<LspSettings> for ProjectLspConfig {
             deactivation_delay_secs: settings.deactivation_delay_secs,
             enable_enrichment_cache: settings.enable_enrichment_cache,
             cache_ttl_secs: settings.cache_ttl_secs,
+            enrichment_cache_capacity: settings.enrichment_cache_capacity,
             health_check_interval_secs: settings.health_check_interval_secs,
             max_restarts: settings.max_restart_attempts,
             stability_reset_secs: settings.stability_reset_secs,
@@ -352,8 +356,10 @@ pub struct LanguageServerManager {
     /// Running server instances by (project_id, language)
     pub(crate) instances:
         Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,
-    /// Enrichment cache: (project_id, file_path, position) -> enrichment
-    pub(crate) cache: Arc<RwLock<HashMap<String, LspEnrichment>>>,
+    /// Enrichment cache: (project_id, file_path, position) -> enrichment.
+    /// LRU-bounded by `config.enrichment_cache_capacity` — an unbounded map
+    /// here grew per enriched symbol forever and leaked daemon heap (#103).
+    pub(crate) cache: Arc<RwLock<lru::LruCache<String, LspEnrichment>>>,
     /// Detected available servers by language
     pub(crate) available_servers: Arc<RwLock<HashMap<Language, Vec<String>>>>,
     /// Running flag
@@ -367,11 +373,13 @@ pub struct LanguageServerManager {
 impl LanguageServerManager {
     /// Create a new project LSP manager
     pub async fn new(config: ProjectLspConfig) -> ProjectLspResult<Self> {
+        let cache_capacity = std::num::NonZeroUsize::new(config.enrichment_cache_capacity)
+            .unwrap_or_else(|| std::num::NonZeroUsize::new(10_000).expect("nonzero literal"));
         Ok(Self {
             config,
             servers: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache: Arc::new(RwLock::new(lru::LruCache::new(cache_capacity))),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(LspMetrics::new())),

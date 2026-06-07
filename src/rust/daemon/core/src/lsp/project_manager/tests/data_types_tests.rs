@@ -369,6 +369,7 @@ async fn test_project_lsp_config_from_lsp_settings() {
         deactivation_delay_secs: 120,
         enable_enrichment_cache: false,
         cache_ttl_secs: 600,
+        enrichment_cache_capacity: 5000,
         startup_timeout_secs: 45,
         request_timeout_secs: 15,
         health_check_interval_secs: 90,
@@ -387,6 +388,7 @@ async fn test_project_lsp_config_from_lsp_settings() {
     assert_eq!(config.deactivation_delay_secs, 120);
     assert!(!config.enable_enrichment_cache);
     assert_eq!(config.cache_ttl_secs, 600);
+    assert_eq!(config.enrichment_cache_capacity, 5000);
     assert_eq!(config.health_check_interval_secs, 90);
     assert_eq!(config.max_restarts, 5);
     assert!(!config.enable_auto_restart);

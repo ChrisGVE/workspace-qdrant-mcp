@@ -16,6 +16,38 @@ async fn test_manager_creation() {
     assert_eq!(stats.total_servers, 0);
 }
 
+/// The enrichment cache must be LRU-bounded (#103): inserting more entries
+/// than `enrichment_cache_capacity` evicts the least-recently-used entries
+/// instead of growing the daemon heap forever.
+#[tokio::test]
+async fn enrichment_cache_is_lru_bounded() {
+    let config = ProjectLspConfig {
+        enrichment_cache_capacity: 8,
+        ..Default::default()
+    };
+    let manager = LanguageServerManager::new(config).await.unwrap();
+
+    let enrichment = LspEnrichment {
+        references: vec![],
+        type_info: None,
+        resolved_imports: vec![],
+        definition: None,
+        enrichment_status: EnrichmentStatus::Success,
+        error_message: None,
+    };
+    for i in 0..20 {
+        manager
+            .store_in_cache(format!("key-{i}"), enrichment.clone())
+            .await;
+    }
+
+    let stats = manager.stats().await;
+    assert_eq!(stats.cache_entries, 8, "cache must be capped at capacity");
+    // Oldest entries evicted, newest retained
+    assert!(manager.check_cache("key-0").await.is_none());
+    assert!(manager.check_cache("key-19").await.is_some());
+}
+
 #[tokio::test]
 async fn test_has_active_servers_empty() {
     let config = ProjectLspConfig::default();

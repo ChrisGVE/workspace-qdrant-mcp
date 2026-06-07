@@ -18,6 +18,9 @@ fn default_deactivation_delay() -> u64 {
 fn default_cache_ttl() -> u64 {
     300
 }
+fn default_enrichment_cache_capacity() -> usize {
+    10_000
+}
 fn default_startup_timeout() -> u64 {
     30
 }
@@ -73,6 +76,12 @@ pub struct LspSettings {
     #[serde(default = "default_cache_ttl")]
     pub cache_ttl_secs: u64,
 
+    /// Maximum number of entries in the enrichment cache (LRU eviction).
+    /// Bounds daemon memory: an unbounded cache grows per enriched symbol
+    /// forever (#103).
+    #[serde(default = "default_enrichment_cache_capacity")]
+    pub enrichment_cache_capacity: usize,
+
     /// Timeout in seconds for LSP server startup
     #[serde(default = "default_startup_timeout")]
     pub startup_timeout_secs: u64,
@@ -115,6 +124,7 @@ impl Default for LspSettings {
             deactivation_delay_secs: default_deactivation_delay(),
             enable_enrichment_cache: default_true(),
             cache_ttl_secs: default_cache_ttl(),
+            enrichment_cache_capacity: default_enrichment_cache_capacity(),
             startup_timeout_secs: default_startup_timeout(),
             request_timeout_secs: default_request_timeout(),
             health_check_interval_secs: default_health_check_interval(),
@@ -135,6 +145,9 @@ impl LspSettings {
         }
         if self.cache_ttl_secs == 0 {
             return Err("cache_ttl_secs must be greater than 0".to_string());
+        }
+        if self.enrichment_cache_capacity == 0 {
+            return Err("enrichment_cache_capacity must be greater than 0".to_string());
         }
         if self.startup_timeout_secs == 0 {
             return Err("startup_timeout_secs must be greater than 0".to_string());

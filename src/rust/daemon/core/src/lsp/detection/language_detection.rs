@@ -4,7 +4,6 @@
 //! (e.g., Cargo.toml, package.json) and file extension scanning. Results are
 //! cached per project to avoid repeated filesystem scans.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -45,17 +44,23 @@ pub struct ProjectLanguageResult {
 ///
 /// Results are cached per `project_id` to avoid repeated scans.
 pub struct ProjectLanguageDetector {
-    /// Cache of detected languages per project
-    cache: RwLock<HashMap<String, ProjectLanguageResult>>,
+    /// Cache of detected languages per project. LRU-bounded so the daemon
+    /// heap cannot grow without limit across many projects (#103).
+    cache: RwLock<lru::LruCache<String, ProjectLanguageResult>>,
     /// Known language markers
     pub(crate) markers: Vec<LanguageMarker>,
 }
 
+/// Maximum cached language-detection results (one entry per project).
+const LANGUAGE_CACHE_CAPACITY: usize = 1024;
+
 impl ProjectLanguageDetector {
     /// Create a new project language detector
     pub fn new() -> Self {
+        let capacity =
+            std::num::NonZeroUsize::new(LANGUAGE_CACHE_CAPACITY).expect("nonzero literal");
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: RwLock::new(lru::LruCache::new(capacity)),
             markers: build_language_markers(),
         }
     }
@@ -69,9 +74,9 @@ impl ProjectLanguageDetector {
         project_id: &str,
         project_root: &Path,
     ) -> LspResult<ProjectLanguageResult> {
-        // Check cache first
+        // Check cache first (write lock: LruCache::get updates recency)
         {
-            let cache = self.cache.read().await;
+            let mut cache = self.cache.write().await;
             if let Some(cached) = cache.get(project_id) {
                 debug!(
                     project_id = project_id,
@@ -110,10 +115,10 @@ impl ProjectLanguageDetector {
             from_cache: false,
         };
 
-        // Cache the result
+        // Cache the result (evicts LRU entry when full)
         {
             let mut cache = self.cache.write().await;
-            cache.insert(project_id.to_string(), result.clone());
+            cache.put(project_id.to_string(), result.clone());
             debug!(
                 project_id = project_id,
                 languages = ?result.all_languages,
@@ -166,7 +171,7 @@ impl ProjectLanguageDetector {
     /// Clear cache for a specific project
     pub async fn invalidate_cache(&self, project_id: &str) {
         let mut cache = self.cache.write().await;
-        cache.remove(project_id);
+        cache.pop(project_id);
         debug!(
             project_id = project_id,
             "Invalidated language detection cache"
@@ -180,10 +185,11 @@ impl ProjectLanguageDetector {
         debug!("Cleared all language detection cache");
     }
 
-    /// Get cached result for a project (if available)
+    /// Get cached result for a project (if available).
+    /// Uses `peek` so a read-only inspection does not alter recency order.
     pub async fn get_cached(&self, project_id: &str) -> Option<ProjectLanguageResult> {
         let cache = self.cache.read().await;
-        cache.get(project_id).cloned()
+        cache.peek(project_id).cloned()
     }
 }
 

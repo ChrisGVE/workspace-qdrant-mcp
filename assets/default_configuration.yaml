@@ -2032,6 +2032,15 @@ lsp:
   # Default reasoning: 300 seconds (5 min) balances freshness and performance
   cache_ttl_secs: 300
 
+  # enrichment_cache_capacity: Maximum entries in the enrichment cache
+  # Purpose: Bounds daemon memory; least-recently-used entries are evicted
+  #   when the cache is full (an unbounded cache leaks heap, issue #103)
+  # Memory usage: Each entry holds references/type info for one symbol
+  # Format: Integer > 0
+  # Default reasoning: 10000 entries covers active working sets while
+  #   keeping worst-case memory in the tens of megabytes
+  enrichment_cache_capacity: 10000
+
   # startup_timeout_secs: Timeout for server startup and initialization
   # Purpose: Maximum time to wait for LSP server to become ready
   # Fast servers: Most servers initialize in under 5 seconds
