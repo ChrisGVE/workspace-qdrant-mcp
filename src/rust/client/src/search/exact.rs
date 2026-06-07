@@ -173,7 +173,10 @@ where
             scope: opts.scope,
             collections_searched: vec![],
             status: Some("uncertain".to_string()),
-            status_reason: Some(format!("Exact search failed: {e}")),
+            status_reason: Some(format!(
+                "Exact search failed: {}",
+                crate::grpc::status_user_message(&e)
+            )),
             branch: None,
             diversity_score: None,
         },

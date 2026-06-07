@@ -153,9 +153,9 @@ impl RulesDaemon for crate::grpc::DaemonClient {
         .await
         .map(|resp| resp.success)
         .map_err(|e| {
-            let msg = e.message().to_string();
-            let is_conn = super::helpers::is_connectivity_error(&msg);
-            (is_conn, msg)
+            let is_conn = wqm_client::grpc::is_daemon_unreachable(&e)
+                || super::helpers::is_connectivity_error(e.message());
+            (is_conn, wqm_client::grpc::status_user_message(&e))
         })
     }
 
@@ -181,7 +181,7 @@ impl RulesDaemon for crate::grpc::DaemonClient {
         )
         .await
         .map(|r| r.queue_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| wqm_client::grpc::status_user_message(&e))
     }
 
     async fn upsert_rule_mirror(

@@ -130,7 +130,7 @@ impl StoreDaemon for crate::grpc::DaemonClient {
         };
         let resp = crate::grpc::DaemonClient::register_project(self, req)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| wqm_client::grpc::status_user_message(&e))?;
         Ok(ProjectRegisterResult {
             project_id: resp.project_id,
             newly_registered: resp.newly_registered,
@@ -159,7 +159,7 @@ impl StoreDaemon for crate::grpc::DaemonClient {
             metadata_json.map(str::to_string),
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| wqm_client::grpc::status_user_message(&e))?;
         Ok(resp.queue_id)
     }
 

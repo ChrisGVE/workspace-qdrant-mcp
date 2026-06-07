@@ -15,7 +15,8 @@
 //! // error (daemon down)
 //! { "success": false, "matches": [], "total_matches": 0,
 //!   "truncated": false, "latency_ms": 5,
-//!   "message": "Grep failed: connection refused" }
+//!   "message": "Grep failed: daemon not reachable (tcp connect error: …) —
+//!               is memexd running? Start it with `wqm service start`" }
 //! ```
 //!
 //! `latency_ms` is wall-clock and non-deterministic; golden comparisons
@@ -48,7 +49,7 @@ impl GrepDaemon for crate::grpc::DaemonClient {
     ) -> Result<TextSearchResponse, String> {
         self.text_search(request)
             .await
-            .map_err(|s| s.message().to_string())
+            .map_err(|s| wqm_client::grpc::status_user_message(&s))
     }
 }
 

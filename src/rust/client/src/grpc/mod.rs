@@ -10,6 +10,7 @@
 //! - [`connection`] — daemon-address resolution (`WQM_DAEMON_ADDR` > profile > default).
 //! - [`retry`] — `call_with_retry` with exponential backoff.
 //! - [`timeouts`] — per-method timeout resolution (5 s / 10 s).
+//! - [`status_text`] — user-facing rendering of daemon `Status` errors (#109).
 //! - `*_methods` — typed RPC wrappers per service (`impl DaemonClient`).
 
 pub mod client;
@@ -22,9 +23,11 @@ pub mod project_methods;
 pub mod retry;
 pub mod search_event_methods;
 pub mod search_methods;
+pub mod status_text;
 pub mod system_methods;
 pub mod timeouts;
 pub mod write_methods;
 
 pub use client::{ClientError, DaemonClient};
 pub use connection::{default_daemon_address, resolve_daemon_address};
+pub use status_text::{is_daemon_unreachable, status_user_message};
