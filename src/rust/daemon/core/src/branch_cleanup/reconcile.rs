@@ -31,6 +31,9 @@ pub struct ReconcileStats {
     pub branches_pruned: u64,
     /// Branches skipped (still exist remotely, or existence check failed).
     pub branches_skipped: u64,
+    /// Orphaned code_lines rows pruned (files with no file_metadata AND no
+    /// tracked_files row).
+    pub orphaned_lines_pruned: u64,
     /// Errors encountered (non-fatal; sweep continues).
     pub errors: u64,
 }
@@ -123,7 +126,98 @@ pub async fn reconcile_stale_branches(
         }
     }
 
+    // Final pass: code_lines whose file has NO file_metadata rows left are
+    // unreachable by every scoped search but still match unscoped FTS queries
+    // with stale content. Prune them — but only when the file is also gone
+    // from tracked_files (a live tracked file missing its metadata is a
+    // different inconsistency; deleting its lines would lose search data).
+    if let Some(ref sdb) = branch_ctx.search_db {
+        match prune_orphaned_code_lines(pool, sdb.pool()).await {
+            Ok(pruned) => stats.orphaned_lines_pruned = pruned,
+            Err(e) => {
+                warn!("Branch reconcile: orphaned code_lines prune failed: {}", e);
+                stats.errors += 1;
+            }
+        }
+    }
+
     stats
+}
+
+/// Delete code_lines (and their FTS5 index entries) for files that have no
+/// file_metadata row in search.db AND no tracked_files row in state.db.
+async fn prune_orphaned_code_lines(
+    state_pool: &SqlitePool,
+    search_pool: &SqlitePool,
+) -> Result<u64, String> {
+    let candidates: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT file_id FROM code_lines \
+         WHERE file_id NOT IN (SELECT file_id FROM file_metadata)",
+    )
+    .fetch_all(search_pool)
+    .await
+    .map_err(|e| format!("orphan candidate query: {}", e))?;
+
+    let mut pruned = 0u64;
+    let mut still_tracked = 0u64;
+    for file_id in candidates {
+        // Cross-database existence check (state.db and search.db are separate
+        // pools — no SQL-level join available).
+        let tracked: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tracked_files WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_one(state_pool)
+                .await
+                .map_err(|e| format!("tracked_files check for file_id={}: {}", file_id, e))?;
+        if tracked > 0 {
+            still_tracked += 1;
+            continue;
+        }
+
+        let mut tx = search_pool
+            .begin()
+            .await
+            .map_err(|e| format!("begin orphan prune: {}", e))?;
+        // External-content FTS5: remove index entries incrementally before
+        // the content rows (mirrors FtsBatchProcessor::delete_file).
+        let old_rows: Vec<(i64, String)> =
+            sqlx::query_as("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| format!("orphan line fetch for file_id={}: {}", file_id, e))?;
+        for (line_id, old_content) in &old_rows {
+            if let Err(e) = sqlx::query(crate::code_lines_schema::FTS5_DELETE_ROW_SQL)
+                .bind(*line_id)
+                .bind(old_content.as_str())
+                .execute(&mut *tx)
+                .await
+            {
+                warn!("FTS5 delete failed for line_id={}: {}", line_id, e);
+            }
+        }
+        let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
+            .bind(file_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("orphan delete for file_id={}: {}", file_id, e))?;
+        tx.commit()
+            .await
+            .map_err(|e| format!("commit orphan prune: {}", e))?;
+        pruned += result.rows_affected();
+    }
+
+    if still_tracked > 0 {
+        warn!(
+            "Branch reconcile: {} file(s) have code_lines but no file_metadata while still \
+             tracked — scoped search misses them until re-indexed",
+            still_tracked
+        );
+    }
+    if pruned > 0 {
+        info!("Branch reconcile: pruned {} orphaned code_lines", pruned);
+    }
+    Ok(pruned)
 }
 
 /// Union of branches recorded for this watch folder in state.db
@@ -192,4 +286,141 @@ fn local_branches(root: &Path) -> Result<BTreeSet<String>, String> {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn mem_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    async fn setup_state(pool: &SqlitePool) {
+        // Minimal tracked_files shape for the existence check.
+        sqlx::query("CREATE TABLE tracked_files (file_id INTEGER PRIMARY KEY)")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn setup_search(pool: &SqlitePool) {
+        sqlx::query(crate::code_lines_schema::CREATE_FILE_METADATA_V7_SQL)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(crate::code_lines_schema::CREATE_CODE_LINES_SQL)
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(crate::code_lines_schema::CREATE_CODE_LINES_FTS_SQL)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn insert_line(pool: &SqlitePool, file_id: i64, content: &str) {
+        let line_id: i64 = sqlx::query_scalar(
+            "INSERT INTO code_lines (file_id, seq, content, line_number)
+             VALUES (?1, 1000.0, ?2, 1) RETURNING line_id",
+        )
+        .bind(file_id)
+        .bind(content)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        sqlx::query(crate::code_lines_schema::FTS5_INSERT_ROW_SQL)
+            .bind(line_id)
+            .bind(content)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn prune_deletes_fully_dead_orphans_only() {
+        let state = mem_pool().await;
+        let search = mem_pool().await;
+        setup_state(&state).await;
+        setup_search(&search).await;
+
+        // file 1: orphaned in search.db AND gone from tracked_files → prune
+        insert_line(&search, 1, "dead orphan").await;
+        // file 2: orphaned in search.db but STILL tracked → keep
+        insert_line(&search, 2, "live but unindexed").await;
+        sqlx::query("INSERT INTO tracked_files (file_id) VALUES (2)")
+            .execute(&state)
+            .await
+            .unwrap();
+        // file 3: has file_metadata → not an orphan candidate at all
+        insert_line(&search, 3, "healthy").await;
+        sqlx::query(
+            "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
+             VALUES (3, 't1', 'main', '/p/f.rs')",
+        )
+        .execute(&search)
+        .await
+        .unwrap();
+
+        let pruned = prune_orphaned_code_lines(&state, &search).await.unwrap();
+        assert_eq!(pruned, 1);
+
+        let remaining: Vec<i64> =
+            sqlx::query_scalar("SELECT DISTINCT file_id FROM code_lines ORDER BY file_id")
+                .fetch_all(&search)
+                .await
+                .unwrap();
+        assert_eq!(remaining, vec![2, 3]);
+
+        // FTS index consistent: dead content unmatchable, live content intact.
+        let dead_hits: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM code_lines_fts WHERE code_lines_fts MATCH '\"dead orphan\"'",
+        )
+        .fetch_one(&search)
+        .await
+        .unwrap();
+        assert_eq!(dead_hits, 0);
+        let live_hits: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM code_lines_fts WHERE code_lines_fts MATCH '\"healthy\"'",
+        )
+        .fetch_one(&search)
+        .await
+        .unwrap();
+        assert_eq!(live_hits, 1);
+    }
+
+    #[test]
+    fn local_branches_lists_refs() {
+        // Real temp repo with one branch ref.
+        let dir = tempfile::TempDir::new().unwrap();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        run(&["init", "-b", "main"]);
+        run(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "x",
+        ]);
+        run(&["branch", "feature-a"]);
+
+        let branches = local_branches(dir.path()).unwrap();
+        assert!(branches.contains("main"), "branches: {branches:?}");
+        assert!(branches.contains("feature-a"), "branches: {branches:?}");
+    }
 }

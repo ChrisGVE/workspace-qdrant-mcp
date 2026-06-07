@@ -239,12 +239,14 @@ grep({
     scope?: "project" | "all",          // Search scope (default: "project")
     contextLines?: number,              // Lines of context before/after each match (default: 0)
     maxResults?: number,                // Maximum results to return (default: 1000)
-    branch?: string,                    // Filter by branch name
+    branch?: string,                    // Filter by branch name (default: current git branch; "*" = all branches)
     projectId?: string,                 // Specific project ID to search
 })
 ```
 
 **Use case:** Finding exact code patterns, function calls, imports, or string literals across the indexed codebase. Unlike `search` which uses semantic similarity, `grep` finds exact text matches. Results include file path, line number, and matched content.
+
+**Branch default (#102):** Project-scoped greps default `branch` to the session's current branch (or the target project's branch for an explicit cross-project `projectId`, as in #99), preventing duplicate matches from per-branch `file_metadata` rows. Pass `"*"` to search across all branches. Scope `"all"` applies no branch default.
 
 **Indexing state (#97):** Tenant-scoped responses carry an `index_status` object — `{ files_tracked, queue_pending, index_complete }` — sourced from `tracked_files` and the unified queue. When the index is incomplete a `warning` string is set so a zero-match result is not misread as pattern absence (it may be indexing lag).
 

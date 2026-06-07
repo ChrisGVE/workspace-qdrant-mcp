@@ -521,13 +521,14 @@ fn spawn_branch_reconciliation(uqp: &workspace_qdrant_core::UnifiedQueueProcesso
             let stats =
                 workspace_qdrant_core::branch_cleanup::reconcile_stale_branches(&pool, &branch_ctx)
                     .await;
-            if stats.branches_pruned > 0 || stats.errors > 0 {
+            if stats.branches_pruned > 0 || stats.orphaned_lines_pruned > 0 || stats.errors > 0 {
                 info!(
                     "Branch reconcile sweep: {} folders checked, {} branches pruned, \
-                     {} skipped, {} errors",
+                     {} skipped, {} orphaned lines pruned, {} errors",
                     stats.folders_checked,
                     stats.branches_pruned,
                     stats.branches_skipped,
+                    stats.orphaned_lines_pruned,
                     stats.errors
                 );
             }

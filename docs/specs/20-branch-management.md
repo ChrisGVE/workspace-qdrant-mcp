@@ -682,6 +682,23 @@ fn branch_exists_remotely(project_root: &Path, branch: &str) -> RemoteCheckResul
 // Rationale: network outage + local branch delete must not destroy index data.
 ```
 
+**search.db cleanup (#102):** `delete_file_metadata_for_branch` removes the
+branch's `file_metadata` rows and, in the same transaction, the `code_lines`
+(+ incremental FTS5 index entries) of any file left with no `file_metadata`
+rows at all. This prune runs even when `tracked_files` no longer references
+the branch — stale `file_metadata` rows duplicate every unfiltered grep match.
+
+**Periodic reconciliation (#102):** `reconcile_stale_branches`
+(`branch_cleanup::reconcile`) covers deletions missed while the daemon was
+down (and deferred cleanups). memexd runs it 5 minutes after startup and then
+daily: for every active git-tracked project watch folder it diffs the branches
+recorded in `tracked_files.branches[]` ∪ `file_metadata.branch` against the
+repository's local refs and routes each stale branch through
+`cleanup_deleted_branch` (which re-checks local + remote existence before
+deleting). A final pass prunes `code_lines` whose file has neither a
+`file_metadata` row nor a `tracked_files` row; files still tracked but missing
+metadata are left alone and logged (re-indexing restores them).
+
 ### 7.3 Branch Rename
 
 Git branch renames (`git branch -m old new`) are detected as `BranchEvent::Renamed` by `BranchLifecycleDetector` after the fix applied in issue #69.
