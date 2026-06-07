@@ -19,7 +19,7 @@ pub struct GroupsArgs {
 enum GroupsCommand {
     /// List all project group memberships
     List {
-        /// Filter by tenant ID
+        /// Filter by project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -49,12 +49,18 @@ pub async fn execute(args: GroupsArgs) -> Result<()> {
             json,
             script,
             no_headers,
-        } => list::list_groups(
-            tenant.as_deref(),
-            group_type.as_deref(),
-            json,
-            script,
-            no_headers,
-        ),
+        } => {
+            // Accept project name / partial input for the tenant filter.
+            let tenant = tenant
+                .map(|t| crate::data::tenants::resolve_tenant(&t))
+                .transpose()?;
+            list::list_groups(
+                tenant.as_deref(),
+                group_type.as_deref(),
+                json,
+                script,
+                no_headers,
+            )
+        }
     }
 }

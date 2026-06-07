@@ -21,7 +21,7 @@ pub struct RebuildArgs {
 enum RebuildCommand {
     /// Rebuild canonical tag hierarchy
     Tags {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -42,7 +42,7 @@ enum RebuildCommand {
 
     /// Re-extract keywords/tags for all documents
     Keywords {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -64,21 +64,21 @@ enum RebuildCommand {
 
     /// Rescan all project watch folders
     Projects {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
     },
 
     /// Rescan all library watch folders
     Libraries {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
     },
 
     /// Re-detect and assign workspace components to tracked files
     Components {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -89,7 +89,7 @@ enum RebuildCommand {
 
     /// Rebuild all computed indexes in sequence
     All {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -124,6 +124,11 @@ pub async fn execute(args: RebuildArgs) -> Result<()> {
             ("all".to_string(), tenant, Some(collection), false)
         }
     };
+
+    // Accept project name / partial input for tenant args.
+    let tenant = tenant
+        .map(|t| crate::data::tenants::resolve_tenant(&t))
+        .transpose()?;
 
     let mut client = crate::grpc::connect_default()
         .await

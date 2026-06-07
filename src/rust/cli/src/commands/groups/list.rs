@@ -10,6 +10,8 @@ use crate::output;
 pub(super) struct GroupRow {
     #[tabled(rename = "Group ID")]
     pub group_id: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
     #[tabled(rename = "Tenant ID")]
     pub tenant_id: String,
     #[tabled(rename = "Type")]
@@ -56,12 +58,15 @@ pub(super) fn list_groups(
     let mut stmt = conn.prepare(&sql)?;
     let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
+    let names = crate::data::tenants::name_map_in(&conn);
     let rows: Vec<GroupRow> = stmt
         .query_map(params_refs.as_slice(), |row| {
             let confidence: f64 = row.get(3)?;
+            let tenant_id: String = row.get(1)?;
             Ok(GroupRow {
                 group_id: row.get(0)?,
-                tenant_id: row.get(1)?,
+                project: crate::data::tenants::display_name(&names, &tenant_id),
+                tenant_id,
                 group_type: row.get(2)?,
                 confidence: format!("{:.2}", confidence),
             })

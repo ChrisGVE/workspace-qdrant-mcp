@@ -250,6 +250,8 @@ wqm library ingest <file> --library <tag> \
     --chunk-tokens 105 --overlap-tokens 12         # With custom chunking
 
 # Code Graph
+# --tenant accepts a project name or tenant id; partial input is resolved
+# by prefix/substring match (ambiguity is an error listing candidates).
 wqm graph query --node-id <id> --tenant <t> --hops 2   # Traverse related nodes
 wqm graph impact --symbol <name> --tenant <t>           # Impact analysis
 wqm graph stats --tenant <t>                            # Node/edge counts by type

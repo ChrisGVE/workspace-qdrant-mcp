@@ -10,6 +10,8 @@ use crate::output;
 pub(super) struct TagSearchRow {
     #[tabled(rename = "Tag")]
     pub tag: String,
+    #[tabled(rename = "Project")]
+    pub project: String,
     #[tabled(rename = "Tenant")]
     pub tenant_id: String,
     #[tabled(rename = "Documents")]
@@ -40,12 +42,15 @@ pub(super) fn search_tags(
          LIMIT 50",
     )?;
 
+    let names = crate::data::tenants::name_map_in(&conn);
     let rows: Vec<TagSearchRow> = stmt
         .query_map(rusqlite::params![collection, pattern], |row| {
             let avg: f64 = row.get(3)?;
+            let tenant_id: String = row.get(1)?;
             Ok(TagSearchRow {
                 tag: row.get(0)?,
-                tenant_id: row.get(1)?,
+                project: crate::data::tenants::display_name(&names, &tenant_id),
+                tenant_id,
                 doc_count: row.get(2)?,
                 avg_score: format!("{:.3}", avg),
             })

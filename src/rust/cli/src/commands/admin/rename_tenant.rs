@@ -11,6 +11,9 @@ use crate::output;
 
 /// Rename a tenant_id across SQLite (via daemon gRPC)
 pub async fn execute(old_id: String, new_id: String, yes: bool) -> Result<()> {
+    // The old id may be given as a project name / partial input; the
+    // confirmation prompt below always shows the RESOLVED tenant id.
+    let old_id = crate::data::tenants::resolve_tenant(&old_id)?;
     output::section("Tenant Rename");
     output::kv("From", &old_id);
     output::kv("To", &new_id);

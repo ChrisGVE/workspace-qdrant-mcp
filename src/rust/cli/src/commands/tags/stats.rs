@@ -9,6 +9,8 @@ use crate::output;
 
 #[derive(Tabled, serde::Serialize)]
 pub(super) struct StatsRow {
+    #[tabled(rename = "Project")]
+    pub project: String,
     #[tabled(rename = "Tenant")]
     pub tenant_id: String,
     #[tabled(rename = "Documents")]
@@ -28,6 +30,7 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
     }
 
     let has_canonical = table_exists(&conn, "canonical_tags");
+    let names = crate::data::tenants::name_map_in(&conn);
 
     let rows: Vec<StatsRow> = if let Some(tid) = tenant_id {
         vec![compute_stats_for_tenant(
@@ -35,6 +38,7 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
             tid,
             collection,
             has_canonical,
+            &names,
         )?]
     } else {
         let mut stmt = conn.prepare(
@@ -46,7 +50,9 @@ pub(super) fn show_stats(tenant_id: Option<&str>, collection: &str) -> Result<()
 
         tenants
             .iter()
-            .filter_map(|tid| compute_stats_for_tenant(&conn, tid, collection, has_canonical).ok())
+            .filter_map(|tid| {
+                compute_stats_for_tenant(&conn, tid, collection, has_canonical, &names).ok()
+            })
             .collect()
     };
 
@@ -66,6 +72,7 @@ fn compute_stats_for_tenant(
     tenant_id: &str,
     collection: &str,
     has_canonical: bool,
+    names: &std::collections::HashMap<String, String>,
 ) -> Result<StatsRow> {
     let doc_count: i64 = conn
         .query_row(
@@ -113,6 +120,7 @@ fn compute_stats_for_tenant(
     };
 
     Ok(StatsRow {
+        project: crate::data::tenants::display_name(names, tenant_id),
         tenant_id: tenant_id.to_string(),
         doc_count,
         avg_keywords: format!("{:.1}", avg_kw),

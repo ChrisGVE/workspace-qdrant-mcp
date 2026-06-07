@@ -33,7 +33,7 @@ enum GraphCommand {
         #[arg(long)]
         node_id: String,
 
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -52,7 +52,7 @@ enum GraphCommand {
         #[arg(long)]
         symbol: String,
 
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -63,14 +63,14 @@ enum GraphCommand {
 
     /// Graph statistics (node/edge counts)
     Stats {
-        /// Project tenant_id (omit for all tenants)
+        /// Project name or tenant id (partial input resolved; omit for all tenants)
         #[arg(long)]
         tenant: Option<String>,
     },
 
     /// Compute PageRank scores for graph nodes
     Pagerank {
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -97,7 +97,7 @@ enum GraphCommand {
 
     /// Detect code communities via label propagation
     Communities {
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -116,7 +116,7 @@ enum GraphCommand {
 
     /// Compute betweenness centrality scores
     Betweenness {
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -143,7 +143,7 @@ enum GraphCommand {
         #[arg(long, default_value = "ladybug")]
         to: String,
 
-        /// Migrate specific tenant (omit for all)
+        /// Migrate specific project — name or tenant id, partial input resolved (omit for all)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -172,7 +172,7 @@ enum GraphCommand {
         #[arg(long, group = "target")]
         concept: Option<String>,
 
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -205,7 +205,7 @@ enum GraphCommand {
             wqm graph concepts --tenant proj-abc123 --json"
     )]
     Concepts {
-        /// Project tenant_id
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -241,7 +241,7 @@ enum GraphCommand {
         #[arg(long)]
         concept: String,
 
-        /// Project tenant_id (auto-detected from CWD if omitted)
+        /// Project name or tenant id (partial input resolved; auto-detected from CWD if omitted)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -252,19 +252,25 @@ enum GraphCommand {
 }
 
 pub async fn execute(args: GraphArgs) -> Result<()> {
+    // Tenant args accept a project name (or partial name/id) — resolve to the
+    // canonical tenant id before dispatch; ambiguity is a listed error.
+    use crate::data::tenants::resolve_tenant;
+    let resolve_opt =
+        |t: Option<String>| -> Result<Option<String>> { t.map(|t| resolve_tenant(&t)).transpose() };
+
     match args.command {
         GraphCommand::Query {
             node_id,
             tenant,
             hops,
             edge_types,
-        } => query::query_related(&node_id, &tenant, hops, edge_types).await,
+        } => query::query_related(&node_id, &resolve_tenant(&tenant)?, hops, edge_types).await,
         GraphCommand::Impact {
             symbol,
             tenant,
             file,
-        } => impact::impact_analysis(&symbol, &tenant, file).await,
-        GraphCommand::Stats { tenant } => stats::graph_stats(tenant).await,
+        } => impact::impact_analysis(&symbol, &resolve_tenant(&tenant)?, file).await,
+        GraphCommand::Stats { tenant } => stats::graph_stats(resolve_opt(tenant)?).await,
         GraphCommand::Pagerank {
             tenant,
             damping,
@@ -274,7 +280,7 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             edge_types,
         } => {
             pagerank::pagerank(
-                &tenant,
+                &resolve_tenant(&tenant)?,
                 damping,
                 max_iterations,
                 tolerance,
@@ -288,19 +294,30 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             max_iterations,
             min_size,
             edge_types,
-        } => communities::communities(&tenant, max_iterations, min_size, edge_types).await,
+        } => {
+            communities::communities(
+                &resolve_tenant(&tenant)?,
+                max_iterations,
+                min_size,
+                edge_types,
+            )
+            .await
+        }
         GraphCommand::Betweenness {
             tenant,
             top_k,
             max_samples,
             edge_types,
-        } => betweenness::betweenness(&tenant, top_k, max_samples, edge_types).await,
+        } => {
+            betweenness::betweenness(&resolve_tenant(&tenant)?, top_k, max_samples, edge_types)
+                .await
+        }
         GraphCommand::Migrate {
             from,
             to,
             tenant,
             batch_size,
-        } => migrate::migrate(&from, &to, tenant, batch_size).await,
+        } => migrate::migrate(&from, &to, resolve_opt(tenant)?, batch_size).await,
         GraphCommand::Narrative {
             symbol,
             concept,
@@ -320,7 +337,15 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
                     );
                 }
             };
-            narrative::narrative_query(target, &tenant, depth, limit, edge_type, json).await
+            narrative::narrative_query(
+                target,
+                &resolve_tenant(&tenant)?,
+                depth,
+                limit,
+                edge_type,
+                json,
+            )
+            .await
         }
         GraphCommand::Concepts {
             tenant,
@@ -328,11 +353,20 @@ pub async fn execute(args: GraphArgs) -> Result<()> {
             depth,
             top,
             json,
-        } => concepts::concepts(&tenant, concept.as_deref(), depth.as_deref(), top, json).await,
+        } => {
+            concepts::concepts(
+                &resolve_tenant(&tenant)?,
+                concept.as_deref(),
+                depth.as_deref(),
+                top,
+                json,
+            )
+            .await
+        }
         GraphCommand::Topics {
             concept,
             tenant,
             json,
-        } => topics::topics(&concept, tenant.as_deref(), json).await,
+        } => topics::topics(&concept, resolve_opt(tenant)?.as_deref(), json).await,
     }
 }

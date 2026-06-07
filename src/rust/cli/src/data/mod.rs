@@ -6,3 +6,4 @@
 pub mod db;
 pub mod health;
 pub mod queries;
+pub mod tenants;

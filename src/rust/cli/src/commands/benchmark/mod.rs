@@ -38,7 +38,7 @@ enum BenchmarkCommand {
 
     /// Compare FTS5 search DB vs ripgrep (rg)
     Search {
-        /// Tenant ID to scope FTS5 queries (auto-detected if omitted)
+        /// Project name or tenant id to scope FTS5 queries (partial input resolved; auto-detected if omitted)
         #[arg(long)]
         tenant_id: Option<String>,
 
@@ -82,6 +82,10 @@ pub async fn execute(args: BenchmarkArgs) -> Result<()> {
             } else {
                 (warmup, iterations)
             };
+            // Accept project name / partial input for the tenant argument.
+            let tenant_id = tenant_id
+                .map(|t| crate::data::tenants::resolve_tenant(&t))
+                .transpose()?;
             search::execute(tenant_id, warmup, iterations, output_file).await
         }
     }

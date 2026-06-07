@@ -66,7 +66,7 @@ enum TagsCommand {
 
     /// Show canonical tag hierarchy for a tenant
     Tree {
-        /// Tenant ID
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -77,7 +77,7 @@ enum TagsCommand {
 
     /// Show extraction statistics
     Stats {
-        /// Tenant ID (optional, all tenants if omitted)
+        /// Project name or tenant id (optional, all tenants if omitted; partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
 
@@ -129,7 +129,7 @@ enum TagsCommand {
 
     /// Show tag frequency summary for a project
     Summary {
-        /// Tenant ID
+        /// Project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: String,
 
@@ -171,8 +171,14 @@ pub async fn execute(args: TagsArgs) -> Result<()> {
             script,
             no_headers,
         } => list::list_keywords(&doc, json, script, no_headers),
-        TagsCommand::Tree { tenant, collection } => tree::show_tree(&tenant, &collection),
+        TagsCommand::Tree { tenant, collection } => {
+            // Accept project name / partial input for tenant args.
+            tree::show_tree(&crate::data::tenants::resolve_tenant(&tenant)?, &collection)
+        }
         TagsCommand::Stats { tenant, collection } => {
+            let tenant = tenant
+                .map(|t| crate::data::tenants::resolve_tenant(&t))
+                .transpose()?;
             stats::show_stats(tenant.as_deref(), &collection)
         }
         TagsCommand::Search {
@@ -195,7 +201,14 @@ pub async fn execute(args: TagsArgs) -> Result<()> {
             json,
             script,
             no_headers,
-        } => summary::show_summary(&tenant, &collection, top, json, script, no_headers),
+        } => summary::show_summary(
+            &crate::data::tenants::resolve_tenant(&tenant)?,
+            &collection,
+            top,
+            json,
+            script,
+            no_headers,
+        ),
     }
 }
 
@@ -243,6 +256,7 @@ mod tests {
     #[test]
     fn test_stats_row_tabled() {
         let row = StatsRow {
+            project: "test-project".to_string(),
             tenant_id: "test".to_string(),
             doc_count: 10,
             avg_keywords: "5.2".to_string(),
@@ -256,6 +270,7 @@ mod tests {
     fn test_tag_search_row_tabled() {
         let row = TagSearchRow {
             tag: "async".to_string(),
+            project: "proj-one".to_string(),
             tenant_id: "proj-1".to_string(),
             doc_count: 5,
             avg_score: "0.800".to_string(),

@@ -9,7 +9,7 @@ use crate::grpc::DaemonClient;
 pub enum DlqCommand {
     /// List dead letter queue entries
     List {
-        /// Filter by tenant ID
+        /// Filter by project name or tenant id (partial input resolved)
         #[arg(long)]
         tenant: Option<String>,
         /// Filter by error category
@@ -42,7 +42,13 @@ pub async fn execute(cmd: DlqCommand) -> Result<()> {
             tenant,
             category,
             limit,
-        } => execute_list(&mut client, tenant, category, limit).await,
+        } => {
+            // Accept project name / partial input for the tenant filter.
+            let tenant = tenant
+                .map(|t| crate::data::tenants::resolve_tenant(&t))
+                .transpose()?;
+            execute_list(&mut client, tenant, category, limit).await
+        }
         DlqCommand::Replay { id, force } => execute_replay(&mut client, &id, force).await,
         DlqCommand::Purge { older_than } => execute_purge(&mut client, older_than).await,
     }
