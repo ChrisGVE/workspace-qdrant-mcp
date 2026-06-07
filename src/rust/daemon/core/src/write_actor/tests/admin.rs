@@ -35,10 +35,12 @@ async fn rename_tenant_updates_all_tables() {
     .await
     .unwrap();
 
+    // tracked_files has no tenant_id column — its tenancy is reached through
+    // watch_folders, so a rename must leave the row itself untouched.
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, file_path, tenant_id, created_at, updated_at) \
-         VALUES ('w-rename', '/tmp/rename/foo.rs', 'old-tenant', ?1, ?1)",
+         (watch_folder_id, relative_path, created_at, updated_at) \
+         VALUES ('w-rename', 'foo.rs', ?1, ?1)",
     )
     .bind(&now)
     .execute(&pool)
@@ -54,7 +56,8 @@ async fn rename_tenant_updates_all_tables() {
         .unwrap();
 
     assert!(result.success);
-    assert!(result.total_rows_updated >= 3);
+    // watch_folders + unified_queue rows; tracked_files needs no update.
+    assert!(result.total_rows_updated >= 2);
 
     // Verify old tenant is gone from all tables
     let old_watch = sqlx::query_scalar::<_, i64>(
@@ -73,13 +76,17 @@ async fn rename_tenant_updates_all_tables() {
     .unwrap();
     assert_eq!(old_queue, 0);
 
-    let old_tracked = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM tracked_files WHERE tenant_id = 'old-tenant'",
+    // tracked_files rows follow their watch_folder's tenant: after the rename
+    // the row must be reachable under the NEW tenant via the join.
+    let tracked_under_new = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = 'new-tenant'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(old_tracked, 0);
+    assert_eq!(tracked_under_new, 1);
 
     // Verify new tenant exists
     let new_watch = sqlx::query_scalar::<_, i64>(

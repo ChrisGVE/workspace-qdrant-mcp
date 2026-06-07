@@ -38,23 +38,9 @@ impl WriteActor {
             .rows_affected() as u32;
         total += count;
 
-        // tracked_files may not have a tenant_id column in all schema versions
-        match sqlx::query("UPDATE tracked_files SET tenant_id = ?1 WHERE tenant_id = ?2")
-            .bind(&data.new_tenant_id)
-            .bind(&data.old_tenant_id)
-            .execute(&mut *tx)
-            .await
-        {
-            Ok(r) => total += r.rows_affected() as u32,
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("no such column") || msg.contains("has no column named") {
-                    // Table may lack tenant_id column in older schema versions
-                } else {
-                    return Err(format!("database error updating tracked_files: {}", e));
-                }
-            }
-        }
+        // tracked_files has no tenant_id column: rows reach their tenant
+        // through watch_folders.tenant_id (updated above), so no per-row
+        // update is needed here.
 
         tx.commit()
             .await

@@ -32,8 +32,10 @@ async fn sample_files(collection: &str, sample_size: usize) -> Result<Vec<(Strin
     conn.execute_batch("PRAGMA busy_timeout=5000;")
         .context("Failed to set busy_timeout")?;
 
+    // tracked_files stores watch-root-relative paths; reconstruct the
+    // absolute path from the watch folder root for on-disk reads below.
     let mut stmt = conn.prepare(
-        "SELECT file_path FROM tracked_files tf
+        "SELECT wf.path || '/' || tf.relative_path FROM tracked_files tf
          JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
          WHERE wf.collection = ?1
          ORDER BY RANDOM()

@@ -185,19 +185,26 @@ impl CollectionStrategy {
                 })?;
 
         for (tenant_id,) in &tenant_ids {
+            // tracked_files has no tenant_id column — tenancy is reached
+            // through watch_folders.
             let _ = sqlx::query(
                 r#"DELETE FROM qdrant_chunks WHERE file_id IN (
-                    SELECT file_id FROM tracked_files WHERE tenant_id = ?1
+                    SELECT tf.file_id FROM tracked_files tf
+                    JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+                    WHERE wf.tenant_id = ?1
                 )"#,
             )
             .bind(tenant_id)
             .execute(&mut *tx)
             .await;
 
-            let _ = sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await;
+            let _ = sqlx::query(
+                "DELETE FROM tracked_files WHERE watch_folder_id IN \
+                 (SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)",
+            )
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await;
         }
 
         tx.commit().await.map_err(|e| {

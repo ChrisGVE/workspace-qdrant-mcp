@@ -393,13 +393,18 @@ async fn handle_project_delete(
         );
     }
 
-    // 2. Delete tracked_files for this tenant
-    let files_deleted = sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
-        .bind(&item.tenant_id)
-        .execute(pool)
-        .await
-        .map(|r| r.rows_affected())
-        .unwrap_or(0);
+    // 2. Delete tracked_files for this tenant. tracked_files has no tenant_id
+    //    column — tenancy is reached through watch_folders (must run BEFORE
+    //    step 3 deletes the watch_folders rows the subquery resolves against).
+    let files_deleted = sqlx::query(
+        "DELETE FROM tracked_files WHERE watch_folder_id IN \
+         (SELECT watch_id FROM watch_folders WHERE tenant_id = ?1)",
+    )
+    .bind(&item.tenant_id)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
 
     info!(
         "Deleted {} tracked_files for tenant={}",
@@ -465,23 +470,28 @@ async fn handle_project_uplift(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
 ) -> UnifiedProcessorResult<()> {
-    let files: Vec<(String, String)> =
-        sqlx::query_as("SELECT file_id, file_path FROM tracked_files WHERE tenant_id = ?1")
-            .bind(&item.tenant_id)
-            .fetch_all(ctx.queue_manager.pool())
-            .await
-            .map_err(|e| {
-                UnifiedProcessorError::ProcessingFailed(format!(
-                    "Failed to query tracked_files for uplift: {}",
-                    e
-                ))
-            })?;
+    // tracked_files has no tenant_id/file_path columns — tenancy goes through
+    // watch_folders and paths are stored watch-root-relative.
+    let files: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT tf.file_id, tf.relative_path FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = ?1",
+    )
+    .bind(&item.tenant_id)
+    .fetch_all(ctx.queue_manager.pool())
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!(
+            "Failed to query tracked_files for uplift: {}",
+            e
+        ))
+    })?;
 
     let mut enqueued = 0u32;
-    for (file_id, file_path) in &files {
+    for (file_id, relative_path) in &files {
         let doc_payload = serde_json::json!({
             "file_id": file_id,
-            "file_path": file_path,
+            "file_path": relative_path,
         })
         .to_string();
 
