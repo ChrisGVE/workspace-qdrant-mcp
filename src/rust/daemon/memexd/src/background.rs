@@ -99,15 +99,93 @@ pub fn start_graph_metrics_collection(
     handle
 }
 
-/// Start uptime tracking (updates the global METRICS gauge every second).
+/// Start uptime tracking and process resource sampling (updates the global
+/// METRICS gauges every second).
 pub fn start_uptime_tracker() -> JoinHandle<()> {
     let start_time = std::time::Instant::now();
     tokio::spawn(async move {
+        let mut last_cpu = process_cpu_seconds().unwrap_or(0.0);
+        let mut last_at = std::time::Instant::now();
         loop {
             METRICS.set_uptime(start_time.elapsed().as_secs_f64());
+
+            // Process RSS + CPU% (#103): self-sampled so a memory runaway
+            // shows up in Prometheus and can alert, instead of silently
+            // growing until the OS kills the daemon.
+            if let Some(rss) = process_rss_bytes() {
+                METRICS.set_process_resident_memory_bytes(rss as i64);
+            }
+            if let Some(now_cpu) = process_cpu_seconds() {
+                let now_at = std::time::Instant::now();
+                let dt = now_at.duration_since(last_at).as_secs_f64();
+                if dt > 0.0 {
+                    let pct = ((now_cpu - last_cpu) / dt) * 100.0;
+                    METRICS.set_process_cpu_percent(pct.max(0.0));
+                }
+                last_cpu = now_cpu;
+                last_at = now_at;
+            }
+
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     })
+}
+
+/// Current resident set size of this process in bytes (macOS: mach task_info).
+#[cfg(target_os = "macos")]
+fn process_rss_bytes() -> Option<u64> {
+    use mach2::kern_return::KERN_SUCCESS;
+    use mach2::message::mach_msg_type_number_t;
+    use mach2::task::task_info;
+    use mach2::task_info::{task_info_t, MACH_TASK_BASIC_INFO, MACH_TASK_BASIC_INFO_COUNT};
+    use mach2::traps::mach_task_self;
+    use mach2::vm_types::natural_t;
+
+    let mut info: mach2::task_info::mach_task_basic_info = unsafe { std::mem::zeroed() };
+    let mut count = MACH_TASK_BASIC_INFO_COUNT as mach_msg_type_number_t;
+    let kr = unsafe {
+        task_info(
+            mach_task_self(),
+            MACH_TASK_BASIC_INFO as natural_t,
+            &mut info as *mut _ as task_info_t,
+            &mut count,
+        )
+    };
+    (kr == KERN_SUCCESS).then_some(info.resident_size)
+}
+
+/// Current resident set size of this process in bytes (Linux: /proc/self/statm).
+#[cfg(target_os = "linux")]
+fn process_rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    (page_size > 0).then(|| pages * page_size as u64)
+}
+
+/// Fallback for platforms without an RSS reader: gauge stays unset.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn process_rss_bytes() -> Option<u64> {
+    None
+}
+
+/// Cumulative user+system CPU seconds of this process (POSIX getrusage).
+#[cfg(unix)]
+fn process_cpu_seconds() -> Option<f64> {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
+    (rc == 0).then(|| {
+        ru.ru_utime.tv_sec as f64
+            + ru.ru_utime.tv_usec as f64 / 1e6
+            + ru.ru_stime.tv_sec as f64
+            + ru.ru_stime.tv_usec as f64 / 1e6
+    })
+}
+
+/// Fallback for non-POSIX platforms: gauge stays unset.
+#[cfg(not(unix))]
+fn process_cpu_seconds() -> Option<f64> {
+    None
 }
 
 /// Start periodic DB polling for CLI-driven pause state changes (Task 543.10).

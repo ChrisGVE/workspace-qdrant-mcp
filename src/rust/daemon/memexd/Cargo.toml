@@ -46,6 +46,11 @@ thiserror = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Mach kernel bindings for current-process RSS (task_info); libc deprecated
+# its mach_task_self/task_info surface in favor of this crate.
+mach2 = "0.6"
+
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase", "processenv", "winbase"] }
 windows-service = "0.7"

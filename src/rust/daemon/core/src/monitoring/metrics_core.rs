@@ -7,8 +7,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    self, Encoder, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    Registry, TextEncoder,
+    self, Encoder, Gauge, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    Opts, Registry, TextEncoder,
 };
 
 use super::metrics_factories::{
@@ -139,6 +139,13 @@ pub struct DaemonMetrics {
     /// Labels: subsystem
     pub circuit_breaker_pauses_total: IntCounterVec,
 
+    // Process resource metrics (#103: sampled every second so a memory
+    // runaway alerts instead of killing the daemon).
+    /// Resident set size of the memexd process in bytes
+    pub process_resident_memory_bytes: IntGauge,
+    /// CPU usage of the memexd process in percent (100 = one full core)
+    pub process_cpu_percent: Gauge,
+
     // Telemetry extension metrics (issue-64 Task 2)
     /// Total filesystem watcher events by event_type
     /// Labels: event_type (create, modify, delete, rename)
@@ -229,6 +236,8 @@ struct CreatedMetrics {
     unified_queue_retries_total: IntCounterVec,
     queue_oldest_pending_age_seconds: IntGauge,
     circuit_breaker_pauses_total: IntCounterVec,
+    process_resident_memory_bytes: IntGauge,
+    process_cpu_percent: Gauge,
     watcher_events_total: IntCounterVec,
     watcher_coalesced_total: IntCounterVec,
     grpc_requests_total: IntCounterVec,
@@ -294,6 +303,17 @@ fn create_all_metrics() -> CreatedMetrics {
     )
     .expect("metric can be created");
 
+    let process_resident_memory_bytes = IntGauge::new(
+        "wqm_memexd_process_resident_memory_bytes",
+        "Resident set size of the memexd process in bytes",
+    )
+    .expect("metric can be created");
+    let process_cpu_percent = Gauge::new(
+        "wqm_memexd_process_cpu_percent",
+        "CPU usage of the memexd process in percent (100 = one full core)",
+    )
+    .expect("metric can be created");
+
     let circuit_breaker_pauses_total = IntCounterVec::new(
         Opts::new(
             "wqm_memexd_circuit_breaker_pauses_total",
@@ -331,6 +351,8 @@ fn create_all_metrics() -> CreatedMetrics {
         unified_queue_retries_total,
         queue_oldest_pending_age_seconds,
         circuit_breaker_pauses_total,
+        process_resident_memory_bytes,
+        process_cpu_percent,
         watcher_events_total,
         watcher_coalesced_total,
         grpc_requests_total,
@@ -380,6 +402,8 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.unified_queue_retries_total.clone()),
             Box::new(m.queue_oldest_pending_age_seconds.clone()),
             Box::new(m.circuit_breaker_pauses_total.clone()),
+            Box::new(m.process_resident_memory_bytes.clone()),
+            Box::new(m.process_cpu_percent.clone()),
             Box::new(m.watcher_events_total.clone()),
             Box::new(m.watcher_coalesced_total.clone()),
             Box::new(m.grpc_requests_total.clone()),
@@ -438,6 +462,8 @@ impl DaemonMetrics {
             unified_queue_retries_total: m.unified_queue_retries_total,
             queue_oldest_pending_age_seconds: m.queue_oldest_pending_age_seconds,
             circuit_breaker_pauses_total: m.circuit_breaker_pauses_total,
+            process_resident_memory_bytes: m.process_resident_memory_bytes,
+            process_cpu_percent: m.process_cpu_percent,
             watcher_events_total: m.watcher_events_total,
             watcher_coalesced_total: m.watcher_coalesced_total,
             grpc_requests_total: m.grpc_requests_total,

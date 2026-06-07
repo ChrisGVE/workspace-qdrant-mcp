@@ -95,6 +95,16 @@ impl DaemonMetrics {
             .set(seconds);
     }
 
+    /// Set the process resident memory (RSS) in bytes (#103).
+    pub fn set_process_resident_memory_bytes(&self, bytes: i64) {
+        self.process_resident_memory_bytes.set(bytes);
+    }
+
+    /// Set the process CPU usage in percent (100 = one full core).
+    pub fn set_process_cpu_percent(&self, percent: f64) {
+        self.process_cpu_percent.set(percent);
+    }
+
     /// Record an ingestion error
     pub fn ingestion_error(&self, error_type: &str) {
         self.ingestion_errors_total
