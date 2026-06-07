@@ -12,6 +12,14 @@ use crate::unified_queue_schema::QueueOperation;
 use super::queue::enqueue_file_op;
 use super::types::FullRecoveryStats;
 
+/// Metadata attached to reconcile-driven re-ingests.
+///
+/// `force_reingest` makes `prepare_update` bypass its unchanged-hash
+/// short-circuit: `needs_reconcile` exists precisely because stored state for
+/// the file is broken while its content (and therefore hash) may be
+/// unchanged (#110).
+const RECONCILE_METADATA: &str = r#"{"source":"needs_reconcile","force_reingest":true}"#;
+
 /// Process tracked_files flagged with needs_reconcile=1.
 ///
 /// For each flagged file, look up its watch_folder to get routing info,
@@ -106,7 +114,7 @@ async fn reconcile_single_file(
         &file.relative_path,
         Path::new(&base_path),
         op.clone(),
-        None,
+        Some(RECONCILE_METADATA),
     )
     .await
     {

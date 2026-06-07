@@ -356,6 +356,16 @@ async fn handle_missing_file(
     Ok(())
 }
 
+/// True when the queue item's metadata carries `"force_reingest": true` —
+/// set by reconcile-driven enqueues (`needs_reconcile` repairs, #110) whose
+/// whole purpose is rebuilding stored state for content that did not change.
+fn force_reingest(item: &UnifiedQueueItem) -> bool {
+    item.metadata
+        .as_deref()
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+        .is_some_and(|v| v.get("force_reingest").and_then(|f| f.as_bool()) == Some(true))
+}
+
 /// Handle the Update pre-flight: hash comparison and reference-counted deletion.
 ///
 /// Returns `UpdateAction::Skip` when the file is unchanged (hash match).
@@ -383,6 +393,19 @@ async fn prepare_update(
     .await
     {
         if existing.file_hash == new_hash {
+            // Reconcile-driven repairs re-ingest even when content is
+            // unchanged: the flag means stored state (e.g. FTS rows, #110)
+            // is broken while the file itself never changed. Points carry
+            // content-derived ids, so the upsert is idempotent and the
+            // deletion preamble is unnecessary.
+            if force_reingest(item) {
+                info!(
+                    "File unchanged but force_reingest set (needs_reconcile repair), \
+                     re-ingesting: {}",
+                    relative_path
+                );
+                return Ok(UpdateAction::Proceed);
+            }
             info!(
                 "File unchanged (hash match), skipping update: {}",
                 relative_path
@@ -565,5 +588,46 @@ mod tests {
     fn test_file_strategy_name() {
         let strategy = FileStrategy;
         assert_eq!(strategy.name(), "file");
+    }
+
+    fn item_with_metadata(metadata: Option<&str>) -> UnifiedQueueItem {
+        UnifiedQueueItem {
+            queue_id: "q1".to_string(),
+            idempotency_key: "k1".to_string(),
+            item_type: ItemType::File,
+            op: QueueOperation::Update,
+            tenant_id: "t1".to_string(),
+            collection: "projects".to_string(),
+            status: crate::unified_queue_schema::QueueStatus::Pending,
+            branch: "main".to_string(),
+            payload_json: "{}".to_string(),
+            metadata: metadata.map(str::to_string),
+            created_at: String::new(),
+            updated_at: String::new(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+            qdrant_status: None,
+            search_status: None,
+            decision_json: None,
+        }
+    }
+
+    #[test]
+    fn force_reingest_true_only_for_explicit_flag() {
+        assert!(force_reingest(&item_with_metadata(Some(
+            r#"{"source":"needs_reconcile","force_reingest":true}"#
+        ))));
+        assert!(!force_reingest(&item_with_metadata(Some(
+            r#"{"force_reingest":false}"#
+        ))));
+        assert!(!force_reingest(&item_with_metadata(Some(
+            r#"{"source":"mcp_rules_tool"}"#
+        ))));
+        assert!(!force_reingest(&item_with_metadata(Some("not json"))));
+        assert!(!force_reingest(&item_with_metadata(None)));
     }
 }

@@ -248,6 +248,13 @@ const MISSING_INDEX_REASON: &str = "missing_search_index";
 /// - files no longer on disk — the recovery delete path owns those;
 /// - files with `chunk_count = 0` — never produced indexable content;
 /// - files already flagged.
+///
+/// Flagging alone is not enough: the re-ingest would no-op against two
+/// content-unchanged skip layers. The pass therefore also purges the file's
+/// `indexed_content` cache row (FTS skip detection) and any stale
+/// `code_lines` (so the from-empty rewrite cannot duplicate lines), and the
+/// reconcile enqueue carries `force_reingest` metadata for the
+/// `tracked_files.file_hash` short-circuit in `prepare_update`.
 async fn flag_unindexed_tracked_files(
     state_pool: &SqlitePool,
     search_pool: &SqlitePool,
@@ -281,6 +288,15 @@ async fn flag_unindexed_tracked_files(
             Ok(m) if m.len() <= hard_cap => {}
             _ => continue,
         }
+        // Clean slate for the rewrite: drop stale code_lines (the file has no
+        // file_metadata, so the orphan guard inside always passes) and the
+        // indexed_content cache row whose hash match would skip the FTS write.
+        super::db::delete_code_lines_if_orphaned(search_pool, file_id)
+            .await
+            .map_err(|e| format!("stale code_lines purge for file_id={}: {}", file_id, e))?;
+        crate::indexed_content_schema::delete_indexed_content(state_pool, file_id)
+            .await
+            .map_err(|e| format!("indexed_content purge for file_id={}: {}", file_id, e))?;
         sqlx::query(
             "UPDATE tracked_files \
              SET needs_reconcile = 1, reconcile_reason = ?1, updated_at = ?2 \
@@ -510,6 +526,10 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+        sqlx::query(crate::indexed_content_schema::CREATE_INDEXED_CONTENT_SQL)
+            .execute(pool)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO watch_folders (watch_id, collection, path) VALUES ('w1', 'projects', ?1)",
         )
@@ -517,6 +537,23 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+    }
+
+    async fn insert_indexed_content(pool: &SqlitePool, file_id: i64) {
+        sqlx::query("INSERT INTO indexed_content (file_id, content, hash) VALUES (?1, X'00', 'h')")
+            .bind(file_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn indexed_content_exists(pool: &SqlitePool, file_id: i64) -> bool {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM indexed_content WHERE file_id = ?1")
+            .bind(file_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        n > 0
     }
 
     async fn insert_tracked(
@@ -559,12 +596,17 @@ mod tests {
         setup_state_for_flag_pass(&state, &base).await;
         setup_search(&search).await;
 
-        // file 1: tracked, on disk, NOT in file_metadata → flag
+        // file 1: tracked, on disk, NOT in file_metadata → flag; its stale
+        // code_lines and indexed_content cache must be purged so the forced
+        // re-ingest rewrites FTS from a clean slate.
         std::fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
         insert_tracked(&state, 1, "a.rs", 3, 0).await;
-        // file 2: tracked, on disk, present in file_metadata → keep
+        insert_indexed_content(&state, 1).await;
+        insert_line(&search, 1, "stale line").await;
+        // file 2: tracked, on disk, present in file_metadata → keep (cache too)
         std::fs::write(dir.path().join("b.rs"), "fn b() {}").unwrap();
         insert_tracked(&state, 2, "b.rs", 3, 0).await;
+        insert_indexed_content(&state, 2).await;
         sqlx::query(
             "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
              VALUES (2, 't1', 'main', '/p/b.rs')",
@@ -592,6 +634,17 @@ mod tests {
             assert_eq!(flag, want_flag, "file_id={file_id}");
             assert!(reason.is_none(), "file_id={file_id} reason: {reason:?}");
         }
+
+        // Clean slate for file 1: cache row and stale code_lines purged.
+        assert!(!indexed_content_exists(&state, 1).await);
+        let stale_lines: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+                .fetch_one(&search)
+                .await
+                .unwrap();
+        assert_eq!(stale_lines, 0);
+        // file 2 untouched.
+        assert!(indexed_content_exists(&state, 2).await);
     }
 
     #[test]
