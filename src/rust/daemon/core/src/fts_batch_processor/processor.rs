@@ -65,8 +65,45 @@ impl<'a> FtsBatchProcessor<'a> {
         }
 
         let start = std::time::Instant::now();
-        let batch_mode = self.should_use_batch_mode(queue_depth);
-        let changes = std::mem::take(&mut self.pending);
+        let mut changes = std::mem::take(&mut self.pending);
+
+        // Hard cap (#103): drop files whose content alone would blow the
+        // memory budget. Line search of huge minified/generated files is
+        // not worth multi-GB diff memory; Qdrant ingestion is unaffected.
+        let before = changes.len();
+        changes.retain(|c| {
+            let bytes = c.content_bytes();
+            if bytes > self.config.hard_cap_bytes {
+                warn!(
+                    "FTS5: skipping {} — {} content bytes exceed hard cap {} (WQM_FTS5_HARD_CAP)",
+                    c.file_path, bytes, self.config.hard_cap_bytes
+                );
+                return false;
+            }
+            true
+        });
+        let files_skipped_too_large = before - changes.len();
+        if changes.is_empty() {
+            return Ok(BatchStats {
+                files_skipped_too_large,
+                processing_time_ms: start.elapsed().as_millis() as u64,
+                ..Default::default()
+            });
+        }
+
+        // Bytes budget (#103): batch mode holds every pending file's old+new
+        // content in one transaction. Above the budget, fall back to
+        // single-file mode so memory stays bounded per file.
+        let total_bytes: usize = changes.iter().map(FileChange::content_bytes).sum();
+        let over_budget = total_bytes > self.config.single_mode_threshold_bytes;
+        let batch_mode = self.should_use_batch_mode(queue_depth) && !over_budget;
+        if over_budget {
+            info!(
+                "FTS5: accumulated {} content bytes exceed single-mode threshold {} \
+                 (WQM_FTS5_SINGLE_MODE_THRESHOLD); forcing single-file mode",
+                total_bytes, self.config.single_mode_threshold_bytes
+            );
+        }
 
         let result = if batch_mode {
             info!(
@@ -87,6 +124,7 @@ impl<'a> FtsBatchProcessor<'a> {
         match result {
             Ok(mut stats) => {
                 stats.batch_mode = batch_mode;
+                stats.files_skipped_too_large = files_skipped_too_large;
                 stats.processing_time_ms = start.elapsed().as_millis() as u64;
 
                 info!(
@@ -265,6 +303,23 @@ impl<'a> FtsBatchProcessor<'a> {
         file_hash: Option<&str>,
     ) -> Result<BatchStats, SearchDbError> {
         let start = std::time::Instant::now();
+
+        // Hard cap (#103): mirror the flush() guard for the no-diff path.
+        if content.len() > self.config.hard_cap_bytes {
+            warn!(
+                "FTS5: skipping full rewrite of file_id={} — {} content bytes exceed \
+                 hard cap {} (WQM_FTS5_HARD_CAP)",
+                file_id,
+                content.len(),
+                self.config.hard_cap_bytes
+            );
+            return Ok(BatchStats {
+                files_skipped_too_large: 1,
+                processing_time_ms: start.elapsed().as_millis() as u64,
+                ..Default::default()
+            });
+        }
+
         let pool = self.search_db.pool();
         let lines: Vec<&str> = content.split('\n').collect();
 

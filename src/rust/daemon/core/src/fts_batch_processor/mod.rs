@@ -21,19 +21,53 @@ pub use processor::FtsBatchProcessor;
 /// items, switch to batch mode.
 pub const DEFAULT_BURST_THRESHOLD: usize = 10;
 
+/// Default accumulated-content budget above which batch mode falls back to
+/// single-file mode (8 MB). Batch mode holds every file's old+new content
+/// plus diff structures in one transaction; without a budget a burst of
+/// large files drives GB-scale RSS (#103).
+pub const DEFAULT_SINGLE_MODE_THRESHOLD_BYTES: usize = 8 * 1024 * 1024;
+
+/// Default per-file content cap (old + new, 20 MB). Files above this skip
+/// FTS5 line indexing entirely — line-level search of such files (huge
+/// minified/generated artifacts) is not worth multi-GB diff memory (#103).
+pub const DEFAULT_HARD_CAP_BYTES: usize = 20 * 1024 * 1024;
+
 /// Configuration for the FTS5 batch processor.
 #[derive(Debug, Clone)]
 pub struct FtsBatchConfig {
     /// Queue depth above which batch mode is used instead of single-file mode.
     pub burst_threshold: usize,
+    /// Accumulated content bytes (old + new across pending changes) above
+    /// which flush uses single-file mode even when queue depth favors batch.
+    /// Env override: `WQM_FTS5_SINGLE_MODE_THRESHOLD`.
+    pub single_mode_threshold_bytes: usize,
+    /// Per-file content cap (old + new bytes). Files above this are skipped
+    /// by FTS5 indexing (Qdrant/semantic ingestion is unaffected).
+    /// Env override: `WQM_FTS5_HARD_CAP`.
+    pub hard_cap_bytes: usize,
 }
 
 impl Default for FtsBatchConfig {
     fn default() -> Self {
         Self {
             burst_threshold: DEFAULT_BURST_THRESHOLD,
+            single_mode_threshold_bytes: env_bytes(
+                "WQM_FTS5_SINGLE_MODE_THRESHOLD",
+                DEFAULT_SINGLE_MODE_THRESHOLD_BYTES,
+            ),
+            hard_cap_bytes: env_bytes("WQM_FTS5_HARD_CAP", DEFAULT_HARD_CAP_BYTES),
         }
     }
+}
+
+/// Read a byte-count override from the environment, falling back to
+/// `default` when unset or unparseable.
+fn env_bytes(var: &str, default: usize) -> usize {
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(default)
 }
 
 /// A pending file change to be applied to code_lines.
@@ -59,6 +93,13 @@ pub struct FileChange {
     pub file_hash: Option<String>,
 }
 
+impl FileChange {
+    /// Total content bytes held by this change (old + new).
+    pub fn content_bytes(&self) -> usize {
+        self.old_content.len() + self.new_content.len()
+    }
+}
+
 /// Statistics from a batch processing run.
 #[derive(Debug, Clone, Default)]
 pub struct BatchStats {
@@ -74,6 +115,8 @@ pub struct BatchStats {
     pub lines_unchanged: usize,
     /// Number of files where rebalancing was triggered.
     pub rebalances_triggered: usize,
+    /// Files skipped because old+new content exceeded `hard_cap_bytes`.
+    pub files_skipped_too_large: usize,
     /// Whether batch mode was used (vs single-file mode).
     pub batch_mode: bool,
     /// Processing time in milliseconds.

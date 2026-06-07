@@ -36,6 +36,111 @@ async fn test_default_config() {
     let config = FtsBatchConfig::default();
     assert_eq!(config.burst_threshold, DEFAULT_BURST_THRESHOLD);
     assert_eq!(config.burst_threshold, 10);
+    // Env overrides are absent in tests → compiled defaults apply
+    assert_eq!(
+        config.single_mode_threshold_bytes,
+        DEFAULT_SINGLE_MODE_THRESHOLD_BYTES
+    );
+    assert_eq!(config.hard_cap_bytes, DEFAULT_HARD_CAP_BYTES);
+}
+
+/// Files whose old+new content exceeds `hard_cap_bytes` must be skipped
+/// entirely — no code_lines writes, counted in `files_skipped_too_large` (#103).
+#[tokio::test]
+async fn test_hard_cap_skips_oversized_file() {
+    let (_tmp, db) = setup_db().await;
+    let config = FtsBatchConfig {
+        hard_cap_bytes: 64,
+        ..FtsBatchConfig::default()
+    };
+    let mut processor = FtsBatchProcessor::new(&db, config);
+
+    let big = "x".repeat(100);
+    processor.add_change(test_change(1, "", &big, "proj-a", Some("main"), "/big.js"));
+    processor.add_change(test_change(
+        2,
+        "",
+        "small line",
+        "proj-a",
+        Some("main"),
+        "/small.rs",
+    ));
+
+    let stats = processor.flush(0).await.unwrap();
+    assert_eq!(stats.files_skipped_too_large, 1);
+    assert_eq!(stats.files_processed, 1, "small file still processed");
+
+    let big_count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(big_count, 0, "oversized file must not be indexed");
+    db.close().await;
+}
+
+/// When accumulated content exceeds `single_mode_threshold_bytes`, flush
+/// must fall back to single-file mode even if queue depth favors batch (#103).
+#[tokio::test]
+async fn test_bytes_budget_forces_single_file_mode() {
+    let (_tmp, db) = setup_db().await;
+    let config = FtsBatchConfig {
+        single_mode_threshold_bytes: 32,
+        ..FtsBatchConfig::default()
+    };
+    let mut processor = FtsBatchProcessor::new(&db, config);
+
+    for i in 1..=3 {
+        processor.add_change(test_change(
+            i,
+            "",
+            "this line alone is over budget",
+            "proj-a",
+            Some("main"),
+            &format!("/f{}.rs", i),
+        ));
+    }
+
+    // queue_depth 20 > burst_threshold 10 → batch mode WOULD apply,
+    // but the bytes budget forces single-file mode.
+    let stats = processor.flush(20).await.unwrap();
+    assert!(!stats.batch_mode, "bytes budget must override batch mode");
+    assert_eq!(stats.files_processed, 3);
+    db.close().await;
+}
+
+/// `full_rewrite` (no-diff path) must honor the hard cap too.
+#[tokio::test]
+async fn test_full_rewrite_honors_hard_cap() {
+    let (_tmp, db) = setup_db().await;
+    let config = FtsBatchConfig {
+        hard_cap_bytes: 64,
+        ..FtsBatchConfig::default()
+    };
+    let processor = FtsBatchProcessor::new(&db, config);
+
+    let big = "y".repeat(200);
+    let stats = processor
+        .full_rewrite(
+            7,
+            &big,
+            "proj-a",
+            Some("main"),
+            "/big.min.js",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(stats.files_skipped_too_large, 1);
+    assert_eq!(stats.lines_inserted, 0);
+
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 7")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    db.close().await;
 }
 
 #[tokio::test]
@@ -414,7 +519,10 @@ async fn test_large_batch_throughput() {
 #[tokio::test]
 async fn test_custom_burst_threshold() {
     let (_tmp, db) = setup_db().await;
-    let config = FtsBatchConfig { burst_threshold: 5 };
+    let config = FtsBatchConfig {
+        burst_threshold: 5,
+        ..FtsBatchConfig::default()
+    };
     let processor = FtsBatchProcessor::new(&db, config);
     assert!(!processor.should_use_batch_mode(4));
     assert!(!processor.should_use_batch_mode(5));

@@ -33,6 +33,22 @@ pub(super) async fn update_fts5_for_file(
     file_hash: Option<&str>,
 ) -> Result<bool, String> {
     let fts_start = std::time::Instant::now();
+    let fts_config = FtsBatchConfig::default();
+
+    // Size pre-check (#103): skip oversized files BEFORE reading them into
+    // memory — the batch processor would reject them anyway (hard cap).
+    match tokio::fs::metadata(file_path).await {
+        Ok(meta) if meta.len() > fts_config.hard_cap_bytes as u64 => {
+            debug!(
+                "FTS5: skipping {} — {} bytes exceed hard cap {} (WQM_FTS5_HARD_CAP)",
+                file_path,
+                meta.len(),
+                fts_config.hard_cap_bytes
+            );
+            return Ok(false);
+        }
+        _ => {}
+    }
 
     // Read file content from disk
     let new_content = match tokio::fs::read_to_string(file_path).await {
@@ -56,7 +72,7 @@ pub(super) async fn update_fts5_for_file(
     let old_content = old_content.unwrap();
 
     // Apply diff to code_lines via FtsBatchProcessor (single-file mode)
-    let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
+    let processor = FtsBatchProcessor::new(search_db, fts_config);
     let change = FileChange {
         file_id,
         old_content,
