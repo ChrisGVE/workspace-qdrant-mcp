@@ -71,6 +71,7 @@ impl super::exact::ExactSearchDaemon for MockDaemon {
             total_matches: 0,
             truncated: false,
             query_time_ms: 0,
+            index_status: None,
         })
     }
 }

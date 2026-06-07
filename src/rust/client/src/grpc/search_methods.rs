@@ -171,6 +171,7 @@ mod tests {
             total_matches: total,
             truncated,
             query_time_ms: 5,
+            index_status: None,
         }
     }
 

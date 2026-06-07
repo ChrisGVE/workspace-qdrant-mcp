@@ -246,6 +246,8 @@ grep({
 
 **Use case:** Finding exact code patterns, function calls, imports, or string literals across the indexed codebase. Unlike `search` which uses semantic similarity, `grep` finds exact text matches. Results include file path, line number, and matched content.
 
+**Indexing state (#97):** Tenant-scoped responses carry an `index_status` object — `{ files_tracked, queue_pending, index_complete }` — sourced from `tracked_files` and the unified queue. When the index is incomplete a `warning` string is set so a zero-match result is not misread as pattern absence (it may be indexing lag).
+
 #### list
 
 List project files and folder structure. Shows only indexed files (excludes gitignored, node_modules, etc).

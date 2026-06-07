@@ -303,10 +303,13 @@ impl GrpcServer {
         }
         if let Some(search_db) = self.search_db.take() {
             tracing::info!("Registering TextSearchService gRPC endpoint");
+            let mut text_search_svc = TextSearchServiceImpl::new(search_db);
+            // State pool enables tenant index_status in responses (#97).
+            if let Some(pool) = self.db_pool.clone() {
+                text_search_svc = text_search_svc.with_state_pool(pool);
+            }
             router = router.add_service(InterceptedService::new(
-                proto::text_search_service_server::TextSearchServiceServer::new(
-                    TextSearchServiceImpl::new(search_db),
-                ),
+                proto::text_search_service_server::TextSearchServiceServer::new(text_search_svc),
                 auth_fn.clone(),
             ));
         }

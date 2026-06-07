@@ -54,6 +54,7 @@ fn empty_response() -> TextSearchResponse {
         total_matches: 0,
         truncated: false,
         query_time_ms: 1,
+        index_status: None,
     }
 }
 
@@ -339,6 +340,7 @@ async fn matches_mapped_correctly() {
         total_matches: 1,
         truncated: false,
         query_time_ms: 3,
+        index_status: None,
     };
     let input = GrepInput {
         pattern: "fn main".to_string(),
@@ -366,6 +368,7 @@ async fn context_lines_mapped() {
         total_matches: 1,
         truncated: false,
         query_time_ms: 1,
+        index_status: None,
     };
     let input = GrepInput {
         pattern: "body".to_string(),
@@ -388,6 +391,7 @@ async fn total_matches_and_truncated_forwarded() {
         total_matches: 500,
         truncated: true,
         query_time_ms: 2,
+        index_status: None,
     };
     let input = GrepInput {
         pattern: "x".to_string(),
@@ -490,4 +494,77 @@ fn from_args_all_fields() {
     assert_eq!(input.max_results, 50);
     assert_eq!(input.branch.as_deref(), Some("main"));
     assert_eq!(input.project_id.as_deref(), Some("proj-abc"));
+}
+
+// ---------------------------------------------------------------------------
+// Index status / indexing-lag warning (#97)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn index_status_incomplete_sets_warning() {
+    let mut resp = empty_response();
+    resp.index_status = Some(crate::proto::TextIndexStatus {
+        files_tracked: 1,
+        queue_pending: 19,
+        index_complete: false,
+    });
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        ..Default::default()
+    };
+    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let parsed = parse_response(&r);
+    assert!(parsed.success);
+    let status = parsed.index_status.expect("index_status present");
+    assert_eq!(status.files_tracked, 1);
+    assert_eq!(status.queue_pending, 19);
+    assert!(!status.index_complete);
+    let warning = parsed.warning.expect("warning present");
+    assert!(
+        warning.contains("19 item(s) still queued"),
+        "warning should carry pending count: {warning}"
+    );
+}
+
+#[tokio::test]
+async fn index_status_complete_no_warning() {
+    let mut resp = empty_response();
+    resp.index_status = Some(crate::proto::TextIndexStatus {
+        files_tracked: 20,
+        queue_pending: 0,
+        index_complete: true,
+    });
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        ..Default::default()
+    };
+    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let parsed = parse_response(&r);
+    assert!(parsed.success);
+    let status = parsed.index_status.expect("index_status present");
+    assert!(status.index_complete);
+    assert!(parsed.warning.is_none(), "no warning when index complete");
+}
+
+#[tokio::test]
+async fn index_status_absent_omits_fields() {
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        ..Default::default()
+    };
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let text = result_text(&r);
+    assert!(
+        !text.contains("index_status") && !text.contains("warning"),
+        "absent status must serialize to nothing: {text}"
+    );
 }

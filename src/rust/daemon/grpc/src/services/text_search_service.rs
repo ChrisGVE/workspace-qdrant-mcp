@@ -21,8 +21,8 @@ use workspace_qdrant_core::text_search::{
 use workspace_qdrant_core::SearchDbManager;
 
 use crate::proto::{
-    text_search_service_server::TextSearchService, TextSearchCountResponse, TextSearchMatch,
-    TextSearchRequest, TextSearchResponse,
+    text_search_service_server::TextSearchService, TextIndexStatus, TextSearchCountResponse,
+    TextSearchMatch, TextSearchRequest, TextSearchResponse,
 };
 
 /// Cache TTL — entries older than this are evicted on access.
@@ -77,6 +77,9 @@ struct CacheEntry {
 pub struct TextSearchServiceImpl {
     search_db: Arc<SearchDbManager>,
     cache: Mutex<HashMap<CacheKey, CacheEntry>>,
+    /// State-DB pool for tenant indexing status (#97). Optional: when absent,
+    /// responses simply omit `index_status`.
+    state_pool: Option<sqlx::SqlitePool>,
 }
 
 impl TextSearchServiceImpl {
@@ -85,7 +88,52 @@ impl TextSearchServiceImpl {
         Self {
             search_db,
             cache: Mutex::new(HashMap::new()),
+            state_pool: None,
         }
+    }
+
+    /// Attach the state-DB pool so responses can report tenant indexing
+    /// status (#97).
+    pub fn with_state_pool(mut self, pool: sqlx::SqlitePool) -> Self {
+        self.state_pool = Some(pool);
+        self
+    }
+
+    /// Tenant indexing state for a tenant-scoped request (#97).
+    ///
+    /// Returns `None` when the request has no tenant filter, no state pool is
+    /// attached, or the queries fail (status is best-effort — a search must
+    /// never fail because the status lookup did).
+    async fn tenant_index_status(&self, tenant_id: Option<&str>) -> Option<TextIndexStatus> {
+        let tenant = tenant_id.filter(|t| !t.is_empty())?;
+        let pool = self.state_pool.as_ref()?;
+
+        let files_tracked: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tracked_files tf \
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+             WHERE wf.tenant_id = ?1",
+        )
+        .bind(tenant)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| debug!("index_status: tracked_files count failed: {e}"))
+        .ok()?;
+
+        let queue_pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM unified_queue \
+             WHERE tenant_id = ?1 AND status IN ('pending', 'in_progress')",
+        )
+        .bind(tenant)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| debug!("index_status: unified_queue count failed: {e}"))
+        .ok()?;
+
+        Some(TextIndexStatus {
+            files_tracked: files_tracked.max(0) as u64,
+            queue_pending: queue_pending.max(0) as u64,
+            index_complete: queue_pending == 0,
+        })
     }
 
     /// Convert a gRPC request into SearchOptions
@@ -239,6 +287,10 @@ impl TextSearchService for TextSearchServiceImpl {
             .apply_max_results_and_context(results, &req, &options)
             .await;
 
+        // Tenant indexing state (#97): lets callers distinguish "pattern
+        // absent" from "files not indexed yet" on zero-match responses.
+        let index_status = self.tenant_index_status(req.tenant_id.as_deref()).await;
+
         let query_time_ms = start.elapsed().as_millis() as i64;
 
         info!(
@@ -251,6 +303,7 @@ impl TextSearchService for TextSearchServiceImpl {
             total_matches,
             truncated,
             query_time_ms,
+            index_status,
         }))
     }
 

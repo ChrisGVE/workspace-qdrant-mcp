@@ -167,6 +167,22 @@ pub struct GrepResponse {
     pub latency_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Tenant indexing state (#97); present for tenant-scoped requests when
+    /// the daemon reports it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_status: Option<GrepIndexStatus>,
+    /// Set when the index is incomplete: results (including zero matches) may
+    /// reflect indexing lag rather than pattern absence (#97).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// Tenant indexing state attached to grep responses (#97).
+#[derive(Debug, Serialize, serde::Deserialize)]
+pub struct GrepIndexStatus {
+    pub files_tracked: u64,
+    pub queue_pending: u64,
+    pub index_complete: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +209,8 @@ fn grep_error(message: String, latency_ms: u64) -> GrepResponse {
         truncated: false,
         latency_ms,
         message: Some(message),
+        index_status: None,
+        warning: None,
     }
 }
 
@@ -259,6 +277,23 @@ where
     match daemon.text_search(request).await {
         Ok(resp) => {
             let matches: Vec<GrepMatch> = resp.matches.into_iter().map(map_match).collect();
+            // Indexing state (#97): surface a warning when items are still
+            // queued so a zero-match result is not misread as pattern absence.
+            let index_status = resp.index_status.map(|s| GrepIndexStatus {
+                files_tracked: s.files_tracked,
+                queue_pending: s.queue_pending,
+                index_complete: s.index_complete,
+            });
+            let warning = index_status
+                .as_ref()
+                .filter(|s| !s.index_complete)
+                .map(|s| {
+                    format!(
+                        "Index incomplete for this project: {} item(s) still queued — \
+                         results may reflect indexing lag rather than pattern absence",
+                        s.queue_pending
+                    )
+                });
             let response = GrepResponse {
                 success: true,
                 matches,
@@ -266,6 +301,8 @@ where
                 truncated: resp.truncated,
                 latency_ms: elapsed_ms(start),
                 message: None,
+                index_status,
+                warning,
             };
             ok_text(&response)
         }

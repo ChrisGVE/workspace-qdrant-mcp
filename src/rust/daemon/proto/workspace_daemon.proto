@@ -633,6 +633,17 @@ message TextSearchResponse {
     int32 total_matches = 2;                      // Total matches found
     bool truncated = 3;                           // Whether results were truncated
     int64 query_time_ms = 4;                      // Query execution time in ms
+    optional TextIndexStatus index_status = 5;    // Tenant indexing state (#97); set when the
+                                                  // request was tenant-scoped and state is known
+}
+
+// Indexing state for the tenant a text search was scoped to (#97).
+// Lets callers distinguish "pattern absent" from "files not indexed yet":
+// a zero-match response with queue_pending > 0 may be indexing lag.
+message TextIndexStatus {
+    uint64 files_tracked = 1;                     // tracked_files rows for the tenant
+    uint64 queue_pending = 2;                     // pending/in_progress unified_queue items for the tenant
+    bool index_complete = 3;                      // queue_pending == 0
 }
 
 // TextSearch CountMatches Response

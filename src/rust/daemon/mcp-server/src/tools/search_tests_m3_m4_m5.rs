@@ -240,6 +240,7 @@ impl ExactSearchDaemon for ExactStubEmptyContext {
             total_matches: self.matches.len() as i32,
             truncated: false,
             query_time_ms: 0,
+            index_status: None,
         })
     }
 }
@@ -371,6 +372,7 @@ impl ExactSearchDaemon for CapturingExactDaemon {
             total_matches: 0,
             truncated: false,
             query_time_ms: 0,
+            index_status: None,
         })
     }
 }
@@ -461,6 +463,7 @@ impl ExactSearchDaemon for TenantCapturingExactDaemon {
             total_matches: 0,
             truncated: false,
             query_time_ms: 0,
+            index_status: None,
         })
     }
 }
