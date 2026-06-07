@@ -34,6 +34,9 @@ pub struct ReconcileStats {
     /// Orphaned code_lines rows pruned (files with no file_metadata AND no
     /// tracked_files row).
     pub orphaned_lines_pruned: u64,
+    /// Tracked files flagged `needs_reconcile` because they have no
+    /// file_metadata row in search.db — invisible to FTS grep (#110).
+    pub unindexed_flagged: u64,
     /// Errors encountered (non-fatal; sweep continues).
     pub errors: u64,
 }
@@ -139,6 +142,17 @@ pub async fn reconcile_stale_branches(
                 stats.errors += 1;
             }
         }
+
+        // Integrity pass (#110): tracked files with no file_metadata row are
+        // invisible to every FTS grep even though state.db says they were
+        // processed. Flag them for the regular needs_reconcile repair path.
+        match flag_unindexed_tracked_files(pool, sdb.pool()).await {
+            Ok(flagged) => stats.unindexed_flagged = flagged,
+            Err(e) => {
+                warn!("Branch reconcile: unindexed-file flag pass failed: {}", e);
+                stats.errors += 1;
+            }
+        }
     }
 
     stats
@@ -215,6 +229,84 @@ async fn prune_orphaned_code_lines(
         );
     }
     Ok(pruned_lines)
+}
+
+/// Reason recorded on tracked_files rows flagged by the integrity pass (#110).
+const MISSING_INDEX_REASON: &str = "missing_search_index";
+
+/// Flag tracked files that have NO file_metadata row in search.db (#110).
+///
+/// Such files are invisible to every FTS grep — scoped or not — even though
+/// state.db records them as processed (observed live: 160 files in one
+/// tenant, all stamped by a single 2026-06-02 batch event). Setting
+/// `needs_reconcile = 1` routes them through the regular reconcile repair
+/// path, which re-enqueues an ingest and clears the flag when the queue item
+/// completes (F-020).
+///
+/// Skipped (would churn every sweep, or owned by another repair path):
+/// - files larger than the FTS5 hard cap — absent from search.db by design;
+/// - files no longer on disk — the recovery delete path owns those;
+/// - files with `chunk_count = 0` — never produced indexable content;
+/// - files already flagged.
+async fn flag_unindexed_tracked_files(
+    state_pool: &SqlitePool,
+    search_pool: &SqlitePool,
+) -> Result<u64, String> {
+    let indexed: std::collections::HashSet<i64> =
+        sqlx::query_scalar("SELECT DISTINCT file_id FROM file_metadata")
+            .fetch_all(search_pool)
+            .await
+            .map_err(|e| format!("file_metadata id listing: {}", e))?
+            .into_iter()
+            .collect();
+
+    let candidates: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT tf.file_id, tf.relative_path, wf.path \
+         FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.collection = 'projects' AND tf.needs_reconcile = 0 AND tf.chunk_count > 0",
+    )
+    .fetch_all(state_pool)
+    .await
+    .map_err(|e| format!("tracked_files candidate query: {}", e))?;
+
+    let hard_cap = crate::fts_batch_processor::FtsBatchConfig::default().hard_cap_bytes as u64;
+    let now = wqm_common::timestamps::now_utc();
+    let mut flagged = 0u64;
+    for (file_id, relative_path, base_path) in candidates {
+        if indexed.contains(&file_id) {
+            continue;
+        }
+        let abs = Path::new(&base_path).join(&relative_path);
+        match std::fs::metadata(&abs) {
+            Ok(m) if m.len() <= hard_cap => {}
+            _ => continue,
+        }
+        sqlx::query(
+            "UPDATE tracked_files \
+             SET needs_reconcile = 1, reconcile_reason = ?1, updated_at = ?2 \
+             WHERE file_id = ?3",
+        )
+        .bind(MISSING_INDEX_REASON)
+        .bind(&now)
+        .bind(file_id)
+        .execute(state_pool)
+        .await
+        .map_err(|e| format!("flag update for file_id={}: {}", file_id, e))?;
+        debug!(
+            "Branch reconcile: flagged unindexed tracked file_id={} ({})",
+            file_id, relative_path
+        );
+        flagged += 1;
+    }
+
+    if flagged > 0 {
+        info!(
+            "Branch reconcile: flagged {} tracked file(s) missing from search.db \
+             FTS for reconciliation (#110)",
+            flagged
+        );
+    }
+    Ok(flagged)
 }
 
 /// Union of branches recorded for this watch folder in state.db
@@ -389,6 +481,117 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(live_hits, 1);
+    }
+
+    /// State-db shape for the unindexed-flag pass: only the columns the
+    /// candidate query and the flag UPDATE touch.
+    async fn setup_state_for_flag_pass(pool: &SqlitePool, base_path: &str) {
+        sqlx::query(
+            "CREATE TABLE watch_folders (
+                 watch_id TEXT PRIMARY KEY,
+                 collection TEXT NOT NULL,
+                 path TEXT NOT NULL
+             )",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE tracked_files (
+                 file_id INTEGER PRIMARY KEY,
+                 watch_folder_id TEXT NOT NULL,
+                 relative_path TEXT NOT NULL,
+                 chunk_count INTEGER NOT NULL DEFAULT 0,
+                 needs_reconcile INTEGER NOT NULL DEFAULT 0,
+                 reconcile_reason TEXT,
+                 updated_at TEXT
+             )",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, collection, path) VALUES ('w1', 'projects', ?1)",
+        )
+        .bind(base_path)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_tracked(
+        pool: &SqlitePool,
+        file_id: i64,
+        relative_path: &str,
+        chunk_count: i64,
+        needs_reconcile: i64,
+    ) {
+        sqlx::query(
+            "INSERT INTO tracked_files \
+             (file_id, watch_folder_id, relative_path, chunk_count, needs_reconcile) \
+             VALUES (?1, 'w1', ?2, ?3, ?4)",
+        )
+        .bind(file_id)
+        .bind(relative_path)
+        .bind(chunk_count)
+        .bind(needs_reconcile)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn reconcile_state(pool: &SqlitePool, file_id: i64) -> (i64, Option<String>) {
+        sqlx::query_as(
+            "SELECT needs_reconcile, reconcile_reason FROM tracked_files WHERE file_id = ?1",
+        )
+        .bind(file_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn flag_pass_flags_only_live_unindexed_files() {
+        let state = mem_pool().await;
+        let search = mem_pool().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let base = dir.path().to_string_lossy().to_string();
+        setup_state_for_flag_pass(&state, &base).await;
+        setup_search(&search).await;
+
+        // file 1: tracked, on disk, NOT in file_metadata → flag
+        std::fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
+        insert_tracked(&state, 1, "a.rs", 3, 0).await;
+        // file 2: tracked, on disk, present in file_metadata → keep
+        std::fs::write(dir.path().join("b.rs"), "fn b() {}").unwrap();
+        insert_tracked(&state, 2, "b.rs", 3, 0).await;
+        sqlx::query(
+            "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
+             VALUES (2, 't1', 'main', '/p/b.rs')",
+        )
+        .execute(&search)
+        .await
+        .unwrap();
+        // file 3: tracked, unindexed, but GONE from disk → delete path owns it
+        insert_tracked(&state, 3, "gone.rs", 3, 0).await;
+        // file 4: tracked, unindexed, but never chunked → keep
+        std::fs::write(dir.path().join("empty.rs"), "").unwrap();
+        insert_tracked(&state, 4, "empty.rs", 0, 0).await;
+        // file 5: already flagged → untouched (reason must NOT be overwritten)
+        std::fs::write(dir.path().join("c.rs"), "fn c() {}").unwrap();
+        insert_tracked(&state, 5, "c.rs", 3, 1).await;
+
+        let flagged = flag_unindexed_tracked_files(&state, &search).await.unwrap();
+        assert_eq!(flagged, 1);
+
+        let (f1, r1) = reconcile_state(&state, 1).await;
+        assert_eq!(f1, 1);
+        assert_eq!(r1.as_deref(), Some(MISSING_INDEX_REASON));
+        for (file_id, want_flag) in [(2, 0), (3, 0), (4, 0), (5, 1)] {
+            let (flag, reason) = reconcile_state(&state, file_id).await;
+            assert_eq!(flag, want_flag, "file_id={file_id}");
+            assert!(reason.is_none(), "file_id={file_id} reason: {reason:?}");
+        }
     }
 
     #[test]

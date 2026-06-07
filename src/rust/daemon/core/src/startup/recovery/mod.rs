@@ -368,6 +368,18 @@ async fn process_tracked_file(
     0
 }
 
+/// Re-enqueue every tracked file currently flagged `needs_reconcile = 1`,
+/// outside the startup path.
+///
+/// Used by the daily branch-reconcile sweep after its missing-FTS integrity
+/// pass (#110) so repairs do not wait for the next daemon restart. Returns
+/// `(reconciled, errors)`.
+pub async fn requeue_flagged_files(pool: &SqlitePool, queue_manager: &QueueManager) -> (u64, u64) {
+    let mut stats = FullRecoveryStats::default();
+    reconcile_flagged_files(pool, queue_manager, &mut stats).await;
+    (stats.reconciled, stats.reconcile_errors)
+}
+
 /// Test-only re-export of `reconcile_flagged_files` so that integration tests
 /// in the reconciliation module can drive it directly without going through the
 /// full `run_startup_recovery` path.

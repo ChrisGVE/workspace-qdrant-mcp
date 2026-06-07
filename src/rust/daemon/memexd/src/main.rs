@@ -507,6 +507,7 @@ const BRANCH_RECONCILE_INTERVAL_SECS: u64 = 24 * 3600;
 /// consumer uses (local + remote existence re-checked before any deletion).
 fn spawn_branch_reconciliation(uqp: &workspace_qdrant_core::UnifiedQueueProcessor) {
     let pool = uqp.pool().clone();
+    let queue_manager = uqp.queue_manager().clone();
     let branch_ctx = workspace_qdrant_core::branch_switch::BranchUpdateContext {
         storage_client: Arc::clone(uqp.storage_client()),
         search_db: uqp.search_db().cloned(),
@@ -521,15 +522,34 @@ fn spawn_branch_reconciliation(uqp: &workspace_qdrant_core::UnifiedQueueProcesso
             let stats =
                 workspace_qdrant_core::branch_cleanup::reconcile_stale_branches(&pool, &branch_ctx)
                     .await;
-            if stats.branches_pruned > 0 || stats.orphaned_lines_pruned > 0 || stats.errors > 0 {
+            if stats.branches_pruned > 0
+                || stats.orphaned_lines_pruned > 0
+                || stats.unindexed_flagged > 0
+                || stats.errors > 0
+            {
                 info!(
                     "Branch reconcile sweep: {} folders checked, {} branches pruned, \
-                     {} skipped, {} orphaned lines pruned, {} errors",
+                     {} skipped, {} orphaned lines pruned, {} unindexed flagged, {} errors",
                     stats.folders_checked,
                     stats.branches_pruned,
                     stats.branches_skipped,
                     stats.orphaned_lines_pruned,
+                    stats.unindexed_flagged,
                     stats.errors
+                );
+            }
+            // Repair flagged files now (#110) instead of waiting for the next
+            // daemon restart's startup recovery to pick them up.
+            if stats.unindexed_flagged > 0 {
+                let (reconciled, errors) =
+                    workspace_qdrant_core::startup::recovery::requeue_flagged_files(
+                        &pool,
+                        &queue_manager,
+                    )
+                    .await;
+                info!(
+                    "Branch reconcile sweep: re-enqueued {} flagged file(s) ({} errors)",
+                    reconciled, errors
                 );
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(
