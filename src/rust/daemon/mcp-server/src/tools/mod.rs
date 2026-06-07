@@ -47,6 +47,7 @@ pub mod rules;
 pub mod search;
 mod session_init;
 pub mod store;
+pub(crate) mod target_branch;
 #[cfg(test)]
 mod tests;
 

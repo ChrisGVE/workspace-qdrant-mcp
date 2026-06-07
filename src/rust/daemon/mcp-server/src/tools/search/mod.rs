@@ -90,8 +90,26 @@ pub async fn search_tool(
         Err(e) => return error_text(&e),
     };
 
-    let current_branch = session.current_branch.as_deref();
-    let mut opts = SearchOptions::from_input(input, current_branch);
+    // Branch default (#99): an explicit cross-project projectId must not
+    // inherit the SESSION's branch — that belongs to a different repository
+    // and silently empties results. Resolve the TARGET project's branch
+    // (short sync SQLite lock, dropped before any await).
+    let default_branch = if crate::tools::target_branch::is_cross_project(
+        input.project_id.as_deref(),
+        session.project_id.as_deref(),
+    ) {
+        let guard = state.lock();
+        let conn = guard.connection();
+        input.project_id.as_deref().and_then(|pid| {
+            let wf = crate::sqlite::project_queries::get_watch_folder_id_by_tenant(conn, pid)?;
+            let path = crate::sqlite::project_queries::get_project_by_id(conn, pid)
+                .map(|p| p.project_path);
+            crate::tools::target_branch::resolve_cross_project_branch(conn, &wf, path.as_deref())
+        })
+    } else {
+        session.current_branch.clone()
+    };
+    let mut opts = SearchOptions::from_input(input, default_branch.as_deref());
     let project_id = resolve_project_id(&opts, session, state);
     // Thread the resolved project_id (which includes the session fallback) back
     // into opts so that exact search (which reads opts.project_id directly) also

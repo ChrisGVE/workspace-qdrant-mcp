@@ -288,7 +288,7 @@ fn load_components(
 /// Build the `ListTrackedFilesOptions` filter struct from the tool input.
 fn build_file_query_opts(
     input: &ListInput,
-    state: &SessionState,
+    default_branch: Option<&str>,
     watch_folder_id: &str,
     base_path: &str,
     component_base_paths: Option<Vec<String>>,
@@ -322,8 +322,10 @@ fn build_file_query_opts(
             opts.component_base_paths = Some(paths);
         }
     }
-    // "*" means all branches — omit filter entirely.
-    let branch = input.branch.as_deref().or(state.current_branch.as_deref());
+    // "*" means all branches — omit filter entirely. `default_branch` is the
+    // session branch for same-project calls, or the TARGET project's branch
+    // for explicit cross-project calls (#99).
+    let branch = input.branch.as_deref().or(default_branch);
     if let Some(br) = branch {
         if br != "*" {
             opts.branch = Some(br.to_string());
@@ -437,9 +439,27 @@ pub fn list_tool(
     let page_size = input.page_size.unwrap_or(limit).clamp(1, MAX_LIMIT);
     let after_path = input.cursor.as_deref().and_then(decode_cursor);
 
+    // Branch default (#99): an explicit cross-project projectId must not
+    // inherit the SESSION's branch — that belongs to a different repository
+    // and silently empties results. Resolve the TARGET project's branch.
+    let cross_project_branch;
+    let default_branch = if crate::tools::target_branch::is_cross_project(
+        input.project_id.as_deref(),
+        state.project_id.as_deref(),
+    ) {
+        cross_project_branch = crate::tools::target_branch::resolve_cross_project_branch(
+            conn,
+            &ids.watch_folder_id,
+            ids.project_path.as_deref(),
+        );
+        cross_project_branch.as_deref()
+    } else {
+        state.current_branch.as_deref()
+    };
+
     let mut opts = build_file_query_opts(
         &input,
-        state,
+        default_branch,
         &ids.watch_folder_id,
         &base_path,
         component_base_paths,

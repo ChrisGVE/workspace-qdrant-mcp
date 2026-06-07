@@ -111,8 +111,11 @@ fn has_project_marker(dir: &Path) -> bool {
 /// Detect the current git branch for a project root.
 ///
 /// Algorithm:
-///   1. Locate `.git/HEAD` inside `project_root`.
-///   2. If `ref: refs/heads/<name>` → return `<name>`.
+///   1. Locate `.git` inside `project_root`. When it is a FILE (submodule /
+///      linked-worktree checkout) follow its `gitdir: <path>` pointer to the
+///      real git directory (#99 — submodule checkouts like
+///      `~/.config/main-docker` resolved to `"default"` without this).
+///   2. Read `HEAD`; `ref: refs/heads/<name>` → return `<name>`.
 ///   3. If a bare 40-char SHA (detached HEAD) → return first 8 chars.
 ///   4. Otherwise → return `"default"`.
 ///
@@ -121,7 +124,28 @@ fn has_project_marker(dir: &Path) -> bool {
 /// Mirrors `detectCurrentBranch` in `git-branch.ts`.
 pub fn detect_branch(project_root: &Path) -> String {
     let git_root = find_git_root(project_root).unwrap_or_else(|| project_root.to_path_buf());
-    let head_path = git_root.join(".git").join("HEAD");
+    let dot_git = git_root.join(".git");
+
+    let git_dir = if dot_git.is_file() {
+        match fs::read_to_string(&dot_git) {
+            Ok(content) => match content.trim().strip_prefix("gitdir:") {
+                Some(target) => {
+                    let target = Path::new(target.trim());
+                    if target.is_absolute() {
+                        target.to_path_buf()
+                    } else {
+                        git_root.join(target)
+                    }
+                }
+                None => return "default".to_string(),
+            },
+            Err(_) => return "default".to_string(),
+        }
+    } else {
+        dot_git
+    };
+
+    let head_path = git_dir.join("HEAD");
 
     let content = match fs::read_to_string(&head_path) {
         Ok(c) => c.trim().to_string(),
@@ -270,6 +294,47 @@ mod tests {
     fn detect_branch_no_git_is_default() {
         let dir = tmp("branch_no_git");
         fs::create_dir_all(&dir).unwrap();
+        assert_eq!(detect_branch(&dir), "default");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #99: submodule / linked-worktree checkouts have a `.git` FILE with a
+    /// `gitdir:` pointer — detect_branch must follow it (relative form).
+    #[test]
+    fn detect_branch_follows_gitfile_pointer() {
+        let dir = tmp("branch_gitfile");
+        // super/.git/modules/sub holds the real git dir.
+        let modules = dir.join(".git").join("modules").join("sub");
+        fs::create_dir_all(&modules).unwrap();
+        fs::write(modules.join("HEAD"), "ref: refs/heads/feature-y\n").unwrap();
+        // super/sub/.git is a gitfile pointing back into the superproject.
+        let sub = dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join(".git"), "gitdir: ../.git/modules/sub\n").unwrap();
+        assert_eq!(detect_branch(&sub), "feature-y");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #99: absolute `gitdir:` pointers (linked worktrees) are honoured too.
+    #[test]
+    fn detect_branch_follows_absolute_gitfile_pointer() {
+        let dir = tmp("branch_gitfile_abs");
+        let real = dir.join("real-gitdir");
+        fs::create_dir_all(&real).unwrap();
+        fs::write(real.join("HEAD"), "ref: refs/heads/wt-branch\n").unwrap();
+        let wt = dir.join("worktree");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(wt.join(".git"), format!("gitdir: {}\n", real.display())).unwrap();
+        assert_eq!(detect_branch(&wt), "wt-branch");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A malformed `.git` file (no `gitdir:` prefix) degrades to "default".
+    #[test]
+    fn detect_branch_malformed_gitfile_is_default() {
+        let dir = tmp("branch_gitfile_bad");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(".git"), "not a gitdir pointer\n").unwrap();
         assert_eq!(detect_branch(&dir), "default");
         let _ = fs::remove_dir_all(&dir);
     }
