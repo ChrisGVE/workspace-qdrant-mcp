@@ -19,6 +19,9 @@ impl DaemonClient {
     /// path/URL metacharacters, requires an https pinned source, and verifies the
     /// checksum before any compile/dlopen — invalid requests return `Err(Status)`
     /// with `InvalidArgument` / `FailedPrecondition`.
+    ///
+    /// Uses the 120 s `installGrammar` timeout budget (download + compile take
+    /// well over the 5 s default — see #98 and [`super::timeouts`]).
     pub async fn install_grammar(
         &mut self,
         language: String,

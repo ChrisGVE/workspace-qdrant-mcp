@@ -8,7 +8,8 @@
 //! Resolution order (matches TS exactly):
 //! 1. `override_timeout` — caller-supplied one-shot ceiling.
 //! 2. `method_name` is exactly `"search"` → 10 s (2× default).
-//! 3. Default 5 s.
+//! 3. `method_name` is exactly `"installGrammar"` → 120 s (download + compile, #98).
+//! 4. Default 5 s.
 //!
 //! The TS `getMethodTimeout` uses an exact equality check
 //! (`methodName === 'search'`), NOT a substring match — so wire names that
@@ -39,6 +40,14 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Timeout for search operations: 10 seconds (2× default, matches TS `search` override).
 pub const SEARCH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Timeout for grammar installation: 120 seconds (#98).
+///
+/// `installGrammar` downloads a tarball and runs a `cc` compile + dlopen on the
+/// daemon side — typically ~7 s, but slow networks or grammars with large
+/// `scanner.cc` files can take tens of seconds. The 5 s default produced false
+/// "Failed to install" reports while the daemon-side install succeeded.
+pub const INSTALL_GRAMMAR_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Resolve the effective timeout for a gRPC call.
 ///
 /// # Arguments
@@ -55,6 +64,10 @@ pub fn resolve_timeout(method_name: &str, override_timeout: Option<Duration>) ->
     // matches (e.g. "resolveSearchScope") must NOT be promoted to 10 s.
     if method_name == "search" {
         return SEARCH_TIMEOUT;
+    }
+    // Grammar install does real work (download + cc compile) — see #98.
+    if method_name == "installGrammar" {
+        return INSTALL_GRAMMAR_TIMEOUT;
     }
     DEFAULT_TIMEOUT
 }
@@ -110,6 +123,34 @@ mod tests {
             resolve_timeout("AdvancedSEARCHQuery", None),
             DEFAULT_TIMEOUT
         );
+    }
+
+    // ── installGrammar gets 120 s (#98) ──────────────────────────────────────
+
+    #[test]
+    fn install_grammar_gets_120s() {
+        let d = resolve_timeout("installGrammar", None);
+        assert_eq!(d, INSTALL_GRAMMAR_TIMEOUT);
+        assert_eq!(d, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn install_grammar_is_exact_match_only() {
+        // Only the exact wire name is promoted; near-misses stay at default.
+        assert_eq!(resolve_timeout("InstallGrammar", None), DEFAULT_TIMEOUT);
+        assert_eq!(resolve_timeout("installGrammars", None), DEFAULT_TIMEOUT);
+    }
+
+    #[test]
+    fn override_beats_install_grammar() {
+        let d = resolve_timeout("installGrammar", Some(Duration::from_secs(1)));
+        assert_eq!(d, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn remove_grammar_stays_default() {
+        // removeGrammar is a local file delete — no long budget needed.
+        assert_eq!(resolve_timeout("removeGrammar", None), DEFAULT_TIMEOUT);
     }
 
     // ── non-search methods get 5 s ───────────────────────────────────────────
