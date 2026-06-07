@@ -179,6 +179,125 @@ async fn test_affected_files_orphan_detection() {
     assert!(shared.base_point.as_deref() == Some("bp2"));
 }
 
+// ── search.db: file_metadata + orphaned code_lines pruning (#102) ──
+
+async fn setup_search_tables(pool: &SqlitePool) {
+    sqlx::query(crate::code_lines_schema::CREATE_FILE_METADATA_V7_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(crate::code_lines_schema::CREATE_CODE_LINES_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(crate::code_lines_schema::CREATE_CODE_LINES_FTS_SQL)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn insert_metadata(pool: &SqlitePool, file_id: i64, tenant: &str, branch: &str) {
+    sqlx::query(
+        "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
+         VALUES (?1, ?2, ?3, '/p/f.rs')",
+    )
+    .bind(file_id)
+    .bind(tenant)
+    .bind(branch)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn insert_line(pool: &SqlitePool, file_id: i64, seq: f64, content: &str) {
+    let line_id: i64 = sqlx::query_scalar(
+        "INSERT INTO code_lines (file_id, seq, content, line_number)
+         VALUES (?1, ?2, ?3, 1) RETURNING line_id",
+    )
+    .bind(file_id)
+    .bind(seq)
+    .bind(content)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(crate::code_lines_schema::FTS5_INSERT_ROW_SQL)
+        .bind(line_id)
+        .bind(content)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_delete_file_metadata_for_branch_prunes_orphaned_code_lines() {
+    let pool = create_test_pool().await;
+    setup_search_tables(&pool).await;
+
+    // file 1: only on the deleted branch → fully orphaned
+    insert_metadata(&pool, 1, "t1", "feature").await;
+    insert_line(&pool, 1, 1000.0, "orphan line").await;
+    // file 2: on both branches → code_lines must survive
+    insert_metadata(&pool, 2, "t1", "feature").await;
+    insert_metadata(&pool, 2, "t1", "main").await;
+    insert_line(&pool, 2, 1000.0, "shared line").await;
+
+    db::delete_file_metadata_for_branch(&pool, "t1", "feature").await;
+
+    let branch_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE branch = 'feature'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(branch_rows, 0, "feature rows pruned");
+
+    let orphan_lines: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(orphan_lines, 0, "orphaned code_lines pruned");
+
+    let shared_lines: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM code_lines WHERE file_id = 2")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(shared_lines, 1, "shared file's code_lines survive");
+
+    // FTS5 index no longer matches the orphaned content.
+    let fts_hits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM code_lines_fts WHERE code_lines_fts MATCH '\"orphan line\"'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(fts_hits, 0, "FTS5 entry removed with the orphaned line");
+
+    let fts_shared: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM code_lines_fts WHERE code_lines_fts MATCH '\"shared line\"'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(fts_shared, 1, "shared FTS5 entry survives");
+}
+
+#[tokio::test]
+async fn test_delete_file_metadata_for_branch_scoped_to_tenant() {
+    let pool = create_test_pool().await;
+    setup_search_tables(&pool).await;
+
+    insert_metadata(&pool, 1, "t1", "feature").await;
+    insert_metadata(&pool, 2, "t2", "feature").await;
+
+    db::delete_file_metadata_for_branch(&pool, "t1", "feature").await;
+
+    let t2_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE tenant_id = 't2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(t2_rows, 1, "other tenant's rows untouched");
+}
+
 #[test]
 fn test_cleanup_result_default() {
     let result = super::BranchCleanupResult::default();

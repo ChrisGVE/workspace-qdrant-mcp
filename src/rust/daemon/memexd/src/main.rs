@@ -295,6 +295,7 @@ async fn start_watchers_and_hierarchy(
     let watch_manager = start_file_watchers(qc, watch_refresh_signal).await;
     spawn_git_event_consumer(&qc.unified_queue_processor, &watch_manager);
     spawn_branch_event_consumer(&qc.unified_queue_processor, &watch_manager);
+    spawn_branch_reconciliation(&qc.unified_queue_processor);
     let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
     let _hierarchy_handle =
         Arc::clone(&qc.hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
@@ -487,6 +488,55 @@ async fn handle_branch_lifecycle_event(
             );
         }
     }
+}
+
+/// Delay before the first stale-branch reconciliation sweep, leaving startup
+/// recovery and initial queue bursts room to settle.
+const BRANCH_RECONCILE_STARTUP_DELAY_SECS: u64 = 300;
+
+/// Interval between periodic stale-branch reconciliation sweeps.
+const BRANCH_RECONCILE_INTERVAL_SECS: u64 = 24 * 3600;
+
+/// Spawn the stale-branch reconciliation sweep (#102).
+///
+/// Branch deletions that happen while the daemon is down never reach the
+/// lifecycle event consumer, leaving stale rows in `tracked_files.branches[]`
+/// and search.db `file_metadata` (each of which duplicates grep matches).
+/// This task sweeps once shortly after startup and then daily, routing every
+/// stale branch through the same `cleanup_deleted_branch` path the live
+/// consumer uses (local + remote existence re-checked before any deletion).
+fn spawn_branch_reconciliation(uqp: &workspace_qdrant_core::UnifiedQueueProcessor) {
+    let pool = uqp.pool().clone();
+    let branch_ctx = workspace_qdrant_core::branch_switch::BranchUpdateContext {
+        storage_client: Arc::clone(uqp.storage_client()),
+        search_db: uqp.search_db().cloned(),
+        branch_locks: Arc::clone(uqp.branch_locks()),
+    };
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(
+            BRANCH_RECONCILE_STARTUP_DELAY_SECS,
+        ))
+        .await;
+        loop {
+            let stats =
+                workspace_qdrant_core::branch_cleanup::reconcile_stale_branches(&pool, &branch_ctx)
+                    .await;
+            if stats.branches_pruned > 0 || stats.errors > 0 {
+                info!(
+                    "Branch reconcile sweep: {} folders checked, {} branches pruned, \
+                     {} skipped, {} errors",
+                    stats.folders_checked,
+                    stats.branches_pruned,
+                    stats.branches_skipped,
+                    stats.errors
+                );
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(
+                BRANCH_RECONCILE_INTERVAL_SECS,
+            ))
+            .await;
+        }
+    });
 }
 
 /// Spawn bootstrap hierarchy rebuild if tags exist but canonical_tags is empty.

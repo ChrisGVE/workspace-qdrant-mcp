@@ -312,33 +312,117 @@ pub async fn has_other_base_point_references(
     count > 0
 }
 
-/// Delete file_metadata rows for the deleted branch.
+/// Delete file_metadata rows for the deleted branch and prune orphaned
+/// code_lines (#102).
+///
+/// A file whose LAST file_metadata row is removed becomes unreachable by
+/// every scoped FTS query, but its code_lines (and FTS5 entries) would keep
+/// matching unscoped queries with stale content. One transaction: collect the
+/// branch's file_ids, drop the branch rows, then for each file left with no
+/// file_metadata at all, delete its FTS5 entries incrementally (external
+/// content table — needs the old content) and its code_lines.
 pub async fn delete_file_metadata_for_branch(
     search_pool: &SqlitePool,
     tenant_id: &str,
     branch: &str,
 ) {
-    let result = sqlx::query("DELETE FROM file_metadata WHERE tenant_id = ?1 AND branch = ?2")
-        .bind(tenant_id)
-        .bind(branch)
-        .execute(search_pool)
-        .await;
-
-    match result {
-        Ok(r) => {
-            if r.rows_affected() > 0 {
-                tracing::info!(
-                    "Deleted {} file_metadata rows for branch '{}'",
-                    r.rows_affected(),
-                    branch
-                );
-            }
-        }
+    let mut tx = match search_pool.begin().await {
+        Ok(tx) => tx,
         Err(e) => {
             warn!(
-                "Failed to delete file_metadata for branch '{}': {}",
+                "Failed to begin file_metadata cleanup for branch '{}': {}",
                 branch, e
             );
+            return;
         }
+    };
+
+    let file_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT DISTINCT file_id FROM file_metadata WHERE tenant_id = ?1 AND branch = ?2",
+    )
+    .bind(tenant_id)
+    .bind(branch)
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap_or_default();
+
+    let deleted_rows =
+        match sqlx::query("DELETE FROM file_metadata WHERE tenant_id = ?1 AND branch = ?2")
+            .bind(tenant_id)
+            .bind(branch)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(r) => r.rows_affected(),
+            Err(e) => {
+                warn!(
+                    "Failed to delete file_metadata for branch '{}': {}",
+                    branch, e
+                );
+                return; // tx dropped — rollback
+            }
+        };
+
+    let mut orphaned_lines = 0u64;
+    for file_id in &file_ids {
+        let remaining: i64 =
+            match sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_one(&mut *tx)
+                .await
+            {
+                Ok(n) => n,
+                Err(e) => {
+                    warn!("Orphan check failed for file_id={}: {}", file_id, e);
+                    continue;
+                }
+            };
+        if remaining > 0 {
+            continue;
+        }
+
+        // External-content FTS5: remove index entries incrementally before
+        // the content rows (mirrors FtsBatchProcessor::delete_file).
+        let old_rows: Vec<(i64, String)> =
+            sqlx::query_as("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
+                .bind(file_id)
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap_or_default();
+        for (line_id, old_content) in &old_rows {
+            if let Err(e) = sqlx::query(crate::code_lines_schema::FTS5_DELETE_ROW_SQL)
+                .bind(*line_id)
+                .bind(old_content.as_str())
+                .execute(&mut *tx)
+                .await
+            {
+                warn!("FTS5 delete failed for line_id={}: {}", line_id, e);
+            }
+        }
+        match sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
+            .bind(file_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(r) => orphaned_lines += r.rows_affected(),
+            Err(e) => warn!("Failed to delete code_lines for file_id={}: {}", file_id, e),
+        }
+    }
+
+    if let Err(e) = tx.commit().await {
+        warn!(
+            "Failed to commit file_metadata cleanup for branch '{}': {}",
+            branch, e
+        );
+        return;
+    }
+
+    if deleted_rows > 0 || orphaned_lines > 0 {
+        tracing::info!(
+            "Deleted {} file_metadata rows for branch '{}' ({} orphaned code_lines pruned)",
+            deleted_rows,
+            branch,
+            orphaned_lines
+        );
     }
 }

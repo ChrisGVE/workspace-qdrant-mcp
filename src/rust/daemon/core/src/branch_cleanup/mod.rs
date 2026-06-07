@@ -6,9 +6,12 @@
 //! fully deleted (orphaned content).
 
 mod db;
+mod reconcile;
 
 #[cfg(test)]
 mod tests;
+
+pub use reconcile::{reconcile_stale_branches, ReconcileStats};
 
 use std::path::Path;
 
@@ -253,9 +256,16 @@ pub async fn cleanup_deleted_branch(
 
     if affected.is_empty() {
         debug!(
-            "No tracked files reference branch '{}', nothing to clean up",
+            "No tracked files reference branch '{}', nothing to clean up in state.db",
             deleted_branch
         );
+        // Still prune search.db: file_metadata rows for this branch can
+        // outlive tracked_files references (e.g. an earlier cleanup that ran
+        // without a search_db handle). Leaving them makes every unfiltered
+        // FTS query emit one duplicate match per stale branch row (#102).
+        if let Some(ref sdb) = branch_ctx.search_db {
+            db::delete_file_metadata_for_branch(sdb.pool(), tenant_id, deleted_branch).await;
+        }
         return BranchCleanupResult::default();
     }
 
