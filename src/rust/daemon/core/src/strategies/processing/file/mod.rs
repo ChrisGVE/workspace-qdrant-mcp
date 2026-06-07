@@ -229,8 +229,11 @@ impl FileStrategy {
         // Content-hash dedup: if identical content already exists under a
         // different branch, skip embedding and just add this branch.
         // Only applies to Add operations (Update already handles hash comparison
-        // in prepare_update, and Uplift intentionally re-processes).
-        if item.op == QueueOperation::Add {
+        // in prepare_update, and Uplift intentionally re-processes). Forced
+        // re-ingests (needs_reconcile repairs, #110) bypass dedup: its
+        // branch-already-present early return assumes stored state is intact,
+        // which is exactly what the repair is rebuilding.
+        if item.op == QueueOperation::Add && !force_reingest(item) {
             if let Some(()) = dedup::try_dedup(
                 ctx,
                 item,
@@ -359,7 +362,7 @@ async fn handle_missing_file(
 /// True when the queue item's metadata carries `"force_reingest": true` —
 /// set by reconcile-driven enqueues (`needs_reconcile` repairs, #110) whose
 /// whole purpose is rebuilding stored state for content that did not change.
-fn force_reingest(item: &UnifiedQueueItem) -> bool {
+pub(super) fn force_reingest(item: &UnifiedQueueItem) -> bool {
     item.metadata
         .as_deref()
         .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())

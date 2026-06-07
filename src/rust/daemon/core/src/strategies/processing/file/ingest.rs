@@ -84,20 +84,25 @@ pub(crate) async fn ingest_file_content(
     }
 
     // === CONTENT-HASH DEDUP CHECK ===
-    // If identical content exists at same path for another branch, skip embedding.
-    if let Some(()) = super::dedup::try_dedup(
-        ctx,
-        item,
-        pool,
-        file_path,
-        watch_folder_id,
-        relative_path,
-        abs_file_path,
-        &detected_branch,
-    )
-    .await?
-    {
-        return Ok(());
+    // If identical content exists at same path for another branch, skip
+    // embedding. Forced re-ingests (needs_reconcile repairs, #110) bypass
+    // dedup: its branch-already-present early return assumes stored state is
+    // intact, which is exactly what the repair is rebuilding.
+    if !super::force_reingest(item) {
+        if let Some(()) = super::dedup::try_dedup(
+            ctx,
+            item,
+            pool,
+            file_path,
+            watch_folder_id,
+            relative_path,
+            abs_file_path,
+            &detected_branch,
+        )
+        .await?
+        {
+            return Ok(());
+        }
     }
 
     // Mark qdrant status as in_progress
