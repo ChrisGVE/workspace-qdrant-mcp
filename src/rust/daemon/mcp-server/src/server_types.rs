@@ -258,6 +258,13 @@ pub struct SessionState {
     /// Used as the default branch filter for search and list tools.
     /// `None` when not inside a git repository.
     pub current_branch: Option<String>,
+    /// Client workspace root resolved via MCP `roots/list` (#97).
+    ///
+    /// In stdio mode the server process cwd is the *client launch* cwd, which
+    /// need not match the conversation's working directory. When the client
+    /// advertises the `roots` capability, the first root is stored here and
+    /// preferred over `std::env::current_dir()` for project detection.
+    pub client_cwd: Option<PathBuf>,
 }
 
 impl SessionState {
@@ -273,6 +280,7 @@ impl SessionState {
             cleaned: false,
             initialized: false,
             current_branch: None,
+            client_cwd: None,
         }
     }
 

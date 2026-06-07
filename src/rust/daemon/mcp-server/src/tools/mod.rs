@@ -61,7 +61,7 @@ use rmcp::{
         CallToolRequestParams, CallToolResult, ErrorData, Implementation, InitializeRequestParams,
         InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
     },
-    service::RequestContext,
+    service::{NotificationContext, RequestContext},
     RoleServer,
 };
 
@@ -259,6 +259,55 @@ impl ServerHandler for ToolsHandler {
         .await;
 
         Ok(self.get_info())
+    }
+
+    /// Resolve the client's workspace root via `roots/list` once the client
+    /// confirms initialization (#97).
+    ///
+    /// In stdio mode the process cwd used by `initialize` is the *client
+    /// launch* cwd, which need not match the conversation's working directory
+    /// — so the launch-cwd detection can miss the project entirely. When the
+    /// client advertises the `roots` capability, fetch its first root in a
+    /// detached task (the `initialized` notification handler must not block)
+    /// and re-bind the session project if it resolves differently.
+    async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
+        let has_roots_cap = context
+            .peer
+            .peer_info()
+            .map(|info| info.capabilities.roots.is_some())
+            .unwrap_or(false);
+        if !has_roots_cap {
+            tracing::debug!("Client does not advertise roots capability; keeping launch cwd");
+            return;
+        }
+
+        let peer = context.peer.clone();
+        let state = Arc::clone(&self.state);
+        let session = Arc::clone(&self.session);
+        let daemon = Arc::clone(&self.daemon);
+        tokio::spawn(async move {
+            let result =
+                tokio::time::timeout(std::time::Duration::from_secs(10), peer.list_roots()).await;
+            let roots = match result {
+                Ok(Ok(r)) => r.roots,
+                Ok(Err(e)) => {
+                    tracing::debug!("roots/list failed: {e}; keeping launch cwd");
+                    return;
+                }
+                Err(_) => {
+                    tracing::debug!("roots/list timed out; keeping launch cwd");
+                    return;
+                }
+            };
+            let Some(root_path) = roots
+                .iter()
+                .find_map(|r| session_init::file_uri_to_path(&r.uri))
+            else {
+                tracing::debug!("roots/list returned no usable file:// root");
+                return;
+            };
+            session_init::rebind_session_project(&state, &session, &daemon, root_path).await;
+        });
     }
 
     fn list_tools(

@@ -137,3 +137,203 @@ async fn run_session_initialize_detects_registers_and_starts_heartbeat() {
         "second initialize must not start another heartbeat"
     );
 }
+
+// ---------------------------------------------------------------------------
+// file_uri_to_path (#97)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn file_uri_plain_absolute_path() {
+    assert_eq!(
+        super::file_uri_to_path("file:///Users/x/proj"),
+        Some(std::path::PathBuf::from("/Users/x/proj"))
+    );
+}
+
+#[test]
+fn file_uri_percent_encoded_space() {
+    assert_eq!(
+        super::file_uri_to_path("file:///Users/x/My%20Project"),
+        Some(std::path::PathBuf::from("/Users/x/My Project"))
+    );
+}
+
+#[test]
+fn file_uri_with_authority_host() {
+    assert_eq!(
+        super::file_uri_to_path("file://localhost/var/data"),
+        Some(std::path::PathBuf::from("/var/data"))
+    );
+}
+
+#[test]
+fn file_uri_rejects_non_file_schemes() {
+    assert_eq!(super::file_uri_to_path("https://example.com/x"), None);
+    assert_eq!(super::file_uri_to_path("vscode-remote://wsl/home"), None);
+}
+
+#[test]
+fn file_uri_invalid_escape_passes_through() {
+    assert_eq!(
+        super::file_uri_to_path("file:///a/%zz"),
+        Some(std::path::PathBuf::from("/a/%zz"))
+    );
+}
+
+// ---------------------------------------------------------------------------
+// rebind_session_project (#97)
+// ---------------------------------------------------------------------------
+
+/// Launch-cwd detection found nothing; the client root resolves to a
+/// registered project → session must be re-bound and registered.
+#[tokio::test]
+async fn rebind_binds_project_when_initial_detection_missed() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let root = dir.path().join("conv-root");
+    std::fs::create_dir_all(&root).unwrap();
+
+    let db_path = dir.path().join("state.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE watch_folders (
+             tenant_id TEXT NOT NULL,
+             path TEXT NOT NULL,
+             collection TEXT NOT NULL DEFAULT 'projects'
+         )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_ROOT', ?1, 'projects')",
+        rusqlite::params![root.to_str().unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let register_calls = Arc::new(AtomicU32::new(0));
+    let state = Arc::new(SharedStateManager::new(StateManager::open_at(&db_path)));
+    let session = Arc::new(Mutex::new(SessionState::new()));
+    {
+        // Simulate a completed initialize that found NO project but did
+        // connect the daemon.
+        let mut s = session.lock().await;
+        s.initialized = true;
+        s.daemon_connected = true;
+    }
+    let daemon = Arc::new(Mutex::new(CountingDaemon {
+        register_calls: Arc::clone(&register_calls),
+        heartbeat_calls: Arc::new(AtomicU32::new(0)),
+    }));
+
+    super::rebind_session_project(&state, &session, &daemon, root.clone()).await;
+
+    let s = session.lock().await;
+    assert_eq!(s.client_cwd.as_deref(), Some(root.as_path()));
+    assert_eq!(
+        s.project_id.as_deref(),
+        Some("T_ROOT"),
+        "rebind must adopt the root-detected project"
+    );
+    assert_eq!(s.project_path.as_deref(), Some(root.as_path()));
+    assert_eq!(
+        register_calls.load(Ordering::SeqCst),
+        1,
+        "rebind must register the newly detected project"
+    );
+}
+
+/// The client root resolves to NO registered project → existing binding kept,
+/// client_cwd still recorded.
+#[tokio::test]
+async fn rebind_keeps_existing_binding_when_root_unknown() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let unknown_root = dir.path().join("unknown");
+    std::fs::create_dir_all(&unknown_root).unwrap();
+
+    let db_path = dir.path().join("state.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE watch_folders (
+             tenant_id TEXT NOT NULL,
+             path TEXT NOT NULL,
+             collection TEXT NOT NULL DEFAULT 'projects'
+         )",
+    )
+    .unwrap();
+    drop(conn);
+
+    let register_calls = Arc::new(AtomicU32::new(0));
+    let state = Arc::new(SharedStateManager::new(StateManager::open_at(&db_path)));
+    let session = Arc::new(Mutex::new(SessionState::new()));
+    {
+        let mut s = session.lock().await;
+        s.initialized = true;
+        s.daemon_connected = true;
+        s.project_id = Some("T_EXISTING".to_string());
+        s.project_path = Some(std::path::PathBuf::from("/elsewhere"));
+    }
+    let daemon = Arc::new(Mutex::new(CountingDaemon {
+        register_calls: Arc::clone(&register_calls),
+        heartbeat_calls: Arc::new(AtomicU32::new(0)),
+    }));
+
+    super::rebind_session_project(&state, &session, &daemon, unknown_root.clone()).await;
+
+    let s = session.lock().await;
+    assert_eq!(
+        s.project_id.as_deref(),
+        Some("T_EXISTING"),
+        "unknown root must not clear an existing binding"
+    );
+    assert_eq!(s.client_cwd.as_deref(), Some(unknown_root.as_path()));
+    assert_eq!(register_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Root resolves to the SAME project the session already has → no re-register.
+#[tokio::test]
+async fn rebind_same_project_is_noop() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let root = dir.path().join("same");
+    std::fs::create_dir_all(&root).unwrap();
+
+    let db_path = dir.path().join("state.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE watch_folders (
+             tenant_id TEXT NOT NULL,
+             path TEXT NOT NULL,
+             collection TEXT NOT NULL DEFAULT 'projects'
+         )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO watch_folders (tenant_id, path, collection) VALUES ('T_SAME', ?1, 'projects')",
+        rusqlite::params![root.to_str().unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let register_calls = Arc::new(AtomicU32::new(0));
+    let state = Arc::new(SharedStateManager::new(StateManager::open_at(&db_path)));
+    let session = Arc::new(Mutex::new(SessionState::new()));
+    {
+        let mut s = session.lock().await;
+        s.initialized = true;
+        s.daemon_connected = true;
+        s.project_id = Some("T_SAME".to_string());
+        s.project_path = Some(root.clone());
+    }
+    let daemon = Arc::new(Mutex::new(CountingDaemon {
+        register_calls: Arc::clone(&register_calls),
+        heartbeat_calls: Arc::new(AtomicU32::new(0)),
+    }));
+
+    super::rebind_session_project(&state, &session, &daemon, root.clone()).await;
+
+    let s = session.lock().await;
+    assert_eq!(s.project_id.as_deref(), Some("T_SAME"));
+    assert_eq!(
+        register_calls.load(Ordering::SeqCst),
+        0,
+        "identical project must not re-register"
+    );
+}

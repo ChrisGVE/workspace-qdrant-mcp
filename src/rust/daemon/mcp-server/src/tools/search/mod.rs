@@ -102,7 +102,14 @@ pub async fn search_tool(
     // Pre-compute expansion keywords + base points synchronously BEFORE any
     // `.await`. Both read SQLite under a short lock that is dropped before the
     // first await — no `&Connection` ever crosses an await (SharedStateManager).
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    // Prefer the client-reported workspace root over process cwd (#97): in
+    // stdio mode the process cwd is the client LAUNCH cwd, not necessarily
+    // the conversation's working directory.
+    let cwd = session
+        .client_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
     let (expansion_keywords, base_points, bp_degraded, bp_active) = {
         let guard = state.lock();
         let conn = guard.connection();
@@ -219,7 +226,7 @@ fn resolve_project_id(
     if let Some(p) = session.project_id.clone().and_then(non_blank) {
         return Some(p);
     }
-    detect_project_id_from_cwd(state)
+    detect_project_id_from_cwd(state, session)
 }
 
 /// Detect the current project's tenant id from the process working directory.
@@ -237,8 +244,15 @@ fn resolve_project_id(
 /// skip past a deeper registered project and resolve the wrong (ancestor)
 /// tenant. The longest-prefix SQL already resolves subdirectories correctly —
 /// see the `resolve_cwd_project_id_*` tests.
-fn detect_project_id_from_cwd(state: &SharedStateManager) -> Option<String> {
-    let cwd = std::env::current_dir().ok()?;
+fn detect_project_id_from_cwd(
+    state: &SharedStateManager,
+    session: &SessionState,
+) -> Option<String> {
+    // Client-reported workspace root wins over process cwd (#97).
+    let cwd = session
+        .client_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok())?;
     resolve_cwd_project_id_locked(&cwd, state)
 }
 
