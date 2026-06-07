@@ -317,32 +317,25 @@ pub async fn has_other_base_point_references(
 ///
 /// A file whose LAST file_metadata row is removed becomes unreachable by
 /// every scoped FTS query, but its code_lines (and FTS5 entries) would keep
-/// matching unscoped queries with stale content. One transaction: collect the
-/// branch's file_ids, drop the branch rows, then for each file left with no
-/// file_metadata at all, delete its FTS5 entries incrementally (external
-/// content table — needs the old content) and its code_lines.
+/// matching unscoped queries with stale content.
+///
+/// Transactions are deliberately SHORT — one for the branch rows, then one
+/// per orphaned file — because FTS5 'delete' entries are expensive on a large
+/// trigram index and search.db has a single writer: one branch-wide
+/// transaction was measured holding the write lock for minutes, stalling all
+/// ingestion. If interrupted between transactions, leftover orphaned
+/// code_lines are reclaimed by the reconcile sweep's orphan pass.
 pub async fn delete_file_metadata_for_branch(
     search_pool: &SqlitePool,
     tenant_id: &str,
     branch: &str,
 ) {
-    let mut tx = match search_pool.begin().await {
-        Ok(tx) => tx,
-        Err(e) => {
-            warn!(
-                "Failed to begin file_metadata cleanup for branch '{}': {}",
-                branch, e
-            );
-            return;
-        }
-    };
-
     let file_ids: Vec<i64> = sqlx::query_scalar(
         "SELECT DISTINCT file_id FROM file_metadata WHERE tenant_id = ?1 AND branch = ?2",
     )
     .bind(tenant_id)
     .bind(branch)
-    .fetch_all(&mut *tx)
+    .fetch_all(search_pool)
     .await
     .unwrap_or_default();
 
@@ -350,7 +343,7 @@ pub async fn delete_file_metadata_for_branch(
         match sqlx::query("DELETE FROM file_metadata WHERE tenant_id = ?1 AND branch = ?2")
             .bind(tenant_id)
             .bind(branch)
-            .execute(&mut *tx)
+            .execute(search_pool)
             .await
         {
             Ok(r) => r.rows_affected(),
@@ -359,62 +352,19 @@ pub async fn delete_file_metadata_for_branch(
                     "Failed to delete file_metadata for branch '{}': {}",
                     branch, e
                 );
-                return; // tx dropped — rollback
+                return;
             }
         };
 
     let mut orphaned_lines = 0u64;
     for file_id in &file_ids {
-        let remaining: i64 =
-            match sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_one(&mut *tx)
-                .await
-            {
-                Ok(n) => n,
-                Err(e) => {
-                    warn!("Orphan check failed for file_id={}: {}", file_id, e);
-                    continue;
-                }
-            };
-        if remaining > 0 {
-            continue;
+        match delete_code_lines_if_orphaned(search_pool, *file_id).await {
+            Ok(n) => orphaned_lines += n,
+            Err(e) => warn!(
+                "Orphan prune failed for file_id={} (branch '{}'): {}",
+                file_id, branch, e
+            ),
         }
-
-        // External-content FTS5: remove index entries incrementally before
-        // the content rows (mirrors FtsBatchProcessor::delete_file).
-        let old_rows: Vec<(i64, String)> =
-            sqlx::query_as("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_all(&mut *tx)
-                .await
-                .unwrap_or_default();
-        for (line_id, old_content) in &old_rows {
-            if let Err(e) = sqlx::query(crate::code_lines_schema::FTS5_DELETE_ROW_SQL)
-                .bind(*line_id)
-                .bind(old_content.as_str())
-                .execute(&mut *tx)
-                .await
-            {
-                warn!("FTS5 delete failed for line_id={}: {}", line_id, e);
-            }
-        }
-        match sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
-            .bind(file_id)
-            .execute(&mut *tx)
-            .await
-        {
-            Ok(r) => orphaned_lines += r.rows_affected(),
-            Err(e) => warn!("Failed to delete code_lines for file_id={}: {}", file_id, e),
-        }
-    }
-
-    if let Err(e) = tx.commit().await {
-        warn!(
-            "Failed to commit file_metadata cleanup for branch '{}': {}",
-            branch, e
-        );
-        return;
     }
 
     if deleted_rows > 0 || orphaned_lines > 0 {
@@ -425,4 +375,48 @@ pub async fn delete_file_metadata_for_branch(
             orphaned_lines
         );
     }
+}
+
+/// Delete one file's code_lines (and FTS5 index entries) iff the file has no
+/// file_metadata rows left. One short transaction per file (#102).
+///
+/// The FTS5 'delete' entries are issued as a single set-based INSERT..SELECT
+/// instead of one statement per row.
+pub async fn delete_code_lines_if_orphaned(
+    search_pool: &SqlitePool,
+    file_id: i64,
+) -> Result<u64, String> {
+    let mut tx = search_pool
+        .begin()
+        .await
+        .map_err(|e| format!("begin: {}", e))?;
+
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM file_metadata WHERE file_id = ?1")
+            .bind(file_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| format!("metadata check: {}", e))?;
+    if remaining > 0 {
+        return Ok(0); // tx dropped — nothing written
+    }
+
+    // External-content FTS5: remove index entries before the content rows.
+    sqlx::query(
+        "INSERT INTO code_lines_fts(code_lines_fts, rowid, content) \
+         SELECT 'delete', line_id, content FROM code_lines WHERE file_id = ?1",
+    )
+    .bind(file_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("fts5 delete: {}", e))?;
+
+    let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
+        .bind(file_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("code_lines delete: {}", e))?;
+
+    tx.commit().await.map_err(|e| format!("commit: {}", e))?;
+    Ok(result.rows_affected())
 }

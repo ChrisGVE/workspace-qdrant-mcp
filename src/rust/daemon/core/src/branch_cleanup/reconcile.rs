@@ -144,8 +144,18 @@ pub async fn reconcile_stale_branches(
     stats
 }
 
+/// Maximum orphaned FILES pruned per sweep run.
+///
+/// FTS5 'delete' entries are expensive on a large trigram index and search.db
+/// has a single writer — an unbounded pass over a large orphan backlog
+/// (57K lines observed live) would stall ingestion for hours. The sweep runs
+/// daily, so a bounded backlog drains across a few runs instead.
+const MAX_ORPHAN_FILES_PER_SWEEP: usize = 50;
+
 /// Delete code_lines (and their FTS5 index entries) for files that have no
 /// file_metadata row in search.db AND no tracked_files row in state.db.
+/// Bounded to [`MAX_ORPHAN_FILES_PER_SWEEP`] files per call; one short
+/// transaction per file so ingestion writes interleave.
 async fn prune_orphaned_code_lines(
     state_pool: &SqlitePool,
     search_pool: &SqlitePool,
@@ -157,10 +167,21 @@ async fn prune_orphaned_code_lines(
     .fetch_all(search_pool)
     .await
     .map_err(|e| format!("orphan candidate query: {}", e))?;
+    let total_candidates = candidates.len();
 
-    let mut pruned = 0u64;
+    let mut pruned_lines = 0u64;
+    let mut pruned_files = 0usize;
     let mut still_tracked = 0u64;
     for file_id in candidates {
+        if pruned_files >= MAX_ORPHAN_FILES_PER_SWEEP {
+            info!(
+                "Branch reconcile: orphan prune capped at {} files this run \
+                 ({} candidates remain for the next sweep)",
+                MAX_ORPHAN_FILES_PER_SWEEP,
+                total_candidates - pruned_files - still_tracked as usize
+            );
+            break;
+        }
         // Cross-database existence check (state.db and search.db are separate
         // pools — no SQL-level join available).
         let tracked: i64 =
@@ -174,37 +195,10 @@ async fn prune_orphaned_code_lines(
             continue;
         }
 
-        let mut tx = search_pool
-            .begin()
+        pruned_lines += super::db::delete_code_lines_if_orphaned(search_pool, file_id)
             .await
-            .map_err(|e| format!("begin orphan prune: {}", e))?;
-        // External-content FTS5: remove index entries incrementally before
-        // the content rows (mirrors FtsBatchProcessor::delete_file).
-        let old_rows: Vec<(i64, String)> =
-            sqlx::query_as("SELECT line_id, content FROM code_lines WHERE file_id = ?1")
-                .bind(file_id)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| format!("orphan line fetch for file_id={}: {}", file_id, e))?;
-        for (line_id, old_content) in &old_rows {
-            if let Err(e) = sqlx::query(crate::code_lines_schema::FTS5_DELETE_ROW_SQL)
-                .bind(*line_id)
-                .bind(old_content.as_str())
-                .execute(&mut *tx)
-                .await
-            {
-                warn!("FTS5 delete failed for line_id={}: {}", line_id, e);
-            }
-        }
-        let result = sqlx::query("DELETE FROM code_lines WHERE file_id = ?1")
-            .bind(file_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("orphan delete for file_id={}: {}", file_id, e))?;
-        tx.commit()
-            .await
-            .map_err(|e| format!("commit orphan prune: {}", e))?;
-        pruned += result.rows_affected();
+            .map_err(|e| format!("orphan prune for file_id={}: {}", file_id, e))?;
+        pruned_files += 1;
     }
 
     if still_tracked > 0 {
@@ -214,10 +208,13 @@ async fn prune_orphaned_code_lines(
             still_tracked
         );
     }
-    if pruned > 0 {
-        info!("Branch reconcile: pruned {} orphaned code_lines", pruned);
+    if pruned_lines > 0 {
+        info!(
+            "Branch reconcile: pruned {} orphaned code_lines across {} files",
+            pruned_lines, pruned_files
+        );
     }
-    Ok(pruned)
+    Ok(pruned_lines)
 }
 
 /// Union of branches recorded for this watch folder in state.db
