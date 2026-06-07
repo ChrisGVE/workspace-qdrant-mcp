@@ -6,6 +6,8 @@
 
 mod delete;
 mod scan;
+#[cfg(test)]
+mod scan_tests;
 mod strategy;
 
 pub use strategy::FolderStrategy;

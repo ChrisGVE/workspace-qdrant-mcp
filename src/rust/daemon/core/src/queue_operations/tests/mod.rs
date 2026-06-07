@@ -18,7 +18,7 @@ mod retry_tests;
 mod stats_cleanup_tests;
 mod validation_tests;
 
-async fn apply_sql_script(pool: &SqlitePool, script: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn apply_sql_script(pool: &SqlitePool, script: &str) -> Result<(), sqlx::Error> {
     let mut conn = pool.acquire().await?;
     let mut statement = String::new();
     let mut in_trigger = false;

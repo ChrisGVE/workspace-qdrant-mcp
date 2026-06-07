@@ -44,7 +44,12 @@ pub(crate) async fn scan_directory_single_level(
     let mut errors = 0u64;
 
     let baseline: Option<SystemTime> = last_scan.and_then(parse_iso8601_to_system_time);
-    let ignore_matcher = ProjectIgnoreMatcher::for_dir(dir_path, None);
+    // Anchor at the watch root so root-level .gitignore/.wqmignore patterns
+    // cascade into every subdirectory scan (#105). Passing `None` here applied
+    // them only when scanning the root itself — subdirectory scans then
+    // enqueued thousands of ignored dirs (session-env scan storm, #103).
+    let ignore_matcher =
+        ProjectIgnoreMatcher::for_dir(dir_path, Some(Path::new(watch_folder_root.as_str())));
 
     let entries = std::fs::read_dir(dir_path).map_err(|e| {
         UnifiedProcessorError::ProcessingFailed(format!(

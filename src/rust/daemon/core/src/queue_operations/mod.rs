@@ -15,7 +15,7 @@ mod update;
 mod validation;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
