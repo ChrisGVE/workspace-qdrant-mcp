@@ -122,12 +122,15 @@ rules({
     content?: string,                  // Rule content (for add/update)
     scope?: "project" | "global",      // default: "project"
     project_id?: string,               // For project-scoped rules (auto-detected if omitted)
+    force?: boolean,                   // Add even when similar rules exist (default: false)
 });
 ```
 
 **Actions:**
 
-- `add`: Create new rule (queued for daemon)
+- `add`: Create new rule (queued for daemon). A similarity gate refuses the
+  add when similar rules exist, returning them in `similar_rules`; after
+  reviewing them, retry with `force: true` to add a genuinely distinct rule.
 - `update`: Update existing rule (queued for daemon)
 - `remove`: Remove rule (queued for daemon)
 - `list`: List rules (implemented as a search query against the rules collection)

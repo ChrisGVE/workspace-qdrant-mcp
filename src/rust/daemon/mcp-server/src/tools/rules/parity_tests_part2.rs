@@ -78,8 +78,8 @@ async fn fix2_duplicate_found_returns_refusal_not_add() {
 }
 
 #[tokio::test]
-async fn fix2_refusal_message_exact_ts_string() {
-    // rules.ts:88: "Found N similar rule(s). Review before adding to avoid duplication."
+async fn fix2_refusal_message_mentions_force_path() {
+    // #104: the refusal must tell the caller how to complete the add.
     let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
     let dups = vec![qdrant_pt("d1", "r1", 0.9), qdrant_pt("d2", "r2", 0.8)];
     let q = PaQdrant::search_ok(dups);
@@ -92,8 +92,48 @@ async fn fix2_refusal_message_exact_ts_string() {
     let j = get_json(&res);
     assert_eq!(
         j["message"].as_str().unwrap(),
-        "Found 2 similar rule(s). Review before adding to avoid duplication."
+        "Found 2 similar rule(s). Review them; if the new rule is distinct, retry with force: true."
     );
+}
+
+/// #104: `force: true` skips the similarity gate so a reviewed-and-distinct
+/// rule can be added even when similar rules exist.
+#[tokio::test]
+async fn force_true_bypasses_dup_gate_and_adds() {
+    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
+    let dup = qdrant_pt("dup-id", "Existing rule", 0.85);
+    let q = PaQdrant::search_ok(vec![dup]);
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({
+        "action": "add", "label": "new", "content": "Similar content",
+        "scope": "global", "force": true
+    })))
+    .unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    assert_eq!(j["success"], json!(true));
+    assert_eq!(j["message"], json!("Rule added successfully"));
+    // Gate skipped entirely: no dup search issued, ingest ran.
+    assert_eq!(q.search_count(), 0);
+    assert_eq!(d.ingest_count(), 1);
+}
+
+/// #104: absent or false `force` keeps the gate (default behavior unchanged).
+#[tokio::test]
+async fn force_false_keeps_dup_gate() {
+    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
+    let dup = qdrant_pt("dup-id", "Existing rule", 0.85);
+    let q = PaQdrant::search_ok(vec![dup]);
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({
+        "action": "add", "label": "new", "content": "Similar content",
+        "scope": "global", "force": false
+    })))
+    .unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    assert_eq!(j["success"], json!(false));
+    assert_eq!(d.ingest_count(), 0);
 }
 
 #[tokio::test]

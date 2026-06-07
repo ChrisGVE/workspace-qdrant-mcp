@@ -71,7 +71,8 @@ where
         rules: None,
         similar_rules: Some(duplicates),
         message: Some(format!(
-            "Found {count} similar rule(s). Review before adding to avoid duplication."
+            "Found {count} similar rule(s). Review them; if the new rule is distinct, \
+             retry with force: true."
         )),
         fallback_mode: None,
         queue_id: None,
@@ -104,17 +105,22 @@ where
     //    the execute() level before delegating to addRule (rules-mutations.ts).
     //    Scope uses the raw input scope so an unresolvable-project add with
     //    duplicates still returns the dup-refusal.
-    if let Some(refusal) = add_dup_refusal(
-        &input,
-        daemon,
-        qdrant,
-        content,
-        session_project_id,
-        duplication_threshold,
-    )
-    .await
-    {
-        return refusal;
+    //    `force: true` skips the gate (#104): a refused add returns
+    //    similar_rules with no other completion path, so the caller
+    //    acknowledges them by retrying with force.
+    if !input.force {
+        if let Some(refusal) = add_dup_refusal(
+            &input,
+            daemon,
+            qdrant,
+            content,
+            session_project_id,
+            duplication_threshold,
+        )
+        .await
+        {
+            return refusal;
+        }
     }
 
     // 3. Label required

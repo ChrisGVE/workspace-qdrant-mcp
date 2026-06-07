@@ -66,6 +66,10 @@ pub struct RulesInput {
     pub priority: Option<i64>,
     /// default 50 — rules-list.ts:109
     pub limit: usize,
+    /// Skip the duplicate-similarity gate on add (#104). The gate offers no
+    /// other completion path: a refused add returns `similar_rules`, and the
+    /// caller acknowledges them by retrying with `force: true`.
+    pub force: bool,
 }
 
 impl RulesInput {
@@ -130,6 +134,8 @@ impl RulesInput {
             .map(|n| n as usize)
             .unwrap_or(50);
 
+        let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+
         Ok(Self {
             action: action.to_string(),
             content,
@@ -140,6 +146,7 @@ impl RulesInput {
             tags,
             priority,
             limit,
+            force,
         })
     }
 }

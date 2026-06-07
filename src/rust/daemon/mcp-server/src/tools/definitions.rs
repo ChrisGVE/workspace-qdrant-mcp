@@ -247,6 +247,13 @@ fn rules_schema() -> Arc<JsonObject> {
         "limit".into(),
         num_prop("Max rules to return for list (default: 50)"),
     );
+    props.insert(
+        "force".into(),
+        bool_prop(
+            "Add the rule even when similar rules exist. Use after reviewing the \
+             similar_rules returned by a refused add and confirming the new rule is distinct.",
+        ),
+    );
 
     let mut schema = Map::new();
     schema.insert("type".into(), Value::String("object".into()));
