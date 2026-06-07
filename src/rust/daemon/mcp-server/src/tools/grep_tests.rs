@@ -98,7 +98,7 @@ async fn empty_pattern_returns_error() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert_eq!(
@@ -131,7 +131,7 @@ async fn empty_pattern_returns_in_band_no_is_error_flag() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     // In-band error — no is_error flag on the CallToolResult
     assert!(r.is_error.is_none());
 }
@@ -148,7 +148,7 @@ async fn empty_pattern_latency_is_zero() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let resp = parse_response(&r);
     assert_eq!(
         resp.latency_ms, 0,
@@ -170,7 +170,7 @@ async fn scope_project_no_project_id_returns_error() {
         project_id: None,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let resp = parse_response(&r);
     assert!(!resp.success);
     assert_eq!(
@@ -189,7 +189,7 @@ async fn scope_project_with_project_id_succeeds() {
         project_id: Some("proj-abc".to_string()),
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
 }
@@ -208,6 +208,7 @@ async fn scope_project_with_session_project_id_succeeds() {
         input,
         &mut OkDaemon(empty_response()),
         Some("session-proj-xyz"),
+        None,
     )
     .await;
     let resp = parse_response(&r);
@@ -224,7 +225,7 @@ async fn scope_all_no_project_id_succeeds() {
         project_id: None,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let resp = parse_response(&r);
     assert!(resp.success);
 }
@@ -247,7 +248,7 @@ async fn request_case_sensitive_defaults_true() {
         max_results: 1000,
         ..Default::default()
     };
-    grep_tool(input, &mut daemon, None).await;
+    grep_tool(input, &mut daemon, None, None).await;
     assert!(daemon.last_request.unwrap().case_sensitive);
 }
 
@@ -265,7 +266,7 @@ async fn request_regex_flag_forwarded() {
         max_results: 1000,
         ..Default::default()
     };
-    grep_tool(input, &mut daemon, None).await;
+    grep_tool(input, &mut daemon, None, None).await;
     assert!(daemon.last_request.unwrap().regex);
 }
 
@@ -283,7 +284,7 @@ async fn request_path_glob_forwarded() {
         path_glob: Some("**/*.rs".to_string()),
         ..Default::default()
     };
-    grep_tool(input, &mut daemon, None).await;
+    grep_tool(input, &mut daemon, None, None).await;
     assert_eq!(
         daemon.last_request.unwrap().path_glob.as_deref(),
         Some("**/*.rs")
@@ -304,7 +305,7 @@ async fn request_tenant_id_set_for_project_scope() {
         project_id: Some("proj-123".to_string()),
         ..Default::default()
     };
-    grep_tool(input, &mut daemon, None).await;
+    grep_tool(input, &mut daemon, None, None).await;
     assert_eq!(
         daemon.last_request.unwrap().tenant_id.as_deref(),
         Some("proj-123")
@@ -325,7 +326,7 @@ async fn request_tenant_id_none_for_all_scope() {
         project_id: Some("proj-ignored".to_string()),
         ..Default::default()
     };
-    grep_tool(input, &mut daemon, None).await;
+    grep_tool(input, &mut daemon, None, None).await;
     assert!(daemon.last_request.unwrap().tenant_id.is_none());
 }
 
@@ -349,7 +350,7 @@ async fn matches_mapped_correctly() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None).await;
     let result = parse_response(&r);
     assert!(result.success);
     assert_eq!(result.matches.len(), 1);
@@ -378,7 +379,7 @@ async fn context_lines_mapped() {
         context_lines: 2,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None).await;
     let result = parse_response(&r);
     assert_eq!(result.matches[0].context_before, vec!["line8", "line9"]);
     assert_eq!(result.matches[0].context_after, vec!["line11"]);
@@ -400,7 +401,7 @@ async fn total_matches_and_truncated_forwarded() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None).await;
     let result = parse_response(&r);
     assert_eq!(result.total_matches, 500);
     assert!(result.truncated);
@@ -423,6 +424,7 @@ async fn daemon_down_returns_grep_failed_message() {
         input,
         &mut ErrDaemon("connection refused".to_string()),
         None,
+        None,
     )
     .await;
     let resp = parse_response(&r);
@@ -444,7 +446,7 @@ async fn daemon_down_matches_is_empty() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut ErrDaemon("timeout".to_string()), None).await;
+    let r = grep_tool(input, &mut ErrDaemon("timeout".to_string()), None, None).await;
     let resp = parse_response(&r);
     assert!(resp.matches.is_empty());
     assert_eq!(resp.total_matches, 0);
@@ -515,7 +517,7 @@ async fn index_status_incomplete_sets_warning() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None).await;
     let parsed = parse_response(&r);
     assert!(parsed.success);
     let status = parsed.index_status.expect("index_status present");
@@ -544,12 +546,118 @@ async fn index_status_complete_no_warning() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(resp), None).await;
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None).await;
     let parsed = parse_response(&r);
     assert!(parsed.success);
     let status = parsed.index_status.expect("index_status present");
     assert!(status.index_complete);
     assert!(parsed.warning.is_none(), "no warning when index complete");
+}
+
+// ---------------------------------------------------------------------------
+// Branch default (#102)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn tenant_scoped_grep_defaults_branch() {
+    // No explicit branch + tenant scope → the session branch is applied,
+    // preventing one-duplicate-per-file_metadata-branch-row matches (#102).
+    let mut daemon = CaptureDaemon {
+        last_request: None,
+        response: empty_response(),
+    };
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "project".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        project_id: Some("proj-abc".to_string()),
+        branch: None,
+        ..Default::default()
+    };
+    grep_tool(input, &mut daemon, None, Some("main".to_string())).await;
+    assert_eq!(daemon.last_request.unwrap().branch.as_deref(), Some("main"));
+}
+
+#[tokio::test]
+async fn explicit_branch_overrides_default() {
+    let mut daemon = CaptureDaemon {
+        last_request: None,
+        response: empty_response(),
+    };
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "project".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        project_id: Some("proj-abc".to_string()),
+        branch: Some("feature/x".to_string()),
+        ..Default::default()
+    };
+    grep_tool(input, &mut daemon, None, Some("main".to_string())).await;
+    assert_eq!(
+        daemon.last_request.unwrap().branch.as_deref(),
+        Some("feature/x")
+    );
+}
+
+#[tokio::test]
+async fn star_branch_opts_into_all_branches() {
+    // "*" must suppress BOTH the explicit value and the default — the daemon
+    // receives no branch filter at all.
+    let mut daemon = CaptureDaemon {
+        last_request: None,
+        response: empty_response(),
+    };
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "project".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        project_id: Some("proj-abc".to_string()),
+        branch: Some("*".to_string()),
+        ..Default::default()
+    };
+    grep_tool(input, &mut daemon, None, Some("main".to_string())).await;
+    assert!(daemon.last_request.unwrap().branch.is_none());
+}
+
+#[tokio::test]
+async fn scope_all_does_not_apply_branch_default() {
+    // The default branch belongs to one repository — applying it across all
+    // projects would wrongly filter every other project's results.
+    let mut daemon = CaptureDaemon {
+        last_request: None,
+        response: empty_response(),
+    };
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        branch: None,
+        ..Default::default()
+    };
+    grep_tool(input, &mut daemon, None, Some("main".to_string())).await;
+    assert!(daemon.last_request.unwrap().branch.is_none());
+}
+
+#[tokio::test]
+async fn scope_all_explicit_branch_still_forwarded() {
+    let mut daemon = CaptureDaemon {
+        last_request: None,
+        response: empty_response(),
+    };
+    let input = GrepInput {
+        pattern: "needle".to_string(),
+        scope: "all".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        branch: Some("dev".to_string()),
+        ..Default::default()
+    };
+    grep_tool(input, &mut daemon, None, None).await;
+    assert_eq!(daemon.last_request.unwrap().branch.as_deref(), Some("dev"));
 }
 
 #[tokio::test]
@@ -561,7 +669,7 @@ async fn index_status_absent_omits_fields() {
         max_results: 1000,
         ..Default::default()
     };
-    let r = grep_tool(input, &mut OkDaemon(empty_response()), None).await;
+    let r = grep_tool(input, &mut OkDaemon(empty_response()), None, None).await;
     let text = result_text(&r);
     assert!(
         !text.contains("index_status") && !text.contains("warning"),

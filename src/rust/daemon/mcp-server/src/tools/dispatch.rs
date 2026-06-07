@@ -256,7 +256,31 @@ async fn route_tool(
         "grep" => {
             let input = GrepInput::from_args(args);
             let session_project_id = ctx.session.project_id.as_deref();
-            grep_tool(input, ctx.daemon, session_project_id).await
+            // Branch default (#102): same resolution as search/list (#99) —
+            // an explicit cross-project projectId must not inherit the
+            // SESSION's branch; resolve the TARGET project's branch instead.
+            // Short sync SQLite lock, dropped before the await below.
+            let default_branch = if crate::tools::target_branch::is_cross_project(
+                input.project_id.as_deref(),
+                session_project_id,
+            ) {
+                let guard = ctx.state.lock();
+                let conn = guard.connection();
+                input.project_id.as_deref().and_then(|pid| {
+                    let wf =
+                        crate::sqlite::project_queries::get_watch_folder_id_by_tenant(conn, pid)?;
+                    let path = crate::sqlite::project_queries::get_project_by_id(conn, pid)
+                        .map(|p| p.project_path);
+                    crate::tools::target_branch::resolve_cross_project_branch(
+                        conn,
+                        &wf,
+                        path.as_deref(),
+                    )
+                })
+            } else {
+                ctx.session.current_branch.clone()
+            };
+            grep_tool(input, ctx.daemon, session_project_id, default_branch).await
         }
         "list" => {
             let input = ListInput::from_args(args);

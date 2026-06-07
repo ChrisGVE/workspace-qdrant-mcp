@@ -223,10 +223,16 @@ fn grep_error(message: String, latency_ms: u64) -> GrepResponse {
 /// Mirrors `GrepTool.grep()` in grep.ts. Always returns a `CallToolResult`;
 /// errors (daemon down, missing pattern) are returned **in-band** with
 /// `success: false`.
+///
+/// `default_branch` is the branch filter applied when the caller did not pass
+/// one explicitly (#102): the session's current branch, or the TARGET
+/// project's branch for explicit cross-project calls (resolved by the
+/// dispatcher, mirroring search/list #99).
 pub async fn grep_tool<D>(
     input: GrepInput,
     daemon: &mut D,
     session_project_id: Option<&str>,
+    default_branch: Option<String>,
 ) -> CallToolResult
 where
     D: GrepDaemon,
@@ -262,6 +268,21 @@ where
         None
     };
 
+    // Branch default (#102): a tenant-scoped grep with no branch filter joins
+    // code_lines × ALL file_metadata branch rows and emits one duplicate match
+    // per branch row. Default to the session/target branch like search/list
+    // (#99). "*" explicitly opts into all branches (no filter sent). The
+    // default is NOT applied for scope "all": it belongs to one repository
+    // and would wrongly filter every other project.
+    let branch = input
+        .branch
+        .or(if tenant_id.is_some() {
+            default_branch
+        } else {
+            None
+        })
+        .filter(|b| b != "*");
+
     let request = TextSearchRequest {
         pattern: input.pattern,
         regex: input.regex,
@@ -269,7 +290,7 @@ where
         context_lines: input.context_lines as i32,
         max_results: input.max_results as i32,
         tenant_id,
-        branch: input.branch,
+        branch,
         path_glob: input.path_glob,
         path_prefix: None,
     };

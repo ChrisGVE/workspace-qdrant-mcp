@@ -344,7 +344,13 @@ fn grep_schema() -> Arc<JsonObject> {
         "maxResults".into(),
         num_prop("Maximum results to return (default: 1000)"),
     );
-    props.insert("branch".into(), str_prop("Filter by branch name"));
+    props.insert(
+        "branch".into(),
+        str_prop(
+            "Filter by branch name. Defaults to the current git branch for \
+             project-scoped searches. Pass \"*\" to search across all branches.",
+        ),
+    );
     props.insert(
         "projectId".into(),
         str_prop("Specific project ID to search"),
