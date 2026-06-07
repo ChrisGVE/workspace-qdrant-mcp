@@ -106,6 +106,8 @@ defined in code but missing from this document.
 | Metric | Type | Labels | Description |
 |---|---|---|---|
 | `wqm_memexd_uptime_seconds` | Gauge | — | Daemon process uptime |
+| `wqm_memexd_process_resident_memory_bytes` | Gauge | — | Current RSS of the memexd process, sampled every second (macOS: mach task_info; Linux: /proc/self/statm). Watch for runaway growth (#103) |
+| `wqm_memexd_process_cpu_percent` | Gauge | — | CPU usage of the memexd process over the 1 s sampling interval (100 = one full core) |
 | `wqm_memexd_ingestion_errors_total` | Counter | `error_type` | Ingestion errors by type |
 | `wqm_memexd_heartbeat_latency_seconds` | Histogram | `project_id` | Heartbeat processing latency |
 
