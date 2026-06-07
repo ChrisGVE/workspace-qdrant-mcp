@@ -7,7 +7,7 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::error;
 
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
-use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::exclusion::should_exclude_file_in_root;
 use crate::queue_operations::QueueError;
 
 use super::error_state::WatchErrorTracker;
@@ -21,17 +21,22 @@ pub(super) async fn should_filter_debounced_event(
     patterns: &Arc<RwLock<CompiledPatterns>>,
 ) -> bool {
     if !matches!(event.event_kind, EventKind::Remove(_)) {
-        if should_exclude_file(&event.path.to_string_lossy()) {
+        let (watch_root, collection_for_check) = {
+            let config_lock = config.read().await;
+            (
+                config_lock.path.to_string_lossy().to_string(),
+                match config_lock.watch_type {
+                    WatchType::Library => "libraries",
+                    WatchType::Project => "projects",
+                }
+                .to_string(),
+            )
+        };
+        // Root-anchored check (#97): hidden components above the watch root
+        // (e.g. `.config` in `~/.config/...`) must not exclude.
+        if should_exclude_file_in_root(&event.path.to_string_lossy(), &watch_root) {
             return true;
         }
-        let collection_for_check = {
-            let config_lock = config.read().await;
-            match config_lock.watch_type {
-                WatchType::Library => "libraries",
-                WatchType::Project => "projects",
-            }
-            .to_string()
-        };
         if matches!(
             allowed_extensions.route_file(&event.path.to_string_lossy(), &collection_for_check, ""),
             FileRoute::Excluded

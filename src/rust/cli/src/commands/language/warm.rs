@@ -122,7 +122,9 @@ fn scan_project_languages(
         .max_depth(10)
         .into_iter()
         .filter_entry(|entry| {
-            if entry.file_type().is_dir() {
+            // depth 0 is the walk root itself — never exclude it (#97):
+            // an explicitly given root named e.g. `.dotfiles` must still scan.
+            if entry.file_type().is_dir() && entry.depth() > 0 {
                 let dir_name = entry.file_name().to_string_lossy();
                 !should_exclude_directory(&dir_name)
             } else {
@@ -137,8 +139,11 @@ fn scan_project_languages(
 
         let file_path = entry.path();
 
-        // Check file exclusion
-        if let Some(path_str) = file_path.to_str() {
+        // Check file exclusion on the root-relative path (#97): hidden
+        // components above the scan root (e.g. `~/.config/...`) must not
+        // exclude files inside an explicitly given project path.
+        let rel = file_path.strip_prefix(path).unwrap_or(file_path);
+        if let Some(path_str) = rel.to_str() {
             if should_exclude_file(path_str) {
                 continue;
             }

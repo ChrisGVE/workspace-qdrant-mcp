@@ -346,7 +346,10 @@ async fn enqueue_library_file(
         .to_string_lossy();
     let abs_path = path.to_string_lossy();
 
-    if should_exclude_file(&rel_path) || should_exclude_file(&abs_path) {
+    // Root-relative check only (#97): checking the absolute path would let
+    // hidden components ABOVE the library root (e.g. `~/.config/...`) exclude
+    // every file of an explicitly registered library.
+    if should_exclude_file(&rel_path) {
         return Ok(FileEnqueueResult::Excluded);
     }
     if !allowed_extensions.is_allowed(&abs_path, &item.collection) {

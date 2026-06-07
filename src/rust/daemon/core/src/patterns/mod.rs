@@ -28,8 +28,8 @@ pub use detection::{
     DetectionResult, DetectorStats, LanguageDetector,
 };
 pub use exclusion::{
-    should_exclude_file, should_exclude_file_with_context, ExclusionCategory, ExclusionEngine,
-    ExclusionResult, ExclusionRule, ExclusionStats,
+    should_exclude_file, should_exclude_file_in_root, should_exclude_file_with_context,
+    ExclusionCategory, ExclusionEngine, ExclusionResult, ExclusionRule, ExclusionStats,
 };
 pub use gitattributes::{GitattributeResult, GitattributesOverrides, SkipReason};
 pub use gitignore::ProjectIgnoreMatcher;

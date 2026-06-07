@@ -203,7 +203,8 @@ fn scan_project_languages(
         .max_depth(10)
         .into_iter()
         .filter_entry(|entry| {
-            if entry.file_type().is_dir() {
+            // depth 0 is the walk root itself -- never exclude it (#97).
+            if entry.file_type().is_dir() && entry.depth() > 0 {
                 let dir_name = entry.file_name().to_string_lossy();
                 !should_exclude_directory(&dir_name)
             } else {

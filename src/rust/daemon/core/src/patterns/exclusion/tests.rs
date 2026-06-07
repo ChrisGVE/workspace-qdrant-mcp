@@ -313,3 +313,98 @@ fn thin_helpers_match_engine_for_file_sample() {
         );
     }
 }
+
+// ── should_exclude_file_in_root (#97) ────────────────────────────────────────
+//
+// Regression: projects registered under a dotted directory (e.g.
+// `~/.config/main-docker`) had every file excluded because the absolute path
+// was fed to the engine and `.config` matched the hidden-component rule.
+
+#[test]
+fn in_root_dot_dir_above_watch_root_not_excluded() {
+    let root = "/Users/x/.config/main-docker";
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/prometheus.yml",
+        root
+    ));
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/provisioning/dashboards/services.json",
+        root
+    ));
+}
+
+#[test]
+fn in_root_hidden_components_inside_root_still_excluded() {
+    let root = "/Users/x/.config/main-docker";
+    assert!(should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/.env",
+        root
+    ));
+    assert!(should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/.git/config",
+        root
+    ));
+    assert!(should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/sub/.hidden/file.txt",
+        root
+    ));
+}
+
+#[test]
+fn in_root_pattern_rules_inside_root_still_apply() {
+    let root = "/Users/x/.config/proj";
+    assert!(should_exclude_file_in_root(
+        "/Users/x/.config/proj/node_modules/pkg/index.js",
+        root
+    ));
+    assert!(should_exclude_file_in_root(
+        "/Users/x/.config/proj/target/debug/app",
+        root
+    ));
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/proj/src/main.rs",
+        root
+    ));
+}
+
+#[test]
+fn in_root_github_whitelist_preserved() {
+    let root = "/Users/x/.config/proj";
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/proj/.github/workflows/ci.yml",
+        root
+    ));
+}
+
+#[test]
+fn in_root_component_boundary_no_partial_strip() {
+    // `/a/b` must not strip against `/a/bc/...` — the remainder would lose
+    // its leading component and bypass exclusion rules.
+    assert!(should_exclude_file_in_root("/a/bc/.git/config", "/a/b"));
+}
+
+#[test]
+fn in_root_path_outside_root_falls_back_to_full_check() {
+    // Not under the root: full-path semantics apply (defensive).
+    assert!(should_exclude_file_in_root(
+        "/elsewhere/.hidden/file.txt",
+        "/Users/x/proj"
+    ));
+    assert!(!should_exclude_file_in_root(
+        "/elsewhere/src/main.rs",
+        "/Users/x/proj"
+    ));
+}
+
+#[test]
+fn in_root_root_itself_never_excluded() {
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/main-docker",
+        "/Users/x/.config/main-docker"
+    ));
+    // Trailing-slash root normalizes.
+    assert!(!should_exclude_file_in_root(
+        "/Users/x/.config/main-docker/compose.yml",
+        "/Users/x/.config/main-docker/"
+    ));
+}

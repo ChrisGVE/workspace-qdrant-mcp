@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::file_classification::classify_file_type;
-use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::exclusion::should_exclude_file_in_root;
 use crate::queue_operations::{QueueError, QueueManager};
 use crate::tracing_gate::{tier_enabled, TraceTier};
 use crate::tracked_files_schema;
@@ -221,7 +221,13 @@ impl FileWatcherQueue {
     ) -> bool {
         if !matches!(event.event_kind, EventKind::Remove(_)) {
             let file_path_str = event.path.to_string_lossy();
-            if should_exclude_file(&file_path_str) {
+            // Root-anchored check (#97): hidden components above the watch
+            // root (e.g. `.config` in `~/.config/...`) must not exclude.
+            let watch_root = {
+                let config_lock = config.read().await;
+                config_lock.path.to_string_lossy().to_string()
+            };
+            if should_exclude_file_in_root(&file_path_str, &watch_root) {
                 let mut count = events_filtered.lock().await;
                 *count += 1;
                 return true;
@@ -331,18 +337,20 @@ impl FileWatcherQueue {
             return;
         }
 
-        if should_exclude_file(&event.path.to_string_lossy()) {
+        let (watch_id, watch_root) = {
+            let c = config.read().await;
+            (c.id.clone(), c.path.to_string_lossy().to_string())
+        };
+
+        // Root-anchored check (#97): components above the watch root must
+        // not trigger exclusion.
+        if should_exclude_file_in_root(&event.path.to_string_lossy(), &watch_root) {
             debug!(
                 "File excluded by exclusion engine, skipping: {}",
                 event.path.display()
             );
             return;
         }
-
-        let watch_id = {
-            let c = config.read().await;
-            c.id.clone()
-        };
 
         if !error_tracker.can_process(&watch_id).await {
             debug!(

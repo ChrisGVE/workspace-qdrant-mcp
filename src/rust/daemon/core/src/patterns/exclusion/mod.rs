@@ -67,6 +67,34 @@ pub fn should_exclude_file(file_path: &str) -> bool {
     }
 }
 
+/// Exclusion check anchored at a watch-folder root (#97).
+///
+/// Strips `watch_root` from `abs_path` and runs the exclusion engine on the
+/// root-relative remainder. Path components **above** the watch root (e.g.
+/// `.config` in `/Users/x/.config/main-docker`) must NOT trigger exclusion:
+/// the user explicitly registered that root, so only content *inside* it is
+/// subject to hidden-component and pattern rules. Passing the absolute path
+/// to [`should_exclude_file`] silently excluded every file of any project
+/// registered under a dotted directory.
+///
+/// Falls back to checking the full path when `abs_path` is not under
+/// `watch_root` (defensive: callers should always pass a descendant).
+pub fn should_exclude_file_in_root(abs_path: &str, watch_root: &str) -> bool {
+    let root = watch_root.trim_end_matches('/');
+    let rel = match abs_path.strip_prefix(root) {
+        // The watch root itself is never excluded.
+        Some("") => return false,
+        // Component-boundary guard: `/a/b` must not strip against `/a/bc/f`.
+        Some(rest) if rest.starts_with('/') => rest.trim_start_matches('/'),
+        _ => abs_path,
+    };
+    if rel.is_empty() {
+        // e.g. abs_path had a trailing slash: still the root itself.
+        return false;
+    }
+    should_exclude_file(rel)
+}
+
 /// Check if a directory should be skipped entirely during filesystem walks.
 ///
 /// Uses the existing exclusion engine by testing if a synthetic file path

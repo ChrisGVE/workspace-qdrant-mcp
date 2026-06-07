@@ -10,7 +10,7 @@ use wqm_common::paths::{CanonicalPath, RelativePath};
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::file_classification::classify_file_type;
-use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file};
+use crate::patterns::exclusion::{should_exclude_directory, should_exclude_file_in_root};
 use crate::patterns::gitignore::ProjectIgnoreMatcher;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
@@ -319,7 +319,9 @@ async fn process_file_entry(
 ) -> u64 {
     let abs_path = path.to_string_lossy();
 
-    if should_exclude_file(&abs_path) {
+    // Root-anchored check (#97): hidden components ABOVE the watch root
+    // (e.g. `.config` in `~/.config/main-docker/...`) must not exclude.
+    if should_exclude_file_in_root(&abs_path, watch_folder_root.as_str()) {
         *files_excluded += 1;
         return 0;
     }
