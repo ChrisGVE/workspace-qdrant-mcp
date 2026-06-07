@@ -404,6 +404,10 @@ impl DaemonMetrics {
         let registry = Registry::new();
         let m = create_all_metrics();
         register_metrics(&registry, &m);
+        // Embedding-provider families live in a process-global handle; wire
+        // them into THIS registry so /metrics and the OTLP bridge export them
+        // (#101 — default_registry() is gathered by nothing).
+        super::embedding_metrics::register_embedding_provider_metrics(&registry);
 
         Self {
             registry,

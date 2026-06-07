@@ -14,10 +14,12 @@
 //! `status_class` label takes one of `2xx`, `4xx`, `5xx`, `error` (transport-
 //! level failure, no HTTP response).
 //!
-//! Metrics are owned by a process-global `EmbeddingProviderMetrics` registered
-//! against `prometheus::default_registry()` on first access. The metrics
-//! server's snapshotter scrapes the same registry, so no additional wiring is
-//! required.
+//! Metrics are owned by a process-global `EmbeddingProviderMetrics`. They are
+//! NOT registered anywhere on first access: `DaemonMetrics::new()` registers
+//! them into its own registry via [`register_embedding_provider_metrics`], so
+//! the `/metrics` endpoint and the OTLP bridge (both of which gather the
+//! `DaemonMetrics` registry) export them (#101 — they were previously
+//! registered to `prometheus::default_registry()`, which nothing gathers).
 
 use once_cell::sync::Lazy;
 use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry};
@@ -34,7 +36,7 @@ pub struct EmbeddingProviderMetrics {
 }
 
 impl EmbeddingProviderMetrics {
-    fn build_and_register(registry: &Registry) -> Self {
+    fn build() -> Self {
         let requests_total = IntCounterVec::new(
             Opts::new(
                 "wqm_memexd_embedding_provider_requests_total",
@@ -61,20 +63,6 @@ impl EmbeddingProviderMetrics {
         )
         .expect("metric can be created");
 
-        // Register; `AlreadyReg` is treated as a no-op so test harnesses that
-        // import this module from multiple binaries don't panic.
-        for collector in [
-            Box::new(requests_total.clone()) as Box<dyn prometheus::core::Collector>,
-            Box::new(rate_limit_waits_total.clone()),
-            Box::new(latency_seconds.clone()),
-        ] {
-            match registry.register(collector) {
-                Ok(()) => {}
-                Err(prometheus::Error::AlreadyReg) => {}
-                Err(e) => panic!("failed to register embedding_provider metric: {e}"),
-            }
-        }
-
         Self {
             requests_total,
             rate_limit_waits_total,
@@ -83,15 +71,36 @@ impl EmbeddingProviderMetrics {
     }
 }
 
-static METRICS: Lazy<EmbeddingProviderMetrics> =
-    Lazy::new(|| EmbeddingProviderMetrics::build_and_register(prometheus::default_registry()));
+static METRICS: Lazy<EmbeddingProviderMetrics> = Lazy::new(EmbeddingProviderMetrics::build);
 
 /// Access the process-global embedding-provider metrics.
 ///
-/// First call lazily registers the three metric families against
-/// `prometheus::default_registry()`. Subsequent calls return the same handle.
+/// The families are unregistered until [`register_embedding_provider_metrics`]
+/// wires them into a registry (done by `DaemonMetrics::new()`); incrementing
+/// them before that is safe — samples accumulate on the shared handles and
+/// appear once registered.
 pub fn embedding_provider_metrics() -> &'static EmbeddingProviderMetrics {
     &METRICS
+}
+
+/// Register the process-global embedding-provider families into `registry`.
+///
+/// Called by `DaemonMetrics::new()` so `/metrics` and the OTLP bridge export
+/// these families (#101). `AlreadyReg` is a no-op: multiple `DaemonMetrics`
+/// instances (test harnesses) may register the same collectors.
+pub fn register_embedding_provider_metrics(registry: &Registry) {
+    let m = embedding_provider_metrics();
+    for collector in [
+        Box::new(m.requests_total.clone()) as Box<dyn prometheus::core::Collector>,
+        Box::new(m.rate_limit_waits_total.clone()),
+        Box::new(m.latency_seconds.clone()),
+    ] {
+        match registry.register(collector) {
+            Ok(()) => {}
+            Err(prometheus::Error::AlreadyReg) => {}
+            Err(e) => panic!("failed to register embedding_provider metric: {e}"),
+        }
+    }
 }
 
 /// Map an HTTP status code or transport error to the bounded `status_class`
@@ -161,6 +170,23 @@ mod tests {
         }
         // FastEmbed label is owned by FastEmbedProvider and asserted in its
         // module's own test (`fastembed.rs`).
+    }
+
+    /// Regression #101: the families must be exported by the registry that
+    /// DaemonMetrics gathers for /metrics — not prometheus::default_registry()
+    /// (which nothing gathers).
+    #[test]
+    fn test_families_exported_via_daemon_metrics_registry() {
+        // Touch a counter so the family has at least one child (vec families
+        // with zero children are omitted from gather()).
+        record_request("openai", "text-embedding-3-small", Some(200), 0.01);
+
+        let daemon_metrics = crate::monitoring::metrics_core::DaemonMetrics::new();
+        let encoded = daemon_metrics.encode().expect("encode succeeds");
+        assert!(
+            encoded.contains("wqm_memexd_embedding_provider_requests_total"),
+            "embedding-provider families must appear on the DaemonMetrics registry"
+        );
     }
 
     #[test]
