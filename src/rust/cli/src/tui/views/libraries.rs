@@ -67,7 +67,7 @@ impl LibraryBrowser {
             self.items.sort_by(|a, b| {
                 b.is_active
                     .cmp(&a.is_active)
-                    .then_with(|| crate::tui::util::natural_cmp(&a.tag, &b.tag))
+                    .then_with(|| crate::tui::util::natural_cmp(&a.name, &b.name))
             });
             if !self.items.is_empty() {
                 self.selected = self.selected.min(self.items.len() - 1);
@@ -128,7 +128,7 @@ impl LibraryBrowser {
             .enumerate()
             .filter(|(_, it)| {
                 self.search
-                    .is_match(&format!("{} {}", it.tag, it.display_path))
+                    .is_match(&format!("{} {} {}", it.name, it.tag, it.display_path))
             })
             .map(|(i, _)| i)
             .collect()
@@ -211,7 +211,7 @@ impl LibraryBrowser {
 
     /// Draw the scrollable table of library items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Tag", "Path", "Status", "Mode", "Docs"])
+        let header = Row::new(vec!["Name", "Path", "Status", "Mode", "Docs"])
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -257,7 +257,7 @@ impl LibraryBrowser {
 
                 // Spans set only fg; the row's background (cursor) shows through.
                 Row::new(vec![
-                    Span::styled(item.tag.clone(), Style::default().fg(Color::Cyan)),
+                    Span::styled(item.name.clone(), Style::default().fg(Color::Cyan)),
                     Span::raw(truncate_path(&item.display_path, path_w)),
                     Span::styled(status, Style::default().fg(status_fg)),
                     Span::raw(item.mode.clone()),
@@ -302,7 +302,15 @@ impl LibraryBrowser {
             "no"
         };
 
+        let name = detail
+            .display_path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or(&detail.tag);
+
         let mut lines = vec![
+            detail_line("Name", name),
             detail_line("Tag", &detail.tag),
             detail_line("Watch ID", &detail.watch_id),
             detail_line("Path", &detail.display_path),
@@ -475,6 +483,7 @@ mod tests {
             .map(|i| LibraryRow {
                 watch_id: format!("lib-tag-{i}"),
                 tag: format!("tag-{i}"),
+                name: format!("lib-{i}"),
                 display_path: format!("/tmp/lib-{i}"),
                 enabled: true,
                 is_active: i % 2 == 0,

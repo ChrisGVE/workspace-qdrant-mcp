@@ -3,6 +3,8 @@
 //! Separated from the view module to keep both files under the 500-line limit
 //! and to allow unit-testing data logic independently from rendering.
 
+use std::collections::HashMap;
+
 use crate::data::db::connect_readonly;
 
 /// A single library row ready for display in the TUI list.
@@ -12,6 +14,9 @@ pub struct LibraryRow {
     pub watch_id: String,
     /// Library tag/name (tenant_id).
     pub tag: String,
+    /// Human-readable display name: the path's base folder, disambiguated as
+    /// `parent/base` when two libraries share a base folder name.
+    pub name: String,
     /// Path with home directory replaced by `~`.
     pub display_path: String,
     /// Whether the library watch is enabled.
@@ -67,13 +72,24 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
         return Vec::new();
     };
 
+    // First pass: collect raw rows so we can disambiguate display names against
+    // the full set of library paths before building the final rows.
+    struct Raw {
+        watch_id: String,
+        tag: String,
+        path: String,
+        enabled: bool,
+        is_active: bool,
+        mode: String,
+        doc_count: u64,
+    }
+
     let Ok(rows) = stmt.query_map([], |row| {
-        let path: String = row.get(2)?;
         let is_active_val: i64 = row.get(4)?;
-        Ok(LibraryRow {
+        Ok(Raw {
             watch_id: row.get(0)?,
             tag: row.get(1)?,
-            display_path: abbreviate_home(&path, &home_dir),
+            path: row.get(2)?,
             enabled: row.get(3)?,
             is_active: is_active_val > 0,
             mode: row.get(5)?,
@@ -83,7 +99,54 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
         return Vec::new();
     };
 
-    rows.flatten().collect()
+    let raws: Vec<Raw> = rows.flatten().collect();
+    let names = library_display_names(&raws.iter().map(|r| r.path.clone()).collect::<Vec<_>>());
+
+    raws.into_iter()
+        .zip(names)
+        .map(|(r, name)| LibraryRow {
+            watch_id: r.watch_id,
+            tag: r.tag,
+            name,
+            display_path: abbreviate_home(&r.path, &home_dir),
+            enabled: r.enabled,
+            is_active: r.is_active,
+            mode: r.mode,
+            doc_count: r.doc_count,
+        })
+        .collect()
+}
+
+/// Split a path into its (optional parent component, base component).
+fn name_parts(path: &str) -> (Option<String>, String) {
+    let trimmed = path.trim_end_matches('/');
+    let mut comps = trimmed.rsplit('/').filter(|s| !s.is_empty());
+    let base = comps.next().unwrap_or(trimmed).to_string();
+    let parent = comps.next().map(|s| s.to_string());
+    (parent, base)
+}
+
+/// Compute display names for a set of library paths: each path's base folder,
+/// disambiguated as `parent/base` when two or more paths share a base name.
+pub fn library_display_names(paths: &[String]) -> Vec<String> {
+    let parts: Vec<(Option<String>, String)> = paths.iter().map(|p| name_parts(p)).collect();
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for (_, base) in &parts {
+        *counts.entry(base.as_str()).or_default() += 1;
+    }
+    parts
+        .iter()
+        .map(|(parent, base)| {
+            if counts.get(base.as_str()).copied().unwrap_or(0) > 1 {
+                match parent {
+                    Some(p) => format!("{p}/{base}"),
+                    None => base.clone(),
+                }
+            } else {
+                base.clone()
+            }
+        })
+        .collect()
 }
 
 /// Fetch full detail for a single library by watch_id.
@@ -202,6 +265,7 @@ mod tests {
         let row = LibraryRow {
             watch_id: "lib-rust-docs".to_string(),
             tag: "rust-docs".to_string(),
+            name: "rust".to_string(),
             display_path: "~/docs/rust".to_string(),
             enabled: true,
             is_active: true,
@@ -211,6 +275,24 @@ mod tests {
         assert_eq!(row.tag, "rust-docs");
         assert_eq!(row.doc_count, 42);
         assert!(row.enabled);
+    }
+
+    #[test]
+    fn display_names_disambiguate_collisions() {
+        let paths = vec![
+            "/home/u/docs/rust".to_string(),
+            "/home/u/refs/rust".to_string(),
+            "/home/u/python".to_string(),
+        ];
+        let names = library_display_names(&paths);
+        // "rust" collides → prefixed with parent; "python" is unique.
+        assert_eq!(names, vec!["docs/rust", "refs/rust", "python"]);
+    }
+
+    #[test]
+    fn display_names_trailing_slash() {
+        let paths = vec!["/home/u/lib/".to_string()];
+        assert_eq!(library_display_names(&paths), vec!["lib"]);
     }
 
     #[test]
