@@ -55,12 +55,13 @@ pub fn queue_cell(pending: i64, in_progress: i64, failed: i64) -> CellValue {
     if pending == 0 && in_progress == 0 && failed == 0 {
         return CellValue::Plain("0/0/0".into());
     }
+    use crate::tui::util::fmt_count;
     CellValue::Colored(vec![
-        (pending.to_string(), Color::Yellow),
+        (fmt_count(pending), Color::Yellow),
         ("/".into(), Color::DarkGray),
-        (in_progress.to_string(), Color::Blue),
+        (fmt_count(in_progress), Color::Blue),
         ("/".into(), Color::DarkGray),
-        (failed.to_string(), Color::Red),
+        (fmt_count(failed), Color::Red),
     ])
 }
 

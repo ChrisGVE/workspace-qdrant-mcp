@@ -40,7 +40,7 @@ impl Default for ServiceHealth {
 pub struct ProjectSummaryRow {
     pub tenant_id: String,
     pub name: String,
-    pub workspace_count: i64,
+    /// Number of distinct branches indexed for this project.
     pub branch_count: i64,
     pub qdrant_points: usize,
     pub tracked_files: i64,
@@ -89,7 +89,8 @@ pub struct RulesSummaryRow {
 pub struct ActiveProjectRow {
     pub tenant_id: String,
     pub name: String,
-    pub workspace: String,
+    /// Current (most-indexed) branch for this project.
+    pub branch: String,
     pub tracked_files: i64,
     pub queue_pending: i64,
     pub queue_in_progress: i64,
@@ -379,7 +380,6 @@ mod tests {
         let mk = |name: &str| ProjectSummaryRow {
             tenant_id: name.into(),
             name: name.into(),
-            workspace_count: 0,
             branch_count: 0,
             qdrant_points: 0,
             tracked_files: 0,
@@ -418,7 +418,6 @@ mod tests {
             projects: vec![ProjectSummaryRow {
                 tenant_id: "t1".into(),
                 name: "proj".into(),
-                workspace_count: 1,
                 branch_count: 1,
                 qdrant_points: 0,
                 tracked_files: 5,

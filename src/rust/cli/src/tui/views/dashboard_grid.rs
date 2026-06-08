@@ -8,6 +8,7 @@ use ratatui::Frame;
 use super::dashboard::FocusedCell;
 use super::dashboard_cells::{draw_cell, queue_cell, Align, CellRow, CellValue, ColDef};
 use super::dashboard_data::DashboardData;
+use crate::tui::util::fmt_count;
 
 /// Column definitions for the Projects cell (1,2).
 pub fn projects_cols() -> &'static [ColDef] {
@@ -16,11 +17,6 @@ pub fn projects_cols() -> &'static [ColDef] {
             header: "Name",
             align: Align::Left,
             flex: true,
-        },
-        ColDef {
-            header: "Wrk",
-            align: Align::Right,
-            flex: false,
         },
         ColDef {
             header: "Bch",
@@ -120,10 +116,10 @@ pub fn active_cols() -> &'static [ColDef] {
         ColDef {
             header: "Name",
             align: Align::Left,
-            flex: false,
+            flex: true,
         },
         ColDef {
-            header: "Workspace",
+            header: "Branch",
             align: Align::Left,
             flex: true,
         },
@@ -174,10 +170,9 @@ pub fn draw_projects(
         .map(|p| {
             vec![
                 CellValue::Plain(p.name.clone()),
-                CellValue::Plain(p.workspace_count.to_string()),
-                CellValue::Plain(p.branch_count.to_string()),
-                CellValue::Plain(p.qdrant_points.to_string()),
-                CellValue::Plain(p.tracked_files.to_string()),
+                CellValue::Plain(fmt_count(p.branch_count)),
+                CellValue::Plain(fmt_count(p.qdrant_points as i64)),
+                CellValue::Plain(fmt_count(p.tracked_files)),
                 queue_cell(p.queue_pending, p.queue_in_progress, p.queue_failed),
             ]
         })
@@ -209,8 +204,8 @@ pub fn draw_libraries(
         .map(|l| {
             vec![
                 CellValue::Plain(l.name.clone()),
-                CellValue::Plain(l.qdrant_points.to_string()),
-                CellValue::Plain(l.tracked_files.to_string()),
+                CellValue::Plain(fmt_count(l.qdrant_points as i64)),
+                CellValue::Plain(fmt_count(l.tracked_files)),
                 queue_cell(l.queue_pending, l.queue_in_progress, l.queue_failed),
                 CellValue::Plain(l.sync_mode.clone()),
             ]
@@ -243,7 +238,7 @@ pub fn draw_scratchpad(
         .map(|s| {
             vec![
                 CellValue::Plain(s.name.clone()),
-                CellValue::Plain(s.note_count.to_string()),
+                CellValue::Plain(fmt_count(s.note_count as i64)),
                 queue_cell(s.queue_pending, s.queue_in_progress, s.queue_failed),
             ]
         })
@@ -275,7 +270,7 @@ pub fn draw_rules(
         .map(|r| {
             vec![
                 CellValue::Plain(r.name.clone()),
-                CellValue::Plain(r.rule_count.to_string()),
+                CellValue::Plain(fmt_count(r.rule_count as i64)),
                 queue_cell(r.queue_pending, r.queue_in_progress, r.queue_failed),
             ]
         })
@@ -307,8 +302,8 @@ pub fn draw_active_projects(
         .map(|a| {
             vec![
                 CellValue::Plain(a.name.clone()),
-                CellValue::Plain(a.workspace.clone()),
-                CellValue::Plain(a.tracked_files.to_string()),
+                CellValue::Plain(a.branch.clone()),
+                CellValue::Plain(fmt_count(a.tracked_files)),
                 queue_cell(a.queue_pending, a.queue_in_progress, a.queue_failed),
             ]
         })

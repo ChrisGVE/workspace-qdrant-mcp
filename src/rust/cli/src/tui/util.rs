@@ -37,6 +37,28 @@ pub fn truncate_path(s: &str, max: usize) -> String {
     format!("\u{2026}{tail}")
 }
 
+/// Format an integer with `'` thousands separators (e.g. `16069` → `16'069`).
+///
+/// The apostrophe grouping is locale-neutral and unambiguous in a terminal;
+/// it matches the project's fallback convention for grouped numbers. Apply to
+/// every displayed count so large values (chunk counts, points, files) stay
+/// readable, and right-align the column they live in.
+pub fn fmt_count(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let bytes = digits.as_bytes();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    if n < 0 {
+        out.push('-');
+    }
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i) % 3 == 0 {
+            out.push('\'');
+        }
+        out.push(*b as char);
+    }
+    out
+}
+
 /// Number of body rows a bordered table can show, given the total area height
 /// and the count of chrome rows it reserves (top+bottom borders, the header
 /// row, and any header bottom-margin). Centralized so every list view computes
@@ -158,6 +180,17 @@ mod tests {
     #[test]
     fn truncate_path_tiny_budget() {
         assert_eq!(truncate_path("abcdef", 1).chars().count(), 1);
+    }
+
+    #[test]
+    fn fmt_count_groups_thousands() {
+        assert_eq!(fmt_count(0), "0");
+        assert_eq!(fmt_count(42), "42");
+        assert_eq!(fmt_count(999), "999");
+        assert_eq!(fmt_count(1000), "1'000");
+        assert_eq!(fmt_count(16069), "16'069");
+        assert_eq!(fmt_count(1_234_567), "1'234'567");
+        assert_eq!(fmt_count(-2048), "-2'048");
     }
 
     #[test]

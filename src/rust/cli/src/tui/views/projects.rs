@@ -226,7 +226,7 @@ impl ProjectBrowser {
 
     /// Draw the scrollable table of projects.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["", "Name", "Path", "Docs", "Queue"])
+        let header = Row::new(vec!["", "Name", "Path", "Branch", "Docs", "Queue"])
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -238,8 +238,9 @@ impl ProjectBrowser {
             Constraint::Length(2),  // status indicator
             Constraint::Length(22), // name
             Constraint::Min(30),    // path
-            Constraint::Length(6),  // doc count
-            Constraint::Length(6),  // queue count
+            Constraint::Length(16), // current branch
+            Constraint::Length(8),  // doc count
+            Constraint::Length(8),  // queue count
         ];
 
         let block = Block::default()
@@ -252,9 +253,9 @@ impl ProjectBrowser {
         let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
 
         // Path flexes; compute its width so truncation keeps the trailing path.
-        // Fixed columns: indicator 2, name 22, docs 6, queue 6; 4 gaps + borders.
+        // Fixed: indicator 2, name 22, branch 16, docs 8, queue 8; 5 gaps + borders.
         let path_w = (area.width as usize)
-            .saturating_sub(2 + 22 + 6 + 6 + 4 + 2)
+            .saturating_sub(2 + 22 + 16 + 8 + 8 + 5 + 2)
             .max(20);
 
         let visible_rows: Vec<Row> = self
@@ -318,6 +319,11 @@ impl ProjectBrowser {
             Color::DarkGray
         };
 
+        let branch_fg = if item.is_active {
+            Color::Magenta
+        } else {
+            Color::DarkGray
+        };
         Row::new(vec![
             indicator,
             Span::styled(truncate_end(&item.name, 22), name_style),
@@ -325,8 +331,18 @@ impl ProjectBrowser {
                 truncate_path(&item.display_path, path_w),
                 Style::default().fg(path_fg),
             ),
-            Span::styled(item.doc_count.to_string(), Style::default().fg(Color::Cyan)),
-            Span::styled(item.queue_count.to_string(), Style::default().fg(queue_fg)),
+            Span::styled(
+                truncate_end(&item.branch, 16),
+                Style::default().fg(branch_fg),
+            ),
+            Span::styled(
+                crate::tui::util::fmt_count(item.doc_count),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::styled(
+                crate::tui::util::fmt_count(item.queue_count),
+                Style::default().fg(queue_fg),
+            ),
         ])
         .style(row_style)
     }
@@ -545,6 +561,7 @@ mod tests {
                 is_active: i % 2 == 0,
                 doc_count: (i * 10) as i64,
                 queue_count: (i % 3) as i64,
+                branch: "main".to_string(),
             })
             .collect()
     }

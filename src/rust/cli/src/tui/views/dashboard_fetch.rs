@@ -67,16 +67,7 @@ fn fetch_projects(conn: &Connection, data: &mut DashboardData) {
     };
     let projects: Vec<(String, String)> = rows.flatten().collect();
 
-    let ws_counts = count_by_tenant(
-        conn,
-        "SELECT tenant_id, COUNT(*) FROM watch_folders \
-         WHERE collection = 'projects' GROUP BY tenant_id",
-    );
-    let br_counts = count_by_tenant(
-        conn,
-        "SELECT tenant_id, COUNT(DISTINCT branch) FROM unified_queue \
-         WHERE collection = 'projects' GROUP BY tenant_id",
-    );
+    let branch_info = branch_info_by_tenant(conn, "projects");
     let tf_counts = tracked_file_counts(conn, "projects");
     let q_counts = queue_counts_by_tenant(conn, "projects");
 
@@ -85,9 +76,9 @@ fn fetch_projects(conn: &Connection, data: &mut DashboardData) {
         .map(|(tid, path)| {
             let name = path_last_component(&path);
             let q = q_counts.get(&tid);
+            let bi = branch_info.get(&tid);
             ProjectSummaryRow {
-                workspace_count: *ws_counts.get(&tid).unwrap_or(&0),
-                branch_count: *br_counts.get(&tid).unwrap_or(&0),
+                branch_count: bi.map_or(0, |b| b.count),
                 qdrant_points: 0,
                 tracked_files: *tf_counts.get(&tid).unwrap_or(&0),
                 queue_pending: q_val(q, "pending"),
@@ -211,20 +202,23 @@ fn fetch_active_projects(conn: &Connection, data: &mut DashboardData) {
 
     let tf_counts = tracked_file_counts(conn, "projects");
     let q_counts = queue_counts_by_tenant(conn, "projects");
+    let branch_info = branch_info_by_tenant(conn, "projects");
 
     data.active_projects = actives
         .into_iter()
         .map(|(tid, path)| {
             let name = path_last_component(&path);
-            let display = crate::output::style::home_to_tilde(&path);
             let q = q_counts.get(&tid);
+            let branch = branch_info
+                .get(&tid)
+                .map_or_else(|| "—".to_string(), |b| b.primary.clone());
             ActiveProjectRow {
                 tracked_files: *tf_counts.get(&tid).unwrap_or(&0),
                 queue_pending: q_val(q, "pending"),
                 queue_in_progress: q_val(q, "in_progress"),
                 queue_failed: q_val(q, "failed"),
                 name,
-                workspace: display,
+                branch,
                 tenant_id: tid,
             }
         })
@@ -287,6 +281,55 @@ fn count_by_tenant(conn: &Connection, sql: &str) -> HashMap<String, i64> {
         map.insert(row.0, row.1);
     }
     map
+}
+
+/// Per-tenant branch summary derived from `tracked_files`.
+pub struct BranchInfo {
+    /// Number of distinct branches indexed.
+    pub count: i64,
+    /// The branch with the most indexed files (the "current" branch proxy).
+    pub primary: String,
+}
+
+/// Build a tenant → branch summary from `tracked_files.primary_branch`. The
+/// branch count comes from the actual indexed branches (not the transient
+/// queue, which is usually empty), and the primary branch is the one with the
+/// most indexed files.
+fn branch_info_by_tenant(conn: &Connection, collection: &str) -> HashMap<String, BranchInfo> {
+    let mut per_tenant: HashMap<String, HashMap<String, i64>> = HashMap::new();
+    let sql = format!(
+        "SELECT wf.tenant_id, tf.primary_branch, COUNT(*) \
+         FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.collection = '{}' AND tf.primary_branch IS NOT NULL AND tf.primary_branch <> '' \
+         GROUP BY wf.tenant_id, tf.primary_branch",
+        collection
+    );
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        }) {
+            for (tid, branch, n) in rows.flatten() {
+                per_tenant.entry(tid).or_default().insert(branch, n);
+            }
+        }
+    }
+
+    per_tenant
+        .into_iter()
+        .map(|(tid, branches)| {
+            let count = branches.len() as i64;
+            let primary = branches
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(b, _)| b)
+                .unwrap_or_default();
+            (tid, BranchInfo { count, primary })
+        })
+        .collect()
 }
 
 fn tracked_file_counts(conn: &Connection, collection: &str) -> HashMap<String, i64> {

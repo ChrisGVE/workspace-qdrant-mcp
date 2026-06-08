@@ -26,6 +26,8 @@ pub struct ProjectRow {
     pub doc_count: i64,
     /// Number of pending/in-progress queue items for this tenant.
     pub queue_count: i64,
+    /// Current (most-indexed) branch for this project.
+    pub branch: String,
 }
 
 /// Full detail for a single project, shown in the popup.
@@ -80,6 +82,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
 
     let queue_counts = build_queue_counts(&conn);
     let doc_counts = build_doc_counts(&conn);
+    let branches = build_primary_branch(&conn);
 
     let Ok(mut stmt) = conn.prepare(
         "SELECT watch_id, tenant_id, path, is_active \
@@ -120,6 +123,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
                 is_active: is_active > 0,
                 doc_count: d_count,
                 queue_count: q_count,
+                branch: branches.get(&tenant_id).cloned().unwrap_or_default(),
             }
         })
         .collect()
@@ -225,6 +229,40 @@ fn build_doc_counts(conn: &rusqlite::Connection) -> HashMap<String, i64> {
     map
 }
 
+/// Map each tenant_id to its current branch: the `primary_branch` with the most
+/// indexed files in `tracked_files`. Empty when nothing is indexed yet.
+fn build_primary_branch(conn: &rusqlite::Connection) -> HashMap<String, String> {
+    let mut per_tenant: HashMap<String, HashMap<String, i64>> = HashMap::new();
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT wf.tenant_id, tf.primary_branch, COUNT(*) \
+         FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE tf.primary_branch IS NOT NULL AND tf.primary_branch <> '' \
+         GROUP BY wf.tenant_id, tf.primary_branch",
+    ) else {
+        return HashMap::new();
+    };
+    if let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    }) {
+        for (tid, branch, n) in rows.flatten() {
+            per_tenant.entry(tid).or_default().insert(branch, n);
+        }
+    }
+    per_tenant
+        .into_iter()
+        .filter_map(|(tid, branches)| {
+            branches
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(b, _)| (tid, b))
+        })
+        .collect()
+}
+
 /// Fetch sub-watch paths for a given parent watch_id.
 fn fetch_sub_watches(conn: &rusqlite::Connection, parent_id: &str) -> Vec<String> {
     let Ok(mut stmt) =
@@ -271,6 +309,7 @@ mod tests {
             is_active: true,
             doc_count: 42,
             queue_count: 3,
+            branch: "main".to_string(),
         };
         assert_eq!(row.name, "my-project");
         assert!(row.is_active);
