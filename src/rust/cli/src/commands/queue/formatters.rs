@@ -305,6 +305,16 @@ pub fn extract_object_relative(item_type: &str, payload_json: &str, root: Option
     }
 }
 
+/// Extract the `size_bytes` field from a queue item payload, if present.
+/// File adds (scan and reconcile) carry it; deletes and most non-file items
+/// do not, so the column is blank for those.
+pub fn extract_size_bytes(payload_json: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(payload_json)
+        .ok()?
+        .get("size_bytes")?
+        .as_u64()
+}
+
 /// Resolve a path to its project/library-relative form. Queue payloads already
 /// store `file_path` relative to the project root, so a relative path is
 /// returned verbatim; an absolute path is made relative to `root`, falling back
@@ -383,6 +393,18 @@ mod tests {
             extract_object_relative("file", payload, Some("/other")),
             "main.rs"
         );
+    }
+
+    #[test]
+    fn size_bytes_extracted_when_present() {
+        assert_eq!(
+            extract_size_bytes(r#"{"file_path":"a.rs","size_bytes":2048}"#),
+            Some(2048)
+        );
+        // Absent / wrong-typed / unparseable → None (blank column).
+        assert_eq!(extract_size_bytes(r#"{"file_path":"a.rs"}"#), None);
+        assert_eq!(extract_size_bytes(r#"{"size_bytes":"big"}"#), None);
+        assert_eq!(extract_size_bytes("not json"), None);
     }
 
     #[test]

@@ -7,7 +7,9 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use crate::commands::queue::formatters::{extract_object, extract_object_relative};
+use crate::commands::queue::formatters::{
+    extract_object, extract_object_relative, extract_size_bytes,
+};
 use crate::data::db::connect_readonly;
 use crate::output::style::short_id;
 
@@ -80,6 +82,8 @@ pub struct QueueRow {
     pub age: String,
     /// Tenant kind: 'P' (project), 'L' (library), or '?' (unknown).
     pub kind: char,
+    /// File size in bytes from the payload, when present (file adds carry it).
+    pub size: Option<u64>,
 }
 
 /// Full detail of a single queue item for the popup view.
@@ -145,6 +149,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
                 ),
                 age: format_relative_time(&created_at),
                 kind: tenant_kinds.get(&tenant_id).copied().unwrap_or('?'),
+                size: extract_size_bytes(&payload_json),
                 queue_id,
                 item_type,
                 op,
@@ -392,8 +397,10 @@ mod tests {
             status: "pending".to_string(),
             age: "5m ago".to_string(),
             kind: 'P',
+            size: Some(2048),
         };
         assert_eq!(row.short_id, "abc1");
+        assert_eq!(row.size, Some(2048));
         assert_eq!(row.status, "pending");
     }
 }

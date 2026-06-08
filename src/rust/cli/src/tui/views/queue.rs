@@ -14,6 +14,7 @@ use ratatui::Frame;
 use super::queue_data::{
     fetch_queue_detail, fetch_queue_rows, QueueDetail, QueueRow, StatusFilter,
 };
+use super::service_data::format_bytes;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 use crate::tui::util::{truncate_end, truncate_path};
@@ -228,7 +229,7 @@ impl QueueBrowser {
     /// Draw the scrollable table of queue items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
         let header = Row::new(vec![
-            "ID", "T", "Tenant", "Object", "Type", "Op", "Status", "Age",
+            "ID", "T", "Tenant", "Object", "Type", "Op", "Status", "Size", "Age",
         ])
         .style(
             Style::default()
@@ -237,8 +238,9 @@ impl QueueBrowser {
         )
         .bottom_margin(1);
 
-        // Fixed columns: ID 10, T 1, Tenant 20, Type 8, Op 8, Status 12, Age 10.
-        // Object flexes to fill the rest so the filename is the focus.
+        // Fixed columns: ID 10, T 1, Tenant 20, Type 8, Op 8, Status 12,
+        // Size 9 (right-aligned), Age 10. Object flexes to fill the rest so
+        // the filename is the focus.
         let widths = [
             Constraint::Length(10),
             Constraint::Length(1),
@@ -247,10 +249,12 @@ impl QueueBrowser {
             Constraint::Length(8),
             Constraint::Length(8),
             Constraint::Length(12),
+            Constraint::Length(9),
             Constraint::Length(10),
         ];
+        // Fixed widths (excl. Object) + 8 inter-column gaps + 2 borders.
         let object_w = (area.width as usize)
-            .saturating_sub(10 + 1 + 20 + 8 + 8 + 12 + 10 + 7 + 2)
+            .saturating_sub(10 + 1 + 20 + 8 + 8 + 12 + 9 + 10 + 8 + 2)
             .max(12);
 
         let block = Block::default()
@@ -298,6 +302,10 @@ impl QueueBrowser {
                     Span::raw(item.item_type.clone()),
                     Span::raw(item.op.clone()),
                     Span::styled(item.status.clone(), Style::default().fg(fg)),
+                    Span::raw(format!(
+                        "{:>9}",
+                        item.size.map(format_bytes).unwrap_or_default()
+                    )),
                     Span::styled(
                         item.age.clone(),
                         Style::default().fg(age_color(&item.status, &item.age)),
@@ -599,6 +607,7 @@ mod tests {
                 status: "pending".into(),
                 age: "1m ago".into(),
                 kind: 'P',
+                size: Some(1024),
             })
             .collect()
     }
