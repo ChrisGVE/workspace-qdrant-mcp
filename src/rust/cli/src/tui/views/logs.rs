@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::logs_data::{file_len, read_from_offset, read_tail_lines, Level, LogLine, MAX_LINES};
+use crate::tui::search::SearchState;
 use crate::tui::theme;
 
 /// State for the log viewer widget.
@@ -34,8 +35,8 @@ pub struct LogViewer {
     popup_open: bool,
     /// Scroll offset within the popup.
     popup_scroll: u16,
-    /// Filter text (groundwork for future `/` key filtering).
-    _filter: Option<String>,
+    /// Incremental regex search state.
+    search: SearchState,
 }
 
 impl LogViewer {
@@ -54,7 +55,7 @@ impl LogViewer {
             cursor_active: false,
             popup_open: false,
             popup_scroll: 0,
-            _filter: None,
+            search: SearchState::new(),
         };
         viewer.load_initial();
         viewer
@@ -196,6 +197,66 @@ impl LogViewer {
         self.popup_scroll = self.popup_scroll.saturating_sub(1);
     }
 
+    /// Access the search state (for the key handler to feed input).
+    pub fn search_mut(&mut self) -> &mut SearchState {
+        &mut self.search
+    }
+
+    /// Whether the search prompt is active.
+    pub fn search_active(&self) -> bool {
+        self.search.active
+    }
+
+    /// Indices of log lines matching the current search pattern.
+    fn search_matches(&self) -> Vec<usize> {
+        self.lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| self.search.is_match(&l.text))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Move the cursor to the first match at or after the current position.
+    pub fn search_first(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        let m = self.search_matches();
+        if let Some(i) = m
+            .iter()
+            .find(|&&i| i >= self.selected)
+            .or_else(|| m.first())
+        {
+            self.selected = *i;
+        }
+    }
+
+    /// Move the cursor to the next match (wrapping).
+    pub fn search_next(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
+    /// Move the cursor to the previous match (wrapping).
+    pub fn search_prev(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
     /// Render the log viewer into the given area.
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
         let inner_height = area.height.saturating_sub(2) as usize; // borders
@@ -224,9 +285,13 @@ impl LogViewer {
             .enumerate()
             .map(|(offset, log_line)| {
                 let abs = start + offset;
-                let level_style = log_line
+                let mut level_style = log_line
                     .level
                     .map_or(Style::default().fg(Color::DarkGray), Level::style);
+                // Highlight search matches (unless this is the cursor line).
+                if self.search.has_query() && self.search.is_match(&log_line.text) {
+                    level_style = level_style.fg(theme::COLOR_ACCENT);
+                }
                 if self.cursor_active && abs == self.selected.min(total - 1) {
                     // Cursor: row background spans the line; keep the level fg.
                     Line::from(Span::styled(log_line.text.clone(), level_style))
@@ -237,16 +302,22 @@ impl LogViewer {
             })
             .collect();
 
-        let scroll_indicator = if self.cursor_active {
-            format!(" Logs [{}/{}] ", self.selected.min(total - 1) + 1, total)
-        } else {
-            " Logs [live] ".to_string()
-        };
+        let mut title_spans = vec![Span::styled(
+            if self.cursor_active {
+                format!(" Logs [{}/{}] ", self.selected.min(total - 1) + 1, total)
+            } else {
+                " Logs [live] ".to_string()
+            },
+            Style::default().add_modifier(Modifier::BOLD),
+        )];
+        title_spans.extend(crate::tui::search::prompt_spans(
+            &self.search,
+            self.search_matches().len(),
+        ));
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(scroll_indicator)
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
+            .title(Line::from(title_spans));
 
         let paragraph = Paragraph::new(visible_lines).block(block);
         frame.render_widget(paragraph, area);
@@ -343,7 +414,7 @@ mod tests {
             cursor_active: false,
             popup_open: false,
             popup_scroll: 0,
-            _filter: None,
+            search: SearchState::new(),
         };
         viewer.load_initial();
 
@@ -381,6 +452,42 @@ mod tests {
     }
 
     #[test]
+    fn search_jumps_to_matching_line() {
+        use crossterm::event::KeyCode;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.jsonl");
+        {
+            let mut f = File::create(&path).unwrap();
+            for i in 0..10 {
+                let lvl = if i == 7 { "ERROR" } else { "INFO" };
+                writeln!(f, r#"{{"level":"{}","msg":"line {}"}}"#, lvl, i).unwrap();
+            }
+        }
+        let mut viewer = LogViewer {
+            lines: Vec::new(),
+            log_path: PathBuf::from(&path),
+            scroll_offset: 0,
+            user_scrolled: false,
+            last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            popup_open: false,
+            popup_scroll: 0,
+            search: SearchState::new(),
+        };
+        viewer.load_initial();
+
+        viewer.search_mut().activate();
+        for c in "error".chars() {
+            viewer.search_mut().handle_key(KeyCode::Char(c));
+        }
+        viewer.search_mut().handle_key(KeyCode::Enter);
+        viewer.search_first();
+        assert!(viewer.cursor_active);
+        assert_eq!(viewer.selected, 7); // the only ERROR line
+    }
+
+    #[test]
     fn pretty_json_formats_and_falls_back() {
         let pretty = pretty_json(r#"{"level":"INFO","msg":"hi"}"#);
         assert!(pretty.contains('\n'));
@@ -407,7 +514,7 @@ mod tests {
             cursor_active: false,
             popup_open: false,
             popup_scroll: 0,
-            _filter: None,
+            search: SearchState::new(),
         };
         viewer.load_initial();
         assert_eq!(viewer.lines.len(), 1);
@@ -448,7 +555,7 @@ mod tests {
             cursor_active: false,
             popup_open: false,
             popup_scroll: 0,
-            _filter: None,
+            search: SearchState::new(),
         };
         viewer.load_initial();
         assert_eq!(viewer.lines.len(), 10);

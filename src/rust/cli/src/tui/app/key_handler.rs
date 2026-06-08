@@ -615,7 +615,27 @@ impl App {
             return true;
         }
 
+        // When the search prompt is active, route input to it.
+        if viewer.search_active() {
+            if viewer.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                viewer.search_first();
+            }
+            return true;
+        }
+
         match key.code {
+            KeyCode::Char('/') => {
+                viewer.search_mut().activate();
+                true
+            }
+            KeyCode::Char('n') => {
+                viewer.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                viewer.search_prev();
+                true
+            }
             KeyCode::Char('j') | KeyCode::Down => {
                 viewer.scroll_down();
                 true
