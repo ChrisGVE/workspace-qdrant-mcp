@@ -12,6 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
 use super::projects_data::{
     build_status_text, fetch_project_detail, fetch_project_rows, format_local_time, ProjectDetail,
     ProjectRow,
@@ -35,6 +36,10 @@ pub struct ProjectBrowser {
     last_refresh: Option<Instant>,
     /// Search/filter state.
     search: SearchState,
+    /// Pending tracking-toggle confirmation, if the modal is open.
+    confirm: Option<ToggleConfirm>,
+    /// Transient status message (e.g. toggle result), shown in the header.
+    message: Option<String>,
 }
 
 impl ProjectBrowser {
@@ -46,7 +51,46 @@ impl ProjectBrowser {
             detail: None,
             last_refresh: None,
             search: SearchState::new(),
+            confirm: None,
+            message: None,
         }
+    }
+
+    /// Whether the toggle-confirmation modal is open.
+    pub fn confirm_open(&self) -> bool {
+        self.confirm.is_some()
+    }
+
+    /// Open a confirmation to toggle tracking for the selected project.
+    pub fn request_toggle(&mut self) {
+        if let Some(item) = self.items.get(self.selected) {
+            self.confirm = Some(ToggleConfirm {
+                watch_id: item.watch_id.clone(),
+                name: item.name.clone(),
+                enable: !item.enabled,
+            });
+        }
+    }
+
+    /// Take the pending toggle (watch_id, target-enabled), clearing the modal.
+    /// Call only when the user confirmed.
+    pub fn take_confirm(&mut self) -> Option<(String, bool)> {
+        self.confirm.take().map(|c| (c.watch_id, c.enable))
+    }
+
+    /// Cancel and close the toggle-confirmation modal.
+    pub fn cancel_confirm(&mut self) {
+        self.confirm = None;
+    }
+
+    /// Set a transient status message shown in the header bar.
+    pub fn set_message(&mut self, msg: String) {
+        self.message = Some(msg);
+    }
+
+    /// Force a data refresh on the next tick (after a state-changing action).
+    pub fn force_refresh(&mut self) {
+        self.last_refresh = None;
     }
 
     /// Refresh data from SQLite if enough time has elapsed.
@@ -188,6 +232,9 @@ impl ProjectBrowser {
         if let Some(ref detail) = self.detail {
             self.draw_detail_popup(frame, frame.area(), detail);
         }
+        if let Some(ref confirm) = self.confirm {
+            draw_toggle_confirm(frame, frame.area(), confirm);
+        }
     }
 
     /// Draw the summary bar above the table.
@@ -221,22 +268,32 @@ impl ProjectBrowser {
             self.search_matches().len(),
         ));
 
+        if let Some(ref msg) = self.message {
+            spans.push(Span::styled(
+                format!("  {msg}"),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Draw the scrollable table of projects.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["", "Name", "Path", "Branch", "Docs", "Queue"])
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .bottom_margin(1);
+        let header = Row::new(vec![
+            "", "Name", "Tracked?", "Path", "Branch", "Docs", "Queue",
+        ])
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .bottom_margin(1);
 
         let widths = [
             Constraint::Length(2),  // status indicator
             Constraint::Length(22), // name
+            Constraint::Length(9),  // tracked? (centered Yes/No)
             Constraint::Min(30),    // path
             Constraint::Length(16), // current branch
             Constraint::Length(8),  // doc count
@@ -253,9 +310,10 @@ impl ProjectBrowser {
         let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
 
         // Path flexes; compute its width so truncation keeps the trailing path.
-        // Fixed: indicator 2, name 22, branch 16, docs 8, queue 8; 5 gaps + borders.
+        // Fixed: indicator 2, name 22, tracked 9, branch 16, docs 8, queue 8;
+        // 6 inter-column gaps + 2 borders.
         let path_w = (area.width as usize)
-            .saturating_sub(2 + 22 + 16 + 8 + 8 + 5 + 2)
+            .saturating_sub(2 + 22 + 9 + 16 + 8 + 8 + 6 + 2)
             .max(20);
 
         let visible_rows: Vec<Row> = self
@@ -327,6 +385,7 @@ impl ProjectBrowser {
         Row::new(vec![
             indicator,
             Span::styled(truncate_end(&item.name, 22), name_style),
+            tracked_cell(item.enabled),
             Span::styled(
                 truncate_path(&item.display_path, path_w),
                 Style::default().fg(path_fg),
@@ -552,6 +611,40 @@ mod tests {
         assert!(result.chars().count() <= 10);
     }
 
+    #[test]
+    fn request_toggle_targets_inverted_enabled() {
+        let mut b = ProjectBrowser::new();
+        b.items = make_test_rows(3);
+        b.selected = 0; // item 0 is enabled (i % 2 == 0)
+        assert!(!b.confirm_open());
+        b.request_toggle();
+        assert!(b.confirm_open());
+        // Confirming yields the watch_id and the *target* state (disable).
+        let (wid, enable) = b.take_confirm().unwrap();
+        assert_eq!(wid, "watch-0");
+        assert!(!enable);
+        assert!(!b.confirm_open());
+    }
+
+    #[test]
+    fn cancel_confirm_clears_modal() {
+        let mut b = ProjectBrowser::new();
+        b.items = make_test_rows(2);
+        b.request_toggle();
+        assert!(b.confirm_open());
+        b.cancel_confirm();
+        assert!(!b.confirm_open());
+        assert!(b.take_confirm().is_none());
+    }
+
+    #[test]
+    fn force_refresh_clears_last_refresh() {
+        let mut b = ProjectBrowser::new();
+        b.last_refresh = Some(Instant::now());
+        b.force_refresh();
+        assert!(b.last_refresh.is_none());
+    }
+
     fn make_test_rows(n: usize) -> Vec<ProjectRow> {
         (0..n)
             .map(|i| ProjectRow {
@@ -559,6 +652,7 @@ mod tests {
                 name: format!("project-{i}"),
                 display_path: format!("~/dev/project-{i}"),
                 is_active: i % 2 == 0,
+                enabled: i % 2 == 0,
                 doc_count: (i * 10) as i64,
                 queue_count: (i % 3) as i64,
                 branch: "main".to_string(),

@@ -8,9 +8,10 @@ use std::time::Instant;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
 use super::libraries_data::{
     fetch_library_detail, fetch_library_rows, status_label, LibraryDetail, LibraryRow,
 };
@@ -33,6 +34,10 @@ pub struct LibraryBrowser {
     last_refresh: Option<Instant>,
     /// Search/filter state.
     search: SearchState,
+    /// Pending tracking-toggle confirmation, if the modal is open.
+    confirm: Option<ToggleConfirm>,
+    /// Transient status message (e.g. toggle result), shown in the header.
+    message: Option<String>,
 }
 
 impl LibraryBrowser {
@@ -44,7 +49,55 @@ impl LibraryBrowser {
             detail: None,
             last_refresh: None,
             search: SearchState::new(),
+            confirm: None,
+            message: None,
         }
+    }
+
+    /// Whether the toggle-confirmation modal is open.
+    pub fn confirm_open(&self) -> bool {
+        self.confirm.is_some()
+    }
+
+    /// Open a confirmation to toggle tracking for the selected library.
+    ///
+    /// A project-derived library follows its parent project and cannot be
+    /// toggled here; the request is rejected with a message instead.
+    pub fn request_toggle(&mut self) {
+        if let Some(item) = self.items.get(self.selected) {
+            if item.source.is_some() {
+                self.message = Some(
+                    "Project-derived library follows its project; toggle from Projects".to_string(),
+                );
+                return;
+            }
+            self.confirm = Some(ToggleConfirm {
+                watch_id: item.watch_id.clone(),
+                name: item.name.clone(),
+                enable: !item.enabled,
+            });
+        }
+    }
+
+    /// Take the pending toggle (watch_id, target-enabled), clearing the modal.
+    /// Call only when the user confirmed.
+    pub fn take_confirm(&mut self) -> Option<(String, bool)> {
+        self.confirm.take().map(|c| (c.watch_id, c.enable))
+    }
+
+    /// Cancel and close the toggle-confirmation modal.
+    pub fn cancel_confirm(&mut self) {
+        self.confirm = None;
+    }
+
+    /// Set a transient status message shown in the header bar.
+    pub fn set_message(&mut self, msg: String) {
+        self.message = Some(msg);
+    }
+
+    /// Force a data refresh on the next tick (after a state-changing action).
+    pub fn force_refresh(&mut self) {
+        self.last_refresh = None;
     }
 
     pub fn search_mut(&mut self) -> &mut SearchState {
@@ -184,6 +237,9 @@ impl LibraryBrowser {
         if let Some(ref detail) = self.detail {
             self.draw_detail_popup(frame, frame.area(), detail);
         }
+        if let Some(ref confirm) = self.confirm {
+            draw_toggle_confirm(frame, frame.area(), confirm);
+        }
     }
 
     /// Draw the header bar above the table.
@@ -206,14 +262,21 @@ impl LibraryBrowser {
             &self.search,
             self.search_matches().len(),
         ));
+        if let Some(ref msg) = self.message {
+            spans.push(Span::styled(
+                format!("  {msg}"),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Draw the scrollable table of library items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
         // Shared columns (Name, Path, Docs) come first in the same order as the
-        // Projects view; the library-specific columns follow.
-        let header = Row::new(vec!["Name", "Path", "Docs", "Status", "Mode", "Source"])
+        // Projects view; the library-specific columns follow. The project-derived
+        // marker (`P:<project>`) is folded into Name, so there is no Source column.
+        let header = Row::new(vec!["Name", "Path", "Docs", "Tracked?", "Mode"])
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -222,17 +285,16 @@ impl LibraryBrowser {
             .bottom_margin(1);
 
         let widths = [
-            Constraint::Length(20), // name
+            Constraint::Length(24), // name (+ folded P:<project> marker)
             Constraint::Min(30),    // path (flex)
             Constraint::Length(8),  // docs
-            Constraint::Length(10), // status
+            Constraint::Length(9),  // tracked? (centered Yes/No)
             Constraint::Length(13), // mode
-            Constraint::Length(16), // source (P:<project>)
         ];
         // Path flexes; keep the trailing path (filename) visible on truncation.
-        // Fixed: name 20, docs 8, status 10, mode 13, source 16; 5 gaps + borders.
+        // Fixed: name 24, docs 8, tracked 9, mode 13; 4 gaps + borders.
         let path_w = (area.width as usize)
-            .saturating_sub(20 + 8 + 10 + 13 + 16 + 5 + 2)
+            .saturating_sub(24 + 8 + 9 + 13 + 4 + 2)
             .max(20);
 
         let block = Block::default()
@@ -262,9 +324,6 @@ impl LibraryBrowser {
                 } else {
                     Style::default()
                 };
-                let status = status_label(item.enabled, item.is_active);
-                let status_fg = status_color(status);
-
                 // Spans set only fg; the row's background (cursor) shows through.
                 // Bold marks an active library (mirrors the projects view).
                 let name_style = if item.is_active {
@@ -274,19 +333,33 @@ impl LibraryBrowser {
                 } else {
                     Style::default().fg(Color::Cyan)
                 };
-                let source = item.source.clone().unwrap_or_default();
-                Row::new(vec![
-                    Span::styled(item.name.clone(), name_style),
-                    Span::raw(truncate_path(&item.display_path, path_w)),
-                    Span::styled(
+                // Fold the project-derived marker into the Name cell. A library
+                // under a project always tracks in `sync` mode with its project.
+                let (name_cell, mode) = match &item.source {
+                    Some(src) => (
+                        Line::from(vec![
+                            Span::styled(item.name.clone(), name_style),
+                            Span::raw(" "),
+                            Span::styled(src.clone(), Style::default().fg(Color::Magenta)),
+                        ]),
+                        "sync".to_string(),
+                    ),
+                    None => (
+                        Line::from(Span::styled(item.name.clone(), name_style)),
+                        item.mode.clone(),
+                    ),
+                };
+                let cells: Vec<Cell> = vec![
+                    Cell::from(name_cell),
+                    Cell::from(truncate_path(&item.display_path, path_w)),
+                    Cell::from(Span::styled(
                         format!("{:>7}", crate::tui::util::fmt_count(item.doc_count as i64)),
                         Style::default().fg(Color::Cyan),
-                    ),
-                    Span::styled(status, Style::default().fg(status_fg)),
-                    Span::raw(item.mode.clone()),
-                    Span::styled(source, Style::default().fg(Color::Magenta)),
-                ])
-                .style(row_style)
+                    )),
+                    Cell::from(tracked_cell(item.enabled)),
+                    Cell::from(mode),
+                ];
+                Row::new(cells).style(row_style)
             })
             .collect();
 
@@ -363,16 +436,6 @@ impl LibraryBrowser {
 
         let popup = Paragraph::new(lines).block(block);
         frame.render_widget(popup, popup_area);
-    }
-}
-
-/// Map a status string to a display color.
-fn status_color(status: &str) -> Color {
-    match status {
-        "watching" => Color::Green,
-        "stopped" => Color::Yellow,
-        "disabled" => Color::Red,
-        _ => Color::Reset,
     }
 }
 
@@ -491,11 +554,29 @@ mod tests {
     }
 
     #[test]
-    fn status_color_mapping() {
-        assert_eq!(status_color("watching"), Color::Green);
-        assert_eq!(status_color("stopped"), Color::Yellow);
-        assert_eq!(status_color("disabled"), Color::Red);
-        assert_eq!(status_color("unknown"), Color::Reset);
+    fn request_toggle_skips_project_derived() {
+        let mut b = LibraryBrowser::new();
+        b.items = make_test_rows(2);
+        b.items[0].source = Some("P:proj".into());
+        b.selected = 0;
+        b.request_toggle();
+        // Project-derived library is not toggleable here: no modal, message set.
+        assert!(!b.confirm_open());
+        assert!(b.message.is_some());
+    }
+
+    #[test]
+    fn request_toggle_opens_for_top_level_library() {
+        let mut b = LibraryBrowser::new();
+        b.items = make_test_rows(2);
+        b.items[0].source = None;
+        b.items[0].enabled = true;
+        b.selected = 0;
+        b.request_toggle();
+        assert!(b.confirm_open());
+        let (wid, enable) = b.take_confirm().unwrap();
+        assert_eq!(wid, "lib-tag-0");
+        assert!(!enable); // toggles to disabled
     }
 
     fn make_test_rows(n: usize) -> Vec<LibraryRow> {

@@ -63,7 +63,7 @@ impl App {
             View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  ? Help  q Quit",
             View::Queue => "j/k Nav  g/G First/Last  / Search  n/N  f Filter  Enter Detail  q Quit",
             View::Projects | View::Libraries => {
-                "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  ? Help  q Quit"
+                "j/k Nav  / Search  Enter Detail  t Toggle tracking  ? Help  q Quit"
             }
             View::Rules => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  ? Help  q Quit",
             View::Scratchpad => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  q Quit",
@@ -180,7 +180,7 @@ impl App {
     fn draw_help_overlay(&self, frame: &mut Frame) {
         let area = frame.area();
         let help_width = 55u16.min(area.width.saturating_sub(4));
-        let help_height = 20u16.min(area.height.saturating_sub(4));
+        let help_height = 21u16.min(area.height.saturating_sub(4));
 
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
@@ -227,6 +227,10 @@ impl App {
             Line::from(vec![
                 Span::styled("  f           ", Style::default().fg(Color::Yellow)),
                 Span::raw("Cycle status filter (Queue)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  t           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Toggle tracking (Projects, Libraries)"),
             ]),
             Line::from(vec![
                 Span::styled("  g / G       ", Style::default().fg(Color::Yellow)),

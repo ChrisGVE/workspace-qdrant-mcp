@@ -22,6 +22,9 @@ pub struct ProjectRow {
     pub display_path: String,
     /// Whether the project is currently active (reference count > 0).
     pub is_active: bool,
+    /// Whether file tracking is enabled (`watch_folders.enabled`). Disabling
+    /// pauses indexing for this project; distinct from `is_active` (ref count).
+    pub enabled: bool,
     /// Number of indexed documents (queue items completed for this tenant).
     pub doc_count: i64,
     /// Number of pending/in-progress queue items for this tenant.
@@ -85,7 +88,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
     let branches = build_primary_branch(&conn);
 
     let Ok(mut stmt) = conn.prepare(
-        "SELECT watch_id, tenant_id, path, is_active \
+        "SELECT watch_id, tenant_id, path, is_active, enabled \
          FROM watch_folders \
          WHERE parent_watch_id IS NULL \
          ORDER BY is_active DESC, path ASC \
@@ -100,13 +103,14 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
             row.get::<_, String>(1)?, // tenant_id
             row.get::<_, String>(2)?, // path
             row.get::<_, i64>(3)?,    // is_active
+            row.get::<_, bool>(4)?,   // enabled
         ))
     }) else {
         return Vec::new();
     };
 
     rows.flatten()
-        .map(|(watch_id, tenant_id, path, is_active)| {
+        .map(|(watch_id, tenant_id, path, is_active, enabled)| {
             let name = path
                 .rsplit('/')
                 .find(|s| !s.is_empty())
@@ -121,6 +125,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
                 name,
                 display_path,
                 is_active: is_active > 0,
+                enabled,
                 doc_count: d_count,
                 queue_count: q_count,
                 branch: branches.get(&tenant_id).cloned().unwrap_or_default(),
@@ -307,12 +312,14 @@ mod tests {
             name: "my-project".to_string(),
             display_path: "~/dev/my-project".to_string(),
             is_active: true,
+            enabled: true,
             doc_count: 42,
             queue_count: 3,
             branch: "main".to_string(),
         };
         assert_eq!(row.name, "my-project");
         assert!(row.is_active);
+        assert!(row.enabled);
         assert_eq!(row.doc_count, 42);
         assert_eq!(row.queue_count, 3);
     }

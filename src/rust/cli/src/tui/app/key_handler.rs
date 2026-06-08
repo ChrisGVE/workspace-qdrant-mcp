@@ -274,6 +274,22 @@ impl App {
             return true;
         }
 
+        // When the toggle-confirmation modal is open, y/Enter confirms and runs
+        // the daemon-side enable/disable; n/Esc cancels.
+        if browser.confirm_open() {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                    if let Some((watch_id, enable)) = browser.take_confirm() {
+                        let msg = super::super::commands::set_watch_enabled(&watch_id, enable);
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                _ => browser.cancel_confirm(),
+            }
+            return true;
+        }
+
         // When detail popup is open, only Esc closes it
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
@@ -335,6 +351,10 @@ impl App {
                 browser.jump_last();
                 true
             }
+            KeyCode::Char('t') => {
+                browser.request_toggle();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -356,6 +376,21 @@ impl App {
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
                 browser.search_first();
+            }
+            return true;
+        }
+
+        // Toggle-confirmation modal: y/Enter confirms, anything else cancels.
+        if browser.confirm_open() {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                    if let Some((watch_id, enable)) = browser.take_confirm() {
+                        let msg = super::super::commands::set_watch_enabled(&watch_id, enable);
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                _ => browser.cancel_confirm(),
             }
             return true;
         }
@@ -418,6 +453,10 @@ impl App {
             }
             KeyCode::Char('G') => {
                 browser.jump_last();
+                true
+            }
+            KeyCode::Char('t') => {
+                browser.request_toggle();
                 true
             }
             KeyCode::Enter => {
