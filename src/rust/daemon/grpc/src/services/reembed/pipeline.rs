@@ -65,24 +65,36 @@ async fn drain_to_quiescence(
 /// reembed processed nothing (#96). The queue is paused and drained to
 /// quiescence before this runs, so removing every row for these collections
 /// (regardless of status) is safe and frees the dedup keys.
+///
+/// Clearing the queue rows is necessary but not sufficient: recreating the
+/// Qdrant collections empties them, but `prepare_update` skips re-ingesting a
+/// file whose `tracked_files.file_hash` still matches ("content unchanged (hash
+/// match), skipping") — so the re-enqueued folder scans would no-op against the
+/// now-empty collections and the index/graph would never repopulate. This path
+/// is independent of the per-file repair sweep (#110); reembed must clear its
+/// own per-file hash tracking. Delete the dependent `qdrant_chunks` and
+/// `indexed_content` rows first (don't rely on the FK CASCADE pragma being
+/// enabled on this pool), then the `tracked_files` rows for the canonical
+/// collections; re-ingestion then re-tracks every file. `indexed_content` is
+/// the content-cache hash skip — the second unchanged-content skip layer — so
+/// leaving it would both orphan rows and let re-ingestion no-op against the
+/// emptied collections. Salvaged from PR #114 (alkmimm).
 async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
-    let stale_deleted = sqlx::query(
-        "DELETE FROM unified_queue \
-         WHERE collection IN ('projects','libraries','rules','scratchpad')",
-    )
-    .execute(&ctx.pool)
-    .await
-    .map_err(|e| Status::internal(format!("flush queue rows failed: {e}")))?;
-    info!(
-        rows = stale_deleted.rows_affected(),
-        "reembed: flushed all queue rows for canonical collections"
-    );
-
+    // All clears run in ONE transaction: flushing the queue separately would
+    // leave it empty with the hash-tracking tables still populated if a later
+    // step failed, so the re-enqueued scans would no-op on the hash-match skip.
     let mut tx = ctx
         .pool
         .begin()
         .await
         .map_err(|e| Status::internal(format!("clear-state tx begin failed: {e}")))?;
+    let stale_deleted = sqlx::query(
+        "DELETE FROM unified_queue \
+         WHERE collection IN ('projects','libraries','rules','scratchpad')",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("flush queue rows failed: {e}")))?;
     sqlx::query("DELETE FROM tag_hierarchy_edges")
         .execute(&mut *tx)
         .await
@@ -91,9 +103,45 @@ async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
         .execute(&mut *tx)
         .await
         .map_err(|e| Status::internal(format!("clear canonical_tags: {e}")))?;
+    // Clear per-file content-hash tracking so re-ingestion repopulates the
+    // freshly-recreated (empty) collections instead of skipping on hash-match.
+    // Both qdrant_chunks and indexed_content reference tracked_files via an
+    // ON DELETE CASCADE FK, but the CASCADE pragma is not guaranteed enabled on
+    // this pool, so delete the dependents explicitly first. indexed_content is
+    // the content-cache hash skip (the second of the three unchanged-content
+    // skip layers): leaving its rows would both orphan them and let re-ingestion
+    // no-op against the now-empty collections.
+    let canonical_file_ids = "(SELECT file_id FROM tracked_files \
+         WHERE collection IN ('projects','libraries','rules','scratchpad'))";
+    let chunks_cleared = sqlx::query(&format!(
+        "DELETE FROM qdrant_chunks WHERE file_id IN {canonical_file_ids}"
+    ))
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("clear qdrant_chunks: {e}")))?;
+    let content_cleared = sqlx::query(&format!(
+        "DELETE FROM indexed_content WHERE file_id IN {canonical_file_ids}"
+    ))
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("clear indexed_content: {e}")))?;
+    let tracked_cleared = sqlx::query(
+        "DELETE FROM tracked_files \
+         WHERE collection IN ('projects','libraries','rules','scratchpad')",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Status::internal(format!("clear tracked_files: {e}")))?;
     tx.commit()
         .await
         .map_err(|e| Status::internal(format!("clear-state tx commit failed: {e}")))?;
+    info!(
+        queue_rows = stale_deleted.rows_affected(),
+        tracked_files = tracked_cleared.rows_affected(),
+        qdrant_chunks = chunks_cleared.rows_affected(),
+        indexed_content = content_cleared.rows_affected(),
+        "reembed: flushed queue rows + cleared per-file hash tracking so re-ingestion repopulates"
+    );
 
     Ok(stale_deleted.rows_affected() as u32)
 }

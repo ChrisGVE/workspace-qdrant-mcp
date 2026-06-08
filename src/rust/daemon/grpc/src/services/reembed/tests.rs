@@ -140,6 +140,44 @@ async fn fresh_pool() -> SqlitePool {
     .await
     .unwrap();
 
+    sqlx::query(
+        "CREATE TABLE tracked_files (
+                file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_folder_id TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                branch TEXT,
+                file_hash TEXT NOT NULL,
+                collection TEXT NOT NULL DEFAULT 'projects'
+            )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE qdrant_chunks (
+                chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER NOT NULL,
+                point_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL
+            )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE indexed_content (
+                file_id INTEGER PRIMARY KEY,
+                content BLOB NOT NULL,
+                hash TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'
+            )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     pool
 }
 
@@ -184,6 +222,75 @@ async fn fails_when_probe_dim_disagrees_with_settings() {
     assert!(recreator.calls.lock().unwrap().is_empty());
     // pause_flag must NOT be left set
     assert!(!ctx.pause_flag.load(Ordering::SeqCst));
+}
+
+/// Regression for "reembed completes but collections stay empty": clearing the
+/// queue rows is not enough — `prepare_update` skips re-ingesting a file whose
+/// `tracked_files.file_hash` still matches, and the `indexed_content` cache is a
+/// second hash-skip layer, so the flush must also drop the canonical
+/// collections' per-file hash tracking (and the dependent qdrant_chunks +
+/// indexed_content rows) while sparing non-canonical collections. Salvaged from
+/// PR #114 (alkmimm).
+#[tokio::test]
+async fn flush_clears_per_file_hash_tracking_for_canonical_only() {
+    let pool = fresh_pool().await;
+    // A canonical-collection file (must be cleared so re-ingestion does not
+    // skip on hash-match) with dependent qdrant_chunks + indexed_content rows,
+    // plus a non-canonical file that must survive.
+    sqlx::query(
+        "INSERT INTO tracked_files (file_id, watch_folder_id, relative_path, branch, file_hash, collection) \
+         VALUES (1, 'w1', 'a.rs', 'main', 'h1', 'projects'), \
+                (2, 'w2', 'b.txt', 'main', 'h2', '_internal')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO qdrant_chunks (chunk_id, file_id, point_id, chunk_index) \
+         VALUES (1, 1, 'p1', 0), (2, 2, 'p2', 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO indexed_content (file_id, content, hash) \
+         VALUES (1, X'00', 'h1'), (2, X'00', 'h2')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ctx = ctx_with(pool.clone(), 384);
+    let recreator = MockRecreator::default();
+    execute_reembed(
+        &ctx,
+        &recreator,
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+    )
+    .await
+    .unwrap();
+
+    // Canonical file's hash tracking + its chunks + its cached content are
+    // cleared; the non-canonical file's tracking (and chunk/content) survives.
+    let tracked: Vec<String> =
+        sqlx::query_scalar("SELECT collection FROM tracked_files ORDER BY collection")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(tracked, vec!["_internal".to_string()]);
+    let chunk_files: Vec<i64> =
+        sqlx::query_scalar("SELECT file_id FROM qdrant_chunks ORDER BY file_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(chunk_files, vec![2]);
+    let content_files: Vec<i64> =
+        sqlx::query_scalar("SELECT file_id FROM indexed_content ORDER BY file_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(content_files, vec![2], "canonical indexed_content cleared");
 }
 
 #[tokio::test]
