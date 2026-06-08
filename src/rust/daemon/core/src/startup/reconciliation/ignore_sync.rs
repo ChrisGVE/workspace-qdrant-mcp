@@ -6,7 +6,7 @@
 //! missing ones. This keeps the index consistent when ignore rules change
 //! while the daemon was offline (startup) or at runtime (watcher trigger).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -60,11 +60,15 @@ pub async fn reconcile_ignore_rules(
 
     let stale: Vec<&String> = indexed_files
         .iter()
-        .filter(|p| !eligible_files.contains(p.as_str()))
+        .filter(|p| !eligible_files.contains_key(p.as_str()))
         .collect();
-    let missing: Vec<&String> = eligible_files
+    // Carry each missing file's size so the Add payload populates `size_bytes`.
+    // Without it the per-extension size gate at processing time can't fire and
+    // an oversized data file (e.g. a 24 MB JSON) would be fully chunked (#113).
+    let missing: Vec<(&String, u64)> = eligible_files
         .iter()
-        .filter(|p| !indexed_files.contains(p.as_str()))
+        .filter(|(p, _)| !indexed_files.contains(p.as_str()))
+        .map(|(p, size)| (p, *size))
         .collect();
 
     if stale.is_empty() && missing.is_empty() {
@@ -216,16 +220,22 @@ async fn enqueue_reconcile_ops(
     tenant_id: &str,
     collection: &str,
     stale: &[&String],
-    missing: &[&String],
+    missing: &[(&String, u64)],
 ) -> Result<ReconcileStats, String> {
     let mut stats = ReconcileStats::default();
+
+    // Deletes carry no size; adds carry the on-disk size so the processing-time
+    // per-extension size gate can fire (#113).
+    let stale_items: Vec<(&String, Option<u64>)> = stale.iter().map(|p| (*p, None)).collect();
+    let missing_items: Vec<(&String, Option<u64>)> =
+        missing.iter().map(|(p, size)| (*p, Some(*size))).collect();
 
     stats.stale_deleted = enqueue_ignore_ops(
         queue_manager,
         tenant_id,
         collection,
         QueueOperation::Delete,
-        stale,
+        &stale_items,
         "ignore_rule_change",
     )
     .await;
@@ -235,7 +245,7 @@ async fn enqueue_reconcile_ops(
         tenant_id,
         collection,
         QueueOperation::Add,
-        missing,
+        &missing_items,
         "ignore_reconciliation",
     )
     .await;
@@ -256,6 +266,32 @@ async fn enqueue_reconcile_ops(
 /// criteria.
 pub const IGNORE_SYNC_BATCH_SIZE: usize = 500;
 
+/// Build the queue payload JSON for one reconcile op.
+///
+/// Delete carries only the path + reason. Add carries `size_bytes` (when
+/// known) so the processing-time per-extension size gate can skip oversized
+/// data files instead of chunking them — the reconcile path previously omitted
+/// this, letting a 24 MB JSON through (#113).
+fn reconcile_payload_json(
+    op: QueueOperation,
+    file_path: &str,
+    size_bytes: Option<u64>,
+    reason: &str,
+) -> String {
+    match op {
+        QueueOperation::Delete => serde_json::json!({
+            "file_path": file_path,
+            "reason": reason,
+        }),
+        _ => serde_json::json!({
+            "file_path": file_path,
+            "source": reason,
+            "size_bytes": size_bytes,
+        }),
+    }
+    .to_string()
+}
+
 /// Enqueue `file_paths` as `(File, op)` items in batches using a single
 /// SQLite transaction per batch. Progress is logged every batch so large
 /// backfills are observable in the daemon log.
@@ -264,10 +300,10 @@ async fn enqueue_ignore_ops(
     tenant_id: &str,
     collection: &str,
     op: QueueOperation,
-    file_paths: &[&String],
+    items: &[(&String, Option<u64>)],
     reason: &str,
 ) -> u64 {
-    let total = file_paths.len();
+    let total = items.len();
     if total == 0 {
         return 0;
     }
@@ -279,21 +315,11 @@ async fn enqueue_ignore_ops(
         _ => "op",
     };
 
-    for chunk in file_paths.chunks(IGNORE_SYNC_BATCH_SIZE) {
+    for chunk in items.chunks(IGNORE_SYNC_BATCH_SIZE) {
         let payloads: Vec<String> = chunk
             .iter()
-            .map(|file_path| {
-                match op {
-                    QueueOperation::Delete => serde_json::json!({
-                        "file_path": file_path,
-                        "reason": reason,
-                    }),
-                    _ => serde_json::json!({
-                        "file_path": file_path,
-                        "source": reason,
-                    }),
-                }
-                .to_string()
+            .map(|(file_path, size_bytes)| {
+                reconcile_payload_json(op, file_path, *size_bytes, reason)
             })
             .collect();
 
@@ -336,7 +362,7 @@ async fn enqueue_ignore_ops(
 /// watcher and folder scanner use. Without this, `.git/` internals
 /// (objects, packs, submodule hook samples) are walked, flagged as
 /// "missing", and enqueued as file/add, flooding the queue.
-fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
+fn walk_eligible_files(project_root: &Path) -> Result<HashMap<String, u64>, String> {
     let mut builder = WalkBuilder::new(project_root);
     builder
         .hidden(false)
@@ -346,7 +372,7 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
         .add_custom_ignore_filename(".gitignore")
         .add_custom_ignore_filename(".wqmignore");
 
-    let mut files = HashSet::new();
+    let mut files = HashMap::new();
     for entry in builder.build().flatten() {
         if entry.file_type().map_or(false, |ft| ft.is_file()) {
             let rel = entry
@@ -360,7 +386,11 @@ fn walk_eligible_files(project_root: &Path) -> Result<HashSet<String>, String> {
             if should_exclude_file(&rel) {
                 continue;
             }
-            files.insert(rel);
+            // Record on-disk size so the Add payload can carry `size_bytes`
+            // and the processing-time size gate fires (#113). A stat failure
+            // defaults to 0 — eligible, gate passes — matching prior behaviour.
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            files.insert(rel, size);
         }
     }
 
@@ -434,6 +464,30 @@ mod tests {
     }
 
     #[test]
+    fn add_payload_carries_size_bytes_for_gate() {
+        // The Add payload must round-trip into a FilePayload with size_bytes set,
+        // otherwise the processing-time per-extension size gate can't fire (#113).
+        let json = reconcile_payload_json(
+            QueueOperation::Add,
+            "data/huge.json",
+            Some(24_834_908),
+            "ignore_reconciliation",
+        );
+        let payload: FilePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(payload.size_bytes, Some(24_834_908));
+        assert_eq!(payload.file_path.as_str(), "data/huge.json");
+
+        // Delete carries no size — it never needs the gate.
+        let json = reconcile_payload_json(
+            QueueOperation::Delete,
+            "data/gone.json",
+            None,
+            "ignore_rule_change",
+        );
+        assert!(!json.contains("size_bytes"));
+    }
+
+    #[test]
     fn walk_eligible_files_respects_gitignore() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(".gitignore"), "dist/\n").unwrap();
@@ -446,9 +500,9 @@ mod tests {
 
         let files = walk_eligible_files(root.path()).unwrap();
         // src/main.rs should be eligible
-        assert!(files.iter().any(|f| f.ends_with("main.rs")));
+        assert!(files.keys().any(|f| f.ends_with("main.rs")));
         // dist/bundle.js should NOT be eligible
-        assert!(!files.iter().any(|f| f.ends_with("bundle.js")));
+        assert!(!files.keys().any(|f| f.ends_with("bundle.js")));
     }
 
     #[test]
@@ -469,11 +523,11 @@ mod tests {
         let files = walk_eligible_files(root.path()).unwrap();
 
         assert!(
-            files.iter().any(|f| f.ends_with("main.rs")),
+            files.keys().any(|f| f.ends_with("main.rs")),
             "source files stay eligible"
         );
         assert!(
-            !files.iter().any(|f| f.contains(".git/")),
+            !files.keys().any(|f| f.contains(".git/")),
             ".git internals must never be eligible, got: {files:?}"
         );
     }
@@ -593,7 +647,7 @@ mod tests {
         fs::write(root.path().join("readme.md"), "# hi").unwrap();
 
         let files = walk_eligible_files(root.path()).unwrap();
-        assert!(files.iter().any(|f| f.ends_with("readme.md")));
-        assert!(!files.iter().any(|f| f.ends_with("big.csv")));
+        assert!(files.keys().any(|f| f.ends_with("readme.md")));
+        assert!(!files.keys().any(|f| f.ends_with("big.csv")));
     }
 }
