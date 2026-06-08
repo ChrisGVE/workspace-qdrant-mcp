@@ -27,6 +27,9 @@ pub struct LibraryRow {
     pub mode: String,
     /// Number of tracked documents for this library.
     pub doc_count: u64,
+    /// Source marker for a library nested under a project: `P:<project-name>`.
+    /// `None` for a top-level library.
+    pub source: Option<String>,
 }
 
 /// Full detail of a single library for the popup view.
@@ -61,11 +64,13 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
     let Ok(mut stmt) = conn.prepare(
         "SELECT wf.watch_id, wf.tenant_id, wf.path, wf.enabled, wf.is_active, \
          COALESCE(wf.library_mode, 'incremental'), \
-         COALESCE(tf_count.cnt, 0) \
+         COALESCE(tf_count.cnt, 0), \
+         parent.path, parent.collection \
          FROM watch_folders wf \
          LEFT JOIN ( \
              SELECT watch_folder_id, COUNT(*) AS cnt FROM tracked_files GROUP BY watch_folder_id \
          ) tf_count ON tf_count.watch_folder_id = wf.watch_id \
+         LEFT JOIN watch_folders parent ON parent.watch_id = wf.parent_watch_id \
          WHERE wf.collection = 'libraries' \
          ORDER BY wf.tenant_id",
     ) else {
@@ -82,6 +87,8 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
         is_active: bool,
         mode: String,
         doc_count: u64,
+        parent_path: Option<String>,
+        parent_collection: Option<String>,
     }
 
     let Ok(rows) = stmt.query_map([], |row| {
@@ -94,6 +101,8 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
             is_active: is_active_val > 0,
             mode: row.get(5)?,
             doc_count: row.get::<_, i64>(6).unwrap_or(0) as u64,
+            parent_path: row.get(7)?,
+            parent_collection: row.get(8)?,
         })
     }) else {
         return Vec::new();
@@ -113,8 +122,29 @@ pub fn fetch_library_rows() -> Vec<LibraryRow> {
             is_active: r.is_active,
             mode: r.mode,
             doc_count: r.doc_count,
+            source: project_source(&r.parent_path, &r.parent_collection),
         })
         .collect()
+}
+
+/// Build the `P:<project-name>` source marker for a library nested under a
+/// project. Returns `None` for a top-level library or one whose parent is
+/// itself a library.
+fn project_source(
+    parent_path: &Option<String>,
+    parent_collection: &Option<String>,
+) -> Option<String> {
+    let path = parent_path.as_deref()?;
+    // Only a non-library parent (i.e. a project) is marked.
+    if parent_collection.as_deref() == Some("libraries") {
+        return None;
+    }
+    let base = path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or(path);
+    Some(format!("P:{base}"))
 }
 
 /// Split a path into its (optional parent component, base component).
@@ -271,6 +301,7 @@ mod tests {
             is_active: true,
             mode: "sync".to_string(),
             doc_count: 42,
+            source: None,
         };
         assert_eq!(row.tag, "rust-docs");
         assert_eq!(row.doc_count, 42);
@@ -293,6 +324,22 @@ mod tests {
     fn display_names_trailing_slash() {
         let paths = vec!["/home/u/lib/".to_string()];
         assert_eq!(library_display_names(&paths), vec!["lib"]);
+    }
+
+    #[test]
+    fn project_source_marks_project_parent() {
+        // Parent is a project → P:<project base name>.
+        assert_eq!(
+            project_source(&Some("/home/u/dev/myproj".into()), &Some("projects".into())),
+            Some("P:myproj".to_string())
+        );
+        // No parent → no marker.
+        assert_eq!(project_source(&None, &None), None);
+        // Parent is itself a library → no marker.
+        assert_eq!(
+            project_source(&Some("/home/u/libs/x".into()), &Some("libraries".into())),
+            None
+        );
     }
 
     #[test]

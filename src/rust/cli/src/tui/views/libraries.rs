@@ -211,7 +211,9 @@ impl LibraryBrowser {
 
     /// Draw the scrollable table of library items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["Name", "Path", "Status", "Mode", "Docs"])
+        // Shared columns (Name, Path, Docs) come first in the same order as the
+        // Projects view; the library-specific columns follow.
+        let header = Row::new(vec!["Name", "Path", "Docs", "Status", "Mode", "Source"])
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -220,15 +222,17 @@ impl LibraryBrowser {
             .bottom_margin(1);
 
         let widths = [
-            Constraint::Length(20),
-            Constraint::Min(30),
-            Constraint::Length(10),
-            Constraint::Length(13),
-            Constraint::Length(8),
+            Constraint::Length(20), // name
+            Constraint::Min(30),    // path (flex)
+            Constraint::Length(8),  // docs
+            Constraint::Length(10), // status
+            Constraint::Length(13), // mode
+            Constraint::Length(16), // source (P:<project>)
         ];
         // Path flexes; keep the trailing path (filename) visible on truncation.
+        // Fixed: name 20, docs 8, status 10, mode 13, source 16; 5 gaps + borders.
         let path_w = (area.width as usize)
-            .saturating_sub(20 + 10 + 13 + 8 + 4 + 2)
+            .saturating_sub(20 + 8 + 10 + 13 + 16 + 5 + 2)
             .max(20);
 
         let block = Block::default()
@@ -270,15 +274,14 @@ impl LibraryBrowser {
                 } else {
                     Style::default().fg(Color::Cyan)
                 };
+                let source = item.source.clone().unwrap_or_default();
                 Row::new(vec![
                     Span::styled(item.name.clone(), name_style),
                     Span::raw(truncate_path(&item.display_path, path_w)),
+                    Span::styled(item.doc_count.to_string(), Style::default().fg(Color::Cyan)),
                     Span::styled(status, Style::default().fg(status_fg)),
                     Span::raw(item.mode.clone()),
-                    Span::styled(
-                        item.doc_count.to_string(),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    Span::styled(source, Style::default().fg(Color::Magenta)),
                 ])
                 .style(row_style)
             })
@@ -503,6 +506,7 @@ mod tests {
                 is_active: i % 2 == 0,
                 mode: "sync".into(),
                 doc_count: i as u64 * 10,
+                source: None,
             })
             .collect()
     }
