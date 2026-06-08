@@ -92,7 +92,11 @@ impl FileStrategy {
 
         let payload: FilePayload = parse_payload(item)?;
 
-        if !passes_ingestion_guards(ctx, item, &payload) {
+        // SkipNotAllowed can short-circuit before resolving the watch folder:
+        // a non-allowlisted extension is not indexable data and records nothing.
+        // SkipOversized is handled after the watch folder is resolved (below).
+        let guard = ingestion_guard(ctx, item, &payload);
+        if let IngestionGuard::SkipNotAllowed = guard {
             return Ok(());
         }
 
@@ -113,6 +117,21 @@ impl FileStrategy {
         let abs_file_path: String = abs_canonical.as_str().to_string();
         let file_path = Path::new(abs_file_path.as_str());
         let relative_path: &str = payload.file_path.as_str();
+
+        // An oversized allowlisted file (e.g. a 24 MB JSON) is user data we
+        // decline to index. Record it as a 0-chunk tracked file so it is
+        // visible and reconcile does not re-enqueue it forever (#113).
+        if let IngestionGuard::SkipOversized = guard {
+            return record_oversized_skip(
+                ctx,
+                item,
+                pool,
+                &watch_folder_id,
+                relative_path,
+                file_path,
+            )
+            .await;
+        }
 
         crate::shared::ensure_collection(
             &ctx.storage_client,
@@ -272,15 +291,28 @@ enum UpdateAction {
     Proceed,
 }
 
-/// Check allowlist and per-extension size limit. Returns `false` if the file
-/// should be silently skipped (non-error).
-fn passes_ingestion_guards(
+/// Outcome of the pre-ingestion guards for a file item.
+enum IngestionGuard {
+    /// File passes all guards — proceed with ingestion.
+    Proceed,
+    /// Extension is not in the collection's allowlist (binary, image, etc.).
+    /// Not indexable content and not user data — skip silently, record nothing.
+    SkipNotAllowed,
+    /// An allowlisted text file that exceeds its per-extension size limit
+    /// (e.g. a 24 MB JSON data dump). This IS user data we deliberately decline
+    /// to index, so it must be recorded as a 0-chunk tracked file rather than
+    /// vanish — otherwise reconcile re-enqueues it on every run (#113).
+    SkipOversized,
+}
+
+/// Check allowlist and per-extension size limit for a file item.
+fn ingestion_guard(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     payload: &FilePayload,
-) -> bool {
+) -> IngestionGuard {
     if item.op == QueueOperation::Delete {
-        return true;
+        return IngestionGuard::Proceed;
     }
 
     let rel = payload.file_path.as_str();
@@ -289,7 +321,7 @@ fn passes_ingestion_guards(
             "File type not in allowlist, skipping: {} (collection={})",
             rel, item.collection
         );
-        return false;
+        return IngestionGuard::SkipNotAllowed;
     }
 
     if let Some(size) = payload.size_bytes {
@@ -304,12 +336,54 @@ fn passes_ingestion_guards(
                     path = %rel,
                     "Skipping oversized file: exceeds per-extension limit"
                 );
-                return false;
+                return IngestionGuard::SkipOversized;
             }
         }
     }
 
-    true
+    IngestionGuard::Proceed
+}
+
+/// Record an oversized (size-restricted) file as a 0-chunk skipped tracked
+/// file, then mark the queue item done. The `warn!` describing why was already
+/// emitted by `ingestion_guard`.
+///
+/// Recording it (rather than silently returning) keeps the file visible and,
+/// crucially, stops ignore-reconciliation from re-enqueueing it on every run —
+/// reconcile treats any path absent from `tracked_files` as "missing" (#113).
+async fn record_oversized_skip(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    relative_path: &str,
+    file_path: &Path,
+) -> UnifiedProcessorResult<()> {
+    let file_hash = tracked_files_schema::compute_file_hash(file_path)
+        .unwrap_or_else(|_| "unknown".to_string());
+    let file_mtime = tracked_files_schema::get_file_mtime(file_path)
+        .unwrap_or_else(|_| wqm_common::timestamps::now_utc());
+    let extension = crate::file_classification::get_extension_for_storage(file_path);
+    let is_test = crate::file_classification::is_test_file(file_path);
+    let base_point =
+        wqm_common::hashing::compute_base_point(&item.tenant_id, relative_path, &file_hash);
+
+    zero_byte::record_tracked_file(
+        pool,
+        item,
+        watch_folder_id,
+        relative_path,
+        &file_mtime,
+        &file_hash,
+        extension.as_deref(),
+        is_test,
+        &base_point,
+        None, // file_type: classification not needed for a skipped file
+    )
+    .await?;
+
+    zero_byte::mark_destinations_done(ctx, item).await;
+    Ok(())
 }
 
 /// Handle a queue item whose file no longer exists on disk: clean up tracked

@@ -79,7 +79,7 @@ pub(super) async fn handle_zero_byte_file(
 
 /// Insert or update the `tracked_files` row for a zero-byte file.
 #[allow(clippy::too_many_arguments)]
-async fn record_tracked_file(
+pub(super) async fn record_tracked_file(
     pool: &SqlitePool,
     item: &UnifiedQueueItem,
     watch_folder_id: &str,
@@ -158,7 +158,7 @@ async fn record_tracked_file(
 
 /// Mark both qdrant and search destinations as done so the queue item is
 /// dequeued cleanly.
-async fn mark_destinations_done(ctx: &ProcessingContext, item: &UnifiedQueueItem) {
+pub(super) async fn mark_destinations_done(ctx: &ProcessingContext, item: &UnifiedQueueItem) {
     let _ = ctx
         .queue_manager
         .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
