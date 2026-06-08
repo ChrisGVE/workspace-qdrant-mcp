@@ -336,11 +336,11 @@ impl ProjectBrowser {
                 Style::default().fg(branch_fg),
             ),
             Span::styled(
-                crate::tui::util::fmt_count(item.doc_count),
+                format!("{:>7}", crate::tui::util::fmt_count(item.doc_count)),
                 Style::default().fg(Color::Cyan),
             ),
             Span::styled(
-                crate::tui::util::fmt_count(item.queue_count),
+                format!("{:>7}", crate::tui::util::fmt_count(item.queue_count)),
                 Style::default().fg(queue_fg),
             ),
         ])

@@ -278,7 +278,10 @@ impl LibraryBrowser {
                 Row::new(vec![
                     Span::styled(item.name.clone(), name_style),
                     Span::raw(truncate_path(&item.display_path, path_w)),
-                    Span::styled(item.doc_count.to_string(), Style::default().fg(Color::Cyan)),
+                    Span::styled(
+                        format!("{:>7}", crate::tui::util::fmt_count(item.doc_count as i64)),
+                        Style::default().fg(Color::Cyan),
+                    ),
                     Span::styled(status, Style::default().fg(status_fg)),
                     Span::raw(item.mode.clone()),
                     Span::styled(source, Style::default().fg(Color::Magenta)),
