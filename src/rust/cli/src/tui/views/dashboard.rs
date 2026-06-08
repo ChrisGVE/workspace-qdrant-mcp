@@ -87,6 +87,7 @@ impl Dashboard {
                 self.async_snapshot = guard.clone();
             }
             merge_async_data(&mut self.data, &self.async_snapshot);
+            self.data.sort_by_tenant();
 
             self.last_refresh = Some(Instant::now());
         }

@@ -153,6 +153,25 @@ impl Default for DashboardData {
     }
 }
 
+impl DashboardData {
+    /// Sort every cell's rows by tenant display name (natural, case-insensitive)
+    /// so the dashboard ordering matches the full list views. Errors sort by
+    /// their tenant name. The sort is stable, so equal-named rows keep their
+    /// relative order across refreshes.
+    pub fn sort_by_tenant(&mut self) {
+        use crate::tui::util::natural_cmp;
+        self.projects.sort_by(|a, b| natural_cmp(&a.name, &b.name));
+        self.libraries.sort_by(|a, b| natural_cmp(&a.name, &b.name));
+        self.scratchpad
+            .sort_by(|a, b| natural_cmp(&a.name, &b.name));
+        self.rules.sort_by(|a, b| natural_cmp(&a.name, &b.name));
+        self.active_projects
+            .sort_by(|a, b| natural_cmp(&a.name, &b.name));
+        self.errors
+            .sort_by(|a, b| natural_cmp(&a.tenant_name, &b.tenant_name));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Background async fetcher
 // ---------------------------------------------------------------------------
@@ -353,6 +372,44 @@ mod tests {
         let d = DashboardData::default();
         assert!(d.projects.is_empty());
         assert!(d.errors.is_empty());
+    }
+
+    #[test]
+    fn sort_by_tenant_orders_cells_naturally() {
+        let mk = |name: &str| ProjectSummaryRow {
+            tenant_id: name.into(),
+            name: name.into(),
+            workspace_count: 0,
+            branch_count: 0,
+            qdrant_points: 0,
+            tracked_files: 0,
+            queue_pending: 0,
+            queue_in_progress: 0,
+            queue_failed: 0,
+        };
+        let mut data = DashboardData {
+            projects: vec![mk("item10"), mk("Beta"), mk("item2"), mk("alpha")],
+            errors: vec![
+                ErrorRow {
+                    queue_id: "q2".into(),
+                    collection_letter: 'P',
+                    tenant_name: "zeta".into(),
+                    error_message: "e".into(),
+                },
+                ErrorRow {
+                    queue_id: "q1".into(),
+                    collection_letter: 'P',
+                    tenant_name: "alpha".into(),
+                    error_message: "e".into(),
+                },
+            ],
+            ..DashboardData::default()
+        };
+        data.sort_by_tenant();
+        let names: Vec<&str> = data.projects.iter().map(|p| p.name.as_str()).collect();
+        // Case-insensitive, numeric-aware: alpha, Beta, item2, item10.
+        assert_eq!(names, vec!["alpha", "Beta", "item2", "item10"]);
+        assert_eq!(data.errors[0].tenant_name, "alpha");
     }
 
     #[test]
