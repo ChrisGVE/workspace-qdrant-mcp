@@ -1,8 +1,10 @@
-//! Service view — daemon and Qdrant status with toggle controls.
+//! Service view — live daemon/Qdrant health plus the key operational telemetry.
 //!
-//! Shows connectivity status for both memexd and Qdrant, with
-//! visual alarm state when either is unreachable.
+//! Health is probed off-thread (see `service_data`); the render thread reads a
+//! snapshot. SQLite-derived counters (queue depth, DLQ, indexed docs/chunks,
+//! watcher state) refresh on each tick.
 
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -11,116 +13,18 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::data::db::connect_readonly;
+use super::service_data::{
+    fetch_service_status, format_bytes, spawn_service_fetcher, ServiceLive, ServiceStatus,
+};
 use crate::tui::theme;
 
-/// Minimum interval between status checks.
+/// Minimum interval between SQLite status reads.
 const REFRESH_INTERVAL_MS: u128 = 3000;
-
-/// Service status information.
-#[derive(Debug, Clone)]
-pub struct ServiceStatus {
-    pub daemon_reachable: bool,
-    pub daemon_version: String,
-    pub qdrant_reachable: bool,
-    pub qdrant_url: String,
-    pub queue_total: i64,
-    pub queue_pending: i64,
-    pub queue_failed: i64,
-    pub active_projects: i64,
-    pub active_libraries: i64,
-}
-
-impl Default for ServiceStatus {
-    fn default() -> Self {
-        Self {
-            daemon_reachable: false,
-            daemon_version: "unknown".to_string(),
-            qdrant_reachable: false,
-            qdrant_url: "unknown".to_string(),
-            queue_total: 0,
-            queue_pending: 0,
-            queue_failed: 0,
-            active_projects: 0,
-            active_libraries: 0,
-        }
-    }
-}
-
-/// Fetch service status from SQLite.
-fn fetch_service_status() -> ServiceStatus {
-    let mut status = ServiceStatus::default();
-
-    let conn = match connect_readonly() {
-        Ok(c) => {
-            status.daemon_reachable = true;
-            c
-        }
-        Err(_) => return status,
-    };
-
-    // Queue stats
-    if let Ok(mut stmt) = conn.prepare("SELECT status, COUNT(*) FROM unified_queue GROUP BY status")
-    {
-        if let Ok(rows) = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        }) {
-            for row in rows.flatten() {
-                status.queue_total += row.1;
-                match row.0.as_str() {
-                    "pending" => status.queue_pending = row.1,
-                    "failed" => status.queue_failed = row.1,
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // Active projects
-    if let Ok(count) = conn.query_row(
-        "SELECT COUNT(*) FROM watch_folders WHERE collection = 'projects' AND ref_count > 0",
-        [],
-        |row| row.get::<_, i64>(0),
-    ) {
-        status.active_projects = count;
-    }
-
-    // Active libraries
-    if let Ok(count) = conn.query_row(
-        "SELECT COUNT(*) FROM watch_folders WHERE collection = 'libraries' AND ref_count > 0",
-        [],
-        |row| row.get::<_, i64>(0),
-    ) {
-        status.active_libraries = count;
-    }
-
-    // Qdrant URL from operational_state
-    if let Ok(url) = conn.query_row(
-        "SELECT value FROM operational_state WHERE key = 'qdrant_url'",
-        [],
-        |row| row.get::<_, String>(0),
-    ) {
-        status.qdrant_url = url;
-        // Simple reachability check: if we can read from the DB and
-        // the daemon is running, Qdrant reachability is inferred from
-        // whether we have recent successful queue processing.
-        // A real check would need gRPC or HTTP but we avoid blocking here.
-        status.qdrant_reachable = true;
-    }
-
-    // Schema version as proxy for daemon version
-    if let Ok(version) = conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
-        row.get::<_, i64>(0)
-    }) {
-        status.daemon_version = format!("schema v{}", version);
-    }
-
-    status
-}
 
 /// Service view state.
 pub struct ServiceView {
     status: ServiceStatus,
+    live: Arc<Mutex<ServiceLive>>,
     last_refresh: Option<Instant>,
     /// Last command result message (shown briefly).
     pub last_message: Option<String>,
@@ -130,6 +34,7 @@ impl ServiceView {
     pub fn new() -> Self {
         Self {
             status: ServiceStatus::default(),
+            live: spawn_service_fetcher(),
             last_refresh: None,
             last_message: None,
         }
@@ -146,161 +51,174 @@ impl ServiceView {
         }
     }
 
-    /// Returns true if any service is down (for alarm state).
+    /// Snapshot of the off-thread live signals.
+    fn live(&self) -> ServiceLive {
+        self.live.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    /// Returns true if the daemon has been confirmed down (for alarm state).
     pub fn alarm_active(&self) -> bool {
-        !self.status.daemon_reachable
+        self.live().daemon_healthy == Some(false)
     }
 
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::vertical([
-            Constraint::Length(9), // daemon info
-            Constraint::Length(9), // qdrant info
-            Constraint::Length(7), // queue summary
+        let live = self.live();
+
+        let rows = Layout::vertical([
+            Constraint::Length(8), // daemon | qdrant
+            Constraint::Length(8), // queue | index
             Constraint::Min(1),    // hints
         ])
         .split(area);
 
-        frame.render_widget(self.render_daemon_panel(), chunks[0]);
-        frame.render_widget(self.render_qdrant_panel(), chunks[1]);
-        frame.render_widget(self.render_queue_panel(), chunks[2]);
-        frame.render_widget(self.render_hints_panel(), chunks[3]);
+        let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[0]);
+        let mid = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
+
+        frame.render_widget(self.render_daemon_panel(&live), top[0]);
+        frame.render_widget(self.render_qdrant_panel(&live), top[1]);
+        frame.render_widget(self.render_queue_panel(), mid[0]);
+        frame.render_widget(self.render_index_panel(), mid[1]);
+        frame.render_widget(self.render_hints_panel(), rows[2]);
     }
 
-    /// Build the Daemon (memexd) status panel.
-    fn render_daemon_panel(&self) -> Paragraph<'_> {
-        let indicator = if self.status.daemon_reachable {
-            Span::styled(
-                format!("{} Running", theme::GUTTER_SYNC),
+    /// Render a tri-state health indicator span.
+    fn health_indicator(healthy: Option<bool>) -> Span<'static> {
+        match healthy {
+            Some(true) => Span::styled(
+                format!("{} Healthy", theme::GUTTER_SYNC),
                 Style::default().fg(theme::COLOR_SUCCESS),
-            )
-        } else {
-            Span::styled(
+            ),
+            Some(false) => Span::styled(
                 format!("{} Unreachable", theme::GUTTER_REMOVE),
                 Style::default().fg(theme::COLOR_ERROR),
-            )
+            ),
+            None => Span::styled("… probing", Style::default().fg(theme::COLOR_DIM)),
+        }
+    }
+
+    fn render_daemon_panel(&self, live: &ServiceLive) -> Paragraph<'static> {
+        let block_style = if live.daemon_healthy == Some(false) {
+            theme::alarm_style()
+        } else {
+            Style::default()
         };
-        let block_style = if !self.status.daemon_reachable {
+        let footprint = live
+            .footprint_bytes
+            .map(format_bytes)
+            .unwrap_or_else(|| "—".to_string());
+        let lines = vec![
+            kv("Status", Self::health_indicator(live.daemon_healthy)),
+            kv(
+                "Memory",
+                Span::styled(footprint, Style::default().fg(theme::COLOR_ACCENT)),
+            ),
+            kv(
+                "Schema",
+                Span::raw(format!("v{}", self.status.schema_version)),
+            ),
+        ];
+        panel(lines, " Daemon (memexd) ", block_style)
+    }
+
+    fn render_qdrant_panel(&self, live: &ServiceLive) -> Paragraph<'static> {
+        let block_style = if live.qdrant_healthy == Some(false) {
             theme::alarm_style()
         } else {
             Style::default()
         };
         let lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  Status:   ", Style::default().fg(theme::COLOR_MUTED)),
-                indicator,
-            ]),
-            Line::from(vec![
-                Span::styled("  Version:  ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&self.status.daemon_version),
-            ]),
-            Line::from(vec![
-                Span::styled("  Projects: ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::styled(
-                    self.status.active_projects.to_string(),
-                    Style::default().fg(theme::COLOR_ACCENT),
-                ),
-                Span::styled(" active", Style::default().fg(theme::COLOR_DIM)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Libraries:", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(" "),
-                Span::styled(
-                    self.status.active_libraries.to_string(),
-                    Style::default().fg(theme::COLOR_ACCENT),
-                ),
-                Span::styled(" active", Style::default().fg(theme::COLOR_DIM)),
-            ]),
-            Line::from(""),
+            kv("Status", Self::health_indicator(live.qdrant_healthy)),
+            kv(
+                "URL",
+                Span::raw(crate::tui::util::truncate_path(&self.status.qdrant_url, 36)),
+            ),
         ];
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Daemon (memexd) ")
-                .title_style(Style::default().add_modifier(Modifier::BOLD))
-                .style(block_style),
-        )
+        panel(lines, " Qdrant ", block_style)
     }
 
-    /// Build the Qdrant status panel.
-    fn render_qdrant_panel(&self) -> Paragraph<'_> {
-        let indicator = if self.status.qdrant_reachable {
-            Span::styled(
-                format!("{} Connected", theme::GUTTER_SYNC),
-                Style::default().fg(theme::COLOR_SUCCESS),
-            )
+    fn render_queue_panel(&self) -> Paragraph<'static> {
+        let s = &self.status;
+        let failed_fg = if s.queue_failed > 0 {
+            theme::COLOR_ERROR
         } else {
-            Span::styled(
-                format!("{} Unreachable", theme::GUTTER_REMOVE),
-                Style::default().fg(theme::COLOR_ERROR),
-            )
+            theme::COLOR_DIM
         };
-        let block_style = if !self.status.qdrant_reachable {
-            theme::alarm_style()
+        let dlq_fg = if s.dlq_count > 0 {
+            theme::COLOR_ERROR
         } else {
-            Style::default()
+            theme::COLOR_DIM
         };
         let lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  Status:   ", Style::default().fg(theme::COLOR_MUTED)),
-                indicator,
-            ]),
-            Line::from(vec![
-                Span::styled("  URL:      ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&self.status.qdrant_url),
-            ]),
-            Line::from(""),
-        ];
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Qdrant ")
-                .title_style(Style::default().add_modifier(Modifier::BOLD))
-                .style(block_style),
-        )
-    }
-
-    /// Build the Queue Summary panel.
-    fn render_queue_panel(&self) -> Paragraph<'_> {
-        let failed_style = if self.status.queue_failed > 0 {
-            Style::default().fg(theme::COLOR_ERROR)
-        } else {
-            Style::default().fg(theme::COLOR_DIM)
-        };
-        let lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  Total:    ", Style::default().fg(theme::COLOR_MUTED)),
+            kv(
+                "Pending",
                 Span::styled(
-                    self.status.queue_total.to_string(),
-                    Style::default().fg(theme::COLOR_ACCENT),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Pending:  ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::styled(
-                    self.status.queue_pending.to_string(),
+                    s.queue_pending.to_string(),
                     Style::default().fg(theme::COLOR_WARNING),
                 ),
-            ]),
-            Line::from(vec![
-                Span::styled("  Failed:   ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::styled(self.status.queue_failed.to_string(), failed_style),
-            ]),
-            Line::from(""),
+            ),
+            kv(
+                "In progress",
+                Span::styled(
+                    s.queue_in_progress.to_string(),
+                    Style::default().fg(theme::COLOR_INFO),
+                ),
+            ),
+            kv(
+                "Failed",
+                Span::styled(s.queue_failed.to_string(), Style::default().fg(failed_fg)),
+            ),
+            kv(
+                "Dead-letter",
+                Span::styled(s.dlq_count.to_string(), Style::default().fg(dlq_fg)),
+            ),
         ];
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Queue Summary ")
-                .title_style(Style::default().add_modifier(Modifier::BOLD)),
-        )
+        panel(lines, " Queue ", Style::default())
     }
 
-    /// Build the hints + last-command-message panel.
-    fn render_hints_panel(&self) -> Paragraph<'_> {
-        let mut spans: Vec<Span> = vec![
+    fn render_index_panel(&self) -> Paragraph<'static> {
+        let s = &self.status;
+        let paused_fg = if s.watchers_paused > 0 {
+            theme::COLOR_WARNING
+        } else {
+            theme::COLOR_DIM
+        };
+        let lines = vec![
+            kv(
+                "Documents",
+                Span::styled(
+                    s.total_docs.to_string(),
+                    Style::default().fg(theme::COLOR_ACCENT),
+                ),
+            ),
+            kv(
+                "Chunks",
+                Span::styled(
+                    s.total_chunks.to_string(),
+                    Style::default().fg(theme::COLOR_ACCENT),
+                ),
+            ),
+            kv(
+                "Watchers",
+                Span::styled(
+                    format!("{} active", s.watchers_active),
+                    Style::default().fg(theme::COLOR_SUCCESS),
+                ),
+            ),
+            kv(
+                "Paused",
+                Span::styled(
+                    s.watchers_paused.to_string(),
+                    Style::default().fg(paused_fg),
+                ),
+            ),
+        ];
+        panel(lines, " Index ", Style::default())
+    }
+
+    fn render_hints_panel(&self) -> Paragraph<'static> {
+        let mut spans: Vec<Span<'static>> = vec![
             Span::styled("  p ", Style::default().fg(theme::COLOR_ACCENT)),
             Span::styled("Pause watchers  ", Style::default().fg(theme::COLOR_DIM)),
             Span::styled("r ", Style::default().fg(theme::COLOR_ACCENT)),
@@ -316,6 +234,28 @@ impl ServiceView {
     }
 }
 
+/// Build a key/value line: dimmed key, then the value span.
+fn kv(key: &str, value: Span<'static>) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {key:<12} "),
+            Style::default().fg(theme::COLOR_MUTED),
+        ),
+        value,
+    ])
+}
+
+/// Wrap lines in a titled, bordered panel.
+fn panel(lines: Vec<Line<'static>>, title: &str, block_style: Style) -> Paragraph<'static> {
+    Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(title.to_string())
+            .title_style(Style::default().add_modifier(Modifier::BOLD))
+            .style(block_style),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,15 +263,21 @@ mod tests {
     #[test]
     fn service_view_initializes() {
         let view = ServiceView::new();
-        assert!(!view.status.daemon_reachable);
-        assert!(view.alarm_active());
+        // No probe has completed yet, so the daemon is not yet confirmed down.
+        assert!(!view.alarm_active());
+        assert!(view.last_message.is_none());
     }
 
     #[test]
-    fn default_status() {
-        let s = ServiceStatus::default();
-        assert!(!s.daemon_reachable);
-        assert!(!s.qdrant_reachable);
-        assert_eq!(s.queue_total, 0);
+    fn health_indicator_states() {
+        assert!(ServiceView::health_indicator(Some(true))
+            .content
+            .contains("Healthy"));
+        assert!(ServiceView::health_indicator(Some(false))
+            .content
+            .contains("Unreachable"));
+        assert!(ServiceView::health_indicator(None)
+            .content
+            .contains("probing"));
     }
 }

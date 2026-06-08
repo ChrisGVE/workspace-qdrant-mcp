@@ -20,3 +20,4 @@ pub mod rules_data;
 pub mod scratchpad;
 pub mod scratchpad_data;
 pub mod service;
+pub mod service_data;
