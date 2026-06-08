@@ -31,6 +31,8 @@ impl App {
             frame.render_widget(alarm_bg, frame.area());
         }
 
+        self.content_height.set(chunks[1].height);
+
         self.draw_tab_bar(frame, chunks[0]);
         self.draw_main_content(frame, chunks[1]);
         self.draw_status_bar(frame, chunks[2], alarm);
@@ -176,7 +178,7 @@ impl App {
     fn draw_help_overlay(&self, frame: &mut Frame) {
         let area = frame.area();
         let help_width = 55u16.min(area.width.saturating_sub(4));
-        let help_height = 18u16.min(area.height.saturating_sub(4));
+        let help_height = 20u16.min(area.height.saturating_sub(4));
 
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
@@ -207,6 +209,10 @@ impl App {
             Line::from(vec![
                 Span::styled("  j/k         ", Style::default().fg(Color::Yellow)),
                 Span::raw("Navigate (Queue, Projects, Libraries, Logs)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  ^d/^u ^f/^b ", Style::default().fg(Color::Yellow)),
+                Span::raw("Half / full page down/up"),
             ]),
             Line::from(vec![
                 Span::styled("  Enter       ", Style::default().fg(Color::Yellow)),

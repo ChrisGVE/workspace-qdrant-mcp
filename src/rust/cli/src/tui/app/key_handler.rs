@@ -172,6 +172,8 @@ impl App {
 
     /// Handle queue-specific keys. Returns true if the key was consumed.
     fn handle_queue_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let browser = self.queue_browser();
 
         if browser.search_active() {
@@ -199,12 +201,28 @@ impl App {
                 browser.select_prev();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                browser.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                browser.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                browser.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                browser.page_up(full);
+                true
+            }
             KeyCode::PageUp => {
-                browser.page_up(20);
+                browser.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                browser.page_down(20);
+                browser.page_down(full);
                 true
             }
             KeyCode::Enter => {
@@ -225,6 +243,8 @@ impl App {
 
     /// Handle project-specific keys. Returns true if the key was consumed.
     fn handle_project_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let browser = self.project_browser();
 
         // When search is active, delegate all keys to search
@@ -254,12 +274,28 @@ impl App {
                 browser.select_prev();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                browser.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                browser.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                browser.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                browser.page_up(full);
+                true
+            }
             KeyCode::PageUp => {
-                browser.page_up(20);
+                browser.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                browser.page_down(20);
+                browser.page_down(full);
                 true
             }
             KeyCode::Enter => {
@@ -276,6 +312,8 @@ impl App {
 
     /// Handle library-specific keys. Returns true if the key was consumed.
     fn handle_library_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let browser = self.library_browser();
 
         if browser.search_active() {
@@ -303,12 +341,28 @@ impl App {
                 browser.select_prev();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                browser.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                browser.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                browser.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                browser.page_up(full);
+                true
+            }
             KeyCode::PageUp => {
-                browser.page_up(20);
+                browser.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                browser.page_down(20);
+                browser.page_down(full);
                 true
             }
             KeyCode::Enter => {
@@ -325,6 +379,8 @@ impl App {
 
     /// Handle rule-specific keys. Returns true if the key was consumed.
     fn handle_rule_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let browser = self.rule_browser();
 
         if browser.search_active() {
@@ -352,12 +408,28 @@ impl App {
                 browser.select_prev();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                browser.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                browser.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                browser.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                browser.page_up(full);
+                true
+            }
             KeyCode::PageUp => {
-                browser.page_up(20);
+                browser.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                browser.page_down(20);
+                browser.page_down(full);
                 true
             }
             KeyCode::Enter => {
@@ -374,6 +446,8 @@ impl App {
 
     /// Handle scratchpad-specific keys. Returns true if the key was consumed.
     fn handle_scratchpad_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let browser = self.scratchpad_browser();
 
         if browser.search_active() {
@@ -420,12 +494,28 @@ impl App {
                 browser.select_prev();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                browser.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                browser.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                browser.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                browser.page_up(full);
+                true
+            }
             KeyCode::PageUp => {
-                browser.page_up(20);
+                browser.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                browser.page_down(20);
+                browser.page_down(full);
                 true
             }
             KeyCode::Enter => {
@@ -459,6 +549,8 @@ impl App {
 
     /// Handle log-specific keys. Returns true if the key was consumed.
     fn handle_log_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
         let viewer = self.log_viewer();
 
         // When the entry popup is open, keys scroll or close it.
@@ -481,6 +573,22 @@ impl App {
                 viewer.scroll_up();
                 true
             }
+            KeyCode::Char('d') if ctrl => {
+                viewer.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                viewer.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                viewer.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                viewer.page_up(full);
+                true
+            }
             KeyCode::Enter => {
                 viewer.open_popup();
                 true
@@ -494,11 +602,11 @@ impl App {
                 true
             }
             KeyCode::PageUp => {
-                viewer.page_up(20);
+                viewer.page_up(full);
                 true
             }
             KeyCode::PageDown => {
-                viewer.page_down(20);
+                viewer.page_down(full);
                 true
             }
             _ => false,

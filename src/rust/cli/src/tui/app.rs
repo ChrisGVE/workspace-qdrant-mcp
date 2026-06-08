@@ -97,6 +97,9 @@ pub struct App {
     service_view: Option<ServiceView>,
     /// Log viewer state (lazily initialized on first Logs view).
     log_viewer: Option<LogViewer>,
+    /// Height of the main content area from the last frame, used to size
+    /// half/full-screen navigation. Updated during `draw`.
+    content_height: std::cell::Cell<u16>,
 }
 
 impl App {
@@ -114,7 +117,16 @@ impl App {
             scratchpad_browser: None,
             service_view: None,
             log_viewer: None,
+            content_height: std::cell::Cell::new(0),
         }
+    }
+
+    /// Half- and full-screen navigation step sizes, derived from the last
+    /// rendered content height (minus a small allowance for borders/header).
+    pub(super) fn nav_steps(&self) -> (usize, usize) {
+        let full = (self.content_height.get().saturating_sub(3) as usize).max(1);
+        let half = (full / 2).max(1);
+        (half, full)
     }
 
     /// Return a mutable reference to the dashboard, creating it if needed.
@@ -198,6 +210,16 @@ mod tests {
         assert!(app.rule_browser.is_none());
         assert!(app.scratchpad_browser.is_none());
         assert!(app.service_view.is_none());
+    }
+
+    #[test]
+    fn nav_steps_half_and_full() {
+        let app = App::new("addr".into());
+        // Default content height 0 → clamped to a minimum of 1.
+        assert_eq!(app.nav_steps(), (1, 1));
+        // height 23 → full = 23-3 = 20, half = 10.
+        app.content_height.set(23);
+        assert_eq!(app.nav_steps(), (10, 20));
     }
 
     #[test]
