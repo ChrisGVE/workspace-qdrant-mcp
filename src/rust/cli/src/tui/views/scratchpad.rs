@@ -3,6 +3,7 @@
 //! Data is fetched from the local SQLite scratchpad_mirror table
 //! and refreshes on each tick with a minimum 5-second interval.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -13,6 +14,7 @@ use ratatui::Frame;
 use wqm_common::constants::TENANT_GLOBAL;
 
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
+use crate::data::tenants;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 
@@ -28,6 +30,8 @@ pub struct ScratchpadBrowser {
     detail_scroll: u16,
     last_refresh: Option<Instant>,
     search: SearchState,
+    /// tenant_id → project name map for tenant display.
+    names: HashMap<String, String>,
 }
 
 impl ScratchpadBrowser {
@@ -39,6 +43,7 @@ impl ScratchpadBrowser {
             detail_scroll: 0,
             last_refresh: None,
             search: SearchState::new(),
+            names: HashMap::new(),
         }
     }
 
@@ -57,6 +62,7 @@ impl ScratchpadBrowser {
 
         if should_refresh {
             self.items = fetch_scratchpad_rows();
+            self.names = tenants::name_map();
             if self.selected >= self.items.len() && !self.items.is_empty() {
                 self.selected = self.items.len() - 1;
             }
@@ -181,6 +187,12 @@ impl ScratchpadBrowser {
             0
         };
 
+        // Title takes all space left after the fixed columns (tenant 18, tags 20,
+        // updated 12), their gaps, the borders, and the 2-space lead-in.
+        let title_w = (area.width as usize)
+            .saturating_sub(18 + 20 + 12 + 3 + 2 + 2)
+            .max(10);
+
         let rows: Vec<Row> = self
             .items
             .iter()
@@ -188,11 +200,11 @@ impl ScratchpadBrowser {
             .skip(start)
             .take(visible_height)
             .map(|(i, entry)| {
-                let title = truncate_str(&entry.title, 40);
+                let title = truncate_str(&entry.title, title_w);
                 let tenant = if entry.tenant_id == TENANT_GLOBAL {
                     TENANT_GLOBAL.to_string()
                 } else {
-                    truncate_str(&entry.tenant_id, 16)
+                    truncate_str(&tenants::display_name(&self.names, &entry.tenant_id), 16)
                 };
                 let tags = format_tags(&entry.tags);
                 let updated = format_short_date(&entry.updated_at);
@@ -232,7 +244,7 @@ impl ScratchpadBrowser {
         let tenant = if entry.tenant_id == TENANT_GLOBAL {
             TENANT_GLOBAL.to_string()
         } else {
-            entry.tenant_id.clone()
+            tenants::display_name(&self.names, &entry.tenant_id)
         };
 
         let mut lines = vec![

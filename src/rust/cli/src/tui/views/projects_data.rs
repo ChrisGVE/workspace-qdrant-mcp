@@ -202,13 +202,19 @@ fn build_queue_counts(conn: &rusqlite::Connection) -> HashMap<String, i64> {
     map
 }
 
-/// Build a map of tenant_id -> count of completed (done) queue items.
+/// Build a map of tenant_id -> count of indexed documents.
+///
+/// Counts rows in `tracked_files` (the authoritative record of indexed files),
+/// not completed queue items. Completed queue rows are garbage-collected by the
+/// daemon's cleanup task, so counting them reported 0 for every project once the
+/// queue drained.
 fn build_doc_counts(conn: &rusqlite::Connection) -> HashMap<String, i64> {
     let mut map = HashMap::new();
     let Ok(mut stmt) = conn.prepare(
-        "SELECT tenant_id, COUNT(*) FROM unified_queue \
-         WHERE status = 'done' \
-         GROUP BY tenant_id",
+        "SELECT wf.tenant_id, COUNT(tf.file_id) \
+         FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         GROUP BY wf.tenant_id",
     ) else {
         return map;
     };
@@ -322,6 +328,24 @@ mod tests {
         };
         assert!(detail.sub_watches.is_empty());
         assert!(detail.queue_by_status.is_empty());
+    }
+
+    #[test]
+    fn doc_counts_from_tracked_files_not_queue() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE watch_folders (watch_id TEXT PRIMARY KEY, tenant_id TEXT);
+             CREATE TABLE tracked_files (file_id INTEGER PRIMARY KEY, watch_folder_id TEXT);
+             INSERT INTO watch_folders (watch_id, tenant_id) VALUES ('w1', 't1');
+             INSERT INTO watch_folders (watch_id, tenant_id) VALUES ('w2', 't2');
+             INSERT INTO tracked_files (file_id, watch_folder_id) VALUES (1, 'w1');
+             INSERT INTO tracked_files (file_id, watch_folder_id) VALUES (2, 'w1');
+             INSERT INTO tracked_files (file_id, watch_folder_id) VALUES (3, 'w2');",
+        )
+        .unwrap();
+        let counts = build_doc_counts(&conn);
+        assert_eq!(counts.get("t1"), Some(&2));
+        assert_eq!(counts.get("t2"), Some(&1));
     }
 
     #[test]

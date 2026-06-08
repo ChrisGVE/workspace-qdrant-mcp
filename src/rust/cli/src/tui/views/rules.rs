@@ -3,6 +3,7 @@
 //! Data is fetched from the local SQLite rules_mirror table (read-only)
 //! and refreshes on each tick event with a minimum 5-second interval.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -13,6 +14,7 @@ use ratatui::Frame;
 use wqm_common::constants::TENANT_GLOBAL;
 
 use super::rules_data::{fetch_rule_rows, RuleRow};
+use crate::data::tenants;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 
@@ -31,6 +33,8 @@ pub struct RuleBrowser {
     last_refresh: Option<Instant>,
     /// Search/filter state.
     search: SearchState,
+    /// tenant_id → project name map for scope display.
+    names: HashMap<String, String>,
 }
 
 impl RuleBrowser {
@@ -41,6 +45,7 @@ impl RuleBrowser {
             detail_open: false,
             last_refresh: None,
             search: SearchState::new(),
+            names: HashMap::new(),
         }
     }
 
@@ -60,6 +65,7 @@ impl RuleBrowser {
 
         if should_refresh {
             self.items = fetch_rule_rows();
+            self.names = tenants::name_map();
             if self.selected >= self.items.len() && !self.items.is_empty() {
                 self.selected = self.items.len() - 1;
             }
@@ -176,7 +182,7 @@ impl RuleBrowser {
                 } else if rule.tenant_id.is_empty() {
                     rule.scope.clone()
                 } else {
-                    format!("{}:{}", rule.scope, truncate_str(&rule.tenant_id, 12))
+                    truncate_str(&tenants::display_name(&self.names, &rule.tenant_id), 14)
                 };
                 let text_preview = truncate_str(&rule.rule_text, 60);
                 let updated = format_short_date(&rule.updated_at);
@@ -216,7 +222,7 @@ impl RuleBrowser {
         } else if rule.tenant_id.is_empty() {
             rule.scope.clone()
         } else {
-            format!("{}: {}", rule.scope, rule.tenant_id)
+            tenants::display_name(&self.names, &rule.tenant_id)
         };
 
         let mut lines = vec![

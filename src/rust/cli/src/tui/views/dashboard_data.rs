@@ -248,6 +248,7 @@ async fn check_services_health() -> ServiceHealth {
 
 /// Merge Qdrant point counts from async data into the dashboard snapshot.
 pub fn merge_async_data(data: &mut DashboardData, async_data: &AsyncDashboardData) {
+    let names = crate::data::tenants::name_map();
     for p in &mut data.projects {
         if let Some(&count) = async_data.projects_points.get(&p.tenant_id) {
             p.qdrant_points = count;
@@ -273,6 +274,7 @@ pub fn merge_async_data(data: &mut DashboardData, async_data: &AsyncDashboardDat
     add_qdrant_only_tenants(
         &async_data.scratchpad_points,
         &mut data.scratchpad,
+        &names,
         |tid, name, count| ScratchpadSummaryRow {
             tenant_id: tid,
             name,
@@ -285,6 +287,7 @@ pub fn merge_async_data(data: &mut DashboardData, async_data: &AsyncDashboardDat
     add_qdrant_only_tenants(
         &async_data.rules_points,
         &mut data.rules,
+        &names,
         |tid, name, count| RulesSummaryRow {
             tenant_id: tid,
             name,
@@ -299,6 +302,7 @@ pub fn merge_async_data(data: &mut DashboardData, async_data: &AsyncDashboardDat
 fn add_qdrant_only_tenants<T, F>(
     qdrant_counts: &HashMap<String, usize>,
     existing: &mut Vec<T>,
+    names: &HashMap<String, String>,
     make_row: F,
 ) where
     T: HasTenantId,
@@ -314,7 +318,7 @@ fn add_qdrant_only_tenants<T, F>(
             let name = if tid == TENANT_GLOBAL {
                 TENANT_GLOBAL.to_string()
             } else {
-                tid.clone()
+                crate::data::tenants::display_name(names, tid)
             };
             make_row(tid.clone(), name, count)
         })
