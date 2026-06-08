@@ -441,3 +441,125 @@ async fn test_ladybug_injection_safe() {
     let stats = store.stats(Some(T), None).await.unwrap();
     assert_eq!(stats.total_nodes, 1, "Node created despite special chars");
 }
+
+// ---- Stub-edge resolution ----------------------------------------------------
+
+#[tokio::test]
+async fn test_ladybug_resolve_stub_edges_by_name() {
+    let (store, _tmp) = fresh_store("graph_stub_resolve");
+
+    // Real caller (a.rs) + real callee (b.rs) + a name-only stub "callee".
+    let caller = GraphNode::new(T, "a.rs", "caller", NodeType::Function);
+    let callee = GraphNode::new(T, "b.rs", "callee", NodeType::Function);
+    let stub = GraphNode::stub(T, "callee", NodeType::Function);
+    store
+        .upsert_nodes(&[caller.clone(), callee.clone(), stub.clone()])
+        .await
+        .unwrap();
+    // Dangling: caller -> stub("callee").
+    let dangling = GraphEdge::new(T, &caller.node_id, &stub.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[dangling]).await.unwrap();
+
+    // Unmatched external stub ("println") — no project node — stays dangling.
+    let ext = GraphNode::stub(T, "println", NodeType::Function);
+    store.upsert_nodes(&[ext.clone()]).await.unwrap();
+    let ext_edge = GraphEdge::new(T, &caller.node_id, &ext.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[ext_edge]).await.unwrap();
+
+    let repointed = store.resolve_stub_edges(T).await.unwrap();
+    assert_eq!(repointed, 1, "only the matchable stub edge repoints");
+
+    // Edge now reaches the REAL callee in b.rs.
+    let related = store
+        .query_related(T, &caller.node_id, 1, None, None)
+        .await
+        .unwrap();
+    assert!(
+        related.iter().any(|n| n.file_path == "b.rs"),
+        "resolved edge should target the real callee node in b.rs"
+    );
+    // The matched stub no longer reachable; the external "println" stub stays.
+    assert!(
+        !related.iter().any(|n| n.node_id == stub.node_id),
+        "matched stub should no longer be a neighbour after repoint"
+    );
+}
+
+#[tokio::test]
+async fn test_ladybug_resolve_stub_edges_skips_ambiguous() {
+    let (store, _tmp) = fresh_store("graph_stub_ambiguous");
+
+    // Two real nodes named "new" in different files → ambiguous.
+    let caller = GraphNode::new(T, "a.rs", "caller", NodeType::Function);
+    let new_a = GraphNode::new(T, "x.rs", "new", NodeType::Function);
+    let new_b = GraphNode::new(T, "y.rs", "new", NodeType::Function);
+    let stub = GraphNode::stub(T, "new", NodeType::Function);
+    store
+        .upsert_nodes(&[caller.clone(), new_a, new_b, stub.clone()])
+        .await
+        .unwrap();
+    let dangling = GraphEdge::new(T, &caller.node_id, &stub.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[dangling]).await.unwrap();
+
+    let repointed = store.resolve_stub_edges(T).await.unwrap();
+    assert_eq!(
+        repointed, 0,
+        "ambiguous name (2 defining files) must not repoint"
+    );
+}
+
+#[tokio::test]
+async fn test_ladybug_graph_tenants() {
+    let (store, _tmp) = fresh_store("graph_tenants");
+    store
+        .upsert_nodes(&[
+            GraphNode::new("tenant-a", "a.rs", "foo", NodeType::Function),
+            GraphNode::new("tenant-b", "b.rs", "bar", NodeType::Function),
+        ])
+        .await
+        .unwrap();
+    let mut tenants = store.graph_tenants().await.unwrap();
+    tenants.sort();
+    assert_eq!(
+        tenants,
+        vec!["tenant-a".to_string(), "tenant-b".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn test_ladybug_resolve_stub_edges_same_file_tiebreaker() {
+    let (store, _tmp) = fresh_store("graph_stub_samefile");
+
+    // Two real "helper" nodes in different files — normally ambiguous — but the
+    // caller's own file (a.rs) defines one, so that definition wins.
+    let caller = GraphNode::new(T, "a.rs", "caller", NodeType::Function);
+    let local = GraphNode::new(T, "a.rs", "helper", NodeType::Function);
+    let other = GraphNode::new(T, "b.rs", "helper", NodeType::Function);
+    let stub = GraphNode::stub(T, "helper", NodeType::Function);
+    store
+        .upsert_nodes(&[caller.clone(), local.clone(), other, stub.clone()])
+        .await
+        .unwrap();
+    let dangling = GraphEdge::new(T, &caller.node_id, &stub.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[dangling]).await.unwrap();
+
+    let repointed = store.resolve_stub_edges(T).await.unwrap();
+    assert_eq!(
+        repointed, 1,
+        "same-file definition resolves despite a name clash"
+    );
+
+    // The repointed edge reaches the local (a.rs) helper, not b.rs.
+    let related = store
+        .query_related(T, &caller.node_id, 1, None, None)
+        .await
+        .unwrap();
+    assert!(
+        related.iter().any(|n| n.node_id == local.node_id),
+        "same-file helper (a.rs) should be the chosen target"
+    );
+    assert!(
+        related.iter().all(|n| n.file_path != "b.rs"),
+        "the b.rs helper must NOT be chosen when the caller's own file defines one"
+    );
+}

@@ -168,6 +168,13 @@ async fn run_daemon(
     );
     // Phase 4: LSP manager
     let lsp_manager = grpc_setup::init_lsp_manager(&daemon_config).await;
+    // Periodic graph stub-edge resolver: name-resolves dangling tree-sitter
+    // call/import edges to real project symbols. Fire-and-forget; runs for the
+    // daemon's lifetime and heals the existing graph in place (no reindex).
+    let _graph_resolver = db_handles
+        .graph_store
+        .as_ref()
+        .map(|gs| background::start_graph_stub_resolver(gs.clone()));
     let watch_refresh_signal = Arc::new(Notify::new());
 
     // Phase 5: IPC + Queue processor

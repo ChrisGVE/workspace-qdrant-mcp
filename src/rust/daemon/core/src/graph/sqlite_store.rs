@@ -7,8 +7,8 @@ use tracing::debug;
 use wqm_common::timestamps::now_utc;
 
 use super::{
-    is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
-    ImpactNode, ImpactReport, SymbolRow, TraversalNode,
+    compute_edge_id, is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats,
+    GraphStore, ImpactNode, ImpactReport, SymbolRow, TraversalNode,
 };
 
 use super::cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS};
@@ -860,6 +860,183 @@ impl GraphStore for SqliteGraphStore {
             .collect();
 
         Ok(apply_fan_out_caps(results, &self.graph_rag))
+    }
+
+    async fn resolve_stub_edges(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        use std::collections::HashMap;
+
+        // 1. All dangling edges: target is a stub node (empty file_path).
+        //    Carry e.branch so the repointed edge keeps the original branch
+        //    scope (NULL = global); the JOIN is tenant-scoped on both sides so
+        //    a node_id can never resolve against another tenant's node.
+        let dangling = sqlx::query(
+            "SELECT e.edge_id, e.source_node_id, e.edge_type, e.source_file,
+                    e.weight, e.metadata_json, e.branch, t.symbol_name AS target_name
+             FROM graph_edges e
+             JOIN graph_nodes t
+                  ON e.target_node_id = t.node_id AND t.tenant_id = e.tenant_id
+             WHERE e.tenant_id = ?1 AND (t.file_path IS NULL OR t.file_path = '')",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if dangling.is_empty() {
+            return Ok(0);
+        }
+
+        // 2. Real candidate nodes (resolved file_path, not file-typed), indexed
+        //    by symbol_name -> [(node_id, file_path)].
+        let real_rows = sqlx::query(
+            "SELECT node_id, symbol_name, file_path FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path <> '' AND symbol_type <> 'file'",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for r in &real_rows {
+            let name: String = r.get("symbol_name");
+            let nid: String = r.get("node_id");
+            let fp: String = r.get("file_path");
+            by_name.entry(name).or_default().push((nid, fp));
+        }
+
+        // 3. Repoint each resolvable dangling edge to its real node.
+        let now = now_utc();
+        let mut repointed: u64 = 0;
+        let mut tx = self.pool.begin().await?;
+        for d in &dangling {
+            let target_name: String = d.get("target_name");
+            let Some(candidates) = by_name.get(&target_name) else {
+                continue; // external/stdlib — no project node with this name.
+            };
+            let source_file: String = d.get("source_file");
+            // Prefer a definition in the caller's own file; else require a
+            // unique tenant-wide match. Ambiguous (>1 file) names are skipped.
+            let chosen: Option<&String> = candidates
+                .iter()
+                .find(|(_, fp)| *fp == source_file)
+                .map(|(nid, _)| nid)
+                .or_else(|| {
+                    if candidates.len() == 1 {
+                        Some(&candidates[0].0)
+                    } else {
+                        None
+                    }
+                });
+            let Some(new_target) = chosen else {
+                continue;
+            };
+            let source_node_id: String = d.get("source_node_id");
+            // Skip self-loops (e.g. direct recursion) — they don't add
+            // relationship signal and skew centrality measures.
+            if &source_node_id == new_target {
+                continue;
+            }
+            let edge_type_str: String = d.get("edge_type");
+            let Some(edge_type) = EdgeType::from_str(&edge_type_str) else {
+                continue;
+            };
+            let old_edge_id: String = d.get("edge_id");
+            let weight: f64 = d.get("weight");
+            let metadata_json: Option<String> = d.get("metadata_json");
+            let branch: Option<String> = d.get("branch");
+            let new_edge_id = compute_edge_id(&source_node_id, new_target, edge_type);
+
+            // `new_target` is a real node read above under the same write lock,
+            // so its FK cannot vanish mid-call; an INSERT that affects 0 rows
+            // therefore means the repointed edge already exists (PK conflict),
+            // not an FK failure. Either way the repoint target is present, so
+            // removing the old dangling edge is safe. We only delete the old
+            // edge after confirming the repoint target edge exists (inserted or
+            // already there) so a silent INSERT failure can never drop an edge.
+            let inserted = sqlx::query(
+                "INSERT OR IGNORE INTO graph_edges
+                    (edge_id, tenant_id, source_node_id, target_node_id, edge_type,
+                     source_file, weight, metadata_json, branch, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )
+            .bind(&new_edge_id)
+            .bind(tenant_id)
+            .bind(&source_node_id)
+            .bind(new_target)
+            .bind(edge_type.as_str())
+            .bind(&source_file)
+            .bind(weight)
+            .bind(&metadata_json)
+            .bind(&branch)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+
+            if inserted.rows_affected() == 0 {
+                // Repoint target already present: confirm before deleting so we
+                // never drop the old edge on an unexpected no-op.
+                let exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM graph_edges WHERE edge_id = ?1 AND tenant_id = ?2",
+                )
+                .bind(&new_edge_id)
+                .bind(tenant_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if exists == 0 {
+                    // Should be unreachable given the invariant above; skip
+                    // rather than risk dropping the edge.
+                    continue;
+                }
+            }
+
+            sqlx::query("DELETE FROM graph_edges WHERE edge_id = ?1 AND tenant_id = ?2")
+                .bind(&old_edge_id)
+                .bind(tenant_id)
+                .execute(&mut *tx)
+                .await?;
+            repointed += 1;
+        }
+
+        // 4. Drop stub nodes that no longer have any edges. Done INSIDE the
+        //    transaction so the NOT IN subquery sees this pass's repoints and a
+        //    concurrent writer cannot insert an edge onto a stub between the
+        //    repoint commit and the prune.
+        sqlx::query(
+            "DELETE FROM graph_nodes
+             WHERE tenant_id = ?1 AND file_path = ''
+               AND node_id NOT IN (
+                   SELECT source_node_id FROM graph_edges WHERE tenant_id = ?1
+                   UNION
+                   SELECT target_node_id FROM graph_edges WHERE tenant_id = ?1
+               )",
+        )
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        debug!(
+            "Resolved {} stub edges for tenant {} ({} dangling examined)",
+            repointed,
+            tenant_id,
+            dangling.len()
+        );
+        Ok(repointed)
+    }
+
+    async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
+        let tenants: Vec<String> = sqlx::query_scalar("SELECT DISTINCT tenant_id FROM graph_edges")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(tenants)
+    }
+
+    async fn resolve_all_stub_edges(&self) -> GraphDbResult<u64> {
+        let mut total: u64 = 0;
+        for tenant in self.graph_tenants().await? {
+            total += self.resolve_stub_edges(&tenant).await?;
+        }
+        Ok(total)
     }
 }
 
