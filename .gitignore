@@ -153,3 +153,6 @@ affected_commits.txt
 
 /target
 /.cargo-target-test
+
+# Benchmark reports
+reports/
