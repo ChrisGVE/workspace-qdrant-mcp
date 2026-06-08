@@ -158,6 +158,8 @@ impl UnifiedQueueProcessor {
             low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
+            age_promotion_warning_seconds: config.age_promotion_warning_seconds,
+            age_promotion_critical_seconds: config.age_promotion_critical_seconds,
         };
         let fairness_scheduler = Arc::new(FairnessScheduler::new(
             queue_manager.clone(),
@@ -224,6 +226,8 @@ impl UnifiedQueueProcessor {
             low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
+            age_promotion_warning_seconds: config.age_promotion_warning_seconds,
+            age_promotion_critical_seconds: config.age_promotion_critical_seconds,
         };
         let fairness_scheduler = Arc::new(FairnessScheduler::new(
             queue_manager.clone(),

@@ -76,6 +76,14 @@ pub struct UnifiedProcessorConfig {
     pub high_priority_batch: u64,
     /// Batch size when processing low-priority items (priority ASC / anti-starvation, default: 3)
     pub low_priority_batch: u64,
+    /// Age (seconds) at which a pending item gets +1 in the dequeue age-promotion CASE.
+    /// Prevents low-op-weight items (e.g. folder/scan) from being starved by tenants
+    /// with larger queues of high-weight ops. Default: 300 (5 minutes).
+    pub age_promotion_warning_seconds: u64,
+    /// Age (seconds) at which a pending item gets +2 in the dequeue age-promotion CASE.
+    /// Items past this threshold outrank everything except delete/reset and tenant/add.
+    /// Default: 900 (15 minutes).
+    pub age_promotion_critical_seconds: u64,
 
     // Resource limits (Task 504)
     /// Maximum concurrent embedding operations
@@ -139,6 +147,11 @@ impl Default for UnifiedProcessorConfig {
             fairness_enabled: true,
             high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
             low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
+            // Age-based promotion in fairness dequeue: prevents tenants whose
+            // pending items have low op-weight from being starved indefinitely
+            // under multi-tenant fairness alternation.
+            age_promotion_warning_seconds: 300,  // 5 minutes
+            age_promotion_critical_seconds: 900, // 15 minutes
             // Resource limits defaults (Task 504)
             max_concurrent_embeddings: 2,
             max_memory_percent: 70,

@@ -22,6 +22,9 @@ mod tests {
         assert!(config.fairness_enabled);
         assert_eq!(config.high_priority_batch, 10);
         assert_eq!(config.low_priority_batch, 3);
+        // Age-based promotion thresholds (anti-starvation)
+        assert_eq!(config.age_promotion_warning_seconds, 300);
+        assert_eq!(config.age_promotion_critical_seconds, 900);
         // Resource limits (Task 504)
         assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);

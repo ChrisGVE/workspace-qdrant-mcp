@@ -84,7 +84,7 @@ async fn test_delete_cascade_purges_pending_items() {
 
     // Dequeue should return the delete
     let items = manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -129,7 +129,7 @@ async fn test_delete_cascade_does_not_affect_other_tenants() {
 
     // Dequeue all
     let items = manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -191,7 +191,7 @@ async fn test_op_priority_dequeue_ordering() {
 
     // Dequeue all
     let dequeued = manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -252,7 +252,7 @@ async fn test_tenant_add_priority_over_file_add_backlog() {
         .unwrap();
 
     let dequeued = manager
-        .dequeue_unified(5, "worker-1", None, None, None, None)
+        .dequeue_unified(5, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 

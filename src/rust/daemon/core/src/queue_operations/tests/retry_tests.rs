@@ -294,7 +294,7 @@ async fn test_unified_queue_recover_stale_leases() {
 
     // Dequeue with very short lease (1 second)
     manager
-        .dequeue_unified(10, "worker-1", Some(1), None, None, None)
+        .dequeue_unified(10, "worker-1", Some(1), None, None, None, None, None)
         .await
         .unwrap();
 
