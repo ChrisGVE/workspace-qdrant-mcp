@@ -58,6 +58,26 @@ struct BatchContext {
     narrative_config: Arc<crate::config::NarrativeConfig>,
 }
 
+/// Whether processing an item with this op needs the dense embedding provider.
+///
+/// Add/update/uplift/reembed run the ingest pipeline and embed content for
+/// file/content items (a file-level Uplift re-ingests and re-embeds — see
+/// `FileStrategy`); delete, reset, scan, and rename never touch the provider
+/// and can always proceed even while it is down. Collection/tenant-level
+/// uplifts only fan out child items, so parking them during an outage merely
+/// delays a cascade whose file-level work would fail anyway — acceptable.
+/// Used to decide which items to park during a provider outage (see the
+/// degrade gate in `process_batch`).
+fn op_requires_embedding(op: QueueOperation) -> bool {
+    !matches!(
+        op,
+        QueueOperation::Delete
+            | QueueOperation::Reset
+            | QueueOperation::Scan
+            | QueueOperation::Rename
+    )
+}
+
 /// Process a non-empty batch of queue items concurrently.
 ///
 /// Items are processed with up to `max_concurrent_embeddings` in-flight at
@@ -81,6 +101,7 @@ pub(super) async fn process_batch(
     ingestion_limits: &Arc<IngestionLimitsConfig>,
     metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
     queue_health: &Option<Arc<QueueProcessorHealth>>,
+    embedding_health: &Option<crate::embedding::EmbeddingHealth>,
     cancellation_token: &CancellationToken,
     _resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
     _warmup_state: &Arc<WarmupState>,
@@ -89,6 +110,36 @@ pub(super) async fn process_batch(
     concept_config: &Arc<crate::config::ConceptConfig>,
     narrative_config: &Arc<crate::config::NarrativeConfig>,
 ) -> Result<HashSet<String>, ()> {
+    // Degrade gracefully while the dense embedding provider is down: re-lease
+    // (park) the embedding-bearing items so they retry on recovery instead of
+    // failing into the DLQ, and process only the items that don't need
+    // embedding (deletes, resets, scans, renames). The watchdog flips
+    // `embedding_health` back to available once the provider recovers.
+    let items = if embedding_health.as_ref().is_some_and(|h| !h.is_available()) {
+        let (embed_items, other): (Vec<_>, Vec<_>) = items
+            .into_iter()
+            .partition(|it| op_requires_embedding(it.op));
+        if !embed_items.is_empty() {
+            warn!(
+                parked = embed_items.len(),
+                processing = other.len(),
+                "embedding provider unavailable; parking embedding-bearing items, \
+                 processing non-embedding items"
+            );
+            for it in &embed_items {
+                if let Err(e) = queue_manager.re_lease_item(&it.queue_id, 30).await {
+                    warn!(queue_id = %it.queue_id, "failed to park embedding item: {}", e);
+                }
+            }
+        }
+        other
+    } else {
+        items
+    };
+    if items.is_empty() {
+        return Ok(HashSet::new());
+    }
+
     let ctx = Arc::new(BatchContext {
         config: config.clone(),
         queue_manager: queue_manager.clone(),
@@ -534,6 +585,41 @@ pub(super) async fn update_tenant_activity(
         .await
         {
             debug!("Failed to update activity for tenant {}: {}", tenant_id, e);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedding_ops_are_parked_non_embedding_ops_proceed() {
+        // Ops that run the ingest/embed pipeline must be parked while the
+        // provider is down. Uplift is included: a file-level Uplift re-ingests
+        // and re-embeds (see FileStrategy).
+        for op in [
+            QueueOperation::Add,
+            QueueOperation::Update,
+            QueueOperation::Uplift,
+            QueueOperation::Reembed,
+        ] {
+            assert!(
+                op_requires_embedding(op),
+                "{op:?} can embed and must be parked while the provider is down"
+            );
+        }
+        // Ops that never touch the embedding provider must keep flowing.
+        for op in [
+            QueueOperation::Delete,
+            QueueOperation::Reset,
+            QueueOperation::Scan,
+            QueueOperation::Rename,
+        ] {
+            assert!(
+                !op_requires_embedding(op),
+                "{op:?} does not embed and must proceed even while the provider is down"
+            );
         }
     }
 }
