@@ -22,4 +22,5 @@ pub mod pipeline;
 pub mod quasi_summary;
 pub mod semantic_rerank;
 pub mod structural_tags;
+pub mod symbol_candidates;
 pub mod tag_selector;

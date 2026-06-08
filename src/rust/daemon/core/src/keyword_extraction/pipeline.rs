@@ -26,6 +26,7 @@ use super::lsp_candidates::{self, LspCandidateConfig};
 use super::quasi_summary::{self, QuasiSummaryConfig};
 use super::semantic_rerank::{self, RerankConfig};
 use super::structural_tags;
+use super::symbol_candidates;
 use super::tag_selector::{self, SelectedTag, TagSelectionConfig};
 
 /// Configuration for the full extraction pipeline.
@@ -72,6 +73,15 @@ pub struct PipelineInput<'a> {
     pub chunk_vectors: &'a [Vec<f32>],
     /// Chunk text content (parallel with chunk_vectors)
     pub chunk_texts: &'a [String],
+    /// Per-chunk metadata maps (parallel with `chunk_texts`).
+    ///
+    /// When present and the document is code, symbol-derived candidates
+    /// are extracted from tree-sitter chunk metadata (`chunk_type`,
+    /// `symbol_name`, `parent_symbol`) — see
+    /// [`super::symbol_candidates::extract_symbol_candidates`]. Pass `None`
+    /// to disable the symbol-candidate source (e.g., callers without
+    /// semantic chunking, prose documents, or tests).
+    pub chunk_metadata: Option<&'a [HashMap<String, String>]>,
     /// Total documents in the collection corpus
     pub corpus_size: u64,
     /// Pre-computed document frequency map: term → document count.
@@ -288,6 +298,18 @@ async fn extract_and_rerank(
             let lsp = lsp_candidates::extract_import_candidates(input.full_text, lang, &config.lsp);
             candidates =
                 lsp_candidates::merge_candidates(candidates, &lsp, config.lsp.priority_boost);
+        }
+        // Symbol candidates from tree-sitter chunk metadata. Concept-level
+        // signal (public type/trait/function names) — see roadmap item #2.
+        if let Some(metadata) = input.chunk_metadata {
+            let symbols = symbol_candidates::extract_symbol_candidates(metadata, &config.lsp);
+            if !symbols.is_empty() {
+                candidates = lsp_candidates::merge_candidates(
+                    candidates,
+                    &symbols,
+                    config.lsp.priority_boost,
+                );
+            }
         }
     }
 
