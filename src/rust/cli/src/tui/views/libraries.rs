@@ -63,6 +63,12 @@ impl LibraryBrowser {
 
         if should_refresh {
             self.items = fetch_library_rows();
+            // Active libraries first, then by natural (case-insensitive) name.
+            self.items.sort_by(|a, b| {
+                b.is_active
+                    .cmp(&a.is_active)
+                    .then_with(|| crate::tui::util::natural_cmp(&a.tag, &b.tag))
+            });
             if !self.items.is_empty() {
                 self.selected = self.selected.min(self.items.len() - 1);
             } else {

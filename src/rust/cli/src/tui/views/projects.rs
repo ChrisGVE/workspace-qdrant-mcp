@@ -57,6 +57,12 @@ impl ProjectBrowser {
 
         if should_refresh {
             self.items = fetch_project_rows();
+            // Active projects first, then by natural (case-insensitive) name.
+            self.items.sort_by(|a, b| {
+                b.is_active
+                    .cmp(&a.is_active)
+                    .then_with(|| crate::tui::util::natural_cmp(&a.name, &b.name))
+            });
             if !self.items.is_empty() {
                 self.selected = self.selected.min(self.items.len() - 1);
             } else {

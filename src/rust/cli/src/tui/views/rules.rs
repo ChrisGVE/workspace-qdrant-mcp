@@ -66,6 +66,13 @@ impl RuleBrowser {
         if should_refresh {
             self.items = fetch_rule_rows();
             self.names = tenants::name_map();
+            let names = self.names.clone();
+            self.items.sort_by(|a, b| {
+                crate::tui::util::natural_cmp(
+                    &rule_tenant_key(a, &names),
+                    &rule_tenant_key(b, &names),
+                )
+            });
             if self.selected >= self.items.len() && !self.items.is_empty() {
                 self.selected = self.items.len() - 1;
             }
@@ -207,7 +214,7 @@ impl RuleBrowser {
 
     fn render_rules_table(&self, frame: &mut Frame, area: Rect) {
         let header =
-            Row::new(vec!["  Scope", "Rule Text", "Updated"]).style(theme::table_header_style());
+            Row::new(vec!["  Tenant", "Rule Text", "Updated"]).style(theme::table_header_style());
 
         let visible_height = area.height.saturating_sub(2) as usize;
         let start = if self.selected >= visible_height {
@@ -313,6 +320,16 @@ impl RuleBrowser {
         );
 
         frame.render_widget(popup, popup_area);
+    }
+}
+
+/// Sort key for a rule: the global label for global rules, otherwise the
+/// resolved project name. Used to group/sort rules by tenant.
+fn rule_tenant_key(rule: &RuleRow, names: &std::collections::HashMap<String, String>) -> String {
+    if rule.scope == TENANT_GLOBAL || rule.tenant_id.is_empty() {
+        TENANT_GLOBAL.to_string()
+    } else {
+        tenants::display_name(names, &rule.tenant_id)
     }
 }
 

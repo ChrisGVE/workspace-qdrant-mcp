@@ -63,6 +63,13 @@ impl ScratchpadBrowser {
         if should_refresh {
             self.items = fetch_scratchpad_rows();
             self.names = tenants::name_map();
+            let names = self.names.clone();
+            self.items.sort_by(|a, b| {
+                crate::tui::util::natural_cmp(
+                    &scratchpad_tenant_key(a, &names),
+                    &scratchpad_tenant_key(b, &names),
+                )
+            });
             if self.selected >= self.items.len() && !self.items.is_empty() {
                 self.selected = self.items.len() - 1;
             }
@@ -222,7 +229,7 @@ impl ScratchpadBrowser {
     }
 
     fn render_scratchpad_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["  Title", "Tenant", "Tags", "Updated"])
+        let header = Row::new(vec!["  Tenant", "Title", "Tags", "Updated"])
             .style(theme::table_header_style());
 
         let visible_height = area.height.saturating_sub(2) as usize;
@@ -258,13 +265,13 @@ impl ScratchpadBrowser {
                 } else {
                     Style::default()
                 };
-                Row::new(vec![format!("  {}", title), tenant, tags, updated]).style(style)
+                Row::new(vec![format!("  {}", tenant), title, tags, updated]).style(style)
             })
             .collect();
 
         let widths = [
-            Constraint::Min(20),
             Constraint::Length(18),
+            Constraint::Min(20),
             Constraint::Length(20),
             Constraint::Length(12),
         ];
@@ -347,6 +354,19 @@ fn truncate_str(s: &str, max_len: usize) -> String {
     } else {
         let truncated: String = s.chars().take(max_len.saturating_sub(1)).collect();
         format!("{}\u{2026}", truncated)
+    }
+}
+
+/// Sort key for an entry: the global label for global notes, otherwise the
+/// resolved project name. Used to group/sort scratchpad entries by tenant.
+fn scratchpad_tenant_key(
+    entry: &ScratchpadRow,
+    names: &std::collections::HashMap<String, String>,
+) -> String {
+    if entry.tenant_id == TENANT_GLOBAL {
+        TENANT_GLOBAL.to_string()
+    } else {
+        tenants::display_name(names, &entry.tenant_id)
     }
 }
 

@@ -37,9 +37,78 @@ pub fn truncate_path(s: &str, max: usize) -> String {
     format!("\u{2026}{tail}")
 }
 
+/// Natural, case-insensitive string comparison.
+///
+/// Folds case and compares embedded digit runs numerically, so "item2" sorts
+/// before "item10" and "Foo" sorts next to "foo".
+pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let mut ai = a.chars().flat_map(char::to_lowercase).peekable();
+    let mut bi = b.chars().flat_map(char::to_lowercase).peekable();
+
+    loop {
+        match (ai.peek().copied(), bi.peek().copied()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(ca), Some(cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let na = take_number(&mut ai);
+                    let nb = take_number(&mut bi);
+                    match na.cmp(&nb) {
+                        Ordering::Equal => continue,
+                        ord => return ord,
+                    }
+                } else {
+                    match ca.cmp(&cb) {
+                        Ordering::Equal => {
+                            ai.next();
+                            bi.next();
+                        }
+                        ord => return ord,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Consume a leading run of digits and parse it (saturating at u128::MAX).
+fn take_number(it: &mut std::iter::Peekable<impl Iterator<Item = char>>) -> u128 {
+    let mut n: u128 = 0;
+    while let Some(c) = it.peek().copied() {
+        if let Some(d) = c.to_digit(10) {
+            n = n.saturating_mul(10).saturating_add(d as u128);
+            it.next();
+        } else {
+            break;
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn natural_cmp_case_insensitive() {
+        assert_eq!(natural_cmp("Foo", "foo"), Ordering::Equal);
+        assert_eq!(natural_cmp("Apple", "banana"), Ordering::Less);
+    }
+
+    #[test]
+    fn natural_cmp_numeric_aware() {
+        assert_eq!(natural_cmp("item2", "item10"), Ordering::Less);
+        assert_eq!(natural_cmp("v1.9", "v1.10"), Ordering::Less);
+    }
+
+    #[test]
+    fn natural_cmp_prefix() {
+        assert_eq!(natural_cmp("foo", "foobar"), Ordering::Less);
+    }
 
     #[test]
     fn truncate_end_short_passthrough() {
