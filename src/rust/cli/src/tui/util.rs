@@ -37,6 +37,26 @@ pub fn truncate_path(s: &str, max: usize) -> String {
     format!("\u{2026}{tail}")
 }
 
+/// Number of body rows a bordered table can show, given the total area height
+/// and the count of chrome rows it reserves (top+bottom borders, the header
+/// row, and any header bottom-margin). Centralized so every list view computes
+/// the visible window the same way — a mismatch here is what lets the cursor
+/// scroll off-screen.
+pub fn visible_rows(area_height: u16, chrome: u16) -> usize {
+    area_height.saturating_sub(chrome) as usize
+}
+
+/// Top scroll offset (index of the first rendered row) that keeps `selected`
+/// inside a window of `visible` rows. Once the selection passes the bottom of
+/// the window it pins to the last visible row rather than disappearing below it.
+pub fn scroll_offset(selected: usize, visible: usize) -> usize {
+    if visible > 0 && selected >= visible {
+        selected - visible + 1
+    } else {
+        0
+    }
+}
+
 /// Natural, case-insensitive string comparison.
 ///
 /// Folds case and compares embedded digit runs numerically, so "item2" sorts
@@ -138,5 +158,26 @@ mod tests {
     #[test]
     fn truncate_path_tiny_budget() {
         assert_eq!(truncate_path("abcdef", 1).chars().count(), 1);
+    }
+
+    #[test]
+    fn visible_rows_subtracts_chrome() {
+        assert_eq!(visible_rows(20, 3), 17);
+        assert_eq!(visible_rows(20, 4), 16);
+        // Never underflows below zero.
+        assert_eq!(visible_rows(2, 4), 0);
+    }
+
+    #[test]
+    fn scroll_offset_keeps_selection_visible() {
+        // Selection within the window: no scroll.
+        assert_eq!(scroll_offset(3, 10), 0);
+        assert_eq!(scroll_offset(9, 10), 0);
+        // Selection past the window: pin it to the last visible row.
+        // With 10 visible rows and selected=10, offset 1 puts it at row index 9.
+        assert_eq!(scroll_offset(10, 10), 1);
+        assert_eq!(scroll_offset(25, 10), 16);
+        // Degenerate window never panics.
+        assert_eq!(scroll_offset(5, 0), 0);
     }
 }

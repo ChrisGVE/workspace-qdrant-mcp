@@ -232,12 +232,9 @@ impl ScratchpadBrowser {
         let header = Row::new(vec!["  Tenant", "Title", "Tags", "Updated"])
             .style(theme::table_header_style());
 
-        let visible_height = area.height.saturating_sub(2) as usize;
-        let start = if self.selected >= visible_height {
-            self.selected - visible_height + 1
-        } else {
-            0
-        };
+        // Chrome = top+bottom borders (2) + header row (1). No header margin.
+        let visible_height = crate::tui::util::visible_rows(area.height, 3);
+        let start = crate::tui::util::scroll_offset(self.selected, visible_height);
 
         // Title takes all space left after the fixed columns (tenant 18, tags 20,
         // updated 12), their gaps, the borders, and the 2-space lead-in.

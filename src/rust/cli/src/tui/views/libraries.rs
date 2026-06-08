@@ -224,13 +224,9 @@ impl LibraryBrowser {
             .title(" Libraries ")
             .title_style(Style::default().add_modifier(Modifier::BOLD));
 
-        // Calculate scroll offset to keep selection visible
-        let inner_height = area.height.saturating_sub(4) as usize;
-        let offset = if inner_height > 0 && self.selected >= inner_height {
-            self.selected - inner_height + 1
-        } else {
-            0
-        };
+        // Chrome = top+bottom borders (2) + header row (1) + header margin (1).
+        let inner_height = crate::tui::util::visible_rows(area.height, 4);
+        let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
 
         let visible_rows: Vec<Row> = self
             .items
