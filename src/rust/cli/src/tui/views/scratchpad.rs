@@ -269,8 +269,14 @@ impl ScratchpadBrowser {
                 };
                 let tags = format_tags(&entry.tags);
                 let updated = format_short_date(&entry.updated_at);
+                let matched = self.search.has_query()
+                    && self
+                        .search
+                        .is_match(&format!("{} {} {}", entry.title, entry.content, entry.tags));
                 let style = if i == self.selected {
                     theme::selected_row_style()
+                } else if matched {
+                    theme::search_match_style()
                 } else {
                     Style::default()
                 };

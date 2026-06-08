@@ -282,8 +282,14 @@ impl ProjectBrowser {
     /// The cursor is the row's base style; spans set only `fg` so the highlight
     /// background shows through across the whole line.
     fn render_row(&self, index: usize, item: &ProjectRow, path_w: usize) -> Row<'static> {
+        let matched = self.search.has_query()
+            && self
+                .search
+                .is_match(&format!("{} {}", item.name, item.display_path));
         let row_style = if index == self.selected {
             theme::selected_row_style()
+        } else if matched {
+            theme::search_match_style()
         } else {
             Style::default()
         };

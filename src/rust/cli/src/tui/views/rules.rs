@@ -248,8 +248,15 @@ impl RuleBrowser {
                 };
                 let text_preview = truncate_str(&rule.rule_text, 60);
                 let updated = format_short_date(&rule.updated_at);
+                let matched = self.search.has_query() && {
+                    let name = tenants::display_name(&self.names, &rule.tenant_id);
+                    self.search
+                        .is_match(&format!("{} {} {}", rule.rule_text, rule.scope, name))
+                };
                 let style = if i == self.selected {
                     theme::selected_row_style()
+                } else if matched {
+                    theme::search_match_style()
                 } else {
                     Style::default()
                 };

@@ -105,6 +105,13 @@ pub fn selected_row_style() -> Style {
     Style::default().bg(Color::Rgb(70, 70, 100))
 }
 
+/// Background tint marking a row that matches the active `/` search. Distinct
+/// from the cursor's slate so matches stay visible even when the cursor is on a
+/// different row. Applied as the row's base style; cell spans keep their own fg.
+pub fn search_match_style() -> Style {
+    Style::default().bg(Color::Rgb(0, 55, 55))
+}
+
 /// Style for popup/overlay backgrounds.
 pub fn popup_style() -> Style {
     Style::default().bg(COLOR_BG)
@@ -188,5 +195,13 @@ mod tests {
     #[test]
     fn alarm_bg_is_dark_red() {
         assert_eq!(COLOR_ALARM_BG, Color::Rgb(60, 0, 0));
+    }
+
+    #[test]
+    fn cursor_and_match_backgrounds_are_distinct() {
+        // The search-match tint must not collide with the cursor highlight,
+        // and the cursor must not rely on bold (reserved for active rows).
+        assert_ne!(selected_row_style().bg, search_match_style().bg);
+        assert!(!selected_row_style().add_modifier.contains(Modifier::BOLD));
     }
 }

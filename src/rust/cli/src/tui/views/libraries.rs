@@ -247,8 +247,14 @@ impl LibraryBrowser {
             .skip(offset)
             .take(inner_height)
             .map(|(i, item)| {
+                let matched = self.search.has_query()
+                    && self
+                        .search
+                        .is_match(&format!("{} {} {}", item.name, item.tag, item.display_path));
                 let row_style = if i == self.selected {
                     theme::selected_row_style()
+                } else if matched {
+                    theme::search_match_style()
                 } else {
                     Style::default()
                 };
