@@ -216,7 +216,7 @@ impl QueueBrowser {
     /// Draw the scrollable table of queue items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
         let header = Row::new(vec![
-            "ID", "Project", "Object", "Type", "Op", "Status", "Age",
+            "ID", "T", "Tenant", "Object", "Type", "Op", "Status", "Age",
         ])
         .style(
             Style::default()
@@ -225,10 +225,11 @@ impl QueueBrowser {
         )
         .bottom_margin(1);
 
-        // Fixed columns: ID 10, Project 20, Type 8, Op 8, Status 12, Age 10.
+        // Fixed columns: ID 10, T 1, Tenant 20, Type 8, Op 8, Status 12, Age 10.
         // Object flexes to fill the rest so the filename is the focus.
         let widths = [
             Constraint::Length(10),
+            Constraint::Length(1),
             Constraint::Length(20),
             Constraint::Min(20),
             Constraint::Length(8),
@@ -237,7 +238,7 @@ impl QueueBrowser {
             Constraint::Length(10),
         ];
         let object_w = (area.width as usize)
-            .saturating_sub(10 + 20 + 8 + 8 + 12 + 10 + 6 + 2)
+            .saturating_sub(10 + 1 + 20 + 8 + 8 + 12 + 10 + 7 + 2)
             .max(12);
 
         let block = Block::default()
@@ -267,9 +268,16 @@ impl QueueBrowser {
                 };
                 let fg = status_color(&item.status);
 
+                let kind_fg = match item.kind {
+                    'L' => theme::COLOR_INFO,
+                    'P' => theme::COLOR_ACCENT,
+                    _ => theme::COLOR_DIM,
+                };
+
                 // Spans set only fg; the row's background (cursor) shows through.
                 Row::new(vec![
                     Span::styled(item.short_id.clone(), Style::default().fg(Color::Cyan)),
+                    Span::styled(item.kind.to_string(), Style::default().fg(kind_fg)),
                     Span::raw(truncate_end(&item.project, 20)),
                     Span::raw(truncate_path(&item.object, object_w)),
                     Span::raw(item.item_type.clone()),
@@ -530,6 +538,7 @@ mod tests {
                 op: "add".into(),
                 status: "pending".into(),
                 age: "1m ago".into(),
+                kind: 'P',
             })
             .collect()
     }

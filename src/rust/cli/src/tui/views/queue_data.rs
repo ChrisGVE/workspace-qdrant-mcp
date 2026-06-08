@@ -78,6 +78,8 @@ pub struct QueueRow {
     pub status: String,
     /// Human-readable relative age.
     pub age: String,
+    /// Tenant kind: 'P' (project), 'L' (library), or '?' (unknown).
+    pub kind: char,
 }
 
 /// Full detail of a single queue item for the popup view.
@@ -107,6 +109,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
     };
 
     let tenant_names = build_tenant_name_map(&conn);
+    let tenant_kinds = build_tenant_kind_map(&conn);
 
     let (query, params_vec) = build_query(filter);
     let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
@@ -136,6 +139,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
                 project: resolve_project_name(&tenant_id, &tenant_names),
                 object: extract_object(&item_type, &payload_json),
                 age: format_relative_time(&created_at),
+                kind: tenant_kinds.get(&tenant_id).copied().unwrap_or('?'),
                 queue_id,
                 item_type,
                 op,
@@ -214,10 +218,9 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
     let mut name_count: HashMap<String, usize> = HashMap::new();
     let mut entries: Vec<(String, String)> = Vec::new();
 
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT tenant_id, path FROM watch_folders \
-         WHERE parent_watch_id IS NULL AND collection = 'projects'",
-    ) {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT tenant_id, path FROM watch_folders WHERE parent_watch_id IS NULL")
+    {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         }) {
@@ -242,6 +245,24 @@ fn build_tenant_name_map(conn: &rusqlite::Connection) -> HashMap<String, String>
         map.insert(tenant_id, display);
     }
 
+    map
+}
+
+/// Map each tenant_id to its kind: 'P' (project) or 'L' (library).
+fn build_tenant_kind_map(conn: &rusqlite::Connection) -> HashMap<String, char> {
+    let mut map = HashMap::new();
+    if let Ok(mut stmt) = conn
+        .prepare("SELECT tenant_id, collection FROM watch_folders WHERE parent_watch_id IS NULL")
+    {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for (tid, collection) in rows.flatten() {
+                let kind = if collection == "libraries" { 'L' } else { 'P' };
+                map.insert(tid, kind);
+            }
+        }
+    }
     map
 }
 
@@ -347,6 +368,7 @@ mod tests {
             op: "add".to_string(),
             status: "pending".to_string(),
             age: "5m ago".to_string(),
+            kind: 'P',
         };
         assert_eq!(row.short_id, "abc1");
         assert_eq!(row.status, "pending");
