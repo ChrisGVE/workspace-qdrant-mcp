@@ -30,6 +30,15 @@ pub(super) async fn run_keyword_extraction(
         .iter()
         .map(|c| c.content.clone())
         .collect();
+    // Per-chunk metadata (`chunk_type`, `symbol_name`, `parent_symbol`, …)
+    // is preserved across the SemanticChunk → TextChunk conversion in
+    // `convert_semantic_chunks_to_text_chunks`. Feed it to the pipeline so
+    // tree-sitter symbols can contribute concept-level candidate tags.
+    let chunk_metadata: Vec<std::collections::HashMap<String, String>> = document_content
+        .chunks
+        .iter()
+        .map(|c| c.metadata.clone())
+        .collect();
     let is_code = document_content.document_type.is_code();
     let language = document_content.document_type.language();
     let full_text = chunk_texts.join("\n");
@@ -46,6 +55,7 @@ pub(super) async fn run_keyword_extraction(
         is_code,
         chunk_vectors: &chunk_vectors,
         chunk_texts: &chunk_texts,
+        chunk_metadata: Some(&chunk_metadata),
         corpus_size,
         df_lookup: &df_lookup,
         centrality_scores: centrality_scores.as_ref(),
