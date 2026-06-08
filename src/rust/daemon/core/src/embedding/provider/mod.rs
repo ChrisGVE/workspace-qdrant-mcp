@@ -61,14 +61,15 @@ pub trait DenseProvider: Send + Sync + std::fmt::Debug {
     /// the result may be cached for `health_probe_cache_secs`.
     async fn probe(&self) -> Result<(), EmbeddingError>;
 
-    /// Maximum number of characters allowed in a single embedding input.
+    /// Maximum number of UTF-8 bytes allowed in a single embedding input.
     ///
     /// `usize::MAX` (the default) means the provider imposes no caller-side
     /// limit — e.g. FastEmbed truncates internally to the model's sequence
     /// length. Remote providers that reject overlong inputs (HTTP 400)
-    /// return a finite budget so the ingestion layer can split oversized
-    /// chunks before embedding.
-    fn max_input_chars(&self) -> usize {
+    /// return a finite byte budget so the ingestion layer can split oversized
+    /// chunks before embedding. Bytes, not chars: byte-level BPE guarantees
+    /// `token_count <= byte_count`, so a byte cap bounds the token count.
+    fn max_input_bytes(&self) -> usize {
         usize::MAX
     }
 }

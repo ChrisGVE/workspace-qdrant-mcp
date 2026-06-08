@@ -65,11 +65,11 @@ impl EmbeddingGenerator {
         self.dense_provider.output_dim()
     }
 
-    /// Maximum characters allowed in a single embedding input for the active
+    /// Maximum UTF-8 bytes allowed in a single embedding input for the active
     /// provider. `usize::MAX` means no caller-side limit. The ingestion layer
     /// splits chunks above this budget before embedding.
-    pub fn max_input_chars(&self) -> usize {
-        self.dense_provider.max_input_chars()
+    pub fn max_input_bytes(&self) -> usize {
+        self.dense_provider.max_input_bytes()
     }
 
     /// Label identifying the dense embedding model (e.g. "fastembed/all-MiniLM-L6-v2").

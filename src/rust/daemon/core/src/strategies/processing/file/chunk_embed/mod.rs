@@ -85,15 +85,18 @@ pub(super) async fn embed_chunks(
 
     // Split any chunk that exceeds the active provider's input budget so a
     // single overlong chunk never triggers an HTTP 400 from the remote
-    // embedder. No-op for providers without a caller-side limit (FastEmbed).
-    let max_input_chars = ctx.embedding_generator.max_input_chars();
-    let chunks = split_oversized_chunks(&document_content.chunks, max_input_chars);
+    // embedder. The budget is bytes: byte-level BPE guarantees the token
+    // count never exceeds the byte count, so a byte cap bounds tokens with
+    // no tokenizer dependency. No-op for providers without a caller-side
+    // limit (FastEmbed).
+    let max_input_bytes = ctx.embedding_generator.max_input_bytes();
+    let chunks = split_oversized_chunks(&document_content.chunks, max_input_bytes);
     if chunks.len() != document_content.chunks.len() {
         info!(
-            "Split {} oversized chunk(s) into {} sub-chunks (budget {} chars) for {}",
+            "Split {} oversized chunk(s) into {} sub-chunks (budget {} bytes) for {}",
             chunks.len() - document_content.chunks.len(),
             chunks.len(),
-            max_input_chars,
+            max_input_bytes,
             file_path.display()
         );
     }
@@ -425,24 +428,27 @@ async fn assemble_chunk_output(
     }
 }
 
-/// Split any chunk whose content exceeds `max_chars` into sub-chunks that
-/// each fit the budget, renumbering `chunk_index` sequentially so payloads
-/// and point IDs stay consistent. Sub-chunks inherit the parent's metadata
-/// (line range, symbol) plus a `split_part = "i/n"` marker. `usize::MAX`
-/// (no provider limit) returns the chunks unchanged.
-fn split_oversized_chunks(chunks: &[crate::TextChunk], max_chars: usize) -> Vec<crate::TextChunk> {
-    if max_chars == usize::MAX {
+/// Split any chunk whose content exceeds `max_bytes` (UTF-8 byte length) into
+/// sub-chunks that each fit the budget, renumbering `chunk_index` sequentially
+/// so payloads and point IDs stay consistent. Sub-chunks inherit the parent's
+/// metadata (line range, symbol) plus a `split_part = "i/n"` marker.
+/// `usize::MAX` (no provider limit) returns the chunks unchanged.
+///
+/// The budget is bytes, not chars: byte-level BPE (cl100k/o200k) never emits
+/// more tokens than bytes, so a byte cap is a hard upper bound on tokens.
+fn split_oversized_chunks(chunks: &[crate::TextChunk], max_bytes: usize) -> Vec<crate::TextChunk> {
+    if max_bytes == usize::MAX {
         return chunks.to_vec();
     }
 
     let mut out: Vec<crate::TextChunk> = Vec::with_capacity(chunks.len());
     for chunk in chunks {
-        if chunk.content.chars().count() <= max_chars {
+        if chunk.content.len() <= max_bytes {
             out.push(chunk.clone());
             continue;
         }
 
-        let pieces = split_text_on_budget(&chunk.content, max_chars);
+        let pieces = split_text_on_budget(&chunk.content, max_bytes);
         let n = pieces.len();
         let mut char_cursor = chunk.start_char;
         for (i, piece) in pieces.into_iter().enumerate() {
@@ -466,35 +472,32 @@ fn split_oversized_chunks(chunks: &[crate::TextChunk], max_chars: usize) -> Vec<
     out
 }
 
-/// Split `content` into pieces of at most `max_chars` characters, preferring
-/// line boundaries. A single line longer than `max_chars` is hard-split on
-/// UTF-8 char boundaries. Always returns at least one piece.
-fn split_text_on_budget(content: &str, max_chars: usize) -> Vec<String> {
-    debug_assert!(max_chars > 0);
+/// Split `content` into pieces of at most `max_bytes` UTF-8 bytes, preferring
+/// line boundaries. A single line longer than `max_bytes` is hard-split on
+/// UTF-8 char boundaries (never mid-codepoint). Always returns at least one
+/// piece.
+fn split_text_on_budget(content: &str, max_bytes: usize) -> Vec<String> {
+    debug_assert!(max_bytes > 0);
     let mut pieces: Vec<String> = Vec::new();
     let mut current = String::new();
-    let mut current_chars = 0usize;
 
     // `split_inclusive` keeps the trailing '\n' with each line so the
     // reassembled content is byte-identical to the original (no data loss).
     for line in content.split_inclusive('\n') {
-        let line_chars = line.chars().count();
+        let line_bytes = line.len();
 
-        if line_chars > max_chars {
+        if line_bytes > max_bytes {
             if !current.is_empty() {
                 pieces.push(std::mem::take(&mut current));
-                current_chars = 0;
             }
-            pieces.extend(hard_split_chars(line, max_chars));
+            pieces.extend(hard_split_bytes(line, max_bytes));
             continue;
         }
 
-        if current_chars + line_chars > max_chars && !current.is_empty() {
+        if current.len() + line_bytes > max_bytes && !current.is_empty() {
             pieces.push(std::mem::take(&mut current));
-            current_chars = 0;
         }
         current.push_str(line);
-        current_chars += line_chars;
     }
 
     if !current.is_empty() {
@@ -506,18 +509,18 @@ fn split_text_on_budget(content: &str, max_chars: usize) -> Vec<String> {
     pieces
 }
 
-/// Hard-split a string into `max_chars`-character pieces on char boundaries.
-fn hard_split_chars(s: &str, max_chars: usize) -> Vec<String> {
+/// Hard-split a string into pieces of at most `max_bytes` UTF-8 bytes, breaking
+/// only on char boundaries so a multi-byte codepoint is never split. A single
+/// char wider than `max_bytes` (only possible for an absurdly small budget) is
+/// emitted on its own.
+fn hard_split_bytes(s: &str, max_bytes: usize) -> Vec<String> {
     let mut pieces = Vec::new();
     let mut buf = String::new();
-    let mut count = 0usize;
     for ch in s.chars() {
-        buf.push(ch);
-        count += 1;
-        if count == max_chars {
+        if !buf.is_empty() && buf.len() + ch.len_utf8() > max_bytes {
             pieces.push(std::mem::take(&mut buf));
-            count = 0;
         }
+        buf.push(ch);
     }
     if !buf.is_empty() {
         pieces.push(buf);
@@ -570,9 +573,9 @@ mod split_tests {
         assert!(out.len() > 1, "expected the oversized chunk to be split");
         for (i, c) in out.iter().enumerate() {
             assert!(
-                c.content.chars().count() <= 40,
-                "piece {i} exceeds budget: {} chars",
-                c.content.chars().count()
+                c.content.len() <= 40,
+                "piece {i} exceeds budget: {} bytes",
+                c.content.len()
             );
             assert_eq!(c.chunk_index, i, "chunk_index must be renumbered");
             assert!(c.metadata.contains_key("split_part"));
@@ -584,12 +587,19 @@ mod split_tests {
 
     #[test]
     fn single_long_line_is_hard_split_on_char_boundaries() {
-        // Multi-byte chars must never be split mid-codepoint.
-        let line = "あ".repeat(100); // no newlines, 100 chars
+        // Multi-byte chars must never be split mid-codepoint. "あ" is 3 bytes,
+        // so a 30-byte budget holds 10 chars per piece.
+        let line = "あ".repeat(100); // no newlines, 100 chars = 300 bytes
         let pieces = split_text_on_budget(&line, 30);
         assert!(pieces.len() >= 4);
         for p in &pieces {
-            assert!(p.chars().count() <= 30);
+            assert!(
+                p.len() <= 30,
+                "piece exceeds byte budget: {} bytes",
+                p.len()
+            );
+            // Every piece is valid UTF-8 (no mid-codepoint split).
+            assert_eq!(p.chars().count() * 3, p.len());
         }
         let rejoined: String = pieces.concat();
         assert_eq!(rejoined, line);

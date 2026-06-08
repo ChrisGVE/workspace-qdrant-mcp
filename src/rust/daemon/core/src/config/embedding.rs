@@ -34,8 +34,9 @@ fn default_output_dim() -> usize {
 fn default_max_input_tokens() -> usize {
     // text-embedding-3-* and most OpenAI-compatible endpoints reject inputs
     // longer than 8192 tokens with HTTP 400. The ingestion layer splits
-    // oversized chunks below a char budget derived from this value before
-    // embedding, so requests never exceed the cap.
+    // oversized chunks below a byte budget derived from this value before
+    // embedding; since byte-level BPE never emits more tokens than bytes, the
+    // byte cap keeps every request under the token limit.
     8192
 }
 

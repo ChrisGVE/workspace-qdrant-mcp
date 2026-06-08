@@ -55,15 +55,14 @@ pub struct OpenAiCompatibleProvider {
     pub(super) provider_label_value: String,
     pub(super) probe_cache: Mutex<Option<(Instant, Result<(), Arc<EmbeddingError>>)>>,
     pub(super) probe_cache_ttl: Duration,
-    /// Char budget for a single input, derived from the model's token cap.
-    pub(super) max_input_chars: usize,
+    /// Byte budget for a single input, derived from the model's token cap.
+    pub(super) max_input_bytes: usize,
 }
 
-/// Conservative lower bound on characters-per-token for cl100k/o200k BPE on
-/// the code + prose this index holds. English averages ~4 and code ~3.3, so
-/// assuming 3 keeps the derived char budget safely under the token cap while
-/// avoiding needless over-splitting of normal-sized chunks.
-const MIN_CHARS_PER_TOKEN: usize = 3;
+/// Safety margin (bytes) subtracted from the token cap when deriving the byte
+/// budget, so the byte bound stays clear of the model's exact token limit even
+/// if the endpoint frames the input with an extra special token.
+const EMBED_BYTE_SAFETY_MARGIN: usize = 64;
 
 impl std::fmt::Debug for OpenAiCompatibleProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -125,7 +124,11 @@ impl OpenAiCompatibleProvider {
             provider_label_value,
             probe_cache: Mutex::new(None),
             probe_cache_ttl,
-            max_input_chars: max_input_tokens.saturating_mul(MIN_CHARS_PER_TOKEN),
+            // Byte budget, not char budget: cl100k/o200k are byte-level BPE, so
+            // token_count <= byte_count always. Capping a single input at this
+            // many bytes guarantees it stays under the model's token limit with
+            // no tokenizer dependency and no char-per-token guessing.
+            max_input_bytes: max_input_tokens.saturating_sub(EMBED_BYTE_SAFETY_MARGIN),
         })
     }
 
@@ -177,8 +180,8 @@ impl DenseProvider for OpenAiCompatibleProvider {
         self.output_dim.load(Ordering::Relaxed)
     }
 
-    fn max_input_chars(&self) -> usize {
-        self.max_input_chars
+    fn max_input_bytes(&self) -> usize {
+        self.max_input_bytes
     }
 
     fn provider_label(&self) -> &str {
