@@ -36,7 +36,7 @@ async fn test_unified_queue_mark_failed_retry() {
 
     // Dequeue
     manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -61,7 +61,7 @@ async fn test_unified_queue_mark_failed_retry() {
     // Dequeue again and fail until max retries
     for i in 2..=3 {
         manager
-            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
             .await
             .unwrap();
         let will_retry = manager
@@ -120,7 +120,7 @@ async fn test_unified_queue_mark_failed_permanent() {
 
     // Dequeue
     manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -168,7 +168,7 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
 
     // Dequeue
     manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
 
     // Try to dequeue immediately - should get nothing (item is in backoff)
     let items = manager
-        .dequeue_unified(10, "worker-2", None, None, None, None)
+        .dequeue_unified(10, "worker-2", None, None, None, None, None, None)
         .await
         .unwrap();
     assert!(
@@ -225,7 +225,7 @@ async fn test_re_lease_item_preserves_retry_count() {
 
     // Dequeue → in_progress
     manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 

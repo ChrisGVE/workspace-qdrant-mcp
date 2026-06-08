@@ -34,7 +34,7 @@ async fn test_unified_queue_delete_item() {
         .unwrap();
 
     let items = manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(items.len(), 1);
@@ -143,7 +143,7 @@ async fn test_unified_queue_cleanup() {
         .unwrap();
 
     manager
-        .dequeue_unified(10, "worker-1", None, None, None, None)
+        .dequeue_unified(10, "worker-1", None, None, None, None, None, None)
         .await
         .unwrap();
 

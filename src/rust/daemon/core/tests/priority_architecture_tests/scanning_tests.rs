@@ -111,7 +111,7 @@ async fn test_add_op_higher_priority_than_scan() {
 
     // Dequeue — add (priority=5) should come before scan (priority=1)
     let items = queue_manager
-        .dequeue_unified(2, "test-worker", Some(300), None, None, Some(true))
+        .dequeue_unified(2, "test-worker", Some(300), None, None, Some(true), None, None)
         .await
         .unwrap();
 
@@ -319,7 +319,7 @@ async fn test_delete_op_highest_priority_in_dequeue() {
 
     // Dequeue all — should be ordered by op priority: delete(10) > add(5) > update(3) > scan(1)
     let items = queue_manager
-        .dequeue_unified(4, "test-worker", Some(300), None, None, Some(true))
+        .dequeue_unified(4, "test-worker", Some(300), None, None, Some(true), None, None)
         .await
         .unwrap();
 

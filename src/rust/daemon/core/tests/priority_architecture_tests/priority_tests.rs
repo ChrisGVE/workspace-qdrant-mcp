@@ -63,7 +63,16 @@ async fn test_active_project_dequeued_before_inactive() {
 
     // Dequeue with priority DESC — active should come first
     let items = queue_manager
-        .dequeue_unified(2, "test-worker", Some(300), None, None, Some(true))
+        .dequeue_unified(
+            2,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -143,7 +152,16 @@ async fn test_memory_collection_high_priority() {
 
     // Dequeue with priority DESC
     let items = queue_manager
-        .dequeue_unified(3, "test-worker", Some(300), None, None, Some(true))
+        .dequeue_unified(
+            3,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -195,7 +213,16 @@ async fn test_op_based_priority_delete_before_add() {
         .unwrap();
 
     let items = queue_manager
-        .dequeue_unified(2, "test-worker", Some(300), None, None, Some(true))
+        .dequeue_unified(
+            2,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -266,7 +293,16 @@ async fn test_anti_starvation_asc_mode_reverses_priority() {
 
     // Dequeue with priority ASC (anti-starvation mode) — inactive should come first
     let items = queue_manager
-        .dequeue_unified(2, "test-worker", Some(300), None, None, Some(false))
+        .dequeue_unified(
+            2,
+            "test-worker",
+            Some(300),
+            None,
+            None,
+            Some(false),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -338,6 +374,7 @@ async fn test_fairness_scheduler_flips_direction() {
         low_priority_batch: 1,
         worker_id: "test-fairness".to_string(),
         lease_duration_secs: 300,
+        ..Default::default()
     };
     let scheduler = FairnessScheduler::new(queue_manager, config);
 

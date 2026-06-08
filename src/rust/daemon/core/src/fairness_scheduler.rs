@@ -46,6 +46,15 @@ pub struct FairnessSchedulerConfig {
 
     /// Lease duration in seconds
     pub lease_duration_secs: i64,
+
+    /// Age (seconds) after which a pending item gets +1 in the dequeue
+    /// age-promotion CASE. Prevents starvation of low-op-weight items. Default: 300.
+    pub age_promotion_warning_seconds: u64,
+
+    /// Age (seconds) after which a pending item gets +2 in the dequeue
+    /// age-promotion CASE. Items past this threshold outrank all but delete/reset
+    /// and tenant/add. Default: 900.
+    pub age_promotion_critical_seconds: u64,
 }
 
 impl Default for FairnessSchedulerConfig {
@@ -55,7 +64,9 @@ impl Default for FairnessSchedulerConfig {
             high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
             low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
             worker_id: format!("fairness-worker-{}", uuid::Uuid::new_v4()),
-            lease_duration_secs: 300, // 5 minutes
+            lease_duration_secs: 300,            // 5 minutes
+            age_promotion_warning_seconds: 300,  // 5 minutes
+            age_promotion_critical_seconds: 900, // 15 minutes
         }
     }
 }
@@ -159,6 +170,8 @@ impl FairnessScheduler {
                 Some(project_id),
                 None,
                 Some(priority_descending),
+                Some(self.config.age_promotion_warning_seconds),
+                Some(self.config.age_promotion_critical_seconds),
             )
             .await?;
 
@@ -180,6 +193,8 @@ impl FairnessScheduler {
                 None,
                 None,
                 Some(priority_descending),
+                Some(self.config.age_promotion_warning_seconds),
+                Some(self.config.age_promotion_critical_seconds),
             )
             .await?;
 
@@ -386,6 +401,8 @@ mod tests {
         assert_eq!(config.low_priority_batch, 3);
         assert_eq!(config.lease_duration_secs, 300);
         assert!(config.worker_id.starts_with("fairness-worker-"));
+        assert_eq!(config.age_promotion_warning_seconds, 300);
+        assert_eq!(config.age_promotion_critical_seconds, 900);
     }
 
     #[test]
