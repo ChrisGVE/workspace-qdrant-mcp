@@ -636,6 +636,46 @@ pub trait GraphStore: Send + Sync {
         self.insert_edges(edges).await?;
         Ok(())
     }
+
+    /// Resolve dangling "stub" edges to real symbol nodes by name.
+    ///
+    /// Tree-sitter emits name-only stub callees/targets with an empty
+    /// `file_path` (a node_id that never matches the callee's real node).
+    /// This pass repoints each such edge to a real node with the same
+    /// `symbol_name` when an unambiguous match exists (same-file preference,
+    /// then unique-in-tenant), recomputing the edge_id, and prunes the
+    /// now-orphaned stub nodes. Stdlib/external names (no project node)
+    /// stay dangling and are naturally excluded from the resolved graph.
+    ///
+    /// Default impl is a no-op for backends that don't produce stub edges.
+    /// Returns the number of edges repointed.
+    async fn resolve_stub_edges(&self, _tenant_id: &str) -> GraphDbResult<u64> {
+        Ok(0)
+    }
+
+    /// List the distinct tenants that have graph data.
+    ///
+    /// Lets a wrapper (e.g. the lock-serialising shared store) enumerate
+    /// tenants without holding a write lock for the whole sweep. Default impl
+    /// is empty for backends that don't track tenants this way.
+    async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    /// Resolve dangling stub edges across every tenant present in the graph.
+    ///
+    /// Enumerates the store's tenants and calls [`Self::resolve_stub_edges`] for
+    /// each, returning the total number of edges repointed. Tenant enumeration
+    /// lives in the backend (which owns the connection) so periodic callers can
+    /// drive resolution over an `Arc<dyn GraphStore>` trait object without
+    /// direct pool access. Default impl is a no-op.
+    ///
+    /// NOTE: lock-serialising wrappers should override this to resolve each
+    /// tenant under its OWN short-lived write lock rather than holding one lock
+    /// across the whole sweep (see `SharedGraphStore`).
+    async fn resolve_all_stub_edges(&self) -> GraphDbResult<u64> {
+        Ok(0)
+    }
 }
 
 /// Compute deterministic node ID from its identifying fields.

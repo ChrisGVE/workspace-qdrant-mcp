@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::graph::{
+    compute_edge_id,
     cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
     schema::{GraphDbError, GraphDbResult},
     EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow,
@@ -446,6 +447,16 @@ pub(super) fn value_to_i64(val: &Value) -> i64 {
     }
 }
 
+/// Extract an f64 from a lbug Value (edge weight); defaults to 1.0.
+pub(super) fn value_to_f64(val: &Value) -> f64 {
+    match val {
+        Value::Double(n) => *n,
+        Value::Float(n) => *n as f64,
+        Value::Int64(n) => *n as f64,
+        _ => 1.0,
+    }
+}
+
 /// Escape single quotes in Cypher string literals.
 ///
 /// Retained for test coverage; production code uses `PreparedStatement`
@@ -855,6 +866,239 @@ impl GraphStore for LadybugGraphStore {
         }
 
         Ok(0)
+    }
+
+    async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare("MATCH (n:GraphNode) RETURN DISTINCT n.tenant_id")
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare graph_tenants: {e}")))?;
+        let result = conn
+            .execute(&mut stmt, vec![])
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute graph_tenants: {e}")))?;
+        let mut out = Vec::new();
+        for row in result {
+            if let Some(v) = row.first() {
+                let t = value_to_string(v);
+                if !t.is_empty() {
+                    out.push(t);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    async fn resolve_stub_edges(&self, tenant_id: &str) -> GraphDbResult<u64> {
+        use std::collections::HashMap;
+
+        // Only structural code rel types carry tree-sitter name-only stubs.
+        const CODE_REL_TYPES: &[&str] = &[
+            "CALLS",
+            "CONTAINS",
+            "IMPORTS",
+            "USES_TYPE",
+            "EXTENDS",
+            "IMPLEMENTS",
+        ];
+
+        let _lock = self.write_lock.lock().await;
+        let conn = self.connect()?;
+
+        // Real candidate nodes (resolved file_path, not file-typed), indexed by
+        // symbol_name -> [(node_id, file_path)].
+        let mut by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        {
+            let mut stmt = conn
+                .prepare(
+                    "MATCH (n:GraphNode) \
+                     WHERE n.tenant_id = $tid AND n.file_path <> '' AND n.symbol_type <> 'file' \
+                     RETURN n.node_id, n.symbol_name, n.file_path",
+                )
+                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare stub candidates: {e}")))?;
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![("tid", Value::String(tenant_id.to_string()))],
+                )
+                .map_err(|e| GraphDbError::InvalidInput(format!("Execute stub candidates: {e}")))?;
+            for row in result {
+                if row.len() < 3 {
+                    continue;
+                }
+                let nid = value_to_string(&row[0]);
+                let name = value_to_string(&row[1]);
+                let fp = value_to_string(&row[2]);
+                by_name.entry(name).or_default().push((nid, fp));
+            }
+        }
+
+        let mut repointed: u64 = 0;
+        for rel_type in CODE_REL_TYPES {
+            let Some(edge_type) = EdgeType::from_str(rel_type) else {
+                continue;
+            };
+
+            // Dangling edges of this type: target is a stub (empty file_path).
+            // Collect rows first so the connection is free for the follow-up
+            // delete/create mutations.
+            let find = format!(
+                "MATCH (s:GraphNode)-[e:{rel_type}]->(t:GraphNode) \
+                 WHERE e.tenant_id = $tid AND t.tenant_id = $tid \
+                       AND (t.file_path = '' OR t.file_path IS NULL) \
+                 RETURN s.node_id, e.edge_id, e.source_file, e.weight, e.metadata_json, \
+                        t.symbol_name"
+            );
+            let rows: Vec<(String, String, String, f64, String, String)> = {
+                let mut stmt = conn.prepare(&find).map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Prepare stub dangling ({rel_type}): {e}"))
+                })?;
+                let result = conn
+                    .execute(
+                        &mut stmt,
+                        vec![("tid", Value::String(tenant_id.to_string()))],
+                    )
+                    .map_err(|e| {
+                        GraphDbError::InvalidInput(format!(
+                            "Execute stub dangling ({rel_type}): {e}"
+                        ))
+                    })?;
+                result
+                    .into_iter()
+                    .filter_map(|row| {
+                        if row.len() < 6 {
+                            return None;
+                        }
+                        Some((
+                            value_to_string(&row[0]),
+                            value_to_string(&row[1]),
+                            value_to_string(&row[2]),
+                            value_to_f64(&row[3]),
+                            value_to_string(&row[4]),
+                            value_to_string(&row[5]),
+                        ))
+                    })
+                    .collect()
+            };
+
+            for (source_node_id, old_edge_id, source_file, weight, metadata_json, target_name) in
+                rows
+            {
+                let Some(candidates) = by_name.get(&target_name) else {
+                    continue; // external/stdlib — no project node with this name.
+                };
+                // Prefer a definition in the caller's own file; else require a
+                // unique tenant-wide match. Ambiguous names are skipped.
+                let chosen: Option<&String> = candidates
+                    .iter()
+                    .find(|(_, fp)| *fp == source_file)
+                    .map(|(nid, _)| nid)
+                    .or_else(|| {
+                        if candidates.len() == 1 {
+                            Some(&candidates[0].0)
+                        } else {
+                            None
+                        }
+                    });
+                let Some(new_target) = chosen else {
+                    continue;
+                };
+                if &source_node_id == new_target {
+                    continue; // skip self-loops
+                }
+                let new_edge_id = compute_edge_id(&source_node_id, new_target, edge_type);
+
+                // Repoint. Kuzu has no multi-statement transaction here, so CREATE
+                // the repointed rel FIRST, then DELETE the old dangling one: if the
+                // CREATE fails we propagate the error with the old edge still
+                // intact (the next sweep retries) rather than losing connectivity.
+                // The `branch` scope is not carried — the LadybugDB rel tables have
+                // no branch column (this backend does not track edge branches).
+                let ins = format!(
+                    "MATCH (a:GraphNode {{node_id: $src}}), (b:GraphNode {{node_id: $dst}}) \
+                     CREATE (a)-[:{rel_type} {{weight: $weight, source_file: $sf, \
+                     edge_id: $neid, tenant_id: $tid, metadata_json: $md}}]->(b)"
+                );
+                let mut istmt = conn.prepare(&ins).map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Prepare stub create ({rel_type}): {e}"))
+                })?;
+                conn.execute(
+                    &mut istmt,
+                    vec![
+                        ("src", Value::String(source_node_id.clone())),
+                        ("dst", Value::String(new_target.clone())),
+                        ("weight", Value::Double(weight)),
+                        ("sf", Value::String(source_file.clone())),
+                        ("neid", Value::String(new_edge_id)),
+                        ("tid", Value::String(tenant_id.to_string())),
+                        ("md", Value::String(metadata_json.clone())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute stub create ({rel_type}): {e}"))
+                })?;
+
+                let del = format!(
+                    "MATCH (a:GraphNode)-[r:{rel_type}]->(b:GraphNode) \
+                     WHERE r.edge_id = $eid AND r.tenant_id = $tid DELETE r"
+                );
+                let mut dstmt = conn.prepare(&del).map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Prepare stub delete ({rel_type}): {e}"))
+                })?;
+                conn.execute(
+                    &mut dstmt,
+                    vec![
+                        ("eid", Value::String(old_edge_id.clone())),
+                        ("tid", Value::String(tenant_id.to_string())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute stub delete ({rel_type}): {e}"))
+                })?;
+
+                repointed += 1;
+            }
+        }
+
+        // Prune stub nodes (empty file_path) that are now edgeless. Mirrors
+        // `prune_orphans` but scoped to stubs; tolerated if the EXISTS subquery
+        // is unsupported by the LadybugDB version.
+        let all_rels = ALL_REL_TYPES.join("|");
+        let prune = format!(
+            "MATCH (n:GraphNode) \
+             WHERE n.tenant_id = $tid AND (n.file_path = '' OR n.file_path IS NULL) \
+             AND NOT EXISTS {{ MATCH (n)-[r:{all_rels}]-() WHERE r.tenant_id = $tid }} \
+             DELETE n"
+        );
+        let prune_res = (|| -> GraphDbResult<()> {
+            let mut stmt = conn
+                .prepare(&prune)
+                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare stub prune: {e}")))?;
+            conn.execute(
+                &mut stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute stub prune: {e}")))?;
+            Ok(())
+        })();
+        if let Err(e) = prune_res {
+            debug!("stub-node prune subquery not supported, skipping: {}", e);
+        }
+
+        debug!(
+            "Resolved {} stub edges for tenant {} (LadybugDB)",
+            repointed, tenant_id
+        );
+        Ok(repointed)
+    }
+
+    async fn resolve_all_stub_edges(&self) -> GraphDbResult<u64> {
+        let mut total: u64 = 0;
+        // Each tenant takes the write lock independently via resolve_stub_edges,
+        // so the lock is released between tenants.
+        for tenant in self.graph_tenants().await? {
+            total += self.resolve_stub_edges(&tenant).await?;
+        }
+        Ok(total)
     }
 
     async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
