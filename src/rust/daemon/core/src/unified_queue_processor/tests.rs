@@ -415,6 +415,54 @@ mod tests {
     }
 
     #[test]
+    fn test_embedding_remote_error_classification() {
+        use crate::embedding::EmbeddingError;
+
+        // A permanent payload rejection (400/413/422) can never embed on retry,
+        // so it becomes InvalidPayload -> permanent_data: DLQ once, no churn.
+        for code in [400u16, 413, 422] {
+            let mapped = UnifiedProcessorError::from(EmbeddingError::RemoteError {
+                status_code: code,
+                message: "maximum context length is 8192 tokens".into(),
+            });
+            assert!(
+                matches!(mapped, UnifiedProcessorError::InvalidPayload(_)),
+                "HTTP {code} should map to InvalidPayload"
+            );
+            assert_eq!(
+                UnifiedQueueProcessor::classify_error(&mapped),
+                "permanent_data"
+            );
+        }
+
+        // 429 is a genuine rate limit -> transient, retried with backoff.
+        let mapped = UnifiedProcessorError::from(EmbeddingError::RemoteError {
+            status_code: 429,
+            message: "Too Many Requests".into(),
+        });
+        assert_eq!(UnifiedQueueProcessor::classify_error(&mapped), "rate_limit");
+
+        // 5xx is a server-side hiccup -> transient resource.
+        let mapped = UnifiedProcessorError::from(EmbeddingError::RemoteError {
+            status_code: 503,
+            message: "Service Unavailable".into(),
+        });
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&mapped),
+            "transient_resource"
+        );
+
+        // Subsystem backoff -> re-lease without burning the retry budget.
+        let mapped = UnifiedProcessorError::from(EmbeddingError::TemporarilyUnavailable {
+            retry_after_secs: 60,
+        });
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&mapped),
+            "subsystem_unavailable"
+        );
+    }
+
+    #[test]
     fn test_classify_error_sqlite_busy() {
         let err = UnifiedProcessorError::QueueOperation("database locked".into());
         assert_eq!(

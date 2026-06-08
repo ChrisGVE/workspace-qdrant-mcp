@@ -121,15 +121,7 @@ pub(super) async fn embed_chunks(
         .embedding_generator
         .generate_embeddings_batch(&chunk_texts, "default")
         .await
-        .map_err(|e| {
-            use crate::embedding::EmbeddingError;
-            match e {
-                EmbeddingError::TemporarilyUnavailable { .. } => {
-                    UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
-                }
-                _ => UnifiedProcessorError::Embedding(e.to_string()),
-            }
-        })?;
+        .map_err(UnifiedProcessorError::from)?;
 
     drop(_permit);
 

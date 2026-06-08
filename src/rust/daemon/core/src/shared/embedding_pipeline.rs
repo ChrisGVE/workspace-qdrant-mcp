@@ -42,7 +42,7 @@ pub async fn embed_with_sparse(
     let embedding_result = generator
         .generate_embedding(text, model_hint)
         .await
-        .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+        .map_err(UnifiedProcessorError::from)?;
 
     drop(_permit);
 
@@ -70,7 +70,7 @@ pub async fn embed_dense_only(
     let embedding_result = generator
         .generate_embedding(text, model_hint)
         .await
-        .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+        .map_err(UnifiedProcessorError::from)?;
 
     drop(_permit);
 
