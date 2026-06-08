@@ -38,7 +38,12 @@ impl FullRecoveryStats {
     pub fn total_queued(&self) -> u64 {
         self.per_folder
             .iter()
-            .map(|(_, s)| s.progressive_scans_enqueued + s.files_to_delete + s.files_newly_excluded)
+            .map(|(_, s)| {
+                s.progressive_scans_enqueued
+                    + s.files_to_delete
+                    + s.files_newly_excluded
+                    + s.files_to_update
+            })
             .sum()
     }
 }

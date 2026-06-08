@@ -174,11 +174,12 @@ fn log_folder_recovery(
             if s.files_to_delete > 0
                 || s.files_newly_excluded > 0
                 || s.progressive_scans_enqueued > 0
+                || s.files_to_update > 0
             {
                 info!(
-                    "Recovery for {} ({}): {} progressive scan(s), -{} delete, x{} excluded, !{} errors",
-                    watch_id, path, s.progressive_scans_enqueued, s.files_to_delete,
-                    s.files_newly_excluded, s.errors
+                    "Recovery for {} ({}): {} progressive scan(s), ~{} modified, -{} delete, x{} excluded, !{} errors",
+                    watch_id, path, s.progressive_scans_enqueued, s.files_to_update,
+                    s.files_to_delete, s.files_newly_excluded, s.errors
                 );
             } else {
                 debug!("Recovery for {} ({}): no changes detected", watch_id, path);
@@ -251,21 +252,23 @@ async fn detect_deleted_files(
     startup_config: &StartupConfig,
     stats: &mut RecoveryStats,
 ) {
-    let tracked = match tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            warn!("Failed to query tracked_files: {}", e);
-            stats.errors += 1;
-            return;
-        }
-    };
+    let tracked =
+        match tracked_files_schema::get_tracked_files_with_hashes(pool, watch_folder_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to query tracked_files: {}", e);
+                stats.errors += 1;
+                return;
+            }
+        };
 
+    let reconcile_modified = startup_config.reconcile_modified_on_startup;
     let batch_size = startup_config.startup_enqueue_batch_size;
     let batch_delay =
         std::time::Duration::from_millis(startup_config.startup_enqueue_batch_delay_ms);
     let mut enqueued_in_batch: usize = 0;
 
-    for (_file_id, file_path, _branch) in &tracked {
+    for (file_path, stored_hash, stored_mtime) in &tracked {
         let abs_path = root.join(file_path);
         enqueued_in_batch += process_tracked_file(
             queue_manager,
@@ -274,6 +277,9 @@ async fn detect_deleted_files(
             root,
             &abs_path,
             file_path,
+            stored_hash,
+            stored_mtime,
+            reconcile_modified,
             stats,
         )
         .await;
@@ -302,6 +308,9 @@ async fn process_tracked_file(
     repo_root: &Path,
     abs_path: &Path,
     file_path: &str,
+    stored_hash: &str,
+    stored_mtime: &str,
+    reconcile_modified: bool,
     stats: &mut RecoveryStats,
 ) -> usize {
     let relative = match wqm_common::paths::RelativePath::from_user_input(file_path) {
@@ -361,6 +370,67 @@ async fn process_tracked_file(
                     "Failed to queue deletion for excluded file: {}: {}",
                     file_path, e
                 );
+                stats.errors += 1;
+            }
+        }
+    } else if reconcile_modified {
+        // File still on disk and not excluded: re-hash and re-index when the
+        // content changed while the daemon was down (or in an inactive project,
+        // which live watch events skip). enqueue_file_op is idempotent, so this
+        // is a no-op when the watcher already queued the same edit.
+        //
+        // Gate the expensive content hash on a cheap mtime comparison: a file
+        // whose on-disk mtime still equals the value stored at ingest cannot
+        // have changed, so skip reading it entirely. Only when mtime differs do
+        // we read + hash to confirm (mtime can move without a content change,
+        // e.g. `touch`, so the hash remains authoritative for the decision).
+        match tracked_files_schema::get_file_mtime(abs_path) {
+            Ok(on_disk_mtime) if on_disk_mtime == stored_mtime => {
+                stats.files_unchanged += 1;
+                return 0;
+            }
+            Ok(_) => {} // mtime changed — fall through to the content hash below.
+            Err(e) => {
+                // mtime read failed on a still-present file: fall back to the
+                // content hash rather than assuming unchanged.
+                debug!(
+                    "Reconcile mtime read failed for {} ({e}), hashing",
+                    file_path
+                );
+            }
+        }
+        match wqm_common::hashing::compute_file_hash(abs_path) {
+            Ok(on_disk_hash) if on_disk_hash != stored_hash => {
+                match enqueue_file_op(
+                    queue_manager,
+                    tenant_id,
+                    collection,
+                    &relative,
+                    repo_root,
+                    QueueOperation::Update,
+                    None,
+                )
+                .await
+                {
+                    Ok(_is_new) => {
+                        stats.files_to_update += 1;
+                        return 1;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to queue update for modified file: {}: {}",
+                            file_path, e
+                        );
+                        stats.errors += 1;
+                    }
+                }
+            }
+            Ok(_) => stats.files_unchanged += 1,
+            Err(e) => {
+                // A hash failure on a still-present, non-excluded file means its
+                // modification status is unknown and its vector may be stale —
+                // surface it and count it, don't silently swallow at debug.
+                warn!("Reconcile hash failed for {}: {}", file_path, e);
                 stats.errors += 1;
             }
         }

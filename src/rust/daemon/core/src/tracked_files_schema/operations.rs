@@ -550,6 +550,37 @@ pub async fn get_tracked_file_paths(
         .collect())
 }
 
+/// Get `(relative_path, file_hash, file_mtime)` for every tracked file in a
+/// watch_folder.
+///
+/// Used by startup recovery to detect content changes that happened while the
+/// daemon was not running (the live watcher only sees events while up). The
+/// stored `file_mtime` lets recovery gate the expensive content re-hash on a
+/// cheap mtime comparison, so unchanged files are not read from disk on every
+/// boot.
+pub async fn get_tracked_files_with_hashes(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT relative_path, file_hash, file_mtime FROM tracked_files WHERE watch_folder_id = ?1",
+    )
+    .bind(watch_folder_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|r| {
+            (
+                r.get("relative_path"),
+                r.get("file_hash"),
+                r.get("file_mtime"),
+            )
+        })
+        .collect())
+}
+
 /// Get tracked files under a folder path prefix for a watch_folder.
 ///
 /// Used for folder-level delete/move operations. Matches files whose
