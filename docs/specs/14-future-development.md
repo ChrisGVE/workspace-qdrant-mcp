@@ -586,6 +586,30 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 
 ---
 
+### Multimodal: PDF Figure/Graph Extraction → Images Collection
+
+Tracking issue: [#116](https://github.com/ChrisGVE/workspace-qdrant-mcp/issues/116).
+
+Extract figures/graphs embedded in PDFs and ingest them into the `images` collection via the existing CLIP pipeline, so a chart inside a PDF becomes searchable as an image alongside the document's text chunks.
+
+**Already present, but dormant** (most of the plumbing is built and unwired):
+
+- `clip/` — `ClipEncoder` (CLIP ViT-B-32, 512-dim image+text).
+- `image_ingestion/` — `process_document_images` → CLIP embed → points in the `images` collection. Only referenced by `lib.rs` `pub mod`; nothing in the live processing path calls it.
+- `image_extraction::EmbeddedImage` — image-extraction scaffolding (standalone image files, not PDF-embedded).
+- `storage/collections/multi_tenant.rs::create_image_collection` — the `images` collection exists.
+- `document_processor/extraction/pdf.rs` — text-only today (`pdf_extract::extract_text` + lopdf fallback); detects image-only PDFs (`image_only=true`) but never extracts figures.
+
+**Missing pieces:**
+
+1. **PDF figure extraction** — pull embedded image XObjects (or render figure regions) into `EmbeddedImage` (pdfium-render / lopdf XObject walk).
+2. **Graph identification** — distinguish meaningful charts from logos/decoration. Naive: every embedded raster above a size threshold (cheap, noisy). Smart: a document-layout/figure-detection model (DocLayNet-style) or a chart-vs-photo classifier (ML, heavier).
+3. **Activation** — wire `image_ingestion` into the document-processing path.
+
+**Hook:** the #113 PDF silent-drop visibility fix (record `chunk_count=0` / DLQ, never vanish) is the natural place where an image-only PDF would later route to `image_ingestion` instead of being dropped.
+
+---
+
 ## Related Documents
 
 | Document                                                           | Purpose                          |
