@@ -284,6 +284,55 @@ pub fn extract_object(item_type: &str, payload_json: &str) -> String {
     }
 }
 
+/// Like [`extract_object`] but, for file and folder items, returns the path
+/// relative to its project/library `root` rather than only the basename. Falls
+/// back to the basename when the root is unknown or the path is not under it.
+/// Non-path item types behave exactly like [`extract_object`].
+pub fn extract_object_relative(item_type: &str, payload_json: &str, root: Option<&str>) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(payload_json) else {
+        return String::new();
+    };
+    match item_type {
+        "file" => {
+            relative_or_basename(value.get("file_path").and_then(|v| v.as_str()), root, false)
+        }
+        "folder" => relative_or_basename(
+            value.get("folder_path").and_then(|v| v.as_str()),
+            root,
+            true,
+        ),
+        _ => extract_object(item_type, payload_json),
+    }
+}
+
+/// Resolve a path to its root-relative form, or the basename when that is not
+/// possible. Directories get a trailing `/`.
+fn relative_or_basename(path: Option<&str>, root: Option<&str>, is_dir: bool) -> String {
+    let Some(path) = path else {
+        return String::new();
+    };
+    let rel = root
+        .and_then(|r| relativize(path, r))
+        .unwrap_or_else(|| basename(path).to_string());
+    if is_dir {
+        format!("{rel}/")
+    } else {
+        rel
+    }
+}
+
+/// Strip the `root` prefix from `path`, returning the remainder without a
+/// leading slash. `None` when `path` is not under `root` (or equals it).
+fn relativize(path: &str, root: &str) -> Option<String> {
+    let root = root.trim_end_matches('/');
+    let stripped = path.strip_prefix(root)?.trim_start_matches('/');
+    if stripped.is_empty() {
+        None
+    } else {
+        Some(stripped.to_string())
+    }
+}
+
 /// Return the last path component (file or directory name).
 fn basename(path: &str) -> &str {
     path.rsplit('/').find(|s| !s.is_empty()).unwrap_or(path)
@@ -296,5 +345,54 @@ pub fn truncate_str(s: &str, max_len: usize) -> String {
     } else {
         let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
         format!("{truncated}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_object_strips_root() {
+        let payload = r#"{"file_path":"/home/u/proj/src/main.rs"}"#;
+        assert_eq!(
+            extract_object_relative("file", payload, Some("/home/u/proj")),
+            "src/main.rs"
+        );
+        // Trailing slash on the root is tolerated.
+        assert_eq!(
+            extract_object_relative("file", payload, Some("/home/u/proj/")),
+            "src/main.rs"
+        );
+    }
+
+    #[test]
+    fn relative_object_falls_back_to_basename() {
+        let payload = r#"{"file_path":"/home/u/proj/src/main.rs"}"#;
+        // Unknown root → basename.
+        assert_eq!(extract_object_relative("file", payload, None), "main.rs");
+        // Path not under the given root → basename.
+        assert_eq!(
+            extract_object_relative("file", payload, Some("/other")),
+            "main.rs"
+        );
+    }
+
+    #[test]
+    fn relative_folder_keeps_trailing_slash() {
+        let payload = r#"{"folder_path":"/home/u/proj/src/util"}"#;
+        assert_eq!(
+            extract_object_relative("folder", payload, Some("/home/u/proj")),
+            "src/util/"
+        );
+    }
+
+    #[test]
+    fn relative_object_passthrough_for_url() {
+        let payload = r#"{"url":"https://example.com/x"}"#;
+        assert_eq!(
+            extract_object_relative("url", payload, Some("/root")),
+            "https://example.com/x"
+        );
     }
 }

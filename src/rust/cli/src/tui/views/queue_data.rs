@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use crate::commands::queue::formatters::extract_object;
+use crate::commands::queue::formatters::{extract_object, extract_object_relative};
 use crate::data::db::connect_readonly;
 use crate::output::style::short_id;
 
@@ -110,6 +110,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
 
     let tenant_names = build_tenant_name_map(&conn);
     let tenant_kinds = build_tenant_kind_map(&conn);
+    let tenant_roots = build_tenant_root_map(&conn);
 
     let (query, params_vec) = build_query(filter);
     let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
@@ -137,7 +138,11 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
             |(queue_id, item_type, op, status, created_at, tenant_id, payload_json)| QueueRow {
                 short_id: short_id(&queue_id),
                 project: resolve_project_name(&tenant_id, &tenant_names),
-                object: extract_object(&item_type, &payload_json),
+                object: extract_object_relative(
+                    &item_type,
+                    &payload_json,
+                    tenant_roots.get(&tenant_id).map(String::as_str),
+                ),
                 age: format_relative_time(&created_at),
                 kind: tenant_kinds.get(&tenant_id).copied().unwrap_or('?'),
                 queue_id,
@@ -260,6 +265,24 @@ fn build_tenant_kind_map(conn: &rusqlite::Connection) -> HashMap<String, char> {
             for (tid, collection) in rows.flatten() {
                 let kind = if collection == "libraries" { 'L' } else { 'P' };
                 map.insert(tid, kind);
+            }
+        }
+    }
+    map
+}
+
+/// Map each tenant_id to its project/library root path (the top-level watch
+/// folder). Used to render queue objects relative to their root.
+fn build_tenant_root_map(conn: &rusqlite::Connection) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT tenant_id, path FROM watch_folders WHERE parent_watch_id IS NULL")
+    {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            for (tid, path) in rows.flatten() {
+                map.insert(tid, path);
             }
         }
     }
