@@ -459,25 +459,46 @@ impl App {
 
     /// Handle log-specific keys. Returns true if the key was consumed.
     fn handle_log_key(&mut self, key: KeyEvent) -> bool {
+        let viewer = self.log_viewer();
+
+        // When the entry popup is open, keys scroll or close it.
+        if viewer.popup_open() {
+            match key.code {
+                KeyCode::Esc => viewer.close_popup(),
+                KeyCode::Char('j') | KeyCode::Down => viewer.popup_scroll_down(),
+                KeyCode::Char('k') | KeyCode::Up => viewer.popup_scroll_up(),
+                _ => {}
+            }
+            return true;
+        }
+
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
-                self.log_viewer().scroll_down();
+                viewer.scroll_down();
                 true
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.log_viewer().scroll_up();
+                viewer.scroll_up();
+                true
+            }
+            KeyCode::Enter => {
+                viewer.open_popup();
                 true
             }
             KeyCode::Char('G') => {
-                self.log_viewer().scroll_to_bottom();
+                viewer.scroll_to_bottom();
+                true
+            }
+            KeyCode::Esc => {
+                viewer.scroll_to_bottom();
                 true
             }
             KeyCode::PageUp => {
-                self.log_viewer().page_up(20);
+                viewer.page_up(20);
                 true
             }
             KeyCode::PageDown => {
-                self.log_viewer().page_down(20);
+                viewer.page_down(20);
                 true
             }
             _ => false,

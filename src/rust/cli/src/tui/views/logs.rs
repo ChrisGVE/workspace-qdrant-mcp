@@ -8,10 +8,11 @@ use std::path::PathBuf;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::logs_data::{file_len, read_from_offset, read_tail_lines, Level, LogLine, MAX_LINES};
+use crate::tui::theme;
 
 /// State for the log viewer widget.
 pub struct LogViewer {
@@ -25,6 +26,14 @@ pub struct LogViewer {
     user_scrolled: bool,
     /// Last known file size for detecting new content.
     last_file_size: u64,
+    /// Absolute index of the cursor-selected line (used when `cursor_active`).
+    selected: usize,
+    /// Whether the per-line cursor is engaged (vs. live tail).
+    cursor_active: bool,
+    /// Whether the formatted-entry popup is open.
+    popup_open: bool,
+    /// Scroll offset within the popup.
+    popup_scroll: u16,
     /// Filter text (groundwork for future `/` key filtering).
     _filter: Option<String>,
 }
@@ -41,6 +50,10 @@ impl LogViewer {
             scroll_offset: 0,
             user_scrolled: false,
             last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            popup_open: false,
+            popup_scroll: 0,
             _filter: None,
         };
         viewer.load_initial();
@@ -100,43 +113,87 @@ impl LogViewer {
         let _ = current_size;
     }
 
-    /// Scroll up by one line.
-    pub fn scroll_up(&mut self) {
-        if self.scroll_offset < self.lines.len().saturating_sub(1) {
-            self.scroll_offset += 1;
+    /// Engage the cursor at the latest line if it is not already active.
+    fn ensure_cursor(&mut self) {
+        if !self.cursor_active {
+            self.cursor_active = true;
             self.user_scrolled = true;
+            self.selected = self.lines.len().saturating_sub(1);
         }
     }
 
-    /// Scroll down by one line.
+    /// Move the cursor up (toward older entries) by one line.
+    pub fn scroll_up(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// Move the cursor down (toward newer entries) by one line.
     pub fn scroll_down(&mut self) {
-        if self.scroll_offset > 0 {
-            self.scroll_offset -= 1;
+        if self.lines.is_empty() {
+            return;
         }
-        if self.scroll_offset == 0 {
-            self.user_scrolled = false;
-        }
+        self.ensure_cursor();
+        self.selected = (self.selected + 1).min(self.lines.len() - 1);
     }
 
-    /// Scroll up by a page (visible height).
+    /// Move the cursor up by a page (visible height).
     pub fn page_up(&mut self, visible_height: usize) {
-        let max = self.lines.len().saturating_sub(1);
-        self.scroll_offset = (self.scroll_offset + visible_height).min(max);
-        self.user_scrolled = true;
-    }
-
-    /// Scroll down by a page (visible height).
-    pub fn page_down(&mut self, visible_height: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(visible_height);
-        if self.scroll_offset == 0 {
-            self.user_scrolled = false;
+        if self.lines.is_empty() {
+            return;
         }
+        self.ensure_cursor();
+        self.selected = self.selected.saturating_sub(visible_height);
     }
 
-    /// Jump to the bottom (latest entries).
+    /// Move the cursor down by a page (visible height).
+    pub fn page_down(&mut self, visible_height: usize) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        self.selected = (self.selected + visible_height).min(self.lines.len() - 1);
+    }
+
+    /// Jump to the bottom (latest entries) and resume live tailing.
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
         self.user_scrolled = false;
+        self.cursor_active = false;
+    }
+
+    /// Open the formatted-entry popup for the cursor-selected line.
+    pub fn open_popup(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        self.popup_open = true;
+        self.popup_scroll = 0;
+    }
+
+    /// Close the formatted-entry popup.
+    pub fn close_popup(&mut self) {
+        self.popup_open = false;
+        self.popup_scroll = 0;
+    }
+
+    /// Whether the popup is currently open.
+    pub fn popup_open(&self) -> bool {
+        self.popup_open
+    }
+
+    /// Scroll the popup contents down.
+    pub fn popup_scroll_down(&mut self) {
+        self.popup_scroll = self.popup_scroll.saturating_add(1);
+    }
+
+    /// Scroll the popup contents up.
+    pub fn popup_scroll_up(&mut self) {
+        self.popup_scroll = self.popup_scroll.saturating_sub(1);
     }
 
     /// Render the log viewer into the given area.
@@ -147,23 +204,41 @@ impl LogViewer {
             return;
         }
 
-        // Calculate visible window
         let total = self.lines.len();
-        let end = total.saturating_sub(self.scroll_offset);
-        let start = end.saturating_sub(inner_height);
+
+        // Calculate visible window. In live mode the window is anchored to the
+        // bottom; with the cursor active it follows the selected line.
+        let (start, end) = if self.cursor_active {
+            let sel = self.selected.min(total - 1);
+            let start = sel.saturating_sub(inner_height / 2);
+            let end = (start + inner_height).min(total);
+            let start = end.saturating_sub(inner_height);
+            (start, end)
+        } else {
+            let end = total.saturating_sub(self.scroll_offset);
+            (end.saturating_sub(inner_height), end)
+        };
 
         let visible_lines: Vec<Line> = self.lines[start..end]
             .iter()
-            .map(|log_line| {
-                let style = log_line
+            .enumerate()
+            .map(|(offset, log_line)| {
+                let abs = start + offset;
+                let level_style = log_line
                     .level
                     .map_or(Style::default().fg(Color::DarkGray), Level::style);
-                Line::from(Span::styled(&log_line.text, style))
+                if self.cursor_active && abs == self.selected.min(total - 1) {
+                    // Cursor: row background spans the line; keep the level fg.
+                    Line::from(Span::styled(log_line.text.clone(), level_style))
+                        .style(theme::selected_row_style())
+                } else {
+                    Line::from(Span::styled(log_line.text.clone(), level_style))
+                }
             })
             .collect();
 
-        let scroll_indicator = if self.scroll_offset > 0 {
-            format!(" Logs [{} from bottom] ", self.scroll_offset)
+        let scroll_indicator = if self.cursor_active {
+            format!(" Logs [{}/{}] ", self.selected.min(total - 1) + 1, total)
         } else {
             " Logs [live] ".to_string()
         };
@@ -175,6 +250,43 @@ impl LogViewer {
 
         let paragraph = Paragraph::new(visible_lines).block(block);
         frame.render_widget(paragraph, area);
+
+        if self.popup_open {
+            self.draw_popup(frame, area);
+        }
+    }
+
+    /// Draw the formatted-entry popup for the selected log line.
+    fn draw_popup(&self, frame: &mut Frame, area: Rect) {
+        let Some(log_line) = self
+            .lines
+            .get(self.selected.min(self.lines.len().saturating_sub(1)))
+        else {
+            return;
+        };
+
+        let popup_w = area.width.saturating_sub(4).min(100);
+        let popup_h = area.height.saturating_sub(4).min(40);
+        let x = (area.width.saturating_sub(popup_w)) / 2;
+        let y = (area.height.saturating_sub(popup_h)) / 2;
+        let popup_area = Rect::new(x, y, popup_w, popup_h);
+
+        frame.render_widget(Clear, popup_area);
+
+        let pretty = pretty_json(&log_line.text);
+        let lines: Vec<Line> = pretty.lines().map(|l| Line::from(l.to_string())).collect();
+
+        let popup = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((self.popup_scroll, 0))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Log Entry (j/k scroll, Esc close) ")
+                    .title_style(Style::default().add_modifier(Modifier::BOLD))
+                    .style(theme::popup_style()),
+            );
+        frame.render_widget(popup, popup_area);
     }
 
     /// Render the empty-state placeholder (no lines or zero-height area).
@@ -192,6 +304,15 @@ impl LogViewer {
             .style(Style::default().fg(Color::DarkGray))
             .block(block);
         frame.render_widget(p, area);
+    }
+}
+
+/// Pretty-print a JSON log line. Falls back to the raw text when the line is
+/// not valid JSON (e.g. a plain-text log).
+fn pretty_json(raw: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| raw.to_string()),
+        Err(_) => raw.to_string(),
     }
 }
 
@@ -218,40 +339,53 @@ mod tests {
             scroll_offset: 0,
             user_scrolled: false,
             last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            popup_open: false,
+            popup_scroll: 0,
             _filter: None,
         };
         viewer.load_initial();
 
         assert_eq!(viewer.lines.len(), 50);
-        assert_eq!(viewer.scroll_offset, 0);
-        assert!(!viewer.user_scrolled);
+        assert!(!viewer.cursor_active);
 
-        // Scroll up
+        // First scroll up engages the cursor at the last line, then moves up.
         viewer.scroll_up();
-        assert_eq!(viewer.scroll_offset, 1);
-        assert!(viewer.user_scrolled);
+        assert!(viewer.cursor_active);
+        assert_eq!(viewer.selected, 48);
 
-        // Scroll down back to bottom
+        // Scroll down moves the cursor toward newer entries (clamped at end).
         viewer.scroll_down();
-        assert_eq!(viewer.scroll_offset, 0);
-        assert!(!viewer.user_scrolled);
+        assert_eq!(viewer.selected, 49);
 
-        // Page up
+        // Page up/down move by the visible height, clamped to bounds.
         viewer.page_up(10);
-        assert_eq!(viewer.scroll_offset, 10);
-        assert!(viewer.user_scrolled);
-
-        // Page down
+        assert_eq!(viewer.selected, 39);
         viewer.page_down(10);
-        assert_eq!(viewer.scroll_offset, 0);
-        assert!(!viewer.user_scrolled);
+        assert_eq!(viewer.selected, 49);
 
-        // Scroll to bottom after scrolling up
-        viewer.scroll_up();
+        // Opening the popup engages on the selected line.
+        viewer.open_popup();
+        assert!(viewer.popup_open());
+        viewer.popup_scroll_down();
+        viewer.close_popup();
+        assert!(!viewer.popup_open());
+
+        // Jumping to the bottom resumes live tailing.
         viewer.scroll_up();
         viewer.scroll_to_bottom();
+        assert!(!viewer.cursor_active);
         assert_eq!(viewer.scroll_offset, 0);
         assert!(!viewer.user_scrolled);
+    }
+
+    #[test]
+    fn pretty_json_formats_and_falls_back() {
+        let pretty = pretty_json(r#"{"level":"INFO","msg":"hi"}"#);
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains("\"msg\""));
+        assert_eq!(pretty_json("not json"), "not json");
     }
 
     #[test]
@@ -269,6 +403,10 @@ mod tests {
             scroll_offset: 0,
             user_scrolled: false,
             last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            popup_open: false,
+            popup_scroll: 0,
             _filter: None,
         };
         viewer.load_initial();
@@ -306,6 +444,10 @@ mod tests {
             scroll_offset: 0,
             user_scrolled: false,
             last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            popup_open: false,
+            popup_scroll: 0,
             _filter: None,
         };
         viewer.load_initial();

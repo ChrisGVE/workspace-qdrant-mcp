@@ -64,7 +64,7 @@ impl App {
             View::Rules => "j/k Navigate  Enter Detail  ? Help  q Quit",
             View::Scratchpad => "j/k Navigate  Enter Detail (j/k scroll)  ? Help  q Quit",
             View::Service => "p Pause  r Resume  ? Help  q Quit",
-            View::Logs => "j/k Scroll  G Bottom  ? Help  q Quit",
+            View::Logs => "j/k Move  Enter View  G/Esc Live  ? Help  q Quit",
         };
 
         spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));
