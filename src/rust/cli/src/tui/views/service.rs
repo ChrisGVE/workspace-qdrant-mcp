@@ -14,7 +14,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use super::service_data::{
-    fetch_service_status, format_bytes, spawn_service_fetcher, ServiceLive, ServiceStatus,
+    fetch_service_status, fetch_storage, format_bytes, spawn_service_fetcher, ServiceLive,
+    ServiceStatus, StorageInfo,
 };
 use crate::tui::theme;
 
@@ -24,6 +25,7 @@ const REFRESH_INTERVAL_MS: u128 = 3000;
 /// Service view state.
 pub struct ServiceView {
     status: ServiceStatus,
+    storage: StorageInfo,
     live: Arc<Mutex<ServiceLive>>,
     last_refresh: Option<Instant>,
     /// Last command result message (shown briefly).
@@ -34,6 +36,7 @@ impl ServiceView {
     pub fn new() -> Self {
         Self {
             status: ServiceStatus::default(),
+            storage: StorageInfo::default(),
             live: spawn_service_fetcher(),
             last_refresh: None,
             last_message: None,
@@ -47,6 +50,7 @@ impl ServiceView {
 
         if should_refresh {
             self.status = fetch_service_status();
+            self.storage = fetch_storage();
             self.last_refresh = Some(Instant::now());
         }
     }
@@ -67,6 +71,7 @@ impl ServiceView {
         let rows = Layout::vertical([
             Constraint::Length(8), // daemon | qdrant
             Constraint::Length(8), // queue | index
+            Constraint::Length(8), // storage
             Constraint::Min(1),    // hints
         ])
         .split(area);
@@ -80,7 +85,57 @@ impl ServiceView {
         frame.render_widget(self.render_qdrant_panel(&live), top[1]);
         frame.render_widget(self.render_queue_panel(), mid[0]);
         frame.render_widget(self.render_index_panel(), mid[1]);
-        frame.render_widget(self.render_hints_panel(), rows[2]);
+        frame.render_widget(self.render_storage_panel(), rows[2]);
+        frame.render_widget(self.render_hints_panel(), rows[3]);
+    }
+
+    /// Render the storage panel: each database file's size, the total, and the
+    /// free space on the volume that holds the data directory.
+    fn render_storage_panel(&self) -> Paragraph<'static> {
+        let st = &self.storage;
+        let mut lines: Vec<Line<'static>> = Vec::new();
+
+        if st.db_files.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  no databases found",
+                Style::default().fg(theme::COLOR_DIM),
+            )));
+        } else {
+            for f in &st.db_files {
+                lines.push(kv(
+                    &f.name,
+                    Span::styled(
+                        format_bytes(f.size),
+                        Style::default().fg(theme::COLOR_ACCENT),
+                    ),
+                ));
+            }
+            lines.push(kv(
+                "Total",
+                Span::styled(
+                    format_bytes(st.total_db_bytes),
+                    Style::default()
+                        .fg(theme::COLOR_FG)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ));
+        }
+
+        let free = st
+            .free_bytes
+            .map(format_bytes)
+            .unwrap_or_else(|| "—".to_string());
+        lines.push(kv(
+            "Free",
+            Span::styled(free, Style::default().fg(theme::COLOR_SUCCESS)),
+        ));
+
+        let title = if st.data_dir.is_empty() {
+            " Storage ".to_string()
+        } else {
+            format!(" Storage — {} ", st.data_dir)
+        };
+        panel(lines, &title, Style::default())
     }
 
     /// Render a tri-state health indicator span.

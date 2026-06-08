@@ -128,6 +128,77 @@ pub fn fetch_service_status() -> ServiceStatus {
     status
 }
 
+/// The daemon-owned databases that live in the data directory, in display order.
+const DB_FILE_NAMES: [&str; 4] = ["state.db", "search.db", "graph.db", "daemon_state.db"];
+
+/// One database file's on-disk size.
+#[derive(Debug, Clone)]
+pub struct DbFile {
+    pub name: String,
+    pub size: u64,
+}
+
+/// Storage footprint of the data directory: each database file's size, the
+/// total, and the free space on the volume that holds them.
+#[derive(Debug, Clone, Default)]
+pub struct StorageInfo {
+    /// Data directory path (with `~` abbreviation), for the panel title/line.
+    pub data_dir: String,
+    /// Per-database sizes (only files that exist).
+    pub db_files: Vec<DbFile>,
+    /// Sum of the database sizes.
+    pub total_db_bytes: u64,
+    /// Free bytes on the volume holding the data directory (None if unknown).
+    pub free_bytes: Option<u64>,
+}
+
+/// Gather database file sizes and free disk space for the data directory.
+pub fn fetch_storage() -> StorageInfo {
+    let mut info = StorageInfo::default();
+    let Ok(dir) = wqm_common::paths::get_data_dir() else {
+        return info;
+    };
+    info.data_dir = abbreviate_home_path(&dir.to_string_lossy());
+
+    for name in DB_FILE_NAMES {
+        let path = dir.join(name);
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let size = meta.len();
+            info.total_db_bytes += size;
+            info.db_files.push(DbFile {
+                name: name.to_string(),
+                size,
+            });
+        }
+    }
+
+    info.free_bytes = free_bytes_for(&dir);
+    info
+}
+
+/// Free bytes available on the filesystem that holds `path`, via statvfs.
+#[cfg(unix)]
+fn free_bytes_for(path: &std::path::Path) -> Option<u64> {
+    let stat = nix::sys::statvfs::statvfs(path).ok()?;
+    Some(stat.blocks_available() as u64 * stat.fragment_size() as u64)
+}
+
+#[cfg(not(unix))]
+fn free_bytes_for(_path: &std::path::Path) -> Option<u64> {
+    None
+}
+
+/// Replace the home-directory prefix with `~` for compact display.
+fn abbreviate_home_path(path: &str) -> String {
+    if let Some(home) = dirs::home_dir() {
+        let home = home.to_string_lossy();
+        if let Some(rest) = path.strip_prefix(home.as_ref()) {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
+}
+
 /// Live signals probed off the render thread.
 #[derive(Debug, Clone, Default)]
 pub struct ServiceLive {
@@ -268,5 +339,32 @@ mod tests {
         let s = ServiceStatus::default();
         assert!(!s.db_readable);
         assert_eq!(s.queue_total, 0);
+    }
+
+    #[test]
+    fn abbreviates_home_prefix() {
+        if let Some(home) = dirs::home_dir() {
+            let p = format!("{}/.local/share/workspace-qdrant", home.to_string_lossy());
+            assert_eq!(abbreviate_home_path(&p), "~/.local/share/workspace-qdrant");
+        }
+        assert_eq!(abbreviate_home_path("/opt/data"), "/opt/data");
+    }
+
+    #[test]
+    fn fetch_storage_does_not_panic_and_sums_sizes() {
+        // Point the data dir at a temp directory with two fake DB files.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.db"), vec![0u8; 100]).unwrap();
+        std::fs::write(dir.path().join("search.db"), vec![0u8; 250]).unwrap();
+        std::env::set_var("WQM_DATA_DIR", dir.path());
+
+        let info = fetch_storage();
+        std::env::remove_var("WQM_DATA_DIR");
+
+        assert_eq!(info.total_db_bytes, 350);
+        assert_eq!(info.db_files.len(), 2);
+        // statvfs should report some free space on a real temp volume.
+        #[cfg(unix)]
+        assert!(info.free_bytes.is_some());
     }
 }

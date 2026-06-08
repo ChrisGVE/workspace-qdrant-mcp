@@ -91,9 +91,10 @@ crossterm = { version = "0.29", optional = true }
 # Regex search within TUI list views
 regex = { version = "1.12", optional = true }
 
-# Unix signal probes (used by service::detect to verify daemon PID liveness via kill(pid, 0))
+# Unix signal probes (service::detect verifies daemon PID liveness via kill(pid, 0));
+# `fs` adds statvfs for the Service view's free-disk-space panel.
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", features = ["signal"] }
+nix = { version = "0.29", features = ["signal", "fs"] }
 
 # Windows SCM client for `wqm service {install,uninstall,start,stop,...}`.
 [target.'cfg(windows)'.dependencies]
