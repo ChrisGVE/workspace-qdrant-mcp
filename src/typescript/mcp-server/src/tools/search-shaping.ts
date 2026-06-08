@@ -59,13 +59,43 @@ function stripTextFromMetadata(metadata: Record<string, unknown>): Record<string
   return out;
 }
 
+/** Metadata fields worth keeping in `summary` mode — just enough to decide
+ *  "which result do I want?" before a follow-up retrieve(). Everything else
+ *  (ranking aids like `keyword_baskets`/`keywords`, sparse-vector debris, and
+ *  other large payload fields) is dropped: summary exists to economize tokens,
+ *  and the verbose metadata was ~1–2k tokens of noise per hit. */
+const SUMMARY_METADATA_KEYS: readonly string[] = [
+  'file_path',
+  'relative_path',
+  'start_line',
+  'end_line',
+  'language',
+  'symbol_name',
+  'symbol_type',
+  'chunk_type',
+  'parent_symbol',
+  'branch',
+  'document_id',
+];
+
+function pickSummaryMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of SUMMARY_METADATA_KEYS) {
+    const v = metadata[key];
+    if (v !== undefined && v !== null && v !== '') out[key] = v;
+  }
+  return out;
+}
+
 function shapeAsSummary(r: SearchResult): SearchResult {
   const out: SearchResult = {
     id: r.id,
     score: r.score,
     collection: r.collection,
     content: '',
-    metadata: stripTextFromMetadata(r.metadata),
+    // Allowlist, not just text-stripping: summary keeps only discovery-relevant
+    // structural fields and drops the rest (keyword_baskets/keywords/etc.).
+    metadata: pickSummaryMetadata(r.metadata),
   };
   if (r.title) out.title = r.title;
   return out;

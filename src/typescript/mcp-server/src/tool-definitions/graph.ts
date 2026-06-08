@@ -58,7 +58,12 @@ export const graphToolDefinition = {
       projectId: {
         type: 'string',
         description:
-          'Project tenant_id. If omitted, the first active project registered with the daemon is used.',
+          'Project tenant_id. Takes precedence over cwd. If both are omitted the project is auto-detected from cwd; graph errors rather than guessing.',
+      },
+      cwd: {
+        type: 'string',
+        description:
+          'Absolute path of your current working directory. Pass this so the server can auto-detect the project over HTTP (same as search/grep/list). Ignored when projectId is provided.',
       },
     },
     required: ['action'],

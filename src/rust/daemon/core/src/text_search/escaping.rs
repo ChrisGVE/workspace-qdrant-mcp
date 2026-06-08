@@ -103,19 +103,45 @@ pub(crate) fn compile_glob_matcher(
     }))
 }
 
+/// Anchor a project-relative glob against the ABSOLUTE `file_path` stored in
+/// the index.
+///
+/// Globs are matched against the full absolute path
+/// (e.g. `/home/u/repo/doc-backend/domain/Foo.java`). A pattern whose first
+/// segment is a literal — like `doc-backend/domain/**/*.java` — can therefore
+/// never match (the path starts with `/home/...`, not `doc-backend`), so grep
+/// silently returned zero. Prefix such "relative" patterns with `**/` so they
+/// match at any directory boundary. Patterns that are already absolute (`/…`)
+/// or already floating (`**…`) are returned unchanged.
+///
+/// This also fixes the false-empty SQL pre-filter: a relative glob's literal
+/// prefix (`doc-backend/domain/`) used to become a `file_path LIKE 'doc-backend/domain/%'`
+/// condition that matched nothing against absolute paths. After prefixing with
+/// `**/`, `extract_glob_prefix` returns `None`, so no bogus SQL prefix is applied.
+pub(crate) fn normalize_path_glob(glob: &str) -> String {
+    if glob.starts_with('/') || glob.starts_with("**") {
+        glob.to_string()
+    } else {
+        format!("**/{glob}")
+    }
+}
+
 /// Resolve the effective path prefix for SQL pre-filtering.
 ///
-/// If `path_glob` is set, extracts a prefix from the glob. Otherwise uses `path_prefix`.
-/// The glob matcher (if any) is applied in Rust after SQL results are fetched.
+/// If `path_glob` is set, normalizes it (see [`normalize_path_glob`]) and
+/// extracts a prefix from the result. Otherwise uses `path_prefix`. The glob
+/// matcher (if any) is applied in Rust after SQL results are fetched, using the
+/// SAME normalized pattern returned here.
 pub(crate) fn resolve_path_filter(options: &SearchOptions) -> (Option<String>, SearchOptions) {
     if let Some(ref glob) = options.path_glob {
-        let prefix = extract_glob_prefix(glob);
+        let normalized = normalize_path_glob(glob);
+        let prefix = extract_glob_prefix(&normalized);
         let mut effective = options.clone();
         // Replace path_prefix with the extracted glob prefix for SQL pre-filtering
         effective.path_prefix = prefix;
         // Clear path_glob in effective options so query builder uses path_prefix
         effective.path_glob = None;
-        (Some(glob.clone()), effective)
+        (Some(normalized), effective)
     } else {
         (None, options.clone())
     }
@@ -186,6 +212,54 @@ mod tests {
         assert_eq!(
             extract_glob_prefix("src/main.rs"),
             Some("src/main.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_glob_relative_gets_anchored() {
+        // Relative patterns (literal first segment) get a `**/` prefix.
+        assert_eq!(
+            normalize_path_glob("doc-backend/domain/**/*.java"),
+            "**/doc-backend/domain/**/*.java"
+        );
+        assert_eq!(normalize_path_glob("src/main.rs"), "**/src/main.rs");
+        assert_eq!(normalize_path_glob("dir/**"), "**/dir/**");
+    }
+
+    #[test]
+    fn test_normalize_path_glob_already_floating_or_absolute() {
+        // Already-floating (`**…`) and absolute (`/…`) patterns are unchanged.
+        assert_eq!(normalize_path_glob("**/*.rs"), "**/*.rs");
+        assert_eq!(normalize_path_glob("**/domain/**/*.java"), "**/domain/**/*.java");
+        assert_eq!(
+            normalize_path_glob("/home/u/repo/src/*.rs"),
+            "/home/u/repo/src/*.rs"
+        );
+    }
+
+    #[test]
+    fn test_normalized_relative_glob_matches_absolute_path() {
+        // Regression: a project-relative glob must match the ABSOLUTE file_path
+        // stored in the index. Before normalization it silently matched nothing.
+        let abs = "/home/u/respositorios/DOC-V2/doc-backend/domain/Order.java";
+
+        let raw = compile_glob_matcher("doc-backend/domain/**/*.java").unwrap();
+        assert!(!raw(abs), "un-anchored relative glob should NOT match abs path");
+
+        let normalized =
+            compile_glob_matcher(&normalize_path_glob("doc-backend/domain/**/*.java")).unwrap();
+        assert!(normalized(abs), "normalized relative glob must match abs path");
+        // And it must not over-match a different directory.
+        assert!(!normalized("/home/u/respositorios/DOC-V2/doc-frontend/app/Order.java"));
+    }
+
+    #[test]
+    fn test_normalized_relative_glob_has_no_sql_prefix() {
+        // The anchored glob must not yield a bogus absolute SQL prefix
+        // (which caused the false-empty pre-filter).
+        assert_eq!(
+            extract_glob_prefix(&normalize_path_glob("doc-backend/domain/**/*.java")),
+            None
         );
     }
 

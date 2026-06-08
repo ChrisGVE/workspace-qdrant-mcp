@@ -9,14 +9,18 @@
  *   - hotspots  : most central symbols by PageRank (ComputePageRank)
  *   - modules   : code communities/clusters (DetectCommunities)
  *
- * Tenant resolution mirrors `workspace_index indexing_status`: an explicit
- * `projectId` wins; otherwise the first active project from the daemon is used
- * (works inside the dockerized MCP where cwd-based detection isn't available).
+ * Tenant resolution mirrors `search`/`grep`/`list`: an explicit `projectId`
+ * wins; otherwise the caller's `cwd` is resolved to its project (so `graph`
+ * operates on the SAME project as the other tools). It does NOT fall back to
+ * "first active project" — that silently returned a different project's graph
+ * when the cwd didn't match — it errors instead, asking for `projectId`/`cwd`.
  */
 
 import { createHash } from 'node:crypto';
 
 import type { DaemonClient } from '../clients/daemon-client.js';
+import type { ProjectDetector } from '../utils/project-detector.js';
+import { getEffectiveCwd } from '../utils/request-context.js';
 import type {
   ImpactAnalysisRequest,
   PageRankRequest,
@@ -62,29 +66,41 @@ function computeNodeId(
     .slice(0, 32);
 }
 
-async function resolveTenant(args: JsonObject, daemonClient: DaemonClient): Promise<string> {
+async function resolveTenant(
+  args: JsonObject,
+  projectDetector: ProjectDetector
+): Promise<string> {
   const explicit = str(args, 'projectId') ?? str(args, 'tenantId');
   if (explicit) return explicit;
-  const projects = await daemonClient.listProjects({ active_only: true });
-  const first = projects.projects[0];
-  if (!first) {
-    throw new Error(
-      'No active project found. Pass `projectId` (the tenant_id) explicitly, or register/activate a project first.'
-    );
-  }
-  return first.project_id;
+  // Resolve the caller's cwd to its project exactly like `search`/`grep`/`list`
+  // (`getEffectiveCwd()` honours the `cwd` arg / X-MCP-Host-Cwd header). This is
+  // what keeps `graph` on the same project as the rest of the tools.
+  // `fallbackToSoleProject` covers the single-project convenience case.
+  const detected = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
+    fallbackToSoleProject: true,
+  });
+  if (detected?.projectId) return detected.projectId;
+  // Deliberately NO "first active project" fallback: with multiple projects and
+  // an unresolvable cwd it picked an arbitrary (wrong) project and returned its
+  // graph silently. Fail loudly instead.
+  throw new Error(
+    'Could not resolve a project for `graph`. Pass `projectId` (the tenant_id), ' +
+      'or pass `cwd` (your absolute working directory) so the project can be ' +
+      'auto-detected. (graph no longer guesses the first active project.)'
+  );
 }
 
 export async function handleGraph(
   rawArgs: Record<string, unknown> | undefined,
-  daemonClient: DaemonClient | undefined
+  daemonClient: DaemonClient | undefined,
+  projectDetector: ProjectDetector
 ): Promise<unknown> {
   if (!daemonClient) {
     throw new Error('graph requires a connected daemon client (gRPC unavailable)');
   }
   const args = rawArgs ?? {};
   const action = str(args, 'action') ?? 'stats';
-  const tenant = await resolveTenant(args, daemonClient);
+  const tenant = await resolveTenant(args, projectDetector);
   const edgeTypes = strArray(args, 'edgeTypes');
 
   switch (action) {

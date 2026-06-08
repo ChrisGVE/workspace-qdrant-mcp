@@ -98,7 +98,7 @@ async function routeTool(
     case 'workspace_index':
       return handleWorkspaceIndex(args, daemonClient);
     case 'graph':
-      return handleGraph(args, daemonClient);
+      return handleGraph(args, daemonClient, projectDetector);
     case 'search_eval':
       return runSearchEval(searchTool, projectDetector, args);
     default:
