@@ -103,6 +103,47 @@ impl LibraryBrowser {
         }
     }
 
+    /// Indices of items matching the current search pattern.
+    fn search_matches(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| {
+                self.search
+                    .is_match(&format!("{} {}", it.tag, it.display_path))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Move the cursor to the first match at or after the current position.
+    pub fn search_first(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = m
+            .iter()
+            .find(|&&i| i >= self.selected)
+            .or_else(|| m.first())
+        {
+            self.selected = *i;
+        }
+    }
+
+    /// Move the cursor to the next match (wrapping).
+    pub fn search_next(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
+    /// Move the cursor to the previous match (wrapping).
+    pub fn search_prev(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
     /// Open the detail popup for the currently selected item.
     pub fn open_detail(&mut self) {
         if let Some(item) = self.items.get(self.selected) {
@@ -130,7 +171,7 @@ impl LibraryBrowser {
     /// Draw the header bar above the table.
     fn draw_header_bar(&self, frame: &mut Frame, area: Rect) {
         let count = self.items.len();
-        let spans = vec![
+        let mut spans = vec![
             Span::styled(" Libraries: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 count.to_string(),
@@ -143,6 +184,10 @@ impl LibraryBrowser {
                 Style::default().fg(Color::DarkGray),
             ),
         ];
+        spans.extend(crate::tui::search::prompt_spans(
+            &self.search,
+            self.search_matches().len(),
+        ));
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 

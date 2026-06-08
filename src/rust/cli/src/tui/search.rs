@@ -1,95 +1,181 @@
-//! Reusable search/filter state for TUI list views.
+//! Incremental regex search for TUI list views.
 //!
-//! Provides a text input mode activated by '/' that filters items
-//! by case-insensitive substring match. Esc cancels, Enter confirms.
+//! Activated by `/`: the typed text is a regex pattern (compiled
+//! case-insensitively). Search does not narrow the list — it moves the cursor
+//! to matching rows. After confirming with Enter, `n`/`N` jump to the
+//! next/previous match (wrapping). Invalid patterns are handled gracefully:
+//! the pattern is marked invalid and simply matches nothing.
 
 use crossterm::event::KeyCode;
+use ratatui::style::Style;
+use ratatui::text::Span;
+use regex::Regex;
 
-/// Search mode state for list views.
-#[derive(Debug, Clone)]
+use crate::tui::theme;
+
+/// Outcome of feeding a key to an active search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchAction {
+    /// Key consumed; still editing.
+    Editing,
+    /// Enter pressed — the pattern is confirmed (jump to the first match).
+    Confirmed,
+    /// Esc pressed — search cancelled and cleared.
+    Cancelled,
+}
+
+/// Regex search state for a list view.
+#[derive(Debug, Clone, Default)]
 pub struct SearchState {
-    /// Whether search input mode is active.
+    /// Whether the search input prompt is active.
     pub active: bool,
-    /// Current search query text.
+    /// Live input text while typing.
     pub query: String,
-    /// Last confirmed query (persists after Enter).
-    pub confirmed_query: String,
+    /// Last confirmed pattern.
+    confirmed: String,
+    /// Compiled pattern (from `confirmed`); `None` when empty or invalid.
+    regex: Option<Regex>,
+    /// True when the last confirmed pattern failed to compile.
+    pub invalid: bool,
 }
 
 impl SearchState {
     pub fn new() -> Self {
-        Self {
-            active: false,
-            query: String::new(),
-            confirmed_query: String::new(),
-        }
+        Self::default()
     }
 
-    /// Activate search mode.
+    /// Begin editing, seeding the input with the last confirmed pattern.
     pub fn activate(&mut self) {
         self.active = true;
-        self.query = self.confirmed_query.clone();
+        self.query = self.confirmed.clone();
     }
 
-    /// Handle a key event while search is active.
-    /// Returns true if the key was consumed.
-    pub fn handle_key(&mut self, code: KeyCode) -> bool {
+    /// Feed a key to the active prompt. Returns the resulting action.
+    pub fn handle_key(&mut self, code: KeyCode) -> SearchAction {
         if !self.active {
-            return false;
+            return SearchAction::Editing;
         }
-
         match code {
             KeyCode::Esc => {
                 self.active = false;
                 self.query.clear();
-                self.confirmed_query.clear();
-                true
+                self.confirmed.clear();
+                self.regex = None;
+                self.invalid = false;
+                SearchAction::Cancelled
             }
             KeyCode::Enter => {
                 self.active = false;
-                self.confirmed_query = self.query.clone();
-                true
+                self.confirmed = self.query.clone();
+                self.compile();
+                SearchAction::Confirmed
             }
             KeyCode::Backspace => {
                 self.query.pop();
-                true
+                SearchAction::Editing
             }
             KeyCode::Char(c) => {
                 self.query.push(c);
-                true
+                SearchAction::Editing
             }
-            _ => true, // consume all keys while active
+            _ => SearchAction::Editing,
         }
     }
 
-    /// Returns the active filter query (live while typing, confirmed after Enter).
-    pub fn filter_query(&self) -> &str {
-        if self.active {
-            &self.query
-        } else {
-            &self.confirmed_query
+    /// Compile the confirmed pattern case-insensitively.
+    fn compile(&mut self) {
+        if self.confirmed.is_empty() {
+            self.regex = None;
+            self.invalid = false;
+            return;
+        }
+        match Regex::new(&format!("(?i){}", self.confirmed)) {
+            Ok(re) => {
+                self.regex = Some(re);
+                self.invalid = false;
+            }
+            Err(_) => {
+                self.regex = None;
+                self.invalid = true;
+            }
         }
     }
 
-    /// Whether there's an active filter (either typing or confirmed).
-    pub fn has_filter(&self) -> bool {
-        !self.filter_query().is_empty()
+    /// Whether there is a confirmed, non-empty search pattern.
+    pub fn has_query(&self) -> bool {
+        !self.confirmed.is_empty()
     }
 
-    /// Check if a text matches the current filter (case-insensitive substring).
-    pub fn matches(&self, text: &str) -> bool {
-        let q = self.filter_query();
-        if q.is_empty() {
-            return true;
-        }
-        text.to_lowercase().contains(&q.to_lowercase())
+    /// The confirmed pattern text.
+    pub fn confirmed(&self) -> &str {
+        &self.confirmed
+    }
+
+    /// Whether `text` matches the confirmed pattern. Always false when there is
+    /// no pattern or the pattern is invalid.
+    pub fn is_match(&self, text: &str) -> bool {
+        self.regex.as_ref().is_some_and(|r| r.is_match(text))
     }
 }
 
-impl Default for SearchState {
-    fn default() -> Self {
-        Self::new()
+/// Build the status spans for a search prompt: the live input while typing,
+/// or a match-count / invalid-pattern indicator once confirmed.
+pub fn prompt_spans(state: &SearchState, match_count: usize) -> Vec<Span<'static>> {
+    if state.active {
+        return vec![
+            Span::styled("  /", theme::search_style()),
+            Span::styled(state.query.clone(), theme::search_style()),
+            Span::styled("\u{2588}", theme::search_style()),
+        ];
     }
+    if !state.has_query() {
+        return Vec::new();
+    }
+    if state.invalid {
+        return vec![Span::styled(
+            "  [invalid regex]",
+            Style::default().fg(theme::COLOR_ERROR),
+        )];
+    }
+    let fg = if match_count == 0 {
+        theme::COLOR_WARNING
+    } else {
+        theme::COLOR_ACCENT
+    };
+    vec![Span::styled(
+        format!(
+            "  /{}/ {} match{}",
+            state.confirmed(),
+            match_count,
+            if match_count == 1 { "" } else { "es" }
+        ),
+        Style::default().fg(fg),
+    )]
+}
+
+/// Index of the first match strictly after `current`, wrapping to the first.
+pub fn next_index(matches: &[usize], current: usize) -> Option<usize> {
+    if matches.is_empty() {
+        return None;
+    }
+    matches
+        .iter()
+        .find(|&&i| i > current)
+        .or_else(|| matches.first())
+        .copied()
+}
+
+/// Index of the last match strictly before `current`, wrapping to the last.
+pub fn prev_index(matches: &[usize], current: usize) -> Option<usize> {
+    if matches.is_empty() {
+        return None;
+    }
+    matches
+        .iter()
+        .rev()
+        .find(|&&i| i < current)
+        .or_else(|| matches.last())
+        .copied()
 }
 
 #[cfg(test)]
@@ -97,37 +183,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_state_has_no_filter() {
+    fn new_state_has_no_query() {
         let s = SearchState::new();
         assert!(!s.active);
-        assert!(!s.has_filter());
-        assert!(s.matches("anything"));
+        assert!(!s.has_query());
+        assert!(!s.is_match("anything"));
     }
 
     #[test]
-    fn typing_filters_live() {
+    fn typing_then_confirm_compiles_regex() {
         let mut s = SearchState::new();
         s.activate();
-        assert!(s.active);
-        s.handle_key(KeyCode::Char('f'));
-        s.handle_key(KeyCode::Char('o'));
-        s.handle_key(KeyCode::Char('o'));
-        assert_eq!(s.filter_query(), "foo");
-        assert!(s.matches("foobar"));
-        assert!(!s.matches("baz"));
-    }
-
-    #[test]
-    fn enter_confirms_query() {
-        let mut s = SearchState::new();
-        s.activate();
-        s.handle_key(KeyCode::Char('t'));
-        s.handle_key(KeyCode::Char('e'));
-        s.handle_key(KeyCode::Enter);
+        for c in "fo+".chars() {
+            assert_eq!(s.handle_key(KeyCode::Char(c)), SearchAction::Editing);
+        }
+        assert_eq!(s.handle_key(KeyCode::Enter), SearchAction::Confirmed);
         assert!(!s.active);
-        assert_eq!(s.confirmed_query, "te");
-        assert!(s.has_filter());
-        assert!(s.matches("test"));
+        assert!(s.has_query());
+        assert!(s.is_match("foobar"));
+        assert!(s.is_match("FOO")); // case-insensitive
+        assert!(!s.is_match("bar"));
+    }
+
+    #[test]
+    fn invalid_regex_marked_and_matches_nothing() {
+        let mut s = SearchState::new();
+        s.activate();
+        for c in "fo(".chars() {
+            s.handle_key(KeyCode::Char(c));
+        }
+        s.handle_key(KeyCode::Enter);
+        assert!(s.invalid);
+        assert!(!s.is_match("foo"));
     }
 
     #[test]
@@ -135,13 +222,13 @@ mod tests {
         let mut s = SearchState::new();
         s.activate();
         s.handle_key(KeyCode::Char('x'));
-        s.handle_key(KeyCode::Esc);
+        assert_eq!(s.handle_key(KeyCode::Esc), SearchAction::Cancelled);
         assert!(!s.active);
-        assert!(!s.has_filter());
+        assert!(!s.has_query());
     }
 
     #[test]
-    fn backspace_removes_char() {
+    fn backspace_edits() {
         let mut s = SearchState::new();
         s.activate();
         s.handle_key(KeyCode::Char('a'));
@@ -151,25 +238,23 @@ mod tests {
     }
 
     #[test]
-    fn case_insensitive_match() {
-        let mut s = SearchState::new();
-        s.activate();
-        s.handle_key(KeyCode::Char('F'));
-        s.handle_key(KeyCode::Char('O'));
-        assert!(s.matches("foobar"));
-        assert!(s.matches("FOOBAR"));
-        assert!(s.matches("Foo"));
-    }
-
-    #[test]
     fn reactivate_preserves_confirmed() {
         let mut s = SearchState::new();
         s.activate();
         s.handle_key(KeyCode::Char('x'));
         s.handle_key(KeyCode::Enter);
-        assert_eq!(s.confirmed_query, "x");
-
         s.activate();
-        assert_eq!(s.query, "x"); // reloads confirmed
+        assert_eq!(s.query, "x");
+    }
+
+    #[test]
+    fn next_and_prev_wrap() {
+        let m = vec![2usize, 5, 9];
+        assert_eq!(next_index(&m, 0), Some(2));
+        assert_eq!(next_index(&m, 2), Some(5));
+        assert_eq!(next_index(&m, 9), Some(2)); // wrap
+        assert_eq!(prev_index(&m, 9), Some(5));
+        assert_eq!(prev_index(&m, 2), Some(9)); // wrap
+        assert_eq!(next_index(&[], 0), None);
     }
 }

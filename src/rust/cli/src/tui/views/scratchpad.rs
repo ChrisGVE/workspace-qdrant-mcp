@@ -103,6 +103,47 @@ impl ScratchpadBrowser {
         }
     }
 
+    /// Indices of entries matching the current search pattern.
+    fn search_matches(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                self.search
+                    .is_match(&format!("{} {} {}", e.title, e.content, e.tags))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Move the cursor to the first match at or after the current position.
+    pub fn search_first(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = m
+            .iter()
+            .find(|&&i| i >= self.selected)
+            .or_else(|| m.first())
+        {
+            self.selected = *i;
+        }
+    }
+
+    /// Move the cursor to the next match (wrapping).
+    pub fn search_next(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
+    /// Move the cursor to the previous match (wrapping).
+    pub fn search_prev(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
     pub fn close_detail(&mut self) {
         self.detail_open = false;
         self.detail_scroll = 0;
@@ -144,7 +185,7 @@ impl ScratchpadBrowser {
         .split(area);
 
         // Summary
-        let summary = Paragraph::new(Line::from(vec![
+        let mut summary_spans = vec![
             Span::styled(" Entries: ", Style::default().fg(theme::COLOR_MUTED)),
             Span::styled(
                 self.items.len().to_string(),
@@ -157,8 +198,12 @@ impl ScratchpadBrowser {
                 Style::default().fg(theme::COLOR_DIM),
             ),
             Span::styled("  [read-only]", Style::default().fg(theme::COLOR_DIM)),
-        ]))
-        .block(
+        ];
+        summary_spans.extend(crate::tui::search::prompt_spans(
+            &self.search,
+            self.search_matches().len(),
+        ));
+        let summary = Paragraph::new(Line::from(summary_spans)).block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Scratchpad ")

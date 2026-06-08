@@ -61,10 +61,12 @@ impl App {
         // Contextual hints based on current view
         let hints = match self.current_view {
             View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  ? Help  q Quit",
-            View::Queue => "j/k Navigate  f Filter  Enter Detail  ? Help  q Quit",
-            View::Projects | View::Libraries => "j/k Navigate  Enter Detail  ? Help  q Quit",
-            View::Rules => "j/k Navigate  Enter Detail  ? Help  q Quit",
-            View::Scratchpad => "j/k Navigate  Enter Detail (j/k scroll)  ? Help  q Quit",
+            View::Queue => "j/k Nav  / Search  n/N Next/Prev  f Filter  Enter Detail  q Quit",
+            View::Projects | View::Libraries => {
+                "j/k Nav  / Search  n/N Next/Prev  Enter Detail  ? Help  q Quit"
+            }
+            View::Rules => "j/k Nav  / Search  n/N Next/Prev  Enter Detail  ? Help  q Quit",
+            View::Scratchpad => "j/k Nav  / Search  n/N Next/Prev  Enter Detail  q Quit",
             View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Move  Enter View  G/Esc Live  ? Help  q Quit",
         };
@@ -217,6 +219,10 @@ impl App {
             Line::from(vec![
                 Span::styled("  Enter       ", Style::default().fg(Color::Yellow)),
                 Span::raw("Open detail (Queue, Projects, Libraries)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  / n/N       ", Style::default().fg(Color::Yellow)),
+                Span::raw("Regex search; next/previous match"),
             ]),
             Line::from(vec![
                 Span::styled("  f           ", Style::default().fg(Color::Yellow)),

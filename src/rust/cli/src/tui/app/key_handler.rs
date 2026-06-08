@@ -2,6 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::super::search::SearchAction;
 use super::super::views::dashboard::FocusedCell;
 use super::{App, View};
 
@@ -177,7 +178,9 @@ impl App {
         let browser = self.queue_browser();
 
         if browser.search_active() {
-            browser.search_mut().handle_key(key.code);
+            if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                browser.search_first();
+            }
             return true;
         }
 
@@ -225,6 +228,14 @@ impl App {
                 browser.page_down(full);
                 true
             }
+            KeyCode::Char('n') => {
+                browser.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                browser.search_prev();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -249,7 +260,9 @@ impl App {
 
         // When search is active, delegate all keys to search
         if browser.search_active() {
-            browser.search_mut().handle_key(key.code);
+            if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                browser.search_first();
+            }
             return true;
         }
 
@@ -298,6 +311,14 @@ impl App {
                 browser.page_down(full);
                 true
             }
+            KeyCode::Char('n') => {
+                browser.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                browser.search_prev();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -317,7 +338,9 @@ impl App {
         let browser = self.library_browser();
 
         if browser.search_active() {
-            browser.search_mut().handle_key(key.code);
+            if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                browser.search_first();
+            }
             return true;
         }
 
@@ -363,6 +386,14 @@ impl App {
             }
             KeyCode::PageDown => {
                 browser.page_down(full);
+                true
+            }
+            KeyCode::Char('n') => {
+                browser.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                browser.search_prev();
                 true
             }
             KeyCode::Enter => {
@@ -384,7 +415,9 @@ impl App {
         let browser = self.rule_browser();
 
         if browser.search_active() {
-            browser.search_mut().handle_key(key.code);
+            if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                browser.search_first();
+            }
             return true;
         }
 
@@ -432,6 +465,14 @@ impl App {
                 browser.page_down(full);
                 true
             }
+            KeyCode::Char('n') => {
+                browser.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                browser.search_prev();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -451,7 +492,9 @@ impl App {
         let browser = self.scratchpad_browser();
 
         if browser.search_active() {
-            browser.search_mut().handle_key(key.code);
+            if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
+                browser.search_first();
+            }
             return true;
         }
 
@@ -516,6 +559,14 @@ impl App {
             }
             KeyCode::PageDown => {
                 browser.page_down(full);
+                true
+            }
+            KeyCode::Char('n') => {
+                browser.search_next();
+                true
+            }
+            KeyCode::Char('N') => {
+                browser.search_prev();
                 true
             }
             KeyCode::Enter => {

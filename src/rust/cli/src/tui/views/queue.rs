@@ -119,6 +119,49 @@ impl QueueBrowser {
         self.last_refresh = None; // force immediate refresh on next tick
     }
 
+    /// Indices of items matching the current search pattern.
+    fn search_matches(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| {
+                self.search.is_match(&format!(
+                    "{} {} {} {}",
+                    it.short_id, it.project, it.object, it.status
+                ))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Move the cursor to the first match at or after the current position.
+    pub fn search_first(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = m
+            .iter()
+            .find(|&&i| i >= self.selected)
+            .or_else(|| m.first())
+        {
+            self.selected = *i;
+        }
+    }
+
+    /// Move the cursor to the next match (wrapping).
+    pub fn search_next(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
+    /// Move the cursor to the previous match (wrapping).
+    pub fn search_prev(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
     /// Open the detail popup for the currently selected item.
     pub fn open_detail(&mut self) {
         if let Some(item) = self.items.get(self.selected) {
@@ -148,7 +191,7 @@ impl QueueBrowser {
         let filter_label = self.filter.label();
         let count = self.items.len();
 
-        let spans = vec![
+        let mut spans = vec![
             Span::styled(" Filter: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 filter_label,
@@ -162,6 +205,10 @@ impl QueueBrowser {
             ),
             Span::styled("  [f] cycle filter", Style::default().fg(Color::DarkGray)),
         ];
+        spans.extend(crate::tui::search::prompt_spans(
+            &self.search,
+            self.search_matches().len(),
+        ));
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }

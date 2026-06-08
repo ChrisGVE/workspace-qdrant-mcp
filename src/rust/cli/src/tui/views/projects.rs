@@ -119,15 +119,45 @@ impl ProjectBrowser {
         self.search.active
     }
 
-    /// Get items filtered by current search query.
-    fn filtered_items(&self) -> Vec<(usize, &ProjectRow)> {
+    /// Indices of items matching the current search pattern.
+    fn search_matches(&self) -> Vec<usize> {
         self.items
             .iter()
             .enumerate()
             .filter(|(_, item)| {
-                self.search.matches(&item.name) || self.search.matches(&item.display_path)
+                self.search
+                    .is_match(&format!("{} {}", item.name, item.display_path))
             })
+            .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Move the cursor to the first match at or after the current position.
+    pub fn search_first(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = m
+            .iter()
+            .find(|&&i| i >= self.selected)
+            .or_else(|| m.first())
+        {
+            self.selected = *i;
+        }
+    }
+
+    /// Move the cursor to the next match (wrapping).
+    pub fn search_next(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
+            self.selected = i;
+        }
+    }
+
+    /// Move the cursor to the previous match (wrapping).
+    pub fn search_prev(&mut self) {
+        let m = self.search_matches();
+        if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
+            self.selected = i;
+        }
     }
 
     /// Render the project browser into the given area.
@@ -146,7 +176,6 @@ impl ProjectBrowser {
     fn draw_summary_bar(&self, frame: &mut Frame, area: Rect) {
         let total = self.items.len();
         let active = self.items.iter().filter(|p| p.is_active).count();
-        let filtered = self.filtered_items().len();
 
         let mut spans = vec![
             Span::styled(" Projects: ", Style::default().fg(Color::Gray)),
@@ -169,20 +198,10 @@ impl ProjectBrowser {
             ),
         ];
 
-        // Show search state
-        if self.search.active {
-            spans.push(Span::styled("  /", theme::search_style()));
-            spans.push(Span::styled(
-                self.search.query.clone(),
-                theme::search_style(),
-            ));
-            spans.push(Span::styled("\u{2588}", theme::search_style())); // cursor
-        } else if self.search.has_filter() {
-            spans.push(Span::styled(
-                format!("  [{}/{}]", filtered, total),
-                Style::default().fg(theme::COLOR_WARNING),
-            ));
-        }
+        spans.extend(crate::tui::search::prompt_spans(
+            &self.search,
+            self.search_matches().len(),
+        ));
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
@@ -211,18 +230,10 @@ impl ProjectBrowser {
             .title(" Projects ")
             .title_style(Style::default().add_modifier(Modifier::BOLD));
 
-        // Filter items by search query
-        let filtered: Vec<(usize, &ProjectRow)> = self.filtered_items();
-
         // Calculate scroll offset to keep selection visible
         let inner_height = area.height.saturating_sub(4) as usize;
-        // Find the position of selected item in filtered list
-        let selected_in_filtered = filtered
-            .iter()
-            .position(|(i, _)| *i == self.selected)
-            .unwrap_or(0);
-        let offset = if inner_height > 0 && selected_in_filtered >= inner_height {
-            selected_in_filtered - inner_height + 1
+        let offset = if inner_height > 0 && self.selected >= inner_height {
+            self.selected - inner_height + 1
         } else {
             0
         };
@@ -232,11 +243,13 @@ impl ProjectBrowser {
             .saturating_sub(2 + 22 + 6 + 6 + 10 + 5 + 2)
             .max(20);
 
-        let visible_rows: Vec<Row> = filtered
+        let visible_rows: Vec<Row> = self
+            .items
             .iter()
+            .enumerate()
             .skip(offset)
             .take(inner_height)
-            .map(|(i, item)| self.render_row(*i, item, path_w))
+            .map(|(i, item)| self.render_row(i, item, path_w))
             .collect();
 
         let table = Table::new(visible_rows, widths).header(header).block(block);
