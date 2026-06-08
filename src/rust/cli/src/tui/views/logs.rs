@@ -31,6 +31,10 @@ pub struct LogViewer {
     selected: usize,
     /// Whether the per-line cursor is engaged (vs. live tail).
     cursor_active: bool,
+    /// Whether the cursor is pinned to the newest line and follows the live
+    /// tail. True on entry and whenever the cursor sits on the last line; set
+    /// false as soon as the user scrolls up.
+    follow_tail: bool,
     /// Whether the formatted-entry popup is open.
     popup_open: bool,
     /// Scroll offset within the popup.
@@ -53,12 +57,29 @@ impl LogViewer {
             last_file_size: 0,
             selected: 0,
             cursor_active: false,
+            follow_tail: false,
             popup_open: false,
             popup_scroll: 0,
             search: SearchState::new(),
         };
         viewer.load_initial();
+        // Show the cursor immediately on entry, pinned to the newest line so it
+        // still tracks the live tail until the user scrolls away.
+        viewer.engage_tail_cursor();
         viewer
+    }
+
+    /// Engage the cursor on the newest line and follow the live tail.
+    fn engage_tail_cursor(&mut self) {
+        self.cursor_active = true;
+        self.follow_tail = true;
+        self.selected = self.lines.len().saturating_sub(1);
+    }
+
+    /// Recompute `follow_tail` from the cursor position: following only when the
+    /// cursor sits on the last line.
+    fn sync_follow(&mut self) {
+        self.follow_tail = self.selected + 1 >= self.lines.len();
     }
 
     /// Load the last `MAX_LINES` lines from the log file.
@@ -87,6 +108,11 @@ impl LogViewer {
 
         self.append_new_lines(current_size);
         self.last_file_size = current_size;
+
+        // When the cursor is following the tail, keep it on the newest line.
+        if self.cursor_active && self.follow_tail {
+            self.selected = self.lines.len().saturating_sub(1);
+        }
 
         // Auto-scroll to bottom when not user-scrolled
         if !self.user_scrolled {
@@ -130,6 +156,7 @@ impl LogViewer {
         }
         self.ensure_cursor();
         self.selected = self.selected.saturating_sub(1);
+        self.sync_follow();
     }
 
     /// Move the cursor down (toward newer entries) by one line.
@@ -139,6 +166,7 @@ impl LogViewer {
         }
         self.ensure_cursor();
         self.selected = (self.selected + 1).min(self.lines.len() - 1);
+        self.sync_follow();
     }
 
     /// Move the cursor up by a page (visible height).
@@ -148,6 +176,7 @@ impl LogViewer {
         }
         self.ensure_cursor();
         self.selected = self.selected.saturating_sub(visible_height);
+        self.sync_follow();
     }
 
     /// Move the cursor down by a page (visible height).
@@ -157,13 +186,33 @@ impl LogViewer {
         }
         self.ensure_cursor();
         self.selected = (self.selected + visible_height).min(self.lines.len() - 1);
+        self.sync_follow();
     }
 
-    /// Jump to the bottom (latest entries) and resume live tailing.
+    /// Jump the cursor to the first (oldest) line.
+    pub fn jump_first(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.ensure_cursor();
+        self.selected = 0;
+        self.sync_follow();
+    }
+
+    /// Jump the cursor to the last (newest) line and resume following the tail.
+    pub fn jump_last(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.engage_tail_cursor();
+    }
+
+    /// Resume pure live tailing: drop the cursor and pin to the bottom.
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
         self.user_scrolled = false;
         self.cursor_active = false;
+        self.follow_tail = false;
     }
 
     /// Open the formatted-entry popup for the cursor-selected line.
@@ -231,6 +280,7 @@ impl LogViewer {
         {
             self.selected = *i;
         }
+        self.sync_follow();
     }
 
     /// Move the cursor to the next match (wrapping).
@@ -243,6 +293,7 @@ impl LogViewer {
         if let Some(i) = crate::tui::search::next_index(&m, self.selected) {
             self.selected = i;
         }
+        self.sync_follow();
     }
 
     /// Move the cursor to the previous match (wrapping).
@@ -255,6 +306,7 @@ impl LogViewer {
         if let Some(i) = crate::tui::search::prev_index(&m, self.selected) {
             self.selected = i;
         }
+        self.sync_follow();
     }
 
     /// Render the log viewer into the given area.
@@ -303,10 +355,18 @@ impl LogViewer {
             .collect();
 
         let mut title_spans = vec![Span::styled(
-            if self.cursor_active {
-                format!(" Logs [{}/{}] ", self.selected.min(total - 1) + 1, total)
-            } else {
-                " Logs [live] ".to_string()
+            match (self.cursor_active, self.follow_tail) {
+                (true, true) => {
+                    format!(
+                        " Logs [live {}/{}] ",
+                        self.selected.min(total - 1) + 1,
+                        total
+                    )
+                }
+                (true, false) => {
+                    format!(" Logs [{}/{}] ", self.selected.min(total - 1) + 1, total)
+                }
+                _ => " Logs [live] ".to_string(),
             },
             Style::default().add_modifier(Modifier::BOLD),
         )];
@@ -412,6 +472,7 @@ mod tests {
             last_file_size: 0,
             selected: 0,
             cursor_active: false,
+            follow_tail: false,
             popup_open: false,
             popup_scroll: 0,
             search: SearchState::new(),
@@ -471,6 +532,7 @@ mod tests {
             last_file_size: 0,
             selected: 0,
             cursor_active: false,
+            follow_tail: false,
             popup_open: false,
             popup_scroll: 0,
             search: SearchState::new(),
@@ -485,6 +547,73 @@ mod tests {
         viewer.search_first();
         assert!(viewer.cursor_active);
         assert_eq!(viewer.selected, 7); // the only ERROR line
+    }
+
+    #[test]
+    fn entry_cursor_follows_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.jsonl");
+        {
+            let mut f = File::create(&path).unwrap();
+            for i in 0..5 {
+                writeln!(f, r#"{{"level":"INFO","msg":"line {}"}}"#, i).unwrap();
+            }
+        }
+        let mut viewer = LogViewer {
+            lines: Vec::new(),
+            log_path: PathBuf::from(&path),
+            scroll_offset: 0,
+            user_scrolled: false,
+            last_file_size: 0,
+            selected: 0,
+            cursor_active: false,
+            follow_tail: false,
+            popup_open: false,
+            popup_scroll: 0,
+            search: SearchState::new(),
+        };
+        viewer.load_initial();
+        // Simulate entry: cursor engaged on the newest line, following the tail.
+        viewer.engage_tail_cursor();
+        assert!(viewer.cursor_active);
+        assert!(viewer.follow_tail);
+        assert_eq!(viewer.selected, 4);
+
+        // A new line arrives: the cursor tracks it.
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(f, r#"{{"level":"INFO","msg":"line 5"}}"#).unwrap();
+        }
+        viewer.on_tick();
+        assert_eq!(viewer.selected, 5);
+        assert!(viewer.follow_tail);
+
+        // Scrolling up detaches from the tail; new lines no longer move it.
+        viewer.scroll_up();
+        assert!(!viewer.follow_tail);
+        let held = viewer.selected;
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(f, r#"{{"level":"INFO","msg":"line 6"}}"#).unwrap();
+        }
+        viewer.on_tick();
+        assert_eq!(viewer.selected, held);
+
+        // jump_last re-pins to the newest line and resumes following.
+        viewer.jump_last();
+        assert!(viewer.follow_tail);
+        assert_eq!(viewer.selected, viewer.lines.len() - 1);
+
+        // jump_first moves to the oldest line and stops following.
+        viewer.jump_first();
+        assert_eq!(viewer.selected, 0);
+        assert!(!viewer.follow_tail);
     }
 
     #[test]
@@ -512,6 +641,7 @@ mod tests {
             last_file_size: 0,
             selected: 0,
             cursor_active: false,
+            follow_tail: false,
             popup_open: false,
             popup_scroll: 0,
             search: SearchState::new(),
@@ -553,6 +683,7 @@ mod tests {
             last_file_size: 0,
             selected: 0,
             cursor_active: false,
+            follow_tail: false,
             popup_open: false,
             popup_scroll: 0,
             search: SearchState::new(),
