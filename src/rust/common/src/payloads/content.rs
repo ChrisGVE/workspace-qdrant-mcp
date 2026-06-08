@@ -32,6 +32,12 @@ pub struct ScratchpadPayload {
     /// Source type (always "scratchpad")
     #[serde(default = "default_scratchpad_source")]
     pub source_type: String,
+    /// Previous content for an update whose text changed. Identity is
+    /// content-addressed, so when the content changes the superseded point
+    /// (keyed by `hash(tenant, old_content)`) must be removed after the new
+    /// content is written. Ignored for add/delete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_content: Option<String>,
 }
 
 /// Deserialize tags from either a JSON array or a stringified JSON array.
@@ -205,16 +211,30 @@ mod tests {
             title: Some("Search Architecture".to_string()),
             tags: vec!["architecture".to_string(), "search".to_string()],
             source_type: "scratchpad".to_string(),
+            old_content: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("design decision"));
         assert!(json.contains("Search Architecture"));
         assert!(json.contains("architecture"));
+        // old_content is None → omitted from the wire form.
+        assert!(!json.contains("old_content"));
 
         let back: ScratchpadPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(back.content, "design decision: use RRF for fusion");
         assert_eq!(back.title, Some("Search Architecture".to_string()));
         assert_eq!(back.tags, vec!["architecture", "search"]);
+        assert_eq!(back.old_content, None);
+    }
+
+    #[test]
+    fn test_scratchpad_payload_update_old_content() {
+        // An update that changed the text carries the previous content so the
+        // superseded point can be removed.
+        let json = r#"{"content":"new text","old_content":"old text","source_type":"scratchpad"}"#;
+        let payload: ScratchpadPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.content, "new text");
+        assert_eq!(payload.old_content, Some("old text".to_string()));
     }
 
     #[test]

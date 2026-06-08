@@ -197,6 +197,11 @@ impl TextStrategy {
     ) -> UnifiedProcessorResult<()> {
         let payload: ScratchpadPayload = parse_payload(item)?;
 
+        // A queued delete must remove the point, not silently re-add it.
+        if item.op == QueueOperation::Delete {
+            return Self::handle_scratchpad_delete(ctx, item, &payload).await;
+        }
+
         let now = wqm_common::timestamps::now_utc();
 
         // Generate document ID from content hash (for idempotent updates)
@@ -242,10 +247,61 @@ impl TextStrategy {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
+        // On an update whose text changed, the new content lives at a new
+        // content-addressed point; remove the superseded one so the entry is
+        // edited in place rather than duplicated.
+        if let Some(old_content) = &payload.old_content {
+            let old_doc_id = crate::generate_content_document_id(&item.tenant_id, old_content);
+            if old_doc_id != content_doc_id {
+                ctx.storage_client
+                    .delete_points_by_payload_fields(
+                        &item.collection,
+                        &[
+                            ("tenant_id", item.tenant_id.as_str()),
+                            ("document_id", old_doc_id.as_str()),
+                        ],
+                    )
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+            }
+        }
+
         info!(
             "Successfully processed scratchpad item {} (tenant={}, title={:?}) -> {}",
             item.queue_id, item.tenant_id, payload.title, item.collection
         );
+
+        Ok(())
+    }
+
+    /// Delete a scratchpad point scoped by `(tenant_id, document_id)`.
+    ///
+    /// The document id is hashed from `(tenant_id, content)` — the same
+    /// derivation used on write, so the delete matches the original point.
+    /// Tenant scope prevents cross-project eviction (mirrors the
+    /// generic-content delete pattern).
+    async fn handle_scratchpad_delete(
+        ctx: &ProcessingContext,
+        item: &UnifiedQueueItem,
+        payload: &ScratchpadPayload,
+    ) -> UnifiedProcessorResult<()> {
+        let document_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
+        info!(
+            "Deleting scratchpad point: tenant={} document_id={} -> collection={}",
+            item.tenant_id, document_id, item.collection
+        );
+
+        ctx.storage_client
+            .delete_points_by_payload_fields(
+                &item.collection,
+                &[
+                    ("tenant_id", item.tenant_id.as_str()),
+                    ("document_id", document_id.as_str()),
+                ],
+            )
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         Ok(())
     }
