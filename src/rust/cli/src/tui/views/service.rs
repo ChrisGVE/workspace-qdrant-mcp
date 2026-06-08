@@ -18,6 +18,7 @@ use super::service_data::{
     ServiceStatus, StorageInfo,
 };
 use crate::tui::theme;
+use crate::tui::util::fmt_count;
 
 /// Minimum interval between SQLite status reads.
 const REFRESH_INTERVAL_MS: u128 = 3000;
@@ -95,6 +96,20 @@ impl ServiceView {
         let st = &self.storage;
         let mut lines: Vec<Line<'static>> = Vec::new();
 
+        // Right-align the size column: pad the label to a fixed width, then the
+        // size to a fixed width so the digits line up under one another.
+        const LABEL_W: usize = 16;
+        const SIZE_W: usize = 11;
+        let size_line = |label: &str, size: String, style: Style| -> Line<'static> {
+            Line::from(vec![
+                Span::styled(
+                    format!("  {label:<LABEL_W$}"),
+                    Style::default().fg(theme::COLOR_MUTED),
+                ),
+                Span::styled(format!("{size:>SIZE_W$}"), style),
+            ])
+        };
+
         if st.db_files.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  no databases found",
@@ -102,22 +117,18 @@ impl ServiceView {
             )));
         } else {
             for f in &st.db_files {
-                lines.push(kv(
+                lines.push(size_line(
                     &f.name,
-                    Span::styled(
-                        format_bytes(f.size),
-                        Style::default().fg(theme::COLOR_ACCENT),
-                    ),
+                    format_bytes(f.size),
+                    Style::default().fg(theme::COLOR_ACCENT),
                 ));
             }
-            lines.push(kv(
+            lines.push(size_line(
                 "Total",
-                Span::styled(
-                    format_bytes(st.total_db_bytes),
-                    Style::default()
-                        .fg(theme::COLOR_FG)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                format_bytes(st.total_db_bytes),
+                Style::default()
+                    .fg(theme::COLOR_FG)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
@@ -125,9 +136,10 @@ impl ServiceView {
             .free_bytes
             .map(format_bytes)
             .unwrap_or_else(|| "—".to_string());
-        lines.push(kv(
+        lines.push(size_line(
             "Free",
-            Span::styled(free, Style::default().fg(theme::COLOR_SUCCESS)),
+            free,
+            Style::default().fg(theme::COLOR_SUCCESS),
         ));
 
         let title = if st.data_dir.is_empty() {
@@ -209,24 +221,24 @@ impl ServiceView {
             kv(
                 "Pending",
                 Span::styled(
-                    s.queue_pending.to_string(),
+                    fmt_count(s.queue_pending),
                     Style::default().fg(theme::COLOR_WARNING),
                 ),
             ),
             kv(
                 "In progress",
                 Span::styled(
-                    s.queue_in_progress.to_string(),
+                    fmt_count(s.queue_in_progress),
                     Style::default().fg(theme::COLOR_INFO),
                 ),
             ),
             kv(
                 "Failed",
-                Span::styled(s.queue_failed.to_string(), Style::default().fg(failed_fg)),
+                Span::styled(fmt_count(s.queue_failed), Style::default().fg(failed_fg)),
             ),
             kv(
-                "Dead-letter",
-                Span::styled(s.dlq_count.to_string(), Style::default().fg(dlq_fg)),
+                "Dead-letter (DLQ)",
+                Span::styled(fmt_count(s.dlq_count), Style::default().fg(dlq_fg)),
             ),
         ];
         panel(lines, " Queue ", Style::default())
@@ -243,30 +255,27 @@ impl ServiceView {
             kv(
                 "Documents",
                 Span::styled(
-                    s.total_docs.to_string(),
+                    fmt_count(s.total_docs),
                     Style::default().fg(theme::COLOR_ACCENT),
                 ),
             ),
             kv(
                 "Chunks",
                 Span::styled(
-                    s.total_chunks.to_string(),
+                    fmt_count(s.total_chunks),
                     Style::default().fg(theme::COLOR_ACCENT),
                 ),
             ),
             kv(
                 "Watchers",
                 Span::styled(
-                    format!("{} active", s.watchers_active),
+                    format!("{} active", fmt_count(s.watchers_active)),
                     Style::default().fg(theme::COLOR_SUCCESS),
                 ),
             ),
             kv(
                 "Paused",
-                Span::styled(
-                    s.watchers_paused.to_string(),
-                    Style::default().fg(paused_fg),
-                ),
+                Span::styled(fmt_count(s.watchers_paused), Style::default().fg(paused_fg)),
             ),
         ];
         panel(lines, " Index ", Style::default())

@@ -111,13 +111,18 @@ pub fn fetch_service_status() -> ServiceStatus {
         status.watchers_active = total - paused;
     }
 
-    if let Ok(url) = conn.query_row(
-        "SELECT value FROM operational_state WHERE key = 'qdrant_url'",
-        [],
-        |row| row.get::<_, String>(0),
-    ) {
-        status.qdrant_url = url;
-    }
+    // Prefer the daemon-recorded URL; fall back to the configured Qdrant base
+    // URL so the panel never shows a bogus "unknown" when the daemon has not
+    // written the operational_state row yet.
+    status.qdrant_url = conn
+        .query_row(
+            "SELECT value FROM operational_state WHERE key = 'qdrant_url'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(crate::commands::qdrant_helpers::qdrant_base_url);
 
     if let Ok(version) = conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
         row.get::<_, i64>(0)
