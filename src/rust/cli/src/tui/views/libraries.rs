@@ -256,8 +256,16 @@ impl LibraryBrowser {
                 let status_fg = status_color(status);
 
                 // Spans set only fg; the row's background (cursor) shows through.
+                // Bold marks an active library (mirrors the projects view).
+                let name_style = if item.is_active {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
                 Row::new(vec![
-                    Span::styled(item.name.clone(), Style::default().fg(Color::Cyan)),
+                    Span::styled(item.name.clone(), name_style),
                     Span::raw(truncate_path(&item.display_path, path_w)),
                     Span::styled(status, Style::default().fg(status_fg)),
                     Span::raw(item.mode.clone()),

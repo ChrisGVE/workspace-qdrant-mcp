@@ -291,7 +291,10 @@ impl QueueBrowser {
                     Span::raw(item.item_type.clone()),
                     Span::raw(item.op.clone()),
                     Span::styled(item.status.clone(), Style::default().fg(fg)),
-                    Span::styled(item.age.clone(), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        item.age.clone(),
+                        Style::default().fg(age_color(&item.status, &item.age)),
+                    ),
                 ])
                 .style(row_style)
             })
@@ -369,6 +372,21 @@ fn status_color(status: &str) -> Color {
         "in_progress" => Color::Blue,
         "failed" => Color::Red,
         _ => Color::Reset,
+    }
+}
+
+/// Color the Age column by queue health rather than dimming it: red for failed
+/// items, yellow when a still-unprocessed item has been waiting hours or days
+/// (a stalled queue), and a legible gray otherwise.
+fn age_color(status: &str, age: &str) -> Color {
+    if status == "failed" {
+        return Color::Red;
+    }
+    let stale = age.contains("h ago") || age.contains("d ago");
+    if stale && (status == "pending" || status == "in_progress") {
+        Color::Yellow
+    } else {
+        Color::Gray
     }
 }
 
@@ -526,6 +544,18 @@ mod tests {
         assert_eq!(status_color("in_progress"), Color::Blue);
         assert_eq!(status_color("failed"), Color::Red);
         assert_eq!(status_color("unknown"), Color::Reset);
+    }
+
+    #[test]
+    fn age_color_health() {
+        // Failed is always red regardless of age.
+        assert_eq!(age_color("failed", "2s ago"), Color::Red);
+        // A pending item waiting hours/days is stale → yellow.
+        assert_eq!(age_color("pending", "3h ago"), Color::Yellow);
+        assert_eq!(age_color("in_progress", "1d ago"), Color::Yellow);
+        // Fresh or completed items are a legible gray, not dim.
+        assert_eq!(age_color("pending", "5s ago"), Color::Gray);
+        assert_eq!(age_color("done", "2d ago"), Color::Gray);
     }
 
     #[test]

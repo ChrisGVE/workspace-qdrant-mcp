@@ -226,7 +226,7 @@ impl ProjectBrowser {
 
     /// Draw the scrollable table of projects.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec!["", "Name", "Path", "Docs", "Queue", "Type"])
+        let header = Row::new(vec!["", "Name", "Path", "Docs", "Queue"])
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -240,7 +240,6 @@ impl ProjectBrowser {
             Constraint::Min(30),    // path
             Constraint::Length(6),  // doc count
             Constraint::Length(6),  // queue count
-            Constraint::Length(10), // collection type
         ];
 
         let block = Block::default()
@@ -253,8 +252,9 @@ impl ProjectBrowser {
         let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
 
         // Path flexes; compute its width so truncation keeps the trailing path.
+        // Fixed columns: indicator 2, name 22, docs 6, queue 6; 4 gaps + borders.
         let path_w = (area.width as usize)
-            .saturating_sub(2 + 22 + 6 + 6 + 10 + 5 + 2)
+            .saturating_sub(2 + 22 + 6 + 6 + 4 + 2)
             .max(20);
 
         let visible_rows: Vec<Row> = self
@@ -287,14 +287,25 @@ impl ProjectBrowser {
         } else {
             Style::default()
         };
-        let dim = Color::DarkGray;
+        // Active rows are bold (the only use of bold in the list); inactive rows
+        // use a legible Gray rather than the previous near-invisible DarkGray.
         let indicator = if item.is_active {
             Span::styled("\u{25cf} ", Style::default().fg(Color::Green))
         } else {
-            Span::styled("\u{25cb} ", Style::default().fg(dim))
+            Span::styled("\u{25cb} ", Style::default().fg(Color::Gray))
         };
-        let name_fg = if item.is_active { Color::White } else { dim };
-        let path_fg = if item.is_active { Color::Gray } else { dim };
+        let name_style = if item.is_active {
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let path_fg = if item.is_active {
+            Color::Gray
+        } else {
+            Color::DarkGray
+        };
         let queue_fg = if item.queue_count > 0 {
             Color::Yellow
         } else {
@@ -303,14 +314,13 @@ impl ProjectBrowser {
 
         Row::new(vec![
             indicator,
-            Span::styled(truncate_end(&item.name, 22), Style::default().fg(name_fg)),
+            Span::styled(truncate_end(&item.name, 22), name_style),
             Span::styled(
                 truncate_path(&item.display_path, path_w),
                 Style::default().fg(path_fg),
             ),
             Span::styled(item.doc_count.to_string(), Style::default().fg(Color::Cyan)),
             Span::styled(item.queue_count.to_string(), Style::default().fg(queue_fg)),
-            Span::styled(item.collection.clone(), Style::default().fg(dim)),
         ])
         .style(row_style)
     }
@@ -529,7 +539,6 @@ mod tests {
                 is_active: i % 2 == 0,
                 doc_count: (i * 10) as i64,
                 queue_count: (i % 3) as i64,
-                collection: "projects".to_string(),
             })
             .collect()
     }

@@ -26,8 +26,6 @@ pub struct ProjectRow {
     pub doc_count: i64,
     /// Number of pending/in-progress queue items for this tenant.
     pub queue_count: i64,
-    /// Collection type (projects or libraries).
-    pub collection: String,
 }
 
 /// Full detail for a single project, shown in the popup.
@@ -84,7 +82,7 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
     let doc_counts = build_doc_counts(&conn);
 
     let Ok(mut stmt) = conn.prepare(
-        "SELECT watch_id, tenant_id, path, collection, is_active \
+        "SELECT watch_id, tenant_id, path, is_active \
          FROM watch_folders \
          WHERE parent_watch_id IS NULL \
          ORDER BY is_active DESC, path ASC \
@@ -98,15 +96,14 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
             row.get::<_, String>(0)?, // watch_id
             row.get::<_, String>(1)?, // tenant_id
             row.get::<_, String>(2)?, // path
-            row.get::<_, String>(3)?, // collection
-            row.get::<_, i64>(4)?,    // is_active
+            row.get::<_, i64>(3)?,    // is_active
         ))
     }) else {
         return Vec::new();
     };
 
     rows.flatten()
-        .map(|(watch_id, tenant_id, path, collection, is_active)| {
+        .map(|(watch_id, tenant_id, path, is_active)| {
             let name = path
                 .rsplit('/')
                 .find(|s| !s.is_empty())
@@ -123,7 +120,6 @@ pub fn fetch_project_rows() -> Vec<ProjectRow> {
                 is_active: is_active > 0,
                 doc_count: d_count,
                 queue_count: q_count,
-                collection,
             }
         })
         .collect()
@@ -275,7 +271,6 @@ mod tests {
             is_active: true,
             doc_count: 42,
             queue_count: 3,
-            collection: "projects".to_string(),
         };
         assert_eq!(row.name, "my-project");
         assert!(row.is_active);

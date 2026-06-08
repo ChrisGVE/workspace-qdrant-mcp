@@ -96,13 +96,13 @@ pub fn table_header_style() -> Style {
 /// This is the single source of truth for the selection highlight. Apply it as
 /// the `Row`'s base style (not per-cell) so the highlight spans the entire line
 /// including inter-column gaps. Cell spans must set only `fg` (never `bg`) so
-/// this background shows through; the chosen background contrasts with every
-/// column foreground (including dimmed metadata) to keep values readable under
-/// the cursor.
+/// this background shows through; the background is a light slate that contrasts
+/// with every column foreground (including muted metadata) to keep values
+/// readable under the cursor. The cursor deliberately does NOT use bold —
+/// bold is reserved to mark active projects/libraries, so the two signals stay
+/// independent.
 pub fn selected_row_style() -> Style {
-    Style::default()
-        .bg(Color::Rgb(40, 40, 60))
-        .add_modifier(Modifier::BOLD)
+    Style::default().bg(Color::Rgb(70, 70, 100))
 }
 
 /// Style for popup/overlay backgrounds.
