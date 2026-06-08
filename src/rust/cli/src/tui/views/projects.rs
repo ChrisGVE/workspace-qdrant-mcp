@@ -18,6 +18,7 @@ use super::projects_data::{
 };
 use crate::tui::search::SearchState;
 use crate::tui::theme;
+use crate::tui::util::{truncate_end, truncate_path};
 
 /// Minimum interval between data refreshes (projects change infrequently).
 const REFRESH_INTERVAL_MS: u128 = 5000;
@@ -226,11 +227,16 @@ impl ProjectBrowser {
             0
         };
 
+        // Path flexes; compute its width so truncation keeps the trailing path.
+        let path_w = (area.width as usize)
+            .saturating_sub(2 + 22 + 6 + 6 + 10 + 5 + 2)
+            .max(20);
+
         let visible_rows: Vec<Row> = filtered
             .iter()
             .skip(offset)
             .take(inner_height)
-            .map(|(i, item)| self.render_row(*i, item))
+            .map(|(i, item)| self.render_row(*i, item, path_w))
             .collect();
 
         let table = Table::new(visible_rows, widths).header(header).block(block);
@@ -245,27 +251,23 @@ impl ProjectBrowser {
     }
 
     /// Render a single table row for a project.
-    fn render_row(&self, index: usize, item: &ProjectRow) -> Row<'static> {
-        let is_selected = index == self.selected;
-        let base = if is_selected {
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
+    ///
+    /// The cursor is the row's base style; spans set only `fg` so the highlight
+    /// background shows through across the whole line.
+    fn render_row(&self, index: usize, item: &ProjectRow, path_w: usize) -> Row<'static> {
+        let row_style = if index == self.selected {
+            theme::selected_row_style()
         } else {
             Style::default()
         };
-        let dim = base.fg(Color::DarkGray);
+        let dim = Color::DarkGray;
         let indicator = if item.is_active {
-            Span::styled("\u{25cf} ", base.fg(Color::Green))
+            Span::styled("\u{25cf} ", Style::default().fg(Color::Green))
         } else {
-            Span::styled("\u{25cb} ", dim)
+            Span::styled("\u{25cb} ", Style::default().fg(dim))
         };
-        let name_style = if item.is_active { base } else { dim };
-        let path_style = if item.is_active {
-            base.fg(Color::Gray)
-        } else {
-            dim
-        };
+        let name_fg = if item.is_active { Color::White } else { dim };
+        let path_fg = if item.is_active { Color::Gray } else { dim };
         let queue_fg = if item.queue_count > 0 {
             Color::Yellow
         } else {
@@ -274,12 +276,16 @@ impl ProjectBrowser {
 
         Row::new(vec![
             indicator,
-            Span::styled(truncate_str(&item.name, 22), name_style),
-            Span::styled(truncate_str(&item.display_path, 40), path_style),
-            Span::styled(item.doc_count.to_string(), base.fg(Color::Cyan)),
-            Span::styled(item.queue_count.to_string(), base.fg(queue_fg)),
-            Span::styled(item.collection.clone(), dim),
+            Span::styled(truncate_end(&item.name, 22), Style::default().fg(name_fg)),
+            Span::styled(
+                truncate_path(&item.display_path, path_w),
+                Style::default().fg(path_fg),
+            ),
+            Span::styled(item.doc_count.to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(item.queue_count.to_string(), Style::default().fg(queue_fg)),
+            Span::styled(item.collection.clone(), Style::default().fg(dim)),
         ])
+        .style(row_style)
     }
 
     /// Draw a centered detail popup overlay.

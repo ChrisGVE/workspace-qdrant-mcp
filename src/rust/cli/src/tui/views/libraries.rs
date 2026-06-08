@@ -15,6 +15,8 @@ use super::libraries_data::{
     fetch_library_detail, fetch_library_rows, status_label, LibraryDetail, LibraryRow,
 };
 use crate::tui::search::SearchState;
+use crate::tui::theme;
+use crate::tui::util::truncate_path;
 
 /// Minimum interval between data refreshes (5 seconds).
 const REFRESH_INTERVAL_MS: u128 = 5000;
@@ -161,6 +163,10 @@ impl LibraryBrowser {
             Constraint::Length(13),
             Constraint::Length(8),
         ];
+        // Path flexes; keep the trailing path (filename) visible on truncation.
+        let path_w = (area.width as usize)
+            .saturating_sub(20 + 10 + 13 + 8 + 4 + 2)
+            .max(20);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -182,24 +188,26 @@ impl LibraryBrowser {
             .skip(offset)
             .take(inner_height)
             .map(|(i, item)| {
-                let is_selected = i == self.selected;
-                let base_style = if is_selected {
-                    Style::default()
-                        .bg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD)
+                let row_style = if i == self.selected {
+                    theme::selected_row_style()
                 } else {
                     Style::default()
                 };
                 let status = status_label(item.enabled, item.is_active);
                 let status_fg = status_color(status);
 
+                // Spans set only fg; the row's background (cursor) shows through.
                 Row::new(vec![
-                    Span::styled(&item.tag, base_style.fg(Color::Cyan)),
-                    Span::styled(truncate_str(&item.display_path, 40), base_style),
-                    Span::styled(status, base_style.fg(status_fg)),
-                    Span::styled(&item.mode, base_style),
-                    Span::styled(item.doc_count.to_string(), base_style.fg(Color::DarkGray)),
+                    Span::styled(item.tag.clone(), Style::default().fg(Color::Cyan)),
+                    Span::raw(truncate_path(&item.display_path, path_w)),
+                    Span::styled(status, Style::default().fg(status_fg)),
+                    Span::raw(item.mode.clone()),
+                    Span::styled(
+                        item.doc_count.to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ])
+                .style(row_style)
             })
             .collect();
 
@@ -292,16 +300,6 @@ fn detail_line(key: &str, value: &str) -> Line<'static> {
 /// Format a UTC timestamp for local display.
 fn format_local_time(utc_str: &str) -> String {
     wqm_common::timestamp_fmt::format_local(utc_str)
-}
-
-/// Truncate a string to `max_len` characters, appending "..." if truncated.
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
-        format!("{truncated}...")
-    }
 }
 
 #[cfg(test)]
@@ -411,19 +409,6 @@ mod tests {
         assert_eq!(status_color("stopped"), Color::Yellow);
         assert_eq!(status_color("disabled"), Color::Red);
         assert_eq!(status_color("unknown"), Color::Reset);
-    }
-
-    #[test]
-    fn truncate_str_short() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_str_long() {
-        let long = "a".repeat(40);
-        let result = truncate_str(&long, 10);
-        assert!(result.ends_with("..."));
-        assert!(result.chars().count() <= 10);
     }
 
     fn make_test_rows(n: usize) -> Vec<LibraryRow> {

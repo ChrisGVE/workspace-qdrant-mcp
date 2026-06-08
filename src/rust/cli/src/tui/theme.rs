@@ -91,7 +91,14 @@ pub fn table_header_style() -> Style {
     Style::default().fg(COLOR_FG).add_modifier(Modifier::BOLD)
 }
 
-/// Style for the selected row in a list.
+/// Style for the selected row in a list — the TUI-wide cursor.
+///
+/// This is the single source of truth for the selection highlight. Apply it as
+/// the `Row`'s base style (not per-cell) so the highlight spans the entire line
+/// including inter-column gaps. Cell spans must set only `fg` (never `bg`) so
+/// this background shows through; the chosen background contrasts with every
+/// column foreground (including dimmed metadata) to keep values readable under
+/// the cursor.
 pub fn selected_row_style() -> Style {
     Style::default()
         .bg(Color::Rgb(40, 40, 60))

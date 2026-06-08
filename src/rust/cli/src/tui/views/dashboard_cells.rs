@@ -347,9 +347,7 @@ fn shrink_columns(widths: &mut [usize], cols: &[ColDef], usable: usize, gaps: us
 
 fn render_row(cols: &[ColDef], row: &CellRow, widths: &[usize], selected: bool) -> Line<'static> {
     let bg = if selected {
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
+        crate::tui::theme::selected_row_style()
     } else {
         Style::default()
     };

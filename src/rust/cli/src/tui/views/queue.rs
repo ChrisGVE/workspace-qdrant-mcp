@@ -15,6 +15,8 @@ use super::queue_data::{
     fetch_queue_detail, fetch_queue_rows, QueueDetail, QueueRow, StatusFilter,
 };
 use crate::tui::search::SearchState;
+use crate::tui::theme;
+use crate::tui::util::{truncate_end, truncate_path};
 
 /// Minimum interval between data refreshes.
 const REFRESH_INTERVAL_MS: u128 = 2000;
@@ -176,15 +178,20 @@ impl QueueBrowser {
         )
         .bottom_margin(1);
 
+        // Fixed columns: ID 10, Project 20, Type 8, Op 8, Status 12, Age 10.
+        // Object flexes to fill the rest so the filename is the focus.
         let widths = [
             Constraint::Length(10),
             Constraint::Length(20),
-            Constraint::Max(24),
+            Constraint::Min(20),
             Constraint::Length(8),
             Constraint::Length(8),
             Constraint::Length(12),
             Constraint::Length(10),
         ];
+        let object_w = (area.width as usize)
+            .saturating_sub(10 + 20 + 8 + 8 + 12 + 10 + 6 + 2)
+            .max(12);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -206,25 +213,24 @@ impl QueueBrowser {
             .skip(offset)
             .take(inner_height)
             .map(|(i, item)| {
-                let is_selected = i == self.selected;
-                let base_style = if is_selected {
-                    Style::default()
-                        .bg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD)
+                let row_style = if i == self.selected {
+                    theme::selected_row_style()
                 } else {
                     Style::default()
                 };
                 let fg = status_color(&item.status);
 
+                // Spans set only fg; the row's background (cursor) shows through.
                 Row::new(vec![
-                    Span::styled(&item.short_id, base_style.fg(Color::Cyan)),
-                    Span::styled(truncate_str(&item.project, 20), base_style),
-                    Span::styled(truncate_str(&item.object, 24), base_style),
-                    Span::styled(&item.item_type, base_style),
-                    Span::styled(&item.op, base_style),
-                    Span::styled(&item.status, base_style.fg(fg)),
-                    Span::styled(&item.age, base_style.fg(Color::DarkGray)),
+                    Span::styled(item.short_id.clone(), Style::default().fg(Color::Cyan)),
+                    Span::raw(truncate_end(&item.project, 20)),
+                    Span::raw(truncate_path(&item.object, object_w)),
+                    Span::raw(item.item_type.clone()),
+                    Span::raw(item.op.clone()),
+                    Span::styled(item.status.clone(), Style::default().fg(fg)),
+                    Span::styled(item.age.clone(), Style::default().fg(Color::DarkGray)),
                 ])
+                .style(row_style)
             })
             .collect();
 
