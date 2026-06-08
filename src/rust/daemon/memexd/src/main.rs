@@ -190,7 +190,7 @@ async fn run_daemon(
     )
     .await?;
 
-    // Phase 5a-5b: Dimension consistency + health monitor
+    // Phase 5a-5b: Dimension consistency + health monitor + embedding watchdog
     let probe_cache = check_dim_and_start_health_monitor(&daemon_config, &args, &mut qc).await?;
 
     // Phase 6: gRPC server + queue start + recovery
@@ -290,6 +290,28 @@ async fn check_dim_and_start_health_monitor(
     );
     let health_monitor_token = qc.adaptive_shutdown_token.child_token();
     tokio::spawn(async move { health_monitor.run(health_monitor_token).await });
+
+    // Embedding watchdog (spec 18 §3.3): autonomous recovery via degraded mode.
+    // While the dense provider is down the watchdog flips `EmbeddingHealth` to
+    // unavailable; the queue processor reads that flag and re-leases (parks)
+    // embedding-bearing items so they retry on recovery instead of failing —
+    // the daemon keeps serving search/graph/deletes. The watchdog never shuts
+    // the daemon down.
+    let data_dir = wqm_common::paths::get_database_path()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let diagnostic_path = data_dir.join("embedding-failure.json");
+    let watchdog = workspace_qdrant_core::embedding::EmbeddingWatchdog::new(
+        Arc::clone(&qc.dense_provider),
+        workspace_qdrant_core::embedding::WatchdogConfig::new(diagnostic_path),
+    );
+    // Hand the shared availability flag to the queue processor before it starts
+    // (Phase 6), so it can park embedding work while the provider is down.
+    qc.unified_queue_processor
+        .set_embedding_health(watchdog.health());
+    let watchdog_loop_token = qc.adaptive_shutdown_token.child_token();
+    tokio::spawn(async move { watchdog.run(watchdog_loop_token).await });
 
     Ok(probe_cache)
 }

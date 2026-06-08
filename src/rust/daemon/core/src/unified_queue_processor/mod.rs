@@ -81,6 +81,11 @@ pub struct UnifiedQueueProcessor {
     /// Shared health state for gRPC monitoring
     queue_health: Option<Arc<QueueProcessorHealth>>,
 
+    /// Dense-embedding availability flag maintained by the embedding watchdog.
+    /// When the provider is down, embedding-bearing items are re-leased (parked)
+    /// instead of dispatched, so they retry on recovery rather than failing.
+    embedding_health: Option<crate::embedding::EmbeddingHealth>,
+
     /// Receiver for adaptive resource profile changes (idle/burst mode)
     resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
 
@@ -180,6 +185,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            embedding_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
@@ -245,6 +251,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            embedding_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
@@ -319,6 +326,19 @@ impl UnifiedQueueProcessor {
     pub fn with_queue_health(mut self, health: Arc<QueueProcessorHealth>) -> Self {
         self.queue_health = Some(health);
         self
+    }
+
+    /// Set the embedding availability flag (maintained by the embedding
+    /// watchdog) used to park embedding work while the provider is down.
+    pub fn with_embedding_health(mut self, health: crate::embedding::EmbeddingHealth) -> Self {
+        self.embedding_health = Some(health);
+        self
+    }
+
+    /// Attach the embedding availability flag after construction (the watchdog
+    /// that owns it is started after the processor is built).
+    pub fn set_embedding_health(&mut self, health: crate::embedding::EmbeddingHealth) {
+        self.embedding_health = Some(health);
     }
 
     /// Set the LSP manager for code intelligence enrichment
@@ -416,6 +436,7 @@ impl UnifiedQueueProcessor {
         let lexicon_manager = self.lexicon_manager.clone();
         let warmup_state = self.warmup_state.clone();
         let queue_health = self.queue_health.clone();
+        let embedding_health = self.embedding_health.clone();
         let resource_profile_rx = self.resource_profile_rx.clone();
         let queue_depth_counter = self.queue_depth_counter.clone();
         let search_db = self.search_db.clone();
@@ -430,6 +451,16 @@ impl UnifiedQueueProcessor {
 
         if let Some(ref h) = queue_health {
             h.set_running(true);
+        }
+
+        if embedding_health.is_none() {
+            // The degrade gate is a no-op without this flag: embedding work
+            // would be dispatched (and fail) during a provider outage instead of
+            // being parked. memexd wires it in `check_dim_and_start_health_monitor`.
+            warn!(
+                "Unified queue processor started without an embedding-health flag; \
+                 embedding work will NOT be parked during a provider outage"
+            );
         }
 
         let task_handle = tokio::spawn(Self::run_processing_task(
@@ -447,6 +478,7 @@ impl UnifiedQueueProcessor {
             lexicon_manager,
             warmup_state,
             queue_health,
+            embedding_health,
             resource_profile_rx,
             queue_depth_counter,
             search_db,
@@ -481,6 +513,7 @@ impl UnifiedQueueProcessor {
         lexicon_manager: Arc<LexiconManager>,
         warmup_state: Arc<WarmupState>,
         queue_health: Option<Arc<QueueProcessorHealth>>,
+        embedding_health: Option<crate::embedding::EmbeddingHealth>,
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
         search_db: Option<Arc<SearchDbManager>>,
@@ -515,6 +548,7 @@ impl UnifiedQueueProcessor {
             lexicon_manager,
             warmup_state,
             queue_health.clone(),
+            embedding_health,
             resource_profile_rx,
             queue_depth_counter,
             search_db,
