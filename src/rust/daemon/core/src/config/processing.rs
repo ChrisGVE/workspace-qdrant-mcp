@@ -169,6 +169,9 @@ fn default_startup_enqueue_batch_size() -> usize {
 fn default_startup_enqueue_batch_delay_ms() -> u64 {
     100
 }
+fn default_reconcile_modified_on_startup() -> bool {
+    true
+}
 
 /// Startup warmup configuration section (Task 577)
 ///
@@ -195,6 +198,14 @@ pub struct StartupConfig {
     /// Delay in ms between enqueue batches (default: 100)
     #[serde(default = "default_startup_enqueue_batch_delay_ms")]
     pub startup_enqueue_batch_delay_ms: u64,
+
+    /// On startup, re-hash each tracked file still on disk and enqueue an Update
+    /// when its content changed while the daemon was down (or in an inactive
+    /// project, which live watch events skip). Catches edits the notify watcher
+    /// never saw. Default: true. Disable for very large watch roots where
+    /// re-hashing every file at boot is too costly.
+    #[serde(default = "default_reconcile_modified_on_startup")]
+    pub reconcile_modified_on_startup: bool,
 }
 
 impl Default for StartupConfig {
@@ -205,6 +216,7 @@ impl Default for StartupConfig {
             warmup_max_concurrent_embeddings: default_warmup_max_concurrent_embeddings(),
             startup_enqueue_batch_size: default_startup_enqueue_batch_size(),
             startup_enqueue_batch_delay_ms: default_startup_enqueue_batch_delay_ms(),
+            reconcile_modified_on_startup: default_reconcile_modified_on_startup(),
         }
     }
 }
@@ -267,6 +279,12 @@ impl StartupConfig {
         if let Ok(val) = env::var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS") {
             if let Ok(parsed) = val.parse() {
                 self.startup_enqueue_batch_delay_ms = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_RECONCILE_MODIFIED") {
+            if let Ok(parsed) = val.parse() {
+                self.reconcile_modified_on_startup = parsed;
             }
         }
     }
@@ -457,6 +475,7 @@ mod tests {
             warmup_max_concurrent_embeddings: 1,
             startup_enqueue_batch_size: 75,
             startup_enqueue_batch_delay_ms: 150,
+            reconcile_modified_on_startup: true,
         };
 
         let json = serde_json::to_string(&config).unwrap();

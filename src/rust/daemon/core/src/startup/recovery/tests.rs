@@ -212,6 +212,89 @@ async fn test_reconcile_flagged_files_deleted_file_queues_delete() {
     assert_eq!(op, "delete");
 }
 
+/// When a tracked file's on-disk mtime still matches the value stored at
+/// ingest, `process_tracked_file` must count it unchanged WITHOUT re-hashing —
+/// proven here by passing a deliberately wrong stored hash: if the gate hashed,
+/// the mismatch would enqueue an Update; instead nothing is enqueued.
+#[tokio::test]
+async fn test_process_tracked_file_mtime_gate_skips_hash() {
+    let pool = create_test_pool().await;
+    setup_reconcile_tables(&pool).await;
+    let queue_manager = QueueManager::new(pool.clone());
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rel_path = "src/main.rs";
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    let abs = tmp.path().join(rel_path);
+    std::fs::write(&abs, "fn main() {}").unwrap();
+    let on_disk_mtime = tfs::get_file_mtime(&abs).unwrap();
+
+    let mut stats = RecoveryStats::default();
+    let enqueued = process_tracked_file(
+        &queue_manager,
+        "tenant-rc",
+        "projects",
+        tmp.path(),
+        &abs,
+        rel_path,
+        "stale-hash-that-would-mismatch", // would trigger an Update if hashed
+        &on_disk_mtime,                   // but mtime matches → no hash, no enqueue
+        true,                             // reconcile_modified
+        &mut stats,
+    )
+    .await;
+
+    assert_eq!(enqueued, 0, "matching mtime must not enqueue anything");
+    assert_eq!(
+        stats.files_unchanged, 1,
+        "matching mtime counts as unchanged"
+    );
+    assert_eq!(stats.files_to_update, 0, "no update when mtime matches");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "mtime gate must skip the content hash entirely");
+}
+
+/// When the on-disk mtime differs from the stored value, the gate falls through
+/// to the content hash; a genuine content change enqueues an Update.
+#[tokio::test]
+async fn test_process_tracked_file_mtime_changed_rehashes_and_updates() {
+    let pool = create_test_pool().await;
+    setup_reconcile_tables(&pool).await;
+    let queue_manager = QueueManager::new(pool.clone());
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rel_path = "src/main.rs";
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    let abs = tmp.path().join(rel_path);
+    std::fs::write(&abs, "fn main() { /* changed */ }").unwrap();
+
+    let mut stats = RecoveryStats::default();
+    let enqueued = process_tracked_file(
+        &queue_manager,
+        "tenant-rc",
+        "projects",
+        tmp.path(),
+        &abs,
+        rel_path,
+        "old-content-hash",     // differs from the real on-disk hash
+        "1999-01-01T00:00:00Z", // mtime differs → fall through to hashing
+        true,
+        &mut stats,
+    )
+    .await;
+
+    assert_eq!(enqueued, 1, "changed content enqueues one item");
+    assert_eq!(stats.files_to_update, 1, "content change counts as update");
+    let op: String = sqlx::query_scalar("SELECT op FROM unified_queue")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(op, "update");
+}
+
 #[tokio::test]
 async fn test_reconcile_no_flagged_files_is_noop() {
     let pool = create_test_pool().await;
