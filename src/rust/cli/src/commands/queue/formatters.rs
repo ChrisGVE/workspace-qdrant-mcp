@@ -305,15 +305,22 @@ pub fn extract_object_relative(item_type: &str, payload_json: &str, root: Option
     }
 }
 
-/// Resolve a path to its root-relative form, or the basename when that is not
-/// possible. Directories get a trailing `/`.
+/// Resolve a path to its project/library-relative form. Queue payloads already
+/// store `file_path` relative to the project root, so a relative path is
+/// returned verbatim; an absolute path is made relative to `root`, falling back
+/// to the basename only when it is not under `root`. Directories get a `/`.
 fn relative_or_basename(path: Option<&str>, root: Option<&str>, is_dir: bool) -> String {
     let Some(path) = path else {
         return String::new();
     };
-    let rel = root
-        .and_then(|r| relativize(path, r))
-        .unwrap_or_else(|| basename(path).to_string());
+    let rel = if path.starts_with('/') {
+        // Absolute path: strip the known root, else fall back to the basename.
+        root.and_then(|r| relativize(path, r))
+            .unwrap_or_else(|| basename(path).to_string())
+    } else {
+        // Already relative to the project/library root — show it as-is.
+        path.trim_start_matches("./").to_string()
+    };
     if is_dir {
         format!("{rel}/")
     } else {
@@ -369,13 +376,31 @@ mod tests {
     #[test]
     fn relative_object_falls_back_to_basename() {
         let payload = r#"{"file_path":"/home/u/proj/src/main.rs"}"#;
-        // Unknown root → basename.
+        // Absolute path, unknown root → basename.
         assert_eq!(extract_object_relative("file", payload, None), "main.rs");
-        // Path not under the given root → basename.
+        // Absolute path not under the given root → basename.
         assert_eq!(
             extract_object_relative("file", payload, Some("/other")),
             "main.rs"
         );
+    }
+
+    #[test]
+    fn relative_object_keeps_already_relative_path() {
+        // Queue payloads store file_path relative to the project root: keep it
+        // verbatim (this is the common case) regardless of the root argument.
+        let payload = r#"{"file_path":"a/b/c/notes.md"}"#;
+        assert_eq!(
+            extract_object_relative("file", payload, Some("/home/u/proj")),
+            "a/b/c/notes.md"
+        );
+        assert_eq!(
+            extract_object_relative("file", payload, None),
+            "a/b/c/notes.md"
+        );
+        // A leading ./ is trimmed.
+        let dotted = r#"{"file_path":"./x/y.rs"}"#;
+        assert_eq!(extract_object_relative("file", dotted, None), "x/y.rs");
     }
 
     #[test]
