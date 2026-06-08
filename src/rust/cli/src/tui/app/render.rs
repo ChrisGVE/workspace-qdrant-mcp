@@ -61,14 +61,14 @@ impl App {
         // Contextual hints based on current view
         let hints = match self.current_view {
             View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  ? Help  q Quit",
-            View::Queue => "j/k Nav  / Search  n/N Next/Prev  f Filter  Enter Detail  q Quit",
+            View::Queue => "j/k Nav  g/G First/Last  / Search  n/N  f Filter  Enter Detail  q Quit",
             View::Projects | View::Libraries => {
-                "j/k Nav  / Search  n/N Next/Prev  Enter Detail  ? Help  q Quit"
+                "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  ? Help  q Quit"
             }
-            View::Rules => "j/k Nav  / Search  n/N Next/Prev  Enter Detail  ? Help  q Quit",
-            View::Scratchpad => "j/k Nav  / Search  n/N Next/Prev  Enter Detail  q Quit",
+            View::Rules => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  ? Help  q Quit",
+            View::Scratchpad => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  q Quit",
             View::Service => "p Pause  r Resume  ? Help  q Quit",
-            View::Logs => "j/k Move  / Search  n/N  Enter View  G Live  q Quit",
+            View::Logs => "j/k Move  g/G First/Last  / Search  n/N  Enter View  Esc Live  q Quit",
         };
 
         spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));
@@ -229,8 +229,12 @@ impl App {
                 Span::raw("Cycle status filter (Queue)"),
             ]),
             Line::from(vec![
-                Span::styled("  G           ", Style::default().fg(Color::Yellow)),
-                Span::raw("Jump to bottom (Logs)"),
+                Span::styled("  g / G       ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to first / last item"),
+            ]),
+            Line::from(vec![
+                Span::styled("  Esc         ", Style::default().fg(Color::Yellow)),
+                Span::raw("Resume live tail (Logs)"),
             ]),
             Line::from(vec![
                 Span::styled("  Esc         ", Style::default().fg(Color::Yellow)),

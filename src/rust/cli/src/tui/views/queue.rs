@@ -112,6 +112,18 @@ impl QueueBrowser {
         }
     }
 
+    /// Jump to the first item.
+    pub fn jump_first(&mut self) {
+        self.selected = 0;
+    }
+
+    /// Jump to the last item.
+    pub fn jump_last(&mut self) {
+        if !self.items.is_empty() {
+            self.selected = self.items.len() - 1;
+        }
+    }
+
     /// Cycle the status filter and force a re-fetch.
     pub fn cycle_filter(&mut self) {
         self.filter = self.filter.next();
@@ -460,6 +472,21 @@ mod tests {
         assert_eq!(browser.selected, 0);
         assert_eq!(browser.filter, StatusFilter::Pending);
         assert!(browser.last_refresh.is_none());
+    }
+
+    #[test]
+    fn jump_first_and_last() {
+        let mut browser = QueueBrowser::new();
+        browser.items = make_test_rows(10);
+        browser.selected = 4;
+        browser.jump_first();
+        assert_eq!(browser.selected, 0);
+        browser.jump_last();
+        assert_eq!(browser.selected, 9);
+        // Empty list never panics or overflows.
+        let mut empty = QueueBrowser::new();
+        empty.jump_last();
+        assert_eq!(empty.selected, 0);
     }
 
     #[test]

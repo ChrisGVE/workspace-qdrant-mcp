@@ -109,6 +109,18 @@ impl LibraryBrowser {
         }
     }
 
+    /// Jump to the first item.
+    pub fn jump_first(&mut self) {
+        self.selected = 0;
+    }
+
+    /// Jump to the last item.
+    pub fn jump_last(&mut self) {
+        if !self.items.is_empty() {
+            self.selected = self.items.len() - 1;
+        }
+    }
+
     /// Indices of items matching the current search pattern.
     fn search_matches(&self) -> Vec<usize> {
         self.items

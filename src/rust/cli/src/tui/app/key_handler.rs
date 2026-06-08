@@ -236,6 +236,14 @@ impl App {
                 browser.search_prev();
                 true
             }
+            KeyCode::Char('g') => {
+                browser.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                browser.jump_last();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -319,6 +327,14 @@ impl App {
                 browser.search_prev();
                 true
             }
+            KeyCode::Char('g') => {
+                browser.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                browser.jump_last();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -396,6 +412,14 @@ impl App {
                 browser.search_prev();
                 true
             }
+            KeyCode::Char('g') => {
+                browser.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                browser.jump_last();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -471,6 +495,14 @@ impl App {
             }
             KeyCode::Char('N') => {
                 browser.search_prev();
+                true
+            }
+            KeyCode::Char('g') => {
+                browser.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                browser.jump_last();
                 true
             }
             KeyCode::Enter => {
@@ -569,6 +601,14 @@ impl App {
                 browser.search_prev();
                 true
             }
+            KeyCode::Char('g') => {
+                browser.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                browser.jump_last();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -664,8 +704,12 @@ impl App {
                 viewer.open_popup();
                 true
             }
+            KeyCode::Char('g') => {
+                viewer.jump_first();
+                true
+            }
             KeyCode::Char('G') => {
-                viewer.scroll_to_bottom();
+                viewer.jump_last();
                 true
             }
             KeyCode::Esc => {

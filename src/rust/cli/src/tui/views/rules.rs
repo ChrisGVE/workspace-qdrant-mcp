@@ -100,6 +100,18 @@ impl RuleBrowser {
         self.selected = self.selected.saturating_sub(n);
     }
 
+    /// Jump to the first item.
+    pub fn jump_first(&mut self) {
+        self.selected = 0;
+    }
+
+    /// Jump to the last item.
+    pub fn jump_last(&mut self) {
+        if !self.items.is_empty() {
+            self.selected = self.items.len() - 1;
+        }
+    }
+
     pub fn open_detail(&mut self) {
         if !self.items.is_empty() {
             self.detail_open = true;
