@@ -46,7 +46,7 @@ impl From<&YamlConfig> for DaemonConfig {
             resource_limits: build_resource_limits_config(yaml),
             startup: StartupConfig::default(),
             daemon_endpoint: build_daemon_endpoint_config(yaml),
-            ingestion_limits: IngestionLimitsConfig::default(),
+            ingestion_limits: build_ingestion_limits_config(yaml),
             concept: ConceptConfig::default(),
             graph_rag: GraphRagConfig::default(),
             graph: build_graph_config(yaml),
@@ -54,6 +54,23 @@ impl From<&YamlConfig> for DaemonConfig {
             url_ingestion: build_url_ingestion_config(yaml),
             mounts: yaml.mounts.clone(),
             control_port: None,
+        }
+    }
+}
+
+/// Build per-extension ingestion limits from the YAML view (#121).
+///
+/// An empty `extension_size_limits_kb` map (the default when the section is
+/// absent) means "use the compiled-in defaults", so a user config only needs to
+/// list the extensions it wants to override. Any non-empty map replaces the
+/// defaults wholesale.
+fn build_ingestion_limits_config(yaml: &YamlConfig) -> IngestionLimitsConfig {
+    let map = &yaml.ingestion_limits.extension_size_limits_kb;
+    if map.is_empty() {
+        IngestionLimitsConfig::default()
+    } else {
+        IngestionLimitsConfig {
+            extension_size_limits_kb: map.clone(),
         }
     }
 }
@@ -261,5 +278,43 @@ fn build_daemon_endpoint_config(yaml: &YamlConfig) -> DaemonEndpointConfig {
         grpc_port: yaml.grpc.port,
         health_endpoint: "/health".to_string(),
         auth_token: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wqm_common::yaml_defaults::DEFAULT_YAML;
+
+    #[test]
+    fn ingestion_limits_from_default_yaml_carries_json_cap() {
+        let yaml: YamlConfig = serde_yaml_ng::from_str(DEFAULT_YAML).expect("default YAML parses");
+        let limits = build_ingestion_limits_config(&yaml);
+        // The embedded default lists the data-dump extensions, so the YAML view
+        // (not the bare Rust default) drives production config (#121).
+        assert_eq!(limits.size_limit_bytes("json"), Some(500 * 1024));
+        assert_eq!(limits.size_limit_bytes("csv"), Some(500 * 1024));
+    }
+
+    #[test]
+    fn ingestion_limits_empty_map_falls_back_to_defaults() {
+        let yaml = YamlConfig::default(); // empty extension_size_limits_kb
+        let limits = build_ingestion_limits_config(&yaml);
+        assert_eq!(
+            limits.extension_size_limits_kb,
+            IngestionLimitsConfig::default().extension_size_limits_kb
+        );
+    }
+
+    #[test]
+    fn ingestion_limits_user_map_overrides_wholesale() {
+        let mut yaml = YamlConfig::default();
+        yaml.ingestion_limits
+            .extension_size_limits_kb
+            .insert("json".to_string(), 42);
+        let limits = build_ingestion_limits_config(&yaml);
+        assert_eq!(limits.size_limit_bytes("json"), Some(42 * 1024));
+        // A non-empty user map replaces the defaults wholesale.
+        assert_eq!(limits.size_limit_bytes("csv"), None);
     }
 }

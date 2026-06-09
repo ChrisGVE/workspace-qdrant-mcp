@@ -142,6 +142,9 @@ pub struct YamlConfig {
     pub resource_limits: YamlResourceLimitsConfig,
     pub tagging: YamlTaggingConfig,
     pub url_ingestion: YamlUrlIngestionConfig,
+    /// Per-extension ingestion size limits (`ingestion_limits.*`). Empty map =
+    /// daemon falls back to its compiled-in defaults (#121).
+    pub ingestion_limits: YamlIngestionLimitsConfig,
     /// Code-relationship graph backend selection and tuning (`graph.*`).
     pub graph: YamlGraphConfig,
     /// Host-↔-container directory mounts (see docs/specs/16-path-abstraction.md §5).

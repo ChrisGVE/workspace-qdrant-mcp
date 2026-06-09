@@ -12,6 +12,17 @@ fn test_default_yaml_parses() {
 }
 
 #[test]
+fn test_ingestion_limits_parsed_from_default_yaml() {
+    // The embedded default YAML must expose the per-extension caps (#121) so the
+    // daemon's size gate fires on data-dump formats. json/csv default to 500 KB.
+    let config = &*DEFAULT_YAML_CONFIG;
+    let limits = &config.ingestion_limits.extension_size_limits_kb;
+    assert_eq!(limits.get("json"), Some(&500));
+    assert_eq!(limits.get("csv"), Some(&500));
+    assert_eq!(limits.len(), 13, "expected the 13 data-dump extensions");
+}
+
+#[test]
 fn test_lazy_lock_config() {
     let config = &*DEFAULT_YAML_CONFIG;
     assert_eq!(config.qdrant.url, "http://localhost:6333");

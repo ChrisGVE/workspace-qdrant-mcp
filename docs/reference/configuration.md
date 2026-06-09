@@ -356,10 +356,20 @@ File watching and ingestion filter settings.
 | `allowed_filenames` | array | 30+ entries | Exact filenames without extension (e.g. `"Makefile"`, `"Dockerfile"`) |
 | `exclude_directories` | array | 40+ entries | Directory names always excluded (e.g. `"node_modules"`, `"target"`, `".git"`) |
 | `exclude_patterns` | array | | Additional file patterns to exclude (e.g. `"*.pyc"`, `"*.class"`) |
-| `size_restricted_extensions` | array | `.csv`, `.json`, `.sql`, `.log`, etc. | Extensions allowed but with stricter size limit |
-| `size_restricted_max_mb` | float | `1` | Maximum file size (MB) for size-restricted extensions |
 
 The complete default extension and directory lists are embedded in the binaries from `assets/default_configuration.yaml`. User configuration entries are merged with the defaults; they do not replace them.
+
+> Per-extension size caps for data-dump formats (`.json`, `.csv`, `.yaml`, …) are configured under the top-level [`ingestion_limits`](#ingestion_limits) section, not under `watching`. The former `size_restricted_extensions` / `size_restricted_max_mb` keys were never read by the daemon and have been removed.
+
+### `ingestion_limits`
+
+Per-extension maximum ingestion size. A file whose extension is listed and whose on-disk size exceeds the cap is recorded as a 0-chunk skip (visible in `tracked_files`, never embedded) — this keeps tokenizer dumps, ML result files, and other large data files from being chunked into thousands of embeddings (#121). The daemon stats files at ingestion time, so the cap applies regardless of how a file was enqueued.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `extension_size_limits_kb` | map | `json/csv/yaml/xml/…` → `500` (13 entries) | Extension (lowercase, no leading dot) → size cap in KB. Extensions absent from the map have no per-extension cap. |
+
+Unlike `watching`, a user `extension_size_limits_kb` map **replaces** the defaults wholesale rather than merging — list every extension you want capped. Omitting the section entirely falls back to the compiled-in defaults.
 
 ### `auto_ingestion`
 

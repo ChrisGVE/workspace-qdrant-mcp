@@ -1873,40 +1873,40 @@ watching:
     - "*.bundle.js"
     - "*.chunk.js"
 
-  # size_restricted_extensions: Extensions subject to stricter size limits
-  # Purpose: Some extensions can be either small config files or huge datasets
-  # Behavior: Files with these extensions exceeding size_restricted_max_mb are
-  #   skipped with an INFO log. Other extensions use the general max_file_size_mb.
-  # Format: Array of extension strings (with leading dot)
-  size_restricted_extensions:
-    - ".csv"
-    - ".tsv"
-    - ".tab"
-    - ".json"
-    - ".jsonc"
-    - ".json5"
-    - ".xml"
-    - ".xsd"
-    - ".xsl"
-    - ".jsonl"
-    - ".ndjson"
-    - ".log"
-    - ".sql"
-
-  # size_restricted_max_mb: Max file size for size-restricted extensions
-  # Purpose: Stricter limit for extensions that can be either config or data dumps
-  # Format: Integer megabytes > 0
-  # Default reasoning: 1MB catches most config/schema files while excluding datasets
-  size_restricted_max_mb: 1
-
 # =============================================================================
-# GIT INTEGRATION CONFIGURATION
+# INGESTION LIMITS CONFIGURATION
 # =============================================================================
-# Purpose: Configures Git-specific features including branch lifecycle management
-# and repository monitoring for tracked projects.
+# Purpose: Per-extension maximum ingestion size. Some extensions (data-dump
+# formats like JSON/CSV/XML) can be either small config files or huge datasets;
+# a stricter cap keeps tokenizer dumps, ML result files, and the like from being
+# chunked into thousands of embeddings (#121).
 #
-# Branch Lifecycle: Tracks branch creation, deletion, rename, and default changes
-# Document Management: Auto-manages Qdrant documents when branches change
+# Behavior: A file whose extension appears below and whose on-disk size exceeds
+# the listed KB cap is recorded as a 0-chunk skip (visible in tracked_files,
+# never embedded). Extensions NOT listed here have no per-extension cap and use
+# the general size handling. The daemon also stats files at ingestion time, so
+# the cap applies regardless of how the file was enqueued.
+#
+# Configurable: edit the values below, or override individual extensions in a
+# user config — a user config that lists any extension replaces this map
+# wholesale, so include every extension you want capped. Omitting the section
+# entirely falls back to these compiled-in defaults.
+ingestion_limits:
+  # extension_size_limits_kb: extension (lowercase, no leading dot) → cap in KB.
+  extension_size_limits_kb:
+    json: 500
+    jsonc: 500
+    json5: 500
+    jsonl: 500
+    ndjson: 500
+    yaml: 500
+    yml: 500
+    toml: 500
+    xml: 500
+    xsl: 500
+    xslt: 500
+    csv: 500
+    tsv: 500
 
 # =============================================================================
 # GIT INTEGRATION CONFIGURATION

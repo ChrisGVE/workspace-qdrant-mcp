@@ -1,9 +1,27 @@
 //! Processing and tooling configuration sections: auto-ingestion, queue processor,
 //! git, embedding, LSP, grammars, updates, and tagging.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use super::parse_duration_to_ms;
+
+// ── Ingestion Limits ────────────────────────────────────────────────────
+
+/// Per-extension ingestion size limits (`ingestion_limits.*`).
+///
+/// `extension_size_limits_kb` maps a lowercase extension (no leading dot) to a
+/// size cap in KB; files of that extension larger than the cap are recorded as
+/// 0-chunk skips instead of being embedded (#121). An empty map means "use the
+/// daemon's compiled-in defaults" — `build.rs` substitutes
+/// `IngestionLimitsConfig::default()` in that case, so a user only needs to
+/// list the extensions they want to override.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct YamlIngestionLimitsConfig {
+    pub extension_size_limits_kb: HashMap<String, u64>,
+}
 
 // ── Auto Ingestion ──────────────────────────────────────────────────────
 
