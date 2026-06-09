@@ -299,8 +299,15 @@ export class WorkspaceQdrantMcpServer {
     sessionState.cleaned = true;
 
     const { daemonClient, stateManager, healthMonitor } = components;
-    await cleanup(sessionState, daemonClient, stateManager, healthMonitor);
-    recordSessionEnd();
+    try {
+      await cleanup(sessionState, daemonClient, stateManager, healthMonitor);
+    } finally {
+      // Decrement unconditionally. If cleanup() ever throws, skipping this would
+      // leak the wqm_mcp_session_count gauge upward with no way to recover (the
+      // `cleaned` guard above blocks any retry). The decrement must survive a
+      // failed teardown.
+      recordSessionEnd();
+    }
   }
 
   private async seedDefaultRule(): Promise<void> {
