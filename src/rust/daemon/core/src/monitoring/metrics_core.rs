@@ -12,7 +12,8 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_file_metadata_metrics, create_graph_metrics,
+    create_chunking_coverage_metrics, create_dependency_metrics, create_file_metadata_metrics,
+    create_graph_metrics,
     create_indexed_project_metrics, create_lsp_metrics, create_per_tenant_eta_metric,
     create_per_tenant_indexing_metric, create_queue_metrics, create_session_metrics,
     create_system_metrics, create_telemetry_extension_metrics, create_tenant_metrics,
@@ -85,6 +86,10 @@ pub struct DaemonMetrics {
     /// Last activity time in Unix epoch seconds per indexed project
     /// Labels: watch_id
     pub indexed_project_last_activity_seconds: IntGaugeVec,
+
+    /// Tracked-file count by chunking method / tree-sitter status, per language.
+    /// Labels: language, chunking_method, treesitter_status
+    pub tracked_files_by_chunking: IntGaugeVec,
 
     // System metrics
     /// Daemon uptime in seconds
@@ -273,6 +278,7 @@ struct CreatedMetrics {
     indexed_project_points: IntGaugeVec,
     indexed_project_last_scan_seconds: IntGaugeVec,
     indexed_project_last_activity_seconds: IntGaugeVec,
+    tracked_files_by_chunking: IntGaugeVec,
     uptime_seconds: GaugeVec,
     ingestion_errors_total: IntCounterVec,
     heartbeat_latency_seconds: HistogramVec,
@@ -390,6 +396,8 @@ fn create_all_metrics() -> CreatedMetrics {
         fts5_skipped_files_total,
     ) = create_file_metadata_metrics();
 
+    let tracked_files_by_chunking = create_chunking_coverage_metrics();
+
     let (lsp_server_state, lsp_enrichments_total) = create_lsp_metrics();
 
     let lsp_available_languages = IntGauge::new(
@@ -426,6 +434,7 @@ fn create_all_metrics() -> CreatedMetrics {
         indexed_project_points,
         indexed_project_last_scan_seconds,
         indexed_project_last_activity_seconds,
+        tracked_files_by_chunking,
         uptime_seconds,
         ingestion_errors_total,
         heartbeat_latency_seconds,
@@ -490,6 +499,7 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.indexed_project_points.clone()),
             Box::new(m.indexed_project_last_scan_seconds.clone()),
             Box::new(m.indexed_project_last_activity_seconds.clone()),
+            Box::new(m.tracked_files_by_chunking.clone()),
             Box::new(m.uptime_seconds.clone()),
             Box::new(m.ingestion_errors_total.clone()),
             Box::new(m.heartbeat_latency_seconds.clone()),
@@ -559,6 +569,7 @@ impl DaemonMetrics {
             indexed_project_points: m.indexed_project_points,
             indexed_project_last_scan_seconds: m.indexed_project_last_scan_seconds,
             indexed_project_last_activity_seconds: m.indexed_project_last_activity_seconds,
+            tracked_files_by_chunking: m.tracked_files_by_chunking,
             uptime_seconds: m.uptime_seconds,
             ingestion_errors_total: m.ingestion_errors_total,
             heartbeat_latency_seconds: m.heartbeat_latency_seconds,

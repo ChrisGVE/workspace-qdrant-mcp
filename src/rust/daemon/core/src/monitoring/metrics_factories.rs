@@ -432,6 +432,22 @@ pub(super) fn create_file_metadata_metrics(
     )
 }
 
+/// Tree-sitter / semantic-chunking coverage metric.
+///
+/// `tracked_files_by_chunking{language, chunking_method, treesitter_status}` —
+/// number of tracked files broken down by how they were chunked. Lets Grafana
+/// show, per language, the share of files using tree-sitter semantic chunking
+/// (`chunking_method="tree_sitter"`, `treesitter_status="done"`) vs falling back
+/// to whole-file (e.g. when a grammar failed to download). Refreshed
+/// periodically from `tracked_files` by the chunking-coverage exporter.
+pub(super) fn create_chunking_coverage_metrics() -> IntGaugeVec {
+    int_gauge_vec(
+        "tracked_files_by_chunking",
+        "Tracked file count by language, chunking method, and tree-sitter status",
+        &["language", "chunking_method", "treesitter_status"],
+    )
+}
+
 /// LSP subsystem metrics
 ///
 /// Returns `(lsp_server_state, lsp_enrichments_total)`.

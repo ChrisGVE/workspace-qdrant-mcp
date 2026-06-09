@@ -394,6 +394,48 @@ pub fn start_indexed_project_inventory_exporter(pool: SqlitePool) -> JoinHandle<
     handle
 }
 
+/// Periodically refresh the chunking-coverage metric from SQLite.
+///
+/// Exports `tracked_files_by_chunking{language, chunking_method, treesitter_status}`
+/// so Grafana can show, per language, how many files use tree-sitter semantic
+/// chunking vs whole-file fallback (e.g. when a grammar failed to download).
+pub fn start_chunking_coverage_exporter(pool: SqlitePool) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            let query = r#"
+                SELECT
+                    COALESCE(NULLIF(language, ''), 'unknown') AS language,
+                    COALESCE(NULLIF(chunking_method, ''), 'none') AS chunking_method,
+                    COALESCE(NULLIF(treesitter_status, ''), 'none') AS treesitter_status,
+                    COUNT(*) AS file_count
+                FROM tracked_files
+                GROUP BY language, chunking_method, treesitter_status
+            "#;
+
+            match sqlx::query(query).fetch_all(&pool).await {
+                Ok(rows) => {
+                    METRICS.tracked_files_by_chunking.reset();
+                    for row in rows {
+                        let language: String = row.get("language");
+                        let chunking_method: String = row.get("chunking_method");
+                        let treesitter_status: String = row.get("treesitter_status");
+                        let file_count: i64 = row.get("file_count");
+                        METRICS
+                            .tracked_files_by_chunking
+                            .with_label_values(&[&language, &chunking_method, &treesitter_status])
+                            .set(file_count);
+                    }
+                }
+                Err(e) => debug!("chunking coverage refresh failed: {}", e),
+            }
+        }
+    });
+    info!("Chunking coverage exporter started (300s interval)");
+    handle
+}
+
 /// Start hourly metrics maintenance: aggregation + retention (Task 544.11-14).
 pub fn start_metrics_maintenance(pool: SqlitePool) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -791,6 +833,7 @@ pub fn spawn_all(
     let _git_state = start_git_state_monitor(pool.clone());
     let _queue_depth = start_queue_depth_exporter(pool.clone());
     let _project_inventory = start_indexed_project_inventory_exporter(pool.clone());
+    let _chunking_coverage = start_chunking_coverage_exporter(pool.clone());
     let _file_metadata = start_file_metadata_exporter(Arc::clone(search_db));
 
     BackgroundHandles {
