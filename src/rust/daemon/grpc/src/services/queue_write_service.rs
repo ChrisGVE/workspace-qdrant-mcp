@@ -208,11 +208,19 @@ impl QueueWriteService for QueueWriteServiceImpl {
         request: Request<PurgeDlqRequest>,
     ) -> Result<Response<PurgeDlqResponse>, Status> {
         let req = request.into_inner();
-        let retention_days = if req.retention_days > 0 {
-            req.retention_days as u32
-        } else {
-            30
-        };
+        // Use the retention verbatim — the default (30 days when the flag is
+        // absent) is owned by the CLI's `--older-than` arg, so a value reaching
+        // here is always an explicit operator choice. `0` means "older than now"
+        // → purge every entry, which is exactly how an operator clears a recent
+        // flood (#119). Only a negative value (cutoff in the future → would also
+        // purge everything) is rejected, so a typo cannot silently empty the DLQ.
+        if req.retention_days < 0 {
+            return Err(Status::invalid_argument(format!(
+                "retention_days must be >= 0 (0 purges all entries); got {}",
+                req.retention_days
+            )));
+        }
+        let retention_days = req.retention_days as u32;
         match self.write_actor.purge_dlq(retention_days).await {
             Ok((deleted, has_more)) => Ok(Response::new(PurgeDlqResponse {
                 rows_deleted: deleted as i32,

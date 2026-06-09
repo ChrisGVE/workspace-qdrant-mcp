@@ -439,6 +439,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_purge_dlq_zero_retention_purges_recent() {
+        // #119: retention_days=0 → cutoff=now → purge every entry, including
+        // ones moved to the DLQ moments ago. The 30-day default that a bare
+        // `purge_dlq` used to substitute lives in the CLI now, so 0 reaching
+        // here is an explicit "purge all" and must not leave recent entries.
+        let qm = setup().await;
+        insert_failed_item(&qm, "q-recent-1", "[permanent_data] fresh").await;
+        qm.move_to_dlq("q-recent-1").await.unwrap();
+        // moved_to_dlq_at is "now" (not back-dated) — a 30-day cutoff would skip it.
+
+        let (deleted, _has_more) = qm.purge_dlq(0, 500).await.unwrap();
+        assert_eq!(deleted, 1, "retention 0 must purge a just-added DLQ entry");
+
+        let (entries, total) = qm.list_dlq(None, None, 10, 0).await.unwrap();
+        assert_eq!(total, 0);
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_list_dlq() {
         let qm = setup().await;
         insert_failed_item(&qm, "q-list-1", "[permanent_data] err1").await;
