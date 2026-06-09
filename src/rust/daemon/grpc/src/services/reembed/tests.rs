@@ -1,3 +1,4 @@
+use super::pipeline::flush_and_clear_state;
 use super::recreator::collection_reembed_idempotency_key;
 use super::*;
 use async_trait::async_trait;

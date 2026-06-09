@@ -64,7 +64,7 @@ async fn drain_to_quiescence(
 /// rows too lets the re-enqueue actually take effect.
 ///
 /// Returns the number of rows deleted for logging.
-async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
+pub(super) async fn flush_and_clear_state(ctx: &ReembedContext) -> Result<u32, Status> {
     let stale_deleted = sqlx::query(
         "DELETE FROM unified_queue \
          WHERE collection IN ('projects','libraries','rules','scratchpad')",

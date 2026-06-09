@@ -366,6 +366,24 @@ impl UnifiedQueueProcessor {
         Ok(count)
     }
 
+    /// Reset orphaned `in_progress` destination sinks at startup.
+    ///
+    /// MUST be called before [`start`](Self::start) — it assumes no worker is
+    /// processing and the FTS5 batch writer / embedding workers have no work in
+    /// flight, so any `in_progress` sink is provably orphaned from the previous
+    /// daemon generation. Recovers items left stuck (e.g. FTS5 rows committed
+    /// but the finalize handshake lost to a restart) so the queue can reach
+    /// quiescence. See
+    /// [`QueueManager::reset_orphaned_destinations_at_startup`].
+    pub async fn reset_orphaned_destinations(&self) -> UnifiedProcessorResult<u64> {
+        let count = self
+            .queue_manager
+            .reset_orphaned_destinations_at_startup()
+            .await
+            .map_err(|e| UnifiedProcessorError::QueueOperation(e.to_string()))?;
+        Ok(count)
+    }
+
     /// Start the background processing loop
     pub fn start(&mut self) -> UnifiedProcessorResult<()> {
         if self.task_handle.is_some() {

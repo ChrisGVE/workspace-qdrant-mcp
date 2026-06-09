@@ -1006,7 +1006,31 @@ Step 6: Crash Recovery
      SET status = 'pending', leased_by = NULL, lease_expires_at = NULL,
          retry_count = retry_count + 1
    - Items exceeding max_retries are set to status = 'failed'
+   - Reset ORPHANED per-destination sinks (qdrant_status / search_status):
+     any sink left = 'in_progress' is reset to 'pending'. This runs BEFORE the
+     queue processing loop and the in-memory FTS5 batch writer have any work in
+     flight, so every such sink is provably orphaned from the previous daemon
+     generation. The stale-lease reset above (gated on lease expiry) also resets
+     orphaned sinks for the rows it touches; the unconditional startup pass
+     additionally catches rows whose lease has not yet expired after a fast
+     restart. See "Orphaned in_progress sink recovery" below.
 ```
+
+**Orphaned in_progress sink recovery (poison-item prevention).** Per-file FTS5
+work is handed to an in-memory mpsc channel (`search_db::batch_writer`); the
+handler commits `search_status = 'in_progress'` to SQLite *before* the batch
+actor flushes and runs the finalize handshake (`update_destination_status(search
+= Done)` + `check_and_finalize`). If the daemon restarts after the FTS5 rows are
+committed but before that handshake, `search_status` is stranded at
+`in_progress` with the work already on disk. On re-lease the file is unchanged
+(hash match) so `prepare_update` returns `Skip`, and `finalize_after_success`
+only auto-resolves `pending`/`NULL` sinks — it deliberately *preserves*
+`in_progress` (so genuinely in-flight work is never stomped). Without a reset the
+row can never finalize (qdrant=done, search=in_progress forever), is re-leased
+indefinitely, and **blocks queue quiescence** — including the reembed
+drain-to-quiescence gate. Step 6 resets these orphaned sinks to `pending` so the
+next pass auto-resolves them to `done` (correct, because the on-disk work is
+already present). The same symmetry applies to an orphaned `qdrant_status`.
 
 **Performance:** Steps 1-4 query SQLite only (milliseconds). Step 5 performs filesystem
 walks but compares against SQLite (fast). Step 6 is a single SQL UPDATE.

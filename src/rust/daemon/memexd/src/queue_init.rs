@@ -437,6 +437,16 @@ pub async fn start_processor(
         warn!("Failed to recover stale unified queue leases: {}", e);
     }
 
+    // Reset any per-destination sink left in `in_progress` by the previous
+    // daemon generation. Must run before `start()` (no in-flight work yet), so
+    // every such sink is provably orphaned — typically an FTS5 commit whose
+    // finalize handshake was lost to a restart. Without this the row is stuck
+    // (`finalize_after_success` preserves orphaned `in_progress`) and blocks
+    // queue quiescence, including the reembed drain-to-quiescence gate.
+    if let Err(e) = uqp.reset_orphaned_destinations().await {
+        warn!("Failed to reset orphaned in_progress destination sinks: {}", e);
+    }
+
     let warmup_delay_secs = daemon_config.startup.warmup_delay_secs;
     if warmup_delay_secs > 0 {
         info!(

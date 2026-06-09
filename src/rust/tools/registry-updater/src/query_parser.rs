@@ -203,6 +203,7 @@ pub fn to_semantic_patterns(extracted: &ExtractedPatterns) -> SemanticPatterns {
         macro_def: PatternGroup::default(),
         impl_block: PatternGroup::default(),
         comment_nodes: Vec::new(),
+        call_nodes: Vec::new(),
         decorated_wrapper: None,
         root_wrappers: Vec::new(),
     }

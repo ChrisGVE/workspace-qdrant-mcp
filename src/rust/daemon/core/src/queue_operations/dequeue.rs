@@ -157,11 +157,25 @@ impl QueueManager {
     pub async fn recover_stale_unified_leases(&self) -> QueueResult<u64> {
         let now_str = timestamps::now_utc();
 
+        // Reset the row status AND any orphaned per-destination sink. A lease
+        // expiry proves the worker that held it is dead, so any `qdrant_status`
+        // / `search_status` it left in `in_progress` is orphaned: the in-memory
+        // FTS5 batch / embedding work that would have flipped it to `done` died
+        // with that worker. Without resetting the sink, the row is re-leased,
+        // hits the unchanged-hash skip, and `finalize_after_success` *preserves*
+        // the orphaned `in_progress` (it only auto-resolves `pending`/NULL) —
+        // so the item can never finalize and blocks queue quiescence (e.g. the
+        // reembed drain-to-quiescence gate). Resetting the sink to `pending`
+        // lets the next pass auto-resolve it to `done`. (Recurring poison fix.)
         let query = r#"
             UPDATE unified_queue
             SET status = 'pending',
                 lease_until = NULL,
                 worker_id = NULL,
+                qdrant_status = CASE WHEN qdrant_status = 'in_progress'
+                                     THEN 'pending' ELSE qdrant_status END,
+                search_status = CASE WHEN search_status = 'in_progress'
+                                     THEN 'pending' ELSE search_status END,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE status = 'in_progress' AND lease_until < ?1
         "#;
@@ -180,6 +194,59 @@ impl QueueManager {
         }
 
         Ok(recovered)
+    }
+
+    /// Reset orphaned `in_progress` destination sinks at daemon startup.
+    ///
+    /// Called once during boot, **before** the queue processing loop starts and
+    /// before the FTS5 batch writer / embedding workers have any work in flight.
+    /// At that instant nothing in the process can legitimately hold a sink in
+    /// `in_progress`, so every `qdrant_status` / `search_status = 'in_progress'`
+    /// is provably orphaned from the *previous* daemon generation: the work may
+    /// well have completed (e.g. the FTS5 rows were committed) but the daemon
+    /// died after the commit and before `update_destination_status(... Done)` +
+    /// `check_and_finalize`, leaving the sink stuck.
+    ///
+    /// Unlike [`recover_stale_unified_leases`](Self::recover_stale_unified_leases),
+    /// this does NOT gate on lease expiry — a fast restart can leave a not-yet-
+    /// expired lease whose owning worker is nonetheless gone. Resetting the sink
+    /// to `pending` lets `finalize_after_success` auto-resolve it to `done` on
+    /// the next pass (the on-disk work is already there; the unchanged-hash skip
+    /// is therefore correct), unblocking queue quiescence.
+    ///
+    /// Returns the number of rows whose status or a sink was reset.
+    pub async fn reset_orphaned_destinations_at_startup(&self) -> QueueResult<u64> {
+        let query = r#"
+            UPDATE unified_queue
+            SET status = CASE WHEN status = 'in_progress'
+                              THEN 'pending' ELSE status END,
+                lease_until = CASE WHEN status = 'in_progress'
+                                   THEN NULL ELSE lease_until END,
+                worker_id = CASE WHEN status = 'in_progress'
+                                 THEN NULL ELSE worker_id END,
+                qdrant_status = CASE WHEN qdrant_status = 'in_progress'
+                                     THEN 'pending' ELSE qdrant_status END,
+                search_status = CASE WHEN search_status = 'in_progress'
+                                     THEN 'pending' ELSE search_status END,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE status = 'in_progress'
+               OR qdrant_status = 'in_progress'
+               OR search_status = 'in_progress'
+        "#;
+
+        let result = sqlx::query(query).execute(&self.pool).await?;
+        let reset = result.rows_affected();
+
+        if reset > 0 {
+            info!(
+                "Startup: reset {} queue item(s) with orphaned in_progress status/sinks to pending",
+                reset
+            );
+        } else {
+            debug!("Startup: no orphaned in_progress queue items to reset");
+        }
+
+        Ok(reset)
     }
 }
 

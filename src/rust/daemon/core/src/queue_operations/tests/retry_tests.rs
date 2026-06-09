@@ -310,3 +310,90 @@ async fn test_unified_queue_recover_stale_leases() {
     assert_eq!(stats.pending_items, 1);
     assert_eq!(stats.in_progress_items, 0);
 }
+
+/// Regression: an orphaned `search_status='in_progress'` (FTS5 rows committed
+/// but the finalize handshake lost to a restart) must be reset to `pending` at
+/// startup so `finalize_after_success` can auto-resolve it to `done`. Without
+/// the reset the row sits forever (qdrant=done, search=in_progress), blocking
+/// queue quiescence and the reembed drain gate — the recurring "poison item".
+#[tokio::test]
+async fn test_reset_orphaned_destinations_at_startup() {
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir.path().join("test_orphaned_dest.db");
+
+    let config = QueueConnectionConfig::with_database_path(&db_path);
+    let pool = config.create_pool().await.unwrap();
+
+    apply_sql_script(&pool, include_str!("../../schema/watch_folders_schema.sql"))
+        .await
+        .unwrap();
+
+    let manager = QueueManager::new(pool);
+    manager.init_unified_queue().await.unwrap();
+
+    let (id, _) = manager
+        .enqueue_unified(
+            ItemType::File,
+            UnifiedOp::Add,
+            "test-tenant",
+            "test-collection",
+            r#"{"file_path":"/test/poison.py"}"#,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Simulate a partially-processed item that a previous daemon left behind:
+    // row + qdrant sink done, but the search sink stuck in_progress (its
+    // owning in-memory FTS5 worker died before the finalize handshake). A
+    // not-yet-expired lease is set on purpose — startup reset must NOT depend
+    // on lease expiry.
+    sqlx::query(
+        "UPDATE unified_queue
+         SET status='in_progress', worker_id='dead-worker',
+             lease_until=strftime('%Y-%m-%dT%H:%M:%fZ','now','+5 minutes'),
+             qdrant_status='done', search_status='in_progress'
+         WHERE queue_id=?1",
+    )
+    .bind(&id)
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    // Stale-lease recovery alone must NOT touch it (lease still valid).
+    let recovered = manager.recover_stale_unified_leases().await.unwrap();
+    assert_eq!(recovered, 0, "valid lease must not be recovered as stale");
+
+    // Startup reset clears the orphaned sink + row status regardless of lease.
+    let reset = manager
+        .reset_orphaned_destinations_at_startup()
+        .await
+        .unwrap();
+    assert_eq!(reset, 1);
+
+    let row = sqlx::query(
+        "SELECT status, qdrant_status, search_status, lease_until, worker_id
+         FROM unified_queue WHERE queue_id=?1",
+    )
+    .bind(&id)
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    let status: String = row.try_get("status").unwrap();
+    let qdrant: String = row.try_get("qdrant_status").unwrap();
+    let search: String = row.try_get("search_status").unwrap();
+    let lease: Option<String> = row.try_get("lease_until").unwrap();
+    let worker: Option<String> = row.try_get("worker_id").unwrap();
+    assert_eq!(status, "pending");
+    assert_eq!(qdrant, "done", "already-done sink must be preserved");
+    assert_eq!(search, "pending", "orphaned in_progress sink must reset");
+    assert!(lease.is_none(), "lease must be cleared");
+    assert!(worker.is_none(), "worker must be cleared");
+
+    // The reset lets the success-path finalizer auto-resolve the now-pending
+    // search sink (orchestration-only item, decision_json IS NULL) → both
+    // sinks done → overall Done.
+    let overall = manager.finalize_after_success(&id).await.unwrap();
+    assert_eq!(overall, QueueStatus::Done);
+}
