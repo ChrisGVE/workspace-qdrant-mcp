@@ -451,8 +451,16 @@ export async function cleanup(
     }
   }
 
+  // Best-effort closes: teardown runs from session cleanup / onclose and must
+  // never propagate. daemonClient.close() is already internally guarded; wrap
+  // stateManager.close() too so a failure there can't skip the end event (or,
+  // before the onclose re-entrancy fix, abort the session-count decrement).
   daemonClient.close();
-  stateManager.close();
+  try {
+    stateManager.close();
+  } catch (error) {
+    logError('Failed to close state manager during cleanup', error);
+  }
 
   logSessionEvent('end', { session_id: sessionState.sessionId });
 }

@@ -347,7 +347,17 @@ async function handleRequest(
   });
 
   const mcpServer = await createMcpServer();
+  // Re-entrancy guard for the close/onclose feedback loop. `mcpServer.close()`
+  // closes the transport; the transport's own `close()` re-fires THIS `onclose`,
+  // which would call `mcpServer.close()` again — infinite mutual recursion that
+  // ends in `RangeError: Maximum call stack size exceeded`. That throw used to
+  // abort session cleanup before `recordSessionEnd()` ran, leaking the
+  // `wqm_mcp_session_count` gauge upward on every single teardown (observed
+  // climbing to 225+). Run the body exactly once per transport.
+  let closing = false;
   transport.onclose = (): void => {
+    if (closing) return;
+    closing = true;
     const closedSessionId = transport.sessionId;
     if (closedSessionId) {
       transports.delete(closedSessionId);
