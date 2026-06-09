@@ -152,7 +152,11 @@ async fn test_op_priority_dequeue_ordering() {
     let base_ts = "2026-01-01T12:00:00.000Z";
 
     // Insert items with different operations but same tenant/collection
-    // Order: add first, then update, scan, delete — but delete should dequeue first due to priority
+    // Order: add first, then update, scan, delete — but delete should dequeue first due to priority.
+    // NOTE: the scan item is a (folder, scan) — the recursive sub-directory scan
+    // that carries the general op-weight. A (tenant, scan) is deliberately NOT
+    // used here because registration scans line-jump (#112), which would defeat
+    // the op-weight ordering this test isolates.
     let items = vec![
         ("q-add", "file", "add", r#"{"file_path":"/test/add.rs"}"#),
         (
@@ -161,7 +165,7 @@ async fn test_op_priority_dequeue_ordering() {
             "update",
             r#"{"file_path":"/test/update.rs"}"#,
         ),
-        ("q-scan", "tenant", "scan", r#"{"project_root":"/test"}"#),
+        ("q-scan", "folder", "scan", r#"{"folder_path":"/test/sub"}"#),
         (
             "q-delete",
             "tenant",
@@ -266,4 +270,52 @@ async fn test_tenant_add_priority_over_file_add_backlog() {
         dequeued[0].tenant_id, "tenant-new",
         "The newly registered tenant's (tenant, add) must be served first"
     );
+}
+
+/// Regression for issue #112: the follow-up `(tenant, scan)` that a project
+/// registration enqueues must ALSO jump the line, not just the `(tenant, add)`.
+/// A normal-priority (inactive) project's scan otherwise carries the lowest
+/// op-weight and loses the `is_active` tie-break, so it is starved for minutes
+/// behind an active project's file backlog — and a reconcile sweep ends up
+/// ingesting the files instead (leaving `last_scan` stale).
+#[tokio::test]
+async fn test_tenant_scan_priority_over_file_add_backlog() {
+    let (pool, manager, _temp_dir) = setup_cascade_pool().await;
+    // An already-registered ACTIVE tenant whose (file, add) backlog is favoured
+    // by `w.is_active > 0`.
+    insert_watch_folder(&pool, "w-active", "/active", "tenant-active").await;
+    enqueue_file_adds(&manager, "tenant-active", "/active", 25).await;
+
+    // A freshly-registered normal-priority project: its (tenant, scan) item has
+    // no active watch_folder yet (is_active NULL via the LEFT JOIN).
+    manager
+        .enqueue_unified(
+            ItemType::Tenant,
+            UnifiedOp::Scan,
+            "tenant-new",
+            "projects",
+            r#"{"project_root":"/new"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let dequeued = manager
+        .dequeue_unified(5, "worker-1", None, None, None, None, None, None)
+        .await
+        .unwrap();
+
+    assert!(!dequeued.is_empty());
+    assert_eq!(
+        dequeued[0].item_type,
+        ItemType::Tenant,
+        "The registration's (tenant, scan) must jump ahead of the file-add backlog"
+    );
+    assert_eq!(
+        dequeued[0].op,
+        UnifiedOp::Scan,
+        "The promoted item must be the directory scan"
+    );
+    assert_eq!(dequeued[0].tenant_id, "tenant-new");
 }

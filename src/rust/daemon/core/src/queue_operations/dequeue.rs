@@ -354,10 +354,18 @@ fn build_dequeue_query(
                  WHEN q.op = 'reset' THEN 1
                  ELSE 0
             END DESC,
-            -- Project registrations jump the line so `wqm project register`
-            -- materialises in `wqm project list` even when the queue is
-            -- backlogged with file ingestion (issue #70).
-            CASE WHEN q.item_type = 'tenant' AND q.op = 'add' THEN 1 ELSE 0 END DESC,
+            -- Project registrations AND their follow-up directory scan jump the
+            -- line. The (Tenant, Add) registration already line-jumped (#70);
+            -- promote the (Tenant, Scan) it enqueues too (#112). Without this a
+            -- normal-priority (inactive) project's scan carries the lowest
+            -- op-weight (1) AND loses the `is_active` tie-break, so it is starved
+            -- for minutes behind active projects' file ingestion until a
+            -- reconcile sweep ingests the files instead (leaving `last_scan`
+            -- stale). The scan only enumerates the directory and enqueues File
+            -- items — those File items still rank by `is_active` below active
+            -- work, so promoting the scan gets the new project's files *queued*
+            -- promptly without preempting active ingestion.
+            CASE WHEN q.item_type = 'tenant' AND q.op IN ('add', 'scan') THEN 1 ELSE 0 END DESC,
             -- Age-based promotion: prevent starvation of tenants whose pending
             -- items have low op-weight by promoting old items above the
             -- project-active ranking. +1 once age >= warning threshold, +2 once
