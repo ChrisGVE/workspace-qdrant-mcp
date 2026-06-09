@@ -67,6 +67,34 @@ fn is_no_such_table(e: &rusqlite::Error) -> bool {
     e.to_string().contains("no such table")
 }
 
+/// Render registered projects as a "retry with projectId" hint for the
+/// project-not-detected errors (#111). Shows the container folder and the
+/// `tenant_id` to pass as `projectId`. Empty when nothing is registered.
+pub fn format_available_projects_hint(projects: &[RegisteredProject]) -> String {
+    if projects.is_empty() {
+        return " No projects are registered yet — register one with the 'store' \
+                tool (type:\"project\")."
+            .to_string();
+    }
+    const MAX: usize = 15;
+    let shown: Vec<String> = projects
+        .iter()
+        .take(MAX)
+        .map(|p| format!("{} (projectId: {})", p.container_folder, p.project_id))
+        .collect();
+    let more = projects.len().saturating_sub(MAX);
+    let suffix = if more > 0 {
+        format!(" (+{more} more)")
+    } else {
+        String::new()
+    };
+    format!(
+        " Available projects — retry with projectId=<id>: {}{}",
+        shown.join(", "),
+        suffix
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -153,6 +181,37 @@ pub fn list_active_projects(conn: Option<&Connection>) -> Vec<RegisteredProject>
         Err(e) if is_no_such_table(&e) => Vec::new(),
         Err(e) => {
             tracing::warn!("list_active_projects failed: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// List every registered project (active or not), most-recently-active first.
+///
+/// Unlike [`list_active_projects`] this does NOT filter on `is_active`, so a
+/// freshly-registered project whose initial scan has not run yet (it starts
+/// `is_active = 0`, see #112) is still returned. Used to populate the
+/// "could not detect project" errors with the IDs a caller can retry with
+/// (#111).
+pub fn list_registered_projects(conn: Option<&Connection>) -> Vec<RegisteredProject> {
+    let Some(conn) = conn else {
+        return Vec::new();
+    };
+    let sql = format!(
+        "{SELECT_FIELDS} WHERE collection = ? ORDER BY last_activity_at DESC, created_at DESC"
+    );
+    let result: Result<Vec<RegisteredProject>, rusqlite::Error> = (|| {
+        let mut stmt = conn.prepare(&sql)?;
+        let rows: Vec<RegisteredProject> = stmt
+            .query_map(params![COLLECTION_PROJECTS], map_row)?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    })();
+    match result {
+        Ok(rows) => rows,
+        Err(e) if is_no_such_table(&e) => Vec::new(),
+        Err(e) => {
+            tracing::warn!("list_registered_projects failed: {e}");
             Vec::new()
         }
     }
@@ -327,6 +386,49 @@ mod tests {
         let result = list_active_projects(Some(&conn));
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].project_path, "/active");
+    }
+
+    #[test]
+    fn list_registered_projects_includes_inactive() {
+        // #111: a just-registered project starts is_active=0 but must still be
+        // offered as a retry target, so list_registered_projects ignores
+        // is_active (unlike list_active_projects).
+        let dir = TempDir::new().unwrap();
+        let (path, conn) = make_db(&dir);
+        drop(conn);
+        insert_project(
+            &path,
+            "w1",
+            "t1",
+            "/active",
+            1,
+            Some("2024-01-02T00:00:00Z"),
+        );
+        insert_project(&path, "w2", "t2", "/just-registered", 0, None);
+
+        let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let result = list_registered_projects(Some(&conn));
+        assert_eq!(result.len(), 2, "must include the inactive project too");
+    }
+
+    #[test]
+    fn format_available_projects_hint_lists_ids() {
+        let dir = TempDir::new().unwrap();
+        let (path, conn) = make_db(&dir);
+        drop(conn);
+        insert_project(&path, "w1", "tenant-abc", "/home/user/MoonSwift", 0, None);
+        let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+
+        let hint = format_available_projects_hint(&list_registered_projects(Some(&conn)));
+        assert!(
+            hint.contains("MoonSwift"),
+            "hint names the container folder"
+        );
+        assert!(hint.contains("tenant-abc"), "hint exposes the projectId");
+
+        // Empty registry → register guidance instead of a dangling list.
+        let empty = format_available_projects_hint(&[]);
+        assert!(empty.contains("register"));
     }
 
     #[test]

@@ -230,8 +230,14 @@ fn resolve_project_ids(
     let project_id = match input.project_id.as_deref().or(state.project_id.as_deref()) {
         Some(id) => id.to_string(),
         None => {
+            // #111: the cwd was not inside a registered project. List the
+            // registered projects so the caller can retry with a projectId
+            // instead of being told "use projectId" with no way to find one.
+            let hint = project_queries::format_available_projects_hint(
+                &project_queries::list_registered_projects(sqlite.connection()),
+            );
             return Err(ok_text(&ListResponse::error(
-                "Could not detect project. Use projectId parameter.",
+                &format!("Could not detect project from the working directory.{hint}"),
                 base_path,
                 format,
             )));
