@@ -1,8 +1,6 @@
-//! Tests for the SQLite-free scope helpers: decay-map building, relevance decay,
-//! degraded-reason formatting, and path-segment base-point matching.
-//!
-//! The SQLite-bound `resolve_base_points` lives in the MCP server's scope
-//! adapter and is tested there.
+//! Tests for the SQLite-free scope helpers: decay-map building and relevance
+//! decay. Project isolation is the tenant-id filter alone — the former
+//! `base_point` worktree-isolation path was removed (#115).
 
 use std::collections::HashMap;
 
@@ -101,34 +99,4 @@ fn relevance_decay_multiplies_and_resorts() {
     assert!((results[1].score - 0.50).abs() < 1e-9);
     assert_eq!(results[2].id, "other");
     assert!((results[2].score - 0.36).abs() < 1e-9);
-}
-
-// ── format_base_points_degraded_reason ──────────────────────────────────────
-
-#[test]
-fn degraded_reason_includes_count_and_cap() {
-    let r = format_base_points_degraded_reason(Some(742));
-    assert!(r.contains("742 active base points"));
-    assert!(r.contains("500-filter cap"));
-    let r2 = format_base_points_degraded_reason(None);
-    assert!(r2.contains("too many active base points"));
-}
-
-// ── cwd_under_base_point ─────────────────────────────────────────────────────
-
-#[test]
-fn cwd_under_base_point_segment_boundaries() {
-    let sep = std::path::MAIN_SEPARATOR;
-    let join = |a: &str, b: &str| format!("{a}{sep}{b}");
-    let repo = join("", "repo"); // "/repo" on unix
-                                 // Exact match and true descendants match.
-    assert!(cwd_under_base_point(&repo, &repo));
-    assert!(cwd_under_base_point(&join(&repo, "src"), &repo));
-    // Sibling sharing a string prefix must NOT match.
-    assert!(!cwd_under_base_point(&format!("{repo}-a"), &repo));
-    // Trailing separator on the base point is tolerated.
-    assert!(cwd_under_base_point(
-        &join(&repo, "src"),
-        &format!("{repo}{sep}")
-    ));
 }

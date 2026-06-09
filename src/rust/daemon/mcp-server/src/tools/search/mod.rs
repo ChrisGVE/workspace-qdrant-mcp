@@ -117,21 +117,13 @@ pub async fn search_tool(
     // calls `this.resolveProjectId()` to obtain the fallback.
     opts.project_id = project_id.clone();
 
-    // Pre-compute expansion keywords + base points synchronously BEFORE any
-    // `.await`. Both read SQLite under a short lock that is dropped before the
-    // first await — no `&Connection` ever crosses an await (SharedStateManager).
-    // Prefer the client-reported workspace root over process cwd (#97): in
-    // stdio mode the process cwd is the client LAUNCH cwd, not necessarily
-    // the conversation's working directory.
-    let cwd = session
-        .client_cwd
-        .clone()
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let (expansion_keywords, base_points, bp_degraded, bp_active) = {
+    // Pre-compute expansion keywords synchronously BEFORE any `.await`. The
+    // read takes a short SQLite lock that is dropped before the first await —
+    // no `&Connection` ever crosses an await (SharedStateManager).
+    let expansion_keywords = {
         let guard = state.lock();
         let conn = guard.connection();
-        let keywords = if !opts.exact {
+        if !opts.exact {
             let collections = crate::qdrant::filters::determine_collections(
                 opts.collection.as_deref(),
                 opts.scope.as_str(),
@@ -145,10 +137,7 @@ pub async fn search_tool(
             )
         } else {
             Vec::new()
-        };
-        let (bp, degraded, count) =
-            scope::resolve_base_points(conn, project_id.as_deref(), opts.scope, &cwd);
-        (keywords, bp, degraded, count)
+        }
         // guard dropped here — no Connection reference crosses an await
     };
 
@@ -169,10 +158,7 @@ pub async fn search_tool(
             resolve_scope_filter(daemon, project_id.as_deref(), opts.scope).await;
         let scope_ctx = scope::ScopeContext {
             group_tenant_ids,
-            base_points,
             decay_map,
-            base_points_degraded: bp_degraded,
-            base_points_active_count: bp_active,
         };
 
         // scope=group with no resolved membership → refusal (TS search.ts).
@@ -183,7 +169,7 @@ pub async fn search_tool(
         if opts.scope == SearchScope::Group && group_empty {
             group_refusal_response(&opts)
         } else {
-            let mut resp = flow::run_search_pipeline(
+            flow::run_search_pipeline(
                 daemon,
                 qdrant,
                 expansion_keywords,
@@ -193,12 +179,7 @@ pub async fn search_tool(
                 &scope_ctx,
                 &PrometheusFallback,
             )
-            .await;
-            // F-014: base-point isolation degraded → uncertain + reason.
-            if scope_ctx.base_points_degraded {
-                apply_base_points_degraded(&mut resp, scope_ctx.base_points_active_count);
-            }
-            resp
+            .await
         }
     };
 
@@ -332,16 +313,6 @@ fn group_refusal_response(opts: &SearchOptions) -> SearchResponse {
         branch: None,
         diversity_score: None,
     }
-}
-
-/// Mark a response `uncertain` and append the F-014 base-point-degraded reason.
-fn apply_base_points_degraded(resp: &mut SearchResponse, active_count: Option<usize>) {
-    resp.status = Some("uncertain".to_string());
-    let reason = scope::format_base_points_degraded_reason(active_count);
-    resp.status_reason = Some(match resp.status_reason.take() {
-        Some(existing) if !existing.is_empty() => format!("{existing}; {reason}"),
-        _ => reason,
-    });
 }
 
 /// Fire-and-forget: log pre-search event via daemon.

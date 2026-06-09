@@ -374,35 +374,6 @@ fn determine_collections_unknown_scope_defaults_to_projects() {
     assert_eq!(cols, vec![COLLECTION_PROJECTS]);
 }
 
-// ── base_points ───────────────────────────────────────────────────────────────
-
-#[test]
-fn base_points_adds_one_must() {
-    let params = FilterParams {
-        collection: COLLECTION_PROJECTS.to_string(),
-        scope: "project".to_string(),
-        project_id: Some("p".to_string()),
-        base_points: Some(vec!["bp1".to_string(), "bp2".to_string()]),
-        ..Default::default()
-    };
-    let f = build_filter(&params).unwrap();
-    // tenant_id (1) + base_point (1) = 2
-    assert_eq!(f.must.len(), 2);
-}
-
-#[test]
-fn empty_base_points_does_not_add_condition() {
-    let params = FilterParams {
-        collection: COLLECTION_PROJECTS.to_string(),
-        scope: "project".to_string(),
-        project_id: Some("p".to_string()),
-        base_points: Some(vec![]),
-        ..Default::default()
-    };
-    let f = build_filter(&params).unwrap();
-    assert_eq!(f.must.len(), 1);
-}
-
 // ── combined conditions ───────────────────────────────────────────────────────
 
 #[test]

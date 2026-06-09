@@ -135,7 +135,6 @@ async fn ac_s5_f001_project_scope_unresolved_refuses_scroll() {
         &opts,
         &collections,
         None, /* project_id unresolved */
-        &Default::default(),
     )
     .await;
 
@@ -198,14 +197,7 @@ async fn ac_s5_project_scope_with_resolved_id_proceeds() {
     };
     let collections = vec!["projects".to_string()];
 
-    let resp = fallback_search(
-        &qdrant,
-        &opts,
-        &collections,
-        Some("tenant_abc"),
-        &Default::default(),
-    )
-    .await;
+    let resp = fallback_search(&qdrant, &opts, &collections, Some("tenant_abc")).await;
 
     // Degraded (uncertain) but NOT refused — results allowed.
     assert_eq!(resp.status.as_deref(), Some("uncertain"));
@@ -239,12 +231,8 @@ async fn group_scope_fallback_refuses_and_does_not_scroll() {
         ..Default::default()
     };
     let collections = vec!["projects".to_string()];
-    let scope_ctx = crate::tools::search::scope::ScopeContext {
-        group_tenant_ids: Some(vec!["tenant_abc".to_string(), "tenant_def".to_string()]),
-        ..Default::default()
-    };
 
-    let resp = fallback_search(&qdrant, &opts, &collections, Some("tenant_abc"), &scope_ctx).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, Some("tenant_abc")).await;
 
     assert_eq!(resp.status.as_deref(), Some("uncertain"));
     assert!(
@@ -329,7 +317,7 @@ async fn partial_qdrant_failure_reports_uncertain_status() {
     };
     let collections = vec!["projects".to_string(), "scratchpad".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, None, &Default::default()).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
 
     // Fallback always sets status=uncertain.
     assert_eq!(resp.status.as_deref(), Some("uncertain"));
@@ -367,7 +355,7 @@ async fn fallback_search_response_fields_populated() {
     };
     let collections = vec!["projects".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, None, &Default::default()).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
 
     assert_eq!(resp.query, "hello world");
     assert_eq!(resp.mode, SearchMode::Keyword);
@@ -405,7 +393,7 @@ async fn m1_f001_project_scope_unresolved_refuses_all_collections_including_libr
     // Both projects and libraries are included (include_libraries=true).
     let collections = vec!["projects".to_string(), "libraries".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, None, &Default::default()).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
 
     // F-001: BOTH collections refused — zero results, uncertain status.
     assert_eq!(
@@ -432,7 +420,7 @@ async fn m1_f001_explicit_rules_collection_refused_when_scope_project_unresolved
     let qdrant = StubQdrant::default();
     let collections = vec!["rules".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, None, &Default::default()).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, None).await;
 
     assert_eq!(
         resp.results.len(),
@@ -495,7 +483,7 @@ async fn m2_f001_empty_project_id_refuses_scroll_with_exact_f001_string() {
     };
     let collections = vec!["projects".to_string()];
 
-    let resp = fallback_search(&qdrant, &opts, &collections, Some(""), &Default::default()).await;
+    let resp = fallback_search(&qdrant, &opts, &collections, Some("")).await;
 
     assert_eq!(
         resp.results.len(),

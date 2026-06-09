@@ -185,58 +185,6 @@ pub fn get_watch_folder_id_by_tenant(conn: Option<&Connection>, tenant_id: &str)
     }
 }
 
-/// Get distinct `base_point` values for files under a watch folder.
-///
-/// SQL verbatim from `instance-queries.ts:49-67`.
-pub fn get_active_base_points(
-    conn: Option<&Connection>,
-    watch_folder_id: &str,
-    include_submodules: bool,
-) -> Vec<String> {
-    let Some(conn) = conn else {
-        return Vec::new();
-    };
-    let result: Result<Vec<String>, rusqlite::Error> = if include_submodules {
-        (|| {
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT base_point FROM tracked_files \
-                 WHERE base_point IS NOT NULL AND ( \
-                     watch_folder_id = ? \
-                     OR watch_folder_id IN ( \
-                         SELECT child_watch_id FROM watch_folder_submodules \
-                         WHERE parent_watch_id = ? \
-                     ) \
-                 )",
-            )?;
-            let rows: Vec<String> = stmt
-                .query_map(params![watch_folder_id, watch_folder_id], |row| {
-                    row.get::<_, String>(0)
-                })?
-                .collect::<Result<_, _>>()?;
-            Ok(rows)
-        })()
-    } else {
-        (|| {
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT base_point FROM tracked_files \
-                 WHERE base_point IS NOT NULL AND watch_folder_id = ?",
-            )?;
-            let rows: Vec<String> = stmt
-                .query_map(params![watch_folder_id], |row| row.get::<_, String>(0))?
-                .collect::<Result<_, _>>()?;
-            Ok(rows)
-        })()
-    };
-    match result {
-        Ok(v) => v,
-        Err(e) if is_no_such_table(&e) => Vec::new(),
-        Err(e) => {
-            tracing::warn!("get_active_base_points failed: {e}");
-            Vec::new()
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -411,6 +359,5 @@ mod tests {
         assert!(get_project_by_id(None, "x").is_none());
         assert!(list_active_projects(None).is_empty());
         assert!(get_watch_folder_id_by_tenant(None, "x").is_none());
-        assert!(get_active_base_points(None, "x", false).is_empty());
     }
 }

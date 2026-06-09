@@ -45,8 +45,6 @@ pub struct FilterParams {
     pub path_glob: Option<String>,
     /// Component ID prefix filter.
     pub component: Option<String>,
-    /// Instance-aware base_point IDs (projects collection only).
-    pub base_points: Option<Vec<String>>,
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -143,9 +141,6 @@ fn build_must_conditions(params: &FilterParams) -> Vec<Condition> {
     if let Some(c) = build_project_condition(params) {
         conditions.push(c);
     }
-    if let Some(c) = build_base_point_condition(params) {
-        conditions.push(c);
-    }
     if let Some(c) = build_branch_condition(params) {
         conditions.push(c);
     }
@@ -206,12 +201,6 @@ fn build_project_condition(params: &FilterParams) -> Option<Condition> {
     }
     let project_id = params.project_id.as_deref()?;
     Some(Condition::matches(field::TENANT_ID, project_id.to_string()))
-}
-
-/// Mirrors `buildBasePointCondition` in `search-filters.ts`.
-fn build_base_point_condition(params: &FilterParams) -> Option<Condition> {
-    let points = params.base_points.as_deref().filter(|p| !p.is_empty())?;
-    Some(Condition::matches(field::BASE_POINT, points.to_vec()))
 }
 
 /// Mirrors `buildBranchCondition` in `search-filters.ts`.

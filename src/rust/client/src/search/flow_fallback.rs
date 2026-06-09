@@ -44,7 +44,6 @@ pub async fn fallback_search<Q>(
     opts: &SearchOptions,
     collections: &[String],
     project_id: Option<&str>,
-    scope_ctx: &super::scope::ScopeContext,
 ) -> SearchResponse
 where
     Q: SearchQdrant,
@@ -77,7 +76,7 @@ where
             refused.push(coll.clone());
             continue;
         }
-        let filter_params = fallback_filter_params(coll, opts, project_id, scope_ctx);
+        let filter_params = fallback_filter_params(coll, opts, project_id);
         let filter = build_filter(&filter_params);
         attempted += 1;
         if let Ok(points) = qdrant.scroll_page(coll, filter, fetch_limit).await {
@@ -130,7 +129,6 @@ pub(super) fn fallback_filter_params<'a>(
     collection: &'a str,
     opts: &'a SearchOptions,
     project_id: Option<&'a str>,
-    scope_ctx: &'a super::scope::ScopeContext,
 ) -> FilterParams {
     FilterParams {
         collection: collection.to_string(),
@@ -159,13 +157,6 @@ pub(super) fn fallback_filter_params<'a>(
         tags: opts.tags.clone(),
         path_glob: opts.path_glob.clone(),
         component: opts.component.clone(),
-        // Base points only constrain the projects collection (TS
-        // search-qdrant.ts:351 `collection === PROJECTS_COLLECTION ? basePoints : undefined`).
-        base_points: if collection == wqm_common::constants::COLLECTION_PROJECTS {
-            scope_ctx.base_points.clone()
-        } else {
-            None
-        },
     }
 }
 

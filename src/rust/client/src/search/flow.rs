@@ -221,7 +221,7 @@ where
         Ok(pair) => pair,
         Err(_) => {
             metrics.record_daemon_fallback("search", "embed_failed");
-            return fallback_search(qdrant, opts, &collections, project_id, scope_ctx).await;
+            return fallback_search(qdrant, opts, &collections, project_id).await;
         }
     };
 
@@ -448,13 +448,5 @@ fn search_filter_params<'a>(
         tags: opts.tags.clone(),
         path_glob: opts.path_glob.clone(),
         component: opts.component.clone(),
-        // Base points only constrain the projects collection (TS
-        // search-helpers.ts:216 `coll === PROJECTS_COLLECTION ? basePoints : undefined`);
-        // threading them into libraries/scratchpad/rules would wrongly suppress hits.
-        base_points: if collection == COLLECTION_PROJECTS {
-            scope_ctx.base_points.clone()
-        } else {
-            None
-        },
     }
 }
