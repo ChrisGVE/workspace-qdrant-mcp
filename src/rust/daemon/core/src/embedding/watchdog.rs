@@ -373,13 +373,18 @@ mod tests {
             "health must be unavailable while the provider is down so work is parked"
         );
 
-        // Give the blocking diagnostic write a chance to land, then verify it
-        // records the degraded (not shutdown) action.
-        for _ in 0..20 {
+        // The one-shot diagnostic is written via tokio::fs (blocking pool). The
+        // paused test clock freezes timers but not those OS threads, so we must
+        // yield BOTH the task (to re-poll the watchdog across its create_dir_all
+        // -> write awaits) and a little real wall-time (to let the blocking
+        // threads actually run) before asserting — a bare yield spin races on a
+        // loaded runner.
+        for _ in 0..200 {
             if diag.exists() {
                 break;
             }
             tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(5));
         }
         assert!(diag.exists(), "diagnostic file must be written");
         let body = std::fs::read_to_string(&diag).unwrap();
