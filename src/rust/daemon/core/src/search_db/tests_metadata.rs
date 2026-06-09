@@ -217,6 +217,51 @@ async fn test_file_metadata_delete_by_tenant() {
 }
 
 #[tokio::test]
+async fn test_file_metadata_stats_by_tenant_branch() {
+    // #118: the per-(tenant, branch) tracked-file gauge source.
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("search.db");
+    let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+    // proj-a/main x2, proj-a/dev x1, proj-b/main x1, and one NULL-branch row.
+    let rows = [
+        (1_i64, "proj-a", Some("main")),
+        (2, "proj-a", Some("main")),
+        (3, "proj-a", Some("dev")),
+        (4, "proj-b", Some("main")),
+        (5, "proj-b", None),
+    ];
+    for (id, tenant, branch) in rows {
+        sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_SQL)
+            .bind(id)
+            .bind(tenant)
+            .bind(branch)
+            .bind(format!("/f{}.rs", id))
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .execute(manager.pool())
+            .await
+            .unwrap();
+    }
+
+    let stats = manager
+        .file_metadata_stats_by_tenant_branch()
+        .await
+        .unwrap();
+    let lookup: std::collections::HashMap<(String, String), i64> =
+        stats.into_iter().map(|(t, b, n)| ((t, b), n)).collect();
+
+    assert_eq!(lookup.get(&("proj-a".into(), "main".into())), Some(&2));
+    assert_eq!(lookup.get(&("proj-a".into(), "dev".into())), Some(&1));
+    assert_eq!(lookup.get(&("proj-b".into(), "main".into())), Some(&1));
+    // NULL branch is reported as the empty string so every series is labelled.
+    assert_eq!(lookup.get(&("proj-b".into(), String::new())), Some(&1));
+
+    manager.close().await;
+}
+
+#[tokio::test]
 async fn test_fts5_search_by_project() {
     use sqlx::Row;
     let tmp = TempDir::new().unwrap();

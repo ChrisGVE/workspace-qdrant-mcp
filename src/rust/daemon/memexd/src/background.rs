@@ -364,6 +364,43 @@ pub fn start_queue_depth_exporter(pool: SqlitePool) -> JoinHandle<()> {
     handle
 }
 
+/// Periodically export per-(tenant, branch) tracked-file counts (#118).
+///
+/// Snapshots `search.db`'s `file_metadata` into the `wqm_memexd_tracked_files`
+/// gauge for indexing-coverage and FTS5-pressure visibility. Stale label pairs
+/// (e.g. a removed tenant/branch) are zeroed so series don't get stuck. Runs on
+/// a 60 s cadence — coverage changes slowly and the GROUP BY is cheap.
+pub fn start_indexing_metrics_exporter(
+    search_db: Arc<workspace_qdrant_core::search_db::SearchDbManager>,
+) -> JoinHandle<()> {
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        let mut known_pairs: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        loop {
+            interval.tick().await;
+            match search_db.file_metadata_stats_by_tenant_branch().await {
+                Ok(rows) => {
+                    let mut seen = std::collections::HashSet::new();
+                    for (tenant_id, branch, count) in rows {
+                        METRICS.set_tracked_files(&tenant_id, &branch, count);
+                        seen.insert((tenant_id, branch));
+                    }
+                    for pair in known_pairs.iter() {
+                        if !seen.contains(pair) {
+                            METRICS.set_tracked_files(&pair.0, &pair.1, 0);
+                        }
+                    }
+                    known_pairs.extend(seen);
+                }
+                Err(e) => debug!("tracked-files metrics refresh failed: {}", e),
+            }
+        }
+    });
+    info!("Indexing-coverage metrics exporter started (60s interval)");
+    handle
+}
+
 /// Start hourly metrics maintenance: aggregation + retention (Task 544.11-14).
 pub fn start_metrics_maintenance(pool: SqlitePool) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -542,6 +579,7 @@ pub fn spawn_all(
     pool: &SqlitePool,
     pause_flag: &Arc<std::sync::atomic::AtomicBool>,
     prometheus_config: &PrometheusExportConfig,
+    search_db: Arc<workspace_qdrant_core::search_db::SearchDbManager>,
 ) -> BackgroundHandles {
     let metrics_handle = start_metrics_server(prometheus_config);
     let uptime_handle = start_uptime_tracker();
@@ -556,6 +594,7 @@ pub fn spawn_all(
     let _remote = start_remote_url_monitor(pool.clone());
     let _git_state = start_git_state_monitor(pool.clone());
     let _queue_depth = start_queue_depth_exporter(pool.clone());
+    let _indexing = start_indexing_metrics_exporter(search_db);
 
     BackgroundHandles {
         uptime_handle,

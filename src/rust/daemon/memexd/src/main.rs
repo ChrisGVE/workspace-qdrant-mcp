@@ -165,6 +165,7 @@ async fn run_daemon(
         &db_handles.queue_pool,
         &db_handles.pause_flag,
         &prometheus_config,
+        Arc::clone(&db_handles.search_db),
     );
     // Phase 4: LSP manager
     let lsp_manager = grpc_setup::init_lsp_manager(&daemon_config).await;

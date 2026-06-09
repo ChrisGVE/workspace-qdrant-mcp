@@ -148,6 +148,28 @@ pub(super) fn create_tenant_metrics() -> (IntGaugeVec, IntCounterVec, GaugeVec) 
     )
 }
 
+/// Indexing-coverage metrics (#118): tracked-file counts and size-gate skips.
+///
+/// - `tracked_files` — number of files in `search.db`'s `file_metadata` per
+///   `(tenant, branch)`, exported by a periodic snapshot for repo-coverage and
+///   FTS5-pressure visibility.
+/// - `files_size_skipped_total` — files the per-extension size gate declined to
+///   index, per tenant. Complements #113/#121 by making size-gate skips
+///   observable instead of silent.
+pub(super) fn create_indexing_metrics() -> (IntGaugeVec, IntCounterVec) {
+    let tracked_files = int_gauge_vec(
+        "wqm_memexd_tracked_files",
+        "Number of tracked files in search.db file_metadata per tenant and branch",
+        &["tenant_id", "branch"],
+    );
+    let files_size_skipped_total = int_counter_vec(
+        "wqm_memexd_files_size_skipped_total",
+        "Files skipped by the per-extension size gate, per tenant (#118)",
+        &["tenant_id"],
+    );
+    (tracked_files, files_size_skipped_total)
+}
+
 pub(super) fn create_system_metrics() -> (GaugeVec, IntCounterVec, HistogramVec) {
     let uptime_seconds = gauge_vec("wqm_memexd_uptime_seconds", "Daemon uptime in seconds", &[]);
     let ingestion_errors_total = int_counter_vec(

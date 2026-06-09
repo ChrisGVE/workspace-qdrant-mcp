@@ -474,6 +474,10 @@ async fn record_oversized_skip(
     .await?;
 
     zero_byte::mark_destinations_done(ctx, item).await;
+    // Make the size-gate skip observable per tenant (#118) — otherwise skips are
+    // invisible and a flood of oversized files (the #113/#121 failure mode) looks
+    // like silence.
+    crate::monitoring::METRICS.inc_files_size_skipped(&item.tenant_id);
     Ok(())
 }
 

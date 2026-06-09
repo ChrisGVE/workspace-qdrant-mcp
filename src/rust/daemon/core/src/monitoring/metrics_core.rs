@@ -12,8 +12,8 @@ use prometheus::{
 };
 
 use super::metrics_factories::{
-    create_dependency_metrics, create_processing_metrics, create_queue_metrics,
-    create_red_use_metrics, create_session_metrics, create_system_metrics,
+    create_dependency_metrics, create_indexing_metrics, create_processing_metrics,
+    create_queue_metrics, create_red_use_metrics, create_session_metrics, create_system_metrics,
     create_telemetry_extension_metrics, create_tenant_metrics, create_unified_queue_metrics,
     create_watch_metrics, register_all,
 };
@@ -67,6 +67,14 @@ pub struct DaemonMetrics {
     /// Storage bytes per tenant (estimated)
     /// Labels: tenant_id
     pub tenant_storage_bytes: GaugeVec,
+
+    /// Tracked files in search.db file_metadata (#118)
+    /// Labels: tenant_id, branch
+    pub tracked_files: IntGaugeVec,
+
+    /// Files skipped by the per-extension size gate (#118)
+    /// Labels: tenant_id
+    pub files_size_skipped_total: IntCounterVec,
 
     // System metrics
     /// Daemon uptime in seconds
@@ -222,6 +230,8 @@ struct CreatedMetrics {
     tenant_documents_total: IntGaugeVec,
     tenant_search_requests_total: IntCounterVec,
     tenant_storage_bytes: GaugeVec,
+    tracked_files: IntGaugeVec,
+    files_size_skipped_total: IntCounterVec,
     uptime_seconds: GaugeVec,
     ingestion_errors_total: IntCounterVec,
     heartbeat_latency_seconds: HistogramVec,
@@ -266,6 +276,7 @@ fn create_all_metrics() -> CreatedMetrics {
         create_queue_metrics();
     let (tenant_documents_total, tenant_search_requests_total, tenant_storage_bytes) =
         create_tenant_metrics();
+    let (tracked_files, files_size_skipped_total) = create_indexing_metrics();
     let (uptime_seconds, ingestion_errors_total, heartbeat_latency_seconds) =
         create_system_metrics();
     let (
@@ -344,6 +355,8 @@ fn create_all_metrics() -> CreatedMetrics {
         tenant_documents_total,
         tenant_search_requests_total,
         tenant_storage_bytes,
+        tracked_files,
+        files_size_skipped_total,
         uptime_seconds,
         ingestion_errors_total,
         heartbeat_latency_seconds,
@@ -396,6 +409,8 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.tenant_documents_total.clone()),
             Box::new(m.tenant_search_requests_total.clone()),
             Box::new(m.tenant_storage_bytes.clone()),
+            Box::new(m.tracked_files.clone()),
+            Box::new(m.files_size_skipped_total.clone()),
             Box::new(m.uptime_seconds.clone()),
             Box::new(m.ingestion_errors_total.clone()),
             Box::new(m.heartbeat_latency_seconds.clone()),
@@ -457,6 +472,8 @@ impl DaemonMetrics {
             tenant_documents_total: m.tenant_documents_total,
             tenant_search_requests_total: m.tenant_search_requests_total,
             tenant_storage_bytes: m.tenant_storage_bytes,
+            tracked_files: m.tracked_files,
+            files_size_skipped_total: m.files_size_skipped_total,
             uptime_seconds: m.uptime_seconds,
             ingestion_errors_total: m.ingestion_errors_total,
             heartbeat_latency_seconds: m.heartbeat_latency_seconds,

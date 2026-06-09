@@ -86,6 +86,22 @@ impl DaemonMetrics {
             .set(bytes);
     }
 
+    // ── Indexing-coverage helpers (#118) ──────────────────────────────
+
+    /// Set the tracked-file count for a `(tenant, branch)`.
+    pub fn set_tracked_files(&self, tenant_id: &str, branch: &str, count: i64) {
+        self.tracked_files
+            .with_label_values(&[tenant_id, branch])
+            .set(count);
+    }
+
+    /// Record a file skipped by the per-extension size gate, per tenant.
+    pub fn inc_files_size_skipped(&self, tenant_id: &str) {
+        self.files_size_skipped_total
+            .with_label_values(&[tenant_id])
+            .inc();
+    }
+
     // ── System helpers ────────────────────────────────────────────────
 
     /// Update daemon uptime

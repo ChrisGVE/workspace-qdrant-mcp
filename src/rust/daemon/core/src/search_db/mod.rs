@@ -127,6 +127,22 @@ impl SearchDbManager {
         self.pool.close().await;
     }
 
+    /// Count tracked files per `(tenant_id, branch)` in `file_metadata`.
+    ///
+    /// Powers the `wqm_memexd_tracked_files` indexing-coverage gauge (#118).
+    /// A NULL branch is reported as the empty string so every row carries a
+    /// label pair. Returns `(tenant_id, branch, count)` tuples.
+    pub async fn file_metadata_stats_by_tenant_branch(&self) -> Result<Vec<(String, String, i64)>> {
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT tenant_id, COALESCE(branch, '') AS branch, COUNT(*) AS n \
+             FROM file_metadata \
+             GROUP BY tenant_id, COALESCE(branch, '')",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     // ========================================================================
     // Schema management
     // ========================================================================
