@@ -1,0 +1,289 @@
+# =============================================================================
+# global.wqmignore.example — VERSION-CONTROLLED REFERENCE COPY
+# =============================================================================
+# The LIVE file the daemon reads is `dirname(WQM_DATABASE_PATH)/global.wqmignore`
+# — bind-mounted from the gitignored `state/memexd/global.wqmignore` (see
+# docker-compose.yml). Because `state/` is gitignored, the live copy is NOT under
+# version control and is lost on a volume rebuild / machine move. Keep this
+# example in sync as a backup. To restore: copy it to state/memexd/global.wqmignore
+# and restart memexd (or touch any project .gitignore to trigger reconciliation).
+# =============================================================================
+# global.wqmignore — daemon-wide index exclusions
+# =============================================================================
+# Patterns here are applied to EVERY indexed project on top of each project's
+# own .gitignore / .wqmignore. Uses standard gitignore syntax:
+#
+#   node_modules/   — exclude directory (trailing slash = dirs only)
+#   *.zip           — exclude by extension
+#   !important.log  — re-include a previously excluded path
+#
+# Changes take effect at the next ignore-file reconciliation event (triggered
+# automatically when any project's .gitignore or .wqmignore is modified, or
+# at the next daemon restart).
+# =============================================================================
+
+# testlink upstream sources (222 files). Use /** suffix — trailing-slash
+# form `testlink/` was leaving files indexed (likely `add_ignore()` quirk).
+# Re-include cfg/ and custom/ with /** matching contents explicitly.
+**/bws-dev-plataform/testlink/**
+# Re-include cfg/ and custom/. The DIRECTORY itself must be negated (trailing
+# slash, no /**) in addition to its contents (/**): a directory-pruning walk
+# tests the dir entry and, without the bare-dir negation, prunes cfg/ before
+# descending — so the contents-only re-include never fires and the 14 cfg/custom
+# files stay unindexed. Both forms together let the walk descend AND keep files.
+!**/bws-dev-plataform/testlink/cfg/
+!**/bws-dev-plataform/testlink/cfg/**
+!**/bws-dev-plataform/testlink/custom/
+!**/bws-dev-plataform/testlink/custom/**
+
+**/zabbix/zabbix/**
+
+# ─── Self-storage (Qdrant + memexd + MCP local state) ────────────────────────
+# When the workspace-qdrant-mcp repo itself is indexed, the daemon would
+# otherwise watch its own Qdrant storage / SQLite WAL / MCP logs, creating a
+# feedback loop: Qdrant rotates a segment -> fs event -> enqueue Add/Delete ->
+# daemon hits Qdrant -> Qdrant rotates more -> fs event -> ...
+# Excluding the host-bind state dir breaks the loop.
+state/
+**/state/qdrant/
+**/state/memexd/
+**/state/mcp/
+**/.fastembed_cache/
+
+# ─── Build artifacts ─────────────────────────────────────────────────────────
+build/
+dist/
+out/
+target/
+_build/
+coverage/
+**/coverage/
+*.class
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+
+# ─── Dependency / vendor directories ─────────────────────────────────────────
+node_modules/
+vendors/
+vendor/
+bower_components/
+jspm_packages/
+
+# ─── Python virtual environments ─────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ─── IDE / editor state ──────────────────────────────────────────────────────
+# Belt-and-suspenders: both anchored and **/ forms because the Rust `ignore`
+# crate's add_ignore() treats patterns as anchored to the ignore-file's
+# parent dir, not the walk root. Without **/ prefix, .claude/ would only
+# match /home/memexd/.workspace-qdrant/.claude/ — NOT project-level .claude/.
+.claude/
+**/.claude/
+.codex/
+**/.codex/
+.codex-skill-staging/
+**/.codex-skill-staging/
+.agents/
+**/.agents/
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/
+*.iml
+*.suo
+*.ntvs_analysis.dat
+
+# ─── Git internals (not auto-skipped when hidden=false) ──────────────────────
+.git/
+**/.git/
+
+# ─── Toolchain caches ────────────────────────────────────────────────────────
+.gradle/
+**/.gradle/
+.gradle-user/
+**/.gradle-user/
+.gradle-user-codex/
+**/.gradle-user-codex/
+.gradle-user-root/
+**/.gradle-user-root/
+.tools/
+**/.tools/
+.m2/
+**/.m2/
+.ivy2/
+**/.ivy2/
+.cargo/
+**/.cargo/
+.rustup/
+**/.rustup/
+.stack-work/
+**/.stack-work/
+# Flutter/Dart SDK checked into a project's tools/ dir (DOC-V2/tools/flutter =
+# 3GB of framework .dart source). The `.tools/` patterns above only match the
+# dotted form; an SDK under plain `tools/flutter/` leaks thousands of framework
+# files into the embedding queue. Exclude the SDK subtree specifically (keeps
+# real code under other tools/ dirs, e.g. src/rust/tools/registry-updater).
+**/tools/flutter/**
+**/flutter/bin/cache/**
+
+# ─── Image / media assets (FastEmbed is text-only) ───────────────────────────
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.ico
+*.webp
+*.svg
+*.bmp
+*.tiff
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.webm
+*.wav
+*.flac
+*.ogg
+
+# ─── Generated / large templates ─────────────────────────────────────────────
+*.tpl
+
+# ─── Archives and binary blobs ───────────────────────────────────────────────
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz
+*.gz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.jar
+*.war
+*.ear
+*.iso
+*.img
+*.dmg
+
+# ─── Generated / compiled assets ─────────────────────────────────────────────
+*.min.js
+*.min.css
+*.bundle.js
+*.map
+
+# ─── Lock files (large, machine-generated) ───────────────────────────────────
+# Confirmed culprits via `SELECT * FROM file_metadata ORDER BY size_bytes DESC`:
+# pnpm-lock.yaml (464KB), package-lock.json (600KB).
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+# Cargo.lock                # opt-in: useful for grep in Rust workspaces
+# Gemfile.lock
+# poetry.lock
+
+# ─── Generated proto / gRPC stubs ────────────────────────────────────────────
+# protobuf-java emits *.java under generated dirs; same files re-emerge on
+# every build. Search via `grep` on these is noise — the .proto source is
+# what people actually want to look at.
+**/proto/src/generated/
+**/*_proto/
+**/generated/proto/
+# protobuf-java naming convention: outer class for a .proto file gets the
+# suffix OuterClass.java (e.g. Profile.proto → ProfileOuterClass.java).
+# Catches anything emitted under proto/doc/, proto/api/, proto/<anywhere>/.
+**/*OuterClass.java
+# protobuf-java message classes that DON'T get the OuterClass suffix still land
+# under proto/<pkg>/ as generated holders (Shifts.java, User.java, Auth.java =
+# 500KB/200KB each). 86 generated .java files under proto/ trees. The .proto
+# source stays indexed; only the emitted Java is dropped.
+**/proto/**/*.java
+
+# ─── Generated protobuf — Dart (protoc-gen-dart) ─────────────────────────────
+# 417 generated Dart bindings (shifts.pb.dart = 215KB etc.) with ZERO prior
+# coverage. The .proto source is what people grep; these are pure codegen noise.
+**/*.pb.dart
+**/*.pbenum.dart
+**/*.pbjson.dart
+**/*.pbgrpc.dart
+**/*.pbserver.dart
+
+# ─── Generated code directories (broad) ──────────────────────────────────────
+# 459 files under */generated/ across doc-backend (proto Java) and doc-frontend
+# (packages/generated, lib/src/generated — proto Dart). Supersedes the narrow
+# **/generated/proto/ above. If a project keeps hand-authored files under a
+# generated/ dir, re-include them explicitly (e.g. !**/generated/keep.rs).
+**/generated/
+**/lib/src/generated/
+**/packages/generated/
+
+# ─── User uploads / dump dirs ────────────────────────────────────────────────
+# Conventional location for uploaded artifacts (CSV dumps, file uploads,
+# database exports). Skip the whole subtree — legitimate code doesn't live
+# under uploads/. If you DO have code in an uploads/ dir, add a re-include
+# (e.g. `!**/uploads/keep.ts`).
+**/uploads/
+
+# ─── Test result dumps ───────────────────────────────────────────────────────
+# Playwright / Jest / Cypress emit massive JSON result files that can grow
+# to hundreds of MB after a few runs.
+**/e2e-results*.json
+**/test-results*.json
+**/playwright-report/
+**/validation-reports/
+**/test-artifacts/
+**/backend-test-artifacts/
+
+# ─── Generated third-party license bundles ───────────────────────────────────
+# Rust `ignore` crate add_ignore() anchors to the ignore-file's parent dir,
+# so we need the **/ prefix to match nested paths. See header comment above.
+**/THIRD-PARTY-LICENSES.md
+**/THIRD-PARTY-NOTICES.md
+**/THIRD-PARTY-LICENSES.txt
+**/LICENSE-3rdparty.json
+
+# --- Semantic-search eval-artifact leakage (added 2026-06-02) ---
+# The benchmark report + dataset contain the queries and expected paths
+# verbatim; indexed, they dominate results. Project .wqmignore is not being
+# honored on this ext4 setup, so exclude here (global IS applied).
+**/mcp-server/reports/
+**/benchmark-data/
+**/mcp-server/scripts/benchmark-data/
+**/semantic-search-quality.yaml
+
+# --- workspace-qdrant-mcp: own test fixtures & generated assets (added 2026-06-09) ---
+# Polyglot language-registry fixtures: a "bookshelf" sample app reimplemented in
+# 20+ languages (142 files) plus a processing-pipeline corpus (31 files:
+# HTML/txt/json/sample sources). These are CI fixtures for the dynamic language
+# registry / extractor, NOT the daemon/MCP/CLI logic. Indexed, their generic
+# symbols (models/storage/utils, "Book", "Shelf") and duplicated logic across
+# every language flood semantic search for this repo. Project .wqmignore is not
+# honored on this ext4 setup, so exclude globally — both paths are repo-specific
+# enough to be safe across other indexed projects.
+**/tests/language-support/
+**/tests/artifacts/
+
+# Grafana dashboard definitions — dense, machine-generated JSON (panel/query
+# blobs), 9 files under docker/grafana/dashboards/ plus the assets/docs copies.
+# Pure noise for code search.
+**/grafana/dashboards/
+
+# Vendored, patched copy of the upstream `fastembed` crate (src/rust/patches/
+# fastembed, 44 files incl. its own .github/, README, tests). Third-party code
+# that competes with the daemon's real embedding modules in search results.
+# Uncomment to drop it from the index; leave it if you actively grep the patch.
+# **/src/rust/patches/fastembed/
