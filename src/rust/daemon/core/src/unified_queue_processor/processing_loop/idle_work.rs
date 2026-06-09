@@ -11,6 +11,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::config::IngestionLimitsConfig;
 use crate::graph::GraphStore;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
@@ -36,6 +37,7 @@ pub(super) async fn run_idle_work(
     lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
     search_db: &Option<Arc<SearchDbManager>>,
     graph_store: &Option<Arc<dyn GraphStore>>,
+    ingestion_limits: &Arc<IngestionLimitsConfig>,
     poll_interval: Duration,
 ) -> bool {
     if state.idle_since.is_none() {
@@ -53,6 +55,7 @@ pub(super) async fn run_idle_work(
         storage_client,
         search_db,
         graph_store,
+        ingestion_limits,
         idle_elapsed,
     )
     .await;
@@ -113,6 +116,7 @@ async fn run_maintenance_tick(
     storage_client: &Arc<StorageClient>,
     search_db: &Option<Arc<SearchDbManager>>,
     graph_store: &Option<Arc<dyn GraphStore>>,
+    ingestion_limits: &Arc<IngestionLimitsConfig>,
     idle_elapsed: u64,
 ) {
     let qdrant_available = storage_client.is_qdrant_available();
@@ -126,6 +130,7 @@ async fn run_maintenance_tick(
             search_db: search_db.as_ref(),
             queue_manager,
             graph_store: graph_store.as_ref(),
+            ingestion_limits,
         };
         let _ = state
             .maintenance_scheduler

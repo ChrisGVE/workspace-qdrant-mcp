@@ -330,6 +330,7 @@ impl UnifiedQueueProcessor {
                     lsp_manager,
                     search_db,
                     graph_store,
+                    ingestion_limits,
                     poll_interval,
                 )
                 .await;
