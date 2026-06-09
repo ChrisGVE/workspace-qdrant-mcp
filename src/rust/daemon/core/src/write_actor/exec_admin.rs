@@ -184,6 +184,21 @@ impl WriteActor {
                 "ignore_patterns": []
             })
             .to_string();
+            // Label re-embedded project files under the repo's ACTUAL current
+            // branch. Passing None here makes enqueue_unified fall back to "main"
+            // (its default for an absent branch); for a repo whose real branch is
+            // e.g. "dev-clean"/"master" that silently mislabels the entire corpus
+            // under a non-existent "main" — which splits content off the branch the
+            // daemon searches AND made deleted-branch reconciliation treat the
+            // corpus as an orphan. Resolve the branch like the file-watcher path
+            // (enqueue_tenant_scan) does. Libraries are branch-agnostic (None).
+            let branch = if collection == "projects" {
+                Some(crate::watching_queue::get_current_branch(std::path::Path::new(
+                    path,
+                )))
+            } else {
+                None
+            };
             let (_, is_new) = queue_manager
                 .enqueue_unified(
                     crate::unified_queue_schema::ItemType::Folder,
@@ -191,7 +206,7 @@ impl WriteActor {
                     tenant_id,
                     collection,
                     &payload,
-                    None,
+                    branch.as_deref(),
                     None,
                 )
                 .await

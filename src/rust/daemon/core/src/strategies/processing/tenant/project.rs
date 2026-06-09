@@ -232,6 +232,20 @@ pub(crate) async fn enqueue_project_scan(
         }
     };
 
+    // Label the project's scanned files under the repo's ACTUAL current branch.
+    // Passing None lets enqueue_unified fall back to "main" (its default for an
+    // absent branch); for a repo whose real branch is e.g. "dev-clean"/"master"
+    // that mislabels the entire corpus under a non-existent "main", splitting it
+    // off the branch the daemon searches. Resolve it like the file-watcher path
+    // (enqueue_tenant_scan) and let scan_project_directory propagate item.branch.
+    let branch = if item.collection == COLLECTION_PROJECTS {
+        Some(crate::watching_queue::get_current_branch(
+            std::path::Path::new(&payload.project_root),
+        ))
+    } else {
+        None
+    };
+
     match ctx
         .queue_manager
         .enqueue_unified(
@@ -240,7 +254,7 @@ pub(crate) async fn enqueue_project_scan(
             &item.tenant_id,
             &item.collection,
             &scan_payload_json,
-            None,
+            branch.as_deref(),
             None,
         )
         .await
