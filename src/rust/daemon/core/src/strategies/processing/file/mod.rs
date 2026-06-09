@@ -42,6 +42,7 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tracing::{debug, error, info, warn};
 
+use crate::config::IngestionLimitsConfig;
 use crate::context::ProcessingContext;
 use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
@@ -195,6 +196,38 @@ impl FileStrategy {
             .await;
         }
 
+        // Size-gate fallback (#121): some enqueue paths (branch switch, startup
+        // recovery, reconciliation, the registration scan, …) leave
+        // `size_bytes` unset, which silently bypasses the per-extension limit in
+        // `ingestion_guard`. Stat the file here so an oversized data dump (e.g. a
+        // 17 MB tokenizer.json) is recorded as a 0-chunk skip rather than chunked
+        // into thousands of embeddings and flooding the embedder.
+        if payload.size_bytes.is_none() {
+            if let Ok(size) = std::fs::metadata(file_path).map(|m| m.len()) {
+                let ext = crate::file_classification::get_extension_for_storage(file_path)
+                    .unwrap_or_default();
+                if let Some(limit) = extension_limit_exceeded(&ctx.ingestion_limits, &ext, size) {
+                    warn!(
+                        extension = %ext,
+                        size_kb = size / 1024,
+                        limit_kb = limit / 1024,
+                        path = %relative_path,
+                        "Skipping oversized file (size from stat; payload had no \
+                         size_bytes): exceeds per-extension limit"
+                    );
+                    return record_oversized_skip(
+                        ctx,
+                        item,
+                        pool,
+                        &watch_folder_id,
+                        relative_path,
+                        file_path,
+                    )
+                    .await;
+                }
+            }
+        }
+
         if item.op == QueueOperation::Update {
             if prepare_update(
                 ctx,
@@ -327,21 +360,31 @@ fn ingestion_guard(
     if let Some(size) = payload.size_bytes {
         let ext = crate::file_classification::get_extension_for_storage(Path::new(rel))
             .unwrap_or_default();
-        if let Some(limit) = ctx.ingestion_limits.size_limit_bytes(&ext) {
-            if size > limit {
-                warn!(
-                    extension = %ext,
-                    size_kb = size / 1024,
-                    limit_kb = limit / 1024,
-                    path = %rel,
-                    "Skipping oversized file: exceeds per-extension limit"
-                );
-                return IngestionGuard::SkipOversized;
-            }
+        if let Some(limit) = extension_limit_exceeded(&ctx.ingestion_limits, &ext, size) {
+            warn!(
+                extension = %ext,
+                size_kb = size / 1024,
+                limit_kb = limit / 1024,
+                path = %rel,
+                "Skipping oversized file: exceeds per-extension limit"
+            );
+            return IngestionGuard::SkipOversized;
         }
     }
 
     IngestionGuard::Proceed
+}
+
+/// If `size` (bytes) exceeds the configured per-extension ingestion limit for
+/// `ext`, return that limit (bytes); otherwise `None`. Extensions without a
+/// configured limit are unbounded. Accepts the extension with or without a
+/// leading dot.
+///
+/// Shared by the fast-path gate (`ingestion_guard`, using the payload's
+/// `size_bytes`) and the stat fallback in `process_file_item` (which covers
+/// enqueue paths that leave `size_bytes` unset). See #121.
+fn extension_limit_exceeded(limits: &IngestionLimitsConfig, ext: &str, size: u64) -> Option<u64> {
+    limits.size_limit_bytes(ext).filter(|&limit| size > limit)
 }
 
 /// Record an oversized (size-restricted) file as a 0-chunk skipped tracked
@@ -351,6 +394,14 @@ fn ingestion_guard(
 /// Recording it (rather than silently returning) keeps the file visible and,
 /// crucially, stops ignore-reconciliation from re-enqueueing it on every run —
 /// reconcile treats any path absent from `tracked_files` as "missing" (#113).
+///
+/// If the path was previously ingested with chunks (it grew past the gate, or
+/// was indexed before its enqueue path set `size_bytes`, #121), its Qdrant
+/// points and FTS5 lines are now orphaned. Purge them before recording the skip
+/// so reconcile-driven re-processing of already-ingested oversized files
+/// (filesystem_reconcile self-heal) actually removes the stale data rather than
+/// just flipping the tracked row to 0 chunks. Qdrant failures propagate so the
+/// queue item retries; FTS cleanup is non-fatal.
 async fn record_oversized_skip(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
@@ -359,6 +410,46 @@ async fn record_oversized_skip(
     relative_path: &str,
     file_path: &Path,
 ) -> UnifiedProcessorResult<()> {
+    let existing = tracked_files_schema::lookup_tracked_file(
+        pool,
+        watch_folder_id,
+        relative_path,
+        Some(item.branch.as_str()),
+    )
+    .await
+    .ok()
+    .flatten();
+    if let Some(ref ex) = existing {
+        if ex.chunk_count > 0 {
+            let abs_file_path = file_path.to_string_lossy();
+            ctx.storage_client
+                .delete_points_by_filter(&item.collection, &abs_file_path, &item.tenant_id)
+                .await
+                .map_err(|e| {
+                    UnifiedProcessorError::Storage(format!(
+                        "oversized cleanup: Qdrant delete failed for {} ({} stale chunks): {}",
+                        relative_path, ex.chunk_count, e
+                    ))
+                })?;
+            if let Some(sdb) = &ctx.search_db {
+                let processor = crate::fts_batch_processor::FtsBatchProcessor::new(
+                    sdb,
+                    crate::fts_batch_processor::FtsBatchConfig::default(),
+                );
+                if let Err(e) = processor.delete_file(ex.file_id).await {
+                    warn!(
+                        "oversized cleanup: FTS5 delete failed for file_id={}: {} (non-fatal)",
+                        ex.file_id, e
+                    );
+                }
+            }
+            info!(
+                "oversized cleanup: purged {} stale chunks for now-skipped file {}",
+                ex.chunk_count, relative_path
+            );
+        }
+    }
+
     let file_hash = tracked_files_schema::compute_file_hash(file_path)
         .unwrap_or_else(|_| "unknown".to_string());
     let file_mtime = tracked_files_schema::get_file_mtime(file_path)
@@ -691,6 +782,28 @@ mod tests {
             search_status: None,
             decision_json: None,
         }
+    }
+
+    #[test]
+    fn extension_limit_exceeded_respects_per_extension_cap() {
+        let limits = IngestionLimitsConfig::default(); // json => 500 KB
+        let over = 600 * 1024;
+        let under = 400 * 1024;
+        // Over the cap returns the limit; under returns None.
+        assert_eq!(
+            extension_limit_exceeded(&limits, "json", over),
+            Some(500 * 1024)
+        );
+        assert_eq!(extension_limit_exceeded(&limits, "json", under), None);
+        // Unconfigured extension is unbounded.
+        assert_eq!(extension_limit_exceeded(&limits, "rs", over), None);
+        // Leading dot is tolerated.
+        assert_eq!(
+            extension_limit_exceeded(&limits, ".json", over),
+            Some(500 * 1024)
+        );
+        // Exactly at the limit is not "exceeded".
+        assert_eq!(extension_limit_exceeded(&limits, "json", 500 * 1024), None);
     }
 
     #[test]
