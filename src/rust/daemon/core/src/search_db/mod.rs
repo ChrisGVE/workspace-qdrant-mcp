@@ -59,21 +59,29 @@ impl SearchDbManager {
         let path = database_path.as_ref().to_path_buf();
         info!("Initializing search database: {}", path.display());
 
+        // All pragmas live on the connect options so they apply to EVERY pooled
+        // connection. The previous code set `busy_timeout` via a one-off
+        // `PRAGMA ... execute(&pool)`, which configures only the single
+        // connection that happened to serve it — the other pooled connections
+        // kept the SQLite default of 0 and returned `SQLITE_BUSY` immediately
+        // under write contention. `mmap_size`/`cache_size` keep the large FTS5
+        // index (search.db is the biggest DB) memory-mapped and hot, so a cold
+        // grep read does not have to fault the whole index off disk while the
+        // daemon is mid-ingest — the dominant cause of grep latency spikes (#117).
         let connect_options = SqliteConnectOptions::new()
             .filename(&path)
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .foreign_keys(true);
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .foreign_keys(true)
+            .busy_timeout(std::time::Duration::from_secs(30))
+            .pragma("cache_size", "-80000") // ~80 MB page cache
+            .pragma("mmap_size", "536870912") // 512 MB memory-mapped I/O
+            .pragma("temp_store", "memory");
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(connect_options)
-            .await?;
-
-        // Set busy_timeout to match state.db (30 seconds) — prevents immediate
-        // SQLITE_BUSY errors when FTS5 batch writes hold the write lock.
-        sqlx::query("PRAGMA busy_timeout = 30000")
-            .execute(&pool)
             .await?;
 
         // Verify WAL mode is active
@@ -86,7 +94,7 @@ impl SearchDbManager {
                 journal_mode
             );
         } else {
-            debug!("WAL mode confirmed for search.db (busy_timeout=30000ms)");
+            debug!("WAL mode confirmed for search.db (busy_timeout=30000ms, mmap=512MB)");
         }
 
         let manager = Self { pool, path };
