@@ -308,7 +308,7 @@
   type: programming
   grammar:
     sources:
-      - repo: UserNobworthy/tree-sitter-dart
+      - repo: UserNobody14/tree-sitter-dart
         quality: community
     has_cpp_scanner: true
   lsp_servers: []
