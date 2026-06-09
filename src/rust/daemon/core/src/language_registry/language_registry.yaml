@@ -313,6 +313,47 @@
     has_cpp_scanner: true
   lsp_servers: []
 
+# ── Protocol Buffers ─────────────────────────────────────────────────
+
+- language: protobuf
+  aliases: [proto]
+  extensions: [".proto"]
+  type: programming
+  grammar:
+    sources:
+      - repo: mitchellh/tree-sitter-proto
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── PowerShell ───────────────────────────────────────────────────────
+
+- language: powershell
+  aliases: [pwsh]
+  extensions: [".ps1", ".psm1", ".psd1"]
+  type: programming
+  grammar:
+    sources:
+      - repo: airbus-cert/tree-sitter-powershell
+        quality: community
+    has_cpp_scanner: false
+  lsp_servers: []
+
+# ── XML ──────────────────────────────────────────────────────────────
+# Multi-grammar repo (xml/ and dtd/ subdirs); point at the xml/ subtree.
+
+- language: xml
+  aliases: []
+  extensions: [".xml", ".xsd", ".xsl", ".xslt"]
+  type: data
+  grammar:
+    sources:
+      - repo: tree-sitter-grammars/tree-sitter-xml
+        quality: community
+    has_cpp_scanner: false
+    src_subdir: xml
+  lsp_servers: []
+
 # ── Elixir ───────────────────────────────────────────────────────────
 
 - language: elixir
