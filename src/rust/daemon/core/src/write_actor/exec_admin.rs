@@ -119,6 +119,21 @@ impl WriteActor {
                 .await
                 .map_err(|e| format!("ignore reconciliation failed: {}", e))?;
 
+        // Prune documents for branches deleted from git. The file watcher
+        // excludes `.git/`, so ref deletions are never observed live and the
+        // branch-lifecycle event pipeline has no runtime consumer — without this
+        // a deleted branch leaves its indexed documents orphaned forever. Runs
+        // alongside (startup + on-demand) the ignore reconcile. Non-fatal: a
+        // failure here must not discard the ignore-reconcile result above.
+        if let Err(e) = crate::startup::reconciliation::branch_prune::prune_orphaned_branches(
+            &self.pool,
+            &queue_manager,
+        )
+        .await
+        {
+            tracing::warn!("branch prune reconciliation failed: {}", e);
+        }
+
         Ok(ReapplyIgnoreRulesResult {
             projects_processed,
             stale_deleted: stats.stale_deleted as u32,

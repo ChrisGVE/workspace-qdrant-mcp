@@ -211,6 +211,26 @@ pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::J
                 e
             ),
         }
+
+        // Purge documents for branches deleted from git. The file watcher
+        // excludes `.git/`, so branch deletions are never observed live — this
+        // reconciliation is the canonical purge path (otherwise a deleted branch
+        // leaves its indexed documents orphaned forever). Runs after the ignore
+        // reconcile in the same background task. Non-fatal.
+        match workspace_qdrant_core::startup::reconciliation::branch_prune::prune_orphaned_branches(
+            &queue_pool,
+            &qm,
+        )
+        .await
+        {
+            Ok(s) if s.branches_pruned > 0 => info!(
+                "[startup-bg] Branch prune complete: {} orphaned branch(es), \
+                 {} file delete(s) enqueued",
+                s.branches_pruned, s.files_enqueued
+            ),
+            Ok(_) => {}
+            Err(e) => warn!("[startup-bg] Branch prune failed: {}", e),
+        }
     })
 }
 

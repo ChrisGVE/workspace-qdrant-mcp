@@ -510,6 +510,7 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
     Ok(stats)
 }
 
+pub mod branch_prune;
 pub mod ignore_sync;
 
 /// Reconcile ignore rules for all active projects at startup.
@@ -594,6 +595,7 @@ pub async fn reconcile_all_ignore_rules(
 
 #[cfg(test)]
 mod tests {
+    mod branch_prune;
     mod clean_stale_state;
     mod validate_watch_folders;
 
