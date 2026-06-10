@@ -23,6 +23,7 @@ use tokio::sync::RwLock as TokioRwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 use workspace_qdrant_core::embedding::provider::DenseProvider;
+use workspace_qdrant_core::embedding::rerank::RemoteReranker;
 use workspace_qdrant_core::embedding::tokenize_for_bm25;
 use workspace_qdrant_core::{LexiconManager, BM25};
 
@@ -77,8 +78,13 @@ pub struct EmbeddingServiceImpl {
     /// Prefix prepended to query texts before dense embedding (instruction-
     /// tuned models: multilingual-e5 expects "query: "). Empty = no prefix.
     query_prefix: String,
-    /// Cross-encoder reranker (lazy-initialised on first Rerank call).
+    /// Local cross-encoder reranker (lazy-initialised on first Rerank call).
+    /// Used only when no remote reranker is configured.
     reranker: Arc<TokioMutex<Option<TextRerank>>>,
+    /// Remote `/v1/rerank` client (Infinity sidecar). Activated by
+    /// `WQM_RERANK_BASE_URL` at construction; takes precedence over the
+    /// local fastembed reranker.
+    remote_reranker: Option<RemoteReranker>,
     /// Writable cache directory for the reranker ONNX model download.
     /// Mirrors the dense/sparse providers' `model_cache_dir`; without it
     /// fastembed defaults to `./.fastembed_cache` (CWD-relative), which is
@@ -95,6 +101,14 @@ impl EmbeddingServiceImpl {
     pub fn new(dense_provider: Arc<dyn DenseProvider>, model_cache_dir: Option<PathBuf>) -> Self {
         let cache_size =
             NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
+        let remote_reranker = RemoteReranker::from_env();
+        if let Some(ref remote) = remote_reranker {
+            info!(
+                endpoint = remote.endpoint(),
+                model = remote.model(),
+                "Remote cross-encoder reranker active"
+            );
+        }
         Self {
             dense_provider,
             cache: Arc::new(TokioMutex::new(LruCache::new(cache_size))),
@@ -102,6 +116,7 @@ impl EmbeddingServiceImpl {
             lexicon: None,
             query_prefix: String::new(),
             reranker: Arc::new(TokioMutex::new(None)),
+            remote_reranker,
             model_cache_dir,
         }
     }
@@ -120,8 +135,16 @@ impl EmbeddingServiceImpl {
     }
 
     /// Rerank `documents` against `query` with a cross-encoder, returning
-    /// `(index, score)` pairs sorted by score descending. Lazy-loads the Jina
-    /// turbo reranker on first call (~150MB ONNX download into `model_cache_dir`).
+    /// `(index, score)` pairs sorted by score descending.
+    ///
+    /// Remote mode (`WQM_RERANK_BASE_URL` set): POST to the configured
+    /// `/v1/rerank` endpoint (Infinity GPU sidecar serving a multilingual
+    /// cross-encoder). A remote failure surfaces as an error — no silent
+    /// fallback to the local model, which would change scoring semantics
+    /// mid-flight; the search layer fails open to the pre-rerank order.
+    ///
+    /// Local mode (default): lazy-loads the Jina turbo fastembed reranker on
+    /// first call (~150MB ONNX download into `model_cache_dir`).
     async fn rerank_internal(
         &self,
         query: &str,
@@ -129,6 +152,12 @@ impl EmbeddingServiceImpl {
     ) -> Result<Vec<(usize, f32)>, Status> {
         if documents.is_empty() {
             return Ok(Vec::new());
+        }
+        if let Some(remote) = &self.remote_reranker {
+            return remote.rerank(query, &documents).await.map_err(|e| {
+                error!("Remote rerank failed: {e}");
+                Status::internal(format!("Remote rerank failed: {e}"))
+            });
         }
         let mut guard = self.reranker.lock().await;
         if guard.is_none() {

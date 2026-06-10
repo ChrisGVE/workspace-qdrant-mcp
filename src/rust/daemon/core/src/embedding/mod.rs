@@ -12,6 +12,7 @@ mod bm25;
 mod generator;
 mod phrase_cache;
 pub mod provider;
+pub mod rerank;
 mod types;
 pub mod watchdog;
 

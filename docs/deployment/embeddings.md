@@ -96,6 +96,51 @@ Notes:
 Interactive search queries are fine on either (one short text per query);
 the GPU matters for ingestion/reembed throughput.
 
+## Cross-encoder reranker (2nd-stage search)
+
+The GPU Infinity service also serves a **second** model — the multilingual
+cross-encoder `BAAI/bge-reranker-v2-m3` (second `--model-id` in the compose
+`command:`) — for the search tool's optional rerank stage, exposed at
+`POST /v1/rerank`. The daemon targets it via env (compose passthrough from
+`docker/.env`; there are no `config.yaml` keys for these):
+
+```bash
+WQM_RERANK_BASE_URL=http://wqm-embeddings-gpu:7997  # empty = in-process fastembed (jina-turbo, EN-only)
+WQM_RERANK_MODEL=BAAI/bge-reranker-v2-m3            # default when unset
+```
+
+The rerank stage itself stays **opt-in on the MCP side**: per-call
+`rerank: true` (plus `rerankWeight`, 0–1) or deployment-wide
+`WQM_SEARCH_RERANK=1` / `WQM_SEARCH_RERANK_WEIGHT`. The final pool order
+blends both signals — `(1-w)·norm(rrf_boosted) + w·norm(rerank)` — instead
+of fully replacing the bi-encoder order; `w=1` reproduces the legacy
+pure-reranker order.
+
+Weight sweep on the 44-query benchmark (2026-06-10, semantic mode —
+top1 / top3 / top10 / recall@10 / MRR / avg ms):
+
+| w | top1 | top3 | top10 | rec@10 | MRR | ms |
+|---|---|---|---|---|---|---|
+| 0 (baseline) | 31.8 | 56.8 | 68.2 | 60.2 | 0.45 | 43 |
+| **0.25 (default)** | **34.1** | **59.1** | **72.7** | **62.5** | **0.47** | 67 |
+| 0.5 | 25.0 | 50.0 | 72.7 | 61.4 | 0.40 | 84 |
+| 1.0 (pure reranker) | 6.8 | 29.5 | 59.1 | 48.9 | 0.21 | 135 |
+
+The cross-encoder helps only as a **weak nudge**: at w=0.25 every semantic
+aggregate beats the no-rerank baseline (hybrid top3 50→56.8 too), while
+giving it full authority (w=1) is strictly worse even multilingual — same
+pathology previously measured with the English jina-turbo model.
+
+There is deliberately **no failover** for reranking: the CPU TEI standby
+serves only the e5 embedder, and silently swapping to the (worse,
+English-only) local fastembed model would change scoring semantics
+mid-flight. On any rerank failure the search layer fails open to the
+pre-rerank order.
+
+Measured on the RTX 5070 Ti (2026-06-10): ~330 ms warm for a worst-case
+pool (30 docs × 4 000 chars ≈ 30k tokens); typical semantic chunks are far
+shorter. VRAM cost next to e5 fp16: ~2.1 GB.
+
 ## Why the NVIDIA Container Toolkit is required
 
 `nvidia-smi` working inside WSL only proves the **host/WSL VM** sees the

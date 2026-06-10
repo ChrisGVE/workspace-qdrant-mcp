@@ -95,6 +95,9 @@ function extractOutputOptions(
   const rerank = args?.['rerank'] as boolean | undefined;
   if (rerank !== undefined) options.rerank = rerank;
 
+  const rerankWeight = args?.['rerankWeight'] as number | undefined;
+  if (rerankWeight !== undefined) options.rerankWeight = rerankWeight;
+
   const maxBytesPerHit = args?.['maxBytesPerHit'] as number | undefined;
   if (maxBytesPerHit !== undefined) options.maxBytesPerHit = maxBytesPerHit;
 

@@ -79,6 +79,11 @@ export interface SemanticSearchBenchmarkRunConfig {
   modes?: readonly BenchmarkMode[];
   queryIds?: readonly string[];
   datasetSourcePath?: string;
+  /** Cross-encoder rerank override for every query (A/B sweeps without
+   *  redeploying — wins over the WQM_BENCH_RERANK env lever). */
+  rerank?: boolean;
+  /** Blend weight (0–1) for the rerank score; see SearchOptions.rerankWeight. */
+  rerankWeight?: number;
 }
 
 export interface SearchBenchmarkRunner {
@@ -713,6 +718,10 @@ function buildSearchOptions(
   if (process.env.WQM_BENCH_RERANK === 'false') {
     options.rerank = false;
   }
+  // Explicit per-run overrides win over the env lever — this is how search_eval
+  // sweeps rerank on/off and the blend weight without container recreates.
+  if (config.rerank !== undefined) options.rerank = config.rerank;
+  if (config.rerankWeight !== undefined) options.rerankWeight = config.rerankWeight;
 
   return options;
 }

@@ -44,4 +44,10 @@ describe('buildSearchOptions — previously-dropped output options', () => {
   it('maps rerank through to options', () => {
     expect(buildSearchOptions({ query: 'x', rerank: true }).rerank).toBe(true);
   });
+
+  it('maps rerankWeight through (including 0, which disables reranking)', () => {
+    expect(buildSearchOptions({ query: 'x', rerankWeight: 0 }).rerankWeight).toBe(0);
+    expect(buildSearchOptions({ query: 'x', rerankWeight: 0.5 }).rerankWeight).toBe(0.5);
+    expect(buildSearchOptions({ query: 'x' }).rerankWeight).toBeUndefined();
+  });
 });

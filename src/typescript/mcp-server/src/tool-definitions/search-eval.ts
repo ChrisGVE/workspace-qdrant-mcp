@@ -48,6 +48,16 @@ export const searchEvalToolDefinition = {
         description:
           'Include the returned file paths per query (semantic mode) for debugging misses (default: false).',
       },
+      rerank: {
+        type: 'boolean',
+        description:
+          'Force the cross-encoder rerank on/off for every query (default: deployment default, i.e. WQM_SEARCH_RERANK). Lets A/B sweeps run without redeploying.',
+      },
+      rerankWeight: {
+        type: 'number',
+        description:
+          'Blend weight 0–1 for the rerank score: final pool order is (1-w)·norm(rrf_boosted) + w·norm(rerank). 1 = pure cross-encoder order; 0 = rerank off (default: WQM_SEARCH_RERANK_WEIGHT, else 0.25 — measured optimum).',
+      },
     },
     required: [],
   },

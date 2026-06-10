@@ -76,6 +76,12 @@ export interface SearchOptions {
    *  semantic/hybrid). Set false to skip the reranker (lower latency, weaker
    *  top-k ordering). */
   rerank?: boolean;
+  /** Blend weight (0–1) for the cross-encoder score when reranking. The final
+   *  pool order is `(1-w)·norm(rrf_boosted) + w·norm(rerank)` over min-max
+   *  normalized scores. 1 = pure cross-encoder order (legacy replace
+   *  behavior); 0 = reranking disabled. Default: WQM_SEARCH_RERANK_WEIGHT
+   *  env, else 0.25 (measured optimum on the 44-query benchmark). */
+  rerankWeight?: number;
   /** Per-hit text cap (in chars). Content longer than this is truncated
    *  with a marker pointing to retrieve() for the full chunk. Defaults
    *  to {@link DEFAULT_MAX_BYTES_PER_HIT}. Set to 0 to disable truncation. */

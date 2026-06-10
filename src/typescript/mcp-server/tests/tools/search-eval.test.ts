@@ -89,4 +89,29 @@ describe('runSearchEval', () => {
     const sem = res.perQuery?.[0]?.semantic as Record<string, unknown>;
     expect(sem.topPaths).toEqual(['src/tools/search.ts', 'src/unrelated/filler.ts']);
   });
+
+  it('forwards rerank/rerankWeight overrides to every search call', async () => {
+    const runner = makeRunner('src/tools/search.ts');
+    const res = await runSearchEval(runner, makeDetector('p1'), {
+      cases: [{ query: 'q', expectedFiles: ['src/tools/search.ts'] }],
+      rerank: true,
+      rerankWeight: 0.5,
+    });
+    expect(res.success).toBe(true);
+    const calls = (runner.search as ReturnType<typeof vi.fn>).mock.calls as Array<
+      [Record<string, unknown>]
+    >;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [options] of calls) {
+      expect(options['rerank']).toBe(true);
+      expect(options['rerankWeight']).toBe(0.5);
+    }
+  });
+
+  it('mirrors hybrid hit flags per query alongside semantic', async () => {
+    const res = await runSearchEval(makeRunner('src/tools/search.ts'), makeDetector('p1'), {
+      cases: [{ query: 'q', expectedFiles: ['src/tools/search.ts'] }],
+    });
+    expect(res.perQuery?.[0]?.hybrid).toMatchObject({ top1: true, top3: true, top10: true });
+  });
 });

@@ -565,20 +565,63 @@ function dedupeByFile(results: SearchResult[]): SearchResult[] {
  * even when it isn't in the top-k. */
 const RERANK_POOL = 30;
 
+/** Default blend weight (0–1) for the cross-encoder score when reranking.
+ * 1 sorts the pool purely by the reranker (legacy replace behavior); values
+ * in between mix the bi-encoder + path-boost order with the reranker's.
+ * 0.25 is the measured optimum on the 44-query benchmark (2026-06-10,
+ * bge-reranker-v2-m3 on the GPU sidecar): the cross-encoder helps as a WEAK
+ * nudge — semantic top1/top3/top10/recall/MRR all ≥ baseline — while w ≥ 0.5
+ * degrades top1/top3 sharply (w=1: semantic top1 31.8→6.8). Per-call
+ * `rerankWeight` wins over the env default. */
+const RERANK_WEIGHT = tuningFromEnv('WQM_SEARCH_RERANK_WEIGHT', 0.25);
+
+/** Blend min-max-normalized base (RRF + path boost) and cross-encoder scores
+ * for the rerank pool: `(1-w)·norm(base) + w·norm(rerank)`. `baseScores` is
+ * positional (pool order); `rerankScores` maps pool index → cross-encoder
+ * score; only indices present there are blended/returned. A degenerate signal
+ * (all values equal) normalizes to a constant so it cancels out of the
+ * ordering instead of dividing by zero. Exported for unit tests. */
+export function blendPoolScores(
+  baseScores: readonly number[],
+  rerankScores: ReadonlyMap<number, number>,
+  weight: number
+): Map<number, number> {
+  const w = Math.max(0, Math.min(1, weight));
+  const indices = [...rerankScores.keys()].filter((i) => i >= 0 && i < baseScores.length);
+  const normalizer = (values: readonly number[]): ((v: number) => number) => {
+    const min = Math.min(...values);
+    const span = Math.max(...values) - min;
+    return span > 0 ? (v: number): number => (v - min) / span : (): number => 1;
+  };
+  const normBase = normalizer(indices.map((i) => baseScores[i] ?? 0));
+  const normRerank = normalizer(indices.map((i) => rerankScores.get(i) ?? 0));
+  const blended = new Map<number, number>();
+  for (const i of indices) {
+    blended.set(
+      i,
+      (1 - w) * normBase(baseScores[i] ?? 0) + w * normRerank(rerankScores.get(i) ?? 0)
+    );
+  }
+  return blended;
+}
+
 /** Re-order the top candidates with the daemon's cross-encoder reranker.
  *
  * The bi-encoder (dense) + path-boost order gets a relevant file into the pool
  * but often not the top-k; a cross-encoder scores each (query, chunk) pair
- * jointly — a much stronger relevance signal — to promote the right file into
- * the top-k. Best-effort: on any daemon/model error the pre-rerank order stands
- * (the model also lazy-loads on first call, so the first search pays a one-time
- * warm-up). Input MUST be sorted/deduped; output is the reranked pool followed
- * by any untouched tail. */
+ * jointly — a much stronger relevance signal. Rather than fully replacing the
+ * pool order, the final score blends both signals via {@link blendPoolScores}
+ * with `weight` ∈ (0,1] (1 = pure cross-encoder order). Best-effort: on any
+ * daemon/model error the pre-rerank order stands (the local model also
+ * lazy-loads on first call, so the first search pays a one-time warm-up).
+ * Input MUST be sorted/deduped; output is the reranked pool followed by any
+ * untouched tail. */
 async function rerankResults(
   daemonClient: DaemonClient,
   query: string,
   results: SearchResult[],
-  limit: number
+  limit: number,
+  weight: number
 ): Promise<SearchResult[]> {
   if (results.length <= 1) return results;
   const poolSize = Math.min(results.length, Math.max(limit, RERANK_POOL));
@@ -587,22 +630,30 @@ async function rerankResults(
   try {
     const resp = await daemonClient.rerank({ query, documents });
     if (!resp.success || resp.results.length === 0) return results;
-    const returned = new Set<number>();
-    const reordered: SearchResult[] = [];
+    const rerankScores = new Map<number, number>();
     for (const rr of resp.results) {
-      if (rr.index < 0 || rr.index >= pool.length || returned.has(rr.index)) continue;
-      const item = pool[rr.index];
-      if (!item) continue;
-      returned.add(rr.index);
-      // Overwrite score with the cross-encoder score so the final ordering and
-      // the surfaced score reflect the reranker's judgment.
-      item.score = rr.score;
-      reordered.push(item);
+      if (rr.index < 0 || rr.index >= pool.length || rerankScores.has(rr.index)) continue;
+      rerankScores.set(rr.index, rr.score);
     }
-    // Defensive: keep any pool items the reranker didn't score, then the tail
-    // beyond the pool — so we never drop a candidate.
-    const leftover = pool.filter((_, i) => !returned.has(i));
-    return [...reordered, ...leftover, ...results.slice(poolSize)];
+    if (rerankScores.size === 0) return results;
+    const blended = blendPoolScores(pool.map((r) => r.score), rerankScores, weight);
+    const scored: SearchResult[] = [];
+    const leftover: SearchResult[] = [];
+    pool.forEach((item, index) => {
+      const score = blended.get(index);
+      if (score === undefined) {
+        // Defensive: keep pool items the reranker didn't score so we never
+        // drop a candidate.
+        leftover.push(item);
+        return;
+      }
+      // Surface the blended score so the final ordering and the reported
+      // score agree.
+      item.score = score;
+      scored.push(item);
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return [...scored, ...leftover, ...results.slice(poolSize)];
   } catch (err) {
     logDebug('Rerank failed; using pre-rerank order', {
       error: err instanceof Error ? err.message : String(err),
@@ -640,16 +691,26 @@ export async function finalizeResults(
   // (e.g. bge-reranker-v2-m3 on the GPU Infinity backend) is the next thing
   // worth testing — not more tuning of this one.
   // The bi-encoder + path-relevance-boosted `deduped` order is strictly better
-  // here. Enable per-call with `rerank: true` for experimentation; a blended
-  // (score-mixing) reranker rather than full reorder is the future direction.
+  // here. Enable per-call with `rerank: true` for experimentation;
   // WQM_SEARCH_RERANK=1 flips the default ON deployment-wide (per-call
-  // `rerank` still wins either way) — used for A/B runs now that the e5
-  // retrieval upgrade changed the maths the 2026-06-02 measurement was
-  // based on.
+  // `rerank` still wins either way).
+  // Both follow-ups from those measurements now exist: the daemon serves a
+  // MULTILINGUAL cross-encoder when WQM_RERANK_BASE_URL points at the Infinity
+  // GPU sidecar (bge-reranker-v2-m3 — see core embedding::rerank), and the
+  // pool order BLENDS the two signals instead of fully reordering:
+  // `(1-w)·norm(rrf_boosted) + w·norm(rerank)` with w from `rerankWeight` /
+  // WQM_SEARCH_RERANK_WEIGHT (1 = legacy pure-reranker order, 0 = rerank off).
+  // MEASURED 2026-06-10 (bge-reranker-v2-m3 on GPU, 44 queries): the full
+  // reorder is still strictly worse even multilingual (w=1: semantic top1
+  // 31.8→6.8, MRR 0.45→0.21) — but as a weak nudge it beats the baseline on
+  // every semantic aggregate: w=0.25 → top3 56.8→59.1, top10 68.2→72.7,
+  // recall@10 60.2→62.5, MRR 0.45→0.47 at +24ms avg latency; hybrid top3
+  // 50→56.8. Hence the 0.25 default for WQM_SEARCH_RERANK_WEIGHT.
   const rerankDefault = process.env['WQM_SEARCH_RERANK'] === '1';
+  const rerankWeight = Math.min(params.options.rerankWeight ?? RERANK_WEIGHT, 1);
   const ranked =
-    (params.options.rerank ?? rerankDefault)
-      ? await rerankResults(daemonClient, params.query, deduped, params.limit)
+    (params.options.rerank ?? rerankDefault) && rerankWeight > 0
+      ? await rerankResults(daemonClient, params.query, deduped, params.limit, rerankWeight)
       : deduped;
   const finalResults = ranked.slice(0, params.limit);
 

@@ -142,6 +142,8 @@ export async function runSearchEval(
   const limit = (args?.['limit'] as number | undefined) ?? 10;
   const topK = (args?.['topK'] as number | undefined) ?? 10;
   const includeTopPaths = (args?.['includeTopPaths'] as boolean | undefined) ?? false;
+  const rerank = args?.['rerank'] as boolean | undefined;
+  const rerankWeight = args?.['rerankWeight'] as number | undefined;
 
   const report = await runSemanticSearchBenchmark(runner, dataset, {
     // relative_path on each hit carries the repo-relative path, so the
@@ -155,6 +157,8 @@ export async function runSearchEval(
     modes: REPORT_MODES,
     datasetSourcePath: datasetSource,
     ...(tenant.tenantId ? { projectId: tenant.tenantId } : {}),
+    ...(rerank !== undefined ? { rerank } : {}),
+    ...(rerankWeight !== undefined ? { rerankWeight } : {}),
   });
 
   return {
@@ -173,6 +177,7 @@ export async function runSearchEval(
     },
     perQuery: report.queries.map((q) => {
       const ev = q.modes.semantic.evaluation;
+      const hv = q.modes.hybrid.evaluation;
       return {
         id: q.id,
         query: q.query,
@@ -184,6 +189,14 @@ export async function runSearchEval(
           top10: ev.top10Hit,
           firstRelevantRank: ev.firstRelevantRank ?? null,
           ...(includeTopPaths ? { topPaths: ev.rawTopPaths } : {}),
+        },
+        // Hybrid mirror of the semantic block so per-category rates can be
+        // derived for BOTH ranked modes from one run.
+        hybrid: {
+          top1: hv.top1Hit,
+          top3: hv.top3Hit,
+          top10: hv.top10Hit,
+          firstRelevantRank: hv.firstRelevantRank ?? null,
         },
       };
     }),

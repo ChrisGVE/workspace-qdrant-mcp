@@ -147,6 +147,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       WQM_LOG_LEVEL: ${WQM_LOG_LEVEL:-INFO}
       WQM_EMBEDDING_PROVIDER: ${WQM_EMBEDDING_PROVIDER:-fastembed}
+      # Remote cross-encoder reranker for 2nd-stage search (EmbeddingService.
+      # Rerank). When the base URL is set, the daemon POSTs to {base}/v1/rerank
+      # — the Infinity GPU sidecar serves BAAI/bge-reranker-v2-m3 alongside e5.
+      # Empty keeps the in-process fastembed reranker (jina-turbo, EN-only).
+      WQM_RERANK_BASE_URL: ${WQM_RERANK_BASE_URL:-}
+      WQM_RERANK_MODEL: ${WQM_RERANK_MODEL:-}
       # Throughput tuning for first-index / cold-start. The defaults in
       # UnifiedProcessorConfig::default() ship conservative (2 concurrent
       # embeddings, 50ms inter-item delay, 30s warmup window) which caps the
@@ -331,6 +337,11 @@ services:
       WQM_SPARSE_ONLY_WEIGHT: ${WQM_SPARSE_ONLY_WEIGHT:-}
       # "1" flips the cross-encoder rerank default ON (per-call `rerank` wins).
       WQM_SEARCH_RERANK: ${WQM_SEARCH_RERANK:-}
+      # Blend weight 0–1 for the rerank score: final pool order is
+      # (1-w)·norm(rrf_boosted) + w·norm(rerank). 1 = pure cross-encoder
+      # order; empty = code default (0.25, the measured optimum on the
+      # 44-query benchmark). Per-call `rerankWeight` wins.
+      WQM_SEARCH_RERANK_WEIGHT: ${WQM_SEARCH_RERANK_WEIGHT:-}
       # Trust the bind-mounted repo: git's "dubious ownership" check
       # otherwise rejects every command because the bind mount preserves
       # host uids that don't match the container's `node` user.
@@ -581,6 +592,11 @@ services:
       - v2
       - --model-id
       - intfloat/multilingual-e5-large
+      # Second served model: multilingual cross-encoder for 2nd-stage search
+      # rerank (POST /v1/rerank). The daemon targets it via WQM_RERANK_BASE_URL
+      # / WQM_RERANK_MODEL; ~1.2GB fp16 VRAM next to e5's ~1.1GB.
+      - --model-id
+      - BAAI/bge-reranker-v2-m3
       - --port
       - "7997"
       - --url-prefix
