@@ -14,10 +14,18 @@
 //! and any git error fall back to the progressive FS walk transparently.
 //!
 //! Gates applied per file mirror the FS scan exactly:
-//! `.wqmignore`/`.gitignore` (parent-aware), [`should_exclude_file`], the
-//! extension allowlist, mtime pruning, and the max-size cap — all reused from
-//! [`process_file_entry`]. Submodule gitlinks are enqueued as their own
-//! `Tenant/Add`, same as the FS scan.
+//! `.wqmignore`/`.gitignore` (parent-aware), `global.wqmignore`,
+//! [`should_exclude_file`], the extension allowlist, mtime pruning, and the
+//! max-size cap — all reused from [`process_file_entry`]. Submodule gitlinks
+//! are enqueued as their own `Tenant/Add`, same as the FS scan.
+//!
+//! The gate goes through [`IgnoreGate`] — the SAME decision the FS scan and
+//! the ignore reconciler use. An earlier version applied only the per-project
+//! [`crate::patterns::gitignore::ProjectIgnoreMatcher`] here, so files that
+//! git *tracks* but `global.wqmignore` excludes (generated protobuf stubs,
+//! vendored upstream trees) sailed straight into the queue on every initial
+//! scan — the project `.gitignore` can't help, because tracked files are by
+//! definition not gitignored.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,7 +36,8 @@ use tracing::{debug, warn};
 use wqm_common::paths::CanonicalPath;
 
 use crate::allowed_extensions::AllowedExtensions;
-use crate::patterns::gitignore::ProjectIgnoreMatcher;
+use crate::patterns::global_ignore;
+use crate::patterns::ignore_gate::IgnoreGate;
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_processor::UnifiedProcessorResult;
 use crate::unified_queue_schema::UnifiedQueueItem;
@@ -158,10 +167,13 @@ async fn enqueue_entries(
     let mut files_excluded = 0u64;
     let mut errors = decode_errors;
 
-    // One ignore matcher per parent directory (cascade root -> dir), mirroring
-    // the per-directory matcher the FS scan builds. `None` means "no ignore
-    // files apply to this directory".
-    let mut matcher_cache: HashMap<PathBuf, Option<ProjectIgnoreMatcher>> = HashMap::new();
+    // One ignore gate per parent directory (cascade root -> dir), mirroring
+    // the per-directory gate the FS scan builds. The global matcher is
+    // compiled once and shared across all gates — the per-parent part is only
+    // the project `.gitignore`/`.wqmignore` cascade.
+    let shared_global =
+        IgnoreGate::build_shared_global(global_ignore::resolve_global_ignore_path().as_deref());
+    let mut gate_cache: HashMap<PathBuf, IgnoreGate> = HashMap::new();
 
     for entry in entries {
         // Index paths are relative to the repo workdir, which equals the
@@ -175,18 +187,17 @@ async fn enqueue_entries(
         }
 
         // Gate 0: `.gitignore` is already enforced by git (the index only holds
-        // tracked files), but re-apply the matcher so `.wqmignore` exclusions
-        // (and any force-added paths) are honored — including directory rules
-        // inherited from ancestor directories.
+        // tracked files), but the full gate must still run: `.wqmignore`
+        // exclusions, ancestor directory rules, and — critically —
+        // `global.wqmignore`, which is the ONLY layer that can exclude a
+        // tracked file (see module docs).
         let parent = abs.parent().unwrap_or(root).to_path_buf();
-        let matcher = matcher_cache
-            .entry(parent.clone())
-            .or_insert_with(|| ProjectIgnoreMatcher::for_dir(&parent, Some(root)));
-        if let Some(m) = matcher {
-            if is_ignored_with_ancestors(m, root, &abs) {
-                files_excluded += 1;
-                continue;
-            }
+        let gate = gate_cache.entry(parent.clone()).or_insert_with(|| {
+            IgnoreGate::with_shared_global(&parent, Some(root), shared_global.clone())
+        });
+        if gate.is_ignored_with_ancestors(root, &abs) {
+            files_excluded += 1;
+            continue;
         }
 
         files_queued += process_file_entry(
@@ -203,32 +214,4 @@ async fn enqueue_entries(
     }
 
     Ok((files_queued, submodules_queued, files_excluded, errors))
-}
-
-/// Parent-aware ignore check for a file enumerated directly from the index.
-///
-/// The progressive FS scan excludes an ignored directory at the directory
-/// level and never descends into it, so a rule like `reports/` is only ever
-/// tested against the directory. Here we reach the nested file directly, so we
-/// must replay that logic: test the file itself, then each ancestor directory
-/// up to (but not including) the watch-folder root.
-fn is_ignored_with_ancestors(
-    matcher: &ProjectIgnoreMatcher,
-    root: &Path,
-    abs_file: &Path,
-) -> bool {
-    if matcher.is_ignored(abs_file, false) {
-        return true;
-    }
-    let mut current = abs_file.parent();
-    while let Some(dir) = current {
-        if dir == root || !dir.starts_with(root) {
-            break;
-        }
-        if matcher.is_ignored(dir, true) {
-            return true;
-        }
-        current = dir.parent();
-    }
-    false
 }

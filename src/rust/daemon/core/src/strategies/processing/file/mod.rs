@@ -36,6 +36,8 @@ use sqlx::SqlitePool;
 use tracing::{debug, error, info, warn};
 
 use crate::context::ProcessingContext;
+use crate::patterns::global_ignore;
+use crate::patterns::ignore_gate::IgnoreGate;
 use crate::specs::parse_payload;
 use crate::strategies::ProcessingStrategy;
 use crate::tracked_files_schema;
@@ -107,6 +109,38 @@ impl FileStrategy {
         let abs_file_path: String = abs_canonical.as_str().to_string();
         let file_path = Path::new(abs_file_path.as_str());
         let relative_path: &str = payload.file_path.as_str();
+
+        // Dequeue-time ignore gate: ignore rules may have changed between
+        // enqueue and processing (a global.wqmignore edit, a new project
+        // .wqmignore). Without this re-check, a stale Add/Update burns the
+        // full parse+embed cost on a now-excluded path and the result has to
+        // be reconciled away afterwards. Deletes are exempt — they are how
+        // excluded files leave the index.
+        if item.op != QueueOperation::Delete && is_ignored_at_dequeue(&base_path, file_path) {
+            info!(
+                "Skipping now-ignored file (dequeue gate): {}",
+                relative_path
+            );
+            // Mark both destinations done so the row finalizes cleanly
+            // (mirrors handle_missing_file; see PR #86 on stranded statuses).
+            let _ = ctx
+                .queue_manager
+                .update_destination_status(
+                    &item.queue_id,
+                    "qdrant",
+                    crate::unified_queue_schema::DestinationStatus::Done,
+                )
+                .await;
+            let _ = ctx
+                .queue_manager
+                .update_destination_status(
+                    &item.queue_id,
+                    "search",
+                    crate::unified_queue_schema::DestinationStatus::Done,
+                )
+                .await;
+            return Ok(());
+        }
 
         crate::shared::ensure_collection(&ctx.storage_client, &item.collection)
             .await
@@ -218,6 +252,23 @@ impl FileStrategy {
 enum UpdateAction {
     Skip,
     Proceed,
+}
+
+/// Dequeue-time re-check of the full ignore decision (project cascade +
+/// `global.wqmignore`) for a queued file path.
+///
+/// Builds the same [`IgnoreGate`] the scan paths use, anchored at the watch
+/// folder root, and replays ancestor directory rules — the queued path is
+/// reached directly, not via a pruning walk. Building the gate costs a few
+/// file reads; the embedding work it can save costs seconds to minutes.
+fn is_ignored_at_dequeue(base_path: &str, file_path: &Path) -> bool {
+    let root = Path::new(base_path);
+    let gate = IgnoreGate::for_dir(
+        file_path.parent().unwrap_or(root),
+        Some(root),
+        global_ignore::resolve_global_ignore_path().as_deref(),
+    );
+    gate.is_ignored_with_ancestors(root, file_path)
 }
 
 /// Check allowlist and per-extension size limit. Returns `false` if the file
@@ -568,5 +619,34 @@ mod tests {
     fn test_file_strategy_name() {
         let strategy = FileStrategy;
         assert_eq!(strategy.name(), "file");
+    }
+
+    #[test]
+    fn dequeue_gate_skips_path_excluded_by_project_wqmignore() {
+        // Simulates the race the gate closes: the item was enqueued first,
+        // the exclusion landed afterwards. At dequeue time the gate must see
+        // the CURRENT rules and skip — including dir-only rules that only
+        // match an ancestor directory of the queued file.
+        let proj = tempfile::tempdir().unwrap();
+        std::fs::write(
+            proj.path().join(".wqmignore"),
+            "doc-backend/proto/src/generated/\n",
+        )
+        .unwrap();
+        let base = proj.path().to_string_lossy().to_string();
+        let ignored = proj
+            .path()
+            .join("doc-backend/proto/src/generated/doc/OnCall.java");
+        let kept = proj.path().join("doc-backend/src/main/java/App.java");
+        assert!(is_ignored_at_dequeue(&base, &ignored));
+        assert!(!is_ignored_at_dequeue(&base, &kept));
+    }
+
+    #[test]
+    fn dequeue_gate_keeps_everything_without_ignore_files() {
+        let proj = tempfile::tempdir().unwrap();
+        let base = proj.path().to_string_lossy().to_string();
+        let f = proj.path().join("src/lib.rs");
+        assert!(!is_ignored_at_dequeue(&base, &f));
     }
 }

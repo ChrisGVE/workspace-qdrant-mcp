@@ -22,6 +22,7 @@
 //!   4. otherwise → kept.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use ignore::gitignore::Gitignore;
 
@@ -31,7 +32,7 @@ use super::global_ignore;
 /// Combined per-project + daemon-wide ignore matcher for walk-based callers.
 pub struct IgnoreGate {
     project: Option<ProjectIgnoreMatcher>,
-    global: Option<Gitignore>,
+    global: Option<Arc<Gitignore>>,
 }
 
 impl IgnoreGate {
@@ -43,9 +44,34 @@ impl IgnoreGate {
     /// [`global_ignore::resolve_global_ignore_path`] for the live daemon, or an
     /// explicit path in tests. Either layer may be absent.
     pub fn for_dir(dir: &Path, project_root: Option<&Path>, global_path: Option<&Path>) -> Self {
+        Self::with_shared_global(dir, project_root, Self::build_shared_global(global_path))
+    }
+
+    /// Compile the `global.wqmignore` matcher once for reuse across many gates.
+    ///
+    /// [`IgnoreGate::for_dir`] recompiles the global file on every call — fine
+    /// for a single-directory scan item, wasteful for callers that build one
+    /// gate per parent directory (the git-index enumeration touches hundreds).
+    /// Build the shared matcher up front and hand clones of the `Arc` to
+    /// [`IgnoreGate::with_shared_global`].
+    pub fn build_shared_global(global_path: Option<&Path>) -> Option<Arc<Gitignore>> {
+        global_path
+            .and_then(global_ignore::matcher_from)
+            .map(Arc::new)
+    }
+
+    /// Build a gate around an already-compiled global matcher.
+    ///
+    /// Same semantics as [`IgnoreGate::for_dir`]; only the global compilation
+    /// is hoisted out (see [`IgnoreGate::build_shared_global`]).
+    pub fn with_shared_global(
+        dir: &Path,
+        project_root: Option<&Path>,
+        global: Option<Arc<Gitignore>>,
+    ) -> Self {
         Self {
             project: ProjectIgnoreMatcher::for_dir(dir, project_root),
-            global: global_path.and_then(global_ignore::matcher_from),
+            global,
         }
     }
 
@@ -65,6 +91,33 @@ impl IgnoreGate {
             {
                 return true;
             }
+        }
+        false
+    }
+
+    /// Parent-aware check for a file reached *directly* rather than through a
+    /// pruning walk (git-index enumeration, dequeue-time re-check).
+    ///
+    /// A directory walk tests `generated/`-style rules against the directory
+    /// entry and never descends, so nested files are never reached. A caller
+    /// that jumps straight to a nested file must replay that logic: test the
+    /// file itself, then each ancestor directory up to (but not including)
+    /// `root`. The global layer already consults parents via
+    /// `matched_path_or_any_parents`; the replay is what extends the same
+    /// guarantee to the project layer's plain `matched` semantics.
+    pub fn is_ignored_with_ancestors(&self, root: &Path, abs_file: &Path) -> bool {
+        if self.is_ignored(abs_file, false) {
+            return true;
+        }
+        let mut current = abs_file.parent();
+        while let Some(dir) = current {
+            if dir == root || !dir.starts_with(root) {
+                break;
+            }
+            if self.is_ignored(dir, true) {
+                return true;
+            }
+            current = dir.parent();
         }
         false
     }
@@ -137,5 +190,116 @@ mod tests {
         let proj = tempfile::tempdir().unwrap();
         let gate = IgnoreGate::for_dir(proj.path(), Some(proj.path()), None);
         assert!(!gate.is_ignored(&proj.path().join("anything.rs"), false));
+    }
+
+    // ── pattern-form coverage (the generated-proto regression) ───────────────
+    // global.wqmignore carried `**/proto/src/generated/` and
+    // `**/*OuterClass.java` for hours while the git-index scan kept enqueueing
+    // matching files: that path never consulted the global layer at all. These
+    // tests pin every pattern form the operators reached for, so a matcher
+    // regression in ANY caller of IgnoreGate fails here first.
+
+    /// The four global pattern forms that must all exclude a nested file.
+    const GENERATED_FORMS: &[&str] = &[
+        "**/proto/src/generated/\n",   // dir-only, trailing slash
+        "**/proto/src/generated/**\n", // dir contents
+        "*OuterClass.java\n",          // bare glob (no slash → any depth)
+        "**/*OuterClass.java\n",       // **/-anchored glob
+    ];
+
+    #[test]
+    fn all_global_pattern_forms_exclude_nested_generated_file() {
+        for body in GENERATED_FORMS {
+            let (proj, _g, gpath) = setup(body);
+            let gate = IgnoreGate::for_dir(proj.path(), Some(proj.path()), Some(&gpath));
+            let f = proj
+                .path()
+                .join("doc-backend/proto/src/generated/doc/PolicyOuterClass.java");
+            assert!(
+                gate.is_ignored(&f, false),
+                "pattern {body:?} must exclude nested generated file via is_ignored"
+            );
+            assert!(
+                gate.is_ignored_with_ancestors(proj.path(), &f),
+                "pattern {body:?} must exclude nested generated file via ancestors"
+            );
+            let keep = proj.path().join("doc-backend/src/main/java/App.java");
+            assert!(
+                !gate.is_ignored_with_ancestors(proj.path(), &keep),
+                "pattern {body:?} must keep hand-authored source"
+            );
+        }
+    }
+
+    #[test]
+    fn project_dir_rule_needs_ancestor_replay_for_direct_file_access() {
+        // A pruning walk tests `generated/` against the directory and never
+        // descends. A git-index enumeration reaches the nested file directly:
+        // plain is_ignored misses the dir-only project rule (this assertion
+        // documents the gap); is_ignored_with_ancestors closes it.
+        let proj = tempfile::tempdir().unwrap();
+        write(proj.path(), ".wqmignore", "generated/\n");
+        let gate = IgnoreGate::for_dir(proj.path(), Some(proj.path()), None);
+        let f = proj.path().join("pkg/generated/x.dart");
+        assert!(
+            !gate.is_ignored(&f, false),
+            "dir-only project rule does not match the file itself"
+        );
+        assert!(
+            gate.is_ignored_with_ancestors(proj.path(), &f),
+            "ancestor replay must catch the generated/ directory rule"
+        );
+    }
+
+    #[test]
+    fn ancestor_replay_does_not_escape_above_root() {
+        // The project sits INSIDE a directory whose name matches a project
+        // ignore rule. The replay walks up to, but never onto or past, the
+        // watch root — a `generated/` rule must not exclude the whole project
+        // just because the root's own ancestors contain a `generated` path
+        // component. (The global layer intentionally differs: it matches
+        // absolute paths and their parents at any depth.)
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("generated/proj");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join(".wqmignore"), "generated/\n").unwrap();
+        let gate = IgnoreGate::for_dir(&root, Some(&root), None);
+        let f = root.join("src/lib.rs");
+        assert!(
+            !gate.is_ignored_with_ancestors(&root, &f),
+            "rule must not match ancestors at or above the watch root"
+        );
+        // ...while the same rule still excludes a generated/ dir INSIDE it.
+        let inner = root.join("pkg/generated/x.dart");
+        assert!(gate.is_ignored_with_ancestors(&root, &inner));
+    }
+
+    #[test]
+    fn shared_global_constructor_matches_for_dir_semantics() {
+        let body = "**/proto/src/generated/\n*OuterClass.java\n";
+        let (proj, _g, gpath) = setup(body);
+        let shared = IgnoreGate::build_shared_global(Some(&gpath));
+        assert!(shared.is_some(), "global matcher must compile");
+        let via_shared =
+            IgnoreGate::with_shared_global(proj.path(), Some(proj.path()), shared.clone());
+        let via_path = IgnoreGate::for_dir(proj.path(), Some(proj.path()), Some(&gpath));
+
+        let probes = [
+            (proj.path().join("a/proto/src/generated/X.java"), true),
+            (proj.path().join("a/b/FooOuterClass.java"), true),
+            (proj.path().join("a/b/Foo.java"), false),
+        ];
+        for (p, want) in probes {
+            assert_eq!(
+                via_shared.is_ignored_with_ancestors(proj.path(), &p),
+                want,
+                "shared-global gate disagrees for {p:?}"
+            );
+            assert_eq!(
+                via_path.is_ignored_with_ancestors(proj.path(), &p),
+                want,
+                "for_dir gate disagrees for {p:?}"
+            );
+        }
     }
 }
