@@ -205,9 +205,12 @@ queries:
 
   - id: impl-branch-filter
     query: Where are search results filtered by git branch?
+    # 2026-06-10 gold audit: the branch filter condition is BUILT in
+    # search-filters.ts (buildBranchCondition) — which is exactly what the
+    # live search returns at rank 1. The previous gold pointed at the files
+    # that merely consume the filter and scored a correct answer as a miss.
     expectedFiles:
-      - src/typescript/mcp-server/src/tools/search-qdrant.ts
-      - src/typescript/mcp-server/src/tools/search-helpers.ts
+      - src/typescript/mcp-server/src/tools/search-filters.ts
 
   - id: impl-tag-expansion
     query: Where is the sparse query vector expanded with related tag keywords?
@@ -216,8 +219,12 @@ queries:
 
   - id: impl-fts5-exact
     query: Where is the FTS5 query built for exact substring search?
+    # 2026-06-10 gold audit: any file of the exact_search module answers this
+    # question — the live search returns mod.rs/search.rs of the right module
+    # at ranks 3-4 while the old single-file gold (query_builder.rs) scored
+    # those sibling hits as misses.
     expectedFiles:
-      - src/rust/daemon/core/src/text_search/exact_search/query_builder.rs
+      - "src/rust/daemon/core/src/text_search/exact_search/*.rs"
 
   - id: impl-qdrant-upsert
     query: Where does the daemon upsert embedded points into Qdrant collections?
