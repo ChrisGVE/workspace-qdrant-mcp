@@ -4,12 +4,16 @@
 //!
 //! # Architecture context
 //! This view is tab 10 in the TUI tab bar, surfacing both the daemon's
-//! TextSearchService (Grep and Semantic modes) and GraphService (Graph mode)
+//! TextSearchService (Grep and Exact modes) and GraphService (Graph mode)
 //! through three display modes selectable with keys 1-3:
 //!
-//!   1 Grep     — literal/regex line search via TextSearchService::Search
-//!   2 Semantic — hybrid dense+sparse search via TextSearchService::Search
-//!   3 Graph    — related symbols via GraphService::QueryRelated
+//!   1 Grep  — literal/regex line search via TextSearchService::Search
+//!   2 Exact — exact FTS5 text search (whole-phrase match) via the same RPC
+//!   3 Graph — related symbols via GraphService::QueryRelated
+//!
+//! Semantic (hybrid dense+sparse vector) search is NOT available here: the
+//! daemon exposes no hybrid-search RPC — that pipeline lives in the MCP
+//! server. A future Semantic mode is tracked as a GitHub issue.
 //!
 //! The TUI loop is synchronous; all gRPC work runs on a background thread
 //! writing into an `Arc<Mutex<SearchSnapshot>>` (see `search_data.rs`). This
@@ -35,19 +39,19 @@ use super::search_data::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
     Grep,
-    Semantic,
+    Exact,
     Graph,
 }
 
 impl SearchMode {
     /// All modes in key order (1–3).
-    pub const ALL: [SearchMode; 3] = [SearchMode::Grep, SearchMode::Semantic, SearchMode::Graph];
+    pub const ALL: [SearchMode; 3] = [SearchMode::Grep, SearchMode::Exact, SearchMode::Graph];
 
     /// Short label shown in the mode bar.
     pub fn label(self) -> &'static str {
         match self {
             SearchMode::Grep => "Grep",
-            SearchMode::Semantic => "Semantic",
+            SearchMode::Exact => "Exact",
             SearchMode::Graph => "Graph",
         }
     }
@@ -178,11 +182,11 @@ impl SearchPageView {
 
     // ─── Query dispatch ───────────────────────────────────────────────────
 
-    /// Send a text-search (Grep or Semantic) fetch request to the background thread.
+    /// Send a text-search (Grep or Exact) fetch request to the background thread.
     ///
-    /// Grep mode uses a literal or regex pattern; Semantic mode sends the same
-    /// `TextSearchRequest` with `regex = false` (the daemon handles hybrid
-    /// dense+sparse ranking transparently for non-regex queries).
+    /// Grep mode uses a literal or regex pattern; Exact mode sends the same
+    /// `TextSearchRequest` with `regex = false`, which the daemon routes to
+    /// its exact FTS5 whole-phrase search (`search_exact`).
     pub fn trigger_text_search(&mut self, query: String) {
         if let Some(tenant) = self.active_tenant() {
             let regex = self.mode == SearchMode::Grep;
@@ -210,7 +214,7 @@ impl SearchPageView {
     /// Dispatch the confirmed query to the appropriate fetcher for the active mode.
     pub fn dispatch_query(&mut self, query: String) {
         match self.mode {
-            SearchMode::Grep | SearchMode::Semantic => self.trigger_text_search(query),
+            SearchMode::Grep | SearchMode::Exact => self.trigger_text_search(query),
             SearchMode::Graph => self.trigger_graph_search(query),
         }
     }
@@ -253,7 +257,7 @@ impl SearchPageView {
     /// Length of the results list in the current snapshot.
     pub fn results_len(&self, snap: &SearchSnapshot) -> usize {
         match self.mode {
-            SearchMode::Grep | SearchMode::Semantic => snap.matches.len(),
+            SearchMode::Grep | SearchMode::Exact => snap.matches.len(),
             SearchMode::Graph => snap.graph_nodes.len(),
         }
     }

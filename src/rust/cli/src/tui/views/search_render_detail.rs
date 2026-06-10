@@ -39,7 +39,7 @@ impl SearchPageView {
 
         let mode_tag = match self.mode {
             SearchMode::Grep => "Grep",
-            SearchMode::Semantic => "Semantic",
+            SearchMode::Exact => "Exact",
             SearchMode::Graph => "Graph symbol",
         };
 
@@ -71,7 +71,7 @@ impl SearchPageView {
 
     /// Render the file-content (or graph-node detail) preview popup.
     ///
-    /// For Grep/Semantic: reads the matched file from disk and renders it via
+    /// For Grep/Exact: reads the matched file from disk and renders it via
     /// the content renderer with the match line highlighted. For Graph: shows
     /// traversal details for the selected node.
     ///
@@ -90,7 +90,7 @@ impl SearchPageView {
         frame.render_widget(Clear, popup_area);
 
         match self.mode {
-            SearchMode::Grep | SearchMode::Semantic => {
+            SearchMode::Grep | SearchMode::Exact => {
                 self.draw_text_preview(frame, popup_area, &snap.matches);
             }
             SearchMode::Graph => {
@@ -99,7 +99,7 @@ impl SearchPageView {
         }
     }
 
-    /// Preview popup for a Grep or Semantic search result.
+    /// Preview popup for a Grep or Exact search result.
     ///
     /// Renders the matching line plus surrounding context lines from the
     /// snapshot. A full disk read is intentionally avoided in the TUI loop;

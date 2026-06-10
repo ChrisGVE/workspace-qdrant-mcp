@@ -266,7 +266,7 @@ impl App {
 
     /// Handle Search page keys. Returns true if the key was consumed.
     ///
-    /// Keys 1–3 switch the search mode (Grep/Semantic/Graph), consuming them so
+    /// Keys 1–3 switch the search mode (Grep/Exact/Graph), consuming them so
     /// they never fall through to the global view-switch handler. `i` or `/`
     /// opens the query prompt. `[`/`]` cycle tenants.
     /// Standard j/k/g/G/^d/^u/^f/^b navigation applies in the results list.

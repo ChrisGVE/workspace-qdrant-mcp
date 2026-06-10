@@ -302,7 +302,7 @@ impl App {
             ]),
             Line::from(vec![
                 Span::styled("  1-3 (Search)", Style::default().fg(Color::Yellow)),
-                Span::raw("Grep / Semantic / Graph mode"),
+                Span::raw("Grep / Exact / Graph mode"),
             ]),
             Line::from(vec![
                 Span::styled("  i or / (Srch)", Style::default().fg(Color::Yellow)),

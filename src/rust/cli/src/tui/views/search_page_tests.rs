@@ -25,7 +25,7 @@ fn search_mode_numbers_are_one_to_three() {
 #[test]
 fn search_mode_from_key_round_trips() {
     assert_eq!(SearchMode::from_key(1), Some(SearchMode::Grep));
-    assert_eq!(SearchMode::from_key(2), Some(SearchMode::Semantic));
+    assert_eq!(SearchMode::from_key(2), Some(SearchMode::Exact));
     assert_eq!(SearchMode::from_key(3), Some(SearchMode::Graph));
 }
 
@@ -120,8 +120,8 @@ fn set_mode_resets_cursor_and_preview() {
     let mut v = SearchPageView::new();
     v.selected = 5;
     v.preview_open = true;
-    v.set_mode(SearchMode::Semantic);
-    assert_eq!(v.mode, SearchMode::Semantic);
+    v.set_mode(SearchMode::Exact);
+    assert_eq!(v.mode, SearchMode::Exact);
     assert_eq!(v.selected, 0);
     assert!(!v.preview_open);
 }

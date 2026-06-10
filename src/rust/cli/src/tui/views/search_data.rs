@@ -4,7 +4,7 @@
 //!
 //! # Architecture context
 //! The TUI render/event loop is synchronous. Search requires async gRPC calls
-//! to the daemon's TextSearchService (grep + semantic modes) and GraphService
+//! to the daemon's TextSearchService (grep + exact-text modes) and GraphService
 //! (graph related-nodes mode). This module owns the background thread (tokio
 //! single-threaded runtime) that makes those calls, and exposes a shared
 //! `Arc<Mutex<SearchSnapshot>>` the sync view reads on every draw.
@@ -25,7 +25,7 @@ use crate::grpc::client::workspace_daemon::{QueryRelatedRequest, TextSearchReque
 
 // ─── Per-mode result types ────────────────────────────────────────────────────
 
-/// A single grep/semantic search match (one line in a file).
+/// A single grep/exact-text search match (one line in a file).
 #[derive(Debug, Clone)]
 pub struct SearchMatch {
     /// File path relative to the project root.
@@ -65,7 +65,7 @@ pub struct TenantRef {
 /// The full data snapshot written by the background thread and read on every draw.
 #[derive(Debug, Clone, Default)]
 pub struct SearchSnapshot {
-    /// Results for Grep or Semantic mode.
+    /// Results for Grep or Exact mode.
     pub matches: Vec<SearchMatch>,
     /// Results for Graph mode.
     pub graph_nodes: Vec<GraphRelatedNode>,
@@ -86,7 +86,7 @@ pub struct SearchSnapshot {
 /// A request sent from the view to the background thread.
 #[derive(Debug, Clone)]
 pub enum FetchRequest {
-    /// Run a grep (literal or regex) or semantic search via TextSearchService.
+    /// Run a grep (literal or regex) or exact-text search via TextSearchService.
     TextSearch {
         tenant_id: String,
         pattern: String,

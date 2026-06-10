@@ -3,7 +3,7 @@
 //! Located at: `src/rust/cli/src/tui/views/search_render.rs`
 //!
 //! Contains the `draw` entry point and the per-mode render helpers for the
-//! Grep, Semantic, and Graph modes. The preview popup and the query prompt
+//! Grep, Exact, and Graph modes. The preview popup and the query prompt
 //! overlay live in `search_render_detail.rs`.
 //!
 //! Neighbors: `search_page.rs` (state), `search_data.rs` (data model),
@@ -107,7 +107,7 @@ impl SearchPageView {
             rows[0],
         );
 
-        // Line 2: mode selector (1 Grep | 2 Semantic | 3 Graph) + last query
+        // Line 2: mode selector (1 Grep | 2 Exact | 3 Graph) + last query
         let mut spans = Vec::new();
         for (i, m) in SearchMode::ALL.iter().enumerate() {
             if i > 0 {
@@ -153,14 +153,14 @@ impl SearchPageView {
     /// Route content rendering to the appropriate mode helper.
     pub(super) fn draw_content(&self, frame: &mut Frame, area: Rect, snap: &SearchSnapshot) {
         match self.mode {
-            SearchMode::Grep | SearchMode::Semantic => {
+            SearchMode::Grep | SearchMode::Exact => {
                 self.draw_text_results(frame, area, &snap.matches, self.mode.label())
             }
             SearchMode::Graph => self.draw_graph_results(frame, area, &snap.graph_nodes),
         }
     }
 
-    /// Render Grep or Semantic results as a scrollable table.
+    /// Render Grep or Exact results as a scrollable table.
     pub(super) fn draw_text_results(
         &self,
         frame: &mut Frame,
@@ -326,9 +326,9 @@ mod tests {
     }
 
     #[test]
-    fn results_len_semantic_counts_matches() {
+    fn results_len_exact_counts_matches() {
         let mut v = SearchPageView::new();
-        v.mode = SearchMode::Semantic;
+        v.mode = SearchMode::Exact;
         let mut snap = SearchSnapshot::default();
         snap.matches = vec![SearchMatch {
             file_path: "a.rs".into(),
