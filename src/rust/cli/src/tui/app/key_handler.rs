@@ -5,6 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::super::filter::FilterAction;
 use super::super::search::SearchAction;
 use super::super::views::dashboard::FocusedCell;
+use super::super::views::graph::GraphMode;
 use super::{App, View};
 
 impl App {
@@ -37,6 +38,9 @@ impl App {
             }
             View::Logs => {
                 self.log_viewer().on_tick();
+            }
+            View::Graph => {
+                self.graph_view().on_tick();
             }
         }
     }
@@ -129,6 +133,13 @@ impl App {
         // Delegate scrolling keys to the log viewer when on Logs view
         if self.current_view == View::Logs {
             if self.handle_log_key(key) {
+                return;
+            }
+        }
+
+        // Delegate keys to the graph view when on Graph view
+        if self.current_view == View::Graph {
+            if self.handle_graph_key(key) {
                 return;
             }
         }
@@ -885,6 +896,131 @@ impl App {
         }
     }
 
+    /// Handle graph-specific keys. Returns true if the key was consumed.
+    ///
+    /// Keys 1–5 switch the graph mode (Stats/PageRank/Communities/Betweenness/Impact).
+    /// `[`/`]` cycle the active tenant. `i` opens the Impact symbol prompt.
+    /// Standard j/k/g/G/^d/^u/^f/^b navigation applies in list modes.
+    /// Enter toggles community member expansion in Communities mode.
+    fn handle_graph_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let (half, full) = self.nav_steps();
+        let view = self.graph_view();
+
+        // Impact prompt captures all input while active.
+        if view.impact_prompt.active {
+            match key.code {
+                KeyCode::Esc => {
+                    view.impact_prompt.cancel();
+                    return true;
+                }
+                KeyCode::Enter => {
+                    if let Some(sym) = view.impact_prompt.confirm() {
+                        view.trigger_impact(sym);
+                    }
+                    return true;
+                }
+                KeyCode::Backspace => {
+                    view.impact_prompt.backspace();
+                    return true;
+                }
+                KeyCode::Char(c) => {
+                    view.impact_prompt.push_char(c);
+                    return true;
+                }
+                _ => return true,
+            }
+        }
+
+        match key.code {
+            // Mode switching: keys 1-5 select graph sub-modes.
+            KeyCode::Char(c @ '1'..='5') => {
+                let digit = c as u8 - b'0';
+                if let Some(mode) = GraphMode::from_key(digit) {
+                    view.set_mode(mode);
+                    return true;
+                }
+                false
+            }
+
+            // Tenant cycling
+            KeyCode::Char('[') => {
+                view.prev_tenant();
+                true
+            }
+            KeyCode::Char(']') => {
+                view.next_tenant();
+                true
+            }
+
+            // Impact query prompt
+            KeyCode::Char('i') => {
+                view.set_mode(GraphMode::Impact);
+                view.impact_prompt.activate();
+                true
+            }
+
+            // List navigation
+            KeyCode::Char('j') | KeyCode::Down => {
+                view.select_next();
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                view.select_prev();
+                true
+            }
+            KeyCode::Char('d') if ctrl => {
+                view.page_down(half);
+                true
+            }
+            KeyCode::Char('u') if ctrl => {
+                view.page_up(half);
+                true
+            }
+            KeyCode::Char('f') if ctrl => {
+                view.page_down(full);
+                true
+            }
+            KeyCode::Char('b') if ctrl => {
+                view.page_up(full);
+                true
+            }
+            KeyCode::PageUp => {
+                view.page_up(full);
+                true
+            }
+            KeyCode::PageDown => {
+                view.page_down(full);
+                true
+            }
+            KeyCode::Char('g') => {
+                view.jump_first();
+                true
+            }
+            KeyCode::Char('G') => {
+                view.jump_last();
+                true
+            }
+
+            // Enter: expand/collapse community members in Communities mode.
+            KeyCode::Enter => {
+                view.toggle_community_expand();
+                true
+            }
+
+            // Esc: close community popup if open, otherwise fall through.
+            KeyCode::Esc => {
+                if view.expanded_community.is_some() {
+                    view.expanded_community = None;
+                    return true;
+                }
+                false
+            }
+
+            _ => false,
+        }
+    }
+
     /// Handle global key bindings (quit, view switching, help).
     fn handle_global_key(&mut self, key: KeyEvent) {
         match key.code {
@@ -903,6 +1039,7 @@ impl App {
             KeyCode::Char('6') => self.current_view = View::Scratchpad,
             KeyCode::Char('7') => self.current_view = View::Service,
             KeyCode::Char('8') => self.current_view = View::Logs,
+            KeyCode::Char('9') => self.current_view = View::Graph,
 
             // Tab navigation
             KeyCode::Tab => self.current_view = self.current_view.next(),

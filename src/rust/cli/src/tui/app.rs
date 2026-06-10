@@ -9,6 +9,7 @@ use super::event::{Event, EventHandler};
 use super::filter::FilterState;
 use super::terminal;
 use super::views::dashboard::Dashboard;
+use super::views::graph::GraphView;
 use super::views::libraries::LibraryBrowser;
 use super::views::logs::LogViewer;
 use super::views::projects::ProjectBrowser;
@@ -28,11 +29,12 @@ pub enum View {
     Scratchpad,
     Service,
     Logs,
+    Graph,
 }
 
 impl View {
     /// All views in tab order.
-    const ALL: [View; 8] = [
+    const ALL: [View; 9] = [
         View::Dashboard,
         View::Queue,
         View::Projects,
@@ -41,6 +43,7 @@ impl View {
         View::Scratchpad,
         View::Service,
         View::Logs,
+        View::Graph,
     ];
 
     fn label(self) -> &'static str {
@@ -53,6 +56,7 @@ impl View {
             View::Scratchpad => "Scratchpad",
             View::Service => "Service",
             View::Logs => "Logs",
+            View::Graph => "Graph",
         }
     }
 
@@ -98,6 +102,8 @@ pub struct App {
     service_view: Option<ServiceView>,
     /// Log viewer state (lazily initialized on first Logs view).
     log_viewer: Option<LogViewer>,
+    /// Graph view state (lazily initialized on first Graph view).
+    graph_view: Option<GraphView>,
     /// Height of the main content area from the last frame, used to size
     /// half/full-screen navigation. Updated during `draw`.
     content_height: std::cell::Cell<u16>,
@@ -121,6 +127,7 @@ impl App {
             scratchpad_browser: None,
             service_view: None,
             log_viewer: None,
+            graph_view: None,
             content_height: std::cell::Cell::new(0),
             global_filter: FilterState::new(),
         }
@@ -152,7 +159,7 @@ impl App {
             View::Libraries => self.library_browser().set_global_filter(re),
             View::Rules => self.rule_browser().set_global_filter(re),
             View::Scratchpad => self.scratchpad_browser().set_global_filter(re),
-            View::Dashboard | View::Service | View::Logs => {}
+            View::Dashboard | View::Service | View::Logs | View::Graph => {}
         }
     }
 
@@ -205,6 +212,11 @@ impl App {
         self.log_viewer.get_or_insert_with(LogViewer::new)
     }
 
+    /// Return a mutable reference to the graph view, creating it if needed.
+    fn graph_view(&mut self) -> &mut GraphView {
+        self.graph_view.get_or_insert_with(GraphView::new)
+    }
+
     /// Main run loop: setup terminal, handle events, render, cleanup.
     pub fn run(&mut self) -> anyhow::Result<()> {
         let mut term = terminal::init()?;
@@ -245,6 +257,7 @@ mod tests {
         assert!(app.rule_browser.is_none());
         assert!(app.scratchpad_browser.is_none());
         assert!(app.service_view.is_none());
+        assert!(app.graph_view.is_none());
     }
 
     #[test]
@@ -260,16 +273,20 @@ mod tests {
     #[test]
     fn view_next_wraps() {
         assert_eq!(View::Dashboard.next(), View::Queue);
-        assert_eq!(View::Logs.next(), View::Dashboard);
+        // Graph is now the last tab; it wraps back to Dashboard.
+        assert_eq!(View::Graph.next(), View::Dashboard);
         assert_eq!(View::Libraries.next(), View::Rules);
         assert_eq!(View::Service.next(), View::Logs);
+        assert_eq!(View::Logs.next(), View::Graph);
     }
 
     #[test]
     fn view_prev_wraps() {
-        assert_eq!(View::Dashboard.prev(), View::Logs);
+        // Graph is the last tab; Dashboard.prev() wraps to Graph.
+        assert_eq!(View::Dashboard.prev(), View::Graph);
         assert_eq!(View::Queue.prev(), View::Dashboard);
         assert_eq!(View::Rules.prev(), View::Libraries);
+        assert_eq!(View::Graph.prev(), View::Logs);
     }
 
     #[test]
@@ -332,7 +349,12 @@ mod tests {
         assert_eq!(View::Queue.index(), 1);
         assert_eq!(View::from_index(4), View::Rules);
         assert_eq!(View::from_index(7), View::Logs);
+        // Graph is tab 9 (index 8).
+        assert_eq!(View::from_index(8), View::Graph);
+        assert_eq!(View::Graph.label(), "Graph");
         assert_eq!(View::from_index(99), View::Dashboard);
+        // 9-view count.
+        assert_eq!(View::ALL.len(), 9);
     }
 
     #[test]
@@ -586,5 +608,37 @@ mod tests {
         app.current_view = View::Queue;
         app.on_tick();
         assert!(app.queue_browser.is_some());
+    }
+
+    #[test]
+    fn graph_view_lazy_init() {
+        let mut app = App::new("addr".into());
+        assert!(app.graph_view.is_none());
+        let _ = app.graph_view();
+        assert!(app.graph_view.is_some());
+    }
+
+    #[test]
+    fn on_tick_initializes_graph_on_graph_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Graph;
+        app.on_tick();
+        assert!(app.graph_view.is_some());
+    }
+
+    #[test]
+    fn handle_key_9_switches_to_graph() {
+        let mut app = App::new("addr".into());
+        app.handle_key(KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE));
+        assert_eq!(app.current_view, View::Graph);
+    }
+
+    #[test]
+    fn graph_keys_initialize_view() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Graph;
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(app.graph_view.is_some());
+        assert!(app.running);
     }
 }
