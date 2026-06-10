@@ -268,7 +268,7 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn v40_rebuilds_tracked_files() {
         let pool = setup_pool().await;
 
@@ -320,7 +320,7 @@ mod tests {
 
     /// #128: a mid-rebuild failure must (a) leave FK checks enabled on the
     /// connection and (b) roll the schema back to its pre-v40 state.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn v40_rollback_on_mid_rebuild_failure() {
         // Fresh pool with a pre-v40 tracked_files (scalar `branch` column).
         // Single connection so the PRAGMA assertions see the same connection
@@ -404,7 +404,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn v40_is_idempotent() {
         let pool = setup_pool().await;
 
@@ -414,7 +414,7 @@ mod tests {
         assert!(result.is_ok(), "v40 should be idempotent");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn v40_new_unique_constraint() {
         let pool = setup_pool().await;
         insert_test_watch_folder(&pool, "wf1").await;
@@ -464,7 +464,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn v40_branches_default() {
         let pool = setup_pool().await;
         insert_test_watch_folder(&pool, "wf1").await;

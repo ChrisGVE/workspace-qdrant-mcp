@@ -363,6 +363,17 @@ pub async fn cleanup_deleted_branch(
 
     // 3. Delete file_metadata rows for the deleted branch
     if let Some(ref sdb) = branch_ctx.search_db {
+        // Note: this also drops file_metadata for files whose Qdrant deletion
+        // failed above (their tracked_files rows were kept for retry). Those
+        // files are FTS-invisible until the reconcile sweep re-ingests them —
+        // log it so the temporary gap can be correlated with the failure.
+        if result.errors > 0 {
+            warn!(
+                "Branch '{}' cleanup: {} Qdrant deletion(s) failed — affected files \
+                 are FTS-invisible until the reconcile sweep re-ingests them",
+                deleted_branch, result.errors
+            );
+        }
         db::delete_file_metadata_for_branch(sdb.pool(), tenant_id, deleted_branch).await;
     }
 

@@ -381,12 +381,30 @@ pub fn scratchpad_reassign(
     })
     .to_string();
 
-    match block_on_worker(async {
-        enqueue_scratchpad("add", &new_tenant, add_payload.to_string()).await?;
-        enqueue_scratchpad("delete", &old_tenant, delete_payload).await
-    }) {
-        Ok(()) => format!("Moved to {}", new_tenant),
-        Err(e) => format!("Reassign failed: {}", e),
+    // Two-stage result: a failure AFTER the add succeeded leaves a duplicate
+    // under the new tenant — the user must know to re-run the move, not just
+    // that "it failed".
+    enum Stage {
+        AddFailed(anyhow::Error),
+        DeleteFailed(anyhow::Error),
+        Done,
+    }
+    let stage = block_on_worker(async {
+        if let Err(e) = enqueue_scratchpad("add", &new_tenant, add_payload.to_string()).await {
+            return Stage::AddFailed(e);
+        }
+        match enqueue_scratchpad("delete", &old_tenant, delete_payload).await {
+            Err(e) => Stage::DeleteFailed(e),
+            Ok(()) => Stage::Done,
+        }
+    });
+    match stage {
+        Stage::Done => format!("Moved to {}", new_tenant),
+        Stage::AddFailed(e) => format!("Reassign failed (nothing queued): {}", e),
+        Stage::DeleteFailed(e) => format!(
+            "Copied to {} but old-copy delete failed ({}) — re-run move to clean up",
+            new_tenant, e
+        ),
     }
 }
 

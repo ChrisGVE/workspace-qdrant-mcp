@@ -74,7 +74,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_password_in_scp_like_userinfo() {
+    fn keeps_username_drops_password_in_scp_like_url() {
         assert_eq!(
             sanitize_git_remote_url("git:hunter2@github.com:org/repo.git"),
             "git@github.com:org/repo.git"

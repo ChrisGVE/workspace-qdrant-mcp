@@ -128,7 +128,15 @@ pub fn spawn_search_fetcher() -> (
             .build()
         {
             Ok(rt) => rt,
-            Err(_) => return,
+            Err(e) => {
+                // Surface the dead backend instead of leaving the view in a
+                // permanent "loading" spinner (requests would go nowhere).
+                if let Ok(mut s) = shared_clone.lock() {
+                    s.last_error = Some(format!("search backend failed to start: {}", e));
+                    s.loading = false;
+                }
+                return;
+            }
         };
 
         rt.block_on(async move {
