@@ -214,6 +214,8 @@ impl EmbeddingSettings {
 
         if let Ok(val) = env::var("WQM_EMBEDDING_FALLBACK_BASE_URL") {
             self.fallback_base_url = val;
+        }
+        
         if let Ok(val) = env::var("WQM_EMBEDDING_MAX_INPUT_CHARS") {
             if let Ok(parsed) = val.parse() {
                 self.max_input_chars = parsed;
