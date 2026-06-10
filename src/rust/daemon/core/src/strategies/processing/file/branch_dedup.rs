@@ -126,13 +126,20 @@ pub(super) async fn try_branch_dedup(
         return Ok(None);
     }
 
+    // Capture the qdrant_chunks mirror rows before the upsert consumes the
+    // points. Without them the cloned generation is invisible to every
+    // per-file Qdrant deletion path (update replacement, file delete,
+    // missing-file cleanup, delete triage) — exactly the drift the mirror
+    // reconcile task repairs.
+    let chunk_tuples = build_mirror_tuples(&new_points);
+
     let scrolled = new_points.len();
     ctx.storage_client
         .insert_points_batch(&item.collection, new_points, None)
         .await
         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
-    // ── 4. tracked_files row for the new branch ──
+    // ── 4. tracked_files row + qdrant_chunks mirror for the new branch ──
     let file_mtime = std::fs::metadata(file_path)
         .ok()
         .and_then(|m| m.modified().ok())
@@ -145,8 +152,13 @@ pub(super) async fn try_branch_dedup(
         .map(|s| s.to_lowercase());
     let is_test = crate::file_classification::is_test_file(file_path);
 
-    let file_id = tracked_files_schema::insert_tracked_file(
-        &ctx.pool,
+    let mut tx = ctx
+        .pool
+        .begin()
+        .await
+        .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("dedup tx begin: {e}")))?;
+    let file_id = tracked_files_schema::insert_tracked_file_tx(
+        &mut tx,
         watch_folder_id,
         relative_path,
         Some(item.branch.as_str()),
@@ -166,6 +178,14 @@ pub(super) async fn try_branch_dedup(
     )
     .await
     .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("insert_tracked_file: {e}")))?;
+    tracked_files_schema::insert_qdrant_chunks_tx(&mut tx, file_id, &chunk_tuples)
+        .await
+        .map_err(|e| {
+            UnifiedProcessorError::ProcessingFailed(format!("insert_qdrant_chunks: {e}"))
+        })?;
+    tx.commit()
+        .await
+        .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("dedup tx commit: {e}")))?;
 
     // ── 5. Enqueue FTS5 work (batch writer owns search.db writes) ──
     if let Some(sender) = crate::search_db::batch_writer::global_sender() {
@@ -256,6 +276,74 @@ pub(super) async fn try_branch_dedup(
     Ok(Some(DedupHit))
 }
 
+/// Chunk tuple accepted by `insert_qdrant_chunks_tx`.
+type ChunkTuple = (
+    String,
+    i32,
+    String,
+    Option<tracked_files_schema::ChunkType>,
+    Option<String>,
+    Option<i32>,
+    Option<i32>,
+);
+
+/// Build the `qdrant_chunks` mirror tuples for the re-keyed points.
+///
+/// Point IDs are already in `compute_point_id`'s bare-hex form (assigned by
+/// [`rekey_point`]); chunk metadata comes from the cloned payload
+/// (`chunk_index` as a number, the forwarded `chunk_*` fields as strings).
+/// Duplicate chunk indexes are dropped to respect UNIQUE(file_id, chunk_index).
+fn build_mirror_tuples(points: &[DocumentPoint]) -> Vec<ChunkTuple> {
+    let int_of = |v: &serde_json::Value| {
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+    };
+
+    let mut seen_indexes = std::collections::HashSet::new();
+    points
+        .iter()
+        .filter_map(|p| {
+            let chunk_index = i32::try_from(p.payload.get("chunk_index").and_then(int_of)?).ok()?;
+            let content_hash = p
+                .payload
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(compute_content_hash)
+                .unwrap_or_default();
+            let chunk_type = p
+                .payload
+                .get("chunk_chunk_type")
+                .and_then(|v| v.as_str())
+                .and_then(tracked_files_schema::ChunkType::from_str);
+            let symbol_name = p
+                .payload
+                .get("chunk_symbol_name")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let start_line = p
+                .payload
+                .get("chunk_start_line")
+                .and_then(int_of)
+                .and_then(|n| i32::try_from(n).ok());
+            let end_line = p
+                .payload
+                .get("chunk_end_line")
+                .and_then(int_of)
+                .and_then(|n| i32::try_from(n).ok());
+            Some((
+                p.id.clone(),
+                chunk_index,
+                content_hash,
+                chunk_type,
+                symbol_name,
+                start_line,
+                end_line,
+            ))
+        })
+        .filter(|t| seen_indexes.insert(t.1))
+        .collect()
+}
+
 /// Translate a `RetrievedPoint` (with vectors) into a `DocumentPoint`
 /// keyed by the **new** base_point + branch.
 ///
@@ -325,4 +413,71 @@ fn rekey_point(
         sparse_vector: sparse,
         payload,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn point(id: &str, payload: HashMap<String, serde_json::Value>) -> DocumentPoint {
+        DocumentPoint {
+            id: id.to_string(),
+            dense_vector: vec![0.0],
+            sparse_vector: None,
+            payload,
+        }
+    }
+
+    /// The dedup fast-path used to insert the tracked_files row with
+    /// `chunk_count > 0` but never wrote the qdrant_chunks mirror — the
+    /// cloned generation was then invisible to every per-file Qdrant
+    /// deletion path. The mirror tuples must come out of the re-keyed
+    /// points themselves.
+    #[test]
+    fn build_mirror_tuples_extracts_chunk_metadata() {
+        let mut payload = HashMap::new();
+        payload.insert("chunk_index".to_string(), serde_json::json!(2));
+        payload.insert("content".to_string(), serde_json::json!("fn main() {}"));
+        payload.insert(
+            "chunk_chunk_type".to_string(),
+            serde_json::json!("function"),
+        );
+        payload.insert("chunk_symbol_name".to_string(), serde_json::json!("main"));
+        payload.insert("chunk_start_line".to_string(), serde_json::json!("10"));
+        payload.insert("chunk_end_line".to_string(), serde_json::json!("20"));
+
+        let tuples = build_mirror_tuples(&[point("aabbccdd", payload)]);
+        assert_eq!(tuples.len(), 1);
+        let (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) =
+            &tuples[0];
+        assert_eq!(point_id, "aabbccdd");
+        assert_eq!(*chunk_index, 2);
+        assert_eq!(content_hash, &compute_content_hash("fn main() {}"));
+        assert_eq!(*chunk_type, Some(tracked_files_schema::ChunkType::Function));
+        assert_eq!(symbol_name.as_deref(), Some("main"));
+        assert_eq!(*start_line, Some(10));
+        assert_eq!(*end_line, Some(20));
+    }
+
+    #[test]
+    fn build_mirror_tuples_skips_undecodable_and_duplicate_indexes() {
+        let mut ok = HashMap::new();
+        ok.insert("chunk_index".to_string(), serde_json::json!(0));
+        let mut dup = HashMap::new();
+        dup.insert("chunk_index".to_string(), serde_json::json!(0));
+        let no_index = HashMap::new();
+
+        let tuples =
+            build_mirror_tuples(&[point("p0", ok), point("p0-dup", dup), point("p1", no_index)]);
+        assert_eq!(
+            tuples.len(),
+            1,
+            "duplicate index and indexless point dropped"
+        );
+        assert_eq!(tuples[0].0, "p0");
+        // Missing content still produces a row (hash defaults to empty).
+        assert_eq!(tuples[0].2, "");
+    }
 }

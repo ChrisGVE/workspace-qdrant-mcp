@@ -1,6 +1,7 @@
 //! Concrete maintenance task implementations.
 
 mod filesystem_reconcile;
+mod mirror_repair;
 mod orphan_cleanup;
 mod stale_project_deactivation;
 
