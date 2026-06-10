@@ -41,25 +41,43 @@ pub fn chunk_text(
     chunks
 }
 
-/// Chunk text preserving paragraph boundaries
+/// Chunk text preserving paragraph boundaries.
+///
+/// Paragraphs are separated by blank lines (LF or CRLF). A single paragraph
+/// longer than `chunk_size` is pre-split at character level (preferring
+/// whitespace boundaries), so no emitted chunk can exceed
+/// `chunk_size + overlap_size` bytes plus a few bytes of slack (the `"\n\n"`
+/// joiner and UTF-8 boundary adjustment of the overlap tail). Without that
+/// bound, a plain-text file with no blank lines became ONE chunk of the whole
+/// file, which remote embedding providers reject (HTTP 422 string_too_long) —
+/// permanently failing the queue item.
 pub fn chunk_by_paragraphs(
     text: &str,
     base_metadata: &HashMap<String, String>,
     chunks: &mut Vec<TextChunk>,
     config: &ChunkingConfig,
 ) {
-    let paragraphs: Vec<&str> = text.split("\n\n").collect();
+    // `split("\n\n")` alone never matches in CRLF files ("\r\n\r\n" contains
+    // no "\n\n"), which made an entire CRLF file a single paragraph. Split on
+    // both separators, then cap each paragraph at chunk_size.
+    let mut paragraphs: Vec<&str> = Vec::new();
+    for paragraph in text.split("\n\n").flat_map(|p| p.split("\r\n\r\n")) {
+        let paragraph = paragraph.trim();
+        if paragraph.is_empty() {
+            continue;
+        }
+        if paragraph.len() <= config.chunk_size {
+            paragraphs.push(paragraph);
+        } else {
+            split_oversized_paragraph(paragraph, config.chunk_size, &mut paragraphs);
+        }
+    }
 
     let mut current_chunk = String::new();
     let mut current_start = 0;
     let mut chunk_index = 0;
 
     for paragraph in paragraphs {
-        let paragraph = paragraph.trim();
-        if paragraph.is_empty() {
-            continue;
-        }
-
         if !current_chunk.is_empty()
             && current_chunk.len() + paragraph.len() + 2 > config.chunk_size
         {
@@ -99,6 +117,43 @@ pub fn chunk_by_paragraphs(
             end_char: current_start + current_chunk.len(),
             metadata: chunk_metadata,
         });
+    }
+}
+
+/// Split a paragraph longer than `max_len` bytes into pieces of at most
+/// `max_len` bytes, cutting at whitespace where possible and always on UTF-8
+/// char boundaries. Guarantees forward progress even when `max_len` is
+/// smaller than a single multi-byte character.
+fn split_oversized_paragraph<'t>(paragraph: &'t str, max_len: usize, pieces: &mut Vec<&'t str>) {
+    let mut start = 0;
+    while start < paragraph.len() {
+        let hard_end = floor_char_boundary(paragraph, (start + max_len).min(paragraph.len()));
+
+        let mut end = if hard_end < paragraph.len() {
+            paragraph[start..hard_end]
+                .rfind(char::is_whitespace)
+                .map(|pos| start + pos)
+                .filter(|&pos| pos > start)
+                .unwrap_or(hard_end)
+        } else {
+            hard_end
+        };
+
+        if end <= start {
+            // max_len lands inside the first character: take it whole.
+            end = start
+                + paragraph[start..]
+                    .chars()
+                    .next()
+                    .map(char::len_utf8)
+                    .unwrap_or(1);
+        }
+
+        let piece = paragraph[start..end].trim();
+        if !piece.is_empty() {
+            pieces.push(piece);
+        }
+        start = end;
     }
 }
 

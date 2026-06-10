@@ -330,6 +330,17 @@ embedding:
   # Format: Integer > 0
   remote_batch_size: 128
 
+  # max_input_chars: Maximum characters per input string sent to the remote provider
+  # Purpose: Remote endpoints cap each input's length and reject oversized strings
+  # outright (observed: HTTP 422 string_too_long above 122880 chars), which would
+  # permanently fail the queue item. Longer inputs are truncated locally (WARN
+  # logged) before dispatch. The cap applies to the FULL submitted string —
+  # document_prefix and the path/symbol context header included.
+  # No effect when provider="fastembed" (its tokenizer truncates internally)
+  # Env override: WQM_EMBEDDING_MAX_INPUT_CHARS
+  # Format: Integer > 0 (characters, not bytes)
+  max_input_chars: 120000
+
   # api_key_env_var: Name of the environment variable holding the API key
   # Purpose: Daemon resolves this env var at startup; the key itself never lives on disk
   # Format: String (env var name)

@@ -201,6 +201,102 @@ fn test_chunk_by_characters_with_multibyte() {
     }
 }
 
+/// Upper bound on any chunk emitted by paragraph chunking: chunk_size plus
+/// the overlap tail, the "\n\n" joiner, and UTF-8 boundary slack.
+fn paragraph_chunk_bound(config: &ChunkingConfig) -> usize {
+    config.chunk_size + config.overlap_size + 8
+}
+
+#[test]
+fn test_chunk_by_paragraphs_splits_oversized_single_paragraph() {
+    // Regression: a plain-text file with no blank lines (e.g. a test-results
+    // log) is ONE paragraph. It used to be emitted as a single chunk of the
+    // whole file, which the remote embedding provider rejected with
+    // HTTP 422 string_too_long, permanently failing the queue item.
+    let line = "shift test case 0042 passed in 13ms with 3 assertions";
+    let text = std::iter::repeat_n(line, 4000)
+        .collect::<Vec<_>>()
+        .join("\n"); // single \n: no paragraph separator anywhere
+    assert!(text.len() > 200_000);
+
+    let config = ChunkingConfig::default();
+    let chunks = chunk_text(&text, &HashMap::new(), &config);
+
+    assert!(
+        chunks.len() > 1,
+        "an oversized paragraph must be split into multiple chunks"
+    );
+    let bound = paragraph_chunk_bound(&config);
+    for chunk in &chunks {
+        assert!(
+            chunk.content.len() <= bound,
+            "chunk {} has {} bytes, exceeding the {} byte bound",
+            chunk.chunk_index,
+            chunk.content.len(),
+            bound
+        );
+    }
+    // The split must not drop content wholesale: total coverage stays close
+    // to the input size (overlap makes the sum slightly larger).
+    let total: usize = chunks.iter().map(|c| c.content.len()).sum();
+    assert!(
+        total >= text.len() - bound,
+        "chunks cover {} of {} input bytes",
+        total,
+        text.len()
+    );
+}
+
+#[test]
+fn test_chunk_by_paragraphs_handles_crlf_paragraphs() {
+    // Regression: split("\n\n") never matches in CRLF files ("\r\n\r\n"
+    // contains no "\n\n"), so an entire CRLF file was a single paragraph.
+    let paragraph = "All work and no play makes the daemon a dull process.";
+    let text = std::iter::repeat_n(paragraph, 200)
+        .collect::<Vec<_>>()
+        .join("\r\n\r\n");
+
+    let config = ChunkingConfig::default();
+    let chunks = chunk_text(&text, &HashMap::new(), &config);
+
+    assert!(chunks.len() > 1, "CRLF paragraphs must be split");
+    let bound = paragraph_chunk_bound(&config);
+    for chunk in &chunks {
+        assert!(
+            chunk.content.len() <= bound,
+            "chunk {} has {} bytes, exceeding the {} byte bound",
+            chunk.chunk_index,
+            chunk.content.len(),
+            bound
+        );
+        assert!(
+            !chunk.content.contains('\r'),
+            "trimmed paragraphs must not retain CR"
+        );
+    }
+}
+
+#[test]
+fn test_chunk_by_paragraphs_oversized_multibyte_paragraph() {
+    // Oversized paragraph made of multi-byte chars with no whitespace:
+    // splitting must stay on char boundaries and still respect the bound.
+    let text = "\u{2500}".repeat(5_000);
+    let config = ChunkingConfig::default();
+    let chunks = chunk_text(&text, &HashMap::new(), &config);
+
+    assert!(chunks.len() > 1);
+    let bound = paragraph_chunk_bound(&config);
+    for chunk in &chunks {
+        assert!(chunk.content.len() <= bound);
+        // Pieces are joined with "\n\n" inside a chunk; everything else must
+        // be the original multi-byte char (i.e. no split mid-character).
+        assert!(chunk
+            .content
+            .chars()
+            .all(|c| c == '\u{2500}' || c.is_whitespace()));
+    }
+}
+
 #[test]
 fn test_detect_document_type_new_formats() {
     assert_eq!(

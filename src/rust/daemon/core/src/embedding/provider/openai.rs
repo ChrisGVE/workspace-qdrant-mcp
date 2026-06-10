@@ -33,7 +33,7 @@ mod types;
 
 mod utils;
 pub(crate) use utils::classify_provider;
-use utils::normalize_in_place;
+use utils::{normalize_in_place, truncate_chars};
 
 mod http;
 
@@ -47,6 +47,13 @@ pub struct OpenAiCompatibleProvider {
     pub(super) base_url: String,
     pub(super) model: String,
     pub(super) batch_size: usize,
+    /// Per-input character budget. Each submitted string (document prefix +
+    /// context header + chunk content — the prefix is applied upstream by
+    /// `EmbeddingGenerator`, so it is already counted here) is truncated to
+    /// at most this many characters before dispatch. Remote endpoints reject
+    /// oversized inputs outright (observed: HTTP 422 `string_too_long` at
+    /// 122880 chars), which would otherwise permanently fail the queue item.
+    pub(super) max_input_chars: usize,
     pub(super) api_key: SecretString,
     pub(super) output_dim: AtomicUsize,
     pub(super) http: Client,
@@ -63,6 +70,7 @@ impl std::fmt::Debug for OpenAiCompatibleProvider {
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("batch_size", &self.batch_size)
+            .field("max_input_chars", &self.max_input_chars)
             .field("output_dim", &self.output_dim.load(Ordering::Relaxed))
             .field("metrics_tag", &self.metrics_tag)
             .field("probe_cache_ttl", &self.probe_cache_ttl)
@@ -80,6 +88,7 @@ impl OpenAiCompatibleProvider {
         base_url: String,
         model: String,
         batch_size: usize,
+        max_input_chars: usize,
         expected_output_dim: usize,
         api_key_env_var: &str,
         probe_cache_ttl: Duration,
@@ -108,6 +117,7 @@ impl OpenAiCompatibleProvider {
             base_url,
             model,
             batch_size: batch_size.max(1),
+            max_input_chars: max_input_chars.max(1),
             api_key: SecretString::from(raw_key),
             output_dim: AtomicUsize::new(expected_output_dim),
             http,
@@ -138,8 +148,37 @@ impl DenseProvider for OpenAiCompatibleProvider {
             return Ok(Vec::new());
         }
 
-        let mut out: Vec<DenseEmbedding> = Vec::with_capacity(texts.len());
-        for chunk in texts.chunks(self.batch_size) {
+        // Enforce the per-input character budget. This is a last-resort guard:
+        // the chunking pipeline keeps real chunks far below the cap, but any
+        // oversized stray (huge scratchpad note, unchunked content item) must
+        // degrade to a truncated dense vector instead of a permanent remote
+        // rejection. Only the submitted dense text is cut — stored payloads
+        // and sparse vectors are built from the raw content upstream.
+        let mut truncated_count = 0usize;
+        let mut longest_chars = 0usize;
+        let capped: Vec<&str> = texts
+            .iter()
+            .map(|t| {
+                let capped = truncate_chars(t, self.max_input_chars);
+                if capped.len() < t.len() {
+                    truncated_count += 1;
+                    longest_chars = longest_chars.max(t.chars().count());
+                }
+                capped
+            })
+            .collect();
+        if truncated_count > 0 {
+            warn!(
+                truncated = truncated_count,
+                max_input_chars = self.max_input_chars,
+                longest_input_chars = longest_chars,
+                provider = %self.provider_label_value,
+                "embedding inputs exceed the provider character cap; truncated before dispatch"
+            );
+        }
+
+        let mut out: Vec<DenseEmbedding> = Vec::with_capacity(capped.len());
+        for chunk in capped.chunks(self.batch_size) {
             let raw_vectors = self.embed_chunk(chunk).await?;
             if raw_vectors.len() != chunk.len() {
                 return Err(EmbeddingError::GenerationError {

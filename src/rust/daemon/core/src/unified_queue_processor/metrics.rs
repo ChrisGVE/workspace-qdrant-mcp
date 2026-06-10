@@ -88,8 +88,25 @@ impl UnifiedQueueProcessor {
             }
             // Qdrant storage errors -- transient infrastructure
             UnifiedProcessorError::Storage(_) => "transient_infrastructure",
-            // Embedding inference failure -- transient resource (model/memory)
-            UnifiedProcessorError::Embedding(_) => "transient_resource",
+            // Embedding failures are transient (model/memory) EXCEPT remote
+            // payload rejections: HTTP 400/413/422 (e.g. string_too_long)
+            // mean the provider will never accept this input, so retrying
+            // only burns the budget. Auth/endpoint trouble (401/403/404) and
+            // throttling/outages (429/5xx) stay retryable -- they heal when
+            // the operator fixes config or the service recovers. The message
+            // format is EmbeddingError::RemoteError's Display:
+            // "Remote embedding error: HTTP {status}: {body}".
+            UnifiedProcessorError::Embedding(msg) => {
+                let lower = msg.to_lowercase();
+                if lower.contains("http 400:")
+                    || lower.contains("http 413:")
+                    || lower.contains("http 422:")
+                {
+                    "permanent_data"
+                } else {
+                    "transient_resource"
+                }
+            }
             // Embedding subsystem within backoff window -- re-lease without burning retry budget
             UnifiedProcessorError::EmbeddingUnavailable(_) => "subsystem_unavailable",
             // Default: treat as transient infrastructure (retry)

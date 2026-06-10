@@ -51,6 +51,7 @@ fn build_provider(server: &MockServer, env_var: &str) -> OpenAiCompatibleProvide
         server.uri(),
         "text-embedding-3-small".to_string(),
         128,
+        120_000,
         1536,
         env_var,
         Duration::from_secs(60),
@@ -76,6 +77,7 @@ async fn test_openai_new_is_nonblocking() {
         "http://127.0.0.1:1".to_string(),
         "text-embedding-3-small".to_string(),
         64,
+        120_000,
         1536,
         &var,
         Duration::from_secs(60),
@@ -236,6 +238,7 @@ async fn test_openai_embed_texts_chunked_by_batch_size() {
         server.uri(),
         "m".to_string(),
         2,
+        120_000,
         1,
         &var,
         Duration::from_secs(60),
@@ -257,6 +260,7 @@ async fn test_openai_output_dim_from_config() {
         "http://127.0.0.1:1".to_string(),
         "m".to_string(),
         32,
+        120_000,
         1536,
         &var,
         Duration::from_secs(60),
@@ -284,6 +288,7 @@ async fn test_openai_probe_updates_output_dim_on_mismatch() {
         server.uri(),
         "m".to_string(),
         32,
+        120_000,
         1536,
         &var,
         Duration::from_secs(60),
@@ -361,6 +366,7 @@ async fn test_api_key_absent_returns_init_error() {
         "http://127.0.0.1:1".to_string(),
         "m".to_string(),
         32,
+        120_000,
         1536,
         &var,
         Duration::from_secs(60),
@@ -381,6 +387,7 @@ async fn test_api_key_not_in_tracing_or_debug_output() {
         "http://127.0.0.1:1".to_string(),
         "m".to_string(),
         32,
+        120_000,
         1536,
         &var,
         Duration::from_secs(60),
@@ -410,6 +417,7 @@ async fn test_metrics_label_cardinality() {
             url.to_string(),
             "m".to_string(),
             32,
+            120_000,
             1536,
             &var,
             Duration::from_secs(60),
@@ -441,6 +449,135 @@ async fn test_openai_embed_zero_norm_vector_returns_error() {
         }
         other => panic!("unexpected: {other:?}"),
     }
+}
+
+/// Wiremock responder that mirrors the live remote endpoint's behavior of
+/// rejecting any input string longer than a character cap with HTTP 422
+/// `string_too_long` — the failure that permanently failed oversized
+/// plain-text chunks in the unified queue. Compliant requests get unit
+/// vectors back.
+struct StringTooLongResponder {
+    max_chars: usize,
+}
+
+impl Respond for StringTooLongResponder {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let body: serde_json::Value =
+            serde_json::from_slice(&request.body).unwrap_or_else(|_| json!({"input": []}));
+        let inputs = body["input"].as_array().cloned().unwrap_or_default();
+        for input in &inputs {
+            let chars = input.as_str().map(|s| s.chars().count()).unwrap_or(0);
+            if chars > self.max_chars {
+                return ResponseTemplate::new(422).set_body_json(json!({
+                    "detail": [{
+                        "type": "string_too_long",
+                        "loc": ["body", "text", "input", "list[constrained-str]", 0],
+                        "msg": format!(
+                            "String should have at most {} characters",
+                            self.max_chars
+                        ),
+                    }]
+                }));
+            }
+        }
+        let data: Vec<serde_json::Value> = (0..inputs.len())
+            .map(|i| json!({"object": "embedding", "embedding": [1.0_f32], "index": i}))
+            .collect();
+        ResponseTemplate::new(200).set_body_json(json!({"object": "list", "data": data}))
+    }
+}
+
+#[tokio::test]
+async fn test_openai_embed_truncates_oversized_input_to_char_cap() {
+    let var = unique_var("trunc_cap");
+    let _guard = EnvGuard::set(&var, "sk-test");
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(StringTooLongResponder { max_chars: 64 })
+        .mount(&server)
+        .await;
+
+    let provider = OpenAiCompatibleProvider::new(
+        server.uri(),
+        "m".to_string(),
+        8,
+        64, // provider-side max_input_chars matches the endpoint's cap
+        1,
+        &var,
+        Duration::from_secs(60),
+    )
+    .unwrap();
+
+    // Mirrors the dense text built for a plain-text file chunk: document
+    // prefix + relative path header + body, far above the endpoint cap.
+    let oversized = format!("passage: project/notes.txt\n\n{}", "x".repeat(200_000));
+    let result = provider
+        .embed(&[oversized.as_str()])
+        .await
+        .expect("oversized input must be truncated locally, not rejected with HTTP 422");
+    assert_eq!(result.len(), 1);
+    assert!(
+        result[0].sequence_length <= 64,
+        "embedded text must respect the cap, got {}",
+        result[0].sequence_length
+    );
+}
+
+#[tokio::test]
+async fn test_openai_char_cap_counts_chars_not_bytes() {
+    let var = unique_var("trunc_chars");
+    let _guard = EnvGuard::set(&var, "sk-test");
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/embeddings"))
+        .respond_with(StringTooLongResponder { max_chars: 50 })
+        .mount(&server)
+        .await;
+
+    let provider = OpenAiCompatibleProvider::new(
+        server.uri(),
+        "m".to_string(),
+        8,
+        50,
+        1,
+        &var,
+        Duration::from_secs(60),
+    )
+    .unwrap();
+
+    // 40 box-drawing chars = 120 bytes. The cap counts CHARACTERS (what the
+    // remote constrained-str validates), so this must pass through intact.
+    let text = "\u{2500}".repeat(40);
+    provider
+        .embed(&[text.as_str()])
+        .await
+        .expect("40-char input must not be truncated by a 50-char cap");
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("request recording enabled");
+    let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    let sent = body["input"][0].as_str().unwrap();
+    assert_eq!(
+        sent.chars().count(),
+        40,
+        "multi-byte input under the char cap must be sent verbatim"
+    );
+}
+
+#[test]
+fn test_truncate_chars_cuts_on_char_boundary() {
+    use super::utils::truncate_chars;
+
+    assert_eq!(truncate_chars("hello", 10), "hello");
+    assert_eq!(truncate_chars("hello", 5), "hello");
+    assert_eq!(truncate_chars("hello", 3), "hel");
+    // Multi-byte: each box-drawing char is 3 bytes, 1 char.
+    let s = "\u{2500}\u{2500}\u{2500}";
+    assert_eq!(truncate_chars(s, 2), "\u{2500}\u{2500}");
+    assert_eq!(truncate_chars(s, 0), "");
 }
 
 #[tokio::test]

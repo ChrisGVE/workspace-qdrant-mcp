@@ -437,6 +437,44 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_error_remote_embedding_rejections() {
+        // Remote payload rejections will never succeed for this input —
+        // retrying only burns the budget. Regression for oversized inputs
+        // rejected with HTTP 422 string_too_long being retried as
+        // transient_resource until the item stuck as failed.
+        for msg in [
+            "Remote embedding error: HTTP 422: {\"detail\":[{\"type\":\"string_too_long\",\
+             \"msg\":\"String should have at most 122880 characters\"}]}",
+            "Remote embedding error: HTTP 400: maximum context length exceeded",
+            "Remote embedding error: HTTP 413: payload too large",
+        ] {
+            let err = UnifiedProcessorError::Embedding(msg.into());
+            assert_eq!(
+                UnifiedQueueProcessor::classify_error(&err),
+                "permanent_data",
+                "message {msg:?} must classify as permanent_data"
+            );
+        }
+
+        // Auth, endpoint, throttling and outage statuses stay retryable:
+        // they heal when the operator fixes config or the service recovers.
+        for msg in [
+            "Remote embedding error: HTTP 401: invalid api key",
+            "Remote embedding error: HTTP 404: model not found",
+            "Remote embedding error: HTTP 429: rate limited",
+            "Remote embedding error: HTTP 503: overloaded",
+            "Remote embedding error: HTTP 500: internal error",
+        ] {
+            let err = UnifiedProcessorError::Embedding(msg.into());
+            assert_eq!(
+                UnifiedQueueProcessor::classify_error(&err),
+                "transient_resource",
+                "message {msg:?} must stay transient_resource"
+            );
+        }
+    }
+
+    #[test]
     fn test_is_permanent_category() {
         assert!(UnifiedQueueProcessor::is_permanent_category(
             "permanent_gone"

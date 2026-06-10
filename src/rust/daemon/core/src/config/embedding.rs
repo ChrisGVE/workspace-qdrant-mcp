@@ -25,6 +25,13 @@ fn default_remote_batch_size() -> usize {
     128
 }
 
+fn default_max_input_chars() -> usize {
+    // Just under the smallest observed remote per-input cap (an
+    // openai_compatible endpoint rejecting >122880 chars with HTTP 422
+    // string_too_long), leaving margin for off-by-provider differences.
+    120_000
+}
+
 fn default_api_key_env_var() -> String {
     "OPENAI_API_KEY".to_string()
 }
@@ -65,6 +72,16 @@ pub struct EmbeddingSettings {
     /// Has no effect when `provider = "fastembed"`.
     #[serde(default = "default_remote_batch_size")]
     pub remote_batch_size: usize,
+
+    /// Maximum characters per input string sent to the remote provider.
+    /// The cap applies to the FULL submitted string — `document_prefix`
+    /// and the path/symbol context header included. Longer inputs are
+    /// truncated (with a WARN) instead of being rejected remotely with
+    /// HTTP 422 `string_too_long`, which would permanently fail the item.
+    /// Has no effect when `provider = "fastembed"` (its tokenizer
+    /// truncates to the model window internally).
+    #[serde(default = "default_max_input_chars")]
+    pub max_input_chars: usize,
 
     /// Name of the environment variable that holds the API key.
     /// Resolved at daemon startup — never stored in config on disk.
@@ -109,6 +126,7 @@ impl Default for EmbeddingSettings {
             model: default_model(),
             base_url: default_base_url(),
             remote_batch_size: default_remote_batch_size(),
+            max_input_chars: default_max_input_chars(),
             api_key_env_var: default_api_key_env_var(),
             output_dim: default_output_dim(),
             health_probe_cache_secs: default_health_probe_cache_secs(),
@@ -149,6 +167,13 @@ impl EmbeddingSettings {
             );
         }
 
+        if self.provider == "openai_compatible" && self.max_input_chars == 0 {
+            return Err(
+                "embedding.max_input_chars must be greater than 0 for openai_compatible provider"
+                    .to_string(),
+            );
+        }
+
         // model_cache_dir is created by the daemon at startup if absent; no existence check here.
 
         Ok(())
@@ -174,6 +199,12 @@ impl EmbeddingSettings {
 
         if let Ok(val) = env::var("WQM_EMBEDDING_BASE_URL") {
             self.base_url = val;
+        }
+
+        if let Ok(val) = env::var("WQM_EMBEDDING_MAX_INPUT_CHARS") {
+            if let Ok(parsed) = val.parse() {
+                self.max_input_chars = parsed;
+            }
         }
 
         if let Ok(val) = env::var("WQM_EMBEDDING_API_KEY_ENV_VAR") {
@@ -248,6 +279,7 @@ mod tests {
         assert_eq!(settings.model, "text-embedding-3-small");
         assert_eq!(settings.base_url, "https://api.openai.com");
         assert_eq!(settings.remote_batch_size, 128);
+        assert_eq!(settings.max_input_chars, 120_000);
         assert_eq!(settings.api_key_env_var, "OPENAI_API_KEY");
         assert_eq!(settings.output_dim, 1536);
         assert_eq!(settings.health_probe_cache_secs, 60);

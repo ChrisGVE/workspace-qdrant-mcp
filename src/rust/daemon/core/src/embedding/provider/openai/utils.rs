@@ -24,6 +24,16 @@ pub(crate) fn classify_provider(base_url: &str) -> &'static str {
     }
 }
 
+/// Truncate to at most `max_chars` characters (Unicode scalar values, the
+/// unit OpenAI-compatible endpoints count for `string_too_long` limits),
+/// always cutting on a UTF-8 char boundary.
+pub(super) fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => &s[..byte_idx],
+        None => s,
+    }
+}
+
 /// L2-normalize a vector in place; reject zero-norm with `GenerationError`.
 pub(super) fn normalize_in_place(v: &mut [f32]) -> Result<(), EmbeddingError> {
     let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
