@@ -447,6 +447,15 @@ pub async fn start_processor(
         warn!("Failed to reset orphaned in_progress destination sinks: {}", e);
     }
 
+    // GC search.db content orphaned from tracked_files. The cross-database
+    // FK (code_lines.file_id -> tracked_files.file_id) is only enforced at
+    // the application level; rows whose tracked file vanished without a
+    // per-file Delete linger forever and ghost-match in `grep`. Same
+    // pre-start window as the reset above: no FTS5 work in flight yet.
+    if let Err(e) = uqp.gc_orphaned_search_content().await {
+        warn!("Failed to GC orphaned search-db content: {}", e);
+    }
+
     let warmup_delay_secs = daemon_config.startup.warmup_delay_secs;
     if warmup_delay_secs > 0 {
         info!(

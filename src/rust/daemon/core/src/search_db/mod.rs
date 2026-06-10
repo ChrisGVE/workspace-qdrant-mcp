@@ -11,6 +11,7 @@ pub mod batch_writer;
 mod code_lines;
 mod fts;
 mod migrations;
+pub mod orphan_gc;
 pub mod types;
 
 #[cfg(test)]

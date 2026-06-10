@@ -384,6 +384,30 @@ impl UnifiedQueueProcessor {
         Ok(count)
     }
 
+    /// GC search.db content (`code_lines`/`code_lines_fts`/`file_metadata`)
+    /// whose `tracked_files` row no longer exists.
+    ///
+    /// The search-db link to `tracked_files.file_id` is a cross-database FK
+    /// SQLite cannot enforce; content for files removed by routes that never
+    /// produced a per-file Delete lingers forever and surfaces as ghost
+    /// `grep` matches (see `search_db::orphan_gc`). Like
+    /// [`Self::reset_orphaned_destinations`], MUST run before
+    /// [`start`](Self::start): with no FTS5 work in flight the
+    /// tracked-vs-search diff cannot race the batch writer. Returns the
+    /// number of orphaned files removed.
+    pub async fn gc_orphaned_search_content(&self) -> UnifiedProcessorResult<u64> {
+        let Some(ref search_db) = self.search_db else {
+            return Ok(0);
+        };
+        let stats = crate::search_db::orphan_gc::gc_orphaned_files(
+            search_db,
+            self.queue_manager.pool(),
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::QueueOperation(e.to_string()))?;
+        Ok(stats.files_deleted)
+    }
+
     /// Start the background processing loop
     pub fn start(&mut self) -> UnifiedProcessorResult<()> {
         if self.task_handle.is_some() {
