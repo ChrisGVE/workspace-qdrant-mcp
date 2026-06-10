@@ -13,21 +13,37 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 use wqm_common::constants::TENANT_GLOBAL;
 
+use regex::Regex;
+
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
 use crate::data::tenants;
+use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
 use crate::tui::theme;
+
+/// Build the text a filter or search matches against for a scratchpad entry:
+/// its title, content, and tags.
+fn match_haystack(entry: &ScratchpadRow) -> String {
+    format!("{} {} {}", entry.title, entry.content, entry.tags)
+}
 
 /// Minimum interval between data refreshes.
 const REFRESH_INTERVAL_MS: u128 = 5000;
 
 /// Scratchpad browser view state.
 pub struct ScratchpadBrowser {
+    /// All entries from the last fetch (before page/global filtering).
+    all_items: Vec<ScratchpadRow>,
+    /// Entries currently shown — `all_items` narrowed by page + global filter.
     items: Vec<ScratchpadRow>,
     selected: usize,
     detail_open: bool,
     /// Scroll offset within the detail popup content.
     detail_scroll: u16,
+    /// Per-page narrowing filter (`f`); composes (AND) with the global filter.
+    page_filter: FilterState,
+    /// Compiled global filter pushed from the app.
+    global_re: Option<Regex>,
     last_refresh: Option<Instant>,
     search: SearchState,
     /// tenant_id → project name map for tenant display.
@@ -37,10 +53,13 @@ pub struct ScratchpadBrowser {
 impl ScratchpadBrowser {
     pub fn new() -> Self {
         Self {
+            all_items: Vec::new(),
             items: Vec::new(),
             selected: 0,
             detail_open: false,
             detail_scroll: 0,
+            page_filter: FilterState::new(),
+            global_re: None,
             last_refresh: None,
             search: SearchState::new(),
             names: HashMap::new(),
@@ -55,24 +74,62 @@ impl ScratchpadBrowser {
         self.search.active
     }
 
+    /// Mutable access to the page filter, for the key handler.
+    pub fn page_filter_mut(&mut self) -> &mut FilterState {
+        &mut self.page_filter
+    }
+
+    /// Whether the page-filter prompt is capturing input.
+    pub fn page_filter_active(&self) -> bool {
+        self.page_filter.active
+    }
+
+    /// Clear the page filter and re-narrow the list.
+    pub fn clear_page_filter(&mut self) {
+        self.page_filter.clear();
+        self.recompute_visible();
+    }
+
+    /// Replace the global filter regex and re-narrow the list.
+    pub fn set_global_filter(&mut self, re: Option<Regex>) {
+        self.global_re = re;
+        self.recompute_visible();
+    }
+
+    /// Rebuild `items` from `all_items` by applying the page and global filters
+    /// (AND), then clamp the cursor into range.
+    pub fn recompute_visible(&mut self) {
+        let page = &self.page_filter;
+        let global = &self.global_re;
+        let filtered: Vec<ScratchpadRow> = self
+            .all_items
+            .iter()
+            .filter(|e| {
+                let h = match_haystack(e);
+                page.matches(&h) && filter::regex_matches(global, &h)
+            })
+            .cloned()
+            .collect();
+        self.items = filtered;
+        self.selected = self.selected.min(self.items.len().saturating_sub(1));
+    }
+
     pub fn on_tick(&mut self) {
         let should_refresh = self
             .last_refresh
             .map_or(true, |t| t.elapsed().as_millis() >= REFRESH_INTERVAL_MS);
 
         if should_refresh {
-            self.items = fetch_scratchpad_rows();
+            self.all_items = fetch_scratchpad_rows();
             self.names = tenants::name_map();
             let names = self.names.clone();
-            self.items.sort_by(|a, b| {
+            self.all_items.sort_by(|a, b| {
                 crate::tui::util::natural_cmp(
                     &scratchpad_tenant_key(a, &names),
                     &scratchpad_tenant_key(b, &names),
                 )
             });
-            if self.selected >= self.items.len() && !self.items.is_empty() {
-                self.selected = self.items.len() - 1;
-            }
+            self.recompute_visible();
             self.last_refresh = Some(Instant::now());
         }
     }
@@ -127,10 +184,7 @@ impl ScratchpadBrowser {
         self.items
             .iter()
             .enumerate()
-            .filter(|(_, e)| {
-                self.search
-                    .is_match(&format!("{} {} {}", e.title, e.content, e.tags))
-            })
+            .filter(|(_, e)| self.search.is_match(&match_haystack(e)))
             .map(|(i, _)| i)
             .collect()
     }
@@ -218,6 +272,7 @@ impl ScratchpadBrowser {
             ),
             Span::styled("  [read-only]", Style::default().fg(theme::COLOR_DIM)),
         ];
+        summary_spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
         summary_spans.extend(crate::tui::search::prompt_spans(
             &self.search,
             self.search_matches().len(),
@@ -269,10 +324,8 @@ impl ScratchpadBrowser {
                 };
                 let tags = format_tags(&entry.tags);
                 let updated = format_short_date(&entry.updated_at);
-                let matched = self.search.has_query()
-                    && self
-                        .search
-                        .is_match(&format!("{} {} {}", entry.title, entry.content, entry.tags));
+                let matched =
+                    self.search.has_query() && self.search.is_match(&match_haystack(entry));
                 let style = if i == self.selected {
                     theme::selected_row_style()
                 } else if matched {

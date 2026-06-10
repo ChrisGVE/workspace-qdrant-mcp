@@ -6,6 +6,7 @@ mod render;
 use std::time::Duration;
 
 use super::event::{Event, EventHandler};
+use super::filter::FilterState;
 use super::terminal;
 use super::views::dashboard::Dashboard;
 use super::views::libraries::LibraryBrowser;
@@ -100,6 +101,9 @@ pub struct App {
     /// Height of the main content area from the last frame, used to size
     /// half/full-screen navigation. Updated during `draw`.
     content_height: std::cell::Cell<u16>,
+    /// Global narrowing filter (`F`), applied across every list view in
+    /// addition to each view's own page filter (`f`).
+    global_filter: FilterState,
 }
 
 impl App {
@@ -118,6 +122,37 @@ impl App {
             service_view: None,
             log_viewer: None,
             content_height: std::cell::Cell::new(0),
+            global_filter: FilterState::new(),
+        }
+    }
+
+    /// Whether the global-filter prompt is currently capturing input.
+    pub(super) fn global_filter_active(&self) -> bool {
+        self.global_filter.active
+    }
+
+    /// Mutable access to the global filter, for the key handler.
+    pub(super) fn global_filter_mut(&mut self) -> &mut FilterState {
+        &mut self.global_filter
+    }
+
+    /// Read-only access to the global filter, for the status-bar indicator.
+    pub(super) fn global_filter(&self) -> &FilterState {
+        &self.global_filter
+    }
+
+    /// Push the compiled global filter into the current view's browser so its
+    /// list re-narrows. Called on every tick (cheap; ≤200 rows) so a global
+    /// filter set on one view also applies after switching to another.
+    pub(super) fn push_global_filter(&mut self) {
+        let re = self.global_filter.regex();
+        match self.current_view {
+            View::Queue => self.queue_browser().set_global_filter(re),
+            View::Projects => self.project_browser().set_global_filter(re),
+            View::Libraries => self.library_browser().set_global_filter(re),
+            View::Rules => self.rule_browser().set_global_filter(re),
+            View::Scratchpad => self.scratchpad_browser().set_global_filter(re),
+            View::Dashboard | View::Service | View::Logs => {}
         }
     }
 
@@ -517,16 +552,32 @@ mod tests {
     }
 
     #[test]
-    fn queue_filter_cycles_via_f_key() {
+    fn queue_status_cycles_via_s_key() {
         let mut app = App::new("addr".into());
         app.current_view = View::Queue;
-        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
-        // After one f press, filter should have cycled from All to Pending
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        // After one s press, the status filter should cycle from All to Pending.
         let browser = app.queue_browser.as_ref().unwrap();
         assert_eq!(
             browser.filter(),
             super::super::views::queue_data::StatusFilter::Pending
         );
+    }
+
+    #[test]
+    fn queue_f_opens_page_filter_prompt() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Queue;
+        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(app.queue_browser.as_ref().unwrap().page_filter_active());
+    }
+
+    #[test]
+    fn shift_f_opens_global_filter_prompt() {
+        let mut app = App::new("addr".into());
+        app.current_view = View::Projects;
+        app.handle_key(KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT));
+        assert!(app.global_filter_active());
     }
 
     #[test]

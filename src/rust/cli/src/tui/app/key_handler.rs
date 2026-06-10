@@ -2,6 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::super::filter::FilterAction;
 use super::super::search::SearchAction;
 use super::super::views::dashboard::FocusedCell;
 use super::{App, View};
@@ -9,6 +10,9 @@ use super::{App, View};
 impl App {
     /// Handle periodic tick events for live-updating views.
     pub(super) fn on_tick(&mut self) {
+        // Re-push the global filter each tick so it also applies after switching
+        // views and after a live data refresh (cheap; the list is ≤200 rows).
+        self.push_global_filter();
         match self.current_view {
             View::Dashboard => {
                 self.dashboard().on_tick();
@@ -47,6 +51,29 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+        // The global-filter prompt captures all input while active. Ctrl+C
+        // clears the filter (rather than quitting); Enter applies, Esc cancels.
+        if self.global_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                self.global_filter_mut().clear();
+                self.push_global_filter();
+                return;
+            }
+            match self.global_filter_mut().handle_key(key.code) {
+                FilterAction::Applied | FilterAction::Cancelled => self.push_global_filter(),
+                FilterAction::Editing => {}
+            }
+            return;
+        }
+
+        // Shift+F opens the global filter from any view.
+        if key.code == KeyCode::Char('F') && !ctrl {
+            self.global_filter_mut().activate();
             return;
         }
 
@@ -177,6 +204,20 @@ impl App {
         let (half, full) = self.nav_steps();
         let browser = self.queue_browser();
 
+        if browser.page_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                browser.clear_page_filter();
+                return true;
+            }
+            if matches!(
+                browser.page_filter_mut().handle_key(key.code),
+                FilterAction::Applied | FilterAction::Cancelled
+            ) {
+                browser.recompute_visible();
+            }
+            return true;
+        }
+
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
                 browser.search_first();
@@ -252,8 +293,12 @@ impl App {
                 browser.close_detail();
                 true
             }
-            KeyCode::Char('f') => {
+            KeyCode::Char('s') => {
                 browser.cycle_filter();
+                true
+            }
+            KeyCode::Char('f') => {
+                browser.page_filter_mut().activate();
                 true
             }
             _ => false,
@@ -265,6 +310,21 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let (half, full) = self.nav_steps();
         let browser = self.project_browser();
+
+        // The page-filter prompt captures all input while active.
+        if browser.page_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                browser.clear_page_filter();
+                return true;
+            }
+            if matches!(
+                browser.page_filter_mut().handle_key(key.code),
+                FilterAction::Applied | FilterAction::Cancelled
+            ) {
+                browser.recompute_visible();
+            }
+            return true;
+        }
 
         // When search is active, delegate all keys to search
         if browser.search_active() {
@@ -355,6 +415,10 @@ impl App {
                 browser.request_toggle();
                 true
             }
+            KeyCode::Char('f') => {
+                browser.page_filter_mut().activate();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -372,6 +436,20 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let (half, full) = self.nav_steps();
         let browser = self.library_browser();
+
+        if browser.page_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                browser.clear_page_filter();
+                return true;
+            }
+            if matches!(
+                browser.page_filter_mut().handle_key(key.code),
+                FilterAction::Applied | FilterAction::Cancelled
+            ) {
+                browser.recompute_visible();
+            }
+            return true;
+        }
 
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
@@ -459,6 +537,10 @@ impl App {
                 browser.request_toggle();
                 true
             }
+            KeyCode::Char('f') => {
+                browser.page_filter_mut().activate();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -476,6 +558,20 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let (half, full) = self.nav_steps();
         let browser = self.rule_browser();
+
+        if browser.page_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                browser.clear_page_filter();
+                return true;
+            }
+            if matches!(
+                browser.page_filter_mut().handle_key(key.code),
+                FilterAction::Applied | FilterAction::Cancelled
+            ) {
+                browser.recompute_visible();
+            }
+            return true;
+        }
 
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
@@ -544,6 +640,10 @@ impl App {
                 browser.jump_last();
                 true
             }
+            KeyCode::Char('f') => {
+                browser.page_filter_mut().activate();
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -561,6 +661,20 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let (half, full) = self.nav_steps();
         let browser = self.scratchpad_browser();
+
+        if browser.page_filter_active() {
+            if ctrl && key.code == KeyCode::Char('c') {
+                browser.clear_page_filter();
+                return true;
+            }
+            if matches!(
+                browser.page_filter_mut().handle_key(key.code),
+                FilterAction::Applied | FilterAction::Cancelled
+            ) {
+                browser.recompute_visible();
+            }
+            return true;
+        }
 
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
@@ -646,6 +760,10 @@ impl App {
             }
             KeyCode::Char('G') => {
                 browser.jump_last();
+                true
+            }
+            KeyCode::Char('f') => {
+                browser.page_filter_mut().activate();
                 true
             }
             KeyCode::Enter => {

@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
+use super::super::filter;
 use super::super::theme;
 use super::{App, View};
 
@@ -60,18 +61,24 @@ impl App {
 
         // Contextual hints based on current view
         let hints = match self.current_view {
-            View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  ? Help  q Quit",
-            View::Queue => "j/k Nav  g/G First/Last  / Search  n/N  f Filter  Enter Detail  q Quit",
-            View::Projects | View::Libraries => {
-                "j/k Nav  / Search  Enter Detail  t Toggle tracking  ? Help  q Quit"
+            View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  F Global  ? Help  q Quit",
+            View::Queue => {
+                "j/k Nav  / Search  n/N  s Status  f Filter  F Global  Enter Detail  q Quit"
             }
-            View::Rules => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  ? Help  q Quit",
-            View::Scratchpad => "j/k Nav  g/G First/Last  / Search  n/N  Enter Detail  q Quit",
+            View::Projects | View::Libraries => {
+                "j/k Nav  / Search  f Filter  F Global  t Toggle  Enter Detail  q Quit"
+            }
+            View::Rules | View::Scratchpad => {
+                "j/k Nav  g/G  / Search  n/N  f Filter  F Global  Enter Detail  q Quit"
+            }
             View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Move  g/G First/Last  / Search  n/N  Enter View  Esc Live  q Quit",
         };
 
         spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));
+
+        // Global-filter indicator (or live prompt while editing).
+        spans.extend(filter::prompt_spans(self.global_filter(), "Global"));
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
@@ -180,7 +187,7 @@ impl App {
     fn draw_help_overlay(&self, frame: &mut Frame) {
         let area = frame.area();
         let help_width = 55u16.min(area.width.saturating_sub(4));
-        let help_height = 21u16.min(area.height.saturating_sub(4));
+        let help_height = 23u16.min(area.height.saturating_sub(4));
 
         let x = (area.width.saturating_sub(help_width)) / 2;
         let y = (area.height.saturating_sub(help_height)) / 2;
@@ -225,7 +232,11 @@ impl App {
                 Span::raw("Regex search; next/previous match"),
             ]),
             Line::from(vec![
-                Span::styled("  f           ", Style::default().fg(Color::Yellow)),
+                Span::styled("  f / F       ", Style::default().fg(Color::Yellow)),
+                Span::raw("Filter list (regex) / Global filter (all views)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  s           ", Style::default().fg(Color::Yellow)),
                 Span::raw("Cycle status filter (Queue)"),
             ]),
             Line::from(vec![

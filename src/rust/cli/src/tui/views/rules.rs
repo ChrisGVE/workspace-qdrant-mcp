@@ -13,25 +13,41 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 use wqm_common::constants::TENANT_GLOBAL;
 
+use regex::Regex;
+
 use super::rules_data::{fetch_rule_rows, RuleRow};
 use crate::data::tenants;
+use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
 use crate::tui::theme;
+
+/// Build the text a filter or search matches against for a rule: its text,
+/// scope, and resolved tenant/project name.
+fn match_haystack(rule: &RuleRow, names: &HashMap<String, String>) -> String {
+    let name = tenants::display_name(names, &rule.tenant_id);
+    format!("{} {} {}", rule.rule_text, rule.scope, name)
+}
 
 /// Minimum interval between data refreshes.
 const REFRESH_INTERVAL_MS: u128 = 5000;
 
 /// Rules browser view state.
 pub struct RuleBrowser {
-    /// Current list of rules.
+    /// All rules from the last fetch (before page/global filtering).
+    all_items: Vec<RuleRow>,
+    /// Rules currently shown — `all_items` narrowed by the page + global filter.
     items: Vec<RuleRow>,
     /// Index of the selected item.
     selected: usize,
+    /// Per-page narrowing filter (`f`); composes (AND) with the global filter.
+    page_filter: FilterState,
+    /// Compiled global filter pushed from the app.
+    global_re: Option<Regex>,
     /// Whether the detail popup is open.
     detail_open: bool,
     /// When data was last refreshed.
     last_refresh: Option<Instant>,
-    /// Search/filter state.
+    /// Cursor-jump search state (`/`).
     search: SearchState,
     /// tenant_id → project name map for scope display.
     names: HashMap<String, String>,
@@ -40,8 +56,11 @@ pub struct RuleBrowser {
 impl RuleBrowser {
     pub fn new() -> Self {
         Self {
+            all_items: Vec::new(),
             items: Vec::new(),
             selected: 0,
+            page_filter: FilterState::new(),
+            global_re: None,
             detail_open: false,
             last_refresh: None,
             search: SearchState::new(),
@@ -57,6 +76,47 @@ impl RuleBrowser {
         self.search.active
     }
 
+    /// Mutable access to the page filter, for the key handler.
+    pub fn page_filter_mut(&mut self) -> &mut FilterState {
+        &mut self.page_filter
+    }
+
+    /// Whether the page-filter prompt is capturing input.
+    pub fn page_filter_active(&self) -> bool {
+        self.page_filter.active
+    }
+
+    /// Clear the page filter and re-narrow the list.
+    pub fn clear_page_filter(&mut self) {
+        self.page_filter.clear();
+        self.recompute_visible();
+    }
+
+    /// Replace the global filter regex and re-narrow the list.
+    pub fn set_global_filter(&mut self, re: Option<Regex>) {
+        self.global_re = re;
+        self.recompute_visible();
+    }
+
+    /// Rebuild `items` from `all_items` by applying the page and global filters
+    /// (AND), then clamp the cursor into range.
+    pub fn recompute_visible(&mut self) {
+        let page = &self.page_filter;
+        let global = &self.global_re;
+        let names = &self.names;
+        let filtered: Vec<RuleRow> = self
+            .all_items
+            .iter()
+            .filter(|r| {
+                let h = match_haystack(r, names);
+                page.matches(&h) && filter::regex_matches(global, &h)
+            })
+            .cloned()
+            .collect();
+        self.items = filtered;
+        self.selected = self.selected.min(self.items.len().saturating_sub(1));
+    }
+
     /// Refresh data from SQLite if enough time has elapsed.
     pub fn on_tick(&mut self) {
         let should_refresh = self
@@ -64,18 +124,16 @@ impl RuleBrowser {
             .map_or(true, |t| t.elapsed().as_millis() >= REFRESH_INTERVAL_MS);
 
         if should_refresh {
-            self.items = fetch_rule_rows();
+            self.all_items = fetch_rule_rows();
             self.names = tenants::name_map();
             let names = self.names.clone();
-            self.items.sort_by(|a, b| {
+            self.all_items.sort_by(|a, b| {
                 crate::tui::util::natural_cmp(
                     &rule_tenant_key(a, &names),
                     &rule_tenant_key(b, &names),
                 )
             });
-            if self.selected >= self.items.len() && !self.items.is_empty() {
-                self.selected = self.items.len() - 1;
-            }
+            self.recompute_visible();
             self.last_refresh = Some(Instant::now());
         }
     }
@@ -123,11 +181,7 @@ impl RuleBrowser {
         self.items
             .iter()
             .enumerate()
-            .filter(|(_, r)| {
-                let name = tenants::display_name(&self.names, &r.tenant_id);
-                self.search
-                    .is_match(&format!("{} {} {}", r.rule_text, r.scope, name))
-            })
+            .filter(|(_, r)| self.search.is_match(&match_haystack(r, &self.names)))
             .map(|(i, _)| i)
             .collect()
     }
@@ -202,6 +256,7 @@ impl RuleBrowser {
                 Style::default().fg(theme::COLOR_DIM),
             ),
         ];
+        summary_spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
         summary_spans.extend(crate::tui::search::prompt_spans(
             &self.search,
             self.search_matches().len(),
@@ -248,11 +303,8 @@ impl RuleBrowser {
                 };
                 let text_preview = truncate_str(&rule.rule_text, 60);
                 let updated = format_short_date(&rule.updated_at);
-                let matched = self.search.has_query() && {
-                    let name = tenants::display_name(&self.names, &rule.tenant_id);
-                    self.search
-                        .is_match(&format!("{} {} {}", rule.rule_text, rule.scope, name))
-                };
+                let matched = self.search.has_query()
+                    && self.search.is_match(&match_haystack(rule, &self.names));
                 let style = if i == self.selected {
                     theme::selected_row_style()
                 } else if matched {

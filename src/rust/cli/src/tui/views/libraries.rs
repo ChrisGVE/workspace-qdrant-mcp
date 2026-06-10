@@ -11,28 +11,49 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use regex::Regex;
+
 use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
 use super::libraries_data::{
     fetch_library_detail, fetch_library_rows, status_label, LibraryDetail, LibraryRow,
 };
+use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 use crate::tui::util::truncate_path;
+
+/// Build the text a filter or search matches against for a library row: name,
+/// tag, path, and the project-derived source marker (if any).
+fn match_haystack(item: &LibraryRow) -> String {
+    format!(
+        "{} {} {} {}",
+        item.name,
+        item.tag,
+        item.display_path,
+        item.source.as_deref().unwrap_or("")
+    )
+}
 
 /// Minimum interval between data refreshes (5 seconds).
 const REFRESH_INTERVAL_MS: u128 = 5000;
 
 /// Library browser view state.
 pub struct LibraryBrowser {
-    /// Current list of library items.
+    /// All libraries from the last fetch (before page/global filtering).
+    all_items: Vec<LibraryRow>,
+    /// Libraries currently shown — `all_items` narrowed by page + global filter.
     items: Vec<LibraryRow>,
     /// Index of the selected item in `items`.
     selected: usize,
+    /// Per-page narrowing filter (`f`); composes (AND) with the global filter.
+    page_filter: FilterState,
+    /// Compiled global filter pushed from the app.
+    global_re: Option<Regex>,
     /// Detail popup for the selected item, if open.
     detail: Option<LibraryDetail>,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
-    /// Search/filter state.
+    /// Cursor-jump search state (`/`).
     search: SearchState,
     /// Pending tracking-toggle confirmation, if the modal is open.
     confirm: Option<ToggleConfirm>,
@@ -44,14 +65,57 @@ impl LibraryBrowser {
     /// Create a new, empty library browser. Data loads on the first tick.
     pub fn new() -> Self {
         Self {
+            all_items: Vec::new(),
             items: Vec::new(),
             selected: 0,
+            page_filter: FilterState::new(),
+            global_re: None,
             detail: None,
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
             message: None,
         }
+    }
+
+    /// Mutable access to the page filter, for the key handler.
+    pub fn page_filter_mut(&mut self) -> &mut FilterState {
+        &mut self.page_filter
+    }
+
+    /// Whether the page-filter prompt is capturing input.
+    pub fn page_filter_active(&self) -> bool {
+        self.page_filter.active
+    }
+
+    /// Clear the page filter and re-narrow the list.
+    pub fn clear_page_filter(&mut self) {
+        self.page_filter.clear();
+        self.recompute_visible();
+    }
+
+    /// Replace the global filter regex and re-narrow the list.
+    pub fn set_global_filter(&mut self, re: Option<Regex>) {
+        self.global_re = re;
+        self.recompute_visible();
+    }
+
+    /// Rebuild `items` from `all_items` by applying the page and global filters
+    /// (AND), then clamp the cursor into range.
+    pub fn recompute_visible(&mut self) {
+        let page = &self.page_filter;
+        let global = &self.global_re;
+        let filtered: Vec<LibraryRow> = self
+            .all_items
+            .iter()
+            .filter(|it| {
+                let h = match_haystack(it);
+                page.matches(&h) && filter::regex_matches(global, &h)
+            })
+            .cloned()
+            .collect();
+        self.items = filtered;
+        self.selected = self.selected.min(self.items.len().saturating_sub(1));
     }
 
     /// Whether the toggle-confirmation modal is open.
@@ -115,18 +179,14 @@ impl LibraryBrowser {
             .map_or(true, |t| t.elapsed().as_millis() >= REFRESH_INTERVAL_MS);
 
         if should_refresh {
-            self.items = fetch_library_rows();
+            self.all_items = fetch_library_rows();
             // Active libraries first, then by natural (case-insensitive) name.
-            self.items.sort_by(|a, b| {
+            self.all_items.sort_by(|a, b| {
                 b.is_active
                     .cmp(&a.is_active)
                     .then_with(|| crate::tui::util::natural_cmp(&a.name, &b.name))
             });
-            if !self.items.is_empty() {
-                self.selected = self.selected.min(self.items.len() - 1);
-            } else {
-                self.selected = 0;
-            }
+            self.recompute_visible();
             self.last_refresh = Some(Instant::now());
         }
     }
@@ -179,10 +239,7 @@ impl LibraryBrowser {
         self.items
             .iter()
             .enumerate()
-            .filter(|(_, it)| {
-                self.search
-                    .is_match(&format!("{} {} {}", it.name, it.tag, it.display_path))
-            })
+            .filter(|(_, it)| self.search.is_match(&match_haystack(it)))
             .map(|(i, _)| i)
             .collect()
     }
@@ -258,6 +315,7 @@ impl LibraryBrowser {
                 Style::default().fg(Color::DarkGray),
             ),
         ];
+        spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
         spans.extend(crate::tui::search::prompt_spans(
             &self.search,
             self.search_matches().len(),
@@ -313,10 +371,8 @@ impl LibraryBrowser {
             .skip(offset)
             .take(inner_height)
             .map(|(i, item)| {
-                let matched = self.search.has_query()
-                    && self
-                        .search
-                        .is_match(&format!("{} {} {}", item.name, item.tag, item.display_path));
+                let matched =
+                    self.search.has_query() && self.search.is_match(&match_haystack(item));
                 let row_style = if i == self.selected {
                     theme::selected_row_style()
                 } else if matched {
