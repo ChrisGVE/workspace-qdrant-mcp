@@ -112,6 +112,13 @@ defined in code but missing from this document.
 | `wqm_memexd_ingestion_errors_total` | Counter | `error_type` | Ingestion errors by type |
 | `wqm_memexd_heartbeat_latency_seconds` | Histogram | `project_id` | Heartbeat processing latency |
 
+### Indexing-coverage metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `wqm_memexd_tracked_files` | Gauge | `tenant_id`, `branch` | Number of tracked files in search.db `file_metadata` per tenant and branch, exported every 60 s (#118). Backs the indexing-coverage dashboard |
+| `wqm_memexd_files_size_skipped_total` | Counter | `tenant_id` | Files skipped by the per-extension size gate (#118/#121). Zero-series until the first skip |
+
 ### Watch metrics
 
 | Metric | Type | Labels | Description |
