@@ -103,6 +103,7 @@ pub fn build_dense_provider(
                 fallback_url.to_string(),
                 settings.model.clone(),
                 settings.remote_batch_size,
+                settings.max_input_chars,
                 settings.output_dim,
                 &settings.api_key_env_var,
                 Duration::from_secs(settings.health_probe_cache_secs),
