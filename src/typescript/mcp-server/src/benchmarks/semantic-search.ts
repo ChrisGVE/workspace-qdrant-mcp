@@ -694,6 +694,9 @@ function buildSearchOptions(
     query: query.query,
     limit: merged.limit,
     scope: merged.scope,
+    // Tag harness traffic in search_events so REAL agent queries can be mined
+    // from the history without dozens of benchmark repetitions drowning them.
+    telemetryActor: 'benchmark',
   };
   if (merged.collection !== undefined) options.collection = merged.collection;
   if (merged.projectId !== undefined) options.projectId = merged.projectId;

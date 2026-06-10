@@ -272,3 +272,22 @@ queries:
     query: How do I run the semantic search quality benchmark?
     expectedFiles:
       - docs/testing/semantic-search-benchmarking.md
+
+  # ── Real agent queries (real-) ───────────────────────────────────────────
+  # Mined from the live search history (search_events, op='search', this
+  # tenant) — phrasing agents ACTUALLY use, which differs from the curated
+  # natural-language style above (terser, keyword-shaped). Mining recipe:
+  #   SELECT query_text, COUNT(*) FROM search_events
+  #   WHERE project_id = ? AND op = 'search' AND actor != 'benchmark'
+  #   GROUP BY query_text ORDER BY MAX(ts) DESC
+  # (the harness tags its own traffic actor='benchmark' precisely so this
+  # query stays clean — grow this category as organic history accumulates).
+  - id: real-rrf-keywords
+    query: reciprocal rank fusion dense sparse
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+
+  - id: real-queue-status
+    query: queue processing status
+    expectedFiles:
+      - src/rust/common/src/queue_types/status.rs

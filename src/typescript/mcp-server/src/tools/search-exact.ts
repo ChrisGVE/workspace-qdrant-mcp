@@ -147,7 +147,7 @@ export async function searchExact(
     // clause, returning cross-tenant matches.
     stateManager.logSearchEvent({
       id: eventId,
-      actor: 'claude',
+      actor: options.telemetryActor ?? 'claude',
       tool: 'mcp_qdrant',
       op: 'search_exact',
       queryText: options.query,
@@ -163,7 +163,7 @@ export async function searchExact(
   stateManager.logSearchEvent({
     id: eventId,
     projectId: tenantId,
-    actor: 'claude',
+    actor: options.telemetryActor ?? 'claude',
     tool: 'mcp_qdrant',
     op: 'search_exact',
     queryText: options.query,

@@ -202,6 +202,7 @@ export function logSearchEventPre(
     fileType?: string | undefined;
     libraryName?: string | undefined;
     tag?: string | undefined;
+    actor?: string | undefined;
   }
 ): void {
   const filters: Record<string, unknown> = {};
@@ -214,7 +215,7 @@ export function logSearchEventPre(
   stateManager.logSearchEvent({
     id: eventId,
     projectId,
-    actor: 'claude',
+    actor: opts.actor ?? 'claude',
     tool: 'mcp_qdrant',
     op: 'search',
     queryText: query,

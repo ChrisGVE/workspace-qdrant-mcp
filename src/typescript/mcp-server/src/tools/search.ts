@@ -174,6 +174,7 @@ export class SearchTool {
       fileType: options.fileType,
       libraryName: options.libraryName,
       tag: options.tag,
+      actor: options.telemetryActor,
     });
     return {
       searchStartMs,
