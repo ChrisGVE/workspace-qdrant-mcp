@@ -23,6 +23,8 @@ use crate::data::db::connect_readonly;
 use crate::data::tenants::load_tenants;
 use crate::grpc::client::workspace_daemon::{QueryRelatedRequest, TextSearchRequest};
 
+use super::search_semantic::{fetch_semantic, SemanticHit};
+
 // ─── Per-mode result types ────────────────────────────────────────────────────
 
 /// A single grep/exact-text search match (one line in a file).
@@ -69,6 +71,8 @@ pub struct SearchSnapshot {
     pub matches: Vec<SearchMatch>,
     /// Results for Graph mode.
     pub graph_nodes: Vec<GraphRelatedNode>,
+    /// Results for Semantic mode (#125).
+    pub semantic_hits: Vec<SemanticHit>,
     /// Total count reported by the daemon (may exceed `matches.len()` when truncated).
     pub total: i32,
     /// Whether the result set was truncated by the daemon's `max_results` cap.
@@ -100,6 +104,9 @@ pub enum FetchRequest {
         /// Node ID (symbol name) to traverse from.
         node_id: String,
     },
+    /// Run a hybrid (dense+sparse, RRF-fused) search via the shared
+    /// `wqm_client::search` pipeline (#125).
+    SemanticSearch { tenant_id: String, query: String },
 }
 
 // ─── Background fetcher ───────────────────────────────────────────────────────
@@ -145,6 +152,7 @@ pub fn spawn_search_fetcher() -> (
                                 Ok(snap) => {
                                     s.matches = snap.matches;
                                     s.graph_nodes = vec![];
+                                    s.semantic_hits = vec![];
                                     s.total = snap.total;
                                     s.truncated = snap.truncated;
                                     s.query_time_ms = snap.query_time_ms;
@@ -164,9 +172,31 @@ pub fn spawn_search_fetcher() -> (
                                 Ok(snap) => {
                                     s.matches = vec![];
                                     s.graph_nodes = snap.graph_nodes;
+                                    s.semantic_hits = vec![];
                                     s.total = snap.total;
                                     s.truncated = false;
                                     s.query_time_ms = snap.query_time_ms;
+                                    s.last_error = None;
+                                }
+                                Err(e) => {
+                                    s.last_error = Some(e.to_string());
+                                }
+                            }
+                            s.loading = false;
+                        }
+                    }
+                    FetchRequest::SemanticSearch { tenant_id, query } => {
+                        let start = std::time::Instant::now();
+                        let result = fetch_semantic(&tenant_id, &query).await;
+                        if let Ok(mut s) = shared_clone.lock() {
+                            match result {
+                                Ok(hits) => {
+                                    s.matches = vec![];
+                                    s.graph_nodes = vec![];
+                                    s.total = hits.len() as i32;
+                                    s.semantic_hits = hits;
+                                    s.truncated = false;
+                                    s.query_time_ms = start.elapsed().as_millis() as i64;
                                     s.last_error = None;
                                 }
                                 Err(e) => {
@@ -226,6 +256,7 @@ async fn fetch_text_search(
     Ok(SearchSnapshot {
         matches,
         graph_nodes: vec![],
+        semantic_hits: vec![],
         total: resp.total_matches,
         truncated: resp.truncated,
         query_time_ms: resp.query_time_ms,
@@ -265,6 +296,7 @@ async fn fetch_graph_related(tenant_id: &str, node_id: &str) -> anyhow::Result<S
     Ok(SearchSnapshot {
         matches: vec![],
         graph_nodes,
+        semantic_hits: vec![],
         total: resp.total as i32,
         truncated: false,
         query_time_ms: resp.query_time_ms,

@@ -37,5 +37,6 @@ pub mod search_data;
 pub mod search_page;
 pub mod search_render;
 pub mod search_render_detail;
+pub mod search_semantic;
 pub mod service;
 pub mod service_data;

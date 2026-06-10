@@ -17,6 +17,7 @@ use ratatui::Frame;
 
 use super::search_data::{GraphRelatedNode, SearchMatch, SearchSnapshot};
 use super::search_page::{SearchMode, SearchPageView};
+use super::search_semantic::SemanticHit;
 use crate::tui::theme;
 use crate::tui::util::{scroll_offset, truncate_end, truncate_path, visible_rows};
 
@@ -157,7 +158,84 @@ impl SearchPageView {
                 self.draw_text_results(frame, area, &snap.matches, self.mode.label())
             }
             SearchMode::Graph => self.draw_graph_results(frame, area, &snap.graph_nodes),
+            SearchMode::Semantic => self.draw_semantic_results(frame, area, &snap.semantic_hits),
         }
+    }
+
+    /// Render Semantic mode results as a scrollable table (#125).
+    pub(super) fn draw_semantic_results(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        hits: &[SemanticHit],
+    ) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Semantic Results ")
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
+
+        if hits.is_empty() {
+            let hint = if self.prompt.has_query() {
+                "No results. Try rephrasing the query."
+            } else {
+                "Press i or / to enter a natural-language query, then Enter to run it."
+            };
+            let p = Paragraph::new(hint)
+                .style(Style::default().fg(theme::COLOR_DIM))
+                .block(block);
+            frame.render_widget(p, area);
+            return;
+        }
+
+        let header = Row::new(vec!["SCORE", "COLL", "LOCATOR", "SNIPPET"])
+            .style(theme::table_header_style())
+            .bottom_margin(1);
+
+        let inner_height = visible_rows(area.height, 4);
+        let offset = scroll_offset(self.selected, inner_height);
+
+        let snippet_w = (area.width as usize)
+            .saturating_sub(7 + 11 + 32 + 3 + 2)
+            .max(10);
+
+        let rows: Vec<Row> = hits
+            .iter()
+            .enumerate()
+            .skip(offset)
+            .take(inner_height)
+            .map(|(i, h)| {
+                let row_style = if i == self.selected {
+                    theme::selected_row_style()
+                } else {
+                    Style::default()
+                };
+                Row::new(vec![
+                    Span::styled(
+                        format!("{:.3}", h.score),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::styled(
+                        truncate_end(&h.collection, 11),
+                        Style::default().fg(theme::COLOR_ACCENT),
+                    ),
+                    Span::styled(
+                        truncate_path(&h.locator, 30),
+                        Style::default().fg(theme::COLOR_MUTED),
+                    ),
+                    Span::raw(truncate_end(&h.snippet, snippet_w)),
+                ])
+                .style(row_style)
+            })
+            .collect();
+
+        let widths = [
+            Constraint::Length(7),
+            Constraint::Length(11),
+            Constraint::Length(32),
+            Constraint::Min(10),
+        ];
+        let table = Table::new(rows, widths).header(header).block(block);
+        frame.render_widget(table, area);
     }
 
     /// Render Grep or Exact results as a scrollable table.

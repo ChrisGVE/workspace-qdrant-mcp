@@ -16,7 +16,7 @@ fn search_mode_labels_are_non_empty() {
 }
 
 #[test]
-fn search_mode_numbers_are_one_to_three() {
+fn search_mode_numbers_are_one_to_four() {
     for (i, m) in SearchMode::ALL.iter().enumerate() {
         assert_eq!(m.number(), i + 1);
     }
@@ -27,12 +27,13 @@ fn search_mode_from_key_round_trips() {
     assert_eq!(SearchMode::from_key(1), Some(SearchMode::Grep));
     assert_eq!(SearchMode::from_key(2), Some(SearchMode::Exact));
     assert_eq!(SearchMode::from_key(3), Some(SearchMode::Graph));
+    assert_eq!(SearchMode::from_key(4), Some(SearchMode::Semantic));
 }
 
 #[test]
 fn search_mode_from_key_out_of_range() {
     assert_eq!(SearchMode::from_key(0), None);
-    assert_eq!(SearchMode::from_key(4), None);
+    assert_eq!(SearchMode::from_key(5), None);
     assert_eq!(SearchMode::from_key(255), None);
 }
 

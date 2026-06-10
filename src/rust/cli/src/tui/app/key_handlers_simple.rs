@@ -266,9 +266,9 @@ impl App {
 
     /// Handle Search page keys. Returns true if the key was consumed.
     ///
-    /// Keys 1–3 switch the search mode (Grep/Exact/Graph), consuming them so
-    /// they never fall through to the global view-switch handler. `i` or `/`
-    /// opens the query prompt. `[`/`]` cycle tenants.
+    /// Keys 1–4 switch the search mode (Grep/Exact/Graph/Semantic), consuming
+    /// them so they never fall through to the global view-switch handler. `i`
+    /// or `/` opens the query prompt. `[`/`]` cycle tenants.
     /// Standard j/k/g/G/^d/^u/^f/^b navigation applies in the results list.
     /// Enter opens the result preview; Esc closes it or the prompt.
     pub(super) fn handle_search_key(&mut self, key: KeyEvent) -> bool {
@@ -321,8 +321,8 @@ impl App {
         }
 
         match key.code {
-            // Mode switching: keys 1-3 select search sub-modes.
-            KeyCode::Char(c @ '1'..='3') => {
+            // Mode switching: keys 1-4 select search sub-modes.
+            KeyCode::Char(c @ '1'..='4') => {
                 let digit = c as u8 - b'0';
                 if let Some(mode) = SearchMode::from_key(digit) {
                     view.set_mode(mode);

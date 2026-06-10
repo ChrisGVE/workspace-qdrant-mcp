@@ -1,13 +1,22 @@
-//! Search command - semantic and hybrid search
+//! Search command — real hybrid search from the CLI (#125).
 //!
-//! Phase 2 MEDIUM priority command for search operations.
-//! Subcommands: project, collection, global, rules
+//! Located at: `src/rust/cli/src/commands/search/mod.rs`
 //!
-//! Note: Search operations primarily go through the MCP server which handles
-//! embedding generation and Qdrant queries. The CLI provides guidance.
+//! Subcommands: project, collection, global, rules. All execute the shared
+//! `wqm_client::search` pipeline (embed via daemon → dense+sparse Qdrant →
+//! RRF fusion) — the same code path the MCP server's `search` tool runs.
+//!
+//! Neighbors: `hybrid.rs` (pipeline glue + project/scope resolution),
+//! `render.rs` (terminal output).
+
+pub mod hybrid;
+mod render;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+
+use wqm_client::models::SearchScope;
+use wqm_client::search::options::{SearchInput, SearchOptions};
 
 use crate::output;
 
@@ -48,15 +57,11 @@ enum SearchCommand {
 
     /// Search a specific collection
     Collection {
-        /// Collection name
+        /// Collection name (projects, libraries, rules, scratchpad)
         name: String,
 
         /// Search query
         query: String,
-
-        /// Filter by metadata (JSON format)
-        #[arg(short, long)]
-        filter: Option<String>,
     },
 
     /// Search globally across all projects
@@ -64,7 +69,7 @@ enum SearchCommand {
         /// Search query
         query: String,
 
-        /// Exclude specific projects
+        /// Exclude specific projects by tenant id
         #[arg(long)]
         exclude: Vec<String>,
     },
@@ -73,10 +78,6 @@ enum SearchCommand {
     Rules {
         /// Search query
         query: String,
-
-        /// Filter by scope (global, project, language)
-        #[arg(short, long)]
-        scope: Option<String>,
     },
 }
 
@@ -91,13 +92,9 @@ pub async fn execute(args: SearchArgs) -> Result<()> {
             file_type,
             branch,
         } => search_project(&query, limit, include_libs, file_type, branch).await,
-        SearchCommand::Collection {
-            name,
-            query,
-            filter,
-        } => search_collection(&name, &query, limit, filter).await,
+        SearchCommand::Collection { name, query } => search_collection(&name, &query, limit).await,
         SearchCommand::Global { query, exclude } => search_global(&query, limit, &exclude).await,
-        SearchCommand::Rules { query, scope } => search_rules(&query, limit, scope).await,
+        SearchCommand::Rules { query } => search_collection("rules", &query, limit).await,
     }
 }
 
@@ -110,42 +107,96 @@ async fn search_project(
 ) -> Result<()> {
     output::section("Project Search");
 
+    let Some(project_id) = hybrid::resolve_project_id_from_cwd() else {
+        output::error("Current directory is not inside a registered project.");
+        output::info("Register it first:  wqm project register");
+        output::info("Or search everything:  wqm search global \"<query>\"");
+        return Ok(());
+    };
+
     // Resolve branch: explicit arg > auto-detect from CWD > cross-branch fallback
     let resolved_branch = resolve_branch(branch);
 
     output::kv("Query", query);
-    output::kv("Limit", limit.to_string());
-    output::kv("Include Libraries", include_libs.to_string());
-    if let Some(ft) = &file_type {
-        output::kv("File Type", ft);
-    }
     match &resolved_branch {
         BranchFilter::Specific(b) => output::kv("Branch", b),
         BranchFilter::All => output::kv("Branch", "*  (all branches)"),
     }
     output::separator();
 
-    // Check daemon connection
-    match crate::grpc::connect_default().await {
-        Ok(_) => {
-            output::info("Daemon connected.");
-            output::separator();
-            output::info("Project search requires embedding generation via MCP server.");
-            output::info("Use the MCP search tool:");
-            output::info("  mcp__workspace_qdrant__search(");
-            output::info(format!("    query=\"{}\",", query));
-            output::info("    scope=\"project\",");
-            if let BranchFilter::Specific(b) = &resolved_branch {
-                output::info(format!("    branch=\"{}\",", b));
-            }
-            output::info(format!("    limit={}", limit));
-            output::info("  )");
-        }
-        Err(_) => {
-            output::error("Daemon not running. Start with: wqm service start");
-        }
+    let input = SearchInput {
+        query: query.to_string(),
+        limit: Some(limit),
+        scope: Some(SearchScope::Project),
+        branch: match resolved_branch {
+            BranchFilter::Specific(b) => Some(b),
+            BranchFilter::All => None,
+        },
+        file_type,
+        include_libraries: Some(include_libs),
+        ..Default::default()
+    };
+    let opts = SearchOptions::from_input(input, None);
+
+    let resp = hybrid::run_hybrid_search(&opts, Some(&project_id)).await?;
+    render::print_response(&resp);
+    Ok(())
+}
+
+async fn search_collection(name: &str, query: &str, limit: usize) -> Result<()> {
+    output::section(format!("Collection Search: {}", name));
+    output::kv("Query", query);
+    output::separator();
+
+    let input = SearchInput {
+        query: query.to_string(),
+        limit: Some(limit),
+        collection: Some(name.to_string()),
+        scope: Some(SearchScope::All),
+        ..Default::default()
+    };
+    let opts = SearchOptions::from_input(input, None);
+
+    let resp = hybrid::run_hybrid_search(&opts, None).await?;
+    render::print_response(&resp);
+    Ok(())
+}
+
+async fn search_global(query: &str, limit: usize, exclude: &[String]) -> Result<()> {
+    output::section("Global Search");
+    output::kv("Query", query);
+    if !exclude.is_empty() {
+        output::kv("Excluding", exclude.join(", "));
+    }
+    output::separator();
+
+    let input = SearchInput {
+        query: query.to_string(),
+        limit: Some(limit),
+        scope: Some(SearchScope::All),
+        ..Default::default()
+    };
+    let opts = SearchOptions::from_input(input, None);
+
+    // Relevance decay for scope=all needs a reference project — use the cwd
+    // project when available; global search works without one.
+    let project_id = hybrid::resolve_project_id_from_cwd();
+
+    let mut resp = hybrid::run_hybrid_search(&opts, project_id.as_deref()).await?;
+
+    // Tenant exclusion is a client-side post-filter: Qdrant filters support
+    // inclusion only at the shared FilterParams level.
+    if !exclude.is_empty() {
+        resp.results.retain(|r| {
+            r.metadata
+                .get("tenant_id")
+                .and_then(|v| v.as_str())
+                .is_none_or(|t| !exclude.iter().any(|e| e == t))
+        });
+        resp.total = resp.results.len();
     }
 
+    render::print_response(&resp);
     Ok(())
 }
 
@@ -193,77 +244,6 @@ fn detect_branch_from_cwd() -> Option<String> {
     } else {
         None
     }
-}
-
-async fn search_collection(
-    name: &str,
-    query: &str,
-    limit: usize,
-    filter: Option<String>,
-) -> Result<()> {
-    output::section(format!("Collection Search: {}", name));
-
-    output::kv("Query", query);
-    output::kv("Limit", limit.to_string());
-    if let Some(f) = &filter {
-        output::kv("Filter", f);
-    }
-    output::separator();
-
-    output::info("Collection search requires embedding generation.");
-    output::info("Options:");
-    output::info(
-        "  1. MCP server: mcp__workspace_qdrant__search(scope=\"collection\", collection=\"...\"",
-    );
-    output::info("  2. Direct Qdrant with pre-computed vector:".to_string());
-    output::info(format!(
-        "     curl -X POST 'http://localhost:6333/collections/{}/points/search'",
-        name
-    ));
-
-    Ok(())
-}
-
-async fn search_global(query: &str, limit: usize, exclude: &[String]) -> Result<()> {
-    output::section("Global Search");
-
-    output::kv("Query", query);
-    output::kv("Limit", limit.to_string());
-    if !exclude.is_empty() {
-        output::kv("Excluding", exclude.join(", "));
-    }
-    output::separator();
-
-    output::info("Global search queries all project collections.");
-    output::info("Use the MCP search tool:");
-    output::info("  mcp__workspace_qdrant__search(");
-    output::info(format!("    query=\"{}\",", query));
-    output::info("    scope=\"global\",");
-    output::info(format!("    limit={}", limit));
-    output::info("  )");
-
-    Ok(())
-}
-
-async fn search_rules(query: &str, limit: usize, scope: Option<String>) -> Result<()> {
-    output::section("Rules Search");
-
-    output::kv("Query", query);
-    output::kv("Limit", limit.to_string());
-    if let Some(s) = &scope {
-        output::kv("Scope", s);
-    }
-    output::separator();
-
-    output::info("Rules search queries the rules collection for behavioral rules.");
-    output::info("Use the MCP search tool:");
-    output::info("  mcp__workspace_qdrant__search(");
-    output::info(format!("    query=\"{}\",", query));
-    output::info("    scope=\"rules\",");
-    output::info(format!("    limit={}", limit));
-    output::info("  )");
-
-    Ok(())
 }
 
 #[cfg(test)]

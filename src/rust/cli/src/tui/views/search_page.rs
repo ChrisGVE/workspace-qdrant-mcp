@@ -3,17 +3,17 @@
 //! Located at: `src/rust/cli/src/tui/views/search_page.rs`
 //!
 //! # Architecture context
-//! This view is tab 10 in the TUI tab bar, surfacing both the daemon's
-//! TextSearchService (Grep and Exact modes) and GraphService (Graph mode)
-//! through three display modes selectable with keys 1-3:
+//! This view is tab 10 in the TUI tab bar, surfacing the daemon's
+//! TextSearchService (Grep and Exact modes), GraphService (Graph mode), and
+//! the shared hybrid search pipeline (Semantic mode, #125) through four
+//! display modes selectable with keys 1-4:
 //!
-//!   1 Grep  — literal/regex line search via TextSearchService::Search
-//!   2 Exact — exact FTS5 text search (whole-phrase match) via the same RPC
-//!   3 Graph — related symbols via GraphService::QueryRelated
-//!
-//! Semantic (hybrid dense+sparse vector) search is NOT available here: the
-//! daemon exposes no hybrid-search RPC — that pipeline lives in the MCP
-//! server. A future Semantic mode is tracked as a GitHub issue.
+//!   1 Grep     — literal/regex line search via TextSearchService::Search
+//!   2 Exact    — exact FTS5 text search (whole-phrase match) via the same RPC
+//!   3 Graph    — related symbols via GraphService::QueryRelated
+//!   4 Semantic — hybrid dense+sparse search via `wqm_client::search`
+//!                (embeddings from the daemon, Qdrant queried directly,
+//!                RRF fusion — the same pipeline the MCP server runs)
 //!
 //! The TUI loop is synchronous; all gRPC work runs on a background thread
 //! writing into an `Arc<Mutex<SearchSnapshot>>` (see `search_data.rs`). This
@@ -35,17 +35,23 @@ use super::search_data::{
 
 // ─── SearchMode ───────────────────────────────────────────────────────────────
 
-/// The three display sub-modes within the Search page.
+/// The four display sub-modes within the Search page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
     Grep,
     Exact,
     Graph,
+    Semantic,
 }
 
 impl SearchMode {
-    /// All modes in key order (1–3).
-    pub const ALL: [SearchMode; 3] = [SearchMode::Grep, SearchMode::Exact, SearchMode::Graph];
+    /// All modes in key order (1–4).
+    pub const ALL: [SearchMode; 4] = [
+        SearchMode::Grep,
+        SearchMode::Exact,
+        SearchMode::Graph,
+        SearchMode::Semantic,
+    ];
 
     /// Short label shown in the mode bar.
     pub fn label(self) -> &'static str {
@@ -53,15 +59,16 @@ impl SearchMode {
             SearchMode::Grep => "Grep",
             SearchMode::Exact => "Exact",
             SearchMode::Graph => "Graph",
+            SearchMode::Semantic => "Semantic",
         }
     }
 
-    /// One-based index (matches key 1–3).
+    /// One-based index (matches key 1–4).
     pub fn number(self) -> usize {
         SearchMode::ALL.iter().position(|m| *m == self).unwrap_or(0) + 1
     }
 
-    /// Construct from a 1-based key digit (1–3); returns `None` for out-of-range.
+    /// Construct from a 1-based key digit (1–4); returns `None` for out-of-range.
     pub fn from_key(key: u8) -> Option<Self> {
         if key == 0 {
             return None;
@@ -211,11 +218,23 @@ impl SearchPageView {
         }
     }
 
+    /// Send a hybrid semantic-search fetch request to the background thread (#125).
+    pub fn trigger_semantic_search(&mut self, query: String) {
+        if let Some(tenant) = self.active_tenant() {
+            let _ = self.fetch_tx.send(FetchRequest::SemanticSearch {
+                tenant_id: tenant.tenant_id.clone(),
+                query,
+            });
+            self.last_fetch = Some(Instant::now());
+        }
+    }
+
     /// Dispatch the confirmed query to the appropriate fetcher for the active mode.
     pub fn dispatch_query(&mut self, query: String) {
         match self.mode {
             SearchMode::Grep | SearchMode::Exact => self.trigger_text_search(query),
             SearchMode::Graph => self.trigger_graph_search(query),
+            SearchMode::Semantic => self.trigger_semantic_search(query),
         }
     }
 
@@ -259,6 +278,7 @@ impl SearchPageView {
         match self.mode {
             SearchMode::Grep | SearchMode::Exact => snap.matches.len(),
             SearchMode::Graph => snap.graph_nodes.len(),
+            SearchMode::Semantic => snap.semantic_hits.len(),
         }
     }
 

@@ -75,7 +75,7 @@ impl App {
             View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Move  g/G First/Last  / Search  n/N  Enter View  Esc Live  q Quit",
             View::Graph => "1-5 Mode  j/k Nav  g/G  [ ] Tenant  i Impact  Enter Expand  q Quit",
-            View::Search => "1-3 Mode  i/  Query  Enter Preview  j/k Nav  g/G  [ ] Tenant  q Quit",
+            View::Search => "1-4 Mode  i/  Query  Enter Preview  j/k Nav  g/G  [ ] Tenant  q Quit",
         };
 
         spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));

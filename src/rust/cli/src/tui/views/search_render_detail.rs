@@ -41,6 +41,7 @@ impl SearchPageView {
             SearchMode::Grep => "Grep",
             SearchMode::Exact => "Exact",
             SearchMode::Graph => "Graph symbol",
+            SearchMode::Semantic => "Semantic",
         };
 
         let hint = format!(" {} query (Enter to run, Esc to cancel): ", mode_tag);
@@ -96,7 +97,61 @@ impl SearchPageView {
             SearchMode::Graph => {
                 self.draw_graph_preview(frame, popup_area, &snap.graph_nodes);
             }
+            SearchMode::Semantic => {
+                self.draw_semantic_preview(frame, popup_area, &snap.semantic_hits);
+            }
         }
+    }
+
+    /// Preview popup for a Semantic mode result (#125).
+    ///
+    /// Shows the stored chunk content for the selected hit — the content
+    /// came back with the Qdrant payload, so no disk read is needed.
+    fn draw_semantic_preview(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        hits: &[super::search_semantic::SemanticHit],
+    ) {
+        let Some(h) = hits.get(self.selected) else {
+            return;
+        };
+
+        let title = format!(
+            " [{:.3}] {} ({}) ",
+            h.score,
+            truncate_end(&h.locator, 45),
+            h.collection
+        );
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .title_style(Style::default().add_modifier(Modifier::BOLD))
+            .style(Style::default().bg(Color::Black));
+
+        let inner_w = area.width.saturating_sub(2) as usize;
+        let max_lines = area.height.saturating_sub(4) as usize;
+
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        for chunk_line in h.content.lines().take(max_lines) {
+            lines.extend(content::render_plain(chunk_line, inner_w));
+        }
+
+        if lines.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "(no content)",
+                Style::default().fg(theme::COLOR_DIM),
+            )));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Esc to close",
+            Style::default().fg(theme::COLOR_DIM),
+        )));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
     }
 
     /// Preview popup for a Grep or Exact search result.
