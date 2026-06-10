@@ -9,16 +9,15 @@ use std::time::Instant;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use regex::Regex;
 
 use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
-use super::projects_data::{
-    build_status_text, fetch_project_detail, fetch_project_rows, format_local_time, ProjectDetail,
-    ProjectRow,
-};
+use super::file_list::{handle_popup_key, FileListAction, FileListState};
+use super::file_list_data::fetch_file_entries;
+use super::projects_data::{fetch_project_detail, fetch_project_rows, ProjectDetail, ProjectRow};
 use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
 use crate::tui::theme;
@@ -47,6 +46,8 @@ pub struct ProjectBrowser {
     global_re: Option<Regex>,
     /// Detail popup for the selected project, if open.
     detail: Option<ProjectDetail>,
+    /// File-list tab and content overlay state for the detail popup.
+    pub(in crate::tui::views) file_list: FileListState,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
     /// Cursor-jump search state (`/`).
@@ -67,6 +68,7 @@ impl ProjectBrowser {
             page_filter: FilterState::new(),
             global_re: None,
             detail: None,
+            file_list: FileListState::new(),
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
@@ -214,15 +216,29 @@ impl ProjectBrowser {
     }
 
     /// Open the detail popup for the currently selected project.
+    ///
+    /// Loads the metadata and pre-fetches the file list for the Files tab so
+    /// the first tab switch is instant.
     pub fn open_detail(&mut self) {
         if let Some(item) = self.items.get(self.selected) {
             self.detail = fetch_project_detail(&item.watch_id);
+            self.file_list.reset();
+            // Pre-load files so the tab is ready immediately.
+            let entries = fetch_file_entries(&item.watch_id);
+            self.file_list.load(entries);
         }
     }
 
-    /// Close the detail popup.
+    /// Close the detail popup and reset the file-list state.
     pub fn close_detail(&mut self) {
         self.detail = None;
+        self.file_list.reset();
+    }
+
+    /// Route a key event to the file-list state machine while the detail popup
+    /// is open. Returns the action the caller should take.
+    pub fn handle_popup_key(&mut self, key: crossterm::event::KeyCode) -> FileListAction {
+        handle_popup_key(&mut self.file_list, key)
     }
 
     /// Get mutable access to search state.
@@ -454,277 +470,12 @@ impl ProjectBrowser {
         ])
         .style(row_style)
     }
-
-    /// Draw a centered detail popup overlay.
-    fn draw_detail_popup(&self, frame: &mut Frame, area: Rect, detail: &ProjectDetail) {
-        let popup_w = 70u16.min(area.width.saturating_sub(4));
-        let popup_h = 24u16.min(area.height.saturating_sub(4));
-        let x = (area.width.saturating_sub(popup_w)) / 2;
-        let y = (area.height.saturating_sub(popup_h)) / 2;
-        let popup_area = Rect::new(x, y, popup_w, popup_h);
-
-        frame.render_widget(Clear, popup_area);
-
-        let mut lines = vec![
-            detail_line("Name", &detail.name),
-            detail_line("Path", &detail.display_path),
-            detail_line("Watch ID", &detail.watch_id),
-            detail_line("Tenant ID", &truncate_str(&detail.tenant_id, 40)),
-            detail_line("Collection", &detail.collection),
-            Line::from(""),
-            detail_line("Status", &build_status_text(detail)),
-        ];
-
-        if let Some(ref url) = detail.git_remote_url {
-            lines.push(detail_line("Git Remote", &truncate_str(url, 50)));
-        }
-
-        lines.push(Line::from(""));
-        lines.push(detail_line(
-            "Created",
-            &format_local_time(&detail.created_at),
-        ));
-        lines.push(detail_line(
-            "Updated",
-            &format_local_time(&detail.updated_at),
-        ));
-        if let Some(ref scan) = detail.last_scan {
-            lines.push(detail_line("Last Scan", &format_local_time(scan)));
-        }
-
-        self.append_queue_breakdown(&mut lines, detail);
-        self.append_sub_watches(&mut lines, detail);
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Project Detail ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD))
-            .style(Style::default().bg(Color::Black));
-        frame.render_widget(Paragraph::new(lines).block(block), popup_area);
-    }
-
-    /// Append queue breakdown section to popup lines.
-    fn append_queue_breakdown(&self, lines: &mut Vec<Line<'static>>, detail: &ProjectDetail) {
-        if detail.queue_by_status.is_empty() {
-            return;
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  Queue Breakdown:",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        for (status, count) in &detail.queue_by_status {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("    {:<14} ", status),
-                    Style::default().fg(status_color(status)),
-                ),
-                Span::raw(count.to_string()),
-            ]));
-        }
-    }
-
-    /// Append sub-watch folders section to popup lines.
-    fn append_sub_watches(&self, lines: &mut Vec<Line<'static>>, detail: &ProjectDetail) {
-        if detail.sub_watches.is_empty() {
-            return;
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  Watch Folders:",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        for sw in &detail.sub_watches {
-            lines.push(Line::from(Span::styled(
-                format!("    {}", truncate_str(sw, 55)),
-                Style::default().fg(Color::Gray),
-            )));
-        }
-    }
 }
 
-/// Map a status string to a display color.
-fn status_color(status: &str) -> Color {
-    match status {
-        "done" => Color::Green,
-        "pending" => Color::Yellow,
-        "in_progress" => Color::Blue,
-        "failed" => Color::Red,
-        _ => Color::Reset,
-    }
-}
-
-/// Build a key-value detail line.
-fn detail_line(key: &str, value: &str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("  {:<14} ", key), Style::default().fg(Color::Gray)),
-        Span::raw(value.to_string()),
-    ])
-}
-
-/// Truncate a string to `max_len` characters, appending "..." if truncated.
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
-        format!("{truncated}...")
-    }
-}
+// Re-export popup helpers so tests (via `super::*`) can reach them.
+#[cfg(test)]
+pub(crate) use super::projects_popup::{status_color, truncate_str};
 
 #[cfg(test)]
-mod tests {
-    use super::super::projects_data::ProjectRow;
-    use super::*;
-
-    #[test]
-    fn project_browser_new_starts_empty() {
-        let browser = ProjectBrowser::new();
-        assert!(browser.items.is_empty());
-        assert_eq!(browser.selected, 0);
-        assert!(browser.detail.is_none());
-        assert!(browser.last_refresh.is_none());
-    }
-
-    #[test]
-    fn select_clamps_at_boundaries() {
-        let mut b = ProjectBrowser::new();
-        b.items = make_test_rows(5);
-        b.selected = 4;
-        b.select_next();
-        assert_eq!(b.selected, 4);
-        b.selected = 0;
-        b.select_prev();
-        assert_eq!(b.selected, 0);
-    }
-
-    #[test]
-    fn select_advances_and_retreats() {
-        let mut b = ProjectBrowser::new();
-        b.items = make_test_rows(5);
-        b.selected = 2;
-        b.select_next();
-        assert_eq!(b.selected, 3);
-        b.select_prev();
-        assert_eq!(b.selected, 2);
-    }
-
-    #[test]
-    fn page_navigation_clamps() {
-        let mut b = ProjectBrowser::new();
-        b.items = make_test_rows(50);
-        b.selected = 5;
-        b.page_up(20);
-        assert_eq!(b.selected, 0);
-        b.selected = 45;
-        b.page_down(20);
-        assert_eq!(b.selected, 49);
-    }
-
-    #[test]
-    fn close_detail_clears() {
-        let mut b = ProjectBrowser::new();
-        b.detail = Some(make_test_detail());
-        assert!(b.detail_open());
-        b.close_detail();
-        assert!(!b.detail_open());
-    }
-
-    #[test]
-    fn select_on_empty_list() {
-        let mut b = ProjectBrowser::new();
-        b.select_next();
-        b.select_prev();
-        assert_eq!(b.selected, 0);
-    }
-
-    #[test]
-    fn status_color_mapping() {
-        assert_eq!(status_color("done"), Color::Green);
-        assert_eq!(status_color("pending"), Color::Yellow);
-        assert_eq!(status_color("in_progress"), Color::Blue);
-        assert_eq!(status_color("failed"), Color::Red);
-        assert_eq!(status_color("unknown"), Color::Reset);
-    }
-
-    #[test]
-    fn truncate_str_behavior() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-        let long = "a".repeat(40);
-        let result = truncate_str(&long, 10);
-        assert!(result.ends_with("..."));
-        assert!(result.chars().count() <= 10);
-    }
-
-    #[test]
-    fn request_toggle_targets_inverted_enabled() {
-        let mut b = ProjectBrowser::new();
-        b.items = make_test_rows(3);
-        b.selected = 0; // item 0 is enabled (i % 2 == 0)
-        assert!(!b.confirm_open());
-        b.request_toggle();
-        assert!(b.confirm_open());
-        // Confirming yields the watch_id and the *target* state (disable).
-        let (wid, enable) = b.take_confirm().unwrap();
-        assert_eq!(wid, "watch-0");
-        assert!(!enable);
-        assert!(!b.confirm_open());
-    }
-
-    #[test]
-    fn cancel_confirm_clears_modal() {
-        let mut b = ProjectBrowser::new();
-        b.items = make_test_rows(2);
-        b.request_toggle();
-        assert!(b.confirm_open());
-        b.cancel_confirm();
-        assert!(!b.confirm_open());
-        assert!(b.take_confirm().is_none());
-    }
-
-    #[test]
-    fn force_refresh_clears_last_refresh() {
-        let mut b = ProjectBrowser::new();
-        b.last_refresh = Some(Instant::now());
-        b.force_refresh();
-        assert!(b.last_refresh.is_none());
-    }
-
-    fn make_test_rows(n: usize) -> Vec<ProjectRow> {
-        (0..n)
-            .map(|i| ProjectRow {
-                watch_id: format!("watch-{i}"),
-                name: format!("project-{i}"),
-                display_path: format!("~/dev/project-{i}"),
-                is_active: i % 2 == 0,
-                enabled: i % 2 == 0,
-                doc_count: (i * 10) as i64,
-                queue_count: (i % 3) as i64,
-                branch: "main".to_string(),
-            })
-            .collect()
-    }
-
-    fn make_test_detail() -> ProjectDetail {
-        ProjectDetail {
-            watch_id: "w1".into(),
-            tenant_id: "t1".into(),
-            name: "test-proj".into(),
-            display_path: "~/test-proj".into(),
-            collection: "projects".into(),
-            is_active: true,
-            is_paused: false,
-            is_archived: false,
-            git_remote_url: None,
-            created_at: "2025-01-01T00:00:00Z".into(),
-            updated_at: "2025-01-01T12:00:00Z".into(),
-            last_scan: None,
-            sub_watches: Vec::new(),
-            queue_by_status: std::collections::HashMap::new(),
-        }
-    }
-}
+#[path = "projects_tests.rs"]
+mod tests;

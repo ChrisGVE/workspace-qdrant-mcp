@@ -1,6 +1,9 @@
 //! TUI application core — event loop and state management.
 
 mod key_handler;
+mod key_handlers_lists;
+mod key_handlers_misc;
+mod key_handlers_simple;
 mod render;
 
 use std::time::Duration;

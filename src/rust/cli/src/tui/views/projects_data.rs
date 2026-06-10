@@ -331,6 +331,7 @@ mod tests {
             tenant_id: "t1".to_string(),
             name: "test-proj".to_string(),
             display_path: "~/test-proj".to_string(),
+
             collection: "projects".to_string(),
             is_active: true,
             is_paused: false,
@@ -356,6 +357,7 @@ mod tests {
             tenant_id: String::new(),
             name: String::new(),
             display_path: String::new(),
+
             collection: "projects".to_string(),
             is_active: false,
             is_paused: false,
@@ -396,6 +398,7 @@ mod tests {
             tenant_id: String::new(),
             name: String::new(),
             display_path: String::new(),
+
             collection: "projects".to_string(),
             is_active: true,
             is_paused: false,

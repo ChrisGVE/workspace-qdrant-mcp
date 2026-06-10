@@ -8,15 +8,15 @@ use std::time::Instant;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use regex::Regex;
 
 use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
-use super::libraries_data::{
-    fetch_library_detail, fetch_library_rows, status_label, LibraryDetail, LibraryRow,
-};
+use super::file_list::{handle_popup_key, FileListAction, FileListState};
+use super::file_list_data::fetch_file_entries;
+use super::libraries_data::{fetch_library_detail, fetch_library_rows, LibraryDetail, LibraryRow};
 use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
 use crate::tui::theme;
@@ -51,6 +51,8 @@ pub struct LibraryBrowser {
     global_re: Option<Regex>,
     /// Detail popup for the selected item, if open.
     detail: Option<LibraryDetail>,
+    /// File-list tab and content overlay state for the detail popup.
+    pub(in crate::tui::views) file_list: FileListState,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
     /// Cursor-jump search state (`/`).
@@ -71,6 +73,7 @@ impl LibraryBrowser {
             page_filter: FilterState::new(),
             global_re: None,
             detail: None,
+            file_list: FileListState::new(),
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
@@ -272,16 +275,30 @@ impl LibraryBrowser {
         }
     }
 
-    /// Open the detail popup for the currently selected item.
+    /// Open the detail popup for the currently selected library.
+    ///
+    /// Pre-fetches the file list for the Files tab so the first tab switch is
+    /// instant. Libraries currently have 0 rows in the live DB — this is
+    /// code-complete but unverified until a library exists.
     pub fn open_detail(&mut self) {
         if let Some(item) = self.items.get(self.selected) {
             self.detail = fetch_library_detail(&item.watch_id);
+            self.file_list.reset();
+            let entries = fetch_file_entries(&item.watch_id);
+            self.file_list.load(entries);
         }
     }
 
-    /// Close the detail popup.
+    /// Close the detail popup and reset the file-list state.
     pub fn close_detail(&mut self) {
         self.detail = None;
+        self.file_list.reset();
+    }
+
+    /// Route a key event to the file-list state machine while the detail popup
+    /// is open. Returns the action the caller should take.
+    pub fn handle_popup_key(&mut self, key: crossterm::event::KeyCode) -> FileListAction {
+        handle_popup_key(&mut self.file_list, key)
     }
 
     /// Render the library browser into the given area.
@@ -429,225 +446,8 @@ impl LibraryBrowser {
             frame.render_widget(msg, inner);
         }
     }
-
-    /// Draw a centered detail popup overlay.
-    fn draw_detail_popup(&self, frame: &mut Frame, area: Rect, detail: &LibraryDetail) {
-        let popup_width = 70u16.min(area.width.saturating_sub(4));
-        let popup_height = 22u16.min(area.height.saturating_sub(4));
-
-        let x = (area.width.saturating_sub(popup_width)) / 2;
-        let y = (area.height.saturating_sub(popup_height)) / 2;
-        let popup_area = Rect::new(x, y, popup_width, popup_height);
-
-        frame.render_widget(Clear, popup_area);
-
-        let status = status_label(detail.enabled, detail.is_active);
-        let paused = if detail.is_paused { "yes" } else { "no" };
-        let archived = if detail.is_archived { "yes" } else { "no" };
-        let symlinks = if detail.follow_symlinks { "yes" } else { "no" };
-        let cleanup = if detail.cleanup_on_disable {
-            "yes"
-        } else {
-            "no"
-        };
-
-        let name = detail
-            .display_path
-            .trim_end_matches('/')
-            .rsplit('/')
-            .find(|s| !s.is_empty())
-            .unwrap_or(&detail.tag);
-
-        let mut lines = vec![
-            detail_line("Name", name),
-            detail_line("Tag", &detail.tag),
-            detail_line("Watch ID", &detail.watch_id),
-            detail_line("Path", &detail.display_path),
-            Line::from(""),
-            detail_line("Status", status),
-            detail_line("Mode", &detail.mode),
-            detail_line("Documents", &detail.doc_count.to_string()),
-            Line::from(""),
-            detail_line("Paused", paused),
-            detail_line("Archived", archived),
-            detail_line("Symlinks", symlinks),
-            detail_line("Cleanup", cleanup),
-            Line::from(""),
-            detail_line("Created", &format_local_time(&detail.created_at)),
-            detail_line("Updated", &format_local_time(&detail.updated_at)),
-        ];
-
-        if let Some(ref scan) = detail.last_scan {
-            lines.push(detail_line("Last Scan", &format_local_time(scan)));
-        }
-        if let Some(ref activity) = detail.last_activity_at {
-            lines.push(detail_line("Last Active", &format_local_time(activity)));
-        }
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Library Detail ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD))
-            .style(Style::default().bg(Color::Black));
-
-        let popup = Paragraph::new(lines).block(block);
-        frame.render_widget(popup, popup_area);
-    }
-}
-
-/// Build a key-value detail line.
-fn detail_line(key: &str, value: &str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("  {:<14} ", key), Style::default().fg(Color::Gray)),
-        Span::raw(value.to_string()),
-    ])
-}
-
-/// Format a UTC timestamp for local display.
-fn format_local_time(utc_str: &str) -> String {
-    wqm_common::timestamp_fmt::format_local(utc_str)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn library_browser_new_starts_empty() {
-        let browser = LibraryBrowser::new();
-        assert!(browser.items.is_empty());
-        assert_eq!(browser.selected, 0);
-        assert!(browser.detail.is_none());
-        assert!(browser.last_refresh.is_none());
-    }
-
-    #[test]
-    fn select_next_clamps_to_bounds() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(5);
-        browser.selected = 4;
-        browser.select_next();
-        assert_eq!(browser.selected, 4);
-    }
-
-    #[test]
-    fn select_prev_clamps_to_zero() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(5);
-        browser.selected = 0;
-        browser.select_prev();
-        assert_eq!(browser.selected, 0);
-    }
-
-    #[test]
-    fn select_next_advances() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(5);
-        browser.selected = 2;
-        browser.select_next();
-        assert_eq!(browser.selected, 3);
-    }
-
-    #[test]
-    fn select_prev_retreats() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(5);
-        browser.selected = 3;
-        browser.select_prev();
-        assert_eq!(browser.selected, 2);
-    }
-
-    #[test]
-    fn page_up_clamps() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(50);
-        browser.selected = 5;
-        browser.page_up(20);
-        assert_eq!(browser.selected, 0);
-    }
-
-    #[test]
-    fn page_down_clamps() {
-        let mut browser = LibraryBrowser::new();
-        browser.items = make_test_rows(50);
-        browser.selected = 45;
-        browser.page_down(20);
-        assert_eq!(browser.selected, 49);
-    }
-
-    #[test]
-    fn close_detail_clears() {
-        let mut browser = LibraryBrowser::new();
-        browser.detail = Some(LibraryDetail {
-            watch_id: "lib-test".into(),
-            tag: "test".into(),
-            display_path: "/tmp/lib".into(),
-            enabled: true,
-            is_active: false,
-            mode: "sync".into(),
-            doc_count: 5,
-            follow_symlinks: false,
-            cleanup_on_disable: false,
-            is_paused: false,
-            is_archived: false,
-            created_at: "2025-01-01T00:00:00Z".into(),
-            updated_at: "2025-01-01T00:00:00Z".into(),
-            last_scan: None,
-            last_activity_at: None,
-        });
-        assert!(browser.detail_open());
-        browser.close_detail();
-        assert!(!browser.detail_open());
-    }
-
-    #[test]
-    fn select_on_empty_list() {
-        let mut browser = LibraryBrowser::new();
-        browser.select_next();
-        assert_eq!(browser.selected, 0);
-        browser.select_prev();
-        assert_eq!(browser.selected, 0);
-    }
-
-    #[test]
-    fn request_toggle_skips_project_derived() {
-        let mut b = LibraryBrowser::new();
-        b.items = make_test_rows(2);
-        b.items[0].source = Some("P:proj".into());
-        b.selected = 0;
-        b.request_toggle();
-        // Project-derived library is not toggleable here: no modal, message set.
-        assert!(!b.confirm_open());
-        assert!(b.message.is_some());
-    }
-
-    #[test]
-    fn request_toggle_opens_for_top_level_library() {
-        let mut b = LibraryBrowser::new();
-        b.items = make_test_rows(2);
-        b.items[0].source = None;
-        b.items[0].enabled = true;
-        b.selected = 0;
-        b.request_toggle();
-        assert!(b.confirm_open());
-        let (wid, enable) = b.take_confirm().unwrap();
-        assert_eq!(wid, "lib-tag-0");
-        assert!(!enable); // toggles to disabled
-    }
-
-    fn make_test_rows(n: usize) -> Vec<LibraryRow> {
-        (0..n)
-            .map(|i| LibraryRow {
-                watch_id: format!("lib-tag-{i}"),
-                tag: format!("tag-{i}"),
-                name: format!("lib-{i}"),
-                display_path: format!("/tmp/lib-{i}"),
-                enabled: true,
-                is_active: i % 2 == 0,
-                mode: "sync".into(),
-                doc_count: i as u64 * 10,
-                source: None,
-            })
-            .collect()
-    }
-}
+#[path = "libraries_tests.rs"]
+mod tests;
