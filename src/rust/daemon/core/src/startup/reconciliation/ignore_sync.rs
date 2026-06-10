@@ -12,13 +12,12 @@ use std::sync::Arc;
 
 use ignore::WalkBuilder;
 use sqlx::SqlitePool;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use sqlx::Row;
 
 use crate::patterns::ignore_gate::IgnoreGate;
 use crate::queue_operations::QueueManager;
-use crate::unified_queue_schema::{ItemType, QueueOperation};
 
 /// Outcome of a single reconciliation run.
 #[derive(Debug, Default)]
@@ -78,7 +77,14 @@ pub async fn reconcile_ignore_rules(
         eligible_files.len()
     );
 
-    enqueue_reconcile_ops(queue_manager, tenant_id, collection, &stale, &missing).await
+    super::ignore_enqueue::enqueue_reconcile_ops(
+        queue_manager,
+        tenant_id,
+        collection,
+        &stale,
+        &missing,
+    )
+    .await
 }
 
 /// Look up the watch_id for a tenant+collection combination.
@@ -103,134 +109,6 @@ async fn fetch_watch_id(
         )
     })?;
     Ok(row.get("watch_id"))
-}
-
-/// Enqueue delete + add operations for stale and missing files.
-///
-/// `stale` and `missing` carry relative paths (forward-slash, normalized).
-/// The JSON payload's `file_path` field is the relative form — `FilePayload`
-/// types it as `RelativePath` and the downstream strategy reanchors via
-/// `RelativePath::to_absolute(watch_folder_root)`. Sending an absolute path
-/// here makes the strategy double-join (root + absolute), producing a path
-/// like `<root>//<root>/<rel>` that does not exist on disk, which then
-/// triggers `handle_missing_file` silently — items drain without indexing.
-async fn enqueue_reconcile_ops(
-    queue_manager: &Arc<QueueManager>,
-    tenant_id: &str,
-    collection: &str,
-    stale: &[&String],
-    missing: &[&String],
-) -> Result<ReconcileStats, String> {
-    let mut stats = ReconcileStats::default();
-
-    stats.stale_deleted = enqueue_ignore_ops(
-        queue_manager,
-        tenant_id,
-        collection,
-        QueueOperation::Delete,
-        stale,
-        "ignore_rule_change",
-    )
-    .await;
-
-    stats.missing_added = enqueue_ignore_ops(
-        queue_manager,
-        tenant_id,
-        collection,
-        QueueOperation::Add,
-        missing,
-        "ignore_reconciliation",
-    )
-    .await;
-
-    info!(
-        "[ignore_sync] {} — enqueued {} deletes, {} adds",
-        tenant_id, stats.stale_deleted, stats.missing_added
-    );
-
-    Ok(stats)
-}
-
-/// Default batch size for ignore-sync enqueues.
-///
-/// Each batch is committed as a single SQLite transaction so we amortise
-/// lock contention across hundreds of inserts. 500 is a balance between
-/// commit latency and transaction size that matches the `#59` acceptance
-/// criteria.
-pub const IGNORE_SYNC_BATCH_SIZE: usize = 500;
-
-/// Enqueue `file_paths` as `(File, op)` items in batches using a single
-/// SQLite transaction per batch. Progress is logged every batch so large
-/// backfills are observable in the daemon log.
-async fn enqueue_ignore_ops(
-    queue_manager: &Arc<QueueManager>,
-    tenant_id: &str,
-    collection: &str,
-    op: QueueOperation,
-    file_paths: &[&String],
-    reason: &str,
-) -> u64 {
-    let total = file_paths.len();
-    if total == 0 {
-        return 0;
-    }
-
-    let mut enqueued: u64 = 0;
-    let op_label = match op {
-        QueueOperation::Delete => "delete",
-        QueueOperation::Add => "add",
-        _ => "op",
-    };
-
-    for chunk in file_paths.chunks(IGNORE_SYNC_BATCH_SIZE) {
-        let payloads: Vec<String> = chunk
-            .iter()
-            .map(|rel_path| {
-                // FilePayload.file_path is RelativePath. Sending an absolute
-                // path here is a silent footgun: serde derives are transparent
-                // and the strategy re-anchors via to_absolute(root), producing
-                // <root>//<absolute> which does not exist on disk.
-                let rel = rel_path.as_str();
-                match op {
-                    QueueOperation::Delete => serde_json::json!({
-                        "file_path": rel,
-                        "reason": reason,
-                    }),
-                    _ => serde_json::json!({
-                        "file_path": rel,
-                        "source": reason,
-                    }),
-                }
-                .to_string()
-            })
-            .collect();
-
-        match queue_manager
-            .enqueue_unified_batch(ItemType::File, op, tenant_id, collection, &payloads, None)
-            .await
-        {
-            Ok(n) => {
-                enqueued += n;
-                debug!(
-                    "[ignore_sync] {} — {}: batch committed {}/{} items ({} total enqueued)",
-                    tenant_id,
-                    op_label,
-                    n,
-                    chunk.len(),
-                    enqueued
-                );
-            }
-            Err(e) => warn!(
-                "[ignore_sync] {} — {} batch failed (size={}): {}",
-                tenant_id,
-                op_label,
-                chunk.len(),
-                e
-            ),
-        }
-    }
-
-    enqueued
 }
 
 /// Walk project tree and collect all eligible file paths (not excluded

@@ -124,7 +124,12 @@ impl MaintenanceTask for FilesystemReconcileTask {
             let collection: String = row.try_get("collection").unwrap_or_default();
 
             let abs_path_str = abs_path.to_string_lossy();
-            let payload = serde_json::json!({ "file_path": abs_path_str });
+            // FilePayload.file_path is a validating RelativePath — ship the
+            // watch-root-relative form straight from tracked_files. The
+            // absolute join above exists only for the on-disk check and the
+            // logs; enqueueing it would fail the consumer's parse as a
+            // permanent InvalidPayload.
+            let payload = build_missing_file_delete_payload(relative_path);
             if let Err(e) = ctx
                 .queue_manager
                 .enqueue_unified(
@@ -132,7 +137,7 @@ impl MaintenanceTask for FilesystemReconcileTask {
                     QueueOperation::Delete,
                     &tenant_id,
                     &collection,
-                    &payload.to_string(),
+                    &payload,
                     Some(&branch),
                     None,
                 )
@@ -149,5 +154,39 @@ impl MaintenanceTask for FilesystemReconcileTask {
 
         self.offset += self.batch_size;
         MaintenanceResult::Continue
+    }
+}
+
+/// Build the `file|delete` payload for a tracked file missing from disk.
+///
+/// The payload must round-trip through the consumer's validating
+/// `FilePayload` deserialization, so it carries the watch-root-relative
+/// path — never the absolute join used for the existence check.
+fn build_missing_file_delete_payload(relative_path: &str) -> String {
+    serde_json::json!({ "file_path": relative_path }).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::unified_queue_schema::FilePayload;
+
+    /// Regression: this task used to enqueue the ABSOLUTE joined path,
+    /// which the consumer's validating `RelativePath` deserialization
+    /// rejects as a permanent `InvalidPayload` (the same failure class as
+    /// the ignore-reconciliation poison items).
+    #[test]
+    fn delete_payload_parses_as_file_payload_with_relative_path() {
+        let payload = build_missing_file_delete_payload("src/lib/missing.rs");
+        let parsed: FilePayload = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed.file_path.as_str(), "src/lib/missing.rs");
+    }
+
+    #[test]
+    fn absolute_path_payload_is_rejected_by_consumer_parse() {
+        // Documents WHY the payload must be relative: the absolute form
+        // (what this task shipped before) cannot parse.
+        let payload = build_missing_file_delete_payload("/root/proj/src/missing.rs");
+        assert!(serde_json::from_str::<FilePayload>(&payload).is_err());
     }
 }

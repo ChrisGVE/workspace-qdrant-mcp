@@ -511,6 +511,7 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
 }
 
 pub mod branch_prune;
+mod ignore_enqueue;
 pub mod ignore_sync;
 
 /// Reconcile ignore rules for all active projects at startup.
