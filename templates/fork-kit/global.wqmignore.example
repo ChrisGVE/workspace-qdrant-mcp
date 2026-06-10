@@ -283,7 +283,10 @@ yarn.lock
 **/grafana/dashboards/
 
 # Vendored, patched copy of the upstream `fastembed` crate (src/rust/patches/
-# fastembed, 44 files incl. its own .github/, README, tests). Third-party code
-# that competes with the daemon's real embedding modules in search results.
-# Uncomment to drop it from the index; leave it if you actively grep the patch.
-# **/src/rust/patches/fastembed/
+# fastembed, ~39 indexed files incl. its own .github/, README, tests). Third-party
+# code that competed with — and outranked — the daemon's own embedding modules in
+# search ("sparse text embedding generation" returned this crate's lib.rs and tests
+# at #1/#2, pushing daemon/core/src/embedding/mod.rs to #3). Build is unaffected
+# (compiled via Cargo path dep). Re-comment to make the patch searchable while
+# iterating on it.
+**/src/rust/patches/fastembed/
