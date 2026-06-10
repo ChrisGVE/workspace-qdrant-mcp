@@ -335,6 +335,7 @@ services:
       # retrieval side changes (embedding model, sparse pipeline).
       WQM_PATH_BOOST_ALPHA: ${WQM_PATH_BOOST_ALPHA:-}
       WQM_SPARSE_ONLY_WEIGHT: ${WQM_SPARSE_ONLY_WEIGHT:-}
+      WQM_SYMBOL_MATCH_BOOST: ${WQM_SYMBOL_MATCH_BOOST:-}
       # "1" flips the cross-encoder rerank default ON (per-call `rerank` wins).
       WQM_SEARCH_RERANK: ${WQM_SEARCH_RERANK:-}
       # Blend weight 0–1 for the rerank score: final pool order is
