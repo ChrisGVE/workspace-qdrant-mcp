@@ -126,7 +126,7 @@ The MCP server (`daemon/mcp-server` crate, binary `workspace-qdrant-mcp`) speaks
 
 ## gRPC Services
 
-7 services defined in `src/rust/daemon/proto/workspace_daemon.proto`:
+13 services defined in `src/rust/daemon/proto/workspace_daemon.proto` — 8 read/operate services plus 5 write services (the write services implement the enqueue-only pattern):
 
 - **SystemService** — health, status, metrics, refresh signals, watcher pause/resume, DLQ
 - **CollectionService** — canonical collection lifecycle and aliases (daemon-internal)
@@ -135,6 +135,8 @@ The MCP server (`daemon/mcp-server` crate, binary `workspace-qdrant-mcp`) speaks
 - **ProjectService** — project registration, sessions/heartbeats, branch lifecycle
 - **TextSearchService** — exact (FTS5 whole-phrase) and regex text search
 - **GraphService** — code-graph queries (related nodes, impact, PageRank, communities, betweenness)
+- **LanguageService** — language registry, LSP/grammar management
+- **QueueWriteService / WatchWriteService / LibraryWriteService / TrackingWriteService / AdminWriteService** — mutation surface used by the CLI/TUI and MCP server (queue retry/cancel/remove, watch enable/disable, library ops, tracking, admin)
 
 ## Collection Structure
 
