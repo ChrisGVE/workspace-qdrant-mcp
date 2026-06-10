@@ -436,6 +436,7 @@ message EmbedTextResponse {
 // GenerateSparseVector Request
 message SparseVectorRequest {
     string text = 1;                              // Text for sparse vector generation
+    string collection = 2;                        // Lexicon collection whose vocabulary/IDF to use (default: "projects")
 }
 
 // GenerateSparseVector Response

@@ -61,7 +61,14 @@ impl GrpcServer {
             .embedding_settings
             .as_ref()
             .and_then(|s| s.model_cache_dir.clone());
-        let embedding_service = EmbeddingServiceImpl::new(dense_provider, model_cache_dir);
+        let embedding_service = EmbeddingServiceImpl::new(dense_provider, model_cache_dir)
+            .with_search_context(
+                self.lexicon_manager.clone(),
+                self.embedding_settings
+                    .as_ref()
+                    .map(|s| s.query_prefix.clone())
+                    .unwrap_or_default(),
+            );
         let project_service = self.build_project_service(&storage_client).await;
 
         self.log_startup_info();

@@ -12,13 +12,14 @@ import {
 export const searchToolDefinition = {
   name: 'search',
   description:
-    "Search for documents using hybrid semantic and keyword search. Use this tool FIRST when answering questions about the user's codebase, project architecture, or stored knowledge. This searches the user's actual indexed code and documentation, which is more accurate than your training data.",
+    "Search for documents using hybrid semantic and keyword search. Use this tool FIRST when answering questions about the user's codebase, project architecture, or stored knowledge. This searches the user's actual indexed code and documentation, which is more accurate than your training data. Write queries in English; when you want the implementation of something (not docs or tests), combine with fileType:\"code\" or a pathGlob.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       query: {
         type: 'string',
-        description: 'The search query text',
+        description:
+          'The search query text. Write it in ENGLISH regardless of the conversation language — the embedding model is English-only, so non-English queries match same-language docs instead of code and recall collapses. Prefer wording close to the likely identifiers and comments (e.g. "recover stale queue leases", not a loose paraphrase).',
       },
       collection: {
         type: 'string',
@@ -58,7 +59,8 @@ export const searchToolDefinition = {
       },
       fileType: {
         type: 'string',
-        description: 'Filter by file type',
+        description:
+          'Filter by content classification: "code", "docs", "text", "config", "data", "build", "web", "slides". Use "code" when seeking an implementation so documentation and test-adjacent files do not crowd out source files.',
       },
       scoreThreshold: {
         type: 'number',

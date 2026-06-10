@@ -13,15 +13,76 @@ use super::types::SparseEmbedding;
 /// Splits on whitespace and punctuation, trims trailing separators, lowercases,
 /// and filters out junk tokens (hex hashes, version strings, paths, pure digits,
 /// single characters). Matches the quality level of the keyword extraction pipeline.
+///
+/// Identifiers additionally yield their snake_case / kebab-case / camelCase
+/// subtokens alongside the full identifier — `applyRRFFusion` produces
+/// `applyrrffusion`, `apply`, `rrf`, `fusion` — so partial-identifier queries
+/// ("rrf fusion") match code that only mentions the full symbol, while the
+/// full identifier remains available as the precise high-IDF term.
+///
+/// This is the canonical sparse tokenizer: the lexicon vocabulary, the stored
+/// chunk sparse vectors, and the query-side sparse vector must all be produced
+/// by this function, or BM25 term ids will not line up between query and index.
 pub fn tokenize_for_bm25(text: &str) -> Vec<String> {
     static JUNK: Lazy<BM25JunkFilter> = Lazy::new(BM25JunkFilter::new);
 
-    text.split(|c: char| c.is_whitespace() || "(){}[]<>;:,.\"'`~!@#$%^&*+=|\\".contains(c))
-        .map(|s| s.trim_matches(|c: char| c == '-' || c == '_' || c == '/'))
-        .filter(|s| s.len() > 1)
-        .map(|s| s.to_lowercase())
-        .filter(|s| !JUNK.is_junk(s))
-        .collect()
+    let mut tokens = Vec::new();
+    for raw in
+        text.split(|c: char| c.is_whitespace() || "(){}[]<>;:,.\"'`~!@#$%^&*+=|\\".contains(c))
+    {
+        let base = raw.trim_matches(|c: char| c == '-' || c == '_' || c == '/');
+        if base.len() <= 1 {
+            continue;
+        }
+        let lower = base.to_lowercase();
+        if !JUNK.is_junk(&lower) {
+            tokens.push(lower);
+        }
+        // Paths are junk by design and their segments are covered by the
+        // post-fusion path-relevance boost — do not subtokenize them.
+        if base.contains('/') {
+            continue;
+        }
+        let parts = split_identifier(base);
+        if parts.len() < 2 {
+            continue; // single-word identifier — the base token already covers it
+        }
+        for part in parts {
+            if part.len() > 1 && !JUNK.is_junk(&part) {
+                tokens.push(part);
+            }
+        }
+    }
+    tokens
+}
+
+/// Split an identifier into lowercase subtokens on `_`, `-`, and camelCase
+/// boundaries. Uppercase runs followed by a lowercase letter split before the
+/// last capital (`XMLHttpRequest` → `xml`, `http`, `request`). Digits stay
+/// attached to the preceding part (`utf8` stays whole).
+fn split_identifier(identifier: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    for segment in identifier.split(|c: char| c == '_' || c == '-') {
+        if segment.is_empty() {
+            continue;
+        }
+        let chars: Vec<char> = segment.chars().collect();
+        let mut start = 0;
+        for i in 1..chars.len() {
+            let prev = chars[i - 1];
+            let cur = chars[i];
+            let lower_to_upper = prev.is_lowercase() && cur.is_uppercase();
+            let upper_run_end = prev.is_uppercase()
+                && cur.is_uppercase()
+                && chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+            if lower_to_upper || upper_run_end {
+                parts.push(chars[start..i].iter().collect::<String>().to_lowercase());
+                start = i;
+            }
+        }
+        parts.push(chars[start..].iter().collect::<String>().to_lowercase());
+    }
+    parts
 }
 
 /// Junk pattern filter for BM25 tokens.
@@ -252,5 +313,82 @@ impl BM25 {
     /// Get the document frequency map for persistence
     pub fn doc_freq(&self) -> &std::collections::HashMap<u32, u32> {
         &self.doc_freq
+    }
+}
+
+#[cfg(test)]
+mod bm25_tokenizer_tests {
+    use super::*;
+
+    #[test]
+    fn snake_case_identifier_yields_full_token_and_subtokens() {
+        let tokens = tokenize_for_bm25("recover_stale_unified_leases");
+        assert!(tokens.contains(&"recover_stale_unified_leases".to_string()));
+        for sub in ["recover", "stale", "unified", "leases"] {
+            assert!(tokens.contains(&sub.to_string()), "missing subtoken {sub}");
+        }
+    }
+
+    #[test]
+    fn camel_case_identifier_yields_subtokens() {
+        let tokens = tokenize_for_bm25("applyRRFFusion");
+        assert!(tokens.contains(&"applyrrffusion".to_string()));
+        for sub in ["apply", "rrf", "fusion"] {
+            assert!(tokens.contains(&sub.to_string()), "missing subtoken {sub}");
+        }
+    }
+
+    #[test]
+    fn uppercase_run_splits_before_last_capital() {
+        let tokens = tokenize_for_bm25("XMLHttpRequest");
+        assert!(tokens.contains(&"xmlhttprequest".to_string()));
+        for sub in ["xml", "http", "request"] {
+            assert!(tokens.contains(&sub.to_string()), "missing subtoken {sub}");
+        }
+    }
+
+    #[test]
+    fn screaming_snake_constant_yields_subtokens() {
+        let tokens = tokenize_for_bm25("SPARSE_ONLY_WEIGHT = 0.5");
+        assert!(tokens.contains(&"sparse_only_weight".to_string()));
+        for sub in ["sparse", "only", "weight"] {
+            assert!(tokens.contains(&sub.to_string()), "missing subtoken {sub}");
+        }
+    }
+
+    #[test]
+    fn single_word_token_is_not_duplicated() {
+        let tokens = tokenize_for_bm25("fusion");
+        assert_eq!(tokens, vec!["fusion".to_string()]);
+    }
+
+    #[test]
+    fn digits_stay_attached_to_identifier_parts() {
+        let tokens = tokenize_for_bm25("utf8_decode");
+        assert!(tokens.contains(&"utf8_decode".to_string()));
+        assert!(tokens.contains(&"utf8".to_string()));
+        assert!(tokens.contains(&"decode".to_string()));
+    }
+
+    #[test]
+    fn junk_tokens_still_filtered() {
+        let tokens = tokenize_for_bm25("a1b2c3d4e5f6a7b8 0xdeadbeef 1.2.3 42 src/tools/search.ts");
+        assert!(!tokens.iter().any(|t| t == "a1b2c3d4e5f6a7b8"));
+        assert!(!tokens.iter().any(|t| t == "0xdeadbeef"));
+        assert!(!tokens.iter().any(|t| t.contains('/')));
+        assert!(!tokens.iter().any(|t| t == "42"));
+        // the extension still surfaces as a token ('.' is a split char)
+        assert!(tokens.contains(&"ts".to_string()));
+    }
+
+    #[test]
+    fn punctuation_attached_identifiers_tokenize_cleanly() {
+        // Code text rarely has identifiers surrounded by spaces — make sure
+        // call-site punctuation does not glue arguments to the callee name.
+        let tokens = tokenize_for_bm25("applyRRFFusion(denseResults, sparseResults);");
+        assert!(tokens.contains(&"applyrrffusion".to_string()));
+        assert!(tokens.contains(&"denseresults".to_string()));
+        assert!(tokens.contains(&"dense".to_string()));
+        assert!(tokens.contains(&"results".to_string()));
     }
 }

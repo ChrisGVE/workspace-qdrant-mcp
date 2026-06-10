@@ -85,6 +85,19 @@ pub struct EmbeddingSettings {
     /// 0 = no caching (probe on every health check call).
     #[serde(default = "default_health_probe_cache_secs")]
     pub health_probe_cache_secs: u64,
+
+    /// Prefix prepended to DOCUMENT texts before dense embedding (ingestion).
+    /// Instruction-tuned retrieval models require it — multilingual-e5 expects
+    /// "passage: " (trailing space included). Empty = no prefix. Dense leg
+    /// only; sparse/BM25 never sees the prefix.
+    #[serde(default)]
+    pub document_prefix: String,
+
+    /// Prefix prepended to QUERY texts before dense embedding (the gRPC
+    /// EmbedText path used for search queries). multilingual-e5 expects
+    /// "query: " (trailing space included). Empty = no prefix.
+    #[serde(default)]
+    pub query_prefix: String,
 }
 
 impl Default for EmbeddingSettings {
@@ -99,6 +112,8 @@ impl Default for EmbeddingSettings {
             api_key_env_var: default_api_key_env_var(),
             output_dim: default_output_dim(),
             health_probe_cache_secs: default_health_probe_cache_secs(),
+            document_prefix: String::new(),
+            query_prefix: String::new(),
         }
     }
 }
@@ -165,6 +180,14 @@ impl EmbeddingSettings {
             self.api_key_env_var = val;
         }
 
+        if let Ok(val) = env::var("WQM_EMBEDDING_DOCUMENT_PREFIX") {
+            self.document_prefix = val;
+        }
+
+        if let Ok(val) = env::var("WQM_EMBEDDING_QUERY_PREFIX") {
+            self.query_prefix = val;
+        }
+
         if self.provider == "fastembed" {
             // FastEmbed is pinned to AllMiniLM-L6-v2 in this fork. Align the
             // reported model + dim with the actual provider and clear the
@@ -176,6 +199,9 @@ impl EmbeddingSettings {
             self.output_dim = FASTEMBED_OUTPUT_DIM;
             self.model = "all-MiniLM-L6-v2".to_string();
             self.base_url = String::new();
+            // MiniLM is not instruction-tuned — prefixes only hurt it.
+            self.document_prefix = String::new();
+            self.query_prefix = String::new();
         }
     }
 }

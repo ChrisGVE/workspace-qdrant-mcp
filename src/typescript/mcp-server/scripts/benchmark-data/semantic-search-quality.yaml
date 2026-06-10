@@ -1,11 +1,18 @@
 name: workspace-qdrant semantic search quality
-description: Curated project questions that should be answered by semantic search on the repository itself.
+description: >-
+  Curated project questions that should be answered by semantic search on the
+  repository itself. Query ids are prefixed by category so per-category rates
+  can be derived from perQuery output: (no prefix) = original 2026-05 known-item
+  set, pt- = Portuguese natural-language, sym- = identifier/symbol lookups,
+  impl- = implementation-seeking conceptual queries, doc- = documentation/spec
+  lookups. All expected paths verified to exist on 2026-06-10.
 defaults:
   scope: project
   collection: projects
   includeLibraries: false
   limit: 10
 queries:
+  # ── Original known-item set (2026-05) ────────────────────────────────────
   - id: project-id-resolution
     query: How does the MCP server resolve projectId for project-scoped searches?
     expectedFiles:
@@ -61,9 +68,12 @@ queries:
 
   - id: search-quality-plan
     query: Which document describes the next steps for semantic search quality and rerank?
+    # 2026-06-10: replaced docs/ci-cd-processes.md (never a correct answer for
+    # this query) with the session-outcomes doc that genuinely records the
+    # search-quality next steps alongside the original plan.
     expectedFiles:
       - docs/plans/2026-05-25-search-quality-next-steps.md
-      - docs/ci-cd-processes.md
+      - docs/plans/2026-05-29-search-quality-session-outcomes.md
 
   - id: search-modes-scope
     query: How does the search tool choose semantic, hybrid, and exact modes?
@@ -76,3 +86,182 @@ queries:
     expectedFiles:
       - src/typescript/mcp-server/src/tools/search-qdrant.ts
       - src/typescript/mcp-server/src/tools/search-helpers.ts
+
+  # ── Portuguese natural-language queries (pt-) ────────────────────────────
+  # These measure the multilingual gap: with the English-only MiniLM model
+  # they mostly miss (1/8 top-10 on 2026-06-10); a multilingual embedding
+  # model should close most of the gap.
+  - id: pt-fila-retry
+    query: Onde a fila aplica retry e backoff para itens que falharam?
+    expectedFiles:
+      - src/rust/daemon/core/src/queue_operations/update.rs
+
+  - id: pt-deteccao-branch
+    query: Como o daemon detecta mudança de branch do git?
+    expectedFiles:
+      - src/rust/daemon/core/src/git/branch_detector.rs
+      - src/rust/daemon/core/src/branch_switch/handlers.rs
+
+  - id: pt-chunking-arvore
+    query: Onde o código é dividido em chunks semânticos por função e classe?
+    expectedFiles:
+      - src/rust/daemon/core/src/tree_sitter/chunker/mod.rs
+
+  - id: pt-upsert-qdrant
+    query: Onde os pontos com embeddings são enviados para o Qdrant?
+    expectedFiles:
+      - src/rust/daemon/core/src/write_actor/actor.rs
+      - src/rust/daemon/core/src/strategies/processing/file/ingest.rs
+
+  - id: pt-regras-tenant
+    query: Como as regras com escopo de projeto são filtradas por tenant?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/rules.ts
+
+  - id: pt-idempotencia
+    query: Onde a chave de idempotência dos itens da fila é calculada?
+    expectedFiles:
+      - src/rust/common/src/hashing.rs
+      - src/typescript/mcp-server/src/clients/queue-operations.ts
+
+  - id: pt-busca-hibrida
+    query: Onde a busca híbrida combina os resultados densos e esparsos?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+
+  - id: pt-arquivos-ignorados
+    query: Como o watcher decide quais arquivos e pastas ignorar na indexação?
+    expectedFiles:
+      - src/rust/daemon/core/src/patterns/ignore_gate.rs
+      - src/rust/daemon/core/src/patterns/global_ignore.rs
+
+  # ── Identifier/symbol lookups (sym-) ─────────────────────────────────────
+  # Known-identifier queries. The sparse/BM25 leg should carry these; misses
+  # here usually mean tokenizer gaps (e.g. camelCase identifiers).
+  - id: sym-rrf-fusion
+    query: applyRRFFusion implementation
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+
+  - id: sym-sparse-only-weight
+    query: SPARSE_ONLY_WEIGHT sparse-only demotion in fusion
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+
+  - id: sym-path-boost-alpha
+    query: PATH_BOOST_ALPHA path relevance boost
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-helpers.ts
+
+  - id: sym-recover-stale-leases
+    query: recover_stale_unified_leases startup recovery
+    expectedFiles:
+      - src/rust/daemon/core/src/queue_operations/dequeue.rs
+
+  - id: sym-resolve-stub-edges
+    query: resolve_stub_edges name-based graph edge resolution
+    expectedFiles:
+      - src/rust/daemon/core/src/graph/sqlite_store.rs
+
+  - id: sym-trigger-reembed
+    query: TriggerReembed drop and recreate collections handler
+    expectedFiles:
+      - src/rust/daemon/grpc/src/services/admin_write_service.rs
+      - src/rust/daemon/grpc/src/services/reembed/pipeline.rs
+
+  # ── Implementation-seeking conceptual queries (impl-) ────────────────────
+  # The expected file is the implementation, not docs/tests that mention the
+  # same vocabulary — these measure the "docs/tests crowd out code" failure.
+  - id: impl-bm25-tokenizer
+    query: Where is the BM25 tokenizer that splits and filters terms for sparse vectors?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/bm25.rs
+
+  - id: impl-fastembed-dense
+    query: Where does the daemon generate dense embeddings with FastEmbed ONNX?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/provider/fastembed.rs
+
+  - id: impl-remote-embeddings
+    query: Where is the OpenAI-compatible remote embedding provider implemented?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/provider/openai.rs
+
+  - id: impl-chunk-payload
+    query: Which code builds the Qdrant point payload with chunk symbol metadata?
+    expectedFiles:
+      - src/rust/daemon/core/src/strategies/processing/file/chunk_embed/payload.rs
+
+  - id: impl-file-dedup
+    query: Where are multiple chunks of the same file deduplicated in search results?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-helpers.ts
+
+  - id: impl-debounce
+    query: Where are file change events debounced before processing?
+    expectedFiles:
+      - src/rust/daemon/core/src/watching/debouncer.rs
+      - src/rust/daemon/core/src/watching_queue/file_watcher.rs
+
+  - id: impl-branch-filter
+    query: Where are search results filtered by git branch?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-qdrant.ts
+      - src/typescript/mcp-server/src/tools/search-helpers.ts
+
+  - id: impl-tag-expansion
+    query: Where is the sparse query vector expanded with related tag keywords?
+    expectedFiles:
+      - src/typescript/mcp-server/src/tools/search-expansion.ts
+
+  - id: impl-fts5-exact
+    query: Where is the FTS5 query built for exact substring search?
+    expectedFiles:
+      - src/rust/daemon/core/src/text_search/exact_search/query_builder.rs
+
+  - id: impl-qdrant-upsert
+    query: Where does the daemon upsert embedded points into Qdrant collections?
+    expectedFiles:
+      - src/rust/daemon/core/src/write_actor/actor.rs
+      - src/rust/daemon/core/src/strategies/processing/file/ingest.rs
+
+  - id: impl-grpc-proto
+    query: Where are the gRPC services for the daemon defined?
+    expectedFiles:
+      - "**/proto/workspace_daemon.proto"
+
+  - id: impl-cli-queue-stats
+    query: Which CLI command implementation shows queue statistics?
+    expectedFiles:
+      - src/rust/cli/src/commands/queue/stats.rs
+
+  - id: impl-project-id-calc
+    query: How is the project identifier calculated from the git remote URL?
+    expectedFiles:
+      - src/rust/common/src/project_id/calculator.rs
+
+  - id: impl-tool-schemas
+    query: Where are the MCP tool input schemas defined?
+    expectedFiles:
+      - "src/typescript/mcp-server/src/tool-definitions/*.ts"
+
+  # ── Documentation/spec lookups (doc-) ────────────────────────────────────
+  - id: doc-canonical-collections
+    query: Which ADR defines the four canonical collections?
+    expectedFiles:
+      - docs/adr/ADR-001-canonical-collection-architecture.md
+
+  - id: doc-daemon-writes
+    query: Which ADR establishes that only the daemon writes to Qdrant?
+    expectedFiles:
+      - docs/adr/ADR-002-daemon-only-write-policy.md
+
+  - id: doc-write-path
+    query: Which spec describes the enqueue-only write path through the unified queue?
+    expectedFiles:
+      - docs/specs/04-write-path.md
+
+  - id: doc-benchmarking
+    query: How do I run the semantic search quality benchmark?
+    expectedFiles:
+      - docs/testing/semantic-search-benchmarking.md

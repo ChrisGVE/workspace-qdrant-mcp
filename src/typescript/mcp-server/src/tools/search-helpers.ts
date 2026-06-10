@@ -244,7 +244,17 @@ export async function generateEmbeddings(
       if (r.success) denseEmbedding = r.embedding;
     }
     if (mode === 'hybrid' || mode === 'keyword') {
-      const r = await daemonClient.generateSparseVector({ text: query });
+      // The daemon resolves sparse terms against the per-collection lexicon
+      // vocabulary — the same term ids stored in the Qdrant sparse vectors.
+      // Pick the primary searched collection; 'projects' wins when present
+      // since that is where hybrid code search matters.
+      const sparseCollection = collectionsToSearch.includes('projects')
+        ? 'projects'
+        : (collectionsToSearch[0] ?? 'projects');
+      const r = await daemonClient.generateSparseVector({
+        text: query,
+        collection: sparseCollection,
+      });
       if (r.success) sparseVector = r.indices_values;
     }
   } catch {

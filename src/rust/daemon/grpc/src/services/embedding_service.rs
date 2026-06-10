@@ -9,6 +9,7 @@
 //! still use a service-local BM25 corpus.
 
 use lru::LruCache;
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -22,7 +23,8 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
 use workspace_qdrant_core::embedding::provider::DenseProvider;
-use workspace_qdrant_core::BM25;
+use workspace_qdrant_core::embedding::tokenize_for_bm25;
+use workspace_qdrant_core::{LexiconManager, BM25};
 
 use crate::proto::{
     embedding_service_server::EmbeddingService, EmbedTextRequest, EmbedTextResponse,
@@ -63,7 +65,18 @@ pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
 pub struct EmbeddingServiceImpl {
     dense_provider: Arc<dyn DenseProvider>,
     cache: Arc<TokioMutex<LruCache<u64, Vec<f32>>>>,
+    /// Ephemeral query-corpus BM25 — FALLBACK ONLY (when no lexicon is wired,
+    /// e.g. unit tests). Its vocabulary ids are unrelated to the ids stored in
+    /// Qdrant sparse vectors, so against a real index it matches the wrong
+    /// terms; production must inject the lexicon via `with_search_context`.
     bm25: Arc<TokioRwLock<BM25>>,
+    /// Persisted per-collection BM25 vocabulary — the SAME vocabulary (term →
+    /// id) and IDF statistics the indexing pipeline used to build the stored
+    /// sparse vectors, so query-side sparse vectors line up with the index.
+    lexicon: Option<Arc<LexiconManager>>,
+    /// Prefix prepended to query texts before dense embedding (instruction-
+    /// tuned models: multilingual-e5 expects "query: "). Empty = no prefix.
+    query_prefix: String,
     /// Cross-encoder reranker (lazy-initialised on first Rerank call).
     reranker: Arc<TokioMutex<Option<TextRerank>>>,
     /// Writable cache directory for the reranker ONNX model download.
@@ -89,9 +102,24 @@ impl EmbeddingServiceImpl {
             dense_provider,
             cache: Arc::new(TokioMutex::new(LruCache::new(cache_size))),
             bm25: Arc::new(TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))),
+            lexicon: None,
+            query_prefix: String::new(),
             reranker: Arc::new(TokioMutex::new(None)),
             model_cache_dir,
         }
+    }
+
+    /// Wire the search context: the persisted lexicon used to align query
+    /// sparse vectors with the indexed vocabulary, and the dense query prefix
+    /// for instruction-tuned embedding models.
+    pub fn with_search_context(
+        mut self,
+        lexicon: Option<Arc<LexiconManager>>,
+        query_prefix: String,
+    ) -> Self {
+        self.lexicon = lexicon;
+        self.query_prefix = query_prefix;
+        self
     }
 
     /// Rerank `documents` against `query` with a cross-encoder, returning
@@ -148,12 +176,17 @@ impl EmbeddingServiceImpl {
         hasher.finish()
     }
 
-    /// Simple tokenization for BM25 sparse vector generation.
+    /// Canonical sparse tokenization — must match the indexing pipeline
+    /// (lexicon vocabulary + stored chunk vectors) or term ids will not align.
     fn tokenize(text: &str) -> Vec<String> {
-        wqm_common::nlp::tokenize(text)
+        tokenize_for_bm25(text)
     }
 
     /// Generate a dense embedding via the injected provider, with an LRU cache.
+    ///
+    /// The configured query prefix (instruction-tuned models) is applied to
+    /// the provider input only; the cache is keyed by the raw text since the
+    /// prefix is constant per process.
     async fn generate_embedding_internal(&self, text: &str) -> Result<Vec<f32>, Status> {
         let content_hash = Self::content_hash(text);
         {
@@ -167,10 +200,19 @@ impl EmbeddingServiceImpl {
 
         CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
-        let mut embeddings = self.dense_provider.embed(&[text]).await.map_err(|e| {
-            error!("Dense provider embed failed: {:?}", e);
-            Status::internal(format!("Embedding generation failed: {}", e))
-        })?;
+        let dense_input: Cow<'_, str> = if self.query_prefix.is_empty() {
+            Cow::Borrowed(text)
+        } else {
+            Cow::Owned(format!("{}{}", self.query_prefix, text))
+        };
+        let mut embeddings = self
+            .dense_provider
+            .embed(&[dense_input.as_ref()])
+            .await
+            .map_err(|e| {
+                error!("Dense provider embed failed: {:?}", e);
+                Status::internal(format!("Embedding generation failed: {}", e))
+            })?;
 
         let dense = embeddings
             .pop()
@@ -187,16 +229,41 @@ impl EmbeddingServiceImpl {
         Ok(embedding)
     }
 
-    /// Generate a sparse vector using BM25 (service-local corpus).
+    /// Generate a query-side sparse vector.
+    ///
+    /// Preferred path: the persisted per-collection lexicon — the same
+    /// vocabulary (term → id) and IDF statistics that produced the sparse
+    /// vectors stored in Qdrant, looked up READ-ONLY (a query is not a corpus
+    /// document). Fallback (no lexicon wired, e.g. unit tests): the legacy
+    /// ephemeral service-local BM25, whose ids only align with themselves.
     async fn generate_sparse_vector_internal(
         &self,
         text: &str,
-    ) -> Result<HashMap<u32, f32>, Status> {
+        collection: &str,
+    ) -> Result<(HashMap<u32, f32>, i32), Status> {
         let tokens = Self::tokenize(text);
 
         if tokens.is_empty() {
             debug!("No tokens for sparse vector generation, returning empty");
-            return Ok(HashMap::new());
+            return Ok((HashMap::new(), 0));
+        }
+
+        if let Some(lexicon) = &self.lexicon {
+            let collection = if collection.is_empty() {
+                "projects"
+            } else {
+                collection
+            };
+            let sparse = lexicon.generate_sparse_vector(collection, &tokens).await;
+            let vocab_size = sparse.vocab_size as i32;
+            let sparse_map: HashMap<u32, f32> =
+                sparse.indices.into_iter().zip(sparse.values).collect();
+            debug!(
+                "Generated lexicon sparse vector for '{}': {} non-zero entries",
+                collection,
+                sparse_map.len()
+            );
+            return Ok((sparse_map, vocab_size));
         }
 
         let sparse_map: HashMap<u32, f32> = {
@@ -205,18 +272,16 @@ impl EmbeddingServiceImpl {
             let sparse = bm25_guard.generate_sparse_vector(&tokens);
             sparse.indices.into_iter().zip(sparse.values).collect()
         };
+        let vocab_size = {
+            let bm25_guard = self.bm25.read().await;
+            bm25_guard.vocab_size() as i32
+        };
 
         debug!(
-            "Generated sparse vector with {} non-zero entries",
+            "Generated ephemeral sparse vector with {} non-zero entries",
             sparse_map.len()
         );
-        Ok(sparse_map)
-    }
-
-    /// BM25 corpus vocabulary size (used in the SparseVectorResponse).
-    async fn vocab_size(&self) -> i32 {
-        let bm25_guard = self.bm25.read().await;
-        bm25_guard.vocab_size() as i32
+        Ok((sparse_map, vocab_size))
     }
 }
 
@@ -303,9 +368,11 @@ impl EmbeddingService for EmbeddingServiceImpl {
             req.text.len()
         );
 
-        match self.generate_sparse_vector_internal(&req.text).await {
-            Ok(sparse_map) => {
-                let vocab_size = self.vocab_size().await;
+        match self
+            .generate_sparse_vector_internal(&req.text, &req.collection)
+            .await
+        {
+            Ok((sparse_map, vocab_size)) => {
                 Ok(Response::new(SparseVectorResponse {
                     indices_values: sparse_map,
                     vocab_size,
@@ -386,11 +453,13 @@ mod tests {
         assert!(tokens.contains(&"world".to_string()));
         assert!(tokens.contains(&"test".to_string()));
 
-        let tokens2 = EmbeddingServiceImpl::tokenize("the quick brown fox and the lazy dog");
-        assert!(!tokens2.contains(&"the".to_string()));
-        assert!(!tokens2.contains(&"and".to_string()));
-        assert!(tokens2.contains(&"quick".to_string()));
-        assert!(tokens2.contains(&"brown".to_string()));
+        // Canonical sparse tokenizer: identifiers yield the full token plus
+        // their subtokens, matching the indexing-side tokenization exactly.
+        let tokens2 = EmbeddingServiceImpl::tokenize("call applyRRFFusion now");
+        assert!(tokens2.contains(&"applyrrffusion".to_string()));
+        assert!(tokens2.contains(&"apply".to_string()));
+        assert!(tokens2.contains(&"rrf".to_string()));
+        assert!(tokens2.contains(&"fusion".to_string()));
     }
 
     #[test]
@@ -451,6 +520,7 @@ mod tests {
 
         let request1 = Request::new(SparseVectorRequest {
             text: "machine learning algorithms for natural language processing".to_string(),
+            collection: String::new(),
         });
         let _ = service
             .generate_sparse_vector(request1)
@@ -459,6 +529,7 @@ mod tests {
 
         let request2 = Request::new(SparseVectorRequest {
             text: "deep learning neural networks for image classification".to_string(),
+            collection: String::new(),
         });
         let response = service
             .generate_sparse_vector(request2)
@@ -481,6 +552,7 @@ mod tests {
 
         let request = Request::new(SparseVectorRequest {
             text: "".to_string(),
+            collection: String::new(),
         });
 
         let response = service

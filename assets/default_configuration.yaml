@@ -348,6 +348,23 @@ embedding:
   # Format: Integer ≥ 0
   health_probe_cache_secs: 60
 
+  # document_prefix: Prefix prepended to DOCUMENT/passage texts before dense embedding
+  # Purpose: Instruction-tuned retrieval models require an input-role prefix;
+  # multilingual-e5 expects "passage: " (trailing space included). Applied to the
+  # dense leg only — sparse/BM25 tokenization always sees the raw text.
+  # Ignored (forced empty) when provider="fastembed" — MiniLM is not instruction-tuned.
+  # Env override: WQM_EMBEDDING_DOCUMENT_PREFIX
+  # Format: String (empty = no prefix)
+  document_prefix: ""
+
+  # query_prefix: Prefix prepended to QUERY texts before dense embedding
+  # Purpose: Same as document_prefix but for the search-query path (gRPC EmbedText);
+  # multilingual-e5 expects "query: " (trailing space included).
+  # Ignored (forced empty) when provider="fastembed".
+  # Env override: WQM_EMBEDDING_QUERY_PREFIX
+  # Format: String (empty = no prefix)
+  query_prefix: ""
+
   # enable_sparse_vectors: Hybrid search capability activation
   # Purpose: Enables generation of sparse keyword vectors alongside dense semantic vectors
   # Search improvement: Combines semantic similarity with exact keyword matching

@@ -81,6 +81,20 @@ services:
       dockerfile: docker/Dockerfile.memexd
     image: workspace-qdrant-mcp-memexd:local
     container_name: wqm-memexd
+    # Explicit command override: the entrypoint VALIDATES /etc/wqm/config.yaml
+    # but memexd only READS it when --config is passed. Without this the daemon
+    # auto-discovers nothing and silently runs on built-in defaults + env — a
+    # latent misconfig masked for months by the fastembed env pinning forcing
+    # 384d (surfaced 2026-06-10 during the e5-1024d migration as a dim guard
+    # comparing the built-in 1536 default instead of the configured 1024).
+    command:
+      - "--foreground"
+      - "--grpc-port"
+      - "50051"
+      - "--metrics-port"
+      - "9091"
+      - "--config"
+      - "/etc/wqm/config.yaml"
     # PID 1 init reaper: memexd spawns LSP servers, grammar downloads and git
     # subprocesses as children. Without an init, dead children become unreapable
     # zombies under PID 1 — they accumulate and eventually wedge the container so

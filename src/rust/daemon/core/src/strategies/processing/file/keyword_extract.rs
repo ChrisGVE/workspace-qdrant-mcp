@@ -105,15 +105,11 @@ async fn fetch_lexicon_data(
 ) {
     let corpus_size = ctx.lexicon_manager.corpus_size(collection).await;
 
-    let unique_terms: std::collections::HashSet<String> = full_text
-        .split_whitespace()
-        .map(|w| {
-            w.to_lowercase()
-                .trim_matches(|c: char| !c.is_alphanumeric())
-                .to_string()
-        })
-        .filter(|w| w.len() >= 2)
-        .collect();
+    // Canonical sparse tokenizer — these terms seed the lexicon vocabulary
+    // (update_lexicon_and_graph), so they must match how chunk vectors and
+    // query vectors are tokenized or BM25 term ids will not line up.
+    let unique_terms: std::collections::HashSet<String> =
+        crate::embedding::tokenize_for_bm25(full_text).into_iter().collect();
 
     let df_lookup = ctx
         .lexicon_manager

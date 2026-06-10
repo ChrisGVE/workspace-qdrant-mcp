@@ -73,6 +73,13 @@ pub struct EmbeddingConfig {
     /// Switching modes requires re-indexing sparse vectors.
     #[serde(default = "default_sparse_mode")]
     pub sparse_vector_mode: String,
+    /// Prefix prepended to texts before DENSE embedding (ingestion side).
+    /// Instruction-tuned retrieval models require it (multilingual-e5:
+    /// "passage: ", including the trailing space). Applied to the dense leg
+    /// only — BM25/sparse tokenization always sees the raw text. Empty (the
+    /// default) means no prefix.
+    #[serde(default)]
+    pub dense_document_prefix: String,
 }
 
 fn default_sparse_mode() -> String {
@@ -90,6 +97,7 @@ impl Default for EmbeddingConfig {
             model_cache_dir: None,
             num_threads: Some(2),
             sparse_vector_mode: "bm25".to_string(),
+            dense_document_prefix: String::new(),
         }
     }
 }

@@ -4,6 +4,7 @@
 //! embeddings, builds Qdrant payload metadata, applies LSP enrichment when
 //! available, and returns assembled `DocumentPoint`s with chunk tracking records.
 
+mod dense_text;
 mod payload;
 mod types;
 
@@ -69,11 +70,13 @@ pub(super) async fn embed_chunks(
     let embedding_start = std::time::Instant::now();
     let idf_epoch = ctx.lexicon_manager.corpus_size(&item.collection).await;
 
-    // Batch-embed all chunk texts in one provider call.
+    // Batch-embed all chunk texts in one provider call. The dense text is the
+    // raw chunk enriched with a path/symbol/docstring header (see dense_text);
+    // payload content, sparse vectors, and content hashes keep the raw chunk.
     let chunk_texts: Vec<String> = document_content
         .chunks
         .iter()
-        .map(|c| c.content.clone())
+        .map(|c| dense_text::build_dense_embedding_text(relative_path, &c.content, &c.metadata))
         .collect();
 
     let _permit = ctx
@@ -237,11 +240,13 @@ async fn generate_sparse(
             }
         }
     } else {
-        // BM25 with lexicon-backed IDF (Task 19)
-        let chunk_tokens: Vec<String> = chunk_content
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        // BM25 with lexicon-backed IDF (Task 19). Tokenize with the canonical
+        // sparse tokenizer — the same one that populates the lexicon vocabulary
+        // and tokenizes queries — so chunk vectors, vocab ids, and query
+        // vectors all live in one term space. The previous split_whitespace
+        // tokenization left call-site punctuation glued to identifiers, so
+        // most code symbols never matched a vocabulary term.
+        let chunk_tokens: Vec<String> = crate::embedding::tokenize_for_bm25(chunk_content);
         let lexicon_sparse = ctx
             .lexicon_manager
             .generate_sparse_vector(&item.collection, &chunk_tokens)

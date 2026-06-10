@@ -307,6 +307,8 @@ fn build_embedding_settings(yaml: &YamlConfig) -> EmbeddingSettings {
         api_key_env_var: yaml.embedding.api_key_env_var.clone(),
         output_dim: yaml.embedding.output_dim,
         health_probe_cache_secs: yaml.embedding.health_probe_cache_secs,
+        document_prefix: yaml.embedding.document_prefix.clone(),
+        query_prefix: yaml.embedding.query_prefix.clone(),
     }
 }
 

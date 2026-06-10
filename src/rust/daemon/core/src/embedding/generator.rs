@@ -74,12 +74,25 @@ impl EmbeddingGenerator {
         self.probe_provider().await
     }
 
+    /// The text actually submitted to the dense provider: the configured
+    /// document prefix (e.g. "passage: " for multilingual-e5) plus the raw
+    /// text. Sparse/BM25 always tokenizes the raw text.
+    fn dense_input<'t>(&self, text: &'t str) -> std::borrow::Cow<'t, str> {
+        if self.config.dense_document_prefix.is_empty() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            std::borrow::Cow::Owned(format!("{}{}", self.config.dense_document_prefix, text))
+        }
+    }
+
     pub async fn generate_embedding(
         &self,
         text: &str,
         _model_name: &str,
     ) -> Result<EmbeddingResult, EmbeddingError> {
-        // Check phrase cache before delegating to the provider.
+        // Check phrase cache before delegating to the provider. The cache is
+        // keyed by the raw text — the document prefix is constant per process,
+        // so raw-text keys map 1:1 to prefixed inputs.
         let cached_dense = self.phrase_cache.get(text).await;
 
         let dense = if let Some(v) = cached_dense {
@@ -90,7 +103,8 @@ impl EmbeddingGenerator {
             }
         } else {
             let embed_start = Instant::now();
-            let mut embeddings = self.dense_provider.embed(&[text]).await?;
+            let dense_input = self.dense_input(text);
+            let mut embeddings = self.dense_provider.embed(&[dense_input.as_ref()]).await?;
             let embed_ms = embed_start.elapsed().as_millis();
 
             let dense = embeddings
@@ -180,10 +194,27 @@ impl EmbeddingGenerator {
         }
 
         // Batch-embed all cache misses in one provider call (provider handles
-        // sub-chunking by remote_batch_size internally).
+        // sub-chunking by remote_batch_size internally). Apply the document
+        // prefix to the dense inputs only — cache keys and sparse tokenization
+        // below stay on the raw text.
         if !miss_texts.is_empty() {
             let embed_start = Instant::now();
-            let embeddings = self.dense_provider.embed(&miss_texts).await?;
+            let prefixed_storage: Option<Vec<String>> =
+                if self.config.dense_document_prefix.is_empty() {
+                    None
+                } else {
+                    Some(
+                        miss_texts
+                            .iter()
+                            .map(|t| format!("{}{}", self.config.dense_document_prefix, t))
+                            .collect(),
+                    )
+                };
+            let embed_inputs: Vec<&str> = match &prefixed_storage {
+                Some(prefixed) => prefixed.iter().map(String::as_str).collect(),
+                None => miss_texts.clone(),
+            };
+            let embeddings = self.dense_provider.embed(&embed_inputs).await?;
             let embed_ms = embed_start.elapsed().as_millis();
 
             if embeddings.len() != miss_texts.len() {

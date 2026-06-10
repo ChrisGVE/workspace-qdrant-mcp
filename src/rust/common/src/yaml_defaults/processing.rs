@@ -121,6 +121,11 @@ pub struct YamlEmbeddingConfig {
     pub api_key_env_var: String,
     pub output_dim: usize,
     pub health_probe_cache_secs: u64,
+    /// Dense-embedding prefix for DOCUMENT/passage texts (instruction-tuned
+    /// models: multilingual-e5 expects "passage: ", trailing space included).
+    pub document_prefix: String,
+    /// Dense-embedding prefix for QUERY texts (multilingual-e5: "query: ").
+    pub query_prefix: String,
 }
 
 impl Default for YamlEmbeddingConfig {
@@ -140,6 +145,8 @@ impl Default for YamlEmbeddingConfig {
             api_key_env_var: "OPENAI_API_KEY".to_string(),
             output_dim: 1536,
             health_probe_cache_secs: 60,
+            document_prefix: String::new(),
+            query_prefix: String::new(),
         }
     }
 }

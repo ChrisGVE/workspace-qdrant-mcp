@@ -139,6 +139,7 @@ fn create_embedding_generator(
         max_cache_size: daemon_config.embedding.cache_max_entries,
         model_cache_dir: Some(model_cache_dir),
         num_threads: Some(config.resource_limits.onnx_intra_threads),
+        dense_document_prefix: daemon_config.embedding.document_prefix.clone(),
         ..EmbeddingConfig::default()
     };
 

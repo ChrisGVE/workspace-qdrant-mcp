@@ -17,6 +17,8 @@ export interface EmbedTextResponse {
 
 export interface SparseVectorRequest {
   text: string;
+  /** Lexicon collection whose vocabulary/IDF to use (daemon default: "projects"). */
+  collection?: string;
 }
 
 export interface SparseVectorResponse {
