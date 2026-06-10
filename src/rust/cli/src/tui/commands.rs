@@ -4,10 +4,10 @@
 //! within the TUI event loop. Commands are fire-and-forget with
 //! result feedback via status messages.
 //!
-//! All functions use `tokio::runtime::Handle::current().block_on` to drive
-//! the async gRPC call from the synchronous TUI event loop. Each function
-//! returns a human-readable `String` describing the outcome, which the caller
-//! stores in its `message` field for display in the summary bar.
+//! All functions use [`block_on_worker`] to drive the async gRPC call from the
+//! synchronous TUI event loop. Each function returns a human-readable `String`
+//! describing the outcome, which the caller stores in its `message` field for
+//! display in the summary bar.
 
 use crate::grpc::ensure_daemon_available;
 use crate::grpc::proto::{
@@ -16,9 +16,35 @@ use crate::grpc::proto::{
 };
 use wqm_common::constants::{COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES};
 
+/// Run an async gRPC future to completion on a dedicated worker thread.
+///
+/// `wqm tui` executes inside the CLI's `#[tokio::main(flavor = "current_thread")]`
+/// runtime, so calling `Handle::current().block_on` from the TUI event loop
+/// panics with Tokio's nested-runtime error ("Cannot block the current thread
+/// from within a runtime"). The check is thread-local, so the only safe way to
+/// drive these one-shot actions synchronously is to hop to a fresh thread with
+/// its own single-thread runtime and join on the result.
+fn block_on_worker<T, F>(fut: F) -> T
+where
+    T: Send,
+    F: std::future::Future<Output = T> + Send,
+{
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build TUI worker runtime")
+                .block_on(fut)
+        })
+        .join()
+        .expect("TUI worker thread panicked")
+    })
+}
+
 /// Pause all active watch folders via gRPC.
 pub fn pause_watchers() -> String {
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let response = client.watch_write().pause_watchers(()).await?.into_inner();
         Ok::<_, anyhow::Error>(response.affected_count)
@@ -31,7 +57,7 @@ pub fn pause_watchers() -> String {
 
 /// Resume all paused watch folders via gRPC.
 pub fn resume_watchers() -> String {
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let response = client.watch_write().resume_watchers(()).await?.into_inner();
         Ok::<_, anyhow::Error>(response.affected_count)
@@ -48,7 +74,7 @@ pub fn resume_watchers() -> String {
 /// it routes through `EnableWatch`/`DisableWatch` so the daemon owns the state.
 pub fn set_watch_enabled(watch_id: &str, enable: bool) -> String {
     let watch_id = watch_id.to_string();
-    let result = tokio::runtime::Handle::current().block_on(async {
+    let result = block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let req = WatchIdRequest {
             watch_id: watch_id.clone(),
@@ -75,7 +101,7 @@ pub fn set_watch_enabled(watch_id: &str, enable: bool) -> String {
 /// Mirrors `commands/queue/retry.rs` → `retry_item(RetryItemRequest)`.
 pub fn queue_retry(queue_id: &str) -> String {
     let queue_id = queue_id.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let response = client
             .queue_write()
@@ -105,7 +131,7 @@ pub fn queue_retry(queue_id: &str) -> String {
 /// Cancels only `pending` items for the queue item's tenant.
 pub fn queue_cancel(tenant_id: &str) -> String {
     let tenant_id = tenant_id.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let response = client
             .queue_write()
@@ -132,7 +158,7 @@ pub fn queue_cancel(tenant_id: &str) -> String {
 /// Mirrors `commands/queue/drop.rs` → `remove_item(RemoveItemRequest)`.
 pub fn queue_remove(queue_id: &str) -> String {
     let queue_id = queue_id.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let response = client
             .queue_write()
@@ -156,7 +182,7 @@ pub fn queue_remove(queue_id: &str) -> String {
 /// Mirrors `commands/rules/remove.rs` → `delete_document(DeleteDocumentRequest)`.
 pub fn rule_delete(rule_id: &str) -> String {
     let rule_id = rule_id.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         client
             .document()
@@ -196,7 +222,7 @@ fn nudge_watch_folder(tenant_id: &str, collection: &str) -> String {
     use crate::grpc::proto::QueueType;
     let tenant_id = tenant_id.to_string();
     let collection = collection.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         let payload_json = serde_json::json!({ "recursive": true }).to_string();
         let enqueue_resp = client
@@ -240,7 +266,7 @@ fn nudge_watch_folder(tenant_id: &str, collection: &str) -> String {
 /// The document_id is the book's absolute file path; the collection is "libraries".
 pub fn library_book_remove(abs_path: &str) -> String {
     let abs_path = abs_path.to_string();
-    match tokio::runtime::Handle::current().block_on(async {
+    match block_on_worker(async {
         let mut client = ensure_daemon_available().await?;
         client
             .document()
@@ -253,5 +279,35 @@ pub fn library_book_remove(abs_path: &str) -> String {
     }) {
         Ok(()) => format!("Removed book {}", abs_path),
         Err(e) => format!("Remove failed: {}", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::block_on_worker;
+
+    /// Regression: the CLI enters `wqm tui` from inside a current_thread
+    /// `#[tokio::main]` runtime. `Handle::current().block_on` panics there,
+    /// so every TUI action must go through `block_on_worker`, which must be
+    /// callable from within an active runtime without panicking.
+    #[test]
+    fn block_on_worker_runs_inside_active_runtime() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let value = rt.block_on(async { block_on_worker(async { 41 + 1 }) });
+        assert_eq!(value, 42);
+    }
+
+    /// The worker drives a real async runtime (timers etc.), not just a
+    /// poll-once executor.
+    #[test]
+    fn block_on_worker_supports_async_io_primitives() {
+        let value = block_on_worker(async {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            "done"
+        });
+        assert_eq!(value, "done");
     }
 }
