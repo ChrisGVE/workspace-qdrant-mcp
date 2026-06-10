@@ -292,6 +292,7 @@ mod tests {
             "perl",
             "pascal",
             "lisp",
+            "protobuf",
         ];
 
         for lang_id in &languages_with_patterns {
@@ -303,6 +304,38 @@ mod tests {
             assert!(
                 def.has_semantic_patterns(),
                 "{lang_id} should have semantic patterns"
+            );
+        }
+    }
+
+    #[test]
+    fn test_protobuf_grammar_symbol_and_patterns() {
+        let provider = RegistryProvider::new().unwrap();
+        let def = provider
+            .definitions
+            .iter()
+            .find(|d| d.id() == "protobuf")
+            .expect("protobuf must be in the registry");
+
+        // The mitchellh grammar declares `name: 'proto'`, so the compiled
+        // library exports tree_sitter_proto — without this override the
+        // loader would probe tree_sitter_protobuf and fail.
+        assert_eq!(def.grammar.symbol_name.as_deref(), Some("proto"));
+
+        // Without these, .proto files fall back to plain-text chunking
+        // (chunk_type="text", symbol="_text") and lose symbol breadcrumbs.
+        let patterns = def
+            .semantic_patterns
+            .as_ref()
+            .expect("protobuf must have semantic patterns");
+        assert_eq!(patterns.class.node_types, vec!["service"]);
+        assert_eq!(patterns.method.node_types, vec!["rpc"]);
+        assert_eq!(patterns.struct_def.node_types, vec!["message"]);
+        assert_eq!(patterns.enum_def.node_types, vec!["enum"]);
+        for preamble in ["syntax", "package", "import", "option"] {
+            assert!(
+                patterns.preamble.node_types.contains(&preamble.to_string()),
+                "preamble should include {preamble}"
             );
         }
     }

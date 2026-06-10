@@ -324,6 +324,41 @@
       - repo: mitchellh/tree-sitter-proto
         quality: community
     has_cpp_scanner: false
+    # grammar.js declares `name: 'proto'`, so the shared library exports
+    # tree_sitter_proto, not tree_sitter_protobuf.
+    symbol_name: proto
+  semantic_patterns:
+    preamble:
+      node_types: [syntax, package, import, option]
+    function:
+      node_types: []
+      async_node_types: []
+    # A gRPC service is a container whose `rpc` members are direct children
+    # (the grammar has no service_body wrapper node).
+    class:
+      node_types: [service]
+    method:
+      node_types: [rpc]
+    struct:
+      node_types: [message]
+    enum:
+      node_types: [enum]
+    trait:
+      node_types: []
+    interface:
+      node_types: []
+    module:
+      node_types: []
+    constant:
+      node_types: []
+    macro:
+      node_types: []
+    type_alias:
+      node_types: []
+    impl:
+      node_types: []
+    comment_nodes: [comment]
+    docstring_style: preceding_comments
   lsp_servers: []
 
 # ── PowerShell ───────────────────────────────────────────────────────

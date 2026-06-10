@@ -280,6 +280,11 @@ impl GenericExtractor {
         // the configured kind first (correct for languages whose class and
         // method bodies share a kind), then fall back to the common container
         // bodies.
+        let fn_types = &self.patterns.function.node_types;
+        let async_fn_types = &self.patterns.function.async_node_types;
+        let method_types = &self.patterns.method.node_types;
+        let decorated_wrapper = self.patterns.decorated_wrapper.as_deref();
+
         let body_type = self.patterns.body_node.as_deref();
         let body = body_type
             .and_then(|bt| find_child_by_kind(node, bt))
@@ -292,13 +297,26 @@ impl GenericExtractor {
 
         let body = match body {
             Some(b) => b,
-            None => return,
+            None => {
+                // Some grammars have no body wrapper at all and attach members
+                // directly to the container node — proto's `service` keeps its
+                // `rpc` members as direct children. Scan the container itself,
+                // but only when a direct member is actually present, so other
+                // languages' subtrees are not descended any differently than
+                // before.
+                let mut probe = node.walk();
+                let has_direct_member = node.children(&mut probe).any(|child| {
+                    let kind = child.kind();
+                    method_types.iter().any(|t| t == kind)
+                        || fn_types.iter().any(|t| t == kind)
+                        || async_fn_types.iter().any(|t| t == kind)
+                });
+                if !has_direct_member {
+                    return;
+                }
+                *node
+            }
         };
-
-        let fn_types = &self.patterns.function.node_types;
-        let async_fn_types = &self.patterns.function.async_node_types;
-        let method_types = &self.patterns.method.node_types;
-        let decorated_wrapper = self.patterns.decorated_wrapper.as_deref();
 
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
