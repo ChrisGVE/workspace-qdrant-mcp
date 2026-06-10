@@ -74,6 +74,7 @@ impl App {
             View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Move  g/G First/Last  / Search  n/N  Enter View  Esc Live  q Quit",
             View::Graph => "1-5 Mode  j/k Nav  g/G  [ ] Tenant  i Impact  Enter Expand  q Quit",
+            View::Search => "1-3 Mode  i/  Query  Enter Preview  j/k Nav  g/G  [ ] Tenant  q Quit",
         };
 
         spans.push(Span::styled(format!(" {hints}"), theme::status_bar_style()));
@@ -188,6 +189,13 @@ impl App {
                     draw_loading(frame, area, "Graph");
                 }
             }
+            View::Search => {
+                if let Some(view) = &self.search_view {
+                    view.draw(frame, area);
+                } else {
+                    draw_loading(frame, area, "Search");
+                }
+            }
         }
     }
 
@@ -220,8 +228,8 @@ impl App {
                 Span::raw("Previous view"),
             ]),
             Line::from(vec![
-                Span::styled("  1-9         ", Style::default().fg(Color::Yellow)),
-                Span::raw("Jump to view (9 = Graph)"),
+                Span::styled("  1-9, 0      ", Style::default().fg(Color::Yellow)),
+                Span::raw("Jump to view (9 = Graph, 0 = Search)"),
             ]),
             Line::from(vec![
                 Span::styled("  j/k         ", Style::default().fg(Color::Yellow)),
@@ -274,6 +282,14 @@ impl App {
             Line::from(vec![
                 Span::styled("  i (Graph)   ", Style::default().fg(Color::Yellow)),
                 Span::raw("Impact: query a symbol's callers/affected files"),
+            ]),
+            Line::from(vec![
+                Span::styled("  1-3 (Search)", Style::default().fg(Color::Yellow)),
+                Span::raw("Grep / Semantic / Graph mode"),
+            ]),
+            Line::from(vec![
+                Span::styled("  i or / (Srch)", Style::default().fg(Color::Yellow)),
+                Span::raw("Open search query prompt"),
             ]),
             Line::from(""),
         ];

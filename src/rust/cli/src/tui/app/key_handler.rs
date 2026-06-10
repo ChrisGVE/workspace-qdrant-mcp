@@ -39,6 +39,9 @@ impl App {
             View::Graph => {
                 self.graph_view().on_tick();
             }
+            View::Search => {
+                self.search_view().on_tick();
+            }
         }
     }
 
@@ -141,6 +144,13 @@ impl App {
             }
         }
 
+        // Delegate keys to the search page when on Search view
+        if self.current_view == View::Search {
+            if self.handle_search_key(key) {
+                return;
+            }
+        }
+
         self.handle_global_key(key);
     }
 
@@ -163,6 +173,7 @@ impl App {
             KeyCode::Char('7') => self.current_view = View::Service,
             KeyCode::Char('8') => self.current_view = View::Logs,
             KeyCode::Char('9') => self.current_view = View::Graph,
+            KeyCode::Char('0') => self.current_view = View::Search,
 
             // Tab navigation
             KeyCode::Tab => self.current_view = self.current_view.next(),

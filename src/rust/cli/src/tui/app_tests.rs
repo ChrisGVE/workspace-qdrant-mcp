@@ -20,6 +20,7 @@ fn app_starts_on_dashboard() {
     assert!(app.scratchpad_browser.is_none());
     assert!(app.service_view.is_none());
     assert!(app.graph_view.is_none());
+    assert!(app.search_view.is_none());
 }
 
 #[test]
@@ -35,20 +36,22 @@ fn nav_steps_half_and_full() {
 #[test]
 fn view_next_wraps() {
     assert_eq!(View::Dashboard.next(), View::Queue);
-    // Graph is now the last tab; it wraps back to Dashboard.
-    assert_eq!(View::Graph.next(), View::Dashboard);
+    // Search is now the last tab; it wraps back to Dashboard.
+    assert_eq!(View::Search.next(), View::Dashboard);
     assert_eq!(View::Libraries.next(), View::Rules);
     assert_eq!(View::Service.next(), View::Logs);
     assert_eq!(View::Logs.next(), View::Graph);
+    assert_eq!(View::Graph.next(), View::Search);
 }
 
 #[test]
 fn view_prev_wraps() {
-    // Graph is the last tab; Dashboard.prev() wraps to Graph.
-    assert_eq!(View::Dashboard.prev(), View::Graph);
+    // Search is the last tab; Dashboard.prev() wraps to Search.
+    assert_eq!(View::Dashboard.prev(), View::Search);
     assert_eq!(View::Queue.prev(), View::Dashboard);
     assert_eq!(View::Rules.prev(), View::Libraries);
     assert_eq!(View::Graph.prev(), View::Logs);
+    assert_eq!(View::Search.prev(), View::Graph);
 }
 
 #[test]
@@ -114,9 +117,12 @@ fn view_label_and_index() {
     // Graph is tab 9 (index 8).
     assert_eq!(View::from_index(8), View::Graph);
     assert_eq!(View::Graph.label(), "Graph");
+    // Search is tab 10 (index 9, key '0').
+    assert_eq!(View::from_index(9), View::Search);
+    assert_eq!(View::Search.label(), "Search");
     assert_eq!(View::from_index(99), View::Dashboard);
-    // 9-view count.
-    assert_eq!(View::ALL.len(), 9);
+    // 10-view count.
+    assert_eq!(View::ALL.len(), 10);
 }
 
 #[test]
@@ -401,5 +407,91 @@ fn graph_keys_initialize_view() {
     app.current_view = View::Graph;
     app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     assert!(app.graph_view.is_some());
+    assert!(app.running);
+}
+
+#[test]
+fn search_view_lazy_init() {
+    let mut app = App::new("addr".into());
+    assert!(app.search_view.is_none());
+    let _ = app.search_view();
+    assert!(app.search_view.is_some());
+}
+
+#[test]
+fn on_tick_initializes_search_on_search_view() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    app.on_tick();
+    assert!(app.search_view.is_some());
+}
+
+#[test]
+fn handle_key_0_switches_to_search() {
+    let mut app = App::new("addr".into());
+    app.handle_key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::NONE));
+    assert_eq!(app.current_view, View::Search);
+}
+
+#[test]
+fn search_keys_initialize_view() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert!(app.search_view.is_some());
+    assert!(app.running);
+}
+
+#[test]
+fn search_mode_keys_do_not_switch_global_view() {
+    // Keys 1-3 on Search page switch search sub-mode, not the global view.
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+    assert_eq!(app.current_view, View::Search);
+    app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+    assert_eq!(app.current_view, View::Search);
+    app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+    assert_eq!(app.current_view, View::Search);
+}
+
+#[test]
+fn search_slash_opens_prompt() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    assert!(app.search_view.as_ref().unwrap().prompt.active);
+}
+
+#[test]
+fn search_i_opens_prompt() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    app.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    assert!(app.search_view.as_ref().unwrap().prompt.active);
+}
+
+#[test]
+fn search_esc_cancels_prompt() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    // Open prompt
+    app.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    assert!(app.search_view.as_ref().unwrap().prompt.active);
+    // Esc cancels it
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.search_view.as_ref().unwrap().prompt.active);
+    assert!(app.running);
+}
+
+#[test]
+fn search_tenant_cycling_keys() {
+    let mut app = App::new("addr".into());
+    app.current_view = View::Search;
+    // Both [ and ] should be consumed (not fall through to global)
+    app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+    assert!(app.search_view.is_some());
+    assert!(app.running);
+    app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
     assert!(app.running);
 }

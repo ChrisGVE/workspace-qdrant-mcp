@@ -19,6 +19,7 @@ use super::views::projects::ProjectBrowser;
 use super::views::queue::QueueBrowser;
 use super::views::rules::RuleBrowser;
 use super::views::scratchpad::ScratchpadBrowser;
+use super::views::search_page::SearchPageView;
 use super::views::service::ServiceView;
 
 /// Active view in the TUI.
@@ -33,11 +34,12 @@ pub enum View {
     Service,
     Logs,
     Graph,
+    Search,
 }
 
 impl View {
     /// All views in tab order.
-    const ALL: [View; 9] = [
+    const ALL: [View; 10] = [
         View::Dashboard,
         View::Queue,
         View::Projects,
@@ -47,6 +49,7 @@ impl View {
         View::Service,
         View::Logs,
         View::Graph,
+        View::Search,
     ];
 
     fn label(self) -> &'static str {
@@ -60,6 +63,7 @@ impl View {
             View::Service => "Service",
             View::Logs => "Logs",
             View::Graph => "Graph",
+            View::Search => "Search",
         }
     }
 
@@ -107,6 +111,8 @@ pub struct App {
     log_viewer: Option<LogViewer>,
     /// Graph view state (lazily initialized on first Graph view).
     graph_view: Option<GraphView>,
+    /// Search page state (lazily initialized on first Search view).
+    search_view: Option<SearchPageView>,
     /// Height of the main content area from the last frame, used to size
     /// half/full-screen navigation. Updated during `draw`.
     content_height: std::cell::Cell<u16>,
@@ -131,6 +137,7 @@ impl App {
             service_view: None,
             log_viewer: None,
             graph_view: None,
+            search_view: None,
             content_height: std::cell::Cell::new(0),
             global_filter: FilterState::new(),
         }
@@ -162,7 +169,7 @@ impl App {
             View::Libraries => self.library_browser().set_global_filter(re),
             View::Rules => self.rule_browser().set_global_filter(re),
             View::Scratchpad => self.scratchpad_browser().set_global_filter(re),
-            View::Dashboard | View::Service | View::Logs | View::Graph => {}
+            View::Dashboard | View::Service | View::Logs | View::Graph | View::Search => {}
         }
     }
 
@@ -218,6 +225,11 @@ impl App {
     /// Return a mutable reference to the graph view, creating it if needed.
     fn graph_view(&mut self) -> &mut GraphView {
         self.graph_view.get_or_insert_with(GraphView::new)
+    }
+
+    /// Return a mutable reference to the search view, creating it if needed.
+    fn search_view(&mut self) -> &mut SearchPageView {
+        self.search_view.get_or_insert_with(SearchPageView::new)
     }
 
     /// Main run loop: setup terminal, handle events, render, cleanup.
