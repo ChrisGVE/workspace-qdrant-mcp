@@ -6,9 +6,11 @@
 //! - `coordinator_tests` - WatchQueueCoordinator capacity management
 //! - `circuit_breaker_tests` - Circuit breaker state transitions
 //! - `error_feedback_tests` - ProcessingErrorFeedback and ErrorFeedbackManager
+//! - `manager_refresh_tests` - orphaned (missing-path) and archived watch folders
 
 mod circuit_breaker_tests;
 mod coordinator_tests;
 mod error_feedback_tests;
 mod error_state_tests;
+mod manager_refresh_tests;
 mod types_tests;

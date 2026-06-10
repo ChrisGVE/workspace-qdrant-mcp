@@ -123,12 +123,17 @@ impl WatchManager {
         }
     }
 
-    /// Get all enabled watch IDs from watch_folders table
+    /// Get all enabled, non-archived watch IDs from the watch_folders table.
+    ///
+    /// Must apply the same `enabled`/`is_archived` filters as the startup
+    /// loaders: any row visible here but not startable would be retried by
+    /// every refresh cycle forever.
     async fn get_enabled_watch_ids(&self) -> WatchingQueueResult<Vec<String>> {
         let mut ids = Vec::new();
 
         let rows = sqlx::query(
-            "SELECT watch_id, collection, tenant_id FROM watch_folders WHERE enabled = 1",
+            "SELECT watch_id, collection, tenant_id FROM watch_folders \
+             WHERE enabled = 1 AND is_archived = 0",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -158,7 +163,8 @@ impl WatchManager {
             SELECT watch_id, path, collection, tenant_id,
                    COALESCE(is_git_tracked, 0) AS is_git_tracked
             FROM watch_folders
-            WHERE watch_id = ? AND enabled = 1 AND collection = 'projects'
+            WHERE watch_id = ? AND enabled = 1 AND is_archived = 0
+              AND collection = 'projects'
             "#,
         )
         .bind(id)
@@ -186,7 +192,7 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id.clone(), config, queue_manager.clone())
+            self.start_watcher(id.clone(), &id, config, queue_manager.clone())
                 .await;
 
             if is_git_tracked {
@@ -209,7 +215,8 @@ impl WatchManager {
             r#"
             SELECT watch_id, path, collection, tenant_id
             FROM watch_folders
-            WHERE tenant_id = ? AND enabled = 1 AND collection = 'libraries'
+            WHERE tenant_id = ? AND enabled = 1 AND is_archived = 0
+              AND collection = 'libraries'
             "#,
         )
         .bind(library_name)
@@ -217,6 +224,7 @@ impl WatchManager {
         .await?;
 
         if let Some(row) = row {
+            let db_watch_id: String = row.get("watch_id");
             let tenant_id: String = row.get("tenant_id");
             let path: String = row.get("path");
             let collection: String = row.get("collection");
@@ -237,7 +245,8 @@ impl WatchManager {
                 library_name: Some(tenant_id),
             };
 
-            self.start_watcher(id, config, queue_manager.clone()).await;
+            self.start_watcher(id, &db_watch_id, config, queue_manager.clone())
+                .await;
         }
 
         Ok(())

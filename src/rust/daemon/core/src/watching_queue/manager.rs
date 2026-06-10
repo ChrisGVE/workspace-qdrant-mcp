@@ -1,7 +1,7 @@
 //! WatchManager - master coordinator for multiple file watchers.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sqlx::{Row, SqlitePool};
@@ -16,6 +16,12 @@ use super::error_types::{WatchErrorSummary, WatchHealthStatus};
 use super::file_watcher::FileWatcherQueue;
 use super::types::{WatchConfig, WatchType, WatchingQueueResult, WatchingQueueStats};
 
+/// Consecutive start attempts against a missing path before the watch folder
+/// is auto-disabled in SQLite. The refresh loop polls every 5 minutes, so the
+/// threshold gives ~10-15 minutes of grace for transient unmounts before an
+/// orphaned watch folder (e.g. a deleted worktree) stops being retried.
+pub(super) const MISSING_PATH_DISABLE_THRESHOLD: u32 = 3;
+
 /// Watch manager for multiple watchers
 pub struct WatchManager {
     pub(super) pool: SqlitePool,
@@ -25,6 +31,7 @@ pub struct WatchManager {
     pub(super) git_event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<crate::git::GitEvent>>>>,
     pub(super) allowed_extensions: Arc<AllowedExtensions>,
     pub(super) refresh_signal: Option<Arc<Notify>>,
+    pub(super) missing_path_strikes: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl WatchManager {
@@ -39,6 +46,7 @@ impl WatchManager {
             git_event_rx: Arc::new(Mutex::new(Some(git_event_rx))),
             allowed_extensions,
             refresh_signal: None,
+            missing_path_strikes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -154,7 +162,7 @@ impl WatchManager {
                 library_name: None,
             };
 
-            self.start_watcher(id.clone(), config, queue_manager.clone())
+            self.start_watcher(id.clone(), &id, config, queue_manager.clone())
                 .await;
 
             if is_git_tracked {
@@ -215,7 +223,7 @@ impl WatchManager {
         );
 
         for row in rows {
-            let _watch_id: String = row.get("watch_id");
+            let db_watch_id: String = row.get("watch_id");
             let path: String = row.get("path");
             let collection: String = row.get("collection");
             let tenant_id: String = row.get("tenant_id");
@@ -236,19 +244,32 @@ impl WatchManager {
                 library_name: Some(tenant_id.clone()),
             };
 
-            self.start_watcher(id, config, queue_manager.clone()).await;
+            self.start_watcher(id, &db_watch_id, config, queue_manager.clone())
+                .await;
         }
 
         Ok(())
     }
 
-    /// Start a single watcher with the given configuration
+    /// Start a single watcher with the given configuration.
+    ///
+    /// `db_watch_id` is the `watch_folders.watch_id` backing this watcher; it
+    /// can differ from the runtime `id` (library watchers run as
+    /// `lib_<tenant>`). It is used to auto-disable the row when the watched
+    /// path no longer exists, instead of retrying the start forever.
     pub(super) async fn start_watcher(
         &self,
         id: String,
+        db_watch_id: &str,
         config: WatchConfig,
         queue_manager: Arc<QueueManager>,
     ) {
+        if !config.path.exists() {
+            self.handle_missing_watch_path(&id, db_watch_id, &config.path)
+                .await;
+            return;
+        }
+
         match FileWatcherQueue::new(config, queue_manager, self.allowed_extensions.clone()) {
             Ok(watcher) => {
                 let watcher = Arc::new(watcher);
@@ -263,6 +284,7 @@ impl WatchManager {
                                 "project"
                             }
                         );
+                        self.missing_path_strikes.lock().await.remove(&id);
                         let mut watchers = self.watchers.write().await;
                         watchers.insert(id, watcher);
                     }
@@ -273,6 +295,66 @@ impl WatchManager {
             }
             Err(e) => {
                 error!("Failed to create watcher {}: {}", id, e);
+            }
+        }
+    }
+
+    /// Record a start attempt against a missing watch path; once the strike
+    /// threshold is reached, disable the watch folder in SQLite so startup and
+    /// refresh stop retrying it forever (orphaned watcher, e.g. a worktree
+    /// deleted after registration).
+    async fn handle_missing_watch_path(&self, id: &str, db_watch_id: &str, path: &Path) {
+        let strikes = {
+            let mut strikes = self.missing_path_strikes.lock().await;
+            let count = strikes.entry(id.to_string()).or_insert(0);
+            *count += 1;
+            *count
+        };
+
+        if strikes < MISSING_PATH_DISABLE_THRESHOLD {
+            warn!(
+                "Watch path does not exist for {}: {} (attempt {}/{}, auto-disable at threshold)",
+                id,
+                path.display(),
+                strikes,
+                MISSING_PATH_DISABLE_THRESHOLD
+            );
+            return;
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET enabled = 0,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1 AND enabled = 1
+            "#,
+        )
+        .bind(db_watch_id)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(r) if r.rows_affected() > 0 => {
+                error!(
+                    "Auto-disabled watch folder {} ({}): path missing for {} consecutive start attempts: {}",
+                    db_watch_id,
+                    id,
+                    strikes,
+                    path.display()
+                );
+                self.missing_path_strikes.lock().await.remove(id);
+            }
+            Ok(_) => {
+                // Row already disabled or removed concurrently; drop the counter.
+                self.missing_path_strikes.lock().await.remove(id);
+            }
+            Err(e) => {
+                // Keep the strikes so the next refresh cycle retries the disable.
+                warn!(
+                    "Failed to auto-disable watch folder {} with missing path: {}",
+                    db_watch_id, e
+                );
             }
         }
     }

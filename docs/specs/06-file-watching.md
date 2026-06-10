@@ -623,10 +623,26 @@ When archiving a project that has submodules, the system must check cross-refere
 
 The daemon:
 
-1. Polls `watch_folders` table every 5 seconds
+1. Refreshes from the `watch_folders` table every 5 minutes (300 s), plus
+   signal-driven refresh whenever a folder operation lands (gRPC / queue
+   processor notify the watch manager)
 2. Detects changes via `updated_at` timestamp
 3. Updates file watchers dynamically
 4. Processes file events through ingestion queue
+
+**Refresh filters:** the startup loaders and the periodic refresh apply the
+same `enabled = 1 AND is_archived = 0` predicate. Archiving a folder therefore
+both prevents new watcher starts and stops an already-running watcher on the
+next refresh cycle.
+
+**Orphaned watch paths (auto-disable):** if a watch folder's path no longer
+exists when a watcher start is attempted (startup or refresh), the attempt
+counts as a strike instead of being retried forever. After 3 consecutive
+strikes (~10-15 minutes at the 5-minute refresh interval) the daemon sets
+`enabled = 0` on the row and logs the reason at ERROR level. A path that
+reappears before the threshold clears the strike count and the watcher starts
+normally. This covers worktrees deleted after registration and projects
+removed or moved outside the daemon's view.
 
 ### Ingestion Pipeline
 
