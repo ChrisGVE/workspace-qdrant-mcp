@@ -40,16 +40,14 @@ impl App {
         if browser.confirm_open() {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                    if let Some((action, queue_id)) = browser.take_action() {
+                    if let Some((action, queue_id, tenant_id)) = browser.take_action() {
                         use super::super::views::queue::QueueAction;
                         let msg = match action {
                             QueueAction::Retry => super::super::commands::queue_retry(&queue_id),
                             QueueAction::Remove => super::super::commands::queue_remove(&queue_id),
-                            QueueAction::Cancel => {
-                                // queue_id holds queue_id; resolve tenant_id
-                                // from the items list before the action.
-                                super::super::commands::queue_cancel(&queue_id)
-                            }
+                            // Cancel is tenant-wide on the daemon side
+                            // (CancelItemsRequest takes a tenant_id, proto:1202).
+                            QueueAction::Cancel => super::super::commands::queue_cancel(&tenant_id),
                         };
                         browser.set_message(msg);
                         browser.force_refresh();

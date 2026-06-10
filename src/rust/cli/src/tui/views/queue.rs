@@ -58,7 +58,10 @@ pub struct QueueBrowser {
     /// Cursor-jump search state (`/`).
     pub(super) search: SearchState,
     /// Pending action awaiting a `y`/`N` confirmation, if the modal is open.
-    pending: Option<(QueueAction, String)>, // (action, queue_id)
+    /// Captured at request time so a background refresh between opening the
+    /// modal and confirming cannot retarget the action: retry/remove act on
+    /// the `queue_id`, cancel acts tenant-wide on the `tenant_id`.
+    pending: Option<(QueueAction, String, String)>, // (action, queue_id, tenant_id)
     /// Transient status message shown in the summary bar after an action.
     pub(super) message: Option<String>,
 }
@@ -140,7 +143,7 @@ impl QueueBrowser {
 
     /// Build the [`ActionConfirm`] to display from the current pending action.
     pub fn action_confirm(&self) -> Option<ActionConfirm> {
-        self.pending.as_ref().map(|(action, _)| {
+        self.pending.as_ref().map(|(action, _, _)| {
             let (verb, target) = match action {
                 QueueAction::Retry => ("Retry", "selected queue item"),
                 QueueAction::Cancel => ("Cancel pending items for", "selected project"),
@@ -153,16 +156,17 @@ impl QueueBrowser {
         })
     }
 
-    /// Open a confirmation modal for a queue action on the selected item.
+    /// Open a confirmation modal for a queue action on the selected item,
+    /// capturing both its queue_id and tenant_id.
     pub fn request_action(&mut self, action: QueueAction) {
         if let Some(item) = self.items.get(self.selected) {
-            self.pending = Some((action, item.queue_id.clone()));
+            self.pending = Some((action, item.queue_id.clone(), item.tenant_id.clone()));
         }
     }
 
-    /// Take the pending action (action kind + queue_id), clearing the modal.
-    /// Returns `None` if no action is pending.
-    pub fn take_action(&mut self) -> Option<(QueueAction, String)> {
+    /// Take the pending action (action kind + queue_id + tenant_id), clearing
+    /// the modal. Returns `None` if no action is pending.
+    pub fn take_action(&mut self) -> Option<(QueueAction, String, String)> {
         self.pending.take()
     }
 

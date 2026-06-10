@@ -278,15 +278,48 @@ fn request_remove_opens_confirm_with_remove_verb() {
 }
 
 #[test]
-fn take_action_returns_action_and_queue_id() {
+fn take_action_returns_action_queue_id_and_tenant_id() {
     let mut browser = QueueBrowser::new();
     browser.items = make_test_rows(3);
     browser.selected = 2;
     browser.request_action(QueueAction::Retry);
-    let (action, queue_id) = browser.take_action().unwrap();
+    let (action, queue_id, tenant_id) = browser.take_action().unwrap();
     assert_eq!(action, QueueAction::Retry);
     assert_eq!(queue_id, "id-2");
+    assert_eq!(tenant_id, "tenant-2");
     assert!(!browser.confirm_open());
+}
+
+/// Cancel dispatches tenant-wide on the daemon (CancelItemsRequest takes a
+/// tenant_id, not a queue_id) — the pending action must carry the tenant_id
+/// captured from the selected row.
+#[test]
+fn cancel_action_carries_tenant_id_of_selected_row() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(3);
+    browser.selected = 1;
+    browser.request_action(QueueAction::Cancel);
+    let (action, queue_id, tenant_id) = browser.take_action().unwrap();
+    assert_eq!(action, QueueAction::Cancel);
+    assert_eq!(queue_id, "id-1");
+    assert_eq!(tenant_id, "tenant-1");
+    assert_ne!(tenant_id, queue_id);
+}
+
+/// A refresh that reorders/rebuilds `items` after the modal opened must not
+/// retarget the action: the ids were captured at request time.
+#[test]
+fn pending_action_survives_items_rebuild() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(3);
+    browser.selected = 2;
+    browser.request_action(QueueAction::Cancel);
+    // Simulate a periodic refresh replacing the list with different rows.
+    browser.items = make_test_rows(1);
+    browser.selected = 0;
+    let (_, queue_id, tenant_id) = browser.take_action().unwrap();
+    assert_eq!(queue_id, "id-2");
+    assert_eq!(tenant_id, "tenant-2");
 }
 
 #[test]
@@ -314,6 +347,7 @@ fn make_test_rows(n: usize) -> Vec<QueueRow> {
     (0..n)
         .map(|i| QueueRow {
             queue_id: format!("id-{i}"),
+            tenant_id: format!("tenant-{i}"),
             short_id: format!("id-{i}"),
             project: "project".into(),
             object: "file.rs".into(),

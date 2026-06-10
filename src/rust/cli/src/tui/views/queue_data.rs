@@ -66,6 +66,8 @@ impl StatusFilter {
 pub struct QueueRow {
     /// Full queue ID (for detail lookup).
     pub queue_id: String,
+    /// Owning tenant ID (cancel acts tenant-wide; retry/remove use queue_id).
+    pub tenant_id: String,
     /// Shortened ID for the list column.
     pub short_id: String,
     /// Resolved project name.
@@ -151,6 +153,7 @@ pub fn fetch_queue_rows(filter: StatusFilter) -> Vec<QueueRow> {
                 kind: tenant_kinds.get(&tenant_id).copied().unwrap_or('?'),
                 size: extract_size_bytes(&payload_json),
                 queue_id,
+                tenant_id,
                 item_type,
                 op,
                 status,
@@ -389,6 +392,7 @@ mod tests {
     fn queue_row_fields() {
         let row = QueueRow {
             queue_id: "abc123".to_string(),
+            tenant_id: "tenant-1".to_string(),
             short_id: "abc1".to_string(),
             project: "my-project".to_string(),
             object: "main.rs".to_string(),
