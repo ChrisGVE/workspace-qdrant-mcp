@@ -67,7 +67,9 @@ impl ProjectBrowser {
         ];
 
         if let Some(ref url) = detail.git_remote_url {
-            lines.push(detail_line("Git Remote", &truncate_str(url, 50)));
+            // Rows written before #126 may still carry URL credentials.
+            let sanitized = wqm_common::git_url::sanitize_git_remote_url(url);
+            lines.push(detail_line("Git Remote", &truncate_str(&sanitized, 50)));
         }
 
         lines.push(Line::from(""));

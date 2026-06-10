@@ -189,7 +189,9 @@ fn get_git_remote_url(repo_path: &str) -> Result<String, String> {
 
     remote
         .url()
-        .map(|url| url.to_string())
+        // Credentials in the URL userinfo must never leave the read
+        // boundary (#126).
+        .map(wqm_common::git_url::sanitize_git_remote_url)
         .ok_or_else(|| "Remote URL is not valid UTF-8".to_string())
 }
 

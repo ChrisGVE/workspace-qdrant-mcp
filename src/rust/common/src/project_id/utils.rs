@@ -21,7 +21,9 @@ pub fn detect_git_remote(project_root: &Path) -> Option<String> {
             if output.status.success() {
                 let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !url.is_empty() {
-                    return Some(url);
+                    // Credentials in the URL userinfo must never leave the
+                    // read boundary (#126).
+                    return Some(crate::git_url::sanitize_git_remote_url(&url));
                 }
             }
         }

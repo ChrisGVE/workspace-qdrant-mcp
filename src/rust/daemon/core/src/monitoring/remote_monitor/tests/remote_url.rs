@@ -10,6 +10,19 @@ async fn test_get_git_remote_url() {
     assert_eq!(url, "https://github.com/user/repo.git");
 }
 
+/// #126: URL credentials never leave the read boundary.
+#[tokio::test]
+async fn test_get_git_remote_url_strips_credentials() {
+    let temp = TempDir::new().unwrap();
+    create_git_repo_with_remote(
+        temp.path(),
+        "https://x-access-token:ghp_secret@github.com/user/repo.git",
+    );
+
+    let url = get_git_remote_url(temp.path().to_str().unwrap()).unwrap();
+    assert_eq!(url, "https://github.com/user/repo.git");
+}
+
 #[tokio::test]
 async fn test_get_git_remote_url_not_git() {
     let temp = TempDir::new().unwrap();

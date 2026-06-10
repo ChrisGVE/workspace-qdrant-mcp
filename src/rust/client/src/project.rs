@@ -193,9 +193,11 @@ pub fn get_git_remote_url(repo_root: &Path) -> Option<String> {
                 break; // new section
             }
             if let Some(url) = trimmed.strip_prefix("url = ") {
-                let url = url.trim().to_string();
+                let url = url.trim();
                 if !url.is_empty() {
-                    return Some(url);
+                    // Credentials in the URL userinfo must never leave the
+                    // read boundary (#126).
+                    return Some(wqm_common::git_url::sanitize_git_remote_url(url));
                 }
             }
         }
@@ -351,6 +353,23 @@ mod tests {
         assert_eq!(
             get_git_remote_url(&dir).as_deref(),
             Some("https://example.com/repo.git")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #126: URL credentials never leave the read boundary.
+    #[test]
+    fn get_git_remote_url_strips_credentials() {
+        let dir = tmp("remote_credentials");
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::write(
+            dir.join(".git").join("config"),
+            "[remote \"origin\"]\n\turl = https://x-access-token:ghp_secret@example.com/org/repo.git\n",
+        )
+        .unwrap();
+        assert_eq!(
+            get_git_remote_url(&dir).as_deref(),
+            Some("https://example.com/org/repo.git")
         );
         let _ = fs::remove_dir_all(&dir);
     }

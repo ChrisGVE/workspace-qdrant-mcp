@@ -53,6 +53,33 @@ mod tests {
         );
     }
 
+    /// #126: credentials in the URL userinfo never reach the hash input —
+    /// the same repo normalizes identically with and without credentials,
+    /// so credential rotation cannot change the tenant id.
+    #[test]
+    fn test_normalize_git_url_strips_userinfo() {
+        let clean = ProjectIdCalculator::normalize_git_url("https://github.com/user/repo.git");
+        assert_eq!(
+            ProjectIdCalculator::normalize_git_url(
+                "https://x-access-token:ghp_secret@github.com/user/repo.git"
+            ),
+            clean
+        );
+        assert_eq!(
+            ProjectIdCalculator::normalize_git_url("https://ghp_secret@github.com/user/repo.git"),
+            clean
+        );
+        assert_eq!(
+            ProjectIdCalculator::normalize_git_url("ssh://git@github.com/user/repo.git"),
+            clean
+        );
+        // Non-"git" scp-like usernames normalize identically too.
+        assert_eq!(
+            ProjectIdCalculator::normalize_git_url("alice@github.com:user/repo.git"),
+            clean
+        );
+    }
+
     #[test]
     fn test_calculate_project_id_with_remote() {
         let calc = ProjectIdCalculator::new();

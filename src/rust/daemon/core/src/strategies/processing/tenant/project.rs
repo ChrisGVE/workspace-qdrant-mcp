@@ -27,7 +27,13 @@ pub(crate) async fn process_project_item(
         item.queue_id, item.op
     );
 
-    let payload: ProjectPayload = parse_payload(item)?;
+    let mut payload: ProjectPayload = parse_payload(item)?;
+    // gRPC clients are expected to sanitize remote URLs themselves, but the
+    // daemon owns persistence: never let URL credentials reach storage,
+    // logs, or grouping regardless of the caller (#126).
+    payload.git_remote = payload
+        .git_remote
+        .map(|url| wqm_common::git_url::sanitize_git_remote_url(&url));
 
     match item.op {
         QueueOperation::Add => {

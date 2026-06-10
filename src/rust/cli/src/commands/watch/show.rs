@@ -81,7 +81,11 @@ fn print_detail(item: &WatchDetailItem) {
     output::kv("Collection", &item.collection);
     output::kv("Tenant ID", &item.tenant_id);
     if let Some(ref url) = item.git_remote_url {
-        output::kv("Git Remote", url);
+        // Rows written before #126 may still carry URL credentials.
+        output::kv(
+            "Git Remote",
+            &wqm_common::git_url::sanitize_git_remote_url(url),
+        );
     }
     if let Some(ref hash) = item.remote_hash {
         output::kv("Remote Hash", hash);

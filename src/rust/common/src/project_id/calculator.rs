@@ -77,19 +77,26 @@ impl ProjectIdCalculator {
         let mut normalized = url.to_lowercase();
 
         // Remove common protocols
+        let mut had_scheme = false;
         for protocol in &["https://", "http://", "ssh://", "git://"] {
             if normalized.starts_with(protocol) {
                 normalized = normalized[protocol.len()..].to_string();
+                had_scheme = true;
                 break;
             }
         }
 
-        // Handle git@ prefix (SSH format)
-        if normalized.starts_with("git@") {
-            normalized = normalized[4..].to_string();
-            // Replace the first : with / for SSH format
-            if let Some(idx) = normalized.find(':') {
-                normalized.replace_range(idx..idx + 1, "/");
+        // Strip any userinfo (`user[:password]@`) so credentials never enter
+        // the hash input and credential rotation cannot change the tenant id
+        // (#126). This also covers the plain `git@` SSH prefix.
+        let path_start = normalized.find('/').unwrap_or(normalized.len());
+        if let Some(at) = normalized[..path_start].rfind('@') {
+            normalized = normalized[at + 1..].to_string();
+            // scp-like syntax (user@host:path): replace the first : with /
+            if !had_scheme {
+                if let Some(idx) = normalized.find(':') {
+                    normalized.replace_range(idx..idx + 1, "/");
+                }
             }
         }
 
