@@ -104,9 +104,10 @@ impl TypedConfirm {
 /// Check whether a typed-confirm input matches the required `Delete <name>`
 /// string (case-sensitive, exact).
 ///
-/// This is the single source of truth for the typed-confirm acceptance rule.
+/// Delegates to the shared rule in `output::messages` so the TUI modal and
+/// the CLI's `--yes`-guarded prompts (#123) accept exactly the same input.
 pub fn typed_confirm_matches(name: &str, input: &str) -> bool {
-    input == format!("Delete {name}")
+    crate::output::typed_confirm_matches(name, input)
 }
 
 // ─── Unified action confirm ──────────────────────────────────────────────────

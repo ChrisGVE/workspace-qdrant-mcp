@@ -8,7 +8,7 @@ use crate::grpc::proto::DeleteDocumentRequest;
 use crate::output;
 
 /// Remove a rule by label via daemon gRPC.
-pub async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
+pub async fn remove_rule(label: &str, scope: &Option<String>, yes: bool) -> Result<()> {
     output::section("Remove Rule");
 
     let scope_str = scope.as_deref().unwrap_or("all");
@@ -16,6 +16,12 @@ pub async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
     output::kv("Label", label);
     output::kv("Scope", scope_str);
     output::separator();
+
+    // Typed confirmation gate for destructive commands (#123).
+    if !yes && !output::typed_confirm(label) {
+        output::info("Aborted");
+        return Ok(());
+    }
 
     match crate::grpc::connect_default().await {
         Ok(mut client) => {

@@ -43,8 +43,8 @@ pub use gutter::Gutter;
 
 // Messages
 pub use messages::{
-    confirm, error, info, kv, section, separator, status_line, success, summary, warning,
-    ServiceStatus,
+    confirm, error, info, kv, section, separator, status_line, success, summary, typed_confirm,
+    typed_confirm_matches, warning, ServiceStatus,
 };
 
 // Formatters

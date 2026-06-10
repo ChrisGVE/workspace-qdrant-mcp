@@ -32,6 +32,9 @@ pub enum DlqCommand {
         /// Remove entries older than N days (default: 30)
         #[arg(long, default_value = "30")]
         older_than: i32,
+        /// Skip the typed "Delete dlq" confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -50,7 +53,7 @@ pub async fn execute(cmd: DlqCommand) -> Result<()> {
             execute_list(&mut client, tenant, category, limit).await
         }
         DlqCommand::Replay { id, force } => execute_replay(&mut client, &id, force).await,
-        DlqCommand::Purge { older_than } => execute_purge(&mut client, older_than).await,
+        DlqCommand::Purge { older_than, yes } => execute_purge(&mut client, older_than, yes).await,
     }
 }
 
@@ -122,7 +125,19 @@ async fn execute_replay(client: &mut DaemonClient, dlq_id: &str, force: bool) ->
     Ok(())
 }
 
-async fn execute_purge(client: &mut DaemonClient, older_than: i32) -> Result<()> {
+async fn execute_purge(client: &mut DaemonClient, older_than: i32, yes: bool) -> Result<()> {
+    // Typed confirmation gate for destructive commands (#123).
+    if !yes {
+        crate::output::warning(format!(
+            "This permanently deletes DLQ entries older than {} days.",
+            older_than
+        ));
+        if !crate::output::typed_confirm("dlq") {
+            crate::output::info("Aborted");
+            return Ok(());
+        }
+    }
+
     let mut total_deleted = 0i32;
 
     loop {

@@ -1,7 +1,5 @@
 //! Library remove subcommand
 
-use std::io::{self, Write};
-
 use anyhow::Result;
 use wqm_common::constants::COLLECTION_LIBRARIES;
 
@@ -49,20 +47,14 @@ async fn queue_vector_deletion(client: &mut crate::grpc::client::DaemonClient, t
 pub async fn execute(tag: &str, skip_confirm: bool) -> Result<()> {
     output::section(format!("Remove Library: {}", tag));
 
-    // Confirm deletion unless --yes flag
+    // Confirm deletion unless --yes flag (typed confirmation, #123)
     if !skip_confirm {
         output::warning(format!(
             "This will delete ALL vectors for library '{}' from Qdrant.",
             tag
         ));
         output::warning("This action cannot be undone.");
-        output::info("");
-        print!("Continue? (y/N): ");
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
+        if !output::typed_confirm(tag) {
             output::info("Cancelled.");
             return Ok(());
         }

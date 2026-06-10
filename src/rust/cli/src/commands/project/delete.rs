@@ -42,9 +42,12 @@ pub(super) async fn delete_project(
     );
     output::separator();
 
-    if !yes && !output::confirm("Delete this project? This cannot be undone.") {
-        output::info("Aborted");
-        return Ok(());
+    if !yes {
+        output::warning("This deletes the project's tracking data and cannot be undone.");
+        if !output::typed_confirm(&project_id) {
+            output::info("Aborted");
+            return Ok(());
+        }
     }
 
     match crate::grpc::connect_default().await {

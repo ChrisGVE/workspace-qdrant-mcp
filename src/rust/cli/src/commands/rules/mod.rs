@@ -132,6 +132,10 @@ enum RulesCommand {
         /// Remove from specific project (path or ID)
         #[arg(long, conflicts_with = "global")]
         project: Option<String>,
+
+        /// Skip the typed "Delete <label>" confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Show detailed information about a specific rule
@@ -211,9 +215,10 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             label,
             global,
             project,
+            yes,
         } => {
             let scope = resolve_scope(global, project);
-            remove::remove_rule(&label, &scope).await
+            remove::remove_rule(&label, &scope, yes).await
         }
         RulesCommand::Info { label, json } => info::rule_info(&label, json).await,
         RulesCommand::Search {

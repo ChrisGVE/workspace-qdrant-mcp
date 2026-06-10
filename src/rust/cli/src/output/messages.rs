@@ -101,6 +101,30 @@ pub fn confirm(message: &str) -> bool {
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
+/// Whether `input` is the exact, case-sensitive typed confirmation for
+/// deleting `name` (#123). Single source of truth for the `Delete <name>`
+/// pattern — the TUI's typed-confirm modal delegates here.
+pub fn typed_confirm_matches(name: &str, input: &str) -> bool {
+    input == format!("Delete {name}")
+}
+
+/// Interactive typed confirmation for destructive CLI commands (#123).
+///
+/// The user must type exactly `Delete <name>` (case-sensitive) — same gate
+/// the TUI enforces. Anything else (including read failure) aborts.
+pub fn typed_confirm(name: &str) -> bool {
+    use std::io::{self, Write};
+    print!("Type \"Delete {}\" to confirm: ", name);
+    if io::stdout().flush().is_err() {
+        return false;
+    }
+    let mut input = String::new();
+    if io::stdin().read_line(&mut input).is_err() {
+        return false;
+    }
+    typed_confirm_matches(name, input.trim_end_matches(['\r', '\n']))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +136,14 @@ mod tests {
         assert_eq!(ServiceStatus::from_proto(3), ServiceStatus::Unhealthy);
         assert_eq!(ServiceStatus::from_proto(0), ServiceStatus::Unknown);
         assert_eq!(ServiceStatus::from_proto(99), ServiceStatus::Unknown);
+    }
+
+    #[test]
+    fn typed_confirm_requires_exact_case_sensitive_match() {
+        assert!(typed_confirm_matches("my-rule", "Delete my-rule"));
+        assert!(!typed_confirm_matches("my-rule", "delete my-rule"));
+        assert!(!typed_confirm_matches("my-rule", "Delete my-rule "));
+        assert!(!typed_confirm_matches("my-rule", "Delete other"));
+        assert!(!typed_confirm_matches("my-rule", ""));
     }
 }
