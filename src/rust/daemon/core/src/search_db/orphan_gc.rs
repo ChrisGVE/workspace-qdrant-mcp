@@ -257,7 +257,12 @@ mod tests {
     async fn removes_only_untracked_files() {
         let (_d, db) = search_db_in_temp().await;
         seed_file(&db, 1, "tracked line one\ntracked line two").await;
-        seed_file(&db, 2, "orphan generated stub alpha\norphan generated stub beta").await;
+        seed_file(
+            &db,
+            2,
+            "orphan generated stub alpha\norphan generated stub beta",
+        )
+        .await;
         seed_file(&db, 3, "another orphan body").await;
         let state = state_pool_with_tracked(&[1]).await;
 

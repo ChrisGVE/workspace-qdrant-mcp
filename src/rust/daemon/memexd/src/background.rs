@@ -649,10 +649,7 @@ pub fn start_lsp_metrics_collector(
             let available = mgr.available_languages().await;
             let active = mgr.active_languages().await;
 
-            METRICS.set_lsp_snapshot(
-                available.len() as i64,
-                stats.active_servers as i64,
-            );
+            METRICS.set_lsp_snapshot(available.len() as i64, stats.active_servers as i64);
 
             // Mark all detected-available languages as their running state.
             let active_set: std::collections::HashSet<&str> =
@@ -687,7 +684,9 @@ pub fn start_lsp_metrics_collector(
 /// Runs periodically (not per-file) so it stays O(dangling) per tenant and
 /// converges as indexing settles. It also heals the *existing* graph in place,
 /// so no reindex is required to benefit.
-pub fn start_graph_stub_resolver(graph_store: crate::database::ConcreteGraphStore) -> JoinHandle<()> {
+pub fn start_graph_stub_resolver(
+    graph_store: crate::database::ConcreteGraphStore,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
         info!("Graph stub-edge resolver started (120s interval)");
@@ -841,7 +840,7 @@ pub fn spawn_all(
         pause_poll_handle,
         metrics_collect_handle,
         metrics_maint_handle,
-        grpc_handle: None,      // Filled in later by grpc_setup
+        grpc_handle: None, // Filled in later by grpc_setup
         metrics_handle,
         lsp_metrics_handle: None, // Filled in after Phase 4 (LSP manager init)
     }

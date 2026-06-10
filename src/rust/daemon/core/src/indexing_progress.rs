@@ -196,6 +196,9 @@ mod tests {
     #[test]
     fn eta_capped_at_24h() {
         // 1 item at a glacial rate would exceed the cap -> clamped.
-        assert_eq!(estimate_eta_seconds(1, 0, Some(0.0000001)), Some(ETA_CAP_SECONDS));
+        assert_eq!(
+            estimate_eta_seconds(1, 0, Some(0.0000001)),
+            Some(ETA_CAP_SECONDS)
+        );
     }
 }

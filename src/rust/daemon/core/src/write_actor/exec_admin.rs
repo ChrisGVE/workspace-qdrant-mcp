@@ -199,9 +199,9 @@ impl WriteActor {
             // corpus as an orphan. Resolve the branch like the file-watcher path
             // (enqueue_tenant_scan) does. Libraries are branch-agnostic (None).
             let branch = if collection == "projects" {
-                Some(crate::watching_queue::get_current_branch(std::path::Path::new(
-                    path,
-                )))
+                Some(crate::watching_queue::get_current_branch(
+                    std::path::Path::new(path),
+                ))
             } else {
                 None
             };

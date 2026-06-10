@@ -15,10 +15,10 @@ use std::path::Path;
 use tracing::{debug, warn};
 
 use crate::context::ProcessingContext;
+use crate::graph::compute_node_id;
 use crate::graph::extractor::{
     extract_edges_from_text_chunks, node_type_from_display_name, ExtractionResult,
 };
-use crate::graph::compute_node_id;
 use crate::lsp::{resolved_call_edges, symbol_column_in_line};
 use crate::TextChunk;
 
@@ -46,7 +46,15 @@ pub(super) async fn ingest_graph_edges(
     let mut extraction = extract_edges_from_text_chunks(chunks, tenant_id, file_path);
 
     // Additive LSP precision pass (best-effort; no-op when no server is ready).
-    resolve_calls_via_lsp(ctx, tenant_id, file_path, abs_file_path, chunks, &mut extraction).await;
+    resolve_calls_via_lsp(
+        ctx,
+        tenant_id,
+        file_path,
+        abs_file_path,
+        chunks,
+        &mut extraction,
+    )
+    .await;
 
     let ExtractionResult { nodes, edges } = extraction;
 

@@ -94,7 +94,11 @@ impl LanguageServerManager {
             .result
             .as_ref()
             .and_then(|r| r.as_array())
-            .map(|arr| arr.iter().filter_map(parse_outgoing_call).collect::<Vec<_>>())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(parse_outgoing_call)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
 
         tracing::debug!(file = %file.display(), count = calls.len(), "Resolved outgoing calls");
@@ -239,8 +243,7 @@ mod tests {
 
         // The resolved target node_id must equal the id of the real callee node
         // (keyed by project-relative path) — NOT a file-less stub.
-        let expected_target =
-            compute_node_id(tenant, "src/math.rs", "add", NodeType::Function);
+        let expected_target = compute_node_id(tenant, "src/math.rs", "add", NodeType::Function);
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].source_node_id, caller_id);
         assert_eq!(edges[0].target_node_id, expected_target);

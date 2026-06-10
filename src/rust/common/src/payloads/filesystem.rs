@@ -177,8 +177,8 @@ mod tests {
 
     #[test]
     fn file_payload_rejects_absolute_file_path() {
-        let err = serde_json::from_str::<FilePayload>(r#"{"file_path":"/etc/passwd"}"#)
-            .unwrap_err();
+        let err =
+            serde_json::from_str::<FilePayload>(r#"{"file_path":"/etc/passwd"}"#).unwrap_err();
         assert!(err.to_string().contains("must not be absolute"));
     }
 }

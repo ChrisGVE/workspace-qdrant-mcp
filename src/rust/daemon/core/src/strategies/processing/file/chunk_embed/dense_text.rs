@@ -69,7 +69,10 @@ pub(super) fn build_dense_embedding_text(
 }
 
 fn non_empty<'m>(metadata: &'m HashMap<String, String>, key: &str) -> Option<&'m str> {
-    metadata.get(key).map(String::as_str).filter(|s| !s.is_empty())
+    metadata
+        .get(key)
+        .map(String::as_str)
+        .filter(|s| !s.is_empty())
 }
 
 /// Truncate to at most `max_chars` characters on a char boundary.
@@ -99,11 +102,8 @@ mod tests {
             ("chunk_type", "method"),
             ("docstring", "Fuse dense and sparse rankings."),
         ]);
-        let text = build_dense_embedding_text(
-            "src/tools/search-qdrant.ts",
-            "function body",
-            &metadata,
-        );
+        let text =
+            build_dense_embedding_text("src/tools/search-qdrant.ts", "function body", &metadata);
         assert_eq!(
             text,
             "src/tools/search-qdrant.ts | SearchQdrant::applyRRFFusion (method)\n\
@@ -113,7 +113,8 @@ mod tests {
 
     #[test]
     fn non_code_chunk_gets_path_only_header() {
-        let text = build_dense_embedding_text("docs/specs/04-write-path.md", "Some prose.", &meta(&[]));
+        let text =
+            build_dense_embedding_text("docs/specs/04-write-path.md", "Some prose.", &meta(&[]));
         assert_eq!(text, "docs/specs/04-write-path.md\n\nSome prose.");
     }
 

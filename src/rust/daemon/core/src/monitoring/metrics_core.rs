@@ -13,11 +13,10 @@ use prometheus::{
 
 use super::metrics_factories::{
     create_chunking_coverage_metrics, create_dependency_metrics, create_file_metadata_metrics,
-    create_graph_metrics,
-    create_indexed_project_metrics, create_lsp_metrics, create_per_tenant_eta_metric,
-    create_per_tenant_indexing_metric, create_queue_metrics, create_session_metrics,
-    create_system_metrics, create_telemetry_extension_metrics, create_tenant_metrics,
-    create_unified_queue_metrics, create_watch_metrics, register_all,
+    create_graph_metrics, create_indexed_project_metrics, create_lsp_metrics,
+    create_per_tenant_eta_metric, create_per_tenant_indexing_metric, create_queue_metrics,
+    create_session_metrics, create_system_metrics, create_telemetry_extension_metrics,
+    create_tenant_metrics, create_unified_queue_metrics, create_watch_metrics, register_all,
 };
 
 /// Global metrics registry

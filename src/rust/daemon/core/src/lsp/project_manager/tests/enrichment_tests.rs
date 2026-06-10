@@ -15,7 +15,10 @@ fn symbol_column_resolves_real_offset() {
     // Regression guard for the column-0 bug: enrichment must query at the
     // symbol's real column, not the start of the line.
     assert_eq!(symbol_column_in_line("pub fn add(a: i32) {", "add"), 7);
-    assert_eq!(symbol_column_in_line("    def compute(self):", "compute"), 8);
+    assert_eq!(
+        symbol_column_in_line("    def compute(self):", "compute"),
+        8
+    );
     assert_eq!(symbol_column_in_line("class Widget:", "Widget"), 6);
     // First column when the symbol leads the line.
     assert_eq!(symbol_column_in_line("add()", "add"), 0);

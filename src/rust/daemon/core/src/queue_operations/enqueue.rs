@@ -162,7 +162,10 @@ impl QueueManager {
     /// `(item_type, op, tenant, collection, folder_path, scan-params)`; an
     /// already-pending scan of the same directory then dedups via
     /// `INSERT OR IGNORE`. The STORED payload keeps `last_scan` for mtime pruning.
-    fn idempotency_payload_json(item_type: ItemType, payload_json: &str) -> std::borrow::Cow<'_, str> {
+    fn idempotency_payload_json(
+        item_type: ItemType,
+        payload_json: &str,
+    ) -> std::borrow::Cow<'_, str> {
         if item_type != ItemType::Folder {
             return std::borrow::Cow::Borrowed(payload_json);
         }

@@ -67,10 +67,12 @@ async fn insert_tracked_file(
 }
 
 async fn file_delete_count(pool: &sqlx::SqlitePool) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE item_type = 'file' AND op = 'delete'")
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'file' AND op = 'delete'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

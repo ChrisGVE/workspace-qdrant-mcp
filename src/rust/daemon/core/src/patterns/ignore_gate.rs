@@ -85,10 +85,7 @@ impl IgnoreGate {
             }
         }
         if let Some(ref global) = self.global {
-            if global
-                .matched_path_or_any_parents(path, is_dir)
-                .is_ignore()
-            {
+            if global.matched_path_or_any_parents(path, is_dir).is_ignore() {
                 return true;
             }
         }
@@ -150,7 +147,10 @@ mod tests {
         let gate = IgnoreGate::for_dir(proj.path(), Some(proj.path()), Some(&gpath));
         let gen = proj.path().join("a/b/generated/x.dart");
         let keep = proj.path().join("a/b/src/main.rs");
-        assert!(gate.is_ignored(&gen, false), "global generated must be ignored");
+        assert!(
+            gate.is_ignored(&gen, false),
+            "global generated must be ignored"
+        );
         assert!(!gate.is_ignored(&keep, false), "source must be kept");
     }
 

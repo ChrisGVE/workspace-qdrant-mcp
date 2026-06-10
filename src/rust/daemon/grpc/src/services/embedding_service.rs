@@ -8,6 +8,7 @@
 //! with (FastEmbed local, OpenAI-compatible remote, etc.). Sparse vectors
 //! still use a service-local BM25 corpus.
 
+use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
 use lru::LruCache;
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
@@ -21,14 +22,13 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
-use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
 use workspace_qdrant_core::embedding::provider::DenseProvider;
 use workspace_qdrant_core::embedding::tokenize_for_bm25;
 use workspace_qdrant_core::{LexiconManager, BM25};
 
 use crate::proto::{
-    embedding_service_server::EmbeddingService, EmbedTextRequest, EmbedTextResponse,
-    RerankRequest, RerankResponse, RerankResult, SparseVectorRequest, SparseVectorResponse,
+    embedding_service_server::EmbeddingService, EmbedTextRequest, EmbedTextResponse, RerankRequest,
+    RerankResponse, RerankResult, SparseVectorRequest, SparseVectorResponse,
 };
 
 /// Default cache size (number of entries)
@@ -92,10 +92,7 @@ impl EmbeddingServiceImpl {
     /// `model_cache_dir` is the writable directory the reranker downloads its
     /// ONNX model into (typically the same path the dense provider uses). When
     /// `None`, fastembed falls back to its CWD-relative default.
-    pub fn new(
-        dense_provider: Arc<dyn DenseProvider>,
-        model_cache_dir: Option<PathBuf>,
-    ) -> Self {
+    pub fn new(dense_provider: Arc<dyn DenseProvider>, model_cache_dir: Option<PathBuf>) -> Self {
         let cache_size =
             NonZeroUsize::new(DEFAULT_CACHE_SIZE).expect("Cache size must be non-zero");
         Self {
@@ -372,14 +369,12 @@ impl EmbeddingService for EmbeddingServiceImpl {
             .generate_sparse_vector_internal(&req.text, &req.collection)
             .await
         {
-            Ok((sparse_map, vocab_size)) => {
-                Ok(Response::new(SparseVectorResponse {
-                    indices_values: sparse_map,
-                    vocab_size,
-                    success: true,
-                    error_message: String::new(),
-                }))
-            }
+            Ok((sparse_map, vocab_size)) => Ok(Response::new(SparseVectorResponse {
+                indices_values: sparse_map,
+                vocab_size,
+                success: true,
+                error_message: String::new(),
+            })),
             Err(e) => {
                 error!("GenerateSparseVector failed: {:?}", e);
                 Ok(Response::new(SparseVectorResponse {

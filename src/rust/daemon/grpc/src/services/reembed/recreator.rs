@@ -52,7 +52,9 @@ impl CollectionRecreator for StorageClientRecreator {
         self.storage
             .create_multi_tenant_collection(name, &config)
             .await
-            .map_err(|e| Status::internal(format!("create_multi_tenant_collection({name}): {e}")))?;
+            .map_err(|e| {
+                Status::internal(format!("create_multi_tenant_collection({name}): {e}"))
+            })?;
 
         // The delete above also dropped the payload indexes that
         // `initialize_multi_tenant_collections` builds at startup. Re-create

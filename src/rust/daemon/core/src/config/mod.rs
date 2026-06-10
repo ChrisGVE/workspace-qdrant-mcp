@@ -601,8 +601,7 @@ embedding:
     #[test]
     fn test_empty_config_parses_to_defaults() {
         // An entirely empty document must parse to defaults (never crash).
-        let config: DaemonConfig =
-            serde_yaml_ng::from_str("{}").expect("empty config must parse");
+        let config: DaemonConfig = serde_yaml_ng::from_str("{}").expect("empty config must parse");
         assert!(config.enable_preemption);
     }
 

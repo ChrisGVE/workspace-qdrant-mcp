@@ -230,7 +230,10 @@ mod tests {
     fn test_normalize_path_glob_already_floating_or_absolute() {
         // Already-floating (`**…`) and absolute (`/…`) patterns are unchanged.
         assert_eq!(normalize_path_glob("**/*.rs"), "**/*.rs");
-        assert_eq!(normalize_path_glob("**/domain/**/*.java"), "**/domain/**/*.java");
+        assert_eq!(
+            normalize_path_glob("**/domain/**/*.java"),
+            "**/domain/**/*.java"
+        );
         assert_eq!(
             normalize_path_glob("/home/u/repo/src/*.rs"),
             "/home/u/repo/src/*.rs"
@@ -244,13 +247,21 @@ mod tests {
         let abs = "/home/u/respositorios/DOC-V2/doc-backend/domain/Order.java";
 
         let raw = compile_glob_matcher("doc-backend/domain/**/*.java").unwrap();
-        assert!(!raw(abs), "un-anchored relative glob should NOT match abs path");
+        assert!(
+            !raw(abs),
+            "un-anchored relative glob should NOT match abs path"
+        );
 
         let normalized =
             compile_glob_matcher(&normalize_path_glob("doc-backend/domain/**/*.java")).unwrap();
-        assert!(normalized(abs), "normalized relative glob must match abs path");
+        assert!(
+            normalized(abs),
+            "normalized relative glob must match abs path"
+        );
         // And it must not over-match a different directory.
-        assert!(!normalized("/home/u/respositorios/DOC-V2/doc-frontend/app/Order.java"));
+        assert!(!normalized(
+            "/home/u/respositorios/DOC-V2/doc-frontend/app/Order.java"
+        ));
     }
 
     #[test]

@@ -201,14 +201,18 @@ mod tests {
     #[test]
     fn generated_protobuf_dart_is_ignored() {
         let (_d, ig) = write_global("**/*.pb.dart\n**/generated/\n");
-        let p = Path::new("/home/u/repos/app/doc-frontend/packages/generated/lib/protos/shifts.pb.dart");
+        let p = Path::new(
+            "/home/u/repos/app/doc-frontend/packages/generated/lib/protos/shifts.pb.dart",
+        );
         assert!(is_ignored_by_file(&ig, p, false));
     }
 
     #[test]
     fn generated_dir_java_is_ignored() {
         let (_d, ig) = write_global("**/generated/\n**/proto/**/*.java\n");
-        let p = Path::new("/home/u/repos/app/doc-backend/proto/src/generated/doc/ScheduleOuterClass.java");
+        let p = Path::new(
+            "/home/u/repos/app/doc-backend/proto/src/generated/doc/ScheduleOuterClass.java",
+        );
         assert!(is_ignored_by_file(&ig, p, false));
     }
 
@@ -318,7 +322,8 @@ mod tests {
         let ignored = Path::new(
             "/home/u/repos/workspace-qdrant-mcp/state/qdrant/storage/collections/projects/0/segments/abc/segment.json",
         );
-        let source = Path::new("/home/u/repos/workspace-qdrant-mcp/src/rust/daemon/core/src/lib.rs");
+        let source =
+            Path::new("/home/u/repos/workspace-qdrant-mcp/src/rust/daemon/core/src/lib.rs");
 
         let ignored_hit = is_globally_ignored(ignored, false);
         let source_hit = is_globally_ignored(source, false);

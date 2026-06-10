@@ -58,7 +58,11 @@ fn is_call_node(kind: &str, extra_call_kinds: &[String]) -> bool {
 /// `extra_call_kinds` are language-specific call-node kinds from the registry
 /// (`SemanticPatterns::call_nodes`); pass an empty slice to recognize only the
 /// universal [`DEFAULT_CALL_NODE_KINDS`].
-pub fn extract_function_calls(node: &Node, source: &str, extra_call_kinds: &[String]) -> Vec<String> {
+pub fn extract_function_calls(
+    node: &Node,
+    source: &str,
+    extra_call_kinds: &[String],
+) -> Vec<String> {
     let mut calls = Vec::new();
     let mut cursor = node.walk();
 
@@ -166,8 +170,14 @@ mod tests {
     #[test]
     fn clean_callee_strips_turbofish() {
         // The turbofish must not leak `<String` / `_>` into the call list.
-        assert_eq!(clean_callee_name("foo::<String, _>").as_deref(), Some("foo"));
-        assert_eq!(clean_callee_name("query::<String, _>").as_deref(), Some("query"));
+        assert_eq!(
+            clean_callee_name("foo::<String, _>").as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            clean_callee_name("query::<String, _>").as_deref(),
+            Some("query")
+        );
     }
 
     #[test]
@@ -178,8 +188,14 @@ mod tests {
             Some("new")
         );
         assert_eq!(clean_callee_name("Vec::<u8>::new").as_deref(), Some("new"));
-        assert_eq!(clean_callee_name("self.process").as_deref(), Some("process"));
-        assert_eq!(clean_callee_name("obj.method::<T>").as_deref(), Some("method"));
+        assert_eq!(
+            clean_callee_name("self.process").as_deref(),
+            Some("process")
+        );
+        assert_eq!(
+            clean_callee_name("obj.method::<T>").as_deref(),
+            Some("method")
+        );
     }
 
     #[test]

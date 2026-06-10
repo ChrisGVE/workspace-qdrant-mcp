@@ -479,8 +479,13 @@ pub(super) fn create_lsp_metrics() -> (IntGaugeVec, IntCounterVec) {
 /// call sites. Query latency is intentionally NOT duplicated here — it is
 /// already covered per-action by `grpc_request_duration_seconds{service="GraphService"}`.
 #[allow(clippy::type_complexity)]
-pub(super) fn create_graph_metrics(
-) -> (IntGaugeVec, IntGaugeVec, IntGaugeVec, IntCounterVec, IntCounterVec) {
+pub(super) fn create_graph_metrics() -> (
+    IntGaugeVec,
+    IntGaugeVec,
+    IntGaugeVec,
+    IntCounterVec,
+    IntCounterVec,
+) {
     let graph_nodes = int_gauge_vec(
         "graph_nodes",
         "Code-relationship graph node count by tenant and node type",

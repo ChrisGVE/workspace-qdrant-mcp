@@ -868,10 +868,17 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(qs, "done", "qdrant sink must resolve on the hash proof");
-            assert_eq!(ss, "done", "search sink must resolve (no search_db configured)");
+            assert_eq!(
+                ss, "done",
+                "search sink must resolve (no search_db configured)"
+            );
 
             let overall = manager.finalize_after_success(&queue_id).await.unwrap();
-            assert_eq!(overall, QueueStatus::Done, "row must finalize, not re-lease");
+            assert_eq!(
+                overall,
+                QueueStatus::Done,
+                "row must finalize, not re-lease"
+            );
         }
     }
 }

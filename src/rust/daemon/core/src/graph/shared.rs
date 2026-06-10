@@ -339,7 +339,10 @@ mod tests {
         assert_eq!(repointed, 1, "only the matchable stub edge repoints");
 
         // Edge now reaches the REAL callee in b.rs.
-        let related = store.query_related(T, &caller.node_id, 1, None).await.unwrap();
+        let related = store
+            .query_related(T, &caller.node_id, 1, None)
+            .await
+            .unwrap();
         assert!(
             related.iter().any(|n| n.file_path == "b.rs"),
             "resolved edge should target the real callee node in b.rs"
@@ -375,7 +378,10 @@ mod tests {
         store.insert_edges(&[dangling]).await.unwrap();
 
         let repointed = store.resolve_stub_edges(T).await.unwrap();
-        assert_eq!(repointed, 0, "ambiguous name (2 defining files) must not repoint");
+        assert_eq!(
+            repointed, 0,
+            "ambiguous name (2 defining files) must not repoint"
+        );
     }
 
     #[tokio::test]

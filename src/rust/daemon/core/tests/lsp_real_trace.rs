@@ -217,7 +217,11 @@ async fn real_lsp_enrichment_emits_real_trace() {
     // discarded so the rendered trace shows only the final, real enrichment.
     for attempt in 1..=15 {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let n = mgr.get_references(&lib, 0, 7).await.unwrap_or_default().len();
+        let n = mgr
+            .get_references(&lib, 0, 7)
+            .await
+            .unwrap_or_default()
+            .len();
         eprintln!("  warm-up attempt {attempt}: {n} reference(s)");
         if n > 0 {
             break;
@@ -229,16 +233,11 @@ async fn real_lsp_enrichment_emits_real_trace() {
 
     // (1) Real enrichment via the production entry-point — emits the
     //     `lsp.enrich_chunk` parent span + child query spans.
-    let enrichment = mgr
-        .enrich_chunk(project_id, &lib, "add", 0, 0, true)
-        .await;
+    let enrichment = mgr.enrich_chunk(project_id, &lib, "add", 0, 0, true).await;
 
     // (2) Direct reference query at the real `add` definition (line 0,
     //     char 7) to surface real call-site references.
-    let refs = mgr
-        .get_references(&lib, 0, 7)
-        .await
-        .unwrap_or_default();
+    let refs = mgr.get_references(&lib, 0, 7).await.unwrap_or_default();
 
     // (3) REAL call-hierarchy resolution at `compute` (line 4, char 7), which
     //     calls `add` twice — proves precise, resolved callee extraction (#3).
@@ -258,7 +257,10 @@ async fn real_lsp_enrichment_emits_real_trace() {
     for r in &refs {
         eprintln!("      → {}:{}:{}", r.file, r.line, r.column);
     }
-    eprintln!("  outgoing calls @compute (call hierarchy): {}", calls.len());
+    eprintln!(
+        "  outgoing calls @compute (call hierarchy): {}",
+        calls.len()
+    );
     for c in &calls {
         eprintln!("      → {} @ {}:{}", c.name, c.file, c.line);
     }

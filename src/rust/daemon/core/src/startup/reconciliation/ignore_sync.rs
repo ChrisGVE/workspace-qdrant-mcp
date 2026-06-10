@@ -480,7 +480,9 @@ mod tests {
         let be = root.path().join("doc-backend/proto/src/generated/doc");
         fs::create_dir_all(&be).unwrap();
         fs::write(be.join("ScheduleOuterClass.java"), "// gen").unwrap();
-        let fe = root.path().join("doc-frontend/packages/generated/lib/protos");
+        let fe = root
+            .path()
+            .join("doc-frontend/packages/generated/lib/protos");
         fs::create_dir_all(&fe).unwrap();
         fs::write(fe.join("shifts.pb.dart"), "// gen").unwrap();
         let src = root.path().join("doc-backend/src/main/java/com/x");
@@ -523,7 +525,10 @@ mod tests {
         fs::write(root.path().join("keep.rs"), "fn main() {}").unwrap();
 
         let files = walk_eligible_files(root.path(), Some(&global_ignore)).unwrap();
-        assert!(files.contains("keep.rs"), "hand-authored file kept, got {files:?}");
+        assert!(
+            files.contains("keep.rs"),
+            "hand-authored file kept, got {files:?}"
+        );
         assert!(
             !files.iter().any(|f| f.contains("state/qdrant")),
             "deep state/qdrant must be excluded, got {files:?}"

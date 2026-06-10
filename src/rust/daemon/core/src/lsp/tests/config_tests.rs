@@ -39,7 +39,10 @@ fn test_dart_and_r_language_configs() {
         .language_configs
         .get(&Language::Dart)
         .expect("Dart language config must exist");
-    assert_eq!(dart.preferred_servers.first().map(String::as_str), Some("dart"));
+    assert_eq!(
+        dart.preferred_servers.first().map(String::as_str),
+        Some("dart")
+    );
 
     // R config present with the `R` interpreter server preferred.
     let r = config

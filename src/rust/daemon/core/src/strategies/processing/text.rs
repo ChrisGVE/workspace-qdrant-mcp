@@ -537,11 +537,17 @@ mod tests {
 
         // Delete path derives its target id from `content` — same string, same id.
         let delete_target = crate::generate_content_document_id(tenant, original);
-        assert_eq!(add_id, delete_target, "delete must target the add-time point");
+        assert_eq!(
+            add_id, delete_target,
+            "delete must target the add-time point"
+        );
 
         // Update path derives the OLD point's id from `old_content` — same too.
         let update_old_target = crate::generate_content_document_id(tenant, original);
-        assert_eq!(add_id, update_old_target, "update must evict the add-time point");
+        assert_eq!(
+            add_id, update_old_target,
+            "update must evict the add-time point"
+        );
 
         // The NEW content lands at a DIFFERENT id (a genuinely new point), so the
         // old one would be orphaned if not explicitly evicted.

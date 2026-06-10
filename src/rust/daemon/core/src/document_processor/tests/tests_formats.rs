@@ -444,7 +444,8 @@ fn test_extract_text_accepts_utf8() {
     use super::super::extraction::extract_text_with_encoding;
 
     let mut tmp = NamedTempFile::new().unwrap();
-    tmp.write_all("fn main() {}\nlet x = 1;\n".as_bytes()).unwrap();
+    tmp.write_all("fn main() {}\nlet x = 1;\n".as_bytes())
+        .unwrap();
     tmp.flush().unwrap();
 
     let (text, meta) = extract_text_with_encoding(tmp.path()).unwrap();

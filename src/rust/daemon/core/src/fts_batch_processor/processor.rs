@@ -675,11 +675,7 @@ mod dedup_tests {
         // file 1 appears twice (v1 then v3), file 2 once. Applying both
         // copies of file 1 in one batch tx is what triggers the UNIQUE
         // constraint violation, so only the newest (v3) must survive.
-        let input = vec![
-            change(1, "v1"),
-            change(2, "v2"),
-            change(1, "v3"),
-        ];
+        let input = vec![change(1, "v1"), change(2, "v2"), change(1, "v3")];
         let out = dedup_changes_keep_last(input);
 
         assert_eq!(out.len(), 2, "one entry per file_id");

@@ -531,15 +531,7 @@ fn test_split_single_giant_line_terminates() {
     let chunker = SemanticChunker::new(200);
     let content = "a".repeat(100_000); // no '\n' anywhere
 
-    let chunk = SemanticChunk::new(
-        ChunkType::Text,
-        "blob",
-        &content,
-        1,
-        1,
-        "json",
-        "data.json",
-    );
+    let chunk = SemanticChunk::new(ChunkType::Text, "blob", &content, 1, 1, "json", "data.json");
 
     let fragments = chunker.split_oversized_chunk(&chunk);
     assert!(fragments.len() >= 2);

@@ -107,7 +107,11 @@ fn split_chunk_with_overlap(chunk: &SemanticChunk, max_chunk_size: usize) -> Vec
         // strictly forward with no coverage gap.
         let line_end = find_line_boundary(content, start, window_end);
         let min_end = (start + step_size).min(content.len());
-        let actual_end = if line_end >= min_end { line_end } else { window_end };
+        let actual_end = if line_end >= min_end {
+            line_end
+        } else {
+            window_end
+        };
 
         let fragment_content = &content[start..actual_end];
 
@@ -157,7 +161,11 @@ fn split_chunk_with_overlap(chunk: &SemanticChunk, max_chunk_size: usize) -> Vec
         // where char-boundary rounding could otherwise stall `start` and loop
         // forever.
         let next_start = safe_char_boundary(content, start + step_size);
-        start = if next_start > start { next_start } else { actual_end };
+        start = if next_start > start {
+            next_start
+        } else {
+            actual_end
+        };
     }
 
     fragments

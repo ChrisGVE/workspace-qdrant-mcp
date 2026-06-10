@@ -396,7 +396,10 @@ async fn process_tracked_file(
                         return 1;
                     }
                     Err(e) => {
-                        warn!("Failed to queue update for modified file: {}: {}", file_path, e);
+                        warn!(
+                            "Failed to queue update for modified file: {}: {}",
+                            file_path, e
+                        );
                         stats.errors += 1;
                     }
                 }

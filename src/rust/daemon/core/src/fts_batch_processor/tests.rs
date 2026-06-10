@@ -221,12 +221,11 @@ async fn test_mid_file_insert_does_not_collide_on_seq() {
     assert_eq!(rows, vec!["line 1", "inserted", "line 2", "line 3"]);
 
     // Every seq is distinct (the renumber left no duplicates behind).
-    let (total, distinct): (i32, i32) = sqlx::query_as(
-        "SELECT COUNT(seq), COUNT(DISTINCT seq) FROM code_lines WHERE file_id = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
+    let (total, distinct): (i32, i32) =
+        sqlx::query_as("SELECT COUNT(seq), COUNT(DISTINCT seq) FROM code_lines WHERE file_id = 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_eq!(total, 4);
     assert_eq!(distinct, 4, "seqs must be unique after renumber");
 

@@ -277,7 +277,10 @@ mod tests {
         assert_eq!(settings.provider, "fastembed");
         assert_eq!(settings.output_dim, FASTEMBED_OUTPUT_DIM);
         assert_eq!(settings.model, "all-MiniLM-L6-v2");
-        assert_eq!(settings.base_url, "", "fastembed base_url must be cleared even if env sets one");
+        assert_eq!(
+            settings.base_url, "",
+            "fastembed base_url must be cleared even if env sets one"
+        );
         // Non-endpoint overrides are still honored.
         assert_eq!(settings.api_key_env_var, "MY_KEY");
 

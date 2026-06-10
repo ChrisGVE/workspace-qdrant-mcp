@@ -344,7 +344,10 @@ async fn reembed_recreate_uses_named_dense_sparse_schema() {
     // `wait=true`. On an unnamed-vector collection (the reembed regression)
     // Qdrant declines this synchronously with "Not existing vector name error:
     // dense"; on the correct named schema it succeeds.
-    let doc = create_test_document("reembed_named_vec_1", "named vector schema regression check");
+    let doc = create_test_document(
+        "reembed_named_vec_1",
+        "named vector schema regression check",
+    );
     let insert_result = client.insert_point(&collection_name, doc).await;
     assert!(
         insert_result.is_ok(),

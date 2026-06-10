@@ -336,10 +336,16 @@ pub async fn initialize(
             let start = std::time::Instant::now();
             let (index_res, query_res) = tokio::join!(warm_index.probe(), warm_query.probe());
             if let Err(e) = index_res {
-                warn!("Indexing embedding warm-up failed (lazy load will retry): {}", e);
+                warn!(
+                    "Indexing embedding warm-up failed (lazy load will retry): {}",
+                    e
+                );
             }
             if let Err(e) = query_res {
-                warn!("Query embedding warm-up failed (lazy load will retry): {}", e);
+                warn!(
+                    "Query embedding warm-up failed (lazy load will retry): {}",
+                    e
+                );
             }
             info!("Embedding model warm-up complete in {:?}", start.elapsed());
         });
@@ -445,7 +451,10 @@ pub async fn start_processor(
     // (`finalize_after_success` preserves orphaned `in_progress`) and blocks
     // queue quiescence, including the reembed drain-to-quiescence gate.
     if let Err(e) = uqp.reset_orphaned_destinations().await {
-        warn!("Failed to reset orphaned in_progress destination sinks: {}", e);
+        warn!(
+            "Failed to reset orphaned in_progress destination sinks: {}",
+            e
+        );
     }
 
     // GC search.db content orphaned from tracked_files. The cross-database

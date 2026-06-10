@@ -342,12 +342,9 @@ async fn read_stdout_loop(
                     continue; // malformed / zero-length frame
                 }
                 trace!("Received: {}", message_text);
-                if let Err(e) = handle_incoming_message(
-                    &message_text,
-                    pending_requests,
-                    notification_handler,
-                )
-                .await
+                if let Err(e) =
+                    handle_incoming_message(&message_text, pending_requests, notification_handler)
+                        .await
                 {
                     warn!("Error handling message: {}", e);
                 }

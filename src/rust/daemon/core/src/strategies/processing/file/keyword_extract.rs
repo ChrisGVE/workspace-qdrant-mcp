@@ -109,7 +109,9 @@ async fn fetch_lexicon_data(
     // (update_lexicon_and_graph), so they must match how chunk vectors and
     // query vectors are tokenized or BM25 term ids will not line up.
     let unique_terms: std::collections::HashSet<String> =
-        crate::embedding::tokenize_for_bm25(full_text).into_iter().collect();
+        crate::embedding::tokenize_for_bm25(full_text)
+            .into_iter()
+            .collect();
 
     let df_lookup = ctx
         .lexicon_manager

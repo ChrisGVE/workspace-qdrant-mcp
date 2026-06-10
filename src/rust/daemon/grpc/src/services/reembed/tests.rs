@@ -283,7 +283,11 @@ async fn flush_clears_done_rows_and_spares_non_canonical() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(chunk_files, vec![2], "canonical file's chunks must be cleared");
+    assert_eq!(
+        chunk_files,
+        vec![2],
+        "canonical file's chunks must be cleared"
+    );
 }
 
 /// Regression for the "reembed completes but re-ingests nothing" bug: the

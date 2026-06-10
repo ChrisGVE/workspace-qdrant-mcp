@@ -364,6 +364,9 @@ mod tests {
             msg.starts_with("[transient_"),
             "must match resurrection's LIKE '[transient_%' pattern, got: {msg}"
         );
-        assert!(msg.contains("abc123"), "must embed the queue_id, got: {msg}");
+        assert!(
+            msg.contains("abc123"),
+            "must embed the queue_id, got: {msg}"
+        );
     }
 }

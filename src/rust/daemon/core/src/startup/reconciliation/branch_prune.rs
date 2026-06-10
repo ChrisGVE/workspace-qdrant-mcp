@@ -164,7 +164,10 @@ async fn prune_project_branches(
     .await
     .map_err(|e| format!("query tracked branches: {e}"))?;
 
-    let primary = counts.iter().max_by_key(|(_, n)| *n).map(|(b, _)| b.as_str());
+    let primary = counts
+        .iter()
+        .max_by_key(|(_, n)| *n)
+        .map(|(b, _)| b.as_str());
 
     let mut stats = BranchPruneStats::default();
     for (branch, _count) in &counts {
@@ -243,8 +246,8 @@ async fn enqueue_branch_deletes(
             size_bytes: None,
             old_path: None,
         };
-        let payload_json = serde_json::to_string(&payload)
-            .map_err(|e| format!("serialize FilePayload: {e}"))?;
+        let payload_json =
+            serde_json::to_string(&payload).map_err(|e| format!("serialize FilePayload: {e}"))?;
 
         match queue_manager
             .enqueue_unified(

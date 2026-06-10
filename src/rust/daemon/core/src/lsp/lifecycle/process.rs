@@ -60,7 +60,13 @@ pub(crate) fn server_launch_args(server_name: &str) -> &'static [&'static str] {
 
         // R language server is an R package launched through the interpreter.
         // `--slave` (kept for pre-4.0 compatibility) silences the banner.
-        "R" => &["--slave", "--no-save", "--no-restore", "-e", "languageserver::run()"],
+        "R" => &[
+            "--slave",
+            "--no-save",
+            "--no-restore",
+            "-e",
+            "languageserver::run()",
+        ],
 
         // Unknown servers: assume the common `--stdio` convention.
         _ => &["--stdio"],
@@ -92,7 +98,14 @@ pub struct ServerInstance {
 fn is_indexing_title(title: &str) -> bool {
     let t = title.to_ascii_lowercase();
     [
-        "index", "cache", "load", "workspace", "scan", "building", "roots", "metadata",
+        "index",
+        "cache",
+        "load",
+        "workspace",
+        "scan",
+        "building",
+        "roots",
+        "metadata",
     ]
     .iter()
     .any(|kw| t.contains(kw))
@@ -238,8 +251,7 @@ impl ServerInstance {
                             }
                         }
                         "language/status" => {
-                            let ty =
-                                params.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let ty = params.get("type").and_then(|t| t.as_str()).unwrap_or("");
                             if ty.eq_ignore_ascii_case("Started")
                                 || ty.eq_ignore_ascii_case("ServiceReady")
                             {
@@ -488,7 +500,10 @@ mod tests {
 
     #[test]
     fn test_node_servers_require_stdio_flag() {
-        assert_eq!(server_launch_args("typescript-language-server"), &["--stdio"]);
+        assert_eq!(
+            server_launch_args("typescript-language-server"),
+            &["--stdio"]
+        );
         assert_eq!(server_launch_args("pyright-langserver"), &["--stdio"]);
     }
 

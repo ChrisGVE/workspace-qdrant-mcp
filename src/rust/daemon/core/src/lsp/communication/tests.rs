@@ -123,7 +123,13 @@ async fn read_message_frames_back_to_back_messages() {
     );
     let mut reader = tokio::io::BufReader::new(framed.as_bytes());
 
-    assert_eq!(read_message(&mut reader).await.unwrap().as_deref(), Some(b1));
-    assert_eq!(read_message(&mut reader).await.unwrap().as_deref(), Some(b2));
+    assert_eq!(
+        read_message(&mut reader).await.unwrap().as_deref(),
+        Some(b1)
+    );
+    assert_eq!(
+        read_message(&mut reader).await.unwrap().as_deref(),
+        Some(b2)
+    );
     assert_eq!(read_message(&mut reader).await.unwrap(), None);
 }

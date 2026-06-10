@@ -399,12 +399,10 @@ impl UnifiedQueueProcessor {
         let Some(ref search_db) = self.search_db else {
             return Ok(0);
         };
-        let stats = crate::search_db::orphan_gc::gc_orphaned_files(
-            search_db,
-            self.queue_manager.pool(),
-        )
-        .await
-        .map_err(|e| UnifiedProcessorError::QueueOperation(e.to_string()))?;
+        let stats =
+            crate::search_db::orphan_gc::gc_orphaned_files(search_db, self.queue_manager.pool())
+                .await
+                .map_err(|e| UnifiedProcessorError::QueueOperation(e.to_string()))?;
         Ok(stats.files_deleted)
     }
 

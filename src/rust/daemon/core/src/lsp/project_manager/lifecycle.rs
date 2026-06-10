@@ -72,9 +72,7 @@ impl LanguageServerManager {
             let servers = self.servers.read().await;
             let running = servers
                 .values()
-                .filter(|s| {
-                    matches!(s.status, ServerStatus::Running | ServerStatus::Initializing)
-                })
+                .filter(|s| matches!(s.status, ServerStatus::Running | ServerStatus::Initializing))
                 .count();
             if running >= self.config.max_global_servers {
                 tracing::warn!(
