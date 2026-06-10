@@ -8,6 +8,7 @@ pub mod helpers;
 mod info;
 mod inject;
 mod list;
+mod manage;
 mod remove;
 mod search;
 
@@ -138,6 +139,47 @@ enum RulesCommand {
         yes: bool,
     },
 
+    /// Reassign a rule to another scope (global <-> project)
+    #[command(
+        long_about = "Move a rule, identified by label, to a different scope: a specific \
+            project (path or tenant id via --to) or the global scope when --to is omitted. \
+            Queued as add-under-new-scope + remove-under-old-scope.",
+        after_long_help = "Examples:\n  \
+            wqm rules reassign --label no-emoji --to .   Move to current project\n  \
+            wqm rules reassign --label no-emoji          Move to global scope"
+    )]
+    Reassign {
+        /// Rule label to reassign
+        #[arg(long)]
+        label: String,
+
+        /// Target project (path or tenant id; omit for global)
+        #[arg(long)]
+        to: Option<String>,
+    },
+
+    /// Update (amend) a rule's content or title
+    #[command(
+        long_about = "Amend a rule in place, identified by label. Content and/or title can \
+            change; label, scope, priority, and tags are preserved.",
+        after_long_help = "Examples:\n  \
+            wqm rules update --label no-emoji --content 'New rule text'\n  \
+            wqm rules update --label no-emoji --title 'No emoji anywhere'"
+    )]
+    Update {
+        /// Rule label to update
+        #[arg(long)]
+        label: String,
+
+        /// New content
+        #[arg(long)]
+        content: Option<String>,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+    },
+
     /// Show detailed information about a specific rule
     #[command(
         long_about = "Display full details for a specific rule identified by its label, \
@@ -220,6 +262,12 @@ pub async fn execute(args: RulesArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             remove::remove_rule(&label, &scope, yes).await
         }
+        RulesCommand::Reassign { label, to } => manage::reassign_rule(&label, to).await,
+        RulesCommand::Update {
+            label,
+            content,
+            title,
+        } => manage::update_rule(&label, content, title).await,
         RulesCommand::Info { label, json } => info::rule_info(&label, json).await,
         RulesCommand::Search {
             query,

@@ -7,6 +7,7 @@ mod add;
 mod client;
 mod info;
 mod list;
+mod manage;
 mod search;
 mod types;
 
@@ -82,6 +83,67 @@ enum ScratchCommand {
         project: Option<String>,
     },
 
+    /// Delete a scratchpad entry
+    #[command(
+        long_about = "Permanently delete one scratchpad entry, identified by title. \
+            Requires typing the exact \"Delete <title>\" confirmation unless --yes is given.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad delete 'auth design'         Delete (typed confirmation)\n  \
+            wqm scratchpad delete 'auth design' --yes   Delete without prompting"
+    )]
+    Delete {
+        /// Entry title to delete
+        identifier: String,
+
+        /// Skip the typed "Delete <title>" confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// Update (amend) a scratchpad entry
+    #[command(
+        long_about = "Amend one scratchpad entry, identified by title. Any combination of \
+            --content, --title, and --tags can be changed; omitted fields keep their \
+            current value.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad update 'auth design' --content 'new text'   Replace content\n  \
+            wqm scratchpad update 'auth design' --tags arch,auth       Replace tags\n  \
+            wqm scratchpad update 'auth design' --title 'auth notes'   Rename"
+    )]
+    Update {
+        /// Entry title to update
+        identifier: String,
+
+        /// New content (replaces the stored content)
+        #[arg(long)]
+        content: Option<String>,
+
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// New tags (comma-separated, replaces existing tags)
+        #[arg(long)]
+        tags: Option<String>,
+    },
+
+    /// Reassign a scratchpad entry to another project (or global)
+    #[command(
+        long_about = "Move one scratchpad entry, identified by title, to a different scope: \
+            a specific project (path or tenant id) or the global scope when --to is omitted.",
+        after_long_help = "Examples:\n  \
+            wqm scratchpad reassign 'auth design' --to .          Move to current project\n  \
+            wqm scratchpad reassign 'auth design'                 Move to global scope"
+    )]
+    Reassign {
+        /// Entry title to reassign
+        identifier: String,
+
+        /// Target project (path or tenant id; omit for global)
+        #[arg(long)]
+        to: Option<String>,
+    },
+
     /// List scratchpad entries
     #[command(
         long_about = "Display all scratchpad entries, optionally filtered by project. Shows \
@@ -135,6 +197,16 @@ pub async fn execute(args: ScratchArgs) -> Result<()> {
             tags,
             project,
         } => add::add_entry(content, title, tags, project).await,
+        ScratchCommand::Delete { identifier, yes } => manage::delete_entry(&identifier, yes).await,
+        ScratchCommand::Update {
+            identifier,
+            content,
+            title,
+            tags,
+        } => manage::update_entry(&identifier, content, title, tags).await,
+        ScratchCommand::Reassign { identifier, to } => {
+            manage::reassign_entry(&identifier, to).await
+        }
         ScratchCommand::List {
             project,
             limit,

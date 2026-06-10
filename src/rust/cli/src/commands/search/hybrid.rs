@@ -36,7 +36,7 @@ pub async fn run_hybrid_search(
 
     let qdrant = QdrantReadClient::new(
         crate::config::resolve_qdrant_url(),
-        resolve_qdrant_api_key(),
+        crate::config::resolve_qdrant_api_key().map(SecretString::from),
     );
 
     let scope_ctx = resolve_scope_ctx(&mut daemon, project_id, opts.scope).await;
@@ -52,18 +52,6 @@ pub async fn run_hybrid_search(
         &(), // no fallback-metrics backend in the CLI
     )
     .await)
-}
-
-/// Resolve the Qdrant API key from the environment.
-///
-/// Same precedence the MCP server uses: `QDRANT_API_KEY` (cloud convention)
-/// over `WQM_QDRANT_API_KEY`. Returns `None` for local unauthenticated Qdrant.
-fn resolve_qdrant_api_key() -> Option<SecretString> {
-    std::env::var("QDRANT_API_KEY")
-        .or_else(|_| std::env::var("WQM_QDRANT_API_KEY"))
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(SecretString::from)
 }
 
 /// Resolve the group/all scope tenant filter + relevance decay via the daemon.
