@@ -9,22 +9,22 @@ use std::time::Instant;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Row, Table};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 use wqm_common::constants::TENANT_GLOBAL;
 
 use regex::Regex;
 
+use super::confirm::{draw_typed_confirm, TypedConfirm};
 use super::rules_data::{fetch_rule_rows, RuleRow};
 use crate::data::tenants;
 use crate::tui::filter::{self, FilterState};
-use crate::tui::render::content::render_markdown;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 
 /// Build the text a filter or search matches against for a rule: its text,
 /// scope, and resolved tenant/project name.
-fn match_haystack(rule: &RuleRow, names: &HashMap<String, String>) -> String {
+pub(super) fn match_haystack(rule: &RuleRow, names: &HashMap<String, String>) -> String {
     let name = tenants::display_name(names, &rule.tenant_id);
     format!("{} {} {}", rule.rule_text, rule.scope, name)
 }
@@ -37,9 +37,9 @@ pub struct RuleBrowser {
     /// All rules from the last fetch (before page/global filtering).
     all_items: Vec<RuleRow>,
     /// Rules currently shown — `all_items` narrowed by the page + global filter.
-    items: Vec<RuleRow>,
+    pub(super) items: Vec<RuleRow>,
     /// Index of the selected item.
-    selected: usize,
+    pub(super) selected: usize,
     /// Per-page narrowing filter (`f`); composes (AND) with the global filter.
     page_filter: FilterState,
     /// Compiled global filter pushed from the app.
@@ -49,9 +49,13 @@ pub struct RuleBrowser {
     /// When data was last refreshed.
     last_refresh: Option<Instant>,
     /// Cursor-jump search state (`/`).
-    search: SearchState,
+    pub(super) search: SearchState,
     /// tenant_id → project name map for scope display.
-    names: HashMap<String, String>,
+    pub(super) names: HashMap<String, String>,
+    /// Pending typed-name deletion confirm, if the modal is open.
+    delete_confirm: Option<TypedConfirm>,
+    /// Transient status message shown after an action.
+    message: Option<String>,
 }
 
 impl RuleBrowser {
@@ -66,8 +70,34 @@ impl RuleBrowser {
             last_refresh: None,
             search: SearchState::new(),
             names: HashMap::new(),
+            delete_confirm: None,
+            message: None,
         }
     }
+
+    // ── Draw accessors (used by rules_draw.rs) ──────────────────────────────
+
+    /// Slice of the currently visible items.
+    pub(super) fn items_slice(&self) -> &[RuleRow] {
+        &self.items
+    }
+
+    /// Index of the currently selected item.
+    pub(super) fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    /// Read-only reference to the search state (for prompt rendering).
+    pub(super) fn search_ref(&self) -> &SearchState {
+        &self.search
+    }
+
+    /// Read-only reference to the tenant-name map.
+    pub(super) fn names_ref(&self) -> &HashMap<String, String> {
+        &self.names
+    }
+
+    // ── Public API ──────────────────────────────────────────────────────────
 
     pub fn search_mut(&mut self) -> &mut SearchState {
         &mut self.search
@@ -223,6 +253,68 @@ impl RuleBrowser {
         self.detail_open
     }
 
+    // ── Delete confirm ──────────────────────────────────────────────────────
+
+    /// Whether the typed-name delete confirmation modal is open.
+    pub fn delete_confirm_open(&self) -> bool {
+        self.delete_confirm.is_some()
+    }
+
+    /// Open a typed-name delete confirmation for the selected rule.
+    ///
+    /// The confirmation target name is the first line of the rule text, truncated
+    /// to 40 characters, so the user types something recognisable.
+    pub fn request_delete(&mut self) {
+        if let Some(rule) = self.items.get(self.selected) {
+            let label = rule
+                .rule_text
+                .lines()
+                .next()
+                .unwrap_or(&rule.rule_id)
+                .chars()
+                .take(40)
+                .collect::<String>();
+            self.delete_confirm = Some(TypedConfirm::new(label));
+        }
+    }
+
+    /// Mutable reference to the pending delete confirm (for key input).
+    pub fn delete_confirm_mut(&mut self) -> Option<&mut TypedConfirm> {
+        self.delete_confirm.as_mut()
+    }
+
+    /// Return the rule_id of the selected item together with the typed confirm,
+    /// consuming both. Returns `None` if the confirm is not open or input does
+    /// not yet match.
+    pub fn take_delete_if_confirmed(&mut self) -> Option<String> {
+        if self.delete_confirm.as_ref().map_or(false, |c| c.matches()) {
+            self.delete_confirm = None;
+            self.items
+                .get(self.selected)
+                .map(|rule| rule.rule_id.clone())
+        } else {
+            if let Some(ref mut c) = self.delete_confirm {
+                c.mark_rejected();
+            }
+            None
+        }
+    }
+
+    /// Cancel and close the delete confirmation modal.
+    pub fn cancel_delete(&mut self) {
+        self.delete_confirm = None;
+    }
+
+    /// Set a transient status message shown in the summary bar.
+    pub fn set_message(&mut self, msg: String) {
+        self.message = Some(msg);
+    }
+
+    /// Force a data refresh on the next tick.
+    pub fn force_refresh(&mut self) {
+        self.last_refresh = None;
+    }
+
     /// Draw the rules browser.
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
         if self.items.is_empty() {
@@ -243,7 +335,7 @@ impl RuleBrowser {
         ])
         .split(area);
 
-        // Summary
+        // Summary bar
         let mut summary_spans = vec![
             Span::styled(" Rules: ", Style::default().fg(theme::COLOR_MUTED)),
             Span::styled(
@@ -262,6 +354,12 @@ impl RuleBrowser {
             &self.search,
             self.search_matches().len(),
         ));
+        if let Some(ref msg) = self.message {
+            summary_spans.push(Span::styled(
+                format!("  {msg}"),
+                Style::default().fg(theme::COLOR_WARNING),
+            ));
+        }
         let summary = Paragraph::new(Line::from(summary_spans)).block(
             Block::default()
                 .borders(Borders::ALL)
@@ -278,121 +376,16 @@ impl RuleBrowser {
                 self.draw_detail_popup(frame, area, rule);
             }
         }
-    }
-
-    fn render_rules_table(&self, frame: &mut Frame, area: Rect) {
-        let header =
-            Row::new(vec!["  Tenant", "Rule Text", "Updated"]).style(theme::table_header_style());
-
-        // Chrome = top+bottom borders (2) + header row (1). No header margin.
-        let visible_height = crate::tui::util::visible_rows(area.height, 3);
-        let start = crate::tui::util::scroll_offset(self.selected, visible_height);
-
-        let rows: Vec<Row> = self
-            .items
-            .iter()
-            .enumerate()
-            .skip(start)
-            .take(visible_height)
-            .map(|(i, rule)| {
-                let scope_display = if rule.scope == TENANT_GLOBAL {
-                    TENANT_GLOBAL.to_string()
-                } else if rule.tenant_id.is_empty() {
-                    rule.scope.clone()
-                } else {
-                    truncate_str(&tenants::display_name(&self.names, &rule.tenant_id), 14)
-                };
-                let text_preview = truncate_str(&rule.rule_text, 60);
-                let updated = format_short_date(&rule.updated_at);
-                let matched = self.search.has_query()
-                    && self.search.is_match(&match_haystack(rule, &self.names));
-                let style = if i == self.selected {
-                    theme::selected_row_style()
-                } else if matched {
-                    theme::search_match_style()
-                } else {
-                    Style::default()
-                };
-                Row::new(vec![format!("  {}", scope_display), text_preview, updated]).style(style)
-            })
-            .collect();
-
-        let widths = [
-            Constraint::Length(16),
-            Constraint::Min(30),
-            Constraint::Length(12),
-        ];
-
-        let table = Table::new(rows, widths)
-            .header(header)
-            .block(Block::default().borders(Borders::ALL));
-
-        frame.render_widget(table, area);
-    }
-
-    fn draw_detail_popup(&self, frame: &mut Frame, area: Rect, rule: &RuleRow) {
-        let popup_width = (area.width - 4).min(80);
-        let popup_height = (area.height - 4).min(30);
-        let x = (area.width.saturating_sub(popup_width)) / 2;
-        let y = (area.height.saturating_sub(popup_height)) / 2;
-        let popup_area = Rect::new(x, y, popup_width, popup_height);
-
-        frame.render_widget(Clear, popup_area);
-
-        let scope_display = if rule.scope == TENANT_GLOBAL {
-            TENANT_GLOBAL.to_string()
-        } else if rule.tenant_id.is_empty() {
-            rule.scope.clone()
-        } else {
-            tenants::display_name(&self.names, &rule.tenant_id)
-        };
-
-        let mut lines = vec![
-            Line::from(vec![
-                Span::styled("  ID:       ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&rule.rule_id),
-            ]),
-            Line::from(vec![
-                Span::styled("  Scope:    ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&scope_display),
-            ]),
-            Line::from(vec![
-                Span::styled("  Created:  ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&rule.created_at),
-            ]),
-            Line::from(vec![
-                Span::styled("  Updated:  ", Style::default().fg(theme::COLOR_MUTED)),
-                Span::raw(&rule.updated_at),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Rule Text:",
-                Style::default()
-                    .fg(theme::COLOR_FG)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-
-        // Render rule text as Markdown, word-wrapped to the popup inner width.
-        let text_width = popup_width.saturating_sub(6) as usize;
-        lines.extend(render_markdown(&rule.rule_text, text_width));
-
-        let popup = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Rule Detail ")
-                .title_style(Style::default().add_modifier(Modifier::BOLD))
-                .style(theme::popup_style()),
-        );
-
-        frame.render_widget(popup, popup_area);
+        // Typed-name deletion confirm modal (on top of everything)
+        if let Some(ref tc) = self.delete_confirm {
+            draw_typed_confirm(frame, frame.area(), tc);
+        }
     }
 }
 
 /// Sort key for a rule: the global label for global rules, otherwise the
 /// resolved project name. Used to group/sort rules by tenant.
-fn rule_tenant_key(rule: &RuleRow, names: &std::collections::HashMap<String, String>) -> String {
+fn rule_tenant_key(rule: &RuleRow, names: &HashMap<String, String>) -> String {
     if rule.scope == TENANT_GLOBAL || rule.tenant_id.is_empty() {
         TENANT_GLOBAL.to_string()
     } else {
@@ -400,56 +393,10 @@ fn rule_tenant_key(rule: &RuleRow, names: &std::collections::HashMap<String, Str
     }
 }
 
-/// Truncate a string to `max_len` characters, adding ellipsis if needed.
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.chars().count() <= max_len {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_len.saturating_sub(1)).collect();
-        format!("{}\u{2026}", truncated)
-    }
-}
-
-/// Format an ISO datetime string to short date (YYYY-MM-DD).
-fn format_short_date(s: &str) -> String {
-    if s.len() >= 10 {
-        s[..10].to_string()
-    } else {
-        s.to_string()
-    }
-}
+// Re-export draw helpers so tests (via `use super::*`) can reach them.
+#[cfg(test)]
+pub(super) use super::rules_draw::{format_short_date, truncate_str};
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn browser_initializes_empty() {
-        let browser = RuleBrowser::new();
-        assert!(browser.items.is_empty());
-        assert_eq!(browser.selected, 0);
-        assert!(!browser.detail_open());
-    }
-
-    #[test]
-    fn truncate_str_short() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-    }
-
-    #[test]
-    fn truncate_str_long() {
-        let result = truncate_str("hello world foo bar", 10);
-        assert!(result.chars().count() <= 10);
-        assert!(result.contains('\u{2026}'));
-    }
-
-    #[test]
-    fn format_short_date_iso() {
-        assert_eq!(format_short_date("2026-04-16T18:41:10+02:00"), "2026-04-16");
-    }
-
-    #[test]
-    fn format_short_date_short_input() {
-        assert_eq!(format_short_date("2026"), "2026");
-    }
-}
+#[path = "rules_tests.rs"]
+mod tests;

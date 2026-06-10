@@ -128,6 +128,134 @@ fn request_toggle_opens_for_top_level_library() {
     assert!(!enable); // toggles to disabled
 }
 
+// ── Nudge confirm state machine ───────────────────────────────────────────────
+
+#[test]
+fn nudge_confirm_not_open_by_default() {
+    let b = LibraryBrowser::new();
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn request_nudge_on_empty_list_is_noop() {
+    let mut b = LibraryBrowser::new();
+    b.request_nudge();
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn request_nudge_opens_confirm_with_library_name() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 1;
+    b.request_nudge();
+    assert!(b.nudge_confirm_open());
+    let ac = b.nudge_action_confirm().unwrap();
+    let ActionConfirm::Simple(ref sc) = ac;
+    assert_eq!(sc.verb, "Rescan");
+    assert_eq!(sc.target, "lib-1");
+}
+
+#[test]
+fn take_nudge_returns_tag_and_clears_modal() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 2;
+    b.request_nudge();
+    let tenant = b.take_nudge().unwrap();
+    assert_eq!(tenant, "tag-2");
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn cancel_nudge_clears_modal() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(2);
+    b.request_nudge();
+    b.cancel_nudge();
+    assert!(!b.nudge_confirm_open());
+    assert!(b.take_nudge().is_none());
+}
+
+// ── Book-removal typed confirm ────────────────────────────────────────────────
+
+#[test]
+fn book_remove_confirm_not_open_by_default() {
+    let b = LibraryBrowser::new();
+    assert!(!b.book_remove_confirm_open());
+}
+
+#[test]
+fn request_book_remove_opens_confirm_with_basename() {
+    let mut b = LibraryBrowser::new();
+    b.request_book_remove("/home/user/lib/chapter1.pdf".to_string());
+    assert!(b.book_remove_confirm_open());
+    assert!(b.confirm_open()); // confirm_open covers book-removal too
+    let tc = b.book_remove_confirm_mut().unwrap();
+    assert_eq!(tc.name, "chapter1.pdf");
+}
+
+#[test]
+fn book_remove_rejected_when_input_wrong() {
+    let mut b = LibraryBrowser::new();
+    b.request_book_remove("/lib/doc.pdf".to_string());
+    // Type wrong string.
+    for c in "Delete wrong.pdf".chars() {
+        b.book_remove_confirm_mut().unwrap().push_char(c);
+    }
+    let result = b.take_book_remove_if_confirmed();
+    assert!(result.is_none());
+    // Modal is still open after rejection.
+    assert!(b.book_remove_confirm_open());
+    // Rejected flag is set.
+    assert!(b.book_remove_confirm_mut().unwrap().rejected);
+}
+
+#[test]
+fn book_remove_accepted_when_input_exact() {
+    let mut b = LibraryBrowser::new();
+    b.request_book_remove("/lib/doc.pdf".to_string());
+    for c in "Delete doc.pdf".chars() {
+        b.book_remove_confirm_mut().unwrap().push_char(c);
+    }
+    let result = b.take_book_remove_if_confirmed();
+    assert_eq!(result.unwrap(), "/lib/doc.pdf");
+    assert!(!b.book_remove_confirm_open());
+}
+
+#[test]
+fn cancel_book_remove_clears_confirm() {
+    let mut b = LibraryBrowser::new();
+    b.request_book_remove("/lib/x.pdf".to_string());
+    assert!(b.book_remove_confirm_open());
+    b.cancel_book_remove();
+    assert!(!b.book_remove_confirm_open());
+}
+
+#[test]
+fn selected_library_mode_incremental() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(2);
+    b.items[0].mode = "incremental".to_string();
+    b.selected = 0;
+    assert_eq!(b.selected_library_mode(), LibraryMode::Incremental);
+}
+
+#[test]
+fn selected_library_mode_sync() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(2);
+    b.items[0].mode = "sync".to_string();
+    b.selected = 0;
+    assert_eq!(b.selected_library_mode(), LibraryMode::Sync);
+}
+
+#[test]
+fn selected_library_mode_empty_list() {
+    let b = LibraryBrowser::new();
+    assert_eq!(b.selected_library_mode(), LibraryMode::NotLibrary);
+}
+
 fn make_test_rows(n: usize) -> Vec<LibraryRow> {
     (0..n)
         .map(|i| LibraryRow {

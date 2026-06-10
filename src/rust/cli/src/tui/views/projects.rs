@@ -7,25 +7,22 @@
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use regex::Regex;
 
-use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
-use super::file_list::{handle_popup_key, FileListAction, FileListState};
+use super::confirm::{
+    draw_action_confirm, draw_toggle_confirm, ActionConfirm, SimpleConfirm, ToggleConfirm,
+};
+use super::file_list::{handle_popup_key, FileListAction, FileListState, LibraryMode};
 use super::file_list_data::fetch_file_entries;
 use super::projects_data::{fetch_project_detail, fetch_project_rows, ProjectDetail, ProjectRow};
 use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
-use crate::tui::theme;
-use crate::tui::util::{truncate_end, truncate_path};
 
 /// Build the text a filter or search matches against for a project row: name,
 /// path, and current branch.
-fn match_haystack(item: &ProjectRow) -> String {
+pub(super) fn match_haystack(item: &ProjectRow) -> String {
     format!("{} {} {}", item.name, item.display_path, item.branch)
 }
 
@@ -37,25 +34,27 @@ pub struct ProjectBrowser {
     /// All projects from the last fetch (before page/global filtering).
     all_items: Vec<ProjectRow>,
     /// Projects currently shown — `all_items` narrowed by page + global filter.
-    items: Vec<ProjectRow>,
+    pub(super) items: Vec<ProjectRow>,
     /// Index of the selected item in `items`.
-    selected: usize,
+    pub(super) selected: usize,
     /// Per-page narrowing filter (`f`); composes (AND) with the global filter.
     page_filter: FilterState,
     /// Compiled global filter pushed from the app.
     global_re: Option<Regex>,
     /// Detail popup for the selected project, if open.
-    detail: Option<ProjectDetail>,
+    pub(super) detail: Option<ProjectDetail>,
     /// File-list tab and content overlay state for the detail popup.
     pub(in crate::tui::views) file_list: FileListState,
     /// When data was last refreshed from SQLite.
     last_refresh: Option<Instant>,
     /// Cursor-jump search state (`/`).
-    search: SearchState,
+    pub(super) search: SearchState,
     /// Pending tracking-toggle confirmation, if the modal is open.
     confirm: Option<ToggleConfirm>,
+    /// Pending nudge (rescan) confirmation, if the modal is open.
+    nudge_confirm: bool,
     /// Transient status message (e.g. toggle result), shown in the header.
-    message: Option<String>,
+    pub(super) message: Option<String>,
 }
 
 impl ProjectBrowser {
@@ -72,9 +71,44 @@ impl ProjectBrowser {
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
+            nudge_confirm: false,
             message: None,
         }
     }
+
+    // ── Draw accessors (used by projects_draw.rs) ───────────────────────────
+
+    /// Slice of the currently visible items.
+    pub(super) fn items_slice(&self) -> &[ProjectRow] {
+        &self.items
+    }
+
+    /// Index of the currently selected item.
+    pub(super) fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    /// Read-only reference to the page filter (for prompt rendering).
+    pub(super) fn page_filter_ref(&self) -> &FilterState {
+        &self.page_filter
+    }
+
+    /// Read-only reference to the search state (for prompt rendering).
+    pub(super) fn search_ref(&self) -> &SearchState {
+        &self.search
+    }
+
+    /// Number of items matching the current search pattern.
+    pub(super) fn search_match_count(&self) -> usize {
+        self.search_matches().len()
+    }
+
+    /// Optional reference to the transient status message.
+    pub(super) fn message_ref(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+
+    // ── Filter / page filter ────────────────────────────────────────────────
 
     /// Mutable access to the page filter, for the key handler.
     pub fn page_filter_mut(&mut self) -> &mut FilterState {
@@ -116,9 +150,59 @@ impl ProjectBrowser {
         self.selected = self.selected.min(self.items.len().saturating_sub(1));
     }
 
-    /// Whether the toggle-confirmation modal is open.
+    /// Whether any confirmation modal (toggle or nudge) is open.
     pub fn confirm_open(&self) -> bool {
-        self.confirm.is_some()
+        self.confirm.is_some() || self.nudge_confirm
+    }
+
+    /// Whether specifically the nudge-confirmation modal is open.
+    pub fn nudge_confirm_open(&self) -> bool {
+        self.nudge_confirm
+    }
+
+    /// Return the nudge target tenant_id for the selected project, if any.
+    pub fn selected_tenant_id(&self) -> Option<String> {
+        self.items
+            .get(self.selected)
+            .map(|item| item.watch_id.clone())
+    }
+
+    /// Open a `y`/`N` nudge confirmation for the selected project.
+    pub fn request_nudge(&mut self) {
+        if !self.items.is_empty() {
+            self.nudge_confirm = true;
+        }
+    }
+
+    /// Build the [`ActionConfirm`] for the nudge modal.
+    pub fn nudge_action_confirm(&self) -> Option<ActionConfirm> {
+        if !self.nudge_confirm {
+            return None;
+        }
+        let name = self
+            .items
+            .get(self.selected)
+            .map(|i| i.name.clone())
+            .unwrap_or_default();
+        Some(ActionConfirm::Simple(SimpleConfirm {
+            verb: "Rescan".to_string(),
+            target: name,
+        }))
+    }
+
+    /// Take the nudge confirmation (clears the modal) and return the tenant_id.
+    pub fn take_nudge(&mut self) -> Option<String> {
+        if self.nudge_confirm {
+            self.nudge_confirm = false;
+            self.selected_tenant_id()
+        } else {
+            None
+        }
+    }
+
+    /// Cancel the nudge confirmation modal.
+    pub fn cancel_nudge(&mut self) {
+        self.nudge_confirm = false;
     }
 
     /// Open a confirmation to toggle tracking for the selected project.
@@ -237,8 +321,10 @@ impl ProjectBrowser {
 
     /// Route a key event to the file-list state machine while the detail popup
     /// is open. Returns the action the caller should take.
+    ///
+    /// Projects are not libraries, so `d` on a file is a no-op.
     pub fn handle_popup_key(&mut self, key: crossterm::event::KeyCode) -> FileListAction {
-        handle_popup_key(&mut self.file_list, key)
+        handle_popup_key(&mut self.file_list, key, LibraryMode::NotLibrary)
     }
 
     /// Get mutable access to search state.
@@ -252,7 +338,7 @@ impl ProjectBrowser {
     }
 
     /// Indices of items matching the current search pattern.
-    fn search_matches(&self) -> Vec<usize> {
+    pub(super) fn search_matches(&self) -> Vec<usize> {
         self.items
             .iter()
             .enumerate()
@@ -302,173 +388,9 @@ impl ProjectBrowser {
         if let Some(ref confirm) = self.confirm {
             draw_toggle_confirm(frame, frame.area(), confirm);
         }
-    }
-
-    /// Draw the summary bar above the table.
-    fn draw_summary_bar(&self, frame: &mut Frame, area: Rect) {
-        let total = self.items.len();
-        let active = self.items.iter().filter(|p| p.is_active).count();
-
-        let mut spans = vec![
-            Span::styled(" Projects: ", Style::default().fg(Color::Gray)),
-            Span::styled(
-                total.to_string(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  Active: ", Style::default().fg(Color::Gray)),
-            Span::styled(
-                active.to_string(),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("  Inactive: {}", total - active),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ];
-
-        spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
-        spans.extend(crate::tui::search::prompt_spans(
-            &self.search,
-            self.search_matches().len(),
-        ));
-
-        if let Some(ref msg) = self.message {
-            spans.push(Span::styled(
-                format!("  {msg}"),
-                Style::default().fg(Color::Yellow),
-            ));
+        if let Some(ref nudge) = self.nudge_action_confirm() {
+            draw_action_confirm(frame, frame.area(), nudge);
         }
-
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
-    }
-
-    /// Draw the scrollable table of projects.
-    fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        let header = Row::new(vec![
-            "", "Name", "Tracked?", "Path", "Branch", "Docs", "Queue",
-        ])
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .bottom_margin(1);
-
-        let widths = [
-            Constraint::Length(2),  // status indicator
-            Constraint::Length(22), // name
-            Constraint::Length(9),  // tracked? (centered Yes/No)
-            Constraint::Min(30),    // path
-            Constraint::Length(16), // current branch
-            Constraint::Length(8),  // doc count
-            Constraint::Length(8),  // queue count
-        ];
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Projects ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        // Chrome = top+bottom borders (2) + header row (1) + header margin (1).
-        let inner_height = crate::tui::util::visible_rows(area.height, 4);
-        let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
-
-        // Path flexes; compute its width so truncation keeps the trailing path.
-        // Fixed: indicator 2, name 22, tracked 9, branch 16, docs 8, queue 8;
-        // 6 inter-column gaps + 2 borders.
-        let path_w = (area.width as usize)
-            .saturating_sub(2 + 22 + 9 + 16 + 8 + 8 + 6 + 2)
-            .max(20);
-
-        let visible_rows: Vec<Row> = self
-            .items
-            .iter()
-            .enumerate()
-            .skip(offset)
-            .take(inner_height)
-            .map(|(i, item)| self.render_row(i, item, path_w))
-            .collect();
-
-        let table = Table::new(visible_rows, widths).header(header).block(block);
-        frame.render_widget(table, area);
-
-        if self.items.is_empty() {
-            let inner = area.inner(ratatui::layout::Margin::new(2, 3));
-            let msg = Paragraph::new("No registered projects found")
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(msg, inner);
-        }
-    }
-
-    /// Render a single table row for a project.
-    ///
-    /// The cursor is the row's base style; spans set only `fg` so the highlight
-    /// background shows through across the whole line.
-    fn render_row(&self, index: usize, item: &ProjectRow, path_w: usize) -> Row<'static> {
-        let matched = self.search.has_query() && self.search.is_match(&match_haystack(item));
-        let row_style = if index == self.selected {
-            theme::selected_row_style()
-        } else if matched {
-            theme::search_match_style()
-        } else {
-            Style::default()
-        };
-        // Active rows are bold (the only use of bold in the list); inactive rows
-        // use a legible Gray rather than the previous near-invisible DarkGray.
-        let indicator = if item.is_active {
-            Span::styled("\u{25cf} ", Style::default().fg(Color::Green))
-        } else {
-            Span::styled("\u{25cb} ", Style::default().fg(Color::Gray))
-        };
-        let name_style = if item.is_active {
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-        let path_fg = if item.is_active {
-            Color::Gray
-        } else {
-            Color::DarkGray
-        };
-        let queue_fg = if item.queue_count > 0 {
-            Color::Yellow
-        } else {
-            Color::DarkGray
-        };
-
-        let branch_fg = if item.is_active {
-            Color::Magenta
-        } else {
-            Color::DarkGray
-        };
-        Row::new(vec![
-            indicator,
-            Span::styled(truncate_end(&item.name, 22), name_style),
-            tracked_cell(item.enabled),
-            Span::styled(
-                truncate_path(&item.display_path, path_w),
-                Style::default().fg(path_fg),
-            ),
-            Span::styled(
-                truncate_end(&item.branch, 16),
-                Style::default().fg(branch_fg),
-            ),
-            Span::styled(
-                format!("{:>7}", crate::tui::util::fmt_count(item.doc_count)),
-                Style::default().fg(Color::Cyan),
-            ),
-            Span::styled(
-                format!("{:>7}", crate::tui::util::fmt_count(item.queue_count)),
-                Style::default().fg(queue_fg),
-            ),
-        ])
-        .style(row_style)
     }
 }
 

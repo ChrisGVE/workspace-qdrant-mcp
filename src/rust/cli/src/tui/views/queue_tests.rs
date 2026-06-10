@@ -228,6 +228,88 @@ fn select_on_empty_list() {
     assert_eq!(browser.selected, 0);
 }
 
+// ── Action confirm state machine ──────────────────────────────────────────────
+
+#[test]
+fn confirm_not_open_by_default() {
+    let browser = QueueBrowser::new();
+    assert!(!browser.confirm_open());
+    assert!(browser.action_confirm().is_none());
+}
+
+#[test]
+fn request_action_on_empty_list_is_noop() {
+    let mut browser = QueueBrowser::new();
+    browser.request_action(QueueAction::Retry);
+    assert!(!browser.confirm_open());
+}
+
+#[test]
+fn request_retry_opens_confirm() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(3);
+    browser.selected = 1;
+    browser.request_action(QueueAction::Retry);
+    assert!(browser.confirm_open());
+    let confirm = browser.action_confirm().unwrap();
+    // ActionConfirm::Simple wraps the verb
+    let ActionConfirm::Simple(ref sc) = confirm;
+    assert_eq!(sc.verb, "Retry");
+}
+
+#[test]
+fn request_cancel_opens_confirm_with_cancel_verb() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(2);
+    browser.request_action(QueueAction::Cancel);
+    assert!(browser.confirm_open());
+    let ActionConfirm::Simple(ref sc) = browser.action_confirm().unwrap();
+    assert_eq!(sc.verb, "Cancel pending items for");
+}
+
+#[test]
+fn request_remove_opens_confirm_with_remove_verb() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(2);
+    browser.request_action(QueueAction::Remove);
+    assert!(browser.confirm_open());
+    let ActionConfirm::Simple(ref sc) = browser.action_confirm().unwrap();
+    assert_eq!(sc.verb, "Remove");
+}
+
+#[test]
+fn take_action_returns_action_and_queue_id() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(3);
+    browser.selected = 2;
+    browser.request_action(QueueAction::Retry);
+    let (action, queue_id) = browser.take_action().unwrap();
+    assert_eq!(action, QueueAction::Retry);
+    assert_eq!(queue_id, "id-2");
+    assert!(!browser.confirm_open());
+}
+
+#[test]
+fn cancel_action_clears_pending() {
+    let mut browser = QueueBrowser::new();
+    browser.items = make_test_rows(1);
+    browser.request_action(QueueAction::Remove);
+    assert!(browser.confirm_open());
+    browser.cancel_action();
+    assert!(!browser.confirm_open());
+    assert!(browser.action_confirm().is_none());
+}
+
+#[test]
+fn set_message_and_force_refresh() {
+    let mut browser = QueueBrowser::new();
+    browser.last_refresh = Some(std::time::Instant::now());
+    browser.set_message("done".to_string());
+    assert_eq!(browser.message, Some("done".to_string()));
+    browser.force_refresh();
+    assert!(browser.last_refresh.is_none());
+}
+
 fn make_test_rows(n: usize) -> Vec<QueueRow> {
     (0..n)
         .map(|i| QueueRow {

@@ -35,6 +35,33 @@ impl App {
             return true;
         }
 
+        // Typed-name delete confirm: each key goes to the TypedConfirm buffer.
+        // Enter attempts confirmation; Esc cancels.
+        if browser.delete_confirm_open() {
+            match key.code {
+                KeyCode::Char(c) => {
+                    if let Some(tc) = browser.delete_confirm_mut() {
+                        tc.push_char(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(tc) = browser.delete_confirm_mut() {
+                        tc.pop_char();
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(rule_id) = browser.take_delete_if_confirmed() {
+                        let msg = super::super::commands::rule_delete(&rule_id);
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                KeyCode::Esc => browser.cancel_delete(),
+                _ => {}
+            }
+            return true;
+        }
+
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
                 browser.close_detail();
@@ -97,6 +124,10 @@ impl App {
             }
             KeyCode::Char('f') => {
                 browser.page_filter_mut().activate();
+                true
+            }
+            KeyCode::Char('d') => {
+                browser.request_delete();
                 true
             }
             KeyCode::Enter => {

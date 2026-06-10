@@ -63,12 +63,13 @@ impl App {
         let hints = match self.current_view {
             View::Dashboard => "p/l/s/r/a/e Focus cell  Enter Detail  F Global  ? Help  q Quit",
             View::Queue => {
-                "j/k Nav  / Search  n/N  s Status  f Filter  F Global  Enter Detail  q Quit"
+                "j/k Nav  / Search  n/N  s Status  f Filter  r Retry  c Cancel  x Remove  q Quit"
             }
             View::Projects | View::Libraries => {
-                "j/k Nav  / Search  f Filter  F Global  t Toggle  Enter Detail  q Quit"
+                "j/k Nav  / Search  f Filter  t Toggle  r Rescan  Enter Detail  q Quit"
             }
-            View::Rules | View::Scratchpad => {
+            View::Rules => "j/k Nav  g/G  / Search  n/N  f Filter  d Delete  Enter Detail  q Quit",
+            View::Scratchpad => {
                 "j/k Nav  g/G  / Search  n/N  f Filter  F Global  Enter Detail  q Quit"
             }
             View::Service => "p Pause  r Resume  ? Help  q Quit",
@@ -258,6 +259,22 @@ impl App {
             Line::from(vec![
                 Span::styled("  t           ", Style::default().fg(Color::Yellow)),
                 Span::raw("Toggle tracking (Projects, Libraries)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  r           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Rescan/nudge (Projects, Libraries)  |  Retry item (Queue)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  c           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Cancel pending items for tenant (Queue)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  x           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Remove item from queue (Queue)"),
+            ]),
+            Line::from(vec![
+                Span::styled("  d           ", Style::default().fg(Color::Yellow)),
+                Span::raw("Delete rule (Rules)  |  Remove book (Libraries/Files tab)"),
             ]),
             Line::from(vec![
                 Span::styled("  g / G       ", Style::default().fg(Color::Yellow)),

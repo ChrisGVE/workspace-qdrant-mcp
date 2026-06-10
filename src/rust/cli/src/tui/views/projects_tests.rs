@@ -3,6 +3,8 @@
 //! Extracted into a separate file to keep `projects.rs` under the 500-line
 //! limit.
 
+use ratatui::style::Color;
+
 use super::super::projects_data::ProjectRow;
 use super::*;
 
@@ -117,6 +119,71 @@ fn force_refresh_clears_last_refresh() {
     b.last_refresh = Some(Instant::now());
     b.force_refresh();
     assert!(b.last_refresh.is_none());
+}
+
+// ── Nudge confirm state machine ───────────────────────────────────────────────
+
+#[test]
+fn nudge_confirm_not_open_by_default() {
+    let b = ProjectBrowser::new();
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn request_nudge_on_empty_list_is_noop() {
+    let mut b = ProjectBrowser::new();
+    b.request_nudge();
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn request_nudge_opens_confirm() {
+    let mut b = ProjectBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 1;
+    b.request_nudge();
+    assert!(b.nudge_confirm_open());
+    assert!(b.confirm_open());
+    let ac = b.nudge_action_confirm().unwrap();
+    let ActionConfirm::Simple(ref sc) = ac;
+    assert_eq!(sc.verb, "Rescan");
+    assert_eq!(sc.target, "project-1");
+}
+
+#[test]
+fn take_nudge_returns_tenant_id_and_clears_modal() {
+    let mut b = ProjectBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 2;
+    b.request_nudge();
+    let tenant = b.take_nudge().unwrap();
+    assert_eq!(tenant, "watch-2"); // watch_id used as tenant_id for projects
+    assert!(!b.nudge_confirm_open());
+}
+
+#[test]
+fn cancel_nudge_clears_modal() {
+    let mut b = ProjectBrowser::new();
+    b.items = make_test_rows(2);
+    b.request_nudge();
+    assert!(b.nudge_confirm_open());
+    b.cancel_nudge();
+    assert!(!b.nudge_confirm_open());
+    assert!(b.take_nudge().is_none());
+}
+
+#[test]
+fn nudge_confirm_is_separate_from_toggle_confirm() {
+    // Both confirms can be tracked independently via confirm_open.
+    let mut b = ProjectBrowser::new();
+    b.items = make_test_rows(2);
+    b.request_toggle();
+    assert!(b.confirm_open());
+    assert!(!b.nudge_confirm_open());
+    b.cancel_confirm();
+    b.request_nudge();
+    assert!(b.nudge_confirm_open());
+    assert!(b.confirm_open()); // confirm_open covers nudge too
 }
 
 fn make_test_rows(n: usize) -> Vec<ProjectRow> {

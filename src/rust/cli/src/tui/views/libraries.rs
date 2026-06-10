@@ -6,21 +6,19 @@
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use regex::Regex;
 
-use super::confirm::{draw_toggle_confirm, tracked_cell, ToggleConfirm};
-use super::file_list::{handle_popup_key, FileListAction, FileListState};
+use super::confirm::{
+    draw_action_confirm, draw_toggle_confirm, draw_typed_confirm, ActionConfirm, SimpleConfirm,
+    ToggleConfirm, TypedConfirm,
+};
+use super::file_list::{handle_popup_key, FileListAction, FileListState, LibraryMode};
 use super::file_list_data::fetch_file_entries;
 use super::libraries_data::{fetch_library_detail, fetch_library_rows, LibraryDetail, LibraryRow};
 use crate::tui::filter::{self, FilterState};
 use crate::tui::search::SearchState;
-use crate::tui::theme;
-use crate::tui::util::truncate_path;
 
 /// Build the text a filter or search matches against for a library row: name,
 /// tag, path, and the project-derived source marker (if any).
@@ -59,6 +57,10 @@ pub struct LibraryBrowser {
     search: SearchState,
     /// Pending tracking-toggle confirmation, if the modal is open.
     confirm: Option<ToggleConfirm>,
+    /// Pending nudge (rescan) confirmation, if the modal is open.
+    nudge_confirm: bool,
+    /// Pending typed-name book-removal confirm (incremental libs only).
+    book_remove_confirm: Option<(TypedConfirm, String)>, // (confirm, abs_path)
     /// Transient status message (e.g. toggle result), shown in the header.
     message: Option<String>,
 }
@@ -77,6 +79,8 @@ impl LibraryBrowser {
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
+            nudge_confirm: false,
+            book_remove_confirm: None,
             message: None,
         }
     }
@@ -121,9 +125,116 @@ impl LibraryBrowser {
         self.selected = self.selected.min(self.items.len().saturating_sub(1));
     }
 
-    /// Whether the toggle-confirmation modal is open.
+    /// Whether any confirmation modal (toggle, nudge, or book-removal) is open.
     pub fn confirm_open(&self) -> bool {
-        self.confirm.is_some()
+        self.confirm.is_some() || self.nudge_confirm || self.book_remove_confirm.is_some()
+    }
+
+    /// Whether specifically the nudge-confirmation modal is open.
+    pub fn nudge_confirm_open(&self) -> bool {
+        self.nudge_confirm
+    }
+
+    /// Return the tenant_id (tag) of the selected library, if any.
+    pub fn selected_tenant_id(&self) -> Option<String> {
+        self.items.get(self.selected).map(|item| item.tag.clone())
+    }
+
+    /// Open a `y`/`N` nudge confirmation for the selected library.
+    pub fn request_nudge(&mut self) {
+        if !self.items.is_empty() {
+            self.nudge_confirm = true;
+        }
+    }
+
+    /// Build the [`ActionConfirm`] for the nudge modal.
+    pub fn nudge_action_confirm(&self) -> Option<ActionConfirm> {
+        if !self.nudge_confirm {
+            return None;
+        }
+        let name = self
+            .items
+            .get(self.selected)
+            .map(|i| i.name.clone())
+            .unwrap_or_default();
+        Some(ActionConfirm::Simple(SimpleConfirm {
+            verb: "Rescan".to_string(),
+            target: name,
+        }))
+    }
+
+    /// Take the nudge confirmation (clears the modal) and return the tenant_id.
+    pub fn take_nudge(&mut self) -> Option<String> {
+        if self.nudge_confirm {
+            self.nudge_confirm = false;
+            self.selected_tenant_id()
+        } else {
+            None
+        }
+    }
+
+    /// Cancel the nudge confirmation modal.
+    pub fn cancel_nudge(&mut self) {
+        self.nudge_confirm = false;
+    }
+
+    // ── Book removal (incremental libraries) ────────────────────────────────
+
+    /// Whether the book-removal confirm modal is open.
+    pub fn book_remove_confirm_open(&self) -> bool {
+        self.book_remove_confirm.is_some()
+    }
+
+    /// Open a typed-name confirm for removing a library book at `abs_path`.
+    ///
+    /// The target name shown in the confirm is the file's base name (the last
+    /// path component), which is what the user types after `Delete `.
+    pub fn request_book_remove(&mut self, abs_path: String) {
+        let file_name = abs_path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or(&abs_path)
+            .to_string();
+        self.book_remove_confirm = Some((TypedConfirm::new(file_name), abs_path));
+    }
+
+    /// Mutable reference to the [`TypedConfirm`] inside the book-removal modal.
+    pub fn book_remove_confirm_mut(&mut self) -> Option<&mut TypedConfirm> {
+        self.book_remove_confirm.as_mut().map(|(tc, _)| tc)
+    }
+
+    /// If the typed input matches, consume the confirm and return the abs_path.
+    /// If the input does not match, mark it rejected and return `None`.
+    pub fn take_book_remove_if_confirmed(&mut self) -> Option<String> {
+        let matched = self
+            .book_remove_confirm
+            .as_ref()
+            .map_or(false, |(tc, _)| tc.matches());
+        if matched {
+            self.book_remove_confirm.take().map(|(_, path)| path)
+        } else {
+            if let Some((tc, _)) = &mut self.book_remove_confirm {
+                tc.mark_rejected();
+            }
+            None
+        }
+    }
+
+    /// Cancel the book-removal confirm modal.
+    pub fn cancel_book_remove(&mut self) {
+        self.book_remove_confirm = None;
+    }
+
+    /// Return the [`LibraryMode`] for the currently selected library.
+    ///
+    /// Used to gate `d` (remove book) to incremental libraries only.
+    pub fn selected_library_mode(&self) -> LibraryMode {
+        match self.items.get(self.selected) {
+            Some(item) if item.mode == "incremental" => LibraryMode::Incremental,
+            Some(_) => LibraryMode::Sync,
+            None => LibraryMode::NotLibrary,
+        }
     }
 
     /// Open a confirmation to toggle tracking for the selected library.
@@ -296,9 +407,15 @@ impl LibraryBrowser {
     }
 
     /// Route a key event to the file-list state machine while the detail popup
-    /// is open. Returns the action the caller should take.
+    /// is open.
+    ///
+    /// Passes the [`LibraryMode`] of the selected library so that the `d` key
+    /// is only accepted for incremental libraries.  If the file-list returns
+    /// [`FileListAction::RequestBookRemove`] the caller must route back through
+    /// [`Self::request_book_remove`] / [`Self::cancel_book_remove`].
     pub fn handle_popup_key(&mut self, key: crossterm::event::KeyCode) -> FileListAction {
-        handle_popup_key(&mut self.file_list, key)
+        let mode = self.selected_library_mode();
+        handle_popup_key(&mut self.file_list, key, mode)
     }
 
     /// Render the library browser into the given area.
@@ -314,137 +431,30 @@ impl LibraryBrowser {
         if let Some(ref confirm) = self.confirm {
             draw_toggle_confirm(frame, frame.area(), confirm);
         }
+        if let Some(ref nudge) = self.nudge_action_confirm() {
+            draw_action_confirm(frame, frame.area(), nudge);
+        }
+        if let Some((ref tc, _)) = self.book_remove_confirm {
+            draw_typed_confirm(frame, frame.area(), tc);
+        }
     }
 
     /// Draw the header bar above the table.
     fn draw_header_bar(&self, frame: &mut Frame, area: Rect) {
-        let count = self.items.len();
-        let mut spans = vec![
-            Span::styled(" Libraries: ", Style::default().fg(Color::Gray)),
-            Span::styled(
-                count.to_string(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                if count == 1 { " library" } else { " libraries" },
-                Style::default().fg(Color::DarkGray),
-            ),
-        ];
-        spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
-        spans.extend(crate::tui::search::prompt_spans(
+        super::libraries_draw::draw_header_bar(
+            frame,
+            area,
+            self.items.len(),
+            &self.page_filter,
             &self.search,
             self.search_matches().len(),
-        ));
-        if let Some(ref msg) = self.message {
-            spans.push(Span::styled(
-                format!("  {msg}"),
-                Style::default().fg(Color::Yellow),
-            ));
-        }
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
+            self.message.as_deref(),
+        );
     }
 
     /// Draw the scrollable table of library items.
     fn draw_table(&self, frame: &mut Frame, area: Rect) {
-        // Shared columns (Name, Path, Docs) come first in the same order as the
-        // Projects view; the library-specific columns follow. The project-derived
-        // marker (`P:<project>`) is folded into Name, so there is no Source column.
-        let header = Row::new(vec!["Name", "Path", "Docs", "Tracked?", "Mode"])
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .bottom_margin(1);
-
-        let widths = [
-            Constraint::Length(24), // name (+ folded P:<project> marker)
-            Constraint::Min(30),    // path (flex)
-            Constraint::Length(8),  // docs
-            Constraint::Length(9),  // tracked? (centered Yes/No)
-            Constraint::Length(13), // mode
-        ];
-        // Path flexes; keep the trailing path (filename) visible on truncation.
-        // Fixed: name 24, docs 8, tracked 9, mode 13; 4 gaps + borders.
-        let path_w = (area.width as usize)
-            .saturating_sub(24 + 8 + 9 + 13 + 4 + 2)
-            .max(20);
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Libraries ")
-            .title_style(Style::default().add_modifier(Modifier::BOLD));
-
-        // Chrome = top+bottom borders (2) + header row (1) + header margin (1).
-        let inner_height = crate::tui::util::visible_rows(area.height, 4);
-        let offset = crate::tui::util::scroll_offset(self.selected, inner_height);
-
-        let visible_rows: Vec<Row> = self
-            .items
-            .iter()
-            .enumerate()
-            .skip(offset)
-            .take(inner_height)
-            .map(|(i, item)| {
-                let matched =
-                    self.search.has_query() && self.search.is_match(&match_haystack(item));
-                let row_style = if i == self.selected {
-                    theme::selected_row_style()
-                } else if matched {
-                    theme::search_match_style()
-                } else {
-                    Style::default()
-                };
-                // Spans set only fg; the row's background (cursor) shows through.
-                // Bold marks an active library (mirrors the projects view).
-                let name_style = if item.is_active {
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Cyan)
-                };
-                // Fold the project-derived marker into the Name cell. A library
-                // under a project always tracks in `sync` mode with its project.
-                let (name_cell, mode) = match &item.source {
-                    Some(src) => (
-                        Line::from(vec![
-                            Span::styled(item.name.clone(), name_style),
-                            Span::raw(" "),
-                            Span::styled(src.clone(), Style::default().fg(Color::Magenta)),
-                        ]),
-                        "sync".to_string(),
-                    ),
-                    None => (
-                        Line::from(Span::styled(item.name.clone(), name_style)),
-                        item.mode.clone(),
-                    ),
-                };
-                let cells: Vec<Cell> = vec![
-                    Cell::from(name_cell),
-                    Cell::from(truncate_path(&item.display_path, path_w)),
-                    Cell::from(Span::styled(
-                        format!("{:>7}", crate::tui::util::fmt_count(item.doc_count as i64)),
-                        Style::default().fg(Color::Cyan),
-                    )),
-                    Cell::from(tracked_cell(item.enabled)),
-                    Cell::from(mode),
-                ];
-                Row::new(cells).style(row_style)
-            })
-            .collect();
-
-        let table = Table::new(visible_rows, widths).header(header).block(block);
-        frame.render_widget(table, area);
-
-        if self.items.is_empty() {
-            let inner = area.inner(ratatui::layout::Margin::new(2, 3));
-            let msg = Paragraph::new("No libraries configured")
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(msg, inner);
-        }
+        super::libraries_draw::draw_table(frame, area, &self.items, self.selected, &self.search);
     }
 }
 

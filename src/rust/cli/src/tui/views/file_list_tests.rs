@@ -213,14 +213,22 @@ fn render_empty_file_produces_empty_lines() {
 fn detail_tab_esc_closes_popup() {
     let mut s = FileListState::new();
     assert_eq!(s.tab, PopupTab::Detail);
-    let action = handle_popup_key(&mut s, crossterm::event::KeyCode::Esc);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Esc,
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(action, FileListAction::ClosePopup);
 }
 
 #[test]
 fn detail_tab_tab_switches_to_files() {
     let mut s = FileListState::new();
-    let action = handle_popup_key(&mut s, crossterm::event::KeyCode::Tab);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Tab,
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(action, FileListAction::Consumed);
     assert_eq!(s.tab, PopupTab::Files);
 }
@@ -229,7 +237,11 @@ fn detail_tab_tab_switches_to_files() {
 fn files_tab_esc_closes_popup_when_no_content() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
-    let action = handle_popup_key(&mut s, crossterm::event::KeyCode::Esc);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Esc,
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(action, FileListAction::ClosePopup);
 }
 
@@ -238,7 +250,11 @@ fn files_tab_content_esc_closes_overlay_not_popup() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
     s.content = Some(vec![Line::from("text")]);
-    let action = handle_popup_key(&mut s, crossterm::event::KeyCode::Esc);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Esc,
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(action, FileListAction::Consumed);
     assert!(s.content.is_none());
     assert_eq!(s.tab, PopupTab::Files);
@@ -249,7 +265,11 @@ fn files_tab_j_moves_cursor_down() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
     s.files = make_entries(5);
-    handle_popup_key(&mut s, crossterm::event::KeyCode::Char('j'));
+    handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('j'),
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(s.file_cursor, 1);
 }
 
@@ -257,9 +277,87 @@ fn files_tab_j_moves_cursor_down() {
 fn files_tab_backtab_returns_to_detail() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
-    let action = handle_popup_key(&mut s, crossterm::event::KeyCode::BackTab);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::BackTab,
+        LibraryMode::NotLibrary,
+    );
     assert_eq!(action, FileListAction::Consumed);
     assert_eq!(s.tab, PopupTab::Detail);
+}
+
+// ── LibraryMode gating for `d` key ───────────────────────────────────────────
+
+#[test]
+fn d_key_incremental_requests_book_remove() {
+    let mut s = FileListState::new();
+    s.tab = PopupTab::Files;
+    s.files = make_entries(3);
+    s.file_cursor = 1;
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('d'),
+        LibraryMode::Incremental,
+    );
+    assert_eq!(
+        action,
+        FileListAction::RequestBookRemove("/project/src/file_1.rs".to_string())
+    );
+}
+
+#[test]
+fn d_key_sync_returns_sentinel() {
+    let mut s = FileListState::new();
+    s.tab = PopupTab::Files;
+    s.files = make_entries(3);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('d'),
+        LibraryMode::Sync,
+    );
+    assert_eq!(
+        action,
+        FileListAction::RequestBookRemove("__sync_blocked__".to_string())
+    );
+}
+
+#[test]
+fn d_key_not_library_consumed_silently() {
+    let mut s = FileListState::new();
+    s.tab = PopupTab::Files;
+    s.files = make_entries(3);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('d'),
+        LibraryMode::NotLibrary,
+    );
+    assert_eq!(action, FileListAction::Consumed);
+}
+
+#[test]
+fn d_key_incremental_empty_list_consumed() {
+    let mut s = FileListState::new();
+    s.tab = PopupTab::Files;
+    // No files loaded — d should not panic, returns Consumed.
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('d'),
+        LibraryMode::Incremental,
+    );
+    assert_eq!(action, FileListAction::Consumed);
+}
+
+#[test]
+fn d_key_ignored_in_detail_tab() {
+    // In the Detail tab `d` falls through to NotConsumed (not a known key).
+    let mut s = FileListState::new();
+    assert_eq!(s.tab, PopupTab::Detail);
+    let action = handle_popup_key(
+        &mut s,
+        crossterm::event::KeyCode::Char('d'),
+        LibraryMode::Incremental,
+    );
+    assert_eq!(action, FileListAction::NotConsumed);
 }
 
 // ── wrap_line ─────────────────────────────────────────────────────────────────
