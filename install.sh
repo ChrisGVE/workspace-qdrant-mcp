@@ -48,6 +48,8 @@ FORCE=false
 
 # ONNX Runtime version for Intel Mac (static library from supertone-inc/onnxruntime-build)
 ORT_VERSION="1.23.2"
+# Pinned digest of the static-lib archive — update together with ORT_VERSION (#129)
+ORT_SHA256="4b098c19e7bf1670facb26afeb77162423bc41383e7630fb0827c4ba81c971ab"
 ORT_CACHE_DIR="$HOME/.onnxruntime-static"
 
 # Parse command line arguments
@@ -169,6 +171,18 @@ setup_onnx_runtime() {
 	else
 		error "Neither curl nor wget found. Please install one of them."
 	fi
+
+	# Verify the pinned digest before linking this into built binaries (#129)
+	if command -v shasum &>/dev/null; then
+		ACTUAL_SHA=$(shasum -a 256 "$ORT_TMP" | awk '{print $1}')
+	else
+		ACTUAL_SHA=$(sha256sum "$ORT_TMP" | awk '{print $1}')
+	fi
+	if [[ "$ACTUAL_SHA" != "$ORT_SHA256" ]]; then
+		rm -f "$ORT_TMP"
+		error "ONNX Runtime archive checksum mismatch (expected $ORT_SHA256, got $ACTUAL_SHA)"
+	fi
+	success "ONNX Runtime archive checksum verified"
 
 	# Extract (archive structure: ./lib/libonnxruntime.a, ./include/...)
 	tar xzf "$ORT_TMP" -C "$ORT_CACHE_DIR"

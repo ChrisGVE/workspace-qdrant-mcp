@@ -1,7 +1,9 @@
-# Homebrew formula for workspace-qdrant-mcp
+# Homebrew formula TEMPLATE for workspace-qdrant-mcp
 #
-# To install from this formula locally:
-#   brew install --build-from-source ./Formula/workspace-qdrant-mcp.rb
+# The release workflow stamps PLACEHOLDER_VERSION and the per-platform
+# sha256 placeholders, then attaches the result to the GitHub release
+# (see .github/workflows/release.yml "Stamp package manifests"). The
+# in-repo copy is NOT directly installable.
 #
 # For tap-based installation (future):
 #   brew tap ChrisGVE/workspace-qdrant-mcp
@@ -10,29 +12,29 @@
 class WorkspaceQdrantMcp < Formula
   desc "Project-scoped vector database for AI assistants with hybrid search"
   homepage "https://github.com/ChrisGVE/workspace-qdrant-mcp"
-  version "0.4.0"
+  version "PLACEHOLDER_VERSION"
   license "MIT"
 
   # Platform-specific binary downloads
   on_macos do
     on_arm do
       url "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/v#{version}/workspace-qdrant-mcp-darwin-arm64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      # sha256 "PLACEHOLDER_DARWIN_ARM64"
     end
     on_intel do
       url "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/v#{version}/workspace-qdrant-mcp-darwin-x64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      # sha256 "PLACEHOLDER_DARWIN_X64"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/v#{version}/workspace-qdrant-mcp-linux-arm64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      # sha256 "PLACEHOLDER_LINUX_ARM64"
     end
     on_intel do
       url "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/v#{version}/workspace-qdrant-mcp-linux-x64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      # sha256 "PLACEHOLDER_LINUX_X64"
     end
   end
 
@@ -41,6 +43,7 @@ class WorkspaceQdrantMcp < Formula
   def install
     bin.install "wqm"
     bin.install "memexd"
+    bin.install "workspace-qdrant-mcp"
 
     # Install shell completions if available
     if File.exist?("completions/wqm.bash")
@@ -89,5 +92,6 @@ class WorkspaceQdrantMcp < Formula
   test do
     assert_match version.to_s, shell_output("#{bin}/wqm --version")
     assert_match "memexd", shell_output("#{bin}/memexd --help")
+    assert_match "workspace-qdrant-mcp", shell_output("#{bin}/workspace-qdrant-mcp --version")
   end
 end

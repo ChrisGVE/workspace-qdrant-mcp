@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/
 irm https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.ps1 | iex
 ```
 
-Installs `wqm` and `memexd` to `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\wqm\bin` (Windows).
+Installs `wqm`, `memexd`, and `workspace-qdrant-mcp` to `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\wqm\bin` (Windows).
 
 **Option 3: Build from Source**
 

@@ -146,6 +146,7 @@ maintainer-scripts = "debian/"
 assets = [
     ["../target/release/wqm", "usr/bin/", "755"],
     ["../target/release/memexd", "usr/bin/", "755"],
+    ["../target/release/workspace-qdrant-mcp", "usr/bin/", "755"],
     ["../../../assets/systemd/memexd.service", "lib/systemd/system/", "644"],
     ["../../../README.md", "usr/share/doc/wqm-cli/README", "644"],
 ]

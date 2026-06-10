@@ -35,6 +35,15 @@ env:
   RUST_BACKTRACE: 1
   # ONNX Runtime version for Intel Mac (only platform that needs manual download)
   ORT_VERSION: "1.23.2"
+  # Pinned SHA256 digests for downloaded build inputs (#129). Update these
+  # together with the corresponding version bumps — a mismatch fails the build.
+  ORT_SHA256: "4b098c19e7bf1670facb26afeb77162423bc41383e7630fb0827c4ba81c971ab"
+  PROTOC_VERSION: "25.3"
+  PROTOC_SHA256_X86_64: "f853e691868d0557425ea290bf7ba6384eef2fa9b04c323afab49a770ba9da80"
+  PROTOC_SHA256_AARCH_64: "9eae1f20f70cccc912d1c318c3929b86aebf5afd4b0f32c196ef682c222ed5ae"
+  # Homebrew/install pinned to a reviewed commit instead of HEAD.
+  BREW_INSTALL_COMMIT: "93a25fd2d2fdb86422303c292b9223f84ef23eaf"
+  BREW_INSTALL_SHA256: "17f204b128869ec71e6b650051f1e65ef5b74cf994c2ff8b919103241554dd2f"
 
 jobs:
   build:
@@ -105,9 +114,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake liblzma-dev
           # Install protoc from GitHub releases (apt version on ubuntu-22.04 is too old for proto3 optional)
-          PROTOC_VERSION=25.3
           PROTOC_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch_64/')
           curl -fsSL "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip" -o /tmp/protoc.zip
+          # Verify the pinned digest before extracting (#129)
+          case "$PROTOC_ARCH" in
+            x86_64)   expected="$PROTOC_SHA256_X86_64" ;;
+            aarch_64) expected="$PROTOC_SHA256_AARCH_64" ;;
+          esac
+          echo "${expected}  /tmp/protoc.zip" | sha256sum -c -
           sudo unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
           rm /tmp/protoc.zip
 
@@ -147,6 +161,8 @@ jobs:
           echo "Downloading ONNX Runtime ${{ env.ORT_VERSION }} static library for Intel Mac..."
           # Download from supertone-inc/onnxruntime-build (provides static libraries)
           curl -L "https://github.com/supertone-inc/onnxruntime-build/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-universal2-static_lib-${{ env.ORT_VERSION }}.tgz" -o ~/.onnxruntime-static/ort.tgz
+          # Verify the pinned digest before linking this into shipped binaries (#129)
+          echo "${{ env.ORT_SHA256 }}  $HOME/.onnxruntime-static/ort.tgz" | shasum -a 256 -c -
           tar xzf ~/.onnxruntime-static/ort.tgz -C ~/.onnxruntime-static
           rm ~/.onnxruntime-static/ort.tgz
           echo "ONNX Runtime static library downloaded to ~/.onnxruntime-static"
@@ -168,7 +184,12 @@ jobs:
         shell: bash
         run: |
           if [ ! -f /usr/local/bin/brew ]; then
-            arch -x86_64 /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            # Pin the Homebrew installer to a reviewed commit and verify its
+            # digest instead of executing HEAD blindly (#129)
+            curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${{ env.BREW_INSTALL_COMMIT }}/install.sh" -o /tmp/brew-install.sh
+            echo "${{ env.BREW_INSTALL_SHA256 }}  /tmp/brew-install.sh" | shasum -a 256 -c -
+            arch -x86_64 /bin/bash -c "NONINTERACTIVE=1 /bin/bash /tmp/brew-install.sh"
+            rm /tmp/brew-install.sh
           fi
           arch -x86_64 /usr/local/bin/brew install openssl@3
           OPENSSL_PREFIX=$(arch -x86_64 /usr/local/bin/brew --prefix openssl@3)
@@ -186,6 +207,7 @@ jobs:
           mkdir -p artifacts
           cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
+          cp src/rust/target/${{ matrix.target }}/release/workspace-qdrant-mcp artifacts/
           cp THIRD-PARTY-LICENSES.md artifacts/
           cp LICENSE artifacts/
 
@@ -200,6 +222,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts
           Copy-Item src/rust/target/${{ matrix.target }}/release/memexd.exe artifacts/
           Copy-Item src/rust/target/${{ matrix.target }}/release/wqm.exe artifacts/
+          Copy-Item src/rust/target/${{ matrix.target }}/release/workspace-qdrant-mcp.exe artifacts/
           Copy-Item THIRD-PARTY-LICENSES.md artifacts/
           Copy-Item LICENSE artifacts/
 
@@ -209,17 +232,17 @@ jobs:
       - name: Verify binary dependencies (macOS)
         if: runner.os == 'macOS'
         shell: bash
-        run: scripts/verify-deps-macos.sh artifacts/memexd artifacts/wqm
+        run: scripts/verify-deps-macos.sh artifacts/memexd artifacts/wqm artifacts/workspace-qdrant-mcp
 
       - name: Verify binary dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
-        run: scripts/verify-deps-linux.sh artifacts/memexd artifacts/wqm
+        run: scripts/verify-deps-linux.sh artifacts/memexd artifacts/wqm artifacts/workspace-qdrant-mcp
 
       - name: Verify binary dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: scripts/verify-deps-windows.ps1 artifacts/memexd.exe artifacts/wqm.exe
+        run: scripts/verify-deps-windows.ps1 artifacts/memexd.exe artifacts/wqm.exe artifacts/workspace-qdrant-mcp.exe
 
       # Smoke tests - verify binaries are runnable
       - name: Smoke test (Unix)
@@ -229,6 +252,7 @@ jobs:
           echo "Running smoke tests..."
           artifacts/memexd --version
           artifacts/wqm --version
+          artifacts/workspace-qdrant-mcp --version
           echo "Smoke tests passed"
 
       - name: Smoke test (Windows)
@@ -238,6 +262,7 @@ jobs:
           Write-Host "Running smoke tests..."
           & artifacts/memexd.exe --version
           & artifacts/wqm.exe --version
+          & artifacts/workspace-qdrant-mcp.exe --version
           Write-Host "Smoke tests passed"
 
       # Build a Debian package for amd64/arm64 Linux. cargo-deb reads
@@ -257,6 +282,7 @@ jobs:
           mkdir -p src/rust/target/release
           cp src/rust/target/${{ matrix.target }}/release/wqm src/rust/target/release/wqm
           cp src/rust/target/${{ matrix.target }}/release/memexd src/rust/target/release/memexd
+          cp src/rust/target/${{ matrix.target }}/release/workspace-qdrant-mcp src/rust/target/release/workspace-qdrant-mcp
           deb_arch=$(case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)  echo amd64 ;;
             aarch64-unknown-linux-gnu) echo arm64 ;;
@@ -282,6 +308,10 @@ jobs:
           cp artifacts/wqm wqm-${{ matrix.target }}
           sha256sum wqm-${{ matrix.target }} | awk '{print $1}' > wqm-${{ matrix.target }}.sha256
 
+          # And the MCP server binary
+          cp artifacts/workspace-qdrant-mcp workspace-qdrant-mcp-${{ matrix.target }}
+          sha256sum workspace-qdrant-mcp-${{ matrix.target }} | awk '{print $1}' > workspace-qdrant-mcp-${{ matrix.target }}.sha256
+
       - name: Prepare individual binaries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -298,6 +328,11 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 wqm-${{ matrix.target }}.exe).Hash.ToLower()
           $hash | Out-File -NoNewline wqm-${{ matrix.target }}.exe.sha256
 
+          # And the MCP server binary
+          Copy-Item artifacts/workspace-qdrant-mcp.exe workspace-qdrant-mcp-${{ matrix.target }}.exe
+          $hash = (Get-FileHash -Algorithm SHA256 workspace-qdrant-mcp-${{ matrix.target }}.exe).Hash.ToLower()
+          $hash | Out-File -NoNewline workspace-qdrant-mcp-${{ matrix.target }}.exe.sha256
+
       # Upload artifacts
       - name: Upload artifact (Unix)
         if: runner.os != 'Windows'
@@ -310,6 +345,8 @@ jobs:
             memexd-${{ matrix.target }}.sha256
             wqm-${{ matrix.target }}
             wqm-${{ matrix.target }}.sha256
+            workspace-qdrant-mcp-${{ matrix.target }}
+            workspace-qdrant-mcp-${{ matrix.target }}.sha256
             workspace-qdrant-mcp_*.deb
             workspace-qdrant-mcp_*.deb.sha256
 
@@ -324,6 +361,8 @@ jobs:
             memexd-${{ matrix.target }}.exe.sha256
             wqm-${{ matrix.target }}.exe
             wqm-${{ matrix.target }}.exe.sha256
+            workspace-qdrant-mcp-${{ matrix.target }}.exe
+            workspace-qdrant-mcp-${{ matrix.target }}.exe.sha256
 
   # Create release with all artifacts
   release:
@@ -357,6 +396,7 @@ jobs:
             artifacts/**/*.deb.sha256
             artifacts/**/memexd-*
             artifacts/**/wqm-*
+            artifacts/**/workspace-qdrant-mcp-*
             artifacts/checksums.txt
           draft: false
           overwrite_files: true
@@ -399,6 +439,54 @@ jobs:
             key=$(echo "$platform" | tr '-' '_')
             echo "${key}=${sha}" >> $GITHUB_OUTPUT
           done
+          # Windows zips (used to stamp the winget manifest)
+          for platform in windows-x64 windows-arm64; do
+            sha=$(grep "workspace-qdrant-mcp-${platform}.zip" checksums.txt | awk '{print $1}')
+            key=$(echo "$platform" | tr '-' '_')
+            echo "${key}=${sha}" >> $GITHUB_OUTPUT
+          done
+
+      # Stamp the Homebrew formula and winget manifest templates with the
+      # release version + artifact digests, and attach them to the release —
+      # these channels are not usable with placeholder hashes (#129).
+      - name: Checkout repository (manifest templates)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Stamp package manifests
+        run: |
+          VERSION="${{ github.ref_name }}"
+          BARE_VERSION="${VERSION#v}"
+          mkdir -p stamped-manifests
+
+          sed -e "s/PLACEHOLDER_VERSION/${BARE_VERSION}/g" \
+              -e "s|# sha256 \"PLACEHOLDER_DARWIN_ARM64\"|sha256 \"${{ steps.checksums.outputs.darwin_arm64 }}\"|" \
+              -e "s|# sha256 \"PLACEHOLDER_DARWIN_X64\"|sha256 \"${{ steps.checksums.outputs.darwin_x64 }}\"|" \
+              -e "s|# sha256 \"PLACEHOLDER_LINUX_ARM64\"|sha256 \"${{ steps.checksums.outputs.linux_arm64 }}\"|" \
+              -e "s|# sha256 \"PLACEHOLDER_LINUX_X64\"|sha256 \"${{ steps.checksums.outputs.linux_x64 }}\"|" \
+              repo/Formula/workspace-qdrant-mcp.rb \
+              > stamped-manifests/workspace-qdrant-mcp.rb
+
+          sed -e "s/PLACEHOLDER_VERSION/${BARE_VERSION}/g" \
+              -e "s/PLACEHOLDER_WINDOWS_X64/${{ steps.checksums.outputs.windows_x64 }}/" \
+              -e "s/PLACEHOLDER_WINDOWS_ARM64/${{ steps.checksums.outputs.windows_arm64 }}/" \
+              repo/manifests/winget/workspace-qdrant-mcp.yaml \
+              > stamped-manifests/winget-workspace-qdrant-mcp.yaml
+
+          # Fail loudly if any placeholder survived the stamping.
+          if grep -rn "PLACEHOLDER" stamped-manifests/; then
+            echo "ERROR: unstamped placeholders remain in package manifests"
+            exit 1
+          fi
+
+      - name: Attach stamped manifests to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: stamped-manifests/*
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Dispatch Homebrew tap update
         if: "!contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') && !contains(github.ref, 'nightly')"

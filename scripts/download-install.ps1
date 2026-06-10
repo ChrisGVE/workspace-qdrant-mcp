@@ -187,9 +187,10 @@ function Main {
         # Download CLI
         Get-Binary -Name "wqm" -Target $platform.Target -Version $Version -DestDir $tempDir
 
-        # Download daemon (unless -CliOnly)
+        # Download daemon + MCP server (unless -CliOnly)
         if (-not $CliOnly) {
             Get-Binary -Name "memexd" -Target $platform.Target -Version $Version -DestDir $tempDir
+            Get-Binary -Name "workspace-qdrant-mcp" -Target $platform.Target -Version $Version -DestDir $tempDir
         }
 
         # Install binaries
@@ -202,6 +203,11 @@ function Main {
             if (Test-Path $memexdPath) {
                 Move-Item $memexdPath -Destination $BinDir -Force
                 Write-Success "Installed memexd.exe"
+            }
+            $mcpTempPath = Join-Path $tempDir "workspace-qdrant-mcp.exe"
+            if (Test-Path $mcpTempPath) {
+                Move-Item $mcpTempPath -Destination $BinDir -Force
+                Write-Success "Installed workspace-qdrant-mcp.exe"
             }
         }
 
@@ -223,6 +229,16 @@ function Main {
                 Write-Success "memexd version: $memexdVersion"
             } catch {
                 Write-Warn "memexd.exe installed but could not get version"
+            }
+        }
+
+        $mcpPath = Join-Path $BinDir "workspace-qdrant-mcp.exe"
+        if (Test-Path $mcpPath) {
+            try {
+                $mcpVersion = & $mcpPath --version 2>$null
+                Write-Success "workspace-qdrant-mcp version: $mcpVersion"
+            } catch {
+                Write-Warn "workspace-qdrant-mcp.exe installed but could not get version"
             }
         }
 
