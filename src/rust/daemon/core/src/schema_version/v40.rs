@@ -16,7 +16,7 @@ use sqlx::{Executor, SqlitePool};
 use tracing::{debug, info, warn};
 
 use super::migration::Migration;
-use super::SchemaError;
+use super::{ForeignKeysGuard, SchemaError};
 
 pub struct V40Migration;
 
@@ -75,17 +75,40 @@ impl Migration for V40Migration {
              in tracked_files, change UNIQUE to content-hash"
         );
 
-        let mut conn = pool.acquire().await?;
+        let conn = pool.acquire().await?;
 
-        conn.execute("PRAGMA foreign_keys = OFF").await?;
+        // v35+ convention (#128): disable FK checks via the guard BEFORE
+        // opening the transaction (SQLite requires the PRAGMA outside an
+        // active transaction). The guard restores FK checks on every path,
+        // so a pooled connection never escapes with checks disabled.
+        let mut guard = ForeignKeysGuard::disable(conn).await?;
 
-        rebuild_tracked_files(&mut conn).await?;
+        // IMMEDIATE mode acquires the write lock upfront and prevents
+        // SQLITE_BUSY during the rename/recreate sequence.
+        guard.conn_mut().execute("BEGIN IMMEDIATE").await?;
 
-        conn.execute("PRAGMA foreign_keys = ON").await?;
+        let result = rebuild_tracked_files(guard.conn_mut()).await;
 
-        debug!("Migration v40: tracked_files rebuild complete");
-        info!("Migration v40 complete");
-        Ok(())
+        match result {
+            Ok(()) => {
+                guard.conn_mut().execute("COMMIT").await?;
+                let _conn = guard.restore().await?;
+                debug!("Migration v40: tracked_files rebuild complete");
+                info!("Migration v40 complete");
+                Ok(())
+            }
+            Err(e) => {
+                // Best-effort rollback; ignore secondary errors. Also reset
+                // legacy_alter_table in case the failure hit mid-rename.
+                let _ = guard.conn_mut().execute("ROLLBACK").await;
+                let _ = guard
+                    .conn_mut()
+                    .execute("PRAGMA legacy_alter_table = OFF")
+                    .await;
+                let _conn = guard.restore().await?;
+                Err(e)
+            }
+        }
     }
 
     fn version(&self) -> i32 {
@@ -161,6 +184,17 @@ async fn rebuild_tracked_files(
     conn.execute("ALTER TABLE tracked_files RENAME TO tracked_files_old")
         .await?;
     conn.execute("PRAGMA legacy_alter_table = OFF").await?;
+
+    // Test fail-point: inject a failure after the rename but before the new
+    // table exists — the worst possible interruption. The caller must roll
+    // back, restoring the original schema and re-enabling FK checks (#128).
+    #[cfg(test)]
+    if INJECT_FAILURE_AFTER_RENAME.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(SchemaError::MigrationError(
+            "injected test failure after tracked_files rename".into(),
+        ));
+    }
+
     conn.execute(CREATE_TRACKED_FILES_V40_SQL).await?;
     // Pre-release: discard legacy rows.
     conn.execute("DROP TABLE tracked_files_old").await?;
@@ -191,6 +225,13 @@ async fn create_all_indexes(
 
     Ok(())
 }
+
+/// When set to `true` in tests, `rebuild_tracked_files` injects a failure
+/// after the rename-to-old step, letting tests verify that the migration
+/// rolls back atomically and restores FK checks (#128).
+#[cfg(test)]
+pub(crate) static INJECT_FAILURE_AFTER_RENAME: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(test)]
 mod tests {
@@ -274,6 +315,92 @@ mod tests {
         assert!(
             ddl.contains("UNIQUE(watch_folder_id, relative_path, file_hash)"),
             "DDL should have content-hash UNIQUE constraint"
+        );
+    }
+
+    /// #128: a mid-rebuild failure must (a) leave FK checks enabled on the
+    /// connection and (b) roll the schema back to its pre-v40 state.
+    #[tokio::test]
+    async fn v40_rollback_on_mid_rebuild_failure() {
+        // Fresh pool with a pre-v40 tracked_files (scalar `branch` column).
+        // Single connection so the PRAGMA assertions see the same connection
+        // the migration used.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE watch_folders (watch_id TEXT PRIMARY KEY, path TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE tracked_files (
+                file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_folder_id TEXT NOT NULL,
+                branch TEXT,
+                relative_path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+                UNIQUE(watch_folder_id, relative_path, branch)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        INJECT_FAILURE_AFTER_RENAME.store(true, std::sync::atomic::Ordering::SeqCst);
+        let result = V40Migration.up(&pool).await;
+        INJECT_FAILURE_AFTER_RENAME.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(result.is_err(), "injected failure must propagate");
+
+        // (a) FK checks re-enabled on the pooled connection.
+        let fk: i32 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(fk, 1, "FK checks must be restored after a failed rebuild");
+
+        // (b) Schema rolled back: old scalar `branch` column still present,
+        // no leftover tracked_files_old.
+        let ddl: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='tracked_files'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            ddl.contains("branch TEXT"),
+            "pre-v40 schema must survive a failed rebuild"
+        );
+        assert!(
+            !ddl.contains("primary_branch"),
+            "no partial v40 schema after rollback"
+        );
+        let old_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files_old')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!old_exists, "no leftover tracked_files_old after rollback");
+
+        // Re-running without the fail-point completes the migration.
+        V40Migration.up(&pool).await.unwrap();
+        let ddl: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='tracked_files'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            ddl.contains("primary_branch"),
+            "retry completes the rebuild"
         );
     }
 
