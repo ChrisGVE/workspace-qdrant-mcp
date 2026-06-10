@@ -202,6 +202,7 @@ export function logSearchEventPre(
     fileType?: string | undefined;
     libraryName?: string | undefined;
     tag?: string | undefined;
+    actor?: string | undefined;
   }
 ): void {
   const filters: Record<string, unknown> = {};
@@ -214,7 +215,7 @@ export function logSearchEventPre(
   stateManager.logSearchEvent({
     id: eventId,
     projectId,
-    actor: 'claude',
+    actor: opts.actor ?? 'claude',
     tool: 'mcp_qdrant',
     op: 'search',
     queryText: query,
@@ -525,13 +526,60 @@ function pathRelevance(queryTokens: string[], result: SearchResult): number {
   return hits / queryTokens.length;
 }
 
+// Tunable via WQM_SYMBOL_MATCH_BOOST (multiplier; 1.0 = OFF, the default).
+// Hypothesis: when the query NAMES the chunk's own symbol, the definition
+// site should outrank files that merely mention or test it ("applyRRFFusion
+// implementation" ranked the test file above the defining chunk).
+// MEASURED 2026-06-10 (44-query benchmark, e5-1024d index) and REFUTED:
+//   1.0 (off): semantic top1 34.1 / top3 56.8 / recall 62.5 / MRR 0.46
+//   1.6:                    25.0 / 54.5 / 61.4 / 0.41
+//   2.0:                    25.0 / 52.3 / 61.4 / 0.40
+// — even with the strict containment rule the boost regressed top-1 by 9pp
+// and did not move the sym category it targets (4/6 in every run): when the
+// defining chunk misses the candidate pool entirely, no post-hoc multiplier
+// can rescue it, and the residual matches it does hit are mostly noise. The
+// real lever for definition-site queries is POOL inclusion (e.g. a
+// complementary payload-filtered lookup on chunk_symbol_name when the query
+// contains an identifier), not rescoring. Knob kept for experiments.
+const SYMBOL_MATCH_BOOST = tuningFromEnv('WQM_SYMBOL_MATCH_BOOST', 1.0);
+
+/** True when the query names this result's chunk symbol: every token of the
+ * symbol appears among the query's content tokens (an identifier in the query
+ * tokenizes into exactly its camelCase/snake_case parts, so
+ * "applyRRFFusion implementation" ⊇ symbol `applyRRFFusion`).
+ *
+ * Precision guards (a first sweep with a lax ≥4-char single-token rule
+ * REGRESSED semantic top-1 36.4→20.5: every module/function literally named
+ * `queue`, `search`, `config`… got boosted on ordinary queries):
+ * - multi-token symbols: full containment required — high precision since the
+ *   query must spell out the compound identifier;
+ * - single-token symbols: only distinctive names (≥8 chars, e.g. `debouncer`)
+ *   qualify;
+ * - pseudo-symbols (`_text`, `_preamble`) never match.
+ * Exported for unit tests. */
+export function symbolNamedInQuery(queryTokens: ReadonlySet<string>, symbolName: string): boolean {
+  if (!symbolName || symbolName.startsWith('_')) return false;
+  const symbolTokens = toTokens(symbolName);
+  if (symbolTokens.length === 0) return false;
+  if (symbolTokens.length === 1) {
+    const only = symbolTokens[0] ?? '';
+    return only.length >= 8 && queryTokens.has(only);
+  }
+  return symbolTokens.every((t) => queryTokens.has(t));
+}
+
 /** Re-score results in place by their path relevance to the query. */
 function applyPathRelevanceBoost(results: SearchResult[], query: string): void {
   const queryTokens = queryContentTokens(query);
   if (queryTokens.length === 0) return;
+  const querySet = new Set(queryTokens);
   for (const result of results) {
     const rel = pathRelevance(queryTokens, result);
     if (rel > 0) result.score *= 1 + PATH_BOOST_ALPHA * rel;
+    if (SYMBOL_MATCH_BOOST !== 1) {
+      const symbol = (result.metadata['chunk_symbol_name'] as string | undefined) ?? '';
+      if (symbolNamedInQuery(querySet, symbol)) result.score *= SYMBOL_MATCH_BOOST;
+    }
   }
 }
 

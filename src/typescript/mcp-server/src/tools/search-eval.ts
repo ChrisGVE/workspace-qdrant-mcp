@@ -43,6 +43,37 @@ function pct(rate: number): number {
   return Math.round(rate * 1000) / 10;
 }
 
+/** Query-id prefixes that name a dataset category (see the bundled dataset's
+ *  description). Anything else — including the original 2026-05 known-item
+ *  set — reports under "orig". */
+const CATEGORY_PREFIXES = ['pt', 'sym', 'impl', 'doc', 'real'] as const;
+
+/** Category of a query id: its known prefix before the first '-', else "orig". */
+export function categoryOf(id: string): string {
+  const dash = id.indexOf('-');
+  if (dash > 0 && (CATEGORY_PREFIXES as readonly string[]).includes(id.slice(0, dash))) {
+    return id.slice(0, dash);
+  }
+  return 'orig';
+}
+
+interface CategoryHitCounts {
+  n: number;
+  top1: number;
+  top3: number;
+  top10: number;
+}
+
+/** Per-category hit rates for one ranked mode, as percentages. */
+function shapeCategory(counts: CategoryHitCounts): Record<string, number> {
+  return {
+    n: counts.n,
+    top1: pct(counts.top1 / counts.n),
+    top3: pct(counts.top3 / counts.n),
+    top10: pct(counts.top10 / counts.n),
+  };
+}
+
 function shapeModeSummary(summary: SemanticSearchModeSummary): Record<string, number> {
   return {
     top1: pct(summary.top1HitRate),
@@ -77,6 +108,10 @@ export interface SearchEvalResult {
   projectId?: string;
   verdict?: { grade: string; reasons: string[] };
   modes?: Record<string, Record<string, number>>;
+  /** Hit rates per dataset category (query-id prefix: pt/sym/impl/doc/real,
+   *  else "orig") for the ranked modes — so a weak category (e.g. PT) is
+   *  visible instead of silently dragging the aggregate verdict. */
+  byCategory?: Record<string, { semantic: Record<string, number>; hybrid: Record<string, number> }>;
   perQuery?: Array<Record<string, unknown>>;
 }
 
@@ -161,6 +196,23 @@ export async function runSearchEval(
     ...(rerankWeight !== undefined ? { rerankWeight } : {}),
   });
 
+  // Per-category hit rates (semantic + hybrid) keyed by query-id prefix.
+  const byCategory: Record<string, { semantic: CategoryHitCounts; hybrid: CategoryHitCounts }> = {};
+  for (const q of report.queries) {
+    const cat = categoryOf(q.id);
+    const bucket = (byCategory[cat] ??= {
+      semantic: { n: 0, top1: 0, top3: 0, top10: 0 },
+      hybrid: { n: 0, top1: 0, top3: 0, top10: 0 },
+    });
+    for (const mode of ['semantic', 'hybrid'] as const) {
+      const ev = q.modes[mode].evaluation;
+      bucket[mode].n += 1;
+      bucket[mode].top1 += ev.top1Hit ? 1 : 0;
+      bucket[mode].top3 += ev.top3Hit ? 1 : 0;
+      bucket[mode].top10 += ev.top10Hit ? 1 : 0;
+    }
+  }
+
   return {
     success: true,
     datasetSource,
@@ -175,6 +227,12 @@ export async function runSearchEval(
       hybrid: shapeModeSummary(report.summary.modes.hybrid),
       exact: shapeModeSummary(report.summary.modes.exact),
     },
+    byCategory: Object.fromEntries(
+      Object.entries(byCategory).map(([cat, counts]) => [
+        cat,
+        { semantic: shapeCategory(counts.semantic), hybrid: shapeCategory(counts.hybrid) },
+      ])
+    ),
     perQuery: report.queries.map((q) => {
       const ev = q.modes.semantic.evaluation;
       const hv = q.modes.hybrid.evaluation;

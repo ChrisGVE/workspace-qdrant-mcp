@@ -114,4 +114,23 @@ describe('runSearchEval', () => {
     });
     expect(res.perQuery?.[0]?.hybrid).toMatchObject({ top1: true, top3: true, top10: true });
   });
+
+  it('aggregates hit rates per query-id category', async () => {
+    // Runner hits only `src/tools/search.ts`, so the pt- case (different gold)
+    // misses while the impl- and unprefixed cases hit — distinct rates per
+    // category prove the bucketing keys off the id prefix.
+    const res = await runSearchEval(makeRunner('src/tools/search.ts'), makeDetector('p1'), {
+      cases: [
+        { id: 'impl-a', query: 'q1', expectedFiles: ['src/tools/search.ts'] },
+        { id: 'pt-b', query: 'q2', expectedFiles: ['src/missing/gold.rs'] },
+        { id: 'legacy-style-id', query: 'q3', expectedFiles: ['src/tools/search.ts'] },
+      ],
+    });
+    expect(res.success).toBe(true);
+    expect(res.byCategory?.['impl']?.semantic).toMatchObject({ n: 1, top1: 100, top10: 100 });
+    expect(res.byCategory?.['pt']?.semantic).toMatchObject({ n: 1, top1: 0, top10: 0 });
+    // Unknown prefixes fall into "orig" (the original known-item set).
+    expect(res.byCategory?.['orig']?.semantic).toMatchObject({ n: 1, top10: 100 });
+    expect(res.byCategory?.['impl']?.hybrid).toMatchObject({ n: 1, top10: 100 });
+  });
 });

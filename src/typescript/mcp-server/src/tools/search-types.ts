@@ -41,6 +41,10 @@ export type SearchScope = 'project' | 'global' | 'all';
 
 export interface SearchOptions {
   query: string;
+  /** Telemetry-only override for the `search_events.actor` column (default
+   *  "claude"). The benchmark harness sets "benchmark" so eval traffic can be
+   *  excluded when mining REAL agent queries from the search history. */
+  telemetryActor?: string;
   collection?: string;
   mode?: SearchMode;
   limit?: number;
