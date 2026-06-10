@@ -52,8 +52,11 @@ pub struct RuleBrowser {
     pub(super) search: SearchState,
     /// tenant_id → project name map for scope display.
     pub(super) names: HashMap<String, String>,
-    /// Pending typed-name deletion confirm, if the modal is open.
-    delete_confirm: Option<TypedConfirm>,
+    /// Pending typed-name deletion confirm, if the modal is open, paired with
+    /// the rule_id captured when the modal opened. A periodic refresh can
+    /// rebuild/reorder `items` while the user types, so deletion must act on
+    /// the captured id — never on `items[selected]` at confirm time.
+    delete_confirm: Option<(TypedConfirm, String)>,
     /// Transient status message shown after an action.
     message: Option<String>,
 }
@@ -274,26 +277,27 @@ impl RuleBrowser {
                 .chars()
                 .take(40)
                 .collect::<String>();
-            self.delete_confirm = Some(TypedConfirm::new(label));
+            self.delete_confirm = Some((TypedConfirm::new(label), rule.rule_id.clone()));
         }
     }
 
     /// Mutable reference to the pending delete confirm (for key input).
     pub fn delete_confirm_mut(&mut self) -> Option<&mut TypedConfirm> {
-        self.delete_confirm.as_mut()
+        self.delete_confirm.as_mut().map(|(tc, _)| tc)
     }
 
-    /// Return the rule_id of the selected item together with the typed confirm,
-    /// consuming both. Returns `None` if the confirm is not open or input does
-    /// not yet match.
+    /// Return the rule_id captured when the confirm modal opened, consuming the
+    /// modal. Returns `None` if the confirm is not open or input does not yet
+    /// match.
     pub fn take_delete_if_confirmed(&mut self) -> Option<String> {
-        if self.delete_confirm.as_ref().map_or(false, |c| c.matches()) {
-            self.delete_confirm = None;
-            self.items
-                .get(self.selected)
-                .map(|rule| rule.rule_id.clone())
+        if self
+            .delete_confirm
+            .as_ref()
+            .map_or(false, |(c, _)| c.matches())
+        {
+            self.delete_confirm.take().map(|(_, rule_id)| rule_id)
         } else {
-            if let Some(ref mut c) = self.delete_confirm {
+            if let Some((ref mut c, _)) = self.delete_confirm {
                 c.mark_rejected();
             }
             None
@@ -377,7 +381,7 @@ impl RuleBrowser {
             }
         }
         // Typed-name deletion confirm modal (on top of everything)
-        if let Some(ref tc) = self.delete_confirm {
+        if let Some((ref tc, _)) = self.delete_confirm {
             draw_typed_confirm(frame, frame.area(), tc);
         }
     }
