@@ -432,20 +432,39 @@ async fn handle_project_uplift(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
 ) -> UnifiedProcessorResult<()> {
-    let files: Vec<(String, String)> =
-        sqlx::query_as("SELECT file_id, file_path FROM tracked_files WHERE tenant_id = ?1")
-            .bind(&item.tenant_id)
-            .fetch_all(ctx.queue_manager.pool())
-            .await
-            .map_err(|e| {
-                UnifiedProcessorError::ProcessingFailed(format!(
-                    "Failed to query tracked_files for uplift: {}",
-                    e
-                ))
-            })?;
+    // Post-v37 tracked_files has neither a tenant_id nor a file_path column;
+    // tenant scope and the relative path come through the owning watch_folder.
+    let files: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT tf.file_id, tf.relative_path \
+         FROM tracked_files tf JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = ?1",
+    )
+    .bind(&item.tenant_id)
+    .fetch_all(ctx.queue_manager.pool())
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::ProcessingFailed(format!(
+            "Failed to query tracked_files for uplift: {}",
+            e
+        ))
+    })?;
 
     let mut enqueued = 0u32;
-    for (file_id, file_path) in &files {
+    for (file_id, relative_path) in &files {
+        // file_path payload fields are relative (validating RelativePath at
+        // the consumer); skip rows that cannot produce one instead of
+        // enqueuing a permanently-poisoned item.
+        let file_path = match wqm_common::paths::RelativePath::from_user_input(relative_path) {
+            Ok(rel) => rel,
+            Err(e) => {
+                warn!(
+                    relative_path,
+                    error = %e,
+                    "Tenant uplift: skipping file with invalid relative path"
+                );
+                continue;
+            }
+        };
         let doc_payload = serde_json::json!({
             "file_id": file_id,
             "file_path": file_path,

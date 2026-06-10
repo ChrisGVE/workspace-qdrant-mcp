@@ -243,11 +243,11 @@ fn fetch_file_details(
     collection: &str,
     include_workspace: bool,
 ) -> Vec<FileDetailRow> {
-    let sql = "SELECT tf.file_path, tf.chunk_count, wf.path AS wf_path \
+    let sql = "SELECT tf.relative_path, tf.chunk_count, wf.path AS wf_path \
                FROM tracked_files tf \
                JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
                WHERE wf.tenant_id = ?1 AND wf.collection = ?2 \
-               ORDER BY tf.file_path";
+               ORDER BY tf.relative_path";
 
     let Ok(mut stmt) = conn.prepare(sql) else {
         return Vec::new();
@@ -265,15 +265,14 @@ fn fetch_file_details(
     let status_map = fetch_file_status_map(conn, tenant_id, collection);
 
     rows.flatten()
-        .map(|(file_path, chunks, wf_path)| {
+        .map(|(relative_path, chunks, wf_path)| {
+            // unified_queue.file_path stores the watch-folder-relative path,
+            // so tracked_files.relative_path is the matching lookup key.
+            let rel = relative_path.as_str();
             let status = status_map
-                .get(&file_path)
+                .get(rel)
                 .copied()
                 .unwrap_or(FileStatus::UpToDate);
-            let rel = file_path
-                .strip_prefix(&wf_path)
-                .unwrap_or(&file_path)
-                .trim_start_matches('/');
             let (dir, fname) = match rel.rsplit_once('/') {
                 Some((d, f)) => (d.to_string(), f.to_string()),
                 None => (String::new(), rel.to_string()),
