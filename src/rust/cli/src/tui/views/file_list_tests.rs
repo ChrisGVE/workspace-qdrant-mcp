@@ -3,6 +3,8 @@
 //! Extracted into a separate file to keep `file_list.rs` under the 500-line
 //! limit while maintaining full test coverage.
 
+use ratatui::text::Line;
+
 use super::*;
 
 // ── FileEntry construction ────────────────────────────────────────────────────
@@ -52,7 +54,7 @@ fn activate_files_tab_switches_tab() {
 fn activate_detail_tab_clears_content() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
-    s.content = Some("hello".to_string());
+    s.content = Some(vec![Line::from("hello")]);
     s.content_scroll = 5;
     s.activate_detail_tab();
     assert_eq!(s.tab, PopupTab::Detail);
@@ -124,7 +126,7 @@ fn cursor_on_empty_list_no_panic() {
 fn load_resets_cursor_and_content() {
     let mut s = FileListState::new();
     s.file_cursor = 5;
-    s.content = Some("old content".to_string());
+    s.content = Some(vec![Line::from("old content")]);
     s.load(make_entries(3));
     assert_eq!(s.file_cursor, 0);
     assert!(s.content.is_none());
@@ -136,7 +138,7 @@ fn load_resets_cursor_and_content() {
 #[test]
 fn close_content_clears_state() {
     let mut s = FileListState::new();
-    s.content = Some("text".to_string());
+    s.content = Some(vec![Line::from("text")]);
     s.content_scroll = 4;
     s.close_content();
     assert!(s.content.is_none());
@@ -160,37 +162,49 @@ fn content_scroll_up_clamps_at_zero() {
     assert_eq!(s.content_scroll, 0);
 }
 
-// ── render_file_content ───────────────────────────────────────────────────────
+// ── render_for_path (replaces old render_file_content tests) ─────────────────
+//
+// render_for_path is the new public API in crate::tui::render::content.
+// BINARY_NOTICE_PREFIX is re-exported from file_list.rs for backward compat.
 
 #[test]
-fn render_plain_text_unchanged() {
+fn render_plain_text_produces_lines() {
+    use crate::tui::render::content::render_for_path;
     let raw = b"hello\nworld\n";
-    let result = render_file_content("file.txt", raw);
-    assert_eq!(result, "hello\nworld\n");
+    let lines = render_for_path("file.txt", raw, 80);
+    // Two source lines → two ratatui Lines.
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].spans[0].content, "hello");
+    assert_eq!(lines[1].spans[0].content, "world");
 }
 
 #[test]
 fn render_binary_file_gives_notice() {
-    // A sequence with many NUL bytes is clearly binary.
+    use crate::tui::render::content::render_for_path;
     let raw = vec![0u8; 100];
-    let result = render_file_content("file.bin", &raw);
+    let lines = render_for_path("file.bin", &raw, 80);
+    assert_eq!(lines.len(), 1);
+    let text = &lines[0].spans[0].content;
     assert!(
-        result.starts_with(BINARY_NOTICE_PREFIX),
-        "expected binary notice, got: {result}"
+        text.starts_with(BINARY_NOTICE_PREFIX),
+        "expected binary notice, got: {text}"
     );
 }
 
 #[test]
 fn render_binary_notice_includes_byte_count() {
+    use crate::tui::render::content::render_for_path;
     let raw = vec![0u8; 42];
-    let result = render_file_content("a.bin", &raw);
-    assert!(result.contains("42"), "expected byte count in: {result}");
+    let lines = render_for_path("a.bin", &raw, 80);
+    let text = &lines[0].spans[0].content;
+    assert!(text.contains("42"), "expected byte count in: {text}");
 }
 
 #[test]
-fn render_empty_file_produces_empty_string() {
-    let result = render_file_content("empty.txt", b"");
-    assert_eq!(result, "");
+fn render_empty_file_produces_empty_lines() {
+    use crate::tui::render::content::render_for_path;
+    let lines = render_for_path("empty.txt", b"", 80);
+    assert!(lines.is_empty());
 }
 
 // ── handle_popup_key ──────────────────────────────────────────────────────────
@@ -223,7 +237,7 @@ fn files_tab_esc_closes_popup_when_no_content() {
 fn files_tab_content_esc_closes_overlay_not_popup() {
     let mut s = FileListState::new();
     s.tab = PopupTab::Files;
-    s.content = Some("text".to_string());
+    s.content = Some(vec![Line::from("text")]);
     let action = handle_popup_key(&mut s, crossterm::event::KeyCode::Esc);
     assert_eq!(action, FileListAction::Consumed);
     assert!(s.content.is_none());

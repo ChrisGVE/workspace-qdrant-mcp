@@ -3,7 +3,11 @@
 //! Owns state and rendering for the "Files" tab inside per-project/library
 //! detail popups. Deliberately free of SQLite/I/O so navigation is unit-testable
 //! in memory. Key types: [`FileEntry`], [`FileListState`], [`FileListAction`].
-//! Extension point for content-type rendering: [`render_file_content`].
+//!
+//! Content rendering is delegated to [`crate::tui::render::content::render_for_path`],
+//! which dispatches on file extension (Markdown, code with syntax hints, plain text)
+//! and handles binary-file detection. The overlay stores pre-rendered
+//! `Vec<Line<'static>>` so the draw path never re-parses.
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -56,8 +60,9 @@ pub struct FileListState {
     pub files: Vec<FileEntry>,
     /// Selected row in the file list.
     pub file_cursor: usize,
-    /// When `Some`, the content overlay is open, showing the file's text.
-    pub content: Option<String>,
+    /// Pre-rendered styled lines for the content overlay, set when the overlay
+    /// is open. `None` means the overlay is closed.
+    pub content: Option<Vec<Line<'static>>>,
     /// Vertical scroll offset inside the content overlay.
     pub content_scroll: u16,
 }
@@ -127,14 +132,29 @@ impl FileListState {
 
     /// Open the content overlay for the currently selected file.
     ///
-    /// Reads the file from disk. Binary files produce a short notice instead of
-    /// raw bytes. Missing files produce a "not found" message rather than panicking.
-    pub fn open_content(&mut self) {
+    /// Reads the file from disk and pre-renders it through
+    /// [`crate::tui::render::content::render_for_path`].  Binary files get a
+    /// one-line notice; missing files get an error notice; all other files are
+    /// rendered with the appropriate content-type renderer (Markdown, code, plain).
+    ///
+    /// The rendered lines are stored in `self.content` so `draw_content_overlay`
+    /// can hand them directly to `Paragraph::new` without re-parsing.
+    ///
+    /// `width` is used for word-wrapping; pass the current overlay inner width.
+    pub fn open_content_with_width(&mut self, width: usize) {
         if let Some(entry) = self.files.get(self.file_cursor) {
-            let text = read_file_for_display(&entry.abs_path);
-            self.content = Some(text);
+            let lines = read_and_render(&entry.abs_path, width);
+            self.content = Some(lines);
             self.content_scroll = 0;
         }
+    }
+
+    /// Open the content overlay using a default width (80 columns).
+    ///
+    /// Convenience wrapper; callers that know the current terminal width should
+    /// prefer [`open_content_with_width`][Self::open_content_with_width].
+    pub fn open_content(&mut self) {
+        self.open_content_with_width(80);
     }
 
     /// Close the content overlay, returning to the file list.
@@ -161,42 +181,27 @@ impl FileListState {
 
 // ─── Content rendering ───────────────────────────────────────────────────────
 
-/// The binary-file notice prefix. Present in the returned string when the file
-/// cannot be displayed as UTF-8 text.
-pub const BINARY_NOTICE_PREFIX: &str = "(binary file,";
-
-/// Convert raw file bytes to display text (task-4 extension point).
+/// The binary-file notice prefix.
 ///
-/// UTF-8 files are returned as-is. Binary files (NUL bytes or high replacement-
-/// char ratio) get a one-line notice instead. `path` is reserved for task 4's
-/// content-type dispatch (syntax highlighting, Markdown, etc.).
-pub fn render_file_content(path: &str, raw: &[u8]) -> String {
-    // Try interpreting as UTF-8. Lossily convert so partial UTF-8 files still
-    // display rather than showing only a notice. Then check for a high ratio of
-    // replacement characters as a binary heuristic.
-    let text = String::from_utf8_lossy(raw);
-    let replacement_count = text.chars().filter(|&c| c == '\u{FFFD}').count();
-    let char_count = text.chars().count();
+/// Re-exported from [`crate::tui::render::content`] so tests that import it
+/// from this module via `use super::*` continue to compile without changes.
+#[cfg(test)]
+pub use crate::tui::render::content::BINARY_NOTICE_PREFIX;
 
-    let is_binary = char_count > 0 && replacement_count * 10 > char_count;
-    if is_binary {
-        return format!("{BINARY_NOTICE_PREFIX} {} bytes)", raw.len());
-    }
-
-    // NUL bytes are another binary indicator independent of UTF-8 validity.
-    if raw.contains(&0u8) {
-        return format!("{BINARY_NOTICE_PREFIX} {} bytes)", raw.len());
-    }
-
-    let _ = path; // reserved for task 4's content-type dispatch
-    text.into_owned()
-}
-
-/// Read a file from disk; wraps `render_file_content` with I/O.
-fn read_file_for_display(abs_path: &str) -> String {
+/// Read a file from disk and render it to styled lines.
+///
+/// Delegates to [`crate::tui::render::content::render_for_path`] for content-
+/// type dispatch. Missing files produce a single error-notice line rather than
+/// panicking.
+fn read_and_render(abs_path: &str, width: usize) -> Vec<Line<'static>> {
+    use ratatui::style::Style;
+    use ratatui::text::Span;
     match std::fs::read(abs_path) {
-        Ok(bytes) => render_file_content(abs_path, &bytes),
-        Err(e) => format!("(could not read file: {e})"),
+        Ok(bytes) => crate::tui::render::content::render_for_path(abs_path, &bytes, width),
+        Err(e) => vec![Line::from(Span::styled(
+            format!("(could not read file: {e})"),
+            Style::default().fg(theme::COLOR_DIM),
+        ))],
     }
 }
 
@@ -410,17 +415,20 @@ pub fn draw_file_list_tab(frame: &mut Frame, inner: Rect, state: &FileListState)
 }
 
 /// Draw the content overlay (full-popup panel) for the selected file.
+///
+/// `state.content` holds pre-rendered `Vec<Line<'static>>` produced by
+/// [`crate::tui::render::content::render_for_path`] at overlay-open time.
+/// The draw path clones the lines and hands them to `Paragraph::new` — no
+/// re-parsing happens here.
 pub fn draw_content_overlay(frame: &mut Frame, area: Rect, state: &FileListState) {
-    let Some(ref content) = state.content else {
+    let Some(ref rendered_lines) = state.content else {
         return;
     };
 
     // Use almost the full popup area, leaving a 1-cell margin on each side.
     let overlay_w = area.width.saturating_sub(2);
     let overlay_h = area.height.saturating_sub(2);
-    let x = area.x + 1;
-    let y = area.y + 1;
-    let overlay_area = Rect::new(x, y, overlay_w, overlay_h);
+    let overlay_area = Rect::new(area.x + 1, area.y + 1, overlay_w, overlay_h);
 
     frame.render_widget(Clear, overlay_area);
 
@@ -430,15 +438,7 @@ pub fn draw_content_overlay(frame: &mut Frame, area: Rect, state: &FileListState
         .map(|e| e.relative_path.as_str())
         .unwrap_or("file");
 
-    // Inner area for text (inside borders).
-    let inner_h = overlay_h.saturating_sub(2);
-    let inner_w = overlay_w.saturating_sub(2) as usize;
-
-    let all_lines: Vec<Line> = content
-        .lines()
-        .flat_map(|line| wrap_line(line, inner_w))
-        .map(|s| Line::from(Span::raw(s)))
-        .collect();
+    let inner_h = overlay_h.saturating_sub(2) as usize;
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -451,14 +451,14 @@ pub fn draw_content_overlay(frame: &mut Frame, area: Rect, state: &FileListState
         )));
 
     let scroll_pos = state.content_scroll.min(
-        all_lines
+        rendered_lines
             .len()
-            .saturating_sub(inner_h as usize)
+            .saturating_sub(inner_h)
             .try_into()
             .unwrap_or(u16::MAX),
     );
 
-    let para = Paragraph::new(all_lines)
+    let para = Paragraph::new(rendered_lines.clone())
         .block(block)
         .scroll((scroll_pos, 0));
 
@@ -466,6 +466,7 @@ pub fn draw_content_overlay(frame: &mut Frame, area: Rect, state: &FileListState
 }
 
 /// Wrap a line to `max_width` columns at character boundaries.
+#[cfg(test)]
 pub(crate) fn wrap_line(line: &str, max_width: usize) -> Vec<String> {
     if max_width == 0 {
         return vec![String::new()];

@@ -12,6 +12,8 @@ pub mod event;
 #[cfg(feature = "tui")]
 pub mod filter;
 #[cfg(feature = "tui")]
+pub mod render;
+#[cfg(feature = "tui")]
 pub mod search;
 #[cfg(feature = "tui")]
 pub mod terminal;

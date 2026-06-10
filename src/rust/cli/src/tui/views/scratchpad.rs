@@ -18,6 +18,7 @@ use regex::Regex;
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
 use crate::data::tenants;
 use crate::tui::filter::{self, FilterState};
+use crate::tui::render::content::render_markdown;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 
@@ -398,11 +399,9 @@ impl ScratchpadBrowser {
             Line::from(""),
         ];
 
-        // Wrap content into lines that fit the popup
-        let text_width = (popup_width - 6) as usize;
-        for wrapped_line in wrap_text(&entry.content, text_width) {
-            lines.push(Line::from(format!("  {}", wrapped_line)));
-        }
+        // Render content as Markdown, word-wrapped to the popup inner width.
+        let text_width = popup_width.saturating_sub(6) as usize;
+        lines.extend(render_markdown(&entry.content, text_width));
 
         let popup = Paragraph::new(lines).scroll((self.detail_scroll, 0)).block(
             Block::default()
@@ -461,32 +460,6 @@ fn format_tags(tags_json: &str) -> String {
     } else {
         tags_json.to_string()
     }
-}
-
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    for paragraph in text.lines() {
-        if paragraph.is_empty() {
-            lines.push(String::new());
-            continue;
-        }
-        let mut current_line = String::new();
-        for word in paragraph.split_whitespace() {
-            if current_line.is_empty() {
-                current_line = word.to_string();
-            } else if current_line.len() + 1 + word.len() <= width {
-                current_line.push(' ');
-                current_line.push_str(word);
-            } else {
-                lines.push(current_line);
-                current_line = word.to_string();
-            }
-        }
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-    }
-    lines
 }
 
 #[cfg(test)]

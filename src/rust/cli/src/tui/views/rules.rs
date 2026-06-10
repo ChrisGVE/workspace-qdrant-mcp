@@ -18,6 +18,7 @@ use regex::Regex;
 use super::rules_data::{fetch_rule_rows, RuleRow};
 use crate::data::tenants;
 use crate::tui::filter::{self, FilterState};
+use crate::tui::render::content::render_markdown;
 use crate::tui::search::SearchState;
 use crate::tui::theme;
 
@@ -373,11 +374,9 @@ impl RuleBrowser {
             Line::from(""),
         ];
 
-        // Wrap rule text into lines that fit the popup
-        let text_width = (popup_width - 6) as usize;
-        for wrapped_line in wrap_text(&rule.rule_text, text_width) {
-            lines.push(Line::from(format!("  {}", wrapped_line)));
-        }
+        // Render rule text as Markdown, word-wrapped to the popup inner width.
+        let text_width = popup_width.saturating_sub(6) as usize;
+        lines.extend(render_markdown(&rule.rule_text, text_width));
 
         let popup = Paragraph::new(lines).block(
             Block::default()
@@ -420,33 +419,6 @@ fn format_short_date(s: &str) -> String {
     }
 }
 
-/// Simple word-wrapping for display in popups.
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    for paragraph in text.lines() {
-        if paragraph.is_empty() {
-            lines.push(String::new());
-            continue;
-        }
-        let mut current_line = String::new();
-        for word in paragraph.split_whitespace() {
-            if current_line.is_empty() {
-                current_line = word.to_string();
-            } else if current_line.len() + 1 + word.len() <= width {
-                current_line.push(' ');
-                current_line.push_str(word);
-            } else {
-                lines.push(current_line);
-                current_line = word.to_string();
-            }
-        }
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,20 +451,5 @@ mod tests {
     #[test]
     fn format_short_date_short_input() {
         assert_eq!(format_short_date("2026"), "2026");
-    }
-
-    #[test]
-    fn wrap_text_basic() {
-        let lines = wrap_text("hello world foo bar baz", 12);
-        assert!(!lines.is_empty());
-        for line in &lines {
-            assert!(line.len() <= 12, "line too long: {}", line);
-        }
-    }
-
-    #[test]
-    fn wrap_text_empty() {
-        let lines = wrap_text("", 80);
-        assert!(lines.is_empty());
     }
 }
