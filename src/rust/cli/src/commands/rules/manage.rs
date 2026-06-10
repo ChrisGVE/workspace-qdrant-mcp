@@ -98,10 +98,26 @@ async fn enqueue_rules_item(op_payload: serde_json::Value, tenant_id: &str) -> R
     Ok(response.queue_id)
 }
 
-/// Move a rule between global and project scope.
-///
-/// `to_project`: `Some(project)` → project scope; `None` → global scope.
-pub async fn reassign_rule(label: &str, to_project: Option<String>) -> Result<()> {
+/// Outcome of a reassign operation, for either CLI or TUI presentation.
+pub(crate) enum ReassignOutcome {
+    /// The rule already lives under the requested tenant — nothing queued.
+    AlreadyThere { tenant: String },
+    /// Add + remove items queued.
+    Queued {
+        from: String,
+        to: String,
+        add_id: String,
+        remove_id: String,
+    },
+}
+
+/// Core reassign operation: fetch the rule, queue add-under-new-scope then
+/// remove-under-old-scope. Shared by the CLI command and the TUI (#122) —
+/// performs no terminal output.
+pub(crate) async fn reassign_rule_op(
+    label: &str,
+    to_project: Option<String>,
+) -> Result<ReassignOutcome> {
     let payload = fetch_rule_by_label(label).await?;
 
     let old_scope = payload_str(&payload, "scope");
@@ -121,15 +137,8 @@ pub async fn reassign_rule(label: &str, to_project: Option<String>) -> Result<()
     };
 
     if new_tenant == old_tenant {
-        output::info(format!("Rule already belongs to tenant '{}'", new_tenant));
-        return Ok(());
+        return Ok(ReassignOutcome::AlreadyThere { tenant: new_tenant });
     }
-
-    output::section("Reassign Rule");
-    output::kv("Label", label);
-    output::kv("From", format!("{} ({})", old_scope, old_tenant));
-    output::kv("To", format!("{} ({})", new_scope, new_tenant));
-    output::separator();
 
     // 1. Add under the new scope (action "add" preserves all rule fields).
     let mut add_payload = serde_json::json!({
@@ -164,23 +173,51 @@ pub async fn reassign_rule(label: &str, to_project: Option<String>) -> Result<()
     });
     let remove_id = enqueue_rules_item(remove_payload, &old_tenant).await?;
 
-    output::success("Reassignment queued (add + remove)");
-    output::kv("Add Queue ID", &add_id);
-    output::kv("Remove Queue ID", &remove_id);
+    Ok(ReassignOutcome::Queued {
+        from: format!("{} ({})", old_scope, old_tenant),
+        to: format!("{} ({})", new_scope, new_tenant),
+        add_id,
+        remove_id,
+    })
+}
+
+/// Move a rule between global and project scope.
+///
+/// `to_project`: `Some(project)` → project scope; `None` → global scope.
+pub async fn reassign_rule(label: &str, to_project: Option<String>) -> Result<()> {
+    match reassign_rule_op(label, to_project).await? {
+        ReassignOutcome::AlreadyThere { tenant } => {
+            output::info(format!("Rule already belongs to tenant '{}'", tenant));
+        }
+        ReassignOutcome::Queued {
+            from,
+            to,
+            add_id,
+            remove_id,
+        } => {
+            output::section("Reassign Rule");
+            output::kv("Label", label);
+            output::kv("From", from);
+            output::kv("To", to);
+            output::separator();
+            output::success("Reassignment queued (add + remove)");
+            output::kv("Add Queue ID", &add_id);
+            output::kv("Remove Queue ID", &remove_id);
+        }
+    }
     Ok(())
 }
 
-/// Amend a rule in place: new content and/or title, same label and scope.
-///
-/// Uses the daemon's `action: "update"` handling (tenant-scoped delete by
-/// label + re-insert), preserving scope, project binding, priority, and tags.
-pub async fn update_rule(
+/// Core update operation: fetch the rule and queue an `action: "update"`
+/// item. Shared by the CLI command and the TUI (#122) — performs no terminal
+/// output. Returns the queue id.
+pub(crate) async fn update_rule_op(
     label: &str,
     content: Option<String>,
     title: Option<String>,
-) -> Result<()> {
+) -> Result<String> {
     if content.is_none() && title.is_none() {
-        anyhow::bail!("Nothing to update: pass --content and/or --title");
+        anyhow::bail!("Nothing to update");
     }
 
     let payload = fetch_rule_by_label(label).await?;
@@ -216,7 +253,23 @@ pub async fn update_rule(
             serde_json::json!(tags.split(',').map(str::trim).collect::<Vec<_>>());
     }
 
-    let queue_id = enqueue_rules_item(update_payload, &tenant_id).await?;
+    enqueue_rules_item(update_payload, &tenant_id).await
+}
+
+/// Amend a rule in place: new content and/or title, same label and scope.
+///
+/// Uses the daemon's `action: "update"` handling (tenant-scoped delete by
+/// label + re-insert), preserving scope, project binding, priority, and tags.
+pub async fn update_rule(
+    label: &str,
+    content: Option<String>,
+    title: Option<String>,
+) -> Result<()> {
+    if content.is_none() && title.is_none() {
+        anyhow::bail!("Nothing to update: pass --content and/or --title");
+    }
+
+    let queue_id = update_rule_op(label, content, title).await?;
 
     output::section("Rule Update Queued");
     output::kv("Label", label);

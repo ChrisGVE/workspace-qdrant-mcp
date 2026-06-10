@@ -282,6 +282,141 @@ pub fn library_book_remove(abs_path: &str) -> String {
     }
 }
 
+// ─── Scratchpad entry management (#122) ──────────────────────────────────────
+
+/// Enqueue one scratchpad write item and signal the daemon.
+async fn enqueue_scratchpad(op: &str, tenant_id: &str, payload_json: String) -> anyhow::Result<()> {
+    use crate::grpc::proto::QueueType;
+    let mut client = ensure_daemon_available().await?;
+    client
+        .queue_write()
+        .enqueue_item(EnqueueItemRequest {
+            item_type: "text".to_string(),
+            op: op.to_string(),
+            tenant_id: tenant_id.to_string(),
+            collection: wqm_common::constants::COLLECTION_SCRATCHPAD.to_string(),
+            payload_json,
+            branch: "main".to_string(),
+            metadata_json: None,
+        })
+        .await?;
+    let _ = client
+        .system()
+        .send_refresh_signal(RefreshSignalRequest {
+            queue_type: QueueType::IngestQueue as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        })
+        .await;
+    Ok(())
+}
+
+/// Delete one scratchpad entry (content-addressed) via the queue.
+pub fn scratchpad_delete(tenant_id: &str, content: &str) -> String {
+    let tenant_id = tenant_id.to_string();
+    let payload = serde_json::json!({
+        "content": content,
+        "source_type": "scratchpad",
+    })
+    .to_string();
+    match block_on_worker(async { enqueue_scratchpad("delete", &tenant_id, payload).await }) {
+        Ok(()) => "Deletion queued".to_string(),
+        Err(e) => format!("Delete failed: {}", e),
+    }
+}
+
+/// Amend one scratchpad entry's content in place (old_content supersession).
+pub fn scratchpad_update(
+    tenant_id: &str,
+    old_content: &str,
+    new_content: &str,
+    title: &str,
+    tags_json: &str,
+) -> String {
+    let tenant_id = tenant_id.to_string();
+    let tags: Vec<String> = serde_json::from_str(tags_json).unwrap_or_default();
+    let mut payload = serde_json::json!({
+        "content": new_content,
+        "tags": tags,
+        "source_type": "scratchpad",
+    });
+    if !title.is_empty() && title != "(untitled)" {
+        payload["title"] = serde_json::json!(title);
+    }
+    if new_content != old_content {
+        payload["old_content"] = serde_json::json!(old_content);
+    }
+    match block_on_worker(async {
+        enqueue_scratchpad("update", &tenant_id, payload.to_string()).await
+    }) {
+        Ok(()) => "Update queued".to_string(),
+        Err(e) => format!("Update failed: {}", e),
+    }
+}
+
+/// Reassign one scratchpad entry to another tenant: add under the new tenant
+/// first, then delete under the old one (a failure between the two leaves a
+/// recoverable duplicate, never a lost entry).
+pub fn scratchpad_reassign(
+    old_tenant: &str,
+    new_tenant: &str,
+    content: &str,
+    title: &str,
+    tags_json: &str,
+) -> String {
+    let old_tenant = old_tenant.to_string();
+    let new_tenant = new_tenant.to_string();
+    let tags: Vec<String> = serde_json::from_str(tags_json).unwrap_or_default();
+    let mut add_payload = serde_json::json!({
+        "content": content,
+        "tags": tags,
+        "source_type": "scratchpad",
+    });
+    if !title.is_empty() && title != "(untitled)" {
+        add_payload["title"] = serde_json::json!(title);
+    }
+    let delete_payload = serde_json::json!({
+        "content": content,
+        "source_type": "scratchpad",
+    })
+    .to_string();
+
+    match block_on_worker(async {
+        enqueue_scratchpad("add", &new_tenant, add_payload.to_string()).await?;
+        enqueue_scratchpad("delete", &old_tenant, delete_payload).await
+    }) {
+        Ok(()) => format!("Moved to {}", new_tenant),
+        Err(e) => format!("Reassign failed: {}", e),
+    }
+}
+
+// ─── Rule management (#122) ──────────────────────────────────────────────────
+
+/// Amend a rule's content in place (daemon action=update, label-scoped).
+pub fn rule_update(label: &str, new_content: &str) -> String {
+    let label = label.to_string();
+    let content = new_content.to_string();
+    match block_on_worker(async {
+        crate::commands::rules::manage::update_rule_op(&label, Some(content), None).await
+    }) {
+        Ok(_queue_id) => "Update queued".to_string(),
+        Err(e) => format!("Update failed: {}", e),
+    }
+}
+
+/// Reassign a rule to another scope (None = global, Some = project path/id).
+pub fn rule_reassign(label: &str, to_project: Option<String>) -> String {
+    use crate::commands::rules::manage::{reassign_rule_op, ReassignOutcome};
+    let label = label.to_string();
+    match block_on_worker(async { reassign_rule_op(&label, to_project).await }) {
+        Ok(ReassignOutcome::AlreadyThere { tenant }) => {
+            format!("Already in {}", tenant)
+        }
+        Ok(ReassignOutcome::Queued { to, .. }) => format!("Moved to {}", to),
+        Err(e) => format!("Reassign failed: {}", e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::block_on_worker;

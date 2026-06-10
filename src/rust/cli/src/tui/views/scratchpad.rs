@@ -15,6 +15,7 @@ use wqm_common::constants::TENANT_GLOBAL;
 
 use regex::Regex;
 
+use super::confirm::{draw_target_prompt, draw_typed_confirm, TargetPrompt, TypedConfirm};
 use super::scratchpad_data::{fetch_scratchpad_rows, ScratchpadRow};
 use crate::data::tenants;
 use crate::tui::filter::{self, FilterState};
@@ -49,6 +50,13 @@ pub struct ScratchpadBrowser {
     search: SearchState,
     /// tenant_id → project name map for tenant display.
     names: HashMap<String, String>,
+    /// Pending typed-name deletion confirm with the row captured at request
+    /// time (#122) — never read `items[selected]` at confirm time.
+    pub(super) delete_confirm: Option<(TypedConfirm, ScratchpadRow)>,
+    /// Pending reassign-target prompt with the captured row (#122).
+    pub(super) reassign_prompt: Option<(TargetPrompt, ScratchpadRow)>,
+    /// Transient status message shown after an action.
+    message: Option<String>,
 }
 
 impl ScratchpadBrowser {
@@ -64,7 +72,35 @@ impl ScratchpadBrowser {
             last_refresh: None,
             search: SearchState::new(),
             names: HashMap::new(),
+            delete_confirm: None,
+            reassign_prompt: None,
+            message: None,
         }
+    }
+
+    /// Slice of the currently visible items (for the actions module).
+    pub(super) fn items(&self) -> &[ScratchpadRow] {
+        &self.items
+    }
+
+    /// Index of the currently selected item (for the actions module).
+    pub(super) fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    /// tenant_id → project name map (for reassign target resolution).
+    pub fn names_map(&self) -> &HashMap<String, String> {
+        &self.names
+    }
+
+    /// Set a transient status message shown in the summary bar.
+    pub fn set_message(&mut self, msg: String) {
+        self.message = Some(msg);
+    }
+
+    /// Force a data refresh on the next tick.
+    pub fn force_refresh(&mut self) {
+        self.last_refresh = None;
     }
 
     pub fn search_mut(&mut self) -> &mut SearchState {
@@ -271,13 +307,22 @@ impl ScratchpadBrowser {
                 format!("  (selected: {}/{})", self.selected + 1, self.items.len()),
                 Style::default().fg(theme::COLOR_DIM),
             ),
-            Span::styled("  [read-only]", Style::default().fg(theme::COLOR_DIM)),
+            Span::styled(
+                "  [e edit  m move  d delete]",
+                Style::default().fg(theme::COLOR_DIM),
+            ),
         ];
         summary_spans.extend(filter::prompt_spans(&self.page_filter, "Filter"));
         summary_spans.extend(crate::tui::search::prompt_spans(
             &self.search,
             self.search_matches().len(),
         ));
+        if let Some(ref msg) = self.message {
+            summary_spans.push(Span::styled(
+                format!("  {msg}"),
+                Style::default().fg(theme::COLOR_WARNING),
+            ));
+        }
         let summary = Paragraph::new(Line::from(summary_spans)).block(
             Block::default()
                 .borders(Borders::ALL)
@@ -293,6 +338,15 @@ impl ScratchpadBrowser {
             if let Some(entry) = self.items.get(self.selected) {
                 self.draw_detail_popup(frame, area, entry);
             }
+        }
+        // Typed-name deletion confirm modal (#122)
+        if let Some((ref tc, _)) = self.delete_confirm {
+            draw_typed_confirm(frame, frame.area(), tc);
+        }
+        // Reassign-target prompt (#122)
+        if let Some((ref prompt, ref row)) = self.reassign_prompt {
+            let name = super::scratchpad_actions::confirm_name(row);
+            draw_target_prompt(frame, frame.area(), &name, prompt);
         }
     }
 

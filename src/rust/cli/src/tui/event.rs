@@ -3,7 +3,8 @@
 //! Spawns a background thread that polls crossterm events and emits
 //! them (plus periodic tick events) over an MPSC channel.
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
@@ -28,6 +29,10 @@ pub struct EventHandler {
     // Keep the sender alive so the thread can detect when to stop
     // (it checks `tx.send()` failure).
     _tx: mpsc::Sender<Event>,
+    /// While set, the poller thread sleeps instead of reading the tty —
+    /// required when an external editor temporarily owns the terminal
+    /// (#122 amend), otherwise both compete for stdin.
+    paused: Arc<AtomicBool>,
 }
 
 impl EventHandler {
@@ -39,15 +44,21 @@ impl EventHandler {
     pub fn new(tick_rate: Duration) -> Self {
         let (tx, rx) = mpsc::channel();
         let event_tx = tx.clone();
+        let paused = Arc::new(AtomicBool::new(false));
+        let paused_clone = Arc::clone(&paused);
 
         thread::Builder::new()
             .name("tui-event-poller".into())
             .spawn(move || {
-                Self::poll_loop(event_tx, tick_rate);
+                Self::poll_loop(event_tx, tick_rate, paused_clone);
             })
             .expect("failed to spawn event-poller thread");
 
-        Self { rx, _tx: tx }
+        Self {
+            rx,
+            _tx: tx,
+            paused,
+        }
     }
 
     /// Block until the next event is available.
@@ -55,9 +66,27 @@ impl EventHandler {
         self.rx.recv()
     }
 
+    /// Stop reading the tty so an external process can own the terminal.
+    ///
+    /// Sleeps one poll period after setting the flag so an in-flight
+    /// `event::poll` finishes before the caller hands over the tty.
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(300));
+    }
+
+    /// Resume reading the tty after [`pause`].
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+
     /// Internal poll loop that runs on the background thread.
-    fn poll_loop(tx: mpsc::Sender<Event>, tick_rate: Duration) {
+    fn poll_loop(tx: mpsc::Sender<Event>, tick_rate: Duration, paused: Arc<AtomicBool>) {
         loop {
+            if paused.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
             let has_event = event::poll(tick_rate).unwrap_or(false);
 
             let event = if has_event {

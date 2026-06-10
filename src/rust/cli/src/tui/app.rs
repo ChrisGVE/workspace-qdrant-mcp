@@ -119,6 +119,10 @@ pub struct App {
     /// Global narrowing filter (`F`), applied across every list view in
     /// addition to each view's own page filter (`f`).
     global_filter: FilterState,
+    /// Pending external-editor request (#122 amend). Set by a view's key
+    /// handler; consumed by the run loop, which suspends the TUI, runs
+    /// `$EDITOR`, and applies the result.
+    pub(super) pending_editor: Option<crate::tui::editor::EditorRequest>,
 }
 
 impl App {
@@ -140,6 +144,7 @@ impl App {
             search_view: None,
             content_height: std::cell::Cell::new(0),
             global_filter: FilterState::new(),
+            pending_editor: None,
         }
     }
 
@@ -246,10 +251,64 @@ impl App {
                 Ok(Event::Tick) => self.on_tick(),
                 Err(_) => self.running = false,
             }
+
+            // External-editor amend (#122): suspend the TUI, run $EDITOR,
+            // resume, then apply the edit via the enqueue-only write path.
+            if let Some(request) = self.pending_editor.take() {
+                events.pause();
+                terminal::restore()?;
+                let edit_result = crate::tui::editor::edit_text(request.initial_content());
+                term = terminal::init()?;
+                term.clear()?;
+                events.resume();
+                self.apply_editor_result(request, edit_result);
+            }
         }
 
         terminal::restore()?;
         Ok(())
+    }
+
+    /// Apply the outcome of an external-editor session to the right view.
+    fn apply_editor_result(
+        &mut self,
+        request: crate::tui::editor::EditorRequest,
+        edit_result: anyhow::Result<Option<String>>,
+    ) {
+        use crate::tui::editor::EditorRequest;
+        let outcome = match edit_result {
+            Ok(None) => "No changes".to_string(),
+            Ok(Some(new_content)) => match &request {
+                EditorRequest::Scratchpad {
+                    tenant_id,
+                    title,
+                    tags_json,
+                    content,
+                } => crate::tui::commands::scratchpad_update(
+                    tenant_id,
+                    content,
+                    &new_content,
+                    title,
+                    tags_json,
+                ),
+                EditorRequest::Rule { label, .. } => {
+                    crate::tui::commands::rule_update(label, &new_content)
+                }
+            },
+            Err(e) => format!("Edit failed: {}", e),
+        };
+        match request {
+            EditorRequest::Scratchpad { .. } => {
+                let browser = self.scratchpad_browser();
+                browser.set_message(outcome);
+                browser.force_refresh();
+            }
+            EditorRequest::Rule { .. } => {
+                let browser = self.rule_browser();
+                browser.set_message(outcome);
+                browser.force_refresh();
+            }
+        }
     }
 }
 

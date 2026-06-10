@@ -68,9 +68,11 @@ impl App {
             View::Projects | View::Libraries => {
                 "j/k Nav  / Search  f Filter  t Toggle  r Rescan  Enter Detail  q Quit"
             }
-            View::Rules => "j/k Nav  g/G  / Search  n/N  f Filter  d Delete  Enter Detail  q Quit",
+            View::Rules => {
+                "j/k Nav  / Search  f Filter  e Edit  m Move  d Delete  Enter Detail  q Quit"
+            }
             View::Scratchpad => {
-                "j/k Nav  g/G  / Search  n/N  f Filter  F Global  Enter Detail  q Quit"
+                "j/k Nav  / Search  f Filter  e Edit  m Move  d Delete  Enter Detail  q Quit"
             }
             View::Service => "p Pause  r Resume  ? Help  q Quit",
             View::Logs => "j/k Move  g/G First/Last  / Search  n/N  Enter View  Esc Live  q Quit",

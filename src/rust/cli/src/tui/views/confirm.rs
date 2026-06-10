@@ -138,6 +138,68 @@ pub fn tracked_cell(enabled: bool) -> Span<'static> {
 // ─── Drawing helpers ─────────────────────────────────────────────────────────
 
 /// Compute the centered popup area within `area`.
+// ─── Reassign-target prompt (#122) ───────────────────────────────────────────
+
+/// Free-text input modal for choosing a reassign target: a project name,
+/// a tenant id, or empty input for the global scope.
+#[derive(Debug, Clone, Default)]
+pub struct TargetPrompt {
+    /// What the user has typed so far.
+    pub input: String,
+}
+
+impl TargetPrompt {
+    pub fn push_char(&mut self, c: char) {
+        self.input.push(c);
+    }
+
+    pub fn pop_char(&mut self) {
+        self.input.pop();
+    }
+}
+
+/// Draw the reassign-target input modal.
+pub fn draw_target_prompt(frame: &mut Frame, area: Rect, target_name: &str, prompt: &TargetPrompt) {
+    let popup = centered_popup(area, 64, 9);
+    frame.render_widget(Clear, popup);
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  Move "),
+            Span::styled(
+                target_name.to_string(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" to:"),
+        ]),
+        Line::from(Span::styled(
+            "  (project name or tenant id; leave empty for global)",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  > "),
+            Span::styled(prompt.input.clone(), Style::default().fg(Color::Yellow)),
+            Span::styled("\u{2588}", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Enter", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(" move    ", Style::default().fg(Color::Gray)),
+            Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(" cancel", Style::default().fg(Color::Gray)),
+        ]),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Reassign ")
+        .title_style(Style::default().add_modifier(Modifier::BOLD))
+        .border_style(Style::default().fg(Color::Cyan));
+    frame.render_widget(Paragraph::new(lines).block(block), popup);
+}
+
 fn centered_popup(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width.saturating_sub(4));
     let h = height.min(area.height.saturating_sub(2));

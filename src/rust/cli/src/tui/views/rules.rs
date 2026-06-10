@@ -15,7 +15,7 @@ use wqm_common::constants::TENANT_GLOBAL;
 
 use regex::Regex;
 
-use super::confirm::{draw_typed_confirm, TypedConfirm};
+use super::confirm::{draw_target_prompt, draw_typed_confirm, TargetPrompt, TypedConfirm};
 use super::rules_data::{fetch_rule_rows, RuleRow};
 use crate::data::tenants;
 use crate::tui::filter::{self, FilterState};
@@ -57,6 +57,9 @@ pub struct RuleBrowser {
     /// rebuild/reorder `items` while the user types, so deletion must act on
     /// the captured id — never on `items[selected]` at confirm time.
     delete_confirm: Option<(TypedConfirm, String)>,
+    /// Pending reassign-target prompt with the rule label captured at
+    /// request time (#122).
+    reassign_prompt: Option<(TargetPrompt, String)>,
     /// Transient status message shown after an action.
     message: Option<String>,
 }
@@ -74,6 +77,7 @@ impl RuleBrowser {
             search: SearchState::new(),
             names: HashMap::new(),
             delete_confirm: None,
+            reassign_prompt: None,
             message: None,
         }
     }
@@ -309,6 +313,55 @@ impl RuleBrowser {
         self.delete_confirm = None;
     }
 
+    // ── Reassign + amend (#122) ─────────────────────────────────────────────
+
+    /// Whether the reassign-target prompt is open.
+    pub fn reassign_open(&self) -> bool {
+        self.reassign_prompt.is_some()
+    }
+
+    /// Open the reassign prompt for the selected rule, capturing its label
+    /// (rules are label-addressed; the rule_id IS the label).
+    pub fn request_reassign(&mut self) {
+        if let Some(rule) = self.items.get(self.selected) {
+            self.reassign_prompt = Some((TargetPrompt::default(), rule.rule_id.clone()));
+        }
+    }
+
+    /// Mutable reference to the reassign prompt (for key input).
+    pub fn reassign_prompt_mut(&mut self) -> Option<&mut TargetPrompt> {
+        self.reassign_prompt.as_mut().map(|(p, _)| p)
+    }
+
+    /// Confirm the reassign: returns the captured label and the raw target
+    /// input (empty = global), consuming the prompt.
+    pub fn take_reassign(&mut self) -> Option<(String, String)> {
+        self.reassign_prompt
+            .take()
+            .map(|(p, label)| (label, p.input))
+    }
+
+    /// Cancel and close the reassign prompt.
+    pub fn cancel_reassign(&mut self) {
+        self.reassign_prompt = None;
+    }
+
+    /// Build an external-editor amend request for the selected rule,
+    /// capturing label + content at request time.
+    pub fn request_edit(&self) -> Option<crate::tui::editor::EditorRequest> {
+        self.items
+            .get(self.selected)
+            .map(|rule| crate::tui::editor::EditorRequest::Rule {
+                label: rule.rule_id.clone(),
+                content: rule.rule_text.clone(),
+            })
+    }
+
+    /// tenant_id → project name map (for reassign target resolution).
+    pub fn names_map(&self) -> &HashMap<String, String> {
+        &self.names
+    }
+
     /// Set a transient status message shown in the summary bar.
     pub fn set_message(&mut self, msg: String) {
         self.message = Some(msg);
@@ -383,6 +436,10 @@ impl RuleBrowser {
         // Typed-name deletion confirm modal (on top of everything)
         if let Some((ref tc, _)) = self.delete_confirm {
             draw_typed_confirm(frame, frame.area(), tc);
+        }
+        // Reassign-target prompt (#122)
+        if let Some((ref prompt, ref label)) = self.reassign_prompt {
+            draw_target_prompt(frame, frame.area(), label, prompt);
         }
     }
 }

@@ -62,6 +62,41 @@ impl App {
             return true;
         }
 
+        // Reassign-target prompt (#122): keys go to the prompt buffer.
+        if browser.reassign_open() {
+            match key.code {
+                KeyCode::Char(c) => {
+                    if let Some(p) = browser.reassign_prompt_mut() {
+                        p.push_char(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(p) = browser.reassign_prompt_mut() {
+                        p.pop_char();
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some((label, input)) = browser.take_reassign() {
+                        let names = browser.names_map().clone();
+                        let target = super::super::views::scratchpad_actions::resolve_target_tenant(
+                            &input, &names,
+                        );
+                        let to = if target == wqm_common::constants::TENANT_GLOBAL {
+                            None
+                        } else {
+                            Some(target)
+                        };
+                        let msg = super::super::commands::rule_reassign(&label, to);
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                KeyCode::Esc => browser.cancel_reassign(),
+                _ => {}
+            }
+            return true;
+        }
+
         if browser.detail_open() {
             if key.code == KeyCode::Esc {
                 browser.close_detail();
@@ -130,6 +165,16 @@ impl App {
                 browser.request_delete();
                 true
             }
+            // Act-on-object verbs (#122)
+            KeyCode::Char('m') => {
+                browser.request_reassign();
+                true
+            }
+            KeyCode::Char('e') => {
+                let req = browser.request_edit();
+                self.pending_editor = req;
+                true
+            }
             KeyCode::Enter => {
                 browser.open_detail();
                 true
@@ -165,6 +210,70 @@ impl App {
         if browser.search_active() {
             if browser.search_mut().handle_key(key.code) == SearchAction::Confirmed {
                 browser.search_first();
+            }
+            return true;
+        }
+
+        // Typed-name delete confirm (#122): keys go to the TypedConfirm buffer.
+        if browser.delete_confirm_open() {
+            match key.code {
+                KeyCode::Char(c) => {
+                    if let Some(tc) = browser.delete_confirm_mut() {
+                        tc.push_char(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(tc) = browser.delete_confirm_mut() {
+                        tc.pop_char();
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(row) = browser.take_delete_if_confirmed() {
+                        let msg =
+                            super::super::commands::scratchpad_delete(&row.tenant_id, &row.content);
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                KeyCode::Esc => browser.cancel_delete(),
+                _ => {}
+            }
+            return true;
+        }
+
+        // Reassign-target prompt (#122): keys go to the prompt buffer.
+        if browser.reassign_open() {
+            match key.code {
+                KeyCode::Char(c) => {
+                    if let Some(p) = browser.reassign_prompt_mut() {
+                        p.push_char(c);
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(p) = browser.reassign_prompt_mut() {
+                        p.pop_char();
+                    }
+                }
+                KeyCode::Enter => {
+                    let names = browser.names_map().clone();
+                    if let Some((row, target)) = browser.take_reassign(&names) {
+                        let msg = if target == row.tenant_id {
+                            format!("Already in {}", target)
+                        } else {
+                            super::super::commands::scratchpad_reassign(
+                                &row.tenant_id,
+                                &target,
+                                &row.content,
+                                &row.title,
+                                &row.tags,
+                            )
+                        };
+                        browser.set_message(msg);
+                        browser.force_refresh();
+                    }
+                }
+                KeyCode::Esc => browser.cancel_reassign(),
+                _ => {}
             }
             return true;
         }
@@ -250,6 +359,20 @@ impl App {
             }
             KeyCode::Char('f') => {
                 browser.page_filter_mut().activate();
+                true
+            }
+            // Act-on-object verbs (#122)
+            KeyCode::Char('d') => {
+                browser.request_delete();
+                true
+            }
+            KeyCode::Char('m') => {
+                browser.request_reassign();
+                true
+            }
+            KeyCode::Char('e') => {
+                let req = browser.request_edit();
+                self.pending_editor = req;
                 true
             }
             KeyCode::Enter => {

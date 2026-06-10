@@ -8,6 +8,8 @@ pub mod app;
 #[cfg(feature = "tui")]
 pub mod commands;
 #[cfg(feature = "tui")]
+pub mod editor;
+#[cfg(feature = "tui")]
 pub mod event;
 #[cfg(feature = "tui")]
 pub mod filter;

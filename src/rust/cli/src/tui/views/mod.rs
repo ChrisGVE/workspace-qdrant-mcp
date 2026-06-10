@@ -32,6 +32,7 @@ pub mod rules;
 pub mod rules_data;
 pub(super) mod rules_draw;
 pub mod scratchpad;
+pub mod scratchpad_actions;
 pub mod scratchpad_data;
 pub mod search_data;
 pub mod search_page;

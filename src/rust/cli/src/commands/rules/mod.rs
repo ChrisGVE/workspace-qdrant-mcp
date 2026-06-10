@@ -8,7 +8,7 @@ pub mod helpers;
 mod info;
 mod inject;
 mod list;
-mod manage;
+pub(crate) mod manage;
 mod remove;
 mod search;
 
