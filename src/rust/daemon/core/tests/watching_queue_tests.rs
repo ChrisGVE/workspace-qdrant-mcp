@@ -8,92 +8,43 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::time::{sleep, Duration};
 use workspace_qdrant_core::{
-    unified_queue_schema::{FilePayload, ItemType, QueueOperation as UnifiedOp},
+    unified_queue_schema::{
+        FilePayload, ItemType, QueueOperation as UnifiedOp, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
+        CREATE_UNIFIED_QUEUE_SQL,
+    },
+    watch_folders_schema::{CREATE_WATCH_FOLDERS_INDEXES_SQL, CREATE_WATCH_FOLDERS_SQL},
     AllowedExtensions, FileWatcherQueue, QueueManager, WatchConfig, WatchManager, WatchType,
 };
 
-/// Helper to create in-memory SQLite database with queue schema
+/// Helper to create an in-memory SQLite database using the canonical
+/// production DDL constants, so this test schema cannot drift from the
+/// schema the daemon actually creates.
 async fn create_test_database() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
         .await
         .expect("Failed to create in-memory database");
 
-    // Create unified_queue table (matches production schema without priority column)
-    sqlx::query(
-        r#"
-        CREATE TABLE unified_queue (
-            queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
-            item_type TEXT NOT NULL CHECK (item_type IN (
-                'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
-            )),
-            op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
-            tenant_id TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
-                'pending', 'in_progress', 'done', 'failed'
-            )),
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            lease_until TEXT,
-            worker_id TEXT,
-            idempotency_key TEXT NOT NULL UNIQUE,
-            payload_json TEXT NOT NULL DEFAULT '{}',
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            error_message TEXT,
-            last_error_at TEXT,
-            branch TEXT DEFAULT 'main',
-            metadata TEXT DEFAULT '{}',
-            file_path TEXT,
-            qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
-            search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
-            decision_json TEXT
-        )
-        "#
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create unified_queue table");
+    sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+        .execute(&pool)
+        .await
+        .expect("Failed to create unified_queue table");
+    for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+        sqlx::query(index_sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to create unified_queue index");
+    }
 
-    // Create watch_folders table (includes all columns referenced by production code)
-    sqlx::query(
-        r#"
-        CREATE TABLE watch_folders (
-            watch_id TEXT PRIMARY KEY,
-            path TEXT NOT NULL UNIQUE,
-            collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
-            tenant_id TEXT NOT NULL,
-            parent_watch_id TEXT,
-            is_active INTEGER DEFAULT 0 CHECK (is_active >= 0),
-            is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
-            git_remote_url TEXT,
-            remote_hash TEXT,
-            last_commit_hash TEXT,
-            disambiguation_path TEXT,
-            patterns TEXT NOT NULL,
-            ignore_patterns TEXT NOT NULL,
-            auto_ingest BOOLEAN NOT NULL DEFAULT 1,
-            recursive BOOLEAN NOT NULL DEFAULT 1,
-            recursive_depth INTEGER NOT NULL DEFAULT 10,
-            debounce_seconds REAL NOT NULL DEFAULT 2.0,
-            enabled BOOLEAN NOT NULL DEFAULT 1,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            last_activity_at TEXT,
-            is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
-            consecutive_errors INTEGER DEFAULT 0,
-            total_errors INTEGER DEFAULT 0,
-            last_error_at TEXT,
-            last_error_message TEXT,
-            backoff_until TEXT,
-            last_success_at TEXT,
-            health_status TEXT DEFAULT 'healthy',
-            FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
-        )
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to create watch_folders table");
+    sqlx::query(CREATE_WATCH_FOLDERS_SQL)
+        .execute(&pool)
+        .await
+        .expect("Failed to create watch_folders table");
+    for index_sql in CREATE_WATCH_FOLDERS_INDEXES_SQL {
+        sqlx::query(index_sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to create watch_folders index");
+    }
 
     pool
 }
@@ -153,19 +104,16 @@ async fn test_watch_manager_with_configuration() {
     sqlx::query(
         r#"
         INSERT INTO watch_folders (
-            watch_id, path, collection, tenant_id, patterns, ignore_patterns,
-            recursive, debounce_seconds, enabled
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            watch_id, path, collection, tenant_id, enabled, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5,
+                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         "#,
     )
     .bind("test-watch-1")
     .bind(&watch_path)
     .bind("projects")
     .bind("test-tenant")
-    .bind(r#"["*.txt", "*.md"]"#)
-    .bind(r#"["*.tmp", ".git/**"]"#)
-    .bind(true)
-    .bind(1.0)
     .bind(true)
     .execute(&pool)
     .await

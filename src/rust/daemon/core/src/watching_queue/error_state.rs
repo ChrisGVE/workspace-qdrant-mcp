@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::error_types::{
     BackoffConfig, CircuitBreakerState, WatchErrorSummary, WatchHealthStatus,
@@ -450,21 +450,6 @@ impl WatchErrorTracker {
             .try_read()
             .ok()
             .and_then(|states| states.get(watch_id).cloned())
-    }
-
-    /// Set error state for a specific watch (Task 461.5)
-    pub fn set_state(&self, watch_id: &str, state: WatchErrorState) {
-        match self.states.try_write() {
-            Ok(mut states) => {
-                states.insert(watch_id.to_string(), state);
-            }
-            Err(_) => {
-                warn!(
-                    "Could not set error state for watch {} - lock contention",
-                    watch_id
-                );
-            }
-        }
     }
 
     /// Get error summary for a specific watch (Task 461.5)

@@ -1,4 +1,4 @@
-//! WatchManager operations - refresh, reconciliation, persistence, polling.
+//! WatchManager operations - refresh, reconciliation, polling.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,8 +10,6 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 use crate::queue_operations::QueueManager;
 
-use super::error_state::WatchErrorState;
-use super::error_types::WatchHealthStatus;
 use super::manager::WatchManager;
 use super::types::{WatchConfig, WatchType, WatchingQueueResult};
 
@@ -281,174 +279,6 @@ impl WatchManager {
 
                 if let Err(e) = self.refresh_watches().await {
                     error!("Failed to refresh watches: {}", e);
-                }
-            }
-        })
-    }
-
-    /// Persist error states to SQLite watch_folders table (Task 461.5)
-    pub async fn persist_error_states(&self) -> WatchingQueueResult<()> {
-        let watchers = self.watchers.read().await;
-
-        for (id, watcher) in watchers.iter() {
-            if id.starts_with("lib_") {
-                continue;
-            }
-
-            if let Some(state) = watcher.error_tracker().get_state(id) {
-                let last_error_at = state
-                    .last_error_time
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| {
-                        let secs = d.as_secs() as i64;
-                        chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref()
-                            .map(wqm_common::timestamps::format_utc)
-                            .unwrap_or_default()
-                    });
-
-                let last_success_at = state
-                    .last_successful_processing
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| {
-                        let secs = d.as_secs() as i64;
-                        chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref()
-                            .map(wqm_common::timestamps::format_utc)
-                            .unwrap_or_default()
-                    });
-
-                let backoff_until = state
-                    .backoff_until
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| {
-                        let secs = d.as_secs() as i64;
-                        chrono::DateTime::from_timestamp(secs, 0)
-                            .as_ref()
-                            .map(wqm_common::timestamps::format_utc)
-                            .unwrap_or_default()
-                    });
-
-                let result = sqlx::query(
-                    r#"
-                    UPDATE watch_folders
-                    SET consecutive_errors = ?,
-                        total_errors = ?,
-                        last_error_at = ?,
-                        last_error_message = ?,
-                        backoff_until = ?,
-                        last_success_at = ?,
-                        health_status = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE watch_id = ?
-                    "#,
-                )
-                .bind(state.consecutive_errors as i64)
-                .bind(state.total_errors as i64)
-                .bind(last_error_at)
-                .bind(&state.last_error_message)
-                .bind(backoff_until)
-                .bind(last_success_at)
-                .bind(state.health_status.as_str())
-                .bind(id)
-                .execute(&self.pool)
-                .await;
-
-                if let Err(e) = result {
-                    warn!("Failed to persist error state for watch {}: {}", id, e);
-                } else {
-                    debug!(
-                        "Persisted error state for watch {}: health={}",
-                        id,
-                        state.health_status.as_str()
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Load error states from SQLite into watchers (Task 461.5)
-    pub async fn load_error_states(&self) -> WatchingQueueResult<()> {
-        let watchers = self.watchers.read().await;
-
-        let rows = sqlx::query(
-            r#"
-            SELECT watch_id, consecutive_errors, total_errors, last_error_at,
-                   last_error_message, backoff_until, last_success_at, health_status
-            FROM watch_folders
-            WHERE consecutive_errors > 0 OR health_status != 'healthy'
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        for row in rows {
-            let watch_id: String = row.get("watch_id");
-
-            if let Some(watcher) = watchers.get(&watch_id) {
-                let consecutive_errors: i64 = row.get("consecutive_errors");
-                let total_errors: i64 = row.get("total_errors");
-                let last_error_message: Option<String> = row.get("last_error_message");
-                let health_status_str: String = row.get("health_status");
-
-                let health_status = match health_status_str.as_str() {
-                    "healthy" => WatchHealthStatus::Healthy,
-                    "degraded" => WatchHealthStatus::Degraded,
-                    "backoff" => WatchHealthStatus::Backoff,
-                    "disabled" => WatchHealthStatus::Disabled,
-                    "half_open" => WatchHealthStatus::HalfOpen,
-                    _ => WatchHealthStatus::Healthy,
-                };
-
-                let restored_state = WatchErrorState {
-                    consecutive_errors: consecutive_errors as u32,
-                    total_errors: total_errors as u64,
-                    last_error_time: None,
-                    last_error_message,
-                    backoff_level: 0,
-                    last_successful_processing: None,
-                    health_status,
-                    consecutive_successes: 0,
-                    backoff_until: None,
-                    errors_in_window: Vec::new(),
-                    circuit_opened_at: None,
-                    half_open_attempts: 0,
-                    half_open_successes: 0,
-                };
-
-                watcher.error_tracker().set_state(&watch_id, restored_state);
-
-                debug!(
-                    "Restored error state for watch {}: errors={}, health={}",
-                    watch_id, consecutive_errors, health_status_str
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Start periodic error state persistence (Task 461.5)
-    pub fn start_error_state_persistence(
-        self: Arc<Self>,
-        persist_interval_secs: u64,
-    ) -> tokio::task::JoinHandle<()> {
-        info!(
-            "Starting error state persistence (interval: {}s)",
-            persist_interval_secs
-        );
-
-        tokio::spawn(async move {
-            let mut persist_interval = interval(Duration::from_secs(persist_interval_secs));
-
-            loop {
-                persist_interval.tick().await;
-
-                debug!("Persisting error states to SQLite...");
-                if let Err(e) = self.persist_error_states().await {
-                    error!("Failed to persist error states: {}", e);
                 }
             }
         })
