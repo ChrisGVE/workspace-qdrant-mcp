@@ -219,3 +219,18 @@ fn make_test_detail() -> ProjectDetail {
         queue_by_status: std::collections::HashMap::new(),
     }
 }
+
+/// A periodic refresh that rebuilds/reorders `items` after the nudge modal
+/// opened must not retarget the rescan: the watch_id was captured at request
+/// time.
+#[test]
+fn take_nudge_ignores_items_rebuild_after_open() {
+    let mut b = ProjectBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 2;
+    b.request_nudge();
+    // Simulate a refresh replacing the list with different rows.
+    b.items = make_test_rows(1);
+    b.selected = 0;
+    assert_eq!(b.take_nudge().unwrap(), "watch-2");
+}

@@ -57,8 +57,10 @@ pub struct LibraryBrowser {
     search: SearchState,
     /// Pending tracking-toggle confirmation, if the modal is open.
     confirm: Option<ToggleConfirm>,
-    /// Pending nudge (rescan) confirmation, if the modal is open.
-    nudge_confirm: bool,
+    /// Pending nudge (rescan) confirmation, if the modal is open. Captures
+    /// (tag, display name) at request time so a periodic refresh that
+    /// rebuilds/reorders `items` cannot retarget the rescan.
+    nudge_confirm: Option<(String, String)>, // (tag, name)
     /// Pending typed-name book-removal confirm (incremental libs only).
     book_remove_confirm: Option<(TypedConfirm, String)>, // (confirm, abs_path)
     /// Transient status message (e.g. toggle result), shown in the header.
@@ -79,7 +81,7 @@ impl LibraryBrowser {
             last_refresh: None,
             search: SearchState::new(),
             confirm: None,
-            nudge_confirm: false,
+            nudge_confirm: None,
             book_remove_confirm: None,
             message: None,
         }
@@ -127,55 +129,41 @@ impl LibraryBrowser {
 
     /// Whether any confirmation modal (toggle, nudge, or book-removal) is open.
     pub fn confirm_open(&self) -> bool {
-        self.confirm.is_some() || self.nudge_confirm || self.book_remove_confirm.is_some()
+        self.confirm.is_some() || self.nudge_confirm.is_some() || self.book_remove_confirm.is_some()
     }
 
     /// Whether specifically the nudge-confirmation modal is open.
     pub fn nudge_confirm_open(&self) -> bool {
-        self.nudge_confirm
+        self.nudge_confirm.is_some()
     }
 
-    /// Return the tenant_id (tag) of the selected library, if any.
-    pub fn selected_tenant_id(&self) -> Option<String> {
-        self.items.get(self.selected).map(|item| item.tag.clone())
-    }
-
-    /// Open a `y`/`N` nudge confirmation for the selected library.
+    /// Open a `y`/`N` nudge confirmation for the selected library, capturing
+    /// its tag and name so a refresh cannot retarget the rescan.
     pub fn request_nudge(&mut self) {
-        if !self.items.is_empty() {
-            self.nudge_confirm = true;
+        if let Some(item) = self.items.get(self.selected) {
+            self.nudge_confirm = Some((item.tag.clone(), item.name.clone()));
         }
     }
 
-    /// Build the [`ActionConfirm`] for the nudge modal.
+    /// Build the [`ActionConfirm`] for the nudge modal from the captured target.
     pub fn nudge_action_confirm(&self) -> Option<ActionConfirm> {
-        if !self.nudge_confirm {
-            return None;
-        }
-        let name = self
-            .items
-            .get(self.selected)
-            .map(|i| i.name.clone())
-            .unwrap_or_default();
-        Some(ActionConfirm::Simple(SimpleConfirm {
-            verb: "Rescan".to_string(),
-            target: name,
-        }))
+        self.nudge_confirm.as_ref().map(|(_, name)| {
+            ActionConfirm::Simple(SimpleConfirm {
+                verb: "Rescan".to_string(),
+                target: name.clone(),
+            })
+        })
     }
 
-    /// Take the nudge confirmation (clears the modal) and return the tenant_id.
+    /// Take the nudge confirmation (clears the modal) and return the tenant_id
+    /// captured when the modal opened.
     pub fn take_nudge(&mut self) -> Option<String> {
-        if self.nudge_confirm {
-            self.nudge_confirm = false;
-            self.selected_tenant_id()
-        } else {
-            None
-        }
+        self.nudge_confirm.take().map(|(tag, _)| tag)
     }
 
     /// Cancel the nudge confirmation modal.
     pub fn cancel_nudge(&mut self) {
-        self.nudge_confirm = false;
+        self.nudge_confirm = None;
     }
 
     // ── Book removal (incremental libraries) ────────────────────────────────

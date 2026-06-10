@@ -271,3 +271,17 @@ fn make_test_rows(n: usize) -> Vec<LibraryRow> {
         })
         .collect()
 }
+
+/// A periodic refresh that rebuilds/reorders `items` after the nudge modal
+/// opened must not retarget the rescan: the tag was captured at request time.
+#[test]
+fn take_nudge_ignores_items_rebuild_after_open() {
+    let mut b = LibraryBrowser::new();
+    b.items = make_test_rows(3);
+    b.selected = 2;
+    b.request_nudge();
+    // Simulate a refresh replacing the list with different rows.
+    b.items = make_test_rows(1);
+    b.selected = 0;
+    assert_eq!(b.take_nudge().unwrap(), "tag-2");
+}
