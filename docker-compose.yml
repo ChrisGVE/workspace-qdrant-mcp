@@ -5,7 +5,8 @@
 #
 # Optional profiles:
 #   --profile tls         -> Caddy reverse proxy for MCP over HTTPS
-#   --profile embeddings  -> Local text-embeddings-inference service
+#   --profile embeddings-cpu  -> CPU embedding backend (TEI, e5-large)
+#   --profile embeddings-gpu  -> GPU embedding backend (Infinity, e5-large; needs NVIDIA toolkit)
 #
 # FastEmbed defaults:
 #   memexd starts with WQM_EMBEDDING_PROVIDER=fastembed and keeps its
@@ -323,6 +324,13 @@ services:
       # writer (host) and the MCP reader (container) thus stay schema-compatible.
       WQM_HOST_DEV_ROOT: ${WQM_HOST_DEV_ROOT:-}
       WQM_DEV_ROOT: ${WQM_DEV_ROOT}
+      # Search-ranking tuning knobs (empty = code defaults; see search-types
+      # tuningFromEnv). Re-tuned against the 44-query benchmark whenever the
+      # retrieval side changes (embedding model, sparse pipeline).
+      WQM_PATH_BOOST_ALPHA: ${WQM_PATH_BOOST_ALPHA:-}
+      WQM_SPARSE_ONLY_WEIGHT: ${WQM_SPARSE_ONLY_WEIGHT:-}
+      # "1" flips the cross-encoder rerank default ON (per-call `rerank` wins).
+      WQM_SEARCH_RERANK: ${WQM_SEARCH_RERANK:-}
       # Trust the bind-mounted repo: git's "dubious ownership" check
       # otherwise rejects every command because the bind mount preserves
       # host uids that don't match the container's `node` user.
@@ -512,16 +520,29 @@ services:
     labels:
       <<: *watchtower-off
 
-  # ───────────────────────────────────────────────
-  # Optional local text-embeddings-inference service
-  # ───────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────
+  # Embedding backends (daemon provider: openai_compatible).
+  #
+  # Two interchangeable servers for the SAME model (intfloat/multilingual-
+  # e5-large, 1024d). The daemon PREFERS the GPU endpoint and falls back to
+  # CPU automatically (embedding.base_url → wqm-embeddings-gpu:7997,
+  # embedding.fallback_base_url → wqm-embeddings:80 in config.yaml), so which
+  # backends run is purely a COMPOSE_PROFILES choice in docker/.env:
+  #   COMPOSE_PROFILES=embeddings-cpu                  # CPU only (default)
+  #   COMPOSE_PROFILES=embeddings-cpu,embeddings-gpu   # prefer GPU, CPU standby
+  # The GPU service requires the NVIDIA Container Toolkit configured in the
+  # Docker engine. Vectors are model-bound: switching backends needs NO
+  # reembed, and the daemon re-detects a recovered primary within ~60s.
+  # ─────────────────────────────────────────────────────────────────────────
   embeddings:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
     container_name: wqm-embeddings
     <<: *restart
+    logging: *default-logging
     command:
       - --model-id
-      - nomic-ai/nomic-embed-text-v1.5
+      - intfloat/multilingual-e5-large
+      - --auto-truncate
       - --hostname
       - 0.0.0.0
       - --port
@@ -538,12 +559,65 @@ services:
       timeout: 10s
       retries: 20
       start_period: 90s
-    ports:
-      - "18080:80"
     volumes:
-      - hf_tei_data:/data
+      # Reuses the weights downloaded by the hand-run wqm-tei container on
+      # 2026-06-10 (external volume) — no 2.2GB re-download on first up.
+      - tei_data:/data
+    networks:
+      - workspace-network
     profiles:
-      - embeddings
+      - embeddings-cpu
+
+  embeddings-gpu:
+    # Infinity (PyTorch + CUDA 12.8) instead of TEI for the GPU path: the TEI
+    # CUDA images are compiled per compute capability and do not cover
+    # Blackwell consumer cards (RTX 5070 Ti = sm_120), where PyTorch ≥2.7
+    # works. --url-prefix /v1 exposes the OpenAI-compatible /v1/embeddings.
+    image: michaelf34/infinity:latest
+    container_name: wqm-embeddings-gpu
+    <<: *restart
+    logging: *default-logging
+    command:
+      - v2
+      - --model-id
+      - intfloat/multilingual-e5-large
+      - --port
+      - "7997"
+      - --url-prefix
+      - /v1
+      # fp16 keeps the fused nested-tensor CUDA kernels in play — the auto
+      # dtype picks bf16 on this card, which those kernels do not support and
+      # PyTorch silently falls back to a slower generic kernel ("nested_from_
+      # padded CUDA kernels only support fp32/fp16"). Same vectors for
+      # retrieval purposes; ~half the VRAM.
+      - --dtype
+      - float16
+    environment:
+      # Local stack — no anonymized telemetry.
+      DO_NOT_TRACK: "1"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:7997/health', timeout=5)\"",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+    volumes:
+      - infinity_data:/app/.cache
+    networks:
+      - workspace-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - embeddings-gpu
 
 # ── Networks ─────────────────────────────────────────────────────────────────
 
@@ -558,7 +632,12 @@ volumes:
   grafana_data:
   loki_data:
   tempo_data:
-  hf_tei_data:
+  # e5-large weights for the CPU embedding backend. Created out-of-band by the
+  # hand-run TEI container on 2026-06-10 — external so `down -v` keeps it.
+  tei_data:
+    external: true
+  # HF cache for the GPU embedding backend (Infinity downloads on first up).
+  infinity_data:
   # Daemon SQLite databases. Named volume (ext4 in WSL2 VM) instead of
   # bind-mount because Docker Desktop's 9P/drvfs filesystem cannot satisfy
   # SQLite WAL's mmap/locking semantics. memexd.db, search.db, graph.db all

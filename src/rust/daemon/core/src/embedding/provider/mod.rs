@@ -18,10 +18,12 @@ use async_trait::async_trait;
 
 use crate::config::EmbeddingSettings;
 
+pub mod failover;
 pub mod fastembed;
 pub mod health_monitor;
 pub mod openai;
 pub mod rate_limit;
+pub use failover::FailoverDenseProvider;
 pub use fastembed::FastEmbedProvider;
 pub use health_monitor::ProviderHealthMonitor;
 pub use openai::OpenAiCompatibleProvider;
@@ -81,7 +83,7 @@ pub fn build_dense_provider(
             Ok(Arc::new(provider))
         }
         "openai_compatible" => {
-            let provider = OpenAiCompatibleProvider::new(
+            let primary = OpenAiCompatibleProvider::new(
                 settings.base_url.clone(),
                 settings.model.clone(),
                 settings.remote_batch_size,
@@ -90,7 +92,25 @@ pub fn build_dense_provider(
                 &settings.api_key_env_var,
                 Duration::from_secs(settings.health_probe_cache_secs),
             )?;
-            Ok(Arc::new(provider))
+            // Optional standby endpoint serving the SAME model (e.g. GPU
+            // primary + CPU fallback). Same model/key/batch settings — only
+            // the base URL differs. Empty or identical URL ⇒ single endpoint.
+            let fallback_url = settings.fallback_base_url.trim();
+            if fallback_url.is_empty() || fallback_url == settings.base_url {
+                return Ok(Arc::new(primary));
+            }
+            let fallback = OpenAiCompatibleProvider::new(
+                fallback_url.to_string(),
+                settings.model.clone(),
+                settings.remote_batch_size,
+                settings.output_dim,
+                &settings.api_key_env_var,
+                Duration::from_secs(settings.health_probe_cache_secs),
+            )?;
+            Ok(Arc::new(FailoverDenseProvider::new(
+                Arc::new(primary),
+                Arc::new(fallback),
+            )))
         }
         other => Err(EmbeddingError::InitializationError {
             message: format!(

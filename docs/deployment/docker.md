@@ -163,16 +163,27 @@ the host fails silently.
 
 ### Embedding provider and collection dimension
 
-The root compose stack defaults `memexd` to
-`WQM_EMBEDDING_PROVIDER=fastembed`. In this fork, FastEmbed is pinned to
-the 384-dim `AllMiniLM-L6-v2` checkpoint.
+Since 2026-06-10 the reference deployment runs
+`WQM_EMBEDDING_PROVIDER=openai_compatible` with
+`intfloat/multilingual-e5-large` (1024d) served by in-stack backend
+containers — a GPU one (Infinity, preferred) and a CPU one (TEI, warm
+standby), selected via `COMPOSE_PROFILES` with automatic daemon-side
+failover between them. **See
+[embeddings.md](embeddings.md)** for the full picture: backend selection,
+failover semantics, the NVIDIA Container Toolkit requirement (and why),
+Blackwell/TEI compatibility, and the model-change/reembed procedure.
+
+`WQM_EMBEDDING_PROVIDER=fastembed` remains the zero-dependency fallback
+(in-process ONNX pinned to the 384-dim `AllMiniLM-L6-v2` checkpoint) for
+minimal setups without an embedding service.
 
 If you are reusing an older Qdrant state that was created with a
 different embedding dimension, startup will fail fast with an embedding
 dimension mismatch. To recover, either:
 
 - run `wqm admin reembed --confirm` to rebuild the existing collections
-  at the active dimension, or
+  at the active dimension (start memexd once with `--bootstrap-reembed`
+  so the guard lets it boot first), or
 - delete the stale collections (`projects`, `libraries`, `rules`,
   `scratchpad`, `images`) and let the daemon recreate them on the next
   start.

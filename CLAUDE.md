@@ -178,8 +178,23 @@ SystemService, CollectionService, DocumentService, EmbeddingService, ProjectServ
 - `QDRANT_URL` - Server URL (default: http://localhost:6333)
 - `QDRANT_API_KEY` - API key (required for Qdrant Cloud)
 
+**Embeddings (full reference: `docs/deployment/embeddings.md`):**
+- The reference deployment uses `WQM_EMBEDDING_PROVIDER=openai_compatible`
+  with `intfloat/multilingual-e5-large` (1024d) served by in-stack backends:
+  GPU (Infinity, preferred) + CPU (TEI, warm standby), selected via
+  `COMPOSE_PROFILES=embeddings-cpu[,embeddings-gpu]` in `docker/.env` with
+  automatic daemon-side failover (`embedding.fallback_base_url`).
+- The GPU backend requires the NVIDIA Container Toolkit on the Docker
+  engine (containers cannot see the GPU otherwise — `nvidia-smi` working in
+  WSL is not sufficient). Switching CPU↔GPU never requires a reembed —
+  vectors are model-bound. Changing the model/dim always does.
+- `model`/`output_dim`/prefixes are config-file only (`state/memexd/config.yaml`);
+  memexd must be started with `--config /etc/wqm/config.yaml` (the compose
+  command does this) or the file is silently ignored.
+- `WQM_EMBEDDING_PROVIDER=fastembed` remains the zero-dependency fallback
+  (in-process, pinned to all-MiniLM-L6-v2 384d).
+
 **Optional:**
-- `FASTEMBED_MODEL` - Embedding model (default: all-MiniLM-L6-v2)
 - `WQM_DATABASE_PATH` - Override database path
 - `WQM_LOG_LEVEL` - Log level (DEBUG, INFO, WARN, ERROR)
 

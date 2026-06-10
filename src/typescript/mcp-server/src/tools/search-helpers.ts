@@ -24,7 +24,7 @@ import type {
   FilterParams,
   SearchCollectionParams,
 } from './search-types.js';
-import { PROJECTS_COLLECTION, SCRATCHPAD_COLLECTION } from './search-types.js';
+import { PROJECTS_COLLECTION, SCRATCHPAD_COLLECTION, tuningFromEnv } from './search-types.js';
 import { buildFilter } from './search-filters.js';
 import {
   searchCollection,
@@ -474,7 +474,11 @@ const PATH_BOOST_STOPWORDS = new Set([
  * path/symbol contains ALL query content-words gets +50%; partial overlap
  * scales linearly. Multiplicative so it composes with any score scale
  * (raw cosine ~0.4–0.6 for semantic, RRF ~0.01–0.03 for hybrid). */
-const PATH_BOOST_ALPHA = 0.8;
+// Tunable via WQM_PATH_BOOST_ALPHA. 0.8 was tuned for MiniLM-L6 (384d, raw
+// chunk text); with e5-large + path/symbol-enriched dense text the path signal
+// is already inside the embedding, so the optimal boost may differ — re-tune
+// against the 44-query benchmark after retrieval-side changes.
+const PATH_BOOST_ALPHA = tuningFromEnv('WQM_PATH_BOOST_ALPHA', 0.8);
 
 /** Split a string into lowercase alphanumeric tokens (path separators,
  * underscores, dashes, dots, and camelCase humps all break tokens). */
@@ -628,11 +632,23 @@ export async function finalizeResults(
   // HURT code search — it scored implementation `.rs`/`.ts` files below
   // prose/docs for "where is X" queries, dropping recall@10 to 38% (vs 46%
   // without) and top10 to 67% (vs 83%) at ~40x the latency (932ms vs 23ms).
+  // RE-MEASURED 2026-06-10 after the multilingual-e5-large (1024d) retrieval
+  // upgrade, 44-query benchmark: still strictly worse — semantic top-3
+  // 59.1%→31.8%, MRR 0.48→0.28 at ~48x latency. Better retrieval did NOT
+  // rehabilitate this reranker (jina-turbo is English prose-trained); the
+  // only gain was PT top-10 (3/8→5/8), so a MULTILINGUAL cross-encoder
+  // (e.g. bge-reranker-v2-m3 on the GPU Infinity backend) is the next thing
+  // worth testing — not more tuning of this one.
   // The bi-encoder + path-relevance-boosted `deduped` order is strictly better
   // here. Enable per-call with `rerank: true` for experimentation; a blended
   // (score-mixing) reranker rather than full reorder is the future direction.
+  // WQM_SEARCH_RERANK=1 flips the default ON deployment-wide (per-call
+  // `rerank` still wins either way) — used for A/B runs now that the e5
+  // retrieval upgrade changed the maths the 2026-06-02 measurement was
+  // based on.
+  const rerankDefault = process.env['WQM_SEARCH_RERANK'] === '1';
   const ranked =
-    params.options.rerank === true
+    (params.options.rerank ?? rerankDefault)
       ? await rerankResults(daemonClient, params.query, deduped, params.limit)
       : deduped;
   const finalResults = ranked.slice(0, params.limit);

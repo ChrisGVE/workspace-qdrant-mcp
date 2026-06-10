@@ -65,8 +65,18 @@ pub struct EmbeddingSettings {
     pub model: String,
 
     /// Base URL for the OpenAI-compatible endpoint (no trailing slash).
+    /// This is the PREFERRED endpoint (e.g. a GPU embedding server).
     #[serde(default = "default_base_url")]
     pub base_url: String,
+
+    /// Optional standby endpoint serving the SAME model (e.g. a CPU server
+    /// kept warm while the GPU one is preferred). On any primary failure the
+    /// daemon logs a WARN, memoizes the outage (~60s), and serves from here;
+    /// the primary is retried automatically after the memo expires. Empty =
+    /// no fallback. Vectors are model-bound, so endpoint switches never
+    /// require a reembed.
+    #[serde(default)]
+    pub fallback_base_url: String,
 
     /// Number of texts per HTTP request for the remote provider.
     /// Has no effect when `provider = "fastembed"`.
@@ -125,6 +135,7 @@ impl Default for EmbeddingSettings {
             provider: default_provider(),
             model: default_model(),
             base_url: default_base_url(),
+            fallback_base_url: String::new(),
             remote_batch_size: default_remote_batch_size(),
             max_input_chars: default_max_input_chars(),
             api_key_env_var: default_api_key_env_var(),
@@ -201,6 +212,8 @@ impl EmbeddingSettings {
             self.base_url = val;
         }
 
+        if let Ok(val) = env::var("WQM_EMBEDDING_FALLBACK_BASE_URL") {
+            self.fallback_base_url = val;
         if let Ok(val) = env::var("WQM_EMBEDDING_MAX_INPUT_CHARS") {
             if let Ok(parsed) = val.parse() {
                 self.max_input_chars = parsed;
@@ -230,6 +243,7 @@ impl EmbeddingSettings {
             self.output_dim = FASTEMBED_OUTPUT_DIM;
             self.model = "all-MiniLM-L6-v2".to_string();
             self.base_url = String::new();
+            self.fallback_base_url = String::new();
             // MiniLM is not instruction-tuned — prefixes only hurt it.
             self.document_prefix = String::new();
             self.query_prefix = String::new();

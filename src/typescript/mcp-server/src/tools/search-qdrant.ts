@@ -9,6 +9,7 @@ import {
   RRF_K,
   DEFAULT_LIMIT,
   PROJECTS_COLLECTION,
+  tuningFromEnv,
   type SearchMode,
   type SearchResult,
   type SearchCollectionParams,
@@ -146,8 +147,13 @@ export function resultFileKey(result: SearchResult): string {
  * below dense results rather than displacing them. The path-relevance boost
  * (up to ×1.8) applied after fusion can still lift a sparse-only hit whose
  * file path/symbol matches the query — the exact-identifier rescue case —
- * past the dense tail. */
-const SPARSE_ONLY_WEIGHT = 0.5;
+ * past the dense tail.
+ *
+ * Tunable via WQM_SPARSE_ONLY_WEIGHT. 0.5 was calibrated when the sparse leg
+ * was vocabulary-misaligned noise; with the lexicon-aligned sparse vectors and
+ * identifier subtokens, sparse-only hits carry real signal — re-tune against
+ * the 44-query benchmark after retrieval-side changes. */
+const SPARSE_ONLY_WEIGHT = tuningFromEnv('WQM_SPARSE_ONLY_WEIGHT', 0.5);
 
 /**
  * Apply Reciprocal Rank Fusion to combine results.

@@ -15,6 +15,16 @@ export const SPARSE_VECTOR_NAME = 'sparse';
 // RRF constant (k=60 is standard)
 export const RRF_K = 60;
 
+/** Parse a non-negative finite tuning value from an env var, else the default.
+ *  Empty/unset/garbage values fall back — compose `${VAR:-}` passthroughs set
+ *  empty strings, which must not zero out a tuning knob. */
+export function tuningFromEnv(envVar: string, defaultValue: number): number {
+  const raw = process.env[envVar];
+  if (raw === undefined || raw.trim() === '') return defaultValue;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : defaultValue;
+}
+
 // Default search parameters
 export const DEFAULT_LIMIT = 10;
 export const DEFAULT_SCORE_THRESHOLD = 0.3;

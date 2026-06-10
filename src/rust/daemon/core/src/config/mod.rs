@@ -303,6 +303,7 @@ fn build_embedding_settings(yaml: &YamlConfig) -> EmbeddingSettings {
         provider: yaml.embedding.provider.clone(),
         model: yaml.embedding.model.clone(),
         base_url: yaml.embedding.base_url.clone(),
+        fallback_base_url: yaml.embedding.fallback_base_url.clone(),
         remote_batch_size: yaml.embedding.remote_batch_size,
         max_input_chars: yaml.embedding.max_input_chars,
         api_key_env_var: yaml.embedding.api_key_env_var.clone(),

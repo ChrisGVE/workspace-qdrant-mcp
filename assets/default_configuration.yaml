@@ -320,9 +320,21 @@ embedding:
 
   # base_url: Endpoint base URL for the OpenAI-compatible provider
   # Purpose: Allows pointing at OpenAI, Azure OpenAI, LM Studio, llama.cpp, vLLM, etc.
+  # This is the PREFERRED endpoint (e.g. a GPU embedding server).
   # No effect when provider="fastembed"
   # Format: URL string, no trailing slash
   base_url: "https://api.openai.com"
+
+  # fallback_base_url: Optional standby endpoint serving the SAME model
+  # Purpose: Prefer-GPU-with-CPU-standby deployments. On any primary failure the
+  # daemon logs a WARN, memoizes the outage (~60s), and serves from this endpoint;
+  # the primary is retried automatically after the memo expires. Both endpoints
+  # MUST serve the same model — vectors are model-bound, so endpoint switches
+  # never require a reembed.
+  # No effect when provider="fastembed" or when empty.
+  # Env override: WQM_EMBEDDING_FALLBACK_BASE_URL
+  # Format: URL string, no trailing slash (empty = no fallback)
+  fallback_base_url: ""
 
   # remote_batch_size: Number of texts per HTTP request for the remote provider
   # Purpose: Controls batching of inputs sent to the remote /v1/embeddings endpoint
