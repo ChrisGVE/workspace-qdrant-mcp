@@ -8,9 +8,9 @@
 //!     with `WalkBuilder` and post-filtered through the global matcher.
 //!
 //! [`IgnoreGate`] is the single type both paths now use: it bundles the
-//! per-project `.gitignore`/`.wqmignore` cascade with the daemon-wide
-//! `global.wqmignore`, applying them with one consistent semantics
-//! (root-anchored `matched_path_or_any_parents`, re-inclusion honoured). The
+//! per-project `.gitignore`/`.wqmignore` cascade (each file anchored at its
+//! own directory, like git) with the daemon-wide `global.wqmignore`
+//! (root-anchored `matched_path_or_any_parents`), re-inclusion honoured. The
 //! file watcher keeps the lean [`super::global_ignore::is_globally_ignored`]
 //! call instead — it filters individual fs events and does not walk a project
 //! tree, so it has no `.gitignore` cascade to apply.

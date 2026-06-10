@@ -39,6 +39,7 @@
 use std::path::Path;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::Match;
 use tracing::warn;
 
 /// Per-directory matcher for `.gitignore` and `.wqmignore` (Gate 0).
@@ -47,10 +48,19 @@ use tracing::warn;
 /// then test every entry with [`ProjectIgnoreMatcher::is_ignored`] before
 /// applying any other exclusion rules.
 pub struct ProjectIgnoreMatcher {
-    /// Combined .gitignore + .wqmignore exclusion patterns
-    exclusions: Gitignore,
-    /// .wqmignore re-inclusion patterns (lines starting with `- `)
-    reinclusions: Option<Gitignore>,
+    /// Per-ancestor-directory exclusion matchers (`.gitignore` + `.wqmignore`
+    /// exclusion lines), in root→leaf order. Each layer is anchored AT the
+    /// directory containing its ignore file — exactly like git. A single
+    /// root-anchored `GitignoreBuilder` fed nested files used to mis-scope
+    /// them both ways: a slash-containing negation (`!common/**/*.proto` in
+    /// `proto/.gitignore`) resolved against the PROJECT root and went inert,
+    /// while a bare glob (`*.proto`) leaked out of `proto/` onto the whole
+    /// tree — which silently dropped DOC-V2's hand-authored proto sources
+    /// from the index (2026-06-10).
+    exclusion_layers: Vec<Gitignore>,
+    /// Per-ancestor `.wqmignore` re-inclusion matchers (`!`/`- ` lines),
+    /// anchored like the exclusion layers. Any match → not ignored.
+    reinclusion_layers: Vec<Gitignore>,
 }
 
 impl ProjectIgnoreMatcher {
@@ -70,20 +80,29 @@ impl ProjectIgnoreMatcher {
         // Collect ancestor dirs from root down to dir (inclusive).
         let ancestors = collect_ancestor_chain(root, dir);
 
-        let mut exclusion_builder = GitignoreBuilder::new(root);
-        let mut reinc_builder = GitignoreBuilder::new(root);
-        let mut found_any = false;
-        let mut has_reinclusions = false;
+        let mut exclusion_layers = Vec::new();
+        let mut reinclusion_layers = Vec::new();
 
         for ancestor in &ancestors {
             let gitignore_path = ancestor.join(".gitignore");
             let wqmignore_path = ancestor.join(".wqmignore");
 
+            // One builder pair PER ancestor, rooted at the ancestor itself, so
+            // every pattern is interpreted relative to the directory of the
+            // file that declared it (gitignore semantics). `GitignoreBuilder::
+            // add` anchors patterns to the BUILDER root, not the added file's
+            // parent — feeding nested files into one root-level builder is
+            // what broke nested negations/containment before.
+            let mut exclusion_builder = GitignoreBuilder::new(ancestor);
+            let mut reinc_builder = GitignoreBuilder::new(ancestor);
+            let mut layer_found = false;
+            let mut layer_has_reinc = false;
+
             if gitignore_path.exists() {
                 if let Some(e) = exclusion_builder.add(&gitignore_path) {
                     warn!("Error reading {}: {}", gitignore_path.display(), e);
                 }
-                found_any = true;
+                layer_found = true;
             }
 
             if wqmignore_path.exists() {
@@ -93,42 +112,77 @@ impl ProjectIgnoreMatcher {
                     &mut exclusion_builder,
                     &mut reinc_builder,
                 ) {
-                    has_reinclusions = has_reinclusions || reinc;
+                    layer_has_reinc = reinc;
                 }
-                found_any = true;
+                layer_found = true;
+            }
+
+            if !layer_found {
+                continue;
+            }
+            match exclusion_builder.build() {
+                Ok(matcher) => exclusion_layers.push(matcher),
+                Err(e) => warn!(
+                    "Failed to build ignore matcher for {}: {}",
+                    ancestor.display(),
+                    e
+                ),
+            }
+            if layer_has_reinc {
+                match reinc_builder.build() {
+                    Ok(matcher) => reinclusion_layers.push(matcher),
+                    Err(e) => warn!(
+                        "Failed to build re-inclusion matcher for {}: {}",
+                        ancestor.display(),
+                        e
+                    ),
+                }
             }
         }
 
-        if !found_any {
+        if exclusion_layers.is_empty() && reinclusion_layers.is_empty() {
             return None;
         }
 
-        let exclusions = exclusion_builder.build().ok()?;
-        let reinclusions = if has_reinclusions {
-            reinc_builder.build().ok()
-        } else {
-            None
-        };
-
         Some(Self {
-            exclusions,
-            reinclusions,
+            exclusion_layers,
+            reinclusion_layers,
         })
     }
 
     /// Returns `true` if `path` should be excluded.
     ///
-    /// Resolution: re-inclusion wins over exclusion (allows overriding gitignore).
+    /// Resolution: `.wqmignore` re-inclusion wins over any exclusion (allows
+    /// overriding gitignore). Then the deepest layer with a decisive match
+    /// wins — a nested `.gitignore` overrides its ancestors for paths under
+    /// its own directory, and never applies outside it (containment).
     /// `is_dir` must be `true` when `path` refers to a directory entry.
     pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
-        // Re-inclusions override: if path matches a `- pattern`, it's NOT ignored
-        if let Some(ref reinc) = self.reinclusions {
+        // Re-inclusions override: if path matches a `!`/`- ` pattern in any
+        // layer that contains it, it's NOT ignored.
+        for reinc in &self.reinclusion_layers {
+            if !path.starts_with(reinc.path()) {
+                continue;
+            }
             if reinc.matched(path, is_dir).is_ignore() {
                 return false;
             }
         }
 
-        self.exclusions.matched(path, is_dir).is_ignore()
+        // Leaf-most decisive match wins (within a layer the `ignore` crate
+        // already applies gitignore's last-matching-line-wins, so per-file
+        // negations like `!common/**/*.proto` resolve correctly here).
+        for layer in self.exclusion_layers.iter().rev() {
+            if !path.starts_with(layer.path()) {
+                continue;
+            }
+            match layer.matched(path, is_dir) {
+                Match::None => continue,
+                Match::Ignore(_) => return true,
+                Match::Whitelist(_) => return false,
+            }
+        }
+        false
     }
 }
 
@@ -416,7 +470,7 @@ mod tests {
         let dir = tmp();
         fs::write(dir.path().join(".wqmignore"), "data/\n").unwrap();
         let m = ProjectIgnoreMatcher::for_dir(dir.path(), None).unwrap();
-        assert!(m.reinclusions.is_none());
+        assert!(m.reinclusion_layers.is_empty());
         assert!(m.is_ignored(&dir.path().join("data"), true));
     }
 
@@ -501,5 +555,67 @@ mod tests {
 
         // Without project_root, subdir has no ignore files → None
         assert!(ProjectIgnoreMatcher::for_dir(&subdir, None).is_none());
+    }
+
+    // ── nested ignore files anchor at their OWN directory ──────────────────
+    // Regression for the DOC-V2 proto incident (2026-06-10): proto/.gitignore
+    // whitelists sources via slash-anchored negations. With a single
+    // root-anchored builder the negations resolved against the project root
+    // (inert) while the bare `*.proto` glob leaked tree-wide — hand-authored
+    // sources under proto/common/ were silently dropped from the index.
+
+    #[test]
+    fn nested_gitignore_negations_anchor_at_their_own_dir() {
+        let root = tmp();
+        let proto = root.path().join("proto");
+        fs::create_dir_all(proto.join("common")).unwrap();
+        fs::write(
+            proto.join(".gitignore"),
+            "*.proto\n!common/\n!common/**/*.proto\n",
+        )
+        .unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&proto.join("common"), Some(root.path())).unwrap();
+        // The slash-anchored negation must resolve relative to proto/ (like
+        // git), re-including the nested source...
+        assert!(
+            !m.is_ignored(&proto.join("common/policy.proto"), false),
+            "negation-whitelisted nested source must NOT be ignored"
+        );
+        // ...while a non-whitelisted sibling in the same dir stays excluded.
+        assert!(m.is_ignored(&proto.join("scratch.proto"), false));
+    }
+
+    #[test]
+    fn nested_bare_glob_does_not_leak_outside_its_dir() {
+        let root = tmp();
+        let proto = root.path().join("proto");
+        fs::create_dir_all(&proto).unwrap();
+        fs::write(proto.join(".gitignore"), "*.proto\n").unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&proto, Some(root.path())).unwrap();
+        // Inside proto/ the bare glob applies...
+        assert!(m.is_ignored(&proto.join("x.proto"), false));
+        // ...but a .proto OUTSIDE proto/ must not be affected by it.
+        assert!(
+            !m.is_ignored(&root.path().join("schema.proto"), false),
+            "nested bare glob must stay contained to its directory subtree"
+        );
+    }
+
+    #[test]
+    fn nested_gitignore_overrides_ancestor_for_its_subtree_only() {
+        let root = tmp();
+        // Root excludes *.gen everywhere; vendored/ re-includes them locally.
+        fs::write(root.path().join(".gitignore"), "*.gen\n").unwrap();
+        let vendored = root.path().join("vendored");
+        fs::create_dir_all(&vendored).unwrap();
+        fs::write(vendored.join(".gitignore"), "!*.gen\n").unwrap();
+
+        let m = ProjectIgnoreMatcher::for_dir(&vendored, Some(root.path())).unwrap();
+        // Deeper layer wins inside its subtree...
+        assert!(!m.is_ignored(&vendored.join("api.gen"), false));
+        // ...and the ancestor rule still applies outside it.
+        assert!(m.is_ignored(&root.path().join("api.gen"), false));
     }
 }
