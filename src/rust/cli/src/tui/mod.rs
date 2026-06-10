@@ -10,6 +10,8 @@ pub mod commands;
 #[cfg(feature = "tui")]
 pub mod event;
 #[cfg(feature = "tui")]
+pub mod filter;
+#[cfg(feature = "tui")]
 pub mod search;
 #[cfg(feature = "tui")]
 pub mod terminal;
