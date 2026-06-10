@@ -229,11 +229,17 @@ fn grep_error(message: String, latency_ms: u64) -> GrepResponse {
 /// one explicitly (#102): the session's current branch, or the TARGET
 /// project's branch for explicit cross-project calls (resolved by the
 /// dispatcher, mirroring search/list #99).
+///
+/// `projects_hint` is the registered-projects retry hint (#111/#124), computed
+/// by the dispatcher only when project detection is about to fail; appended to
+/// the "Could not detect project ID" error so the caller can retry with a
+/// projectId or register the project instead of dead-ending.
 pub async fn grep_tool<D>(
     input: GrepInput,
     daemon: &mut D,
     session_project_id: Option<&str>,
     default_branch: Option<String>,
+    projects_hint: &str,
 ) -> CallToolResult
 where
     D: GrepDaemon,
@@ -259,7 +265,10 @@ where
             .or_else(|| session_project_id.map(str::to_string));
         if resolved.is_none() {
             return ok_text(&grep_error(
-                "Could not detect project ID. Use scope \"all\" or provide projectId.".to_string(),
+                format!(
+                    "Could not detect project ID. Use scope \"all\" or provide \
+                     projectId.{projects_hint}"
+                ),
                 elapsed_ms(start),
             ));
         }

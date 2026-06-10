@@ -280,7 +280,30 @@ async fn route_tool(
             } else {
                 ctx.session.current_branch.clone()
             };
-            grep_tool(input, ctx.daemon, session_project_id, default_branch).await
+            // #124: when project detection is about to fail (scope=project,
+            // no explicit projectId, no session project), list the registered
+            // projects so the caller can retry or register — parity with the
+            // list tool's #111 hint. Computed here because grep_tool has no
+            // SQLite access; short sync lock, dropped before the await.
+            let projects_hint = if input.scope == "project"
+                && input.project_id.is_none()
+                && session_project_id.is_none()
+            {
+                let guard = ctx.state.lock();
+                crate::sqlite::project_queries::format_available_projects_hint(
+                    &crate::sqlite::project_queries::list_registered_projects(guard.connection()),
+                )
+            } else {
+                String::new()
+            };
+            grep_tool(
+                input,
+                ctx.daemon,
+                session_project_id,
+                default_branch,
+                &projects_hint,
+            )
+            .await
         }
         "list" => {
             let input = ListInput::from_args(args);
