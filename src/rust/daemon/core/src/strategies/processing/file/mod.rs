@@ -206,6 +206,7 @@ impl FileStrategy {
                 pool,
                 file_path,
                 &watch_folder_id,
+                &base_path,
                 relative_path,
                 &abs_file_path,
                 &payload,
@@ -417,7 +418,14 @@ async fn resolve_skip_destinations(
 
 /// Handle the Update pre-flight: hash comparison and reference-counted deletion.
 ///
-/// Returns `UpdateAction::Skip` when the file is unchanged (hash match).
+/// Returns `UpdateAction::Skip` when the file is unchanged — same content
+/// hash AND same chunking-configuration fingerprint. A hash match with a
+/// STALE fingerprint (the language's registry `semantic_patterns` or the
+/// chunker logic changed since the row was written) falls through to the
+/// normal update path so extractor upgrades reach already-indexed files;
+/// without this, a registry fix never propagated to unchanged files (the
+/// `.proto` semantic_patterns rollout shipped and every existing `.proto`
+/// stayed on its old text chunks through a full re-embed).
 #[allow(clippy::too_many_arguments)]
 async fn prepare_update(
     ctx: &ProcessingContext,
@@ -425,6 +433,7 @@ async fn prepare_update(
     pool: &sqlx::SqlitePool,
     file_path: &Path,
     watch_folder_id: &str,
+    base_path: &str,
     relative_path: &str,
     abs_file_path: &str,
     payload: &FilePayload,
@@ -446,11 +455,30 @@ async fn prepare_update(
     .await
     {
         if existing.file_hash == new_hash {
-            info!(
-                "File unchanged (hash match), skipping update: {}",
-                relative_path
+            // Same detection inputs as run_ingest_pipeline, so the value
+            // compares against what store_track wrote (gitattributes
+            // overrides are cached per base_path — this is cheap).
+            let overrides = component::get_gitattributes(ctx, base_path).await;
+            let detected = crate::tree_sitter::detect_language_with_overrides(
+                file_path,
+                relative_path,
+                &overrides,
             );
-            return Ok(UpdateAction::Skip);
+            let current_fp = crate::tree_sitter::chunker::chunking_fingerprint(detected);
+            if crate::tree_sitter::chunker::stored_fingerprint_is_current(
+                existing.chunker_version.as_deref(),
+                &current_fp,
+            ) {
+                info!(
+                    "File unchanged (hash + chunker fingerprint match), skipping update: {}",
+                    relative_path
+                );
+                return Ok(UpdateAction::Skip);
+            }
+            info!(
+                "Chunking configuration changed for {} (stored {:?} → current {}), re-chunking unchanged file",
+                relative_path, existing.chunker_version, current_fp
+            );
         }
         update_preamble::execute_update_deletion(
             ctx,
@@ -878,6 +906,162 @@ mod tests {
                 overall,
                 QueueStatus::Done,
                 "row must finalize, not re-lease"
+            );
+        }
+
+        /// Extractor-upgrade gate: with the content hash unchanged, the skip
+        /// decision now also depends on the chunker fingerprint —
+        ///  - stale stored fingerprint → Proceed (re-chunk the file);
+        ///  - current stored fingerprint → Skip;
+        ///  - NULL (legacy row) → Skip (grandfathered).
+        /// This is the propagation path the `.proto` semantic_patterns rollout
+        /// was missing: a registry upgrade must reach unchanged files on the
+        /// next visit instead of being filtered by the hash match.
+        #[tokio::test]
+        async fn unchanged_hash_gate_honors_chunker_fingerprint() {
+            use super::super::{prepare_update, UpdateAction};
+
+            // Real file on disk so compute_file_hash matches the seeded row.
+            let project = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(project.path().join("src")).unwrap();
+            let file_abs = project.path().join("src/lib.rs");
+            std::fs::write(&file_abs, "pub fn answer() -> u32 { 42 }\n").unwrap();
+            let real_hash = crate::tracked_files_schema::compute_file_hash(&file_abs).unwrap();
+            let base_path = project.path().to_string_lossy().to_string();
+            let abs_str = file_abs.to_string_lossy().to_string();
+
+            let db_dir = tempfile::tempdir().unwrap();
+            let db_path = db_dir.path().join("gate.db");
+            let pool = SqlitePool::connect(&format!("sqlite://{}?mode=rwc", db_path.display()))
+                .await
+                .expect("create sqlite pool");
+            sqlx::query(crate::tracked_files_schema::CREATE_TRACKED_FILES_V37_SQL)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(crate::tracked_files_schema::CREATE_QDRANT_CHUNKS_SQL)
+                .execute(&pool)
+                .await
+                .unwrap();
+            // tracked_files carries a FOREIGN KEY to watch_folders and sqlx
+            // enables foreign_keys by default — the parent table AND the
+            // 'wf-gate' row must exist for the seed insert below.
+            sqlx::query(crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO watch_folders \
+                   (watch_id, path, collection, tenant_id, created_at, updated_at) \
+                 VALUES ('wf-gate', ?1, 'projects', 'tenant-gate', \
+                         '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            )
+            .bind(&base_path)
+            .execute(&pool)
+            .await
+            .unwrap();
+            let manager = QueueManager::new(pool.clone());
+            manager.init_unified_queue().await.unwrap();
+
+            // Seed: same hash as on disk, STALE fingerprint.
+            let mut tx = pool.begin().await.unwrap();
+            crate::tracked_files_schema::insert_tracked_file_tx(
+                &mut tx,
+                "wf-gate",
+                "src/lib.rs",
+                Some("main"),
+                Some("code"),
+                Some("rust"),
+                "2026-01-01T00:00:00Z",
+                &real_hash,
+                3,
+                Some("tree_sitter"),
+                Some("0:rust:stale0000000"),
+                crate::tracked_files_schema::ProcessingStatus::Done,
+                crate::tracked_files_schema::ProcessingStatus::Done,
+                None,
+                None,
+                false,
+                Some("bp-gate"),
+                None,
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+
+            let ctx = build_test_context(pool.clone());
+            // Hand-built leased item: prepare_update only reads identity
+            // fields; the queue row itself is not required (decision storage
+            // is best-effort).
+            let item: crate::unified_queue_schema::UnifiedQueueItem = serde_json::from_str(
+                r#"{
+                    "queue_id": "q-gate",
+                    "idempotency_key": "i-gate",
+                    "item_type": "file",
+                    "op": "update",
+                    "tenant_id": "tenant-gate",
+                    "collection": "projects",
+                    "status": "in_progress",
+                    "branch": "main",
+                    "payload_json": "{}",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                }"#,
+            )
+            .unwrap();
+            let payload: FilePayload =
+                serde_json::from_str(r#"{"file_path":"src/lib.rs"}"#).unwrap();
+
+            let run_gate = |stamp: Option<String>| {
+                let ctx = &ctx;
+                let pool = &pool;
+                let file_abs = &file_abs;
+                let base_path = &base_path;
+                let abs_str = &abs_str;
+                let item = &item;
+                let payload = &payload;
+                async move {
+                    if let Some(fp) = stamp {
+                        sqlx::query("UPDATE tracked_files SET chunker_version = ?1")
+                            .bind(fp)
+                            .execute(pool)
+                            .await
+                            .unwrap();
+                    } else {
+                        sqlx::query("UPDATE tracked_files SET chunker_version = NULL")
+                            .execute(pool)
+                            .await
+                            .unwrap();
+                    }
+                    prepare_update(
+                        ctx, item, pool, file_abs, "wf-gate", base_path, "src/lib.rs", abs_str,
+                        payload, false,
+                    )
+                    .await
+                    .unwrap()
+                }
+            };
+
+            // Stale fingerprint → re-process despite the hash match.
+            let action = run_gate(Some("0:rust:stale0000000".to_string())).await;
+            assert!(
+                action == UpdateAction::Proceed,
+                "stale chunker fingerprint must re-process the unchanged file"
+            );
+
+            // Current fingerprint → skip.
+            let current = crate::tree_sitter::chunker::chunking_fingerprint(Some("rust"));
+            let action = run_gate(Some(current)).await;
+            assert!(
+                action == UpdateAction::Skip,
+                "hash + current fingerprint must skip"
+            );
+
+            // NULL (legacy row) → grandfathered skip.
+            let action = run_gate(None).await;
+            assert!(
+                action == UpdateAction::Skip,
+                "NULL fingerprint is grandfathered and must skip"
             );
         }
     }

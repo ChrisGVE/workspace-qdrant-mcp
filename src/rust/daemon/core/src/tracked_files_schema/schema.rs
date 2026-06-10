@@ -120,6 +120,20 @@ pub const MIGRATE_V8_ADD_COLUMNS_SQL: &[&str] = &[
 pub const MIGRATE_V28_ADD_COMPONENT_SQL: &str =
     "ALTER TABLE tracked_files ADD COLUMN component TEXT";
 
+// ---------------------------------------------------------------------------
+// Migration SQL — v40: chunker_version column
+// ---------------------------------------------------------------------------
+
+/// SQL statement for migration v40: add chunker_version to tracked_files.
+///
+/// Stores the chunking-configuration fingerprint
+/// (`tree_sitter::chunker::chunking_fingerprint`) that produced the row's
+/// chunks. The ingest gate compares it alongside `file_hash` so registry /
+/// extractor upgrades propagate to unchanged files. NULL = legacy row,
+/// grandfathered (never re-chunks by itself).
+pub const MIGRATE_V40_ADD_CHUNKER_VERSION_SQL: &str =
+    "ALTER TABLE tracked_files ADD COLUMN chunker_version TEXT";
+
 /// SQL statements for migration v19: add base_point, relative_path, incremental
 /// columns to tracked_files for content-addressed identity
 pub const MIGRATE_V19_ADD_COLUMNS_SQL: &[&str] = &[
@@ -149,6 +163,10 @@ pub const CREATE_RECONCILE_INDEX_SQL: &str = r#"CREATE INDEX IF NOT EXISTS idx_t
 /// column is dropped; the UNIQUE constraint moves to
 /// `(watch_folder_id, relative_path, branch)`. Used by the v37 rebuild
 /// path in `schema_version::v37::rebuild_tracked_files`.
+///
+/// Carries the v40 `chunker_version` column so the rebuild lands on the
+/// current shape directly; v40's idempotent ALTER then no-ops. DBs already
+/// past v37 get the column from the v40 migration instead.
 pub const CREATE_TRACKED_FILES_V37_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS tracked_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +178,7 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     file_hash TEXT NOT NULL,
     chunk_count INTEGER DEFAULT 0,
     chunking_method TEXT,
+    chunker_version TEXT,
     lsp_status TEXT DEFAULT 'none' CHECK (lsp_status IN ('none', 'done', 'failed', 'skipped')),
     treesitter_status TEXT DEFAULT 'none' CHECK (treesitter_status IN ('none', 'done', 'failed', 'skipped')),
     last_error TEXT,

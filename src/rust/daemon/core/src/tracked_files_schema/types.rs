@@ -133,6 +133,11 @@ pub struct TrackedFile {
     pub chunk_count: i32,
     /// Chunking method used (e.g., "tree_sitter", "text")
     pub chunking_method: Option<String>,
+    /// Chunking-configuration fingerprint at ingestion
+    /// (`tree_sitter::chunker::chunking_fingerprint`). NULL on legacy rows
+    /// and rows written by paths that never chunk (zero-byte files);
+    /// NULL is grandfathered by the ingest gate.
+    pub chunker_version: Option<String>,
     /// LSP enrichment status
     pub lsp_status: ProcessingStatus,
     /// Tree-sitter parsing status

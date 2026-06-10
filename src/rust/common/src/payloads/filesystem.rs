@@ -75,6 +75,16 @@ pub struct FolderPayload {
     /// scan (no baseline → scan everything).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_scan: Option<String>,
+    /// Forced re-processing: files discovered by this scan are enqueued as
+    /// `File/Uplift` instead of `File/Add`, bypassing the unchanged-hash +
+    /// chunker-fingerprint skip so every file is re-read, re-chunked and
+    /// re-embedded. Set by `ReembedTenant{force: true}` and inherited by the
+    /// subdirectory scans the walk spawns.
+    ///
+    /// Skipped from JSON when false so existing payloads (and their
+    /// idempotency keys) are byte-identical to the pre-field encoding.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub uplift: bool,
 }
 
 #[cfg(test)]
@@ -130,6 +140,7 @@ mod tests {
             ignore_patterns: vec![],
             old_path: Some(RelativePath::from_user_input("src/old_dir").unwrap()),
             last_scan: None,
+            uplift: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("old_dir"));
@@ -153,12 +164,44 @@ mod tests {
             ignore_patterns: vec![],
             old_path: None,
             last_scan: None,
+            uplift: false,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(!json.contains("folder_path"));
 
         let back: FolderPayload = serde_json::from_str(&json).unwrap();
         assert!(back.folder_path.is_none());
+    }
+
+    #[test]
+    fn folder_payload_uplift_defaults_false_and_round_trips() {
+        // Absent field (every pre-existing payload in the queue) → false.
+        let back: FolderPayload = serde_json::from_str(r#"{"recursive":true}"#).unwrap();
+        assert!(!back.uplift);
+
+        // False is omitted from JSON so non-forced payloads (and their
+        // idempotency keys) stay byte-identical to the pre-field encoding.
+        let non_forced = FolderPayload {
+            folder_path: None,
+            recursive: true,
+            recursive_depth: 10,
+            patterns: vec![],
+            ignore_patterns: vec![],
+            old_path: None,
+            last_scan: None,
+            uplift: false,
+        };
+        assert!(!serde_json::to_string(&non_forced).unwrap().contains("uplift"));
+
+        // True round-trips.
+        let forced = FolderPayload {
+            uplift: true,
+            ..non_forced
+        };
+        let json = serde_json::to_string(&forced).unwrap();
+        assert!(json.contains(r#""uplift":true"#));
+        let back: FolderPayload = serde_json::from_str(&json).unwrap();
+        assert!(back.uplift);
     }
 
     #[test]

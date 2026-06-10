@@ -77,6 +77,7 @@ struct IndexEntry {
 /// `Some(Err(..))` if enqueueing failed mid-way, or `None` when `root_dir` is
 /// not a git repository / the index can't be read — in which case the caller
 /// falls back to the progressive FS scan.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn enumerate_git_index(
     root_dir: &Path,
     watch_folder_root: &CanonicalPath,
@@ -84,6 +85,7 @@ pub(crate) async fn enumerate_git_index(
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
     last_scan: Option<&str>,
+    uplift: bool,
 ) -> Option<UnifiedProcessorResult<(u64, u64, u64, u64)>> {
     // ── Phase 1 (sync): read the index, drop all git2 handles before await. ──
     // git2 types are `!Send`; holding them across an `.await` would make this
@@ -103,6 +105,7 @@ pub(crate) async fn enumerate_git_index(
             queue_manager,
             allowed_extensions,
             last_scan,
+            uplift,
         )
         .await,
     )
@@ -158,6 +161,7 @@ async fn enqueue_entries(
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
     last_scan: Option<&str>,
+    uplift: bool,
 ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
     let baseline = last_scan.and_then(parse_iso8601_to_system_time);
     let root = Path::new(watch_folder_root.as_str());
@@ -207,6 +211,7 @@ async fn enqueue_entries(
             queue_manager,
             allowed_extensions,
             baseline.as_ref(),
+            uplift,
             &mut files_excluded,
             &mut errors,
         )

@@ -604,14 +604,17 @@ document.addEventListener('click', async (e) => {
       }
       refresh();
     } else if (action === 'project-reembed') {
-      if (!confirm(`Re-embed all files for project ${btn.dataset.id}? This re-reads and re-embeds the whole project in the background.`)) {
+      if (!confirm(`Re-embed all files for project ${btn.dataset.id}? This force-re-reads, re-chunks and re-embeds the WHOLE project in the background (no unchanged-file skip) — a full embedding pass.`)) {
         return;
       }
+      // force: the button promises the whole project; without it the daemon
+      // skips files whose hash + chunker fingerprint are unchanged (the
+      // repair mode the bulk reindex API uses).
       const result = await api('/admin/api/projects/reembed', {
         method: 'POST',
-        body: { tenantId: btn.dataset.id },
+        body: { tenantId: btn.dataset.id, force: true },
       });
-      toast(`Re-embed queued for ${btn.dataset.id}: ${result.filesEnqueued ?? 0} folder scan(s)`);
+      toast(`Forced re-embed queued for ${btn.dataset.id}: ${result.filesEnqueued ?? 0} folder scan(s)`);
       refresh();
     } else if (action === 'rule-edit') {
       startRuleEdit(btn.dataset);

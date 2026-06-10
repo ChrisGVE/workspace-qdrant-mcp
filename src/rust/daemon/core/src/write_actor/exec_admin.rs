@@ -144,11 +144,16 @@ impl WriteActor {
     /// Re-embed a single project in place.
     ///
     /// Enqueues a `folder|scan` for each of the tenant's enabled `watch_folders`
-    /// rows so the pipeline re-reads, re-chunks and re-embeds its files. Unlike
-    /// the global reembed pipeline this is **non-destructive** — it does not
-    /// drop/recreate Qdrant collections (the re-process upserts points by id).
-    /// Reuses the canonical `QueueManager::enqueue_unified` so idempotency keys,
-    /// dedup, and metrics match the normal ingest path.
+    /// rows. By default this is a REPAIR pass: the ingest gate still skips
+    /// files whose content hash AND chunker fingerprint are unchanged, so it
+    /// re-processes only missing/stale/upgraded files. With `force: true` the
+    /// scans carry `uplift: true` and every discovered file is enqueued as
+    /// `File/Uplift`, bypassing the skip — a true full re-read + re-chunk +
+    /// re-embed (use after extractor/embedding changes the fingerprint cannot
+    /// see). Unlike the global reembed pipeline this is **non-destructive** —
+    /// it does not drop/recreate Qdrant collections (the re-process upserts
+    /// points by id). Reuses the canonical `QueueManager::enqueue_unified` so
+    /// idempotency keys, dedup, and metrics match the normal ingest path.
     pub(super) async fn exec_reembed_tenant(
         &self,
         data: ReembedTenantData,
@@ -183,13 +188,20 @@ impl WriteActor {
             // strategy re-anchor it onto the root (<root>/<root>/…) and the
             // scan no-op'd with "Folder scan target is not a directory", so
             // per-tenant reembed silently did nothing.
-            let payload = serde_json::json!({
+            //
+            // `uplift` is included only when forcing, keeping the non-forced
+            // payload (and its idempotency key) identical to the historical
+            // encoding — mirrors FolderPayload's skip_serializing_if.
+            let mut payload_value = serde_json::json!({
                 "recursive": true,
                 "recursive_depth": 10,
                 "patterns": [],
                 "ignore_patterns": []
-            })
-            .to_string();
+            });
+            if data.force {
+                payload_value["uplift"] = serde_json::json!(true);
+            }
+            let payload = payload_value.to_string();
             // Label re-embedded project files under the repo's ACTUAL current
             // branch. Passing None here makes enqueue_unified fall back to "main"
             // (its default for an absent branch); for a repo whose real branch is
@@ -222,11 +234,16 @@ impl WriteActor {
             }
         }
 
+        let mode = if data.force {
+            "forced re-embed: every file re-chunked via File/Uplift"
+        } else {
+            "repair re-embed: unchanged files (hash + chunker fingerprint) skipped"
+        };
         Ok(ReembedTenantResult {
             files_enqueued: enqueued,
             message: format!(
-                "re-enqueued {} folder scan(s) for tenant '{}' (re-embed in place)",
-                enqueued, tenant_id
+                "re-enqueued {} folder scan(s) for tenant '{}' ({})",
+                enqueued, tenant_id, mode
             ),
         })
     }

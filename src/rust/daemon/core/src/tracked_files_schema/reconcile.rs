@@ -34,7 +34,7 @@ pub async fn get_files_needing_reconcile(
 ) -> Result<Vec<TrackedFile>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
-                file_mtime, file_hash, chunk_count, chunking_method,
+                file_mtime, file_hash, chunk_count, chunking_method, chunker_version,
                 lsp_status, treesitter_status, last_error,
                 needs_reconcile, reconcile_reason, extension, is_test,
                 collection, base_point, incremental,

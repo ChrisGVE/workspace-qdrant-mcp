@@ -39,7 +39,9 @@ use crate::search_db::Fts5WorkItem;
 use crate::storage::DocumentPoint;
 use crate::tracked_files_schema::{self, ProcessingStatus};
 use crate::unified_queue_processor::UnifiedProcessorError;
-use crate::unified_queue_schema::{DestinationStatus, FilePayload, UnifiedQueueItem};
+use crate::unified_queue_schema::{
+    DestinationStatus, FilePayload, QueueOperation, UnifiedQueueItem,
+};
 use wqm_common::hashing::{compute_base_point, compute_content_hash, compute_point_id};
 
 /// Outcome of [`try_branch_dedup`] — `Some` means the dedup fast-path
@@ -59,16 +61,32 @@ pub(super) async fn try_branch_dedup(
     payload: &FilePayload,
     file_path: &Path,
     abs_file_path: &str,
+    base_path: &str,
     relative_path: &str,
     watch_folder_id: &str,
 ) -> Result<Option<DedupHit>, UnifiedProcessorError> {
+    // Uplift demands a fresh extraction pass — cloning another branch's
+    // points reuses its vectors AND its chunk set verbatim, which is exactly
+    // what the capability/extractor upgrade is trying to replace.
+    if item.op == QueueOperation::Uplift {
+        return Ok(None);
+    }
+
     // Compute file_hash up-front — the dedup key depends on it.
     let file_hash = tracked_files_schema::compute_file_hash(file_path)
         .map_err(|e| UnifiedProcessorError::ProcessingFailed(e.to_string()))?;
 
     // ── 1. SQL lookup: does another branch have an entry for the same content? ──
-    let existing: Option<(String, String, i32, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT base_point, branch, chunk_count, file_type, language
+    type DedupRow = (
+        String,
+        String,
+        i32,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let existing: Option<DedupRow> = sqlx::query_as(
+        "SELECT base_point, branch, chunk_count, file_type, language, chunker_version
              FROM tracked_files
              WHERE watch_folder_id = ?1
                AND relative_path = ?2
@@ -86,9 +104,31 @@ pub(super) async fn try_branch_dedup(
     .await
     .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("dedup lookup: {e}")))?;
 
-    let Some((old_base_point, old_branch, chunk_count, file_type, language)) = existing else {
+    let Some((old_base_point, old_branch, chunk_count, file_type, language, src_chunker_version)) =
+        existing
+    else {
         return Ok(None);
     };
+
+    // Stale-generation guard: only clone chunks produced by the CURRENT
+    // chunking configuration. Cloning a pre-upgrade generation would carry
+    // the stale chunks (and the stale fingerprint) into this branch, and the
+    // fingerprint gate would re-trigger on every later visit without ever
+    // converging. NULL (legacy source) is grandfathered, same as the gate.
+    let overrides = super::component::get_gitattributes(ctx, base_path).await;
+    let detected =
+        crate::tree_sitter::detect_language_with_overrides(file_path, relative_path, &overrides);
+    let current_fp = crate::tree_sitter::chunker::chunking_fingerprint(detected);
+    if !crate::tree_sitter::chunker::stored_fingerprint_is_current(
+        src_chunker_version.as_deref(),
+        &current_fp,
+    ) {
+        info!(
+            "branch_dedup: source row for {} (branch={}) was chunked with stale configuration {:?} (current {}) — falling back to full ingest",
+            relative_path, old_branch, src_chunker_version, current_fp
+        );
+        return Ok(None);
+    }
 
     // ── 2. Scroll the old points (with vectors) ──
     let filter = Filter::must([Condition::matches("base_point", old_base_point.clone())]);
@@ -168,6 +208,9 @@ pub(super) async fn try_branch_dedup(
         &file_hash,
         chunk_count,
         Some("dedup_clone"),
+        // The clone IS the source generation — carry its fingerprint
+        // verbatim (the guard above proved it is current or grandfathered).
+        src_chunker_version.as_deref(),
         ProcessingStatus::None,
         ProcessingStatus::None,
         Some(item.collection.as_str()),

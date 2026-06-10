@@ -4,36 +4,18 @@ use sqlx::SqlitePool;
 
 use crate::write_actor::actor::{WriteActor, WriteActorHandle};
 
-/// Create the `unified_queue` table.
+/// Create the `unified_queue` table using the PRODUCTION DDL.
+///
+/// The enqueue INSERT names only the columns it binds and relies on the
+/// table defaults for `queue_id`, `status`, `created_at`, `updated_at`. A
+/// hand-rolled DDL without those defaults makes `INSERT OR IGNORE` swallow
+/// the NOT NULL violation and report 0 rows — exec paths that enqueue
+/// (e.g. ReembedTenant) then fail with a misleading dedup error.
 async fn setup_queue_table(pool: &SqlitePool) {
-    sqlx::query(
-        "CREATE TABLE unified_queue (
-            queue_id TEXT PRIMARY KEY,
-            idempotency_key TEXT UNIQUE NOT NULL,
-            item_type TEXT NOT NULL,
-            op TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            collection TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            branch TEXT DEFAULT 'main',
-            payload_json TEXT NOT NULL DEFAULT '{}',
-            metadata TEXT DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            error_message TEXT,
-            last_error_at TEXT,
-            lease_until TEXT,
-            worker_id TEXT,
-            qdrant_status TEXT,
-            search_status TEXT,
-            decision_json TEXT,
-            file_path TEXT
-        )",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
+    crate::queue_operations::QueueManager::new(pool.clone())
+        .init_unified_queue()
+        .await
+        .unwrap();
 }
 
 /// Create the `watch_folders` table.

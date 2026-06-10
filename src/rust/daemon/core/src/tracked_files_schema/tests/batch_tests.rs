@@ -164,6 +164,7 @@ async fn test_batch_insert_tx_large_count() {
         "hash1",
         150,
         Some("tree_sitter"),
+        None,
         ProcessingStatus::Done,
         ProcessingStatus::Done,
         None,

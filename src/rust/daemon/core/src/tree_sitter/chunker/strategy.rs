@@ -16,7 +16,11 @@ use crate::tree_sitter::parser::LanguageProvider;
 use crate::tree_sitter::types::ChunkExtractor;
 
 /// Lazily loaded semantic patterns from the language registry YAML.
-fn registry_patterns() -> &'static HashMap<String, SemanticPatterns> {
+///
+/// `pub(super)` so the sibling `fingerprint` module can derive the
+/// per-language chunking fingerprint from the same source of truth the
+/// extractor selection uses.
+pub(super) fn registry_patterns() -> &'static HashMap<String, SemanticPatterns> {
     static PATTERNS: OnceLock<HashMap<String, SemanticPatterns>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
         let provider = match RegistryProvider::new() {

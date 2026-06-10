@@ -191,6 +191,35 @@ Supported `DocstringStyle` variants:
 - `Pod` — POD blocks (`=head`, `=cut`) (Perl)
 - `None` — no docstring extraction
 
+### Extractor Upgrade Propagation
+
+Changing a language's `semantic_patterns` (or the chunker logic) must reach
+files that are already indexed. The ingest gate skips unchanged files by
+content hash, which used to filter registry upgrades out entirely: after
+`.proto` gained `semantic_patterns`, a full per-tenant re-embed still left
+every unchanged `.proto` file on its old text chunks.
+
+Two complementary mechanisms (`tree_sitter::chunker::fingerprint`):
+
+1. **Chunking fingerprint** — `tracked_files.chunker_version` stores
+   `<CHUNKER_LOGIC_VERSION>:<language>:<sha256(semantic_patterns)[..12]>`
+   (or `<ver>:text` for the text fallback) at ingest time. The gate skips a
+   file only when BOTH the hash and the fingerprint are unchanged, so a
+   registry edit re-chunks exactly the affected files on the next scan or
+   re-embed that visits them. `NULL` (pre-v40 rows, zero-byte rows) is
+   grandfathered. Bump `CHUNKER_LOGIC_VERSION` for chunker code changes
+   that alter output without touching the YAML.
+2. **Forced re-embed** — `ReembedTenant{force: true}` (admin API
+   `POST /admin/api/projects/reembed` with `force: true`) propagates
+   `uplift: true` through the folder scans; discovered files enqueue as
+   `File/Uplift`, which bypasses the gate entirely. Covers upgrades the
+   fingerprint cannot see (embedding model/params, keyword or graph
+   extractors) and stamps grandfathered rows.
+
+The cross-branch dedup fast-path refuses to clone a generation whose stored
+fingerprint is stale and is disabled for `File/Uplift`, so forced
+re-extraction cannot be short-circuited by copying pre-upgrade chunks.
+
 ### CLI Commands
 
 ```bash

@@ -24,6 +24,7 @@ pub async fn insert_tracked_file_tx(
     file_hash: &str,
     chunk_count: i32,
     chunking_method: Option<&str>,
+    chunker_version: Option<&str>,
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
     collection: Option<&str>,
@@ -36,9 +37,10 @@ pub async fn insert_tracked_file_tx(
     let collection = collection.unwrap_or(COLLECTION_PROJECTS);
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, relative_path, branch, file_type, language,
-         file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         extension, is_test, collection, base_point, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+         file_mtime, file_hash, chunk_count, chunking_method, chunker_version, lsp_status,
+         treesitter_status, extension, is_test, collection, base_point, component,
+         created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
     )
     .bind(watch_folder_id)
     .bind(relative_path)
@@ -49,6 +51,7 @@ pub async fn insert_tracked_file_tx(
     .bind(file_hash)
     .bind(chunk_count)
     .bind(chunking_method)
+    .bind(chunker_version)
     .bind(lsp_status.to_string())
     .bind(treesitter_status.to_string())
     .bind(extension)
@@ -65,6 +68,7 @@ pub async fn insert_tracked_file_tx(
 }
 
 /// Update an existing tracked file record within a transaction
+#[allow(clippy::too_many_arguments)]
 pub async fn update_tracked_file_tx(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     file_id: i64,
@@ -72,6 +76,7 @@ pub async fn update_tracked_file_tx(
     file_hash: &str,
     chunk_count: i32,
     chunking_method: Option<&str>,
+    chunker_version: Option<&str>,
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
     base_point: Option<&str>,
@@ -80,14 +85,15 @@ pub async fn update_tracked_file_tx(
     let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
-         chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
-         base_point = ?7, component = ?8, last_error = NULL, needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?9
-         WHERE file_id = ?10"
+         chunking_method = ?4, chunker_version = ?5, lsp_status = ?6, treesitter_status = ?7,
+         base_point = ?8, component = ?9, last_error = NULL, needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?10
+         WHERE file_id = ?11"
     )
     .bind(file_mtime)
     .bind(file_hash)
     .bind(chunk_count)
     .bind(chunking_method)
+    .bind(chunker_version)
     .bind(lsp_status.to_string())
     .bind(treesitter_status.to_string())
     .bind(base_point)

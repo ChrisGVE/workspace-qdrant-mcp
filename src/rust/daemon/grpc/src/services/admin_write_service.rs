@@ -172,6 +172,7 @@ impl AdminWriteService for AdminWriteServiceImpl {
             .write_actor
             .reembed_tenant(ReembedTenantData {
                 tenant_id: req.tenant_id,
+                force: req.force,
             })
             .await
             .map_err(to_status)?;

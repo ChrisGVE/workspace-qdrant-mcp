@@ -30,6 +30,10 @@ use crate::unified_queue_schema::{
 /// value are skipped -- they are unchanged since the previous scan. Pass
 /// `None` for a full scan (first-time or forced rescan).
 ///
+/// `uplift` makes discovered files enqueue as `File/Uplift` instead of
+/// `File/Add` (forced re-processing, see `FolderPayload::uplift`); it is
+/// inherited by the subdirectory scans this walk spawns.
+///
 /// Returns `(files_queued, dirs_queued, files_excluded, errors)`.
 pub(crate) async fn scan_directory_single_level(
     dir_path: &Path,
@@ -38,6 +42,7 @@ pub(crate) async fn scan_directory_single_level(
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
     last_scan: Option<&str>,
+    uplift: bool,
 ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
     let mut files_queued = 0u64;
     let mut dirs_queued = 0u64;
@@ -97,6 +102,7 @@ pub(crate) async fn scan_directory_single_level(
                 item,
                 queue_manager,
                 last_scan,
+                uplift,
                 &mut errors,
             )
             .await;
@@ -112,6 +118,7 @@ pub(crate) async fn scan_directory_single_level(
                 queue_manager,
                 allowed_extensions,
                 baseline.as_ref(),
+                uplift,
                 &mut files_excluded,
                 &mut errors,
             )
@@ -133,10 +140,12 @@ pub(crate) fn parse_iso8601_to_system_time(s: &str) -> Option<SystemTime> {
 
 /// Process a single directory entry encountered during scan.
 ///
-/// `last_scan` is propagated into the child `FolderPayload` so that
-/// mtime pruning continues through the entire directory tree.
+/// `last_scan` and `uplift` are propagated into the child `FolderPayload`
+/// so that mtime pruning / forced re-processing continue through the
+/// entire directory tree.
 ///
 /// Returns 1 if an item was enqueued, 0 otherwise.
+#[allow(clippy::too_many_arguments)]
 async fn process_directory_entry(
     path: &Path,
     dir_name: &str,
@@ -144,6 +153,7 @@ async fn process_directory_entry(
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     last_scan: Option<&str>,
+    uplift: bool,
     errors: &mut u64,
 ) -> u64 {
     // Check directory exclusion
@@ -157,7 +167,15 @@ async fn process_directory_entry(
     }
 
     // Regular subdirectory -> (Folder, Scan)
-    enqueue_subdirectory(path, watch_folder_root, item, queue_manager, last_scan).await
+    enqueue_subdirectory(
+        path,
+        watch_folder_root,
+        item,
+        queue_manager,
+        last_scan,
+        uplift,
+    )
+    .await
 }
 
 /// Enqueue a submodule directory as a Tenant/Add item.
@@ -218,6 +236,7 @@ async fn enqueue_subdirectory(
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
     last_scan: Option<&str>,
+    uplift: bool,
 ) -> u64 {
     // Build a CanonicalPath for the absolute subdir so we can derive the
     // relative form. If the path is not UTF-8 or contains `..` we skip
@@ -257,6 +276,7 @@ async fn enqueue_subdirectory(
         ignore_patterns: vec![],
         old_path: None,
         last_scan: last_scan.map(|s| s.to_string()),
+        uplift,
     };
     let payload_json = match serde_json::to_string(&folder_payload) {
         Ok(s) => s,
@@ -290,7 +310,9 @@ async fn enqueue_subdirectory(
 /// Process a single file entry encountered during scan.
 ///
 /// `baseline` is the parsed mtime pruning threshold: files with
-/// `mtime <= baseline` are skipped as unchanged.
+/// `mtime <= baseline` are skipped as unchanged. `uplift` selects the
+/// queue operation: `File/Uplift` (forced re-processing) instead of
+/// `File/Add`.
 ///
 /// Returns 1 if the file was enqueued, 0 otherwise.
 #[allow(clippy::too_many_arguments)]
@@ -301,6 +323,7 @@ pub(crate) async fn process_file_entry(
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
     baseline: Option<&SystemTime>,
+    uplift: bool,
     files_excluded: &mut u64,
     errors: &mut u64,
 ) -> u64 {
@@ -348,6 +371,7 @@ pub(crate) async fn process_file_entry(
         &metadata,
         item,
         queue_manager,
+        uplift,
         errors,
     )
     .await
@@ -364,6 +388,7 @@ fn should_prune_by_mtime(baseline: Option<&SystemTime>, metadata: &std::fs::Meta
 
 /// Build the file payload (anchored to `watch_folder_root`) and enqueue
 /// the file. Returns 1 on success, 0 on failure.
+#[allow(clippy::too_many_arguments)]
 async fn enqueue_scanned_file(
     path: &Path,
     abs_path: &std::borrow::Cow<'_, str>,
@@ -371,6 +396,7 @@ async fn enqueue_scanned_file(
     metadata: &std::fs::Metadata,
     item: &UnifiedQueueItem,
     queue_manager: &Arc<QueueManager>,
+    uplift: bool,
     errors: &mut u64,
 ) -> u64 {
     let file_type_class = classify_file_type(path);
@@ -414,10 +440,18 @@ async fn enqueue_scanned_file(
         }
     };
 
+    // Uplift = forced re-processing: prepare_uplift deletes the old points
+    // and the ingest pipeline re-runs regardless of the unchanged-hash +
+    // chunker-fingerprint skip that gates Add/Update.
+    let op = if uplift {
+        QueueOperation::Uplift
+    } else {
+        QueueOperation::Add
+    };
     match queue_manager
         .enqueue_unified(
             ItemType::File,
-            QueueOperation::Add,
+            op,
             &item.tenant_id,
             &item.collection,
             &payload_json,
@@ -433,5 +467,92 @@ async fn enqueue_scanned_file(
             *errors += 1;
             0
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan_item(tenant: &str) -> UnifiedQueueItem {
+        serde_json::from_str(&format!(
+            r#"{{
+                "queue_id": "q-{tenant}",
+                "idempotency_key": "i-{tenant}",
+                "item_type": "folder",
+                "op": "scan",
+                "tenant_id": "{tenant}",
+                "collection": "projects",
+                "status": "in_progress",
+                "branch": "main",
+                "payload_json": "{{}}",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+            }}"#
+        ))
+        .unwrap()
+    }
+
+    /// `uplift` selects the queue operation for discovered files: Add for
+    /// normal discovery, Uplift for forced re-processing (ReembedTenant
+    /// force). Both the FS walk and the git fast-path funnel through
+    /// `process_file_entry` → `enqueue_scanned_file`, where the op is
+    /// chosen — tested directly because the exclusion gates above it match
+    /// path segments of tempdirs (`.tmpXXXX`, `tmp/`, the container's
+    /// `/build` root) and are not what this test is about.
+    #[tokio::test]
+    async fn enqueue_scanned_file_op_follows_uplift_flag() {
+        let project = tempfile::tempdir().unwrap();
+        let file = project.path().join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+        let metadata = std::fs::metadata(&file).unwrap();
+        let abs_path = file.to_string_lossy();
+        let root =
+            CanonicalPath::from_user_input(&project.path().to_string_lossy()).unwrap();
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let qm = Arc::new(QueueManager::new(pool.clone()));
+        qm.init_unified_queue().await.unwrap();
+
+        let mut errors = 0u64;
+        let queued = enqueue_scanned_file(
+            &file,
+            &abs_path,
+            &root,
+            &metadata,
+            &scan_item("t-add"),
+            &qm,
+            false,
+            &mut errors,
+        )
+        .await;
+        assert_eq!((queued, errors), (1, 0));
+
+        let queued = enqueue_scanned_file(
+            &file,
+            &abs_path,
+            &root,
+            &metadata,
+            &scan_item("t-uplift"),
+            &qm,
+            true,
+            &mut errors,
+        )
+        .await;
+        assert_eq!((queued, errors), (1, 0));
+
+        let op_add: String =
+            sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 't-add'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(op_add, "add");
+
+        let op_uplift: String =
+            sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 't-uplift'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(op_uplift, "uplift");
     }
 }

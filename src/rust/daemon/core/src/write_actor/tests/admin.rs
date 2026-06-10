@@ -138,6 +138,86 @@ async fn rebalance_idf_updates_corpus_statistics() {
     assert_eq!(n, 42);
 }
 
+// ── ReembedTenant tests ──────────────────────────────────────────────
+
+async fn insert_watch_folder(pool: &sqlx::SqlitePool, tenant: &str, path: &str) {
+    let now = wqm_common::timestamps::now_utc();
+    sqlx::query(
+        "INSERT INTO watch_folders \
+         (watch_id, path, collection, tenant_id, enabled, created_at, updated_at) \
+         VALUES (?1, ?2, 'projects', ?3, 1, ?4, ?4)",
+    )
+    .bind(format!("w-{tenant}"))
+    .bind(path)
+    .bind(tenant)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn fetch_scan_payload(pool: &sqlx::SqlitePool, tenant: &str) -> String {
+    sqlx::query_scalar::<_, String>(
+        "SELECT payload_json FROM unified_queue \
+         WHERE tenant_id = ?1 AND item_type = 'folder' AND op = 'scan'",
+    )
+    .bind(tenant)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn reembed_tenant_default_is_repair_scan_without_uplift() {
+    let (pool, handle) = setup_test_db().await;
+    insert_watch_folder(&pool, "t-repair", "/tmp/does-not-exist-repair").await;
+
+    let result = handle
+        .reembed_tenant(ReembedTenantData {
+            tenant_id: "t-repair".into(),
+            force: false,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.files_enqueued, 1);
+    assert!(result.message.contains("repair"), "{}", result.message);
+    let payload = fetch_scan_payload(&pool, "t-repair").await;
+    // The non-forced payload must stay byte-compatible with the historical
+    // encoding (idempotency keys hash the payload verbatim).
+    assert!(
+        !payload.contains("uplift"),
+        "non-forced scan payload must omit uplift: {payload}"
+    );
+}
+
+#[tokio::test]
+async fn reembed_tenant_force_enqueues_uplift_scans() {
+    let (pool, handle) = setup_test_db().await;
+    insert_watch_folder(&pool, "t-force", "/tmp/does-not-exist-force").await;
+
+    let result = handle
+        .reembed_tenant(ReembedTenantData {
+            tenant_id: "t-force".into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.files_enqueued, 1);
+    assert!(result.message.contains("forced"), "{}", result.message);
+    let payload = fetch_scan_payload(&pool, "t-force").await;
+    assert!(
+        payload.contains(r#""uplift":true"#),
+        "forced scan payload must carry uplift:true: {payload}"
+    );
+    // The flag must round-trip through FolderPayload so the folder strategy
+    // sees it at dequeue time.
+    let parsed: crate::unified_queue_schema::FolderPayload =
+        serde_json::from_str(&payload).unwrap();
+    assert!(parsed.uplift);
+}
+
 // ── UpsertRuleMirror / DeleteRuleMirror tests ────────────────────────
 
 #[tokio::test]

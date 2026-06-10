@@ -46,6 +46,9 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         file_hash: r.get("file_hash"),
         chunk_count: r.get("chunk_count"),
         chunking_method: r.get("chunking_method"),
+        // try_get: tolerant of SELECTs (and pre-v40 test schemas) that do not
+        // carry the column — absent decodes as None, the grandfathered state.
+        chunker_version: r.try_get("chunker_version").ok().flatten(),
         lsp_status: ProcessingStatus::from_str(
             r.get::<Option<String>, _>("lsp_status")
                 .as_deref()
@@ -115,7 +118,7 @@ pub async fn lookup_tracked_file(
         Some(b) => {
             sqlx::query(
                 "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
-                        file_mtime, file_hash, chunk_count, chunking_method,
+                        file_mtime, file_hash, chunk_count, chunking_method, chunker_version,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,
@@ -132,7 +135,7 @@ pub async fn lookup_tracked_file(
         None => {
             sqlx::query(
                 "SELECT file_id, watch_folder_id, relative_path, branch, file_type, language,
-                        file_mtime, file_hash, chunk_count, chunking_method,
+                        file_mtime, file_hash, chunk_count, chunking_method, chunker_version,
                         lsp_status, treesitter_status, last_error,
                         needs_reconcile, reconcile_reason, extension, is_test,
                         collection, base_point, incremental,

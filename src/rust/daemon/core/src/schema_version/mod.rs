@@ -48,6 +48,7 @@ mod v36;
 pub mod v37;
 pub mod v38;
 mod v39;
+mod v40;
 
 use sqlx::{pool::PoolConnection, sqlite::SqliteRow, Executor, Row, Sqlite, SqlitePool};
 use thiserror::Error;
@@ -169,7 +170,7 @@ impl Drop for ForeignKeysGuard {
 }
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 39;
+pub const CURRENT_SCHEMA_VERSION: i32 = 40;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -358,6 +359,7 @@ impl SchemaManager {
         registry.register(Box::new(v37::V37Migration));
         registry.register(Box::new(v38::V38Migration));
         registry.register(Box::new(v39::V39Migration));
+        registry.register(Box::new(v40::V40Migration));
         registry
     }
 

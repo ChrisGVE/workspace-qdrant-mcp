@@ -53,6 +53,8 @@ impl FolderStrategy {
     }
 
     /// Delegation shim: callers that reference `FolderStrategy::scan_directory_single_level`.
+    /// Non-forced (`uplift = false`): callers outside the folder strategy are
+    /// discovery paths, never forced re-processing.
     pub(crate) async fn scan_directory_single_level(
         dir_path: &Path,
         watch_folder_root: &CanonicalPath,
@@ -68,6 +70,7 @@ impl FolderStrategy {
             queue_manager,
             allowed_extensions,
             last_scan,
+            false,
         )
         .await
     }
@@ -243,6 +246,7 @@ async fn dispatch_scan(
                 &ctx.queue_manager,
                 &ctx.allowed_extensions,
                 last_scan,
+                payload.uplift,
             )
             .await
             {
@@ -267,6 +271,7 @@ async fn dispatch_scan(
             &ctx.queue_manager,
             &ctx.allowed_extensions,
             last_scan,
+            payload.uplift,
         )
         .await?;
         let label = if last_scan.is_some() {
@@ -291,6 +296,7 @@ async fn dispatch_scan(
             &ctx.queue_manager,
             &ctx.storage_client,
             &ctx.allowed_extensions,
+            payload.uplift,
         )
         .await
     }
@@ -356,6 +362,7 @@ mod tests {
             ignore_patterns: vec![],
             old_path: None,
             last_scan: None,
+            uplift: false,
         }
     }
 

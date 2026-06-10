@@ -103,6 +103,7 @@ async fn handle_library_scan(
                 &ctx.queue_manager,
                 &ctx.storage_client,
                 &ctx.allowed_extensions,
+                false,
             )
             .await?;
         }
@@ -223,6 +224,9 @@ pub(crate) async fn scan_library_directory(
     queue_manager: &Arc<QueueManager>,
     _storage_client: &Arc<StorageClient>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    // Forced re-processing (File/Uplift instead of File/Add) — set by
+    // ReembedTenant{force} through the Folder/Scan payload.
+    uplift: bool,
 ) -> UnifiedProcessorResult<()> {
     let library_root = Path::new(folder_path);
 
@@ -250,7 +254,7 @@ pub(crate) async fn scan_library_directory(
 
     let start_time = std::time::Instant::now();
     let (files_queued, files_excluded, errors) =
-        walk_and_enqueue(item, library_root, queue_manager, allowed_extensions).await?;
+        walk_and_enqueue(item, library_root, queue_manager, allowed_extensions, uplift).await?;
 
     update_last_scan(item, queue_manager).await;
 
@@ -274,6 +278,7 @@ async fn walk_and_enqueue(
     library_root: &Path,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    uplift: bool,
 ) -> UnifiedProcessorResult<(u64, u64, u64)> {
     let mut files_queued = 0u64;
     let mut files_excluded = 0u64;
@@ -296,8 +301,15 @@ async fn walk_and_enqueue(
             continue;
         }
 
-        match enqueue_library_file(item, path, library_root, queue_manager, allowed_extensions)
-            .await?
+        match enqueue_library_file(
+            item,
+            path,
+            library_root,
+            queue_manager,
+            allowed_extensions,
+            uplift,
+        )
+        .await?
         {
             FileEnqueueResult::Queued => {
                 files_queued += 1;
@@ -332,6 +344,7 @@ async fn enqueue_library_file(
     library_root: &Path,
     queue_manager: &Arc<QueueManager>,
     allowed_extensions: &Arc<AllowedExtensions>,
+    uplift: bool,
 ) -> UnifiedProcessorResult<FileEnqueueResult> {
     let rel_path = path
         .strip_prefix(library_root)
@@ -408,10 +421,15 @@ async fn enqueue_library_file(
         UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e))
     })?;
 
+    let op = if uplift {
+        QueueOperation::Uplift
+    } else {
+        QueueOperation::Add
+    };
     match queue_manager
         .enqueue_unified(
             ItemType::File,
-            QueueOperation::Add,
+            op,
             &item.tenant_id,
             &item.collection,
             &payload_json,

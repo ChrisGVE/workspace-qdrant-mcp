@@ -18,6 +18,7 @@ async fn test_insert_tracked_file_tx_commit() {
         "txhash1",
         2,
         Some("tree_sitter"),
+        Some("1:rust:abc123def456"),
         ProcessingStatus::Done,
         ProcessingStatus::Done,
         None,
@@ -35,7 +36,13 @@ async fn test_insert_tracked_file_tx_commit() {
         .await
         .unwrap();
     assert!(found.is_some());
-    assert_eq!(found.unwrap().file_hash, "txhash1");
+    let found = found.unwrap();
+    assert_eq!(found.file_hash, "txhash1");
+    assert_eq!(
+        found.chunker_version.as_deref(),
+        Some("1:rust:abc123def456"),
+        "chunker_version must round-trip through insert + lookup"
+    );
 }
 
 #[tokio::test]
@@ -55,6 +62,7 @@ async fn test_insert_tracked_file_tx_rollback() {
             "2025-01-01T00:00:00Z",
             "rollback_hash",
             1,
+            None,
             None,
             ProcessingStatus::None,
             ProcessingStatus::None,
@@ -92,6 +100,7 @@ async fn test_transaction_atomicity_insert_and_chunks() {
         "atomic_hash",
         2,
         Some("tree_sitter"),
+        None,
         ProcessingStatus::Done,
         ProcessingStatus::Done,
         None,
@@ -173,6 +182,7 @@ async fn test_transaction_atomicity_rollback_both() {
             "new_hash",
             3,
             Some("tree_sitter"),
+            None,
             ProcessingStatus::Done,
             ProcessingStatus::Done,
             None,
@@ -361,6 +371,7 @@ async fn test_update_tracked_file_tx_clears_reconcile_flag() {
         "hash2",
         5,
         Some("tree_sitter"),
+        Some("1:rust:abc123def456"),
         ProcessingStatus::Done,
         ProcessingStatus::Done,
         None,

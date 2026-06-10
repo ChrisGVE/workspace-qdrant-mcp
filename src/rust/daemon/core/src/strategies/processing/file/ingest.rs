@@ -68,6 +68,7 @@ pub(crate) async fn ingest_file_content(
         payload,
         file_path,
         abs_file_path,
+        base_path,
         relative_path,
         watch_folder_id,
     )
@@ -225,6 +226,11 @@ async fn run_ingest_pipeline(
     let overrides = component::get_gitattributes(ctx, base_path).await;
     let detected_language =
         crate::tree_sitter::detect_language_with_overrides(file_path, relative_path, &overrides);
+    // Chunking-configuration fingerprint stored alongside the file hash; the
+    // ingest gate compares it on the next visit so registry/extractor
+    // upgrades re-chunk unchanged files. Derived from the SAME detection
+    // call as above — gate and writer must agree (see chunker::fingerprint).
+    let chunker_version = crate::tree_sitter::chunker::chunking_fingerprint(detected_language);
 
     let provider =
         grammar::ensure_grammar_available(ctx, file_path, relative_path, &overrides).await;
@@ -271,6 +277,7 @@ async fn run_ingest_pipeline(
         &document_content,
         lsp_status,
         treesitter_status,
+        &chunker_version,
         payload,
         &mut timings,
     )
@@ -518,6 +525,7 @@ async fn upsert_and_mark_done(
     document_content: &crate::DocumentContent,
     lsp_status: crate::tracked_files_schema::ProcessingStatus,
     treesitter_status: crate::tracked_files_schema::ProcessingStatus,
+    chunker_version: &str,
     payload: &FilePayload,
     timings: &mut Vec<PhaseTiming>,
 ) -> UnifiedProcessorResult<i64> {
@@ -536,6 +544,7 @@ async fn upsert_and_mark_done(
         document_content,
         lsp_status,
         treesitter_status,
+        chunker_version,
         payload.file_type.as_deref(),
         None,
     )

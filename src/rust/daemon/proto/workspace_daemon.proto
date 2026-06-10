@@ -1339,6 +1339,9 @@ message ReapplyIgnoreRulesResponse {
 // ReembedTenant Request
 message ReembedTenantRequest {
     string tenant_id = 1;                             // Project tenant_id to re-embed in place
+    bool force = 2;                                   // true: every file re-processed via File/Uplift (bypasses the
+                                                      // unchanged-hash + chunker-fingerprint skip). false: repair pass —
+                                                      // files whose hash AND chunking config are unchanged are skipped.
 }
 
 // ReembedTenant Response

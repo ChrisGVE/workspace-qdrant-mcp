@@ -308,6 +308,12 @@ export interface ReapplyIgnoreRulesResponse {
 
 export interface ReembedTenantRequest {
   tenant_id: string;
+  /**
+   * true: every file is re-processed via File/Uplift, bypassing the
+   * unchanged-hash + chunker-fingerprint skip (full re-read + re-chunk +
+   * re-embed). false/absent: repair pass — unchanged files are skipped.
+   */
+  force?: boolean;
 }
 
 export interface ReembedTenantResponse {

@@ -652,23 +652,45 @@ const handleProjectReindex: RouteHandler = async (req, res, { daemonClient }) =>
 
 // ── /api/projects/reembed — re-embed one project in place (tenant-scoped) ────
 
+interface ProjectReembedRequest {
+  /** Project tenant_id (12-char hex). */
+  tenantId: string;
+  /**
+   * true: full re-process — every file is enqueued as File/Uplift, bypassing
+   * the daemon's unchanged-file skip. false/absent: repair pass (see below).
+   */
+  force?: boolean;
+}
+
 /**
  * Calls `AdminWriteService.ReembedTenant` — enqueues a folder scan for each of
- * the project's enabled watch folders so its files are re-read, re-chunked and
- * re-embedded (dense+sparse regenerated). Non-destructive; the heavy work runs
- * async in the queue. Heavier than reindex (full reprocess), so the UI confirms
- * before calling.
+ * the project's enabled watch folders. Two modes:
+ *
+ * - Default (`force` absent/false): REPAIR pass. The scan re-enqueues every
+ *   file, but the daemon's ingest gate still skips files whose content hash
+ *   AND chunker fingerprint are unchanged — only missing, stale, or
+ *   extractor-upgraded files are actually re-read/re-chunked/re-embedded.
+ *   Cheap; safe to run broadly.
+ * - `force: true`: FULL re-process. Files are enqueued as `File/Uplift`,
+ *   which bypasses the unchanged-file skip entirely: every file is re-read,
+ *   re-chunked and re-embedded (dense+sparse regenerated). Use after
+ *   chunker/embedding changes the fingerprint cannot detect. Costs a full
+ *   embedding pass for the project.
+ *
+ * Non-destructive in both modes (no collection drop/recreate); the heavy work
+ * runs async in the queue. The UI confirms before calling.
  */
 const handleProjectReembed: RouteHandler = async (req, res, { daemonClient }) => {
-  const body = (await readJsonBody(req)) as Partial<ProjectReindexRequest>;
+  const body = (await readJsonBody(req)) as Partial<ProjectReembedRequest>;
   const tenantId = body.tenantId;
   if (!tenantId || typeof tenantId !== 'string') {
     writeError(res, 400, 'tenantId required');
     return;
   }
+  const force = body.force === true;
   try {
-    const response = await daemonClient.reembedTenant({ tenant_id: tenantId });
-    logInfo('admin project reembed', { tenantId, filesEnqueued: response.files_enqueued });
+    const response = await daemonClient.reembedTenant({ tenant_id: tenantId, force });
+    logInfo('admin project reembed', { tenantId, force, filesEnqueued: response.files_enqueued });
     writeJson(res, 200, {
       ok: true,
       filesEnqueued: response.files_enqueued,

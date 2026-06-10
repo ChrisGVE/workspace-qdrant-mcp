@@ -322,6 +322,12 @@ pub struct ReapplyIgnoreRulesResult {
 #[derive(Debug)]
 pub struct ReembedTenantData {
     pub tenant_id: String,
+    /// Force full re-processing: the folder scans are enqueued with
+    /// `uplift: true`, so every discovered file becomes `File/Uplift` and
+    /// bypasses the unchanged-hash + chunker-fingerprint skip. Without it
+    /// the re-embed is a repair pass — files whose content hash AND
+    /// chunking configuration are unchanged are skipped.
+    pub force: bool,
 }
 
 /// Result of ReembedTenant

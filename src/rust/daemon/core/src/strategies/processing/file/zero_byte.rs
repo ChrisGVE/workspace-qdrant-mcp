@@ -112,6 +112,7 @@ async fn record_tracked_file(
             file_hash,
             0,    // chunk_count
             None, // chunking_method
+            None, // chunker_version — no chunker ran; NULL is grandfathered
             ProcessingStatus::Skipped,
             ProcessingStatus::Skipped,
             Some(base_point),
@@ -133,6 +134,7 @@ async fn record_tracked_file(
             file_hash,
             0,    // chunk_count
             None, // chunking_method
+            None, // chunker_version — no chunker ran; NULL is grandfathered
             ProcessingStatus::Skipped,
             ProcessingStatus::Skipped,
             Some(&item.collection),
