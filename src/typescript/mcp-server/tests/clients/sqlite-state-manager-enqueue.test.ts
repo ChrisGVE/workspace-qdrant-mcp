@@ -26,7 +26,7 @@ function createMockDaemonClient(): DaemonClient {
     enqueueItem: vi.fn(async (request: Record<string, unknown>) => {
       enqueueCallCount += 1;
       // Compute idempotency key matching the daemon's algorithm
-      const input = `${request.item_type}|${request.op}|${request.tenant_id}|${request.collection}|${request.payload_json}`;
+      const input = `${String(request.item_type)}|${String(request.op)}|${String(request.tenant_id)}|${String(request.collection)}|${String(request.payload_json)}`;
       const key = createHash('sha256').update(input).digest('hex').slice(0, 32);
 
       const existing = seenKeys.get(key);

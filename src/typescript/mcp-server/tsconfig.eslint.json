@@ -1,0 +1,10 @@
+{
+  "// purpose": "Type-aware lint program for eslint only (parserOptions.project). The build tsconfig excludes tests/ (rootDir=src for emit), which made every tests/*.ts fail typed linting with 'file not found in any provided project'. This config widens the program to src + tests; it is never used for emit.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

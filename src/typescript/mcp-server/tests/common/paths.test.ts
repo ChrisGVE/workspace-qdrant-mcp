@@ -15,7 +15,6 @@ import {
   asStdPath,
   MountMap,
   PathError,
-  type CanonicalPath,
   type LocalPath,
 } from '../../src/common/paths.js';
 

@@ -106,9 +106,20 @@ pub(crate) async fn ingest_file_content(
     .await
 }
 
-/// Handle retry-skip path: Qdrant already done, only update FTS5.
+/// Resolve the search sink when the Qdrant side needs no work: re-dispatch
+/// the FTS5 update for the file and mark `search_status` accordingly.
+///
+/// Reached from two places:
+///  - the per-destination retry skip above (`qdrant_status == Done`);
+///  - the unchanged-hash Skip in `process_file_item` — the tracked hash
+///    matching proves the Qdrant generation is committed, but the FTS5 batch
+///    is asynchronous and a prior attempt may have failed it AFTER
+///    tracked_files was updated, leaving search.db stale. The dispatch below
+///    self-heals that: `update_fts5_for_file_or_enqueue` no-ops via the
+///    `indexed_content` hash cache when search is already current and
+///    rewrites the lines when it is not.
 #[allow(clippy::too_many_arguments)]
-async fn handle_retry_skip(
+pub(super) async fn handle_retry_skip(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     pool: &SqlitePool,

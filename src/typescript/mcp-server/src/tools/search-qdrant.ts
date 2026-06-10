@@ -111,8 +111,50 @@ export async function searchCollection(
 }
 
 /**
+ * Stable per-file identity for a search hit. Every chunk of a file shares its
+ * `document_id` (stable across branches); path fallbacks cover collections
+ * that don't carry it, and the point id is the last resort (e.g. scratchpad
+ * notes), which degrades gracefully to per-chunk identity. Shared by RRF
+ * fusion and the same-file dedup in search-helpers so ranking and dedup agree
+ * on granularity.
+ */
+export function resultFileKey(result: SearchResult): string {
+  return (
+    (result.metadata['document_id'] as string | undefined) ??
+    (result.metadata['relative_path'] as string | undefined) ??
+    (result.metadata['file_path'] as string | undefined) ??
+    result.id
+  );
+}
+
+/** Down-weight applied to sparse-leg chunks that the dense leg did NOT also
+ * retrieve ("unconfirmed" keyword hits).
+ *
+ * Why: for natural-language queries the BM25 leg is noise-heavy — files
+ * stuffed with common query terms (README, reference docs, changelogs) fill
+ * its ranking, and plain RRF hands each of them a vote interleaved with the
+ * dense leg's, displacing semantically-found code from the final top-k. A
+ * chunk the dense leg retrieved as well needs no demotion: the same-chunk
+ * double vote is a high-precision agreement signal and is what hybrid's
+ * top-1/top-3 edge over pure semantic comes from (measured on the 12-query
+ * known-item benchmark). So fusion keeps both-leg sums at full strength and
+ * halves only the sparse-ONLY entries.
+ *
+ * 0.5 puts the best unconfirmed sparse vote (0.5/(k+1) ≈ 0.0082) just below
+ * the dense leg's floor at the default pool depth (1/(k+50) ≈ 0.0091,
+ * k = 60, pool = limit×5 = 50), so unconfirmed keyword hits act as backfill
+ * below dense results rather than displacing them. The path-relevance boost
+ * (up to ×1.8) applied after fusion can still lift a sparse-only hit whose
+ * file path/symbol matches the query — the exact-identifier rescue case —
+ * past the dense tail. */
+const SPARSE_ONLY_WEIGHT = 0.5;
+
+/**
  * Apply Reciprocal Rank Fusion to combine results.
- * RRF score = sum(1 / (k + rank_i)) for each result across rankings.
+ * RRF score = sum(1 / (k + rank_i)) for each chunk across the two leg
+ * rankings, with sparse-only chunks down-weighted by
+ * {@link SPARSE_ONLY_WEIGHT} (dense-primary fusion: the dense leg orders the
+ * list, same-chunk agreement boosts, unconfirmed keyword hits backfill).
  */
 export function applyRRFFusion(results: SearchResult[], mode: SearchMode): SearchResult[] {
   if (mode !== 'hybrid' || results.length === 0) return results;
@@ -136,8 +178,10 @@ export function applyRRFFusion(results: SearchResult[], mode: SearchMode): Searc
     const key = `${result.collection}:${result.id}`;
     const rrfScore = 1 / (RRF_K + rank + 1);
     const existing = rrfScores.get(key);
+    // Confirmed by the dense leg: full-strength vote on top of the dense one.
+    // Dense leg never saw this chunk: demoted, unconfirmed keyword evidence.
     if (existing) existing.score += rrfScore;
-    else rrfScores.set(key, { score: rrfScore, result: { ...result } });
+    else rrfScores.set(key, { score: rrfScore * SPARSE_ONLY_WEIGHT, result: { ...result } });
   });
 
   return Array.from(rrfScores.values()).map(({ score, result }) => ({

@@ -52,9 +52,30 @@ use super::CanonicalPath;
 /// let p = RelativePath::from_user_input("src/./foo//bar.rs").unwrap();
 /// assert_eq!(p.as_str(), "src/foo/bar.rs");
 /// ```
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct RelativePath(String);
+
+/// Validating deserialization: every `RelativePath` arriving through serde
+/// (queue `payload_json`, config, registry JSON) goes through the same §3.3
+/// rules as [`RelativePath::from_user_input`].
+///
+/// The previous derived (`#[serde(transparent)]`) impl accepted ANY string —
+/// a producer that serialized an ABSOLUTE path slipped straight through the
+/// type boundary, and the consumer's `to_absolute(root)` join produced
+/// `<root>/<absolute>` (observed live: per-tenant reembed enqueued the watch
+/// root's absolute path as `folder_path`; the scan no-op'd against the
+/// doubled path). Rejecting at parse turns that class of producer bug into a
+/// loud `InvalidPayload` error instead of silent wrong-path behaviour.
+impl<'de> Deserialize<'de> for RelativePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        RelativePath::from_user_input(&s).map_err(serde::de::Error::custom)
+    }
+}
 
 /// Failure modes for relative-path construction.
 ///
@@ -436,6 +457,27 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         let back: RelativePath = serde_json::from_str(&json).unwrap();
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn deserialize_rejects_absolute() {
+        // The type boundary must refuse absolute input — a producer that
+        // ships an absolute path is a bug and must fail loudly at parse,
+        // not double-join silently downstream.
+        let err = serde_json::from_str::<RelativePath>("\"/home/u/repo\"").unwrap_err();
+        assert!(err.to_string().contains("must not be absolute"));
+    }
+
+    #[test]
+    fn deserialize_rejects_traversal() {
+        let err = serde_json::from_str::<RelativePath>("\"src/../escape\"").unwrap_err();
+        assert!(err.to_string().contains(".."));
+    }
+
+    #[test]
+    fn deserialize_normalizes_like_from_user_input() {
+        let p: RelativePath = serde_json::from_str("\"src/./foo//bar.rs\"").unwrap();
+        assert_eq!(p.as_str(), "src/foo/bar.rs");
     }
 
     // -----------------------------------------------------------------

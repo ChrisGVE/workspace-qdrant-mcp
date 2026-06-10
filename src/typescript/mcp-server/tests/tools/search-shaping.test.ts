@@ -150,9 +150,11 @@ describe('shapeHitPayloads', () => {
         title: 'Foo function',
         content: 'a'.repeat(5000),
         metadata: {
+          // Real daemon payload keys (schema/qdrant/projects.rs): tree-sitter
+          // chunk metadata is `chunk_`-prefixed.
           file_path: 'src/foo.ts',
-          line_start: 10,
-          symbol_name: 'fooFn',
+          chunk_start_line: 10,
+          chunk_symbol_name: 'fooFn',
           content: 'a'.repeat(5000),
           chunk_text: 'a'.repeat(5000),
         },
@@ -166,8 +168,8 @@ describe('shapeHitPayloads', () => {
       // Structural metadata must survive.
       expect(shaped.results[0].metadata).toMatchObject({
         file_path: 'src/foo.ts',
-        line_start: 10,
-        symbol_name: 'fooFn',
+        chunk_start_line: 10,
+        chunk_symbol_name: 'fooFn',
       });
       // Text fields must be gone.
       expect(shaped.results[0].metadata).not.toHaveProperty('content');
@@ -180,7 +182,7 @@ describe('shapeHitPayloads', () => {
           id: `doc-${i}`,
           title: `Hit ${i}`,
           content: 'a'.repeat(20_000),
-          metadata: { file_path: `src/file${i}.ts`, line_start: i, content: 'a'.repeat(20_000) },
+          metadata: { file_path: `src/file${i}.ts`, chunk_start_line: i, content: 'a'.repeat(20_000) },
         })
       );
       const { response: shaped } = shapeHitPayloads(makeResponse(hits), baseOptions({ summary: true }));

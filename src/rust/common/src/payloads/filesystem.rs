@@ -160,4 +160,25 @@ mod tests {
         let back: FolderPayload = serde_json::from_str(&json).unwrap();
         assert!(back.folder_path.is_none());
     }
+
+    #[test]
+    fn folder_payload_rejects_absolute_folder_path() {
+        // Regression for the per-tenant reembed no-op: a producer that ships
+        // the watch root's ABSOLUTE path must fail at parse (validating
+        // RelativePath deserialization), not double-join downstream into
+        // "<root>/<root>/…" and silently scan nothing. Root scans encode the
+        // root as an OMITTED folder_path (None), never as a path.
+        let err = serde_json::from_str::<FolderPayload>(
+            r#"{"folder_path":"/home/u/repos/project","recursive":true}"#,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("must not be absolute"));
+    }
+
+    #[test]
+    fn file_payload_rejects_absolute_file_path() {
+        let err = serde_json::from_str::<FilePayload>(r#"{"file_path":"/etc/passwd"}"#)
+            .unwrap_err();
+        assert!(err.to_string().contains("must not be absolute"));
+    }
 }

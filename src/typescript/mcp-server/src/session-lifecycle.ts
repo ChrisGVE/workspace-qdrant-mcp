@@ -36,7 +36,14 @@ const SUSPICIOUS_CWD_PATTERNS: ReadonlyArray<RegExp> = [
   /^[A-Za-z]:[\\/]+ProgramData([\\/]|$)/i,
   /^[A-Za-z]:[\\/]*$/i, // bare drive root: C:\, C:/, D:\, ...
   /^\/$/, // POSIX root
-  /^\/(usr|bin|sbin|etc|var|tmp|root|System|Library)([\\/]|$)/i,
+  // POSIX system dirs: only the directory ITSELF (optional trailing slash),
+  // not its descendants. The audit's Bug-3 failure mode is the project walk
+  // landing ON a system root (cwd=/tmp inherited from a service launcher,
+  // or walking up to /), and that stays blocked. Real marker-bearing
+  // projects legitimately live BENEATH these paths — /tmp/<scratch
+  // checkout>, /var/www/<site>, /usr/local/src/<repo> — and registration
+  // still requires an actual project marker, which bare system dirs lack.
+  /^\/(usr|bin|sbin|etc|var|tmp|root|System|Library)\/*$/i,
 ];
 
 function isSuspiciousCwd(path: string): boolean {

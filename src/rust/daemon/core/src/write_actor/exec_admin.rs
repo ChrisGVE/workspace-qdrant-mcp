@@ -176,8 +176,14 @@ impl WriteActor {
         let queue_manager = crate::queue_operations::QueueManager::new(self.pool.clone());
         let mut enqueued = 0u32;
         for (path, collection) in &folders {
+            // `folder_path` is deliberately OMITTED: `FolderPayload.folder_path`
+            // is `Option<RelativePath>` and `None` means "scan the watch_folder
+            // root itself" (spec 16 §3.3). `path` here is the watch root's
+            // ABSOLUTE path — putting it in the payload made the folder
+            // strategy re-anchor it onto the root (<root>/<root>/…) and the
+            // scan no-op'd with "Folder scan target is not a directory", so
+            // per-tenant reembed silently did nothing.
             let payload = serde_json::json!({
-                "folder_path": path,
                 "recursive": true,
                 "recursive_depth": 10,
                 "patterns": [],

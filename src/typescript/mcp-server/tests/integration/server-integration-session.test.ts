@@ -271,9 +271,13 @@ describe('Server Integration Tests', () => {
         await server.start();
 
         const state = server.getSessionState();
-        // Project root falls back to cwd when no .git found;
-        // daemon may assign a project_id via registerProject
-        expect(state.projectPath).not.toBeNull();
+        // A bare temp dir has no project marker: detection must NOT fall
+        // back to registering the cwd as a project (spec 19 §7.4 — that
+        // fallback produced spurious watch-list entries like the container's
+        // /app). Graceful degradation means the server is fully usable with
+        // no project at all.
+        expect(state.projectPath).toBeNull();
+        expect(state.projectId).toBeNull();
         expect(server.isReady()).toBe(true);
       } finally {
         process.chdir(originalCwd);

@@ -63,19 +63,23 @@ function stripTextFromMetadata(metadata: Record<string, unknown>): Record<string
  *  "which result do I want?" before a follow-up retrieve(). Everything else
  *  (ranking aids like `keyword_baskets`/`keywords`, sparse-vector debris, and
  *  other large payload fields) is dropped: summary exists to economize tokens,
- *  and the verbose metadata was ~1–2k tokens of noise per hit. */
+ *  and the verbose metadata was ~1–2k tokens of noise per hit.
+ *
+ *  Key names follow the daemon's Qdrant payload schema
+ *  (src/rust/common/src/schema/qdrant/projects.rs): tree-sitter chunk
+ *  metadata is prefixed `chunk_` — `chunk_symbol_name`, `chunk_start_line`,
+ *  `chunk_end_line`, `chunk_chunk_type`. Unprefixed spellings never existed
+ *  in the payload and silently matched nothing. */
 const SUMMARY_METADATA_KEYS: readonly string[] = [
   'file_path',
   'relative_path',
-  'start_line',
-  'end_line',
   'language',
-  'symbol_name',
-  'symbol_type',
-  'chunk_type',
-  'parent_symbol',
   'branch',
   'document_id',
+  'chunk_symbol_name',
+  'chunk_start_line',
+  'chunk_end_line',
+  'chunk_chunk_type',
 ];
 
 function pickSummaryMetadata(metadata: Record<string, unknown>): Record<string, unknown> {

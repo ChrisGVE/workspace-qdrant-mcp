@@ -1,5 +1,9 @@
 /**
  * Tests for the `graph` MCP tool handler (code-relationship navigation).
+ *
+ * Tenant resolution mirrors `search`/`grep`/`list`: explicit `projectId`
+ * wins; otherwise the caller's cwd is resolved via the ProjectDetector.
+ * There is deliberately NO "first active project" fallback — see graph.ts.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -7,6 +11,7 @@ import { createHash } from 'node:crypto';
 
 import { handleGraph } from '../../src/tools/graph.js';
 import type { DaemonClient } from '../../src/clients/daemon-client.js';
+import type { ProjectDetector } from '../../src/utils/project-detector.js';
 
 /** node_id matching Rust's compute_node_id (and the handler's). */
 function computeNodeId(
@@ -26,7 +31,6 @@ function mockClient(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>>
   mocks: Record<string, ReturnType<typeof vi.fn>>;
 } {
   const mocks = {
-    listProjects: vi.fn().mockResolvedValue({ projects: [{ project_id: 'auto-tenant' }] }),
     getGraphStats: vi
       .fn()
       .mockResolvedValue({ total_nodes: 10, total_edges: 20, nodes_by_type: {}, edges_by_type: {} }),
@@ -44,15 +48,34 @@ function mockClient(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>>
   return { client: mocks as unknown as DaemonClient, mocks };
 }
 
+/** ProjectDetector stub: resolves the caller's cwd to `projectId` (or null). */
+function mockDetector(projectId: string | null): {
+  detector: ProjectDetector;
+  getProjectInfo: ReturnType<typeof vi.fn>;
+} {
+  const getProjectInfo = vi
+    .fn()
+    .mockResolvedValue(projectId === null ? null : { projectId });
+  return { detector: { getProjectInfo } as unknown as ProjectDetector, getProjectInfo };
+}
+
 describe('handleGraph', () => {
   it('rejects when no daemon client is connected', async () => {
-    await expect(handleGraph({ action: 'stats' }, undefined)).rejects.toThrow(/daemon client/i);
+    const { detector } = mockDetector('auto-tenant');
+    await expect(handleGraph({ action: 'stats' }, undefined, detector)).rejects.toThrow(
+      /daemon client/i
+    );
   });
 
-  it("defaults to 'stats' and resolves tenant from the first active project", async () => {
+  it("defaults to 'stats' and resolves the tenant from the caller's cwd project", async () => {
     const { client, mocks } = mockClient();
-    const result = (await handleGraph({}, client)) as Record<string, unknown>;
-    expect(mocks['listProjects']).toHaveBeenCalledWith({ active_only: true });
+    const { detector, getProjectInfo } = mockDetector('auto-tenant');
+    const result = (await handleGraph({}, client, detector)) as Record<string, unknown>;
+    // Same resolution contract as search/grep/list: cwd → project, with the
+    // sole-project convenience fallback.
+    expect(getProjectInfo).toHaveBeenCalledWith(expect.any(String), false, {
+      fallbackToSoleProject: true,
+    });
     expect(mocks['getGraphStats']).toHaveBeenCalledWith({ tenant_id: 'auto-tenant' });
     expect(result['action']).toBe('stats');
     expect(result['tenant_id']).toBe('auto-tenant');
@@ -61,16 +84,19 @@ describe('handleGraph', () => {
 
   it('prefers an explicit projectId over auto-detection', async () => {
     const { client, mocks } = mockClient();
-    await handleGraph({ action: 'stats', projectId: 'explicit-tenant' }, client);
-    expect(mocks['listProjects']).not.toHaveBeenCalled();
+    const { detector, getProjectInfo } = mockDetector('auto-tenant');
+    await handleGraph({ action: 'stats', projectId: 'explicit-tenant' }, client, detector);
+    expect(getProjectInfo).not.toHaveBeenCalled();
     expect(mocks['getGraphStats']).toHaveBeenCalledWith({ tenant_id: 'explicit-tenant' });
   });
 
   it('impact forwards the symbol and optional file_path', async () => {
     const { client, mocks } = mockClient();
+    const { detector } = mockDetector(null);
     await handleGraph(
       { action: 'impact', symbol: 'authenticate', filePath: 'src/auth.rs', projectId: 't1' },
-      client
+      client,
+      detector
     );
     expect(mocks['impactAnalysis']).toHaveBeenCalledWith({
       tenant_id: 't1',
@@ -81,9 +107,11 @@ describe('handleGraph', () => {
 
   it('usages forwards to ImpactAnalysis (find-usages framing)', async () => {
     const { client, mocks } = mockClient();
+    const { detector } = mockDetector(null);
     const result = (await handleGraph(
       { action: 'usages', symbol: 'parse', projectId: 't1' },
-      client
+      client,
+      detector
     )) as Record<string, unknown>;
     expect(mocks['impactAnalysis']).toHaveBeenCalledWith({
       tenant_id: 't1',
@@ -94,21 +122,24 @@ describe('handleGraph', () => {
 
   it('impact requires a symbol', async () => {
     const { client } = mockClient();
-    await expect(handleGraph({ action: 'impact', projectId: 't1' }, client)).rejects.toThrow(
-      /requires `symbol`/
-    );
+    const { detector } = mockDetector(null);
+    await expect(
+      handleGraph({ action: 'impact', projectId: 't1' }, client, detector)
+    ).rejects.toThrow(/requires `symbol`/);
   });
 
   it('hotspots passes top_k (default 20)', async () => {
     const { client, mocks } = mockClient();
-    await handleGraph({ action: 'hotspots', projectId: 't1' }, client);
+    const { detector } = mockDetector(null);
+    await handleGraph({ action: 'hotspots', projectId: 't1' }, client, detector);
     expect(mocks['computePageRank']).toHaveBeenCalledWith({ tenant_id: 't1', top_k: 20 });
-    await handleGraph({ action: 'hotspots', projectId: 't1', topK: 5 }, client);
+    await handleGraph({ action: 'hotspots', projectId: 't1', topK: 5 }, client, detector);
     expect(mocks['computePageRank']).toHaveBeenLastCalledWith({ tenant_id: 't1', top_k: 5 });
   });
 
   it('relations computes the Rust-compatible node_id and passes maxHops', async () => {
     const { client, mocks } = mockClient();
+    const { detector } = mockDetector(null);
     await handleGraph(
       {
         action: 'relations',
@@ -118,7 +149,8 @@ describe('handleGraph', () => {
         maxHops: 2,
         projectId: 't1',
       },
-      client
+      client,
+      detector
     );
     const expectedId = computeNodeId('t1', 'src/auth.rs', 'authenticate', 'function');
     expect(mocks['queryRelated']).toHaveBeenCalledWith({
@@ -130,16 +162,19 @@ describe('handleGraph', () => {
 
   it('relations requires symbol and filePath', async () => {
     const { client } = mockClient();
+    const { detector } = mockDetector(null);
     await expect(
-      handleGraph({ action: 'relations', symbol: 'x', projectId: 't1' }, client)
+      handleGraph({ action: 'relations', symbol: 'x', projectId: 't1' }, client, detector)
     ).rejects.toThrow(/requires `symbol` and `filePath`/);
   });
 
   it('forwards edgeTypes filter when provided', async () => {
     const { client, mocks } = mockClient();
+    const { detector } = mockDetector(null);
     await handleGraph(
       { action: 'hotspots', projectId: 't1', edgeTypes: ['CALLS', 'IMPORTS'] },
-      client
+      client,
+      detector
     );
     expect(mocks['computePageRank']).toHaveBeenCalledWith({
       tenant_id: 't1',
@@ -150,9 +185,14 @@ describe('handleGraph', () => {
 
   it('bridges (betweenness) passes top_k and optional max_samples', async () => {
     const { client, mocks } = mockClient();
-    await handleGraph({ action: 'bridges', projectId: 't1' }, client);
+    const { detector } = mockDetector(null);
+    await handleGraph({ action: 'bridges', projectId: 't1' }, client, detector);
     expect(mocks['computeBetweenness']).toHaveBeenCalledWith({ tenant_id: 't1', top_k: 20 });
-    await handleGraph({ action: 'bridges', projectId: 't1', topK: 5, maxSamples: 100 }, client);
+    await handleGraph(
+      { action: 'bridges', projectId: 't1', topK: 5, maxSamples: 100 },
+      client,
+      detector
+    );
     expect(mocks['computeBetweenness']).toHaveBeenLastCalledWith({
       tenant_id: 't1',
       top_k: 5,
@@ -162,13 +202,19 @@ describe('handleGraph', () => {
 
   it('rejects an unknown action', async () => {
     const { client } = mockClient();
-    await expect(handleGraph({ action: 'bogus', projectId: 't1' }, client)).rejects.toThrow(
-      /Unknown graph action/
-    );
+    const { detector } = mockDetector(null);
+    await expect(
+      handleGraph({ action: 'bogus', projectId: 't1' }, client, detector)
+    ).rejects.toThrow(/Unknown graph action/);
   });
 
-  it('errors clearly when no active project exists and no projectId given', async () => {
-    const { client } = mockClient({ listProjects: vi.fn().mockResolvedValue({ projects: [] }) });
-    await expect(handleGraph({ action: 'stats' }, client)).rejects.toThrow(/No active project/);
+  it('errors clearly when the project cannot be resolved and no projectId is given', async () => {
+    const { client } = mockClient();
+    const { detector } = mockDetector(null);
+    // No silent "first active project" fallback: unresolvable cwd must fail
+    // loudly, pointing the caller at projectId/cwd.
+    await expect(handleGraph({ action: 'stats' }, client, detector)).rejects.toThrow(
+      /Could not resolve a project/
+    );
   });
 });

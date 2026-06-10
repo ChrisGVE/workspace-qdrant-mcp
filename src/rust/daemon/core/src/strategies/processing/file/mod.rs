@@ -214,7 +214,16 @@ impl FileStrategy {
             .await?
                 == UpdateAction::Skip
             {
-                return Ok(());
+                return resolve_skip_destinations(
+                    ctx,
+                    item,
+                    pool,
+                    &watch_folder_id,
+                    relative_path,
+                    &abs_file_path,
+                    &payload,
+                )
+                .await;
             }
         }
 
@@ -356,6 +365,54 @@ async fn handle_missing_file(
         payload.file_path.as_str()
     );
     Ok(())
+}
+
+/// Resolve both destination sinks for an unchanged-hash Skip so the queue
+/// row can finalize.
+///
+/// A bare `return Ok(())` on Skip strands state-machine items (decision_json
+/// set): with no sink resolution, `finalize_after_success` keeps the row
+/// `in_progress` and it re-leases forever while logging "Successfully
+/// processed" — the recurring-poison shape from PR #86, this time at runtime
+/// (observed live: an Update whose first attempt committed Qdrant +
+/// tracked_files, then failed the FTS5 batch with `database is locked`; every
+/// retry hash-matched, skipped, and never finalized, while search.db kept
+/// serving the previous file generation).
+///
+/// The hash match proves the Qdrant generation is committed (tracked_files is
+/// written in the same transaction as the upsert, see store_track), so the
+/// qdrant sink resolves on that proof. The search sink gets NO such proof —
+/// the FTS5 batch is asynchronous and may have failed after tracked_files was
+/// already updated — so delegate to the retry-skip path, which re-dispatches
+/// the FTS5 work: a cheap no-op when search is current (indexed_content hash
+/// match), a healing rewrite when it is stale.
+async fn resolve_skip_destinations(
+    ctx: &ProcessingContext,
+    item: &UnifiedQueueItem,
+    pool: &sqlx::SqlitePool,
+    watch_folder_id: &str,
+    relative_path: &str,
+    abs_file_path: &str,
+    payload: &FilePayload,
+) -> UnifiedProcessorResult<()> {
+    let _ = ctx
+        .queue_manager
+        .update_destination_status(
+            &item.queue_id,
+            "qdrant",
+            crate::unified_queue_schema::DestinationStatus::Done,
+        )
+        .await;
+    ingest::handle_retry_skip(
+        ctx,
+        item,
+        pool,
+        watch_folder_id,
+        relative_path,
+        abs_file_path,
+        payload,
+    )
+    .await
 }
 
 /// Handle the Update pre-flight: hash comparison and reference-counted deletion.
@@ -648,5 +705,173 @@ mod tests {
         let base = proj.path().to_string_lossy().to_string();
         let f = proj.path().join("src/lib.rs");
         assert!(!is_ignored_at_dequeue(&base, &f));
+    }
+
+    mod skip_resolution {
+        use std::sync::Arc;
+
+        use async_trait::async_trait;
+        use sqlx::SqlitePool;
+        use tokio::sync::Semaphore;
+
+        use crate::allowed_extensions::AllowedExtensions;
+        use crate::context::ProcessingContext;
+        use crate::document_processor::DocumentProcessor;
+        use crate::embedding::{
+            DenseEmbedding, DenseProvider, EmbeddingConfig, EmbeddingError, EmbeddingGenerator,
+        };
+        use crate::lexicon::LexiconManager;
+        use crate::queue_operations::QueueManager;
+        use crate::specs::parse_payload;
+        use crate::storage::StorageClient;
+        use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation, QueueStatus};
+
+        use super::super::resolve_skip_destinations;
+
+        /// No-op dense provider: `resolve_skip_destinations` never embeds, but
+        /// `ProcessingContext::new` requires an `EmbeddingGenerator`. Twin of
+        /// the stub in `strategies::processing::tenant::tests`.
+        #[derive(Debug)]
+        struct NoopDenseProvider;
+
+        #[async_trait]
+        impl DenseProvider for NoopDenseProvider {
+            async fn embed(&self, texts: &[&str]) -> Result<Vec<DenseEmbedding>, EmbeddingError> {
+                Ok(texts
+                    .iter()
+                    .map(|t| DenseEmbedding {
+                        vector: vec![0.0; 1],
+                        model_name: "noop".to_string(),
+                        sequence_length: t.len(),
+                    })
+                    .collect())
+            }
+
+            fn output_dim(&self) -> usize {
+                1
+            }
+
+            fn provider_label(&self) -> &str {
+                "noop"
+            }
+
+            fn metrics_label(&self) -> &'static str {
+                "fastembed"
+            }
+
+            async fn probe(&self) -> Result<(), EmbeddingError> {
+                Ok(())
+            }
+        }
+
+        /// Minimal context: lazy StorageClient (never contacted), no LSP, and
+        /// crucially `search_db: None` so the search sink resolves to Done
+        /// without touching FTS5 — the queue-state contract is what's under test.
+        fn build_test_context(pool: SqlitePool) -> ProcessingContext {
+            let queue_manager = Arc::new(QueueManager::new(pool.clone()));
+            let dense_provider = Arc::new(NoopDenseProvider);
+            let embedding_generator = Arc::new(
+                EmbeddingGenerator::new(EmbeddingConfig::default(), dense_provider)
+                    .expect("EmbeddingGenerator::new should succeed with NoopDenseProvider"),
+            );
+            ProcessingContext::new(
+                pool.clone(),
+                queue_manager,
+                Arc::new(StorageClient::new()),
+                embedding_generator,
+                Arc::new(DocumentProcessor::new()),
+                Arc::new(Semaphore::new(1)),
+                Arc::new(LexiconManager::new(pool, 1.2)),
+                None,
+                None,
+                Arc::new(AllowedExtensions::default()),
+            )
+        }
+
+        /// Recurring-poison regression (PR #86 family, runtime variant): an
+        /// Update that stored a decision (state-machine item) and then hits the
+        /// unchanged-hash Skip on retry MUST resolve both destination sinks so
+        /// `finalize_after_success` returns Done — not loop `in_progress`
+        /// forever re-leasing every cycle.
+        #[tokio::test]
+        async fn unchanged_hash_skip_resolves_sinks_so_item_finalizes() {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let db_path = temp_dir.path().join("skip_finalize.db");
+            let pool = SqlitePool::connect(&format!("sqlite://{}?mode=rwc", db_path.display()))
+                .await
+                .expect("create sqlite pool");
+            let manager = QueueManager::new(pool.clone());
+            manager.init_unified_queue().await.unwrap();
+            // enqueue_unified validates tenants against watch_folders.
+            sqlx::query(crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // Shape the row exactly like production: enqueue, then store the
+            // update decision (flips sinks to pending = state-machine item).
+            let (queue_id, _) = manager
+                .enqueue_unified(
+                    ItemType::File,
+                    QueueOperation::Update,
+                    "tenant-skip",
+                    "projects",
+                    r#"{"file_path":"src/lib.rs","file_type":"code"}"#,
+                    Some("main"),
+                    None,
+                )
+                .await
+                .unwrap();
+            manager
+                .store_queue_decision(
+                    &queue_id,
+                    &wqm_common::queue_types::QueueDecision {
+                        delete_old: true,
+                        old_base_point: Some("old-bp".to_string()),
+                        new_base_point: "new-bp".to_string(),
+                        old_file_hash: Some("old-hash".to_string()),
+                        new_file_hash: "new-hash".to_string(),
+                    },
+                )
+                .await
+                .unwrap();
+
+            // Lease it like the processor would, then run the Skip resolution.
+            let items = manager
+                .dequeue_unified(1, "test-worker", None, None, None, None, None, None)
+                .await
+                .unwrap();
+            let item = items
+                .into_iter()
+                .find(|i| i.queue_id == queue_id)
+                .expect("dequeued the seeded item");
+            let payload: FilePayload = parse_payload(&item).unwrap();
+
+            let ctx = build_test_context(pool.clone());
+            resolve_skip_destinations(
+                &ctx,
+                &item,
+                &pool,
+                "wf-test",
+                "src/lib.rs",
+                "/abs/src/lib.rs",
+                &payload,
+            )
+            .await
+            .unwrap();
+
+            let (qs, ss): (String, String) = sqlx::query_as(
+                "SELECT qdrant_status, search_status FROM unified_queue WHERE queue_id = ?1",
+            )
+            .bind(&queue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(qs, "done", "qdrant sink must resolve on the hash proof");
+            assert_eq!(ss, "done", "search sink must resolve (no search_db configured)");
+
+            let overall = manager.finalize_after_success(&queue_id).await.unwrap();
+            assert_eq!(overall, QueueStatus::Done, "row must finalize, not re-lease");
+        }
     }
 }

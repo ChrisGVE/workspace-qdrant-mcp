@@ -29,6 +29,7 @@ import { buildFilter } from './search-filters.js';
 import {
   searchCollection,
   applyRRFFusion,
+  resultFileKey,
   expandParentContext,
   fallbackSearch,
 } from './search-qdrant.js';
@@ -528,19 +529,15 @@ function applyPathRelevanceBoost(results: SearchResult[], query: string): void {
  * hits that each consume a top-k slot — e.g. one query returned the same
  * `watchdog.rs` four times in the top 6, crowding out other relevant files
  * and tanking recall. Dense and sparse hits from the same file also collide.
- * Identity is the per-file `document_id` (shared by every chunk of a file,
- * and stable across branches) with path/id fallbacks for collections that
- * don't carry it. Exact/FTS5 search has its own line-level path and never
- * reaches this function. */
+ * Identity comes from {@link resultFileKey}: the per-file `document_id`
+ * (shared by every chunk of a file, stable across branches) with path/id
+ * fallbacks for collections that don't carry it. Exact/FTS5 search has its
+ * own line-level path and never reaches this function. */
 function dedupeByFile(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   const deduped: SearchResult[] = [];
   for (const result of results) {
-    const key =
-      (result.metadata['document_id'] as string | undefined) ??
-      (result.metadata['relative_path'] as string | undefined) ??
-      (result.metadata['file_path'] as string | undefined) ??
-      result.id;
+    const key = resultFileKey(result);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);

@@ -86,7 +86,37 @@ pub(crate) async fn process_folder_item(
     );
 
     let payload: FolderPayload = parse_payload(item)?;
-    let last_scan_for_scan = payload.last_scan.as_deref();
+    let mut last_scan_for_scan = payload.last_scan.as_deref();
+
+    // Self-heal guard: an incremental ROOT rescan (mtime baseline) is only
+    // sound when the previous scan actually left tracking behind. After a
+    // tracking wipe (observed live 2026-06-10: multi-instance false-missing
+    // deletions emptied tracked_files while last_scan stayed set), the
+    // baseline prunes every unchanged file and the project can NEVER rebuild
+    // — every rescan reports "0 files, N excluded" forever. When tracking for
+    // this tenant is (near-)empty, drop the baseline and scan everything.
+    if should_check_self_heal(&item.op, &payload, last_scan_for_scan) {
+        match tracked_count_for_tenant(ctx, &item.tenant_id, &item.collection).await {
+            Ok(count) if !baseline_is_trustworthy(count) => {
+                info!(
+                    "Root rescan has an mtime baseline but only {} tracked file(s) for \
+                     tenant {} — forcing a full rescan (self-heal)",
+                    count, item.tenant_id
+                );
+                last_scan_for_scan = None;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                // Keep the incremental behaviour on probe failure: a broken
+                // COUNT must not turn every rescan into a full one.
+                warn!(
+                    "tracked-files count probe failed for tenant {}; keeping incremental \
+                     baseline: {}",
+                    item.tenant_id, e
+                );
+            }
+        }
+    }
 
     match item.op {
         QueueOperation::Scan => dispatch_scan(ctx, item, &payload, last_scan_for_scan).await,
@@ -114,6 +144,49 @@ pub(crate) async fn process_folder_item(
             Ok(())
         }
     }
+}
+
+/// Minimum tracked-file count for an incremental (mtime-baseline) root rescan
+/// to be trusted. Below this, tracking has evidently been lost (a real project
+/// that completed a scan tracks far more) and the baseline would permanently
+/// prune the very files that need re-indexing. Deliberately small so a tiny
+///-but-legitimate project (a handful of files) is at worst rescanned fully —
+/// cheap — while a wiped 1700-file project recovers instead of starving.
+const TRACKED_FLOOR_FOR_INCREMENTAL: i64 = 10;
+
+/// Whether this item is a ROOT incremental rescan — the only shape the
+/// self-heal guard applies to. Subdirectory scans inherit their baseline from
+/// the root decision, and a scan without a baseline is already full.
+fn should_check_self_heal(
+    op: &QueueOperation,
+    payload: &FolderPayload,
+    last_scan: Option<&str>,
+) -> bool {
+    *op == QueueOperation::Scan && payload.folder_path.is_none() && last_scan.is_some()
+}
+
+/// Whether an existing tracked-file count justifies trusting the baseline.
+fn baseline_is_trustworthy(tracked_count: i64) -> bool {
+    tracked_count >= TRACKED_FLOOR_FOR_INCREMENTAL
+}
+
+/// Count tracked files across all of the tenant's watch folders (collection-
+/// scoped). Tenant-wide on purpose: the self-heal question is "did this
+/// project's tracking survive?", regardless of which instance rows live under.
+async fn tracked_count_for_tenant(
+    ctx: &ProcessingContext,
+    tenant_id: &str,
+    collection: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tracked_files tf \
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
+         WHERE wf.tenant_id = ?1 AND wf.collection = ?2",
+    )
+    .bind(tenant_id)
+    .bind(collection)
+    .fetch_one(&ctx.pool)
+    .await
 }
 
 /// Dispatch a scan operation to either the project or library handler.
@@ -267,4 +340,62 @@ fn folder_path_display(payload: &FolderPayload) -> &str {
         .as_ref()
         .map(|r| r.as_str())
         .unwrap_or("<root>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wqm_common::paths::RelativePath;
+
+    fn payload(folder_path: Option<&str>) -> FolderPayload {
+        FolderPayload {
+            folder_path: folder_path.map(|p| RelativePath::from_user_input(p).unwrap()),
+            recursive: true,
+            recursive_depth: 10,
+            patterns: vec![],
+            ignore_patterns: vec![],
+            old_path: None,
+            last_scan: None,
+        }
+    }
+
+    #[test]
+    fn self_heal_check_applies_only_to_root_scans_with_baseline() {
+        let baseline = Some("2026-06-01T00:00:00Z");
+        // Root scan + baseline → check.
+        assert!(should_check_self_heal(
+            &QueueOperation::Scan,
+            &payload(None),
+            baseline
+        ));
+        // Subdirectory scan inherits the root decision — never re-checked.
+        assert!(!should_check_self_heal(
+            &QueueOperation::Scan,
+            &payload(Some("src/sub")),
+            baseline
+        ));
+        // No baseline = already a full scan.
+        assert!(!should_check_self_heal(
+            &QueueOperation::Scan,
+            &payload(None),
+            None
+        ));
+        // Non-scan ops are out of scope.
+        assert!(!should_check_self_heal(
+            &QueueOperation::Delete,
+            &payload(None),
+            baseline
+        ));
+    }
+
+    #[test]
+    fn wiped_tracking_invalidates_the_baseline() {
+        // The live wipe left 3 tracked rows: the baseline must be dropped so
+        // the rescan can rebuild instead of mtime-pruning everything forever.
+        assert!(!baseline_is_trustworthy(0));
+        assert!(!baseline_is_trustworthy(3));
+        assert!(!baseline_is_trustworthy(TRACKED_FLOOR_FOR_INCREMENTAL - 1));
+        assert!(baseline_is_trustworthy(TRACKED_FLOOR_FOR_INCREMENTAL));
+        assert!(baseline_is_trustworthy(1700));
+    }
 }

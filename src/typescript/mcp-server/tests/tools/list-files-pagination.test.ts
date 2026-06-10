@@ -9,7 +9,7 @@
  * - 700-file project with glob filter returns accurate total and can be paged through
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ListFilesTool } from '../../src/tools/list-files/index.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';

@@ -67,16 +67,9 @@ describe('mergeConfigs rules deep-merge', () => {
     vi.restoreAllMocks();
   });
 
-  it('preserves base rules limits when override has no rules', async () => {
-    // Import the internal mergeConfigs via loadConfig behaviour:
-    // build a base config with rules, merge with empty override, rules must survive.
-    const { mergeConfigs } = await import('../../src/config.js').then(async (m) => {
-      // mergeConfigs is not exported; test through loadConfig snapshot approach.
-      // Instead validate indirectly: DEFAULT_CONFIG has rules, merging with
-      // an empty partial must produce a config that still has rules.limits.maxLabelLength.
-      return { mergeConfigs: null, module: m };
-    });
-    // Indirect validation: DEFAULT_CONFIG rules limits are set
+  it('preserves base rules limits when override has no rules', () => {
+    // mergeConfigs is not exported; validate indirectly — DEFAULT_CONFIG has
+    // rules, and merging with an empty partial must keep rules.limits.*.
     expect(DEFAULT_CONFIG.rules?.limits.maxLabelLength).toBe(15);
     expect(DEFAULT_CONFIG.rules?.limits.maxTitleLength).toBe(50);
     expect(DEFAULT_CONFIG.rules?.limits.maxTagLength).toBe(20);
