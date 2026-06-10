@@ -298,6 +298,55 @@ async fn test_delete_file_metadata_for_branch_scoped_to_tenant() {
     assert_eq!(t2_rows, 1, "other tenant's rows untouched");
 }
 
+// ── #127: failed Qdrant deletions must keep local rows for retry ──
+
+fn affected(file_id: i64, base_point: Option<&str>) -> db::AffectedFile {
+    db::AffectedFile {
+        file_id,
+        base_point: base_point.map(str::to_string),
+        branches: vec!["feature".to_string()],
+        remaining_branches: 0,
+    }
+}
+
+#[test]
+fn test_deletable_file_ids_keeps_rows_for_failed_base_points() {
+    let f1 = affected(1, Some("bp_ok"));
+    let f2 = affected(2, Some("bp_failed"));
+    let f3 = affected(3, None); // no base_point → no Qdrant points → deletable
+    let to_delete = vec![&f1, &f2, &f3];
+
+    let failed: std::collections::HashSet<&str> = ["bp_failed"].into_iter().collect();
+
+    let ids = super::deletable_file_ids(&to_delete, &failed);
+    assert_eq!(ids, vec![1, 3], "row for failed base_point must survive");
+}
+
+#[test]
+fn test_deletable_file_ids_all_deletable_when_no_failures() {
+    let f1 = affected(1, Some("bp1"));
+    let f2 = affected(2, Some("bp2"));
+    let to_delete = vec![&f1, &f2];
+
+    let ids = super::deletable_file_ids(&to_delete, &std::collections::HashSet::new());
+    assert_eq!(ids, vec![1, 2]);
+}
+
+#[test]
+fn test_deletable_file_ids_shared_base_point_failure_keeps_all_sharers() {
+    // Two files share the same base_point; a single failed Qdrant delete
+    // must keep both local rows.
+    let f1 = affected(1, Some("bp_shared"));
+    let f2 = affected(2, Some("bp_shared"));
+    let f3 = affected(3, Some("bp_other"));
+    let to_delete = vec![&f1, &f2, &f3];
+
+    let failed: std::collections::HashSet<&str> = ["bp_shared"].into_iter().collect();
+
+    let ids = super::deletable_file_ids(&to_delete, &failed);
+    assert_eq!(ids, vec![3]);
+}
+
 #[test]
 fn test_cleanup_result_default() {
     let result = super::BranchCleanupResult::default();

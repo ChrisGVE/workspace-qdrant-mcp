@@ -13,12 +13,31 @@ mod tests;
 
 pub use reconcile::{reconcile_stale_branches, ReconcileStats};
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
 use crate::branch_switch::BranchUpdateContext;
+
+/// File ids whose local rows are safe to delete: every orphaned file whose
+/// base_point's Qdrant deletion did not fail (files without a base_point
+/// have no Qdrant points to begin with).
+fn deletable_file_ids(
+    to_delete: &[&db::AffectedFile],
+    failed_base_points: &HashSet<&str>,
+) -> Vec<i64> {
+    to_delete
+        .iter()
+        .filter(|f| {
+            f.base_point
+                .as_deref()
+                .is_none_or(|bp| !failed_base_points.contains(bp))
+        })
+        .map(|f| f.file_id)
+        .collect()
+}
 
 /// Result of a branch cleanup operation.
 #[derive(Debug, Default)]
@@ -303,30 +322,41 @@ pub async fn cleanup_deleted_branch(
 
     // 2. Delete orphaned files (no branches remain)
     if !to_delete.is_empty() {
-        let base_points: Vec<&str> = to_delete
-            .iter()
-            .filter_map(|f| f.base_point.as_deref())
-            .collect();
-        let file_ids: Vec<i64> = to_delete.iter().map(|f| f.file_id).collect();
-
-        // Delete Qdrant points — only if no other watch folder references the same base_point
-        for bp in &base_points {
+        // Delete Qdrant points — only if no other watch folder references the
+        // same base_point. A failed Qdrant deletion keeps the local rows so
+        // the next cleanup/reconcile pass retries; deleting them anyway would
+        // orphan the vectors with no repair path (#127).
+        let mut failed_base_points: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<&str> = HashSet::new();
+        for f in &to_delete {
+            let Some(bp) = f.base_point.as_deref() else {
+                continue;
+            };
+            if !seen.insert(bp) {
+                continue;
+            }
             if db::has_other_base_point_references(pool, bp, watch_folder_id).await {
                 debug!(
                     "Keeping Qdrant points for base_point={} (referenced by other watch folders)",
                     bp
                 );
-            } else {
-                db::delete_qdrant_points(branch_ctx, bp).await;
+            } else if let Err(e) = db::delete_qdrant_points(branch_ctx, bp).await {
+                warn!("Cleanup: {} — keeping local rows for retry", e);
+                failed_base_points.insert(bp);
+                result.errors += 1;
             }
         }
 
-        // Delete tracked_files and qdrant_chunks rows
-        match db::delete_orphaned_files(pool, &file_ids).await {
-            Ok(count) => result.deleted = count,
-            Err(e) => {
-                warn!("Failed to delete orphaned files: {}", e);
-                result.errors += 1;
+        // Delete tracked_files and qdrant_chunks rows, except for files whose
+        // Qdrant deletion failed above.
+        let file_ids = deletable_file_ids(&to_delete, &failed_base_points);
+        if !file_ids.is_empty() {
+            match db::delete_orphaned_files(pool, &file_ids).await {
+                Ok(count) => result.deleted = count,
+                Err(e) => {
+                    warn!("Failed to delete orphaned files: {}", e);
+                    result.errors += 1;
+                }
             }
         }
     }

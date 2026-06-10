@@ -158,19 +158,28 @@ pub async fn update_qdrant_branches(
 }
 
 /// Delete all Qdrant points for a base_point (orphaned content).
-pub async fn delete_qdrant_points(branch_ctx: &BranchUpdateContext, base_point: &str) {
+///
+/// Returns `Err` when Qdrant rejects the deletion. Callers must then keep
+/// the corresponding local rows so the next cleanup/reconcile pass can
+/// retry — deleting them anyway would orphan the vectors with no repair
+/// path (#127).
+pub async fn delete_qdrant_points(
+    branch_ctx: &BranchUpdateContext,
+    base_point: &str,
+) -> Result<(), String> {
     let filter = Filter::must([Condition::matches("base_point", base_point.to_string())]);
 
-    if let Err(e) = branch_ctx
+    branch_ctx
         .storage_client
         .delete_points_with_filter("projects", filter)
         .await
-    {
-        warn!(
-            "Cleanup: failed to delete Qdrant points for base_point={}: {}",
-            base_point, e
-        );
-    }
+        .map(|_deleted_count| ())
+        .map_err(|e| {
+            format!(
+                "failed to delete Qdrant points for base_point={}: {}",
+                base_point, e
+            )
+        })
 }
 
 /// Rename a branch in tracked_files.branches[] for the given watch folder.
