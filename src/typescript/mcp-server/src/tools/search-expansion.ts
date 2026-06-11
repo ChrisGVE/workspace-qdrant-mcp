@@ -4,6 +4,7 @@
 
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
+import { resolveSparseCollection } from './search-helpers.js';
 
 /** Collect unique expansion keywords from tag baskets across all collections. */
 function collectTagKeywords(
@@ -44,7 +45,9 @@ function mergeSparseVectors(
  *
  * 1. Query SQLite for tags matching the query text
  * 2. Retrieve keyword baskets for matching tags
- * 3. Generate a sparse vector for the expanded keywords
+ * 3. Generate a sparse vector for the expanded keywords — against the same
+ *    per-collection lexicon as the main query vector, otherwise the merge
+ *    would mix term ids from different vocabularies
  * 4. Merge into the original sparse vector at reduced weight
  */
 export async function expandSparseWithTags(
@@ -67,7 +70,10 @@ export async function expandSparseWithTags(
     );
     if (keywords.length === 0) return originalSparse;
 
-    const expansionResponse = await daemonClient.generateSparseVector({ text: keywords.join(' ') });
+    const expansionResponse = await daemonClient.generateSparseVector({
+      text: keywords.join(' '),
+      collection: resolveSparseCollection(collections),
+    });
     if (!expansionResponse.success || !expansionResponse.indices_values) return originalSparse;
 
     return mergeSparseVectors(originalSparse, expansionResponse.indices_values, expansionWeight);

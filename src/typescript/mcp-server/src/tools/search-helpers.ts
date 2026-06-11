@@ -224,6 +224,20 @@ export function logSearchEventPre(
   });
 }
 
+/**
+ * Pick the collection whose persisted lexicon resolves query-side sparse
+ * terms. 'projects' wins when present since that is where hybrid code
+ * search matters. Shared by the main-query embedding AND tag expansion
+ * (`expandSparseWithTags`) so both vectors resolve term ids against the
+ * SAME vocabulary — merging vectors from different lexicons would mix
+ * unrelated term ids silently.
+ */
+export function resolveSparseCollection(collectionsToSearch: string[]): string {
+  return collectionsToSearch.includes('projects')
+    ? 'projects'
+    : (collectionsToSearch[0] ?? 'projects');
+}
+
 /** Generate dense and sparse embeddings. Returns `{ fallback }` on daemon error. */
 export async function generateEmbeddings(
   daemonClient: DaemonClient,
@@ -247,11 +261,7 @@ export async function generateEmbeddings(
     if (mode === 'hybrid' || mode === 'keyword') {
       // The daemon resolves sparse terms against the per-collection lexicon
       // vocabulary — the same term ids stored in the Qdrant sparse vectors.
-      // Pick the primary searched collection; 'projects' wins when present
-      // since that is where hybrid code search matters.
-      const sparseCollection = collectionsToSearch.includes('projects')
-        ? 'projects'
-        : (collectionsToSearch[0] ?? 'projects');
+      const sparseCollection = resolveSparseCollection(collectionsToSearch);
       const r = await daemonClient.generateSparseVector({
         text: query,
         collection: sparseCollection,

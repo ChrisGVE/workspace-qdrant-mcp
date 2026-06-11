@@ -5,6 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SearchTool } from '../../src/tools/search.js';
+import { expandSparseWithTags } from '../../src/tools/search-expansion.js';
+import { resolveSparseCollection } from '../../src/tools/search-helpers.js';
 import type { DaemonClient } from '../../src/clients/daemon-client.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
@@ -135,7 +137,10 @@ describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
       text: 'vector search',
       collection: 'projects',
     });
-    expect(generateSparse).toHaveBeenNthCalledWith(2, { text: expect.stringContaining('embedding') });
+    expect(generateSparse).toHaveBeenNthCalledWith(2, {
+      text: expect.stringContaining('embedding'),
+      collection: 'projects',
+    });
     expect(stateManager.getMatchingTags).toHaveBeenCalledWith(
       'vector search',
       'projects',
@@ -234,5 +239,45 @@ describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
     });
 
     expect(daemonClient.generateSparseVector).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resolveSparseCollection — query-side lexicon selection', () => {
+  it('prefers projects when present', () => {
+    expect(resolveSparseCollection(['libraries', 'projects'])).toBe('projects');
+  });
+
+  it('falls back to the first searched collection', () => {
+    expect(resolveSparseCollection(['libraries'])).toBe('libraries');
+  });
+
+  it('defaults to projects for an empty list', () => {
+    expect(resolveSparseCollection([])).toBe('projects');
+  });
+});
+
+describe('expandSparseWithTags — lexicon alignment with the main query vector', () => {
+  it('embeds expansion keywords against the same collection lexicon for non-projects searches', async () => {
+    const daemonClient = createMockDaemonClient();
+    const stateManager = createMockStateManager({
+      matchingTags: [{ tag_id: 1, tag: 'vector', score: 0.9 }],
+      baskets: [{ tag_id: 1, keywords_json: '["embedding", "semantic"]' }],
+    });
+
+    await expandSparseWithTags(
+      daemonClient,
+      stateManager,
+      'vector search',
+      { 10: 1.5 },
+      ['libraries'],
+      0.3,
+      20,
+      'some-library',
+    );
+
+    expect(daemonClient.generateSparseVector).toHaveBeenCalledWith({
+      text: expect.stringContaining('embedding'),
+      collection: 'libraries',
+    });
   });
 });
