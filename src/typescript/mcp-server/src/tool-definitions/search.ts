@@ -19,7 +19,7 @@ export const searchToolDefinition = {
       query: {
         type: 'string',
         description:
-          'The search query text. Write it in ENGLISH regardless of the conversation language — the embedding model is English-only, so non-English queries match same-language docs instead of code and recall collapses. Prefer wording close to the likely identifiers and comments (e.g. "recover stale queue leases", not a loose paraphrase).',
+          'The search query text. Write it in ENGLISH regardless of the conversation language — the embedding model is multilingual, but code is overwhelmingly English and cross-lingual recall for code is weak, so a non-English query matches same-language prose/docs instead of code and recall collapses. Prefer wording close to the likely identifiers and comments (e.g. "recover stale queue leases", not a loose paraphrase).',
       },
       collection: {
         type: 'string',

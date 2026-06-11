@@ -16,6 +16,14 @@ export interface Rule {
   content: string;
   scope: RuleScope;
   projectId?: string;
+  /**
+   * Human-readable owner of the rule: the owning project's tenant_id for
+   * `scope: "project"` rules, or `"global"` for global rules. Always set on
+   * `list` output so an agent can tell which project a rule belongs to even
+   * when a list spans multiple tenants (e.g. the current project couldn't be
+   * detected and the scroll fell back to all rules).
+   */
+  owner?: string;
   title?: string;
   tags?: string[];
   priority?: number;

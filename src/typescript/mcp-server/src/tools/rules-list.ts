@@ -42,6 +42,9 @@ function pointToRule(point: {
   if (label) rule.label = label;
   const pid = point.payload?.[FIELD_PROJECT_ID] as string | undefined;
   if (pid) rule.projectId = pid;
+  // Always surface the owner so a multi-tenant listing is unambiguous:
+  // project rules → owning tenant_id; global rules → "global".
+  rule.owner = rule.scope === 'project' ? (pid ?? 'unknown-project') : TENANT_GLOBAL;
   const title = point.payload?.[FIELD_TITLE] as string | undefined;
   if (title) rule.title = title;
   const tagsStr = point.payload?.['tags'] as string | undefined;
@@ -79,10 +82,12 @@ function readRulesFromMirror(
     const mirrorRows = stateManager.listRulesMirror(scope, resolvedProjectId, limit);
     if (mirrorRows.length === 0) return null;
     const rules: Rule[] = mirrorRows.map((row) => {
+      const scope = (row.scope as RuleScope) ?? TENANT_GLOBAL;
       const rule: Rule = {
         id: row.ruleId,
         content: row.ruleText,
-        scope: (row.scope as RuleScope) ?? TENANT_GLOBAL,
+        scope,
+        owner: scope === 'project' ? (row.tenantId ?? 'unknown-project') : TENANT_GLOBAL,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -117,6 +122,11 @@ export async function listRules(
     resolvedProjectId = projectInfo?.projectId;
   }
 
+  // When a project-scoped list can't resolve a tenant, buildListFilter yields
+  // no filter and the scroll spans every project's rules. Surface that so the
+  // agent knows the listing is multi-tenant and reads each rule's `owner`.
+  const unresolvedProjectScope = scope === 'project' && !resolvedProjectId;
+
   try {
     const filter = buildListFilter(scope, resolvedProjectId);
     const scrollResult = await qdrantClient.scroll(
@@ -124,7 +134,10 @@ export async function listRules(
       buildScrollRequest(limit, filter)
     );
     const rules: Rule[] = scrollResult.points.map(pointToRule);
-    return { success: true, action: 'list', rules, message: `Found ${rules.length} rule(s)` };
+    const message = unresolvedProjectScope
+      ? `Found ${rules.length} rule(s) across ALL projects — the current project could not be detected, so this listing is not scoped. Each rule's "owner" field identifies its project (or "global"). Pass cwd or projectId to scope to one project.`
+      : `Found ${rules.length} rule(s)`;
+    return { success: true, action: 'list', rules, message };
   } catch (error) {
     const mirror = readRulesFromMirror(stateManager, scope, resolvedProjectId, limit);
     if (mirror) return mirror;

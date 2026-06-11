@@ -250,6 +250,48 @@ describe('RulesTool duplication detection', () => {
     expect(result.success).toBe(true);
     expect(mockDaemonClient.ingestText).toHaveBeenCalled();
   });
+
+  it('is idempotent by content: re-adding identical content is a success no-op (no new row)', async () => {
+    // The exact-content check scrolls and finds a byte-identical rule (after
+    // trimming) in the same scope, regardless of label.
+    const QdrantMock = await import('@qdrant/js-client-rest');
+    vi.mocked(QdrantMock.QdrantClient).mockImplementationOnce(
+      () =>
+        ({
+          scroll: vi.fn().mockResolvedValue({
+            points: [
+              {
+                id: 'existing-1',
+                payload: { content: 'Always write tests', scope: 'global', label: 'tdd' },
+              },
+            ],
+          }),
+          search: vi.fn().mockResolvedValue([]),
+        }) as unknown as ReturnType<typeof QdrantMock.QdrantClient>
+    );
+
+    const rulesTool = new RulesTool(
+      { qdrantUrl: 'http://localhost:6333' },
+      mockDaemonClient,
+      mockStateManager,
+      mockProjectDetector
+    );
+
+    const result = await rulesTool.execute({
+      action: 'add',
+      label: 'tdd-again', // different label …
+      content: '  Always write tests  ', // … same content (extra whitespace trims to match)
+      scope: 'global',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('no-op');
+    // Reports the existing rule's label, and creates nothing new.
+    expect(result.label).toBe('tdd');
+    expect(mockDaemonClient.ingestText).not.toHaveBeenCalled();
+    // Exact match short-circuits before the fuzzy embedding-similarity path.
+    expect(mockDaemonClient.embedText).not.toHaveBeenCalled();
+  });
 });
 
 describe('RulesTool queue integration', () => {

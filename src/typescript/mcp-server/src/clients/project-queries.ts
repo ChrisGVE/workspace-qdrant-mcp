@@ -86,15 +86,23 @@ function noDatabaseResult<T>(data: T): DegradedQueryResult<T> {
  * form the daemon observed — e.g. Docker Desktop's `/run/desktop/mnt/host/c/…`
  * — while a client reports its CWD as a Windows path (`C:\…`), a WSL mount
  * (`/mnt/c/…`) or an MSYS/Git-Bash path (`/c/…`). All four denote drive C, so
- * they fold to `/c/…`.
+ * they fold to `/c/…`. A Windows host editing a repo that lives on the WSL ext4
+ * filesystem reports a UNC share CWD (`\\wsl.localhost\<distro>\home\…`); the
+ * daemon runs inside the distro and stores the native POSIX path (`/home/…`),
+ * so the UNC view folds to that same root.
  *
- * Pure prefix normalization: separators to `/`, the drive/mount prefix
+ * Pure prefix normalization: separators to `/`, the drive/mount/UNC prefix
  * unified, duplicate and trailing slashes trimmed. Case is preserved (callers
  * compare case-insensitively where appropriate). Native POSIX paths and
  * multi-letter mount dirs (e.g. `/mnt/data`) are left untouched.
  */
 export function canonicalizeHostPath(p: string): string {
   let s = p.replace(/\\/g, '/');
+  // WSL UNC share from a Windows host: "\\wsl.localhost\<distro>\…" or the
+  // legacy "\\wsl$\<distro>\…" (slash-normalized above to
+  // "//wsl.localhost/<distro>/…"). Drop the share + distro segments so the
+  // path folds to the native ext4 root the daemon stores ("/home/…").
+  s = s.replace(/^\/+wsl(?:\.localhost|\$)\/[^/]+/i, '');
   // Windows drive: "C:/…" or bare "C:" → "/c/…".
   s = s.replace(/^([A-Za-z]):(?=\/|$)/, (_m, drive: string) => `/${drive.toLowerCase()}`);
   // Docker Desktop host mount: "/run/desktop/mnt/host/c/…" → "/c/…".

@@ -109,6 +109,29 @@ describe('shapeHitPayloads', () => {
       // Non-text metadata must be preserved.
       expect(shaped.results[0].metadata).toHaveProperty('file_path', 'a.ts');
     });
+
+    it('strips the daemon ranking-aid fields (keywords/baskets/tags) from metadata', () => {
+      // keyword_extract.rs injects these onto every code chunk; they are
+      // indexing signal (~1.5–2k tokens/hit) the agent never reads. Default
+      // (truncate) mode must drop them, just as summary mode already does.
+      const r = makeResult({
+        content: 'short body',
+        metadata: {
+          file_path: 'a.ts',
+          keywords: Array.from({ length: 50 }, (_, i) => `kw${i}`),
+          keyword_baskets: { tagA: ['kw1', 'kw2'], tagB: ['kw3'] },
+          concept_tags: ['c1', 'c2'],
+          structural_tags: { fn: ['x'] },
+        },
+      });
+      const { response: shaped } = shapeHitPayloads(makeResponse([r]), baseOptions());
+      expect(shaped.results[0].metadata).not.toHaveProperty('keywords');
+      expect(shaped.results[0].metadata).not.toHaveProperty('keyword_baskets');
+      expect(shaped.results[0].metadata).not.toHaveProperty('concept_tags');
+      expect(shaped.results[0].metadata).not.toHaveProperty('structural_tags');
+      // Discovery-relevant metadata must survive.
+      expect(shaped.results[0].metadata).toHaveProperty('file_path', 'a.ts');
+    });
   });
 
   describe('custom maxBytesPerHit', () => {

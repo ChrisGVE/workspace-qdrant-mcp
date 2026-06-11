@@ -365,19 +365,75 @@ export function runInit(args: BaseArgs): unknown {
   return { success: true, action: 'init', registry: args.registryPath };
 }
 
-export function runListProjects(args: BaseArgs): unknown {
+interface ListedProject {
+  name: string;
+  projectId: string | null;
+  root: string;
+  defaultBranch: string;
+  tenantStrategy: string;
+  enabled: boolean;
+  /** `registered` = in indexed-projects.json only; `indexed` = the daemon is
+   *  indexing it but it's not in the registry; `both` = present in both. */
+  source: 'registered' | 'indexed' | 'both';
+}
+
+export async function runListProjects(
+  args: BaseArgs,
+  daemonClient?: DaemonClient | null
+): Promise<unknown> {
   const registry = readRegistry(args.registryPath);
+  const projects: ListedProject[] = registry.projects.map((p) => ({
+    name: p.name,
+    projectId: p.projectId ?? null,
+    root: toAbs(p.root),
+    defaultBranch: p.defaultBranch ?? 'main',
+    tenantStrategy: p.tenantStrategy ?? 'project',
+    enabled: p.enabled ?? true,
+    source: 'registered',
+  }));
+
+  // Cross-reference the daemon's actually-indexed projects (watch_folders) so a
+  // project the daemon indexes but that was never written to
+  // indexed-projects.json (the eval's DOC-V2 case) is still visible. Match on
+  // canonical root (then name); a daemon match fills a null registry projectId
+  // and promotes the entry to `both`. Daemon-only projects are appended as
+  // `indexed`. Best-effort: if the daemon is unreachable, fall back to the
+  // registry-only listing (prior behavior).
+  let daemonReachable = false;
+  if (daemonClient) {
+    try {
+      const list = await daemonClient.listProjects({});
+      daemonReachable = true;
+      const byRoot = new Map(projects.map((p) => [p.root.toLowerCase(), p]));
+      for (const dp of list.projects ?? []) {
+        const root = toAbs(dp.project_root);
+        const match =
+          byRoot.get(root.toLowerCase()) ?? projects.find((p) => p.name === dp.project_name);
+        if (match) {
+          match.source = 'both';
+          if (!match.projectId && dp.project_id) match.projectId = dp.project_id;
+        } else {
+          projects.push({
+            name: dp.project_name,
+            projectId: dp.project_id,
+            root,
+            defaultBranch: 'main',
+            tenantStrategy: 'project',
+            enabled: true,
+            source: 'indexed',
+          });
+        }
+      }
+    } catch {
+      // Daemon unavailable — registry-only listing.
+    }
+  }
+
   return {
     success: true,
     registry: args.registryPath,
-    projects: registry.projects.map((p) => ({
-      name: p.name,
-      projectId: p.projectId ?? null,
-      root: toAbs(p.root),
-      defaultBranch: p.defaultBranch ?? 'main',
-      tenantStrategy: p.tenantStrategy ?? 'project',
-      enabled: p.enabled ?? true,
-    })),
+    daemonReachable,
+    projects,
   };
 }
 

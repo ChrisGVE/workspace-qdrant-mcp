@@ -80,6 +80,28 @@ export class RulesTool {
           // errors and, more importantly, prevents accidental global fallback.
           if (scopeError) return scopeError;
 
+          // Idempotent-by-content: an EXACT duplicate (same trimmed content in
+          // the same scope/tenant, regardless of label) is a no-op, not a new
+          // row. Deterministic and daemon-independent, it runs before the fuzzy
+          // embedding-similarity warning below — so re-adding identical content
+          // can never create the duplicate pairs the eval found.
+          const exact = await this.findExactContentRule(
+            options.content,
+            dupScope,
+            resolvedProjectId
+          );
+          if (exact) {
+            const resolvedLabel = exact.label ?? options.label;
+            return {
+              success: true,
+              action: 'add',
+              ...(resolvedLabel ? { label: resolvedLabel } : {}),
+              message: exact.label
+                ? `Identical rule already exists (label "${exact.label}"); add is a no-op (idempotent by content).`
+                : 'Identical rule already exists; add is a no-op (idempotent by content).',
+            };
+          }
+
           const duplicates = await this.findSimilarRules(
             options.content,
             dupScope,
@@ -114,6 +136,43 @@ export class RulesTool {
           action: options.action,
           message: `Unknown action: ${options.action}`,
         };
+    }
+  }
+
+  /**
+   * Find an existing rule whose content is byte-identical (after trimming) to
+   * `content`, within the same scope/tenant. Drives idempotent `add`: re-adding
+   * the same rule — even under a different label — is a no-op instead of a new
+   * duplicate row.
+   *
+   * Deterministic (exact string compare, no embedding) and fail-open: any
+   * Qdrant error returns null so the add proceeds rather than being blocked.
+   */
+  private async findExactContentRule(
+    content: string,
+    scope: RuleScope,
+    projectId: string | undefined
+  ): Promise<{ id: string; label?: string } | null> {
+    const target = content.trim();
+    if (!target) return null;
+    try {
+      const filter = buildExactScopeFilter(scope, projectId);
+      const scrollResult = await this.qdrantClient.scroll(RULES_COLLECTION, {
+        limit: 256,
+        with_payload: true,
+        ...(filter ? { filter } : {}),
+      });
+      for (const point of scrollResult.points) {
+        const existing = (point.payload?.[FIELD_CONTENT] as string | undefined)?.trim();
+        if (existing === target) {
+          const label = point.payload?.['label'] as string | undefined;
+          return { id: String(point.id), ...(label ? { label } : {}) };
+        }
+      }
+      return null;
+    } catch {
+      // Qdrant unavailable — let the add proceed rather than block it.
+      return null;
     }
   }
 
@@ -192,5 +251,27 @@ function buildDuplicateScopeFilter(
     };
   }
   // Global add — only check against other global rules.
+  return { must: [{ key: 'scope', match: { value: 'global' } }] };
+}
+
+/** Build a Qdrant filter restricting the EXACT-content idempotency check to a
+ *  single (scope, tenant) bucket. Unlike {@link buildDuplicateScopeFilter},
+ *  global rules are NOT folded into a project-scope check: idempotency must be
+ *  exact — a project rule and a global rule with the same text are distinct
+ *  rows in distinct scopes. Returns null when a project scope has no tenant
+ *  (caller already refuses that path), leaving the check a safe no-op. */
+function buildExactScopeFilter(
+  scope: RuleScope,
+  projectId: string | undefined
+): Record<string, unknown> | null {
+  if (scope === 'project') {
+    if (!projectId) return null;
+    return {
+      must: [
+        { key: 'scope', match: { value: 'project' } },
+        { key: FIELD_PROJECT_ID, match: { value: projectId } },
+      ],
+    };
+  }
   return { must: [{ key: 'scope', match: { value: 'global' } }] };
 }

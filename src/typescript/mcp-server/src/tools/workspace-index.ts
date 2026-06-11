@@ -510,7 +510,9 @@ function dispatchTsAction(
     case 'init':
       return runInit(base);
     case 'list_projects':
-      return runListProjects(base);
+      // Pass the daemon client so the listing can surface projects the daemon
+      // indexes but that aren't in indexed-projects.json (eval item #5).
+      return runListProjects(base, daemonClient);
     case 'list_branches':
       return runListBranches(projectArgs);
     case 'agent_branch_status': {

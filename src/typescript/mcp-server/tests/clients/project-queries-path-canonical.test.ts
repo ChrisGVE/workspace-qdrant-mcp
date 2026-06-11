@@ -17,6 +17,22 @@ describe('canonicalizeHostPath', () => {
     expect(canonicalizeHostPath('/c/Users/alber/repo')).toBe(expected);
   });
 
+  it('folds a WSL UNC share (Windows host editing an ext4 repo) to its POSIX root', () => {
+    // The daemon runs inside the distro and stores `/home/alkmimm/...`; a
+    // Windows-host client reports the `\\wsl.localhost\<distro>\...` UNC view.
+    const expected = '/home/alkmimm/respositorios/DOC-V2';
+    expect(canonicalizeHostPath('\\\\wsl.localhost\\ubuntu-24.04\\home\\alkmimm\\respositorios\\DOC-V2')).toBe(expected);
+    expect(canonicalizeHostPath('//wsl.localhost/ubuntu-24.04/home/alkmimm/respositorios/DOC-V2')).toBe(expected);
+    // Legacy `\\wsl$\<distro>\...` form, and case-insensitive share host.
+    expect(canonicalizeHostPath('\\\\wsl$\\Ubuntu-24.04\\home\\alkmimm\\respositorios\\DOC-V2')).toBe(expected);
+    expect(canonicalizeHostPath('//WSL.localhost/ubuntu-24.04/home/alkmimm/respositorios/DOC-V2')).toBe(expected);
+  });
+
+  it('does not treat a plain POSIX dir named like the share as a WSL UNC path', () => {
+    // No `wsl.localhost`/`wsl$` host segment → left untouched.
+    expect(canonicalizeHostPath('/home/wsl/project')).toBe('/home/wsl/project');
+  });
+
   it('leaves native POSIX paths unchanged', () => {
     expect(canonicalizeHostPath('/home/user/project')).toBe('/home/user/project');
     expect(canonicalizeHostPath('/test/project')).toBe('/test/project');

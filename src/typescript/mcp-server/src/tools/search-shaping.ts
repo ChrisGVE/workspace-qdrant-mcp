@@ -21,6 +21,7 @@
  */
 
 import { FIELD_CONTENT } from '../common/native-bridge.js';
+import { RANKING_AID_KEYS } from '../common/payload-noise.js';
 import type {
   ParentContext,
   SearchOptions,
@@ -50,9 +51,17 @@ function truncateText(text: string, cap: number, id: string, collection: string)
   return text.slice(0, keep) + marker;
 }
 
-function stripTextFromMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+/** Strip the metadata an agent never reads from a default (truncate-mode) hit:
+ *  duplicated text bodies (shipping the chunk twice) AND the daemon's
+ *  ranking-aid fields ({@link RANKING_AID_KEYS} — keywords/baskets/tags, ~1.5–2k
+ *  tokens/hit). Summary mode drops the same noise via its allowlist; this keeps
+ *  the default mode from leaking it back in. */
+function stripBulkMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...metadata };
   for (const key of TEXT_BODY_KEYS) {
+    if (key in out) delete out[key];
+  }
+  for (const key of RANKING_AID_KEYS) {
     if (key in out) delete out[key];
   }
   if (FIELD_CONTENT && FIELD_CONTENT in out) delete out[FIELD_CONTENT];
@@ -121,10 +130,11 @@ function shapeAsTruncated(r: SearchResult, cap: number): SearchResult {
   const out: SearchResult = {
     ...r,
     content: truncateText(r.content ?? '', cap, r.id, r.collection),
-    // Drop content duplication in metadata to keep total payload close
-    // to the cap — without this, we'd ship the full text twice for any
-    // hit whose body is under the cap.
-    metadata: stripTextFromMetadata(r.metadata),
+    // Drop content duplication AND the daemon's ranking-aid fields from
+    // metadata: without this we'd ship the body twice for any sub-cap hit,
+    // and carry ~1.5–2k tokens of keywords/baskets noise per hit that the
+    // agent never consumes.
+    metadata: stripBulkMetadata(r.metadata),
   };
   if (r.parent_context) {
     out.parent_context = shapeParentContext(r.parent_context, cap, r.id, r.collection);
