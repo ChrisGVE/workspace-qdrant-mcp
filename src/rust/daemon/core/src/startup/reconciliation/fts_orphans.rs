@@ -95,7 +95,7 @@ pub async fn prune_orphan_fts_entries(
     let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
     let mut removed: u64 = 0;
     for file_id in orphan_ids {
-        match processor.delete_file(file_id).await {
+        match delete_file_with_busy_retry(&processor, file_id).await {
             Ok(_) => removed += 1,
             Err(e) => warn!(
                 "Failed to delete orphaned FTS entries for file_id={file_id}: {e} (non-fatal)"
@@ -107,6 +107,39 @@ pub async fn prune_orphan_fts_entries(
         info!("Removed {removed} orphaned FTS file(s) from search.db");
     }
     Ok(removed)
+}
+
+/// Delete one file's FTS entries, retrying on transient SQLite lock contention.
+///
+/// The prune runs concurrently with the queue/FTS batch writers, and
+/// `delete_file` begins its transaction as a reader (it `SELECT`s the FTS rows
+/// before deleting them) then upgrades to a writer. A concurrent commit in that
+/// window aborts the transaction with `SQLITE_BUSY_SNAPSHOT` (517) or plain
+/// `SQLITE_BUSY` (5) — neither of which the connection's `busy_timeout` can
+/// rescue, because the snapshot has already been invalidated. Both clear on a
+/// fresh transaction, so retry the whole call with a short linear backoff.
+async fn delete_file_with_busy_retry(
+    processor: &FtsBatchProcessor<'_>,
+    file_id: i64,
+) -> Result<usize, crate::search_db::SearchDbError> {
+    const MAX_ATTEMPTS: u32 = 6;
+    let mut attempt: u32 = 0;
+    loop {
+        match processor.delete_file(file_id).await {
+            Ok(n) => return Ok(n),
+            Err(e) => {
+                attempt += 1;
+                // SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT both render as
+                // "database is locked"; only those are worth retrying.
+                let is_busy = e.to_string().contains("database is locked");
+                if is_busy && attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_millis(40 * attempt as u64)).await;
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
