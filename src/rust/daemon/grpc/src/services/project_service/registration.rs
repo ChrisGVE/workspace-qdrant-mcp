@@ -19,6 +19,7 @@
 //! Worktree auto-registration logic is in the sibling `worktree` module.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tonic::Status;
 use tracing::{debug, error, info, warn};
@@ -466,21 +467,33 @@ impl ProjectServiceImpl {
             );
         }
 
+        // Start LSP servers OFF the RegisterProject ack path (#131). Language
+        // detection walks the project tree and each LSP server spawn can take
+        // several seconds; awaiting them here pushed the ack past the client's
+        // 5s deadline even though the registration itself had already committed.
+        // LSP startup is non-critical, so detach it onto its own task and let
+        // the ack return as soon as the cheap DB work is done. All captured
+        // handles are `Arc`/owned, so the task is `'static`.
+        let lsp_manager = self.lsp_manager.clone();
+        let language_detector = Arc::clone(&self.language_detector);
+        let project_id = project_id.to_string();
         let project_root = PathBuf::from(path);
-        if let Err(e) = super::lsp_lifecycle::start_project_lsp_servers(
-            &self.lsp_manager,
-            &self.language_detector,
-            project_id,
-            &project_root,
-        )
-        .await
-        {
-            warn!(
-                project_id = %project_id,
-                error = %e,
-                "Failed to start LSP servers (non-critical)"
-            );
-        }
+        tokio::spawn(async move {
+            if let Err(e) = super::lsp_lifecycle::start_project_lsp_servers(
+                &lsp_manager,
+                &language_detector,
+                &project_id,
+                &project_root,
+            )
+            .await
+            {
+                warn!(
+                    project_id = %project_id,
+                    error = %e,
+                    "Failed to start LSP servers (non-critical, background)"
+                );
+            }
+        });
     }
 
     /// Increment `is_active` for a newly registered project and trigger side effects.
