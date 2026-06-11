@@ -142,8 +142,16 @@ impl SystemServiceImpl {
             let secs_since_heartbeat = health.seconds_since_last_heartbeat();
             // Stalled only when both poll AND per-item heartbeat are old.
             let secs_since_activity = secs_since_poll.min(secs_since_heartbeat);
-            let error_count = health.error_count.load(Ordering::SeqCst);
 
+            // NOTE (#131): the health verdict deliberately does NOT consider
+            // `error_count`. That field is a lifetime-cumulative counter, so a
+            // fixed `> 100` threshold made any long-lived daemon report a
+            // permanent "High error count detected" degradation long after the
+            // errors stopped mattering — a false positive. `error_count` is
+            // retained purely as a metric (see `get_queue_metrics`). A real
+            // functional-degradation model (DLQ trend, drain-time budget,
+            // ms/KB and embedder-latency regression, component diagnosis) is
+            // tracked in #133.
             let (status, message) = if !is_running {
                 (ServiceStatus::Unhealthy, "Queue processor is not running")
             } else if secs_since_activity > 60 {
@@ -151,8 +159,6 @@ impl SystemServiceImpl {
                     ServiceStatus::Degraded,
                     "Queue processor may be stalled (>60s since last activity)",
                 )
-            } else if error_count > 100 {
-                (ServiceStatus::Degraded, "High error count detected")
             } else {
                 (ServiceStatus::Healthy, "Running normally")
             };

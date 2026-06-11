@@ -174,12 +174,18 @@ async fn test_status_includes_queue_depth() {
 }
 
 #[tokio::test]
-async fn test_health_status_degraded_on_high_errors() {
+async fn test_high_error_count_alone_stays_healthy() {
+    // #131: `error_count` is a lifetime-cumulative counter and must NOT drive
+    // the health verdict. A running processor with a recent poll stays Healthy
+    // no matter how many lifetime errors have accumulated; the false-positive
+    // "High error count detected" degradation has been removed. (A real
+    // functional-degradation model is tracked in #133.)
     let health = Arc::new(QueueProcessorHealth::new());
     health.set_running(true);
     health.record_poll();
+    health.record_heartbeat();
 
-    // Record many errors
+    // Record many lifetime errors — previously this forced Degraded.
     for _ in 0..101 {
         health.record_error();
     }
@@ -193,7 +199,7 @@ async fn test_health_status_degraded_on_high_errors() {
         .iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
-    assert_eq!(queue_comp.status, ServiceStatus::Degraded as i32);
+    assert_eq!(queue_comp.status, ServiceStatus::Healthy as i32);
 }
 
 #[tokio::test]
