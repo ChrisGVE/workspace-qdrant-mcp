@@ -13,6 +13,7 @@ pub mod recovery;
 pub mod rules_backfill;
 
 // Re-export all public items for backward-compatible imports via `crate::startup::*`
+pub use reconciliation::fts_orphans::prune_orphan_fts_entries;
 pub use reconciliation::{
     clean_stale_state, reconcile_all_ignore_rules, reconcile_project_groups,
     validate_watch_folders, GroupReconcileStats, StaleCleanupStats, WatchValidationStats,

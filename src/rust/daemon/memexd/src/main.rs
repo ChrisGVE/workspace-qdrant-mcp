@@ -214,8 +214,10 @@ async fn run_daemon(
         &daemon_config,
     );
 
-    let _ignore_reconcile_handle =
-        database::spawn_background_reconciliation(db_handles.queue_pool.clone());
+    let _ignore_reconcile_handle = database::spawn_background_reconciliation(
+        db_handles.queue_pool.clone(),
+        Arc::clone(&db_handles.search_db),
+    );
 
     // Phase 6b: File watching + hierarchy
     let (watch_manager, hierarchy_cancel) =

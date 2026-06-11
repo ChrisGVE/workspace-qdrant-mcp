@@ -281,15 +281,22 @@ pub async fn run_reconciliation(queue_pool: &SqlitePool) {
 
 /// Spawn the **slow** half of startup reconciliation in the background.
 ///
-/// Two phases:
+/// Three phases:
 /// 1. Ignore-rule reconciliation: walk filesystem, enqueue `file/add` /
 ///    `file/delete` for any ignore drift (issue #59).
-/// 2. Full-scan reconciliation: enqueue a `rebuild=true` scan for each
+/// 2. FTS orphan prune: remove search.db FTS entries whose `file_id` is no
+///    longer in `tracked_files`, so `grep`/`search` stop returning ghosts of
+///    files deleted from disk (issue #130).
+/// 3. Full-scan reconciliation: enqueue a `rebuild=true` scan for each
 ///    enabled project so that missing/changed/deleted files are discovered
 ///    without relying on `last_scan` mtime pruning.
 ///
-/// Running on a spawned task lets gRPC come up immediately.
-pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::JoinHandle<()> {
+/// Running on a spawned task lets gRPC come up immediately — a backlog of
+/// thousands of FTS orphan deletes must not gate readiness (issue #59).
+pub fn spawn_background_reconciliation(
+    queue_pool: SqlitePool,
+    search_db: Arc<SearchDbManager>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let qm = Arc::new(workspace_qdrant_core::queue_operations::QueueManager::new(
             queue_pool.clone(),
@@ -313,6 +320,27 @@ pub fn spawn_background_reconciliation(queue_pool: SqlitePool) -> tokio::task::J
             Err(e) => warn!(
                 "[startup-bg] Ignore reconciliation failed after {:?}: {}",
                 started.elapsed(),
+                e
+            ),
+        }
+
+        // #130: prune search.db FTS rows orphaned from `tracked_files`.
+        let fts_started = std::time::Instant::now();
+        match workspace_qdrant_core::startup::prune_orphan_fts_entries(&queue_pool, &search_db)
+            .await
+        {
+            Ok(removed) if removed > 0 => info!(
+                "[startup-bg] FTS orphan prune complete in {:?}: {} orphaned file(s) removed",
+                fts_started.elapsed(),
+                removed
+            ),
+            Ok(_) => info!(
+                "[startup-bg] FTS orphan prune complete in {:?}: no orphans",
+                fts_started.elapsed()
+            ),
+            Err(e) => warn!(
+                "[startup-bg] FTS orphan prune failed after {:?}: {}",
+                fts_started.elapsed(),
                 e
             ),
         }

@@ -517,6 +517,7 @@ pub async fn validate_watch_folders(pool: &SqlitePool) -> Result<WatchValidation
     Ok(stats)
 }
 
+pub mod fts_orphans;
 pub mod ignore_sync;
 
 /// Reconcile ignore rules for all enabled projects at startup.
