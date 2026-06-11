@@ -55,3 +55,9 @@ export const retrieveToolDefinition = {
     },
   },
 };
+
+/**
+ * Canonical retrieve argument names, derived from the input schema so the
+ * builder's unknown-argument check can never drift from the published schema.
+ */
+export const RETRIEVE_ARG_KEYS = Object.keys(retrieveToolDefinition.inputSchema.properties);

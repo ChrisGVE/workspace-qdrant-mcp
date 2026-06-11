@@ -26,6 +26,12 @@ export interface RetrieveOptions {
   offset?: number;
   projectId?: string;
   libraryName?: string;
+  /**
+   * Argument names the caller passed that retrieve does not accept (set by
+   * the builder). When present, `retrieve()` refuses the call with an
+   * explanatory message instead of silently dropping the arguments.
+   */
+  unknownArgs?: string[];
 }
 
 export interface RetrievedDocument {

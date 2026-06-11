@@ -131,7 +131,10 @@ describe('SearchTool expandSparseWithTags — triggers and mode guards', () => {
     });
 
     expect(generateSparse).toHaveBeenCalledTimes(2);
-    expect(generateSparse).toHaveBeenNthCalledWith(1, { text: 'vector search' });
+    expect(generateSparse).toHaveBeenNthCalledWith(1, {
+      text: 'vector search',
+      collection: 'projects',
+    });
     expect(generateSparse).toHaveBeenNthCalledWith(2, { text: expect.stringContaining('embedding') });
     expect(stateManager.getMatchingTags).toHaveBeenCalledWith(
       'vector search',

@@ -16,6 +16,9 @@
  *   performed for `retrieveById` against rules.
  * - Project-scope retrieve without a resolvable tenant returns an empty
  *   error response and does NOT scroll Qdrant (no broad reads).
+ * - Unknown argument names are refused loudly (`invalid_args`) rather than
+ *   silently dropped — a mis-shaped call (e.g. `query`, a search parameter)
+ *   must not degrade into a confusing unresolved-scope error.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -45,6 +48,7 @@ import type {
   RetrieveToolConfig,
 } from './retrieve-types.js';
 import { getCollectionName, extractMetadata } from './retrieve-types.js';
+import { RETRIEVE_ARG_KEYS } from '../tool-definitions/retrieve.js';
 
 /**
  * Pure helper: compute `bytes_out` / `bytes_in` for a retrieve result.
@@ -63,6 +67,22 @@ export function computeRetrieveEconomy(documents: RetrievedDocument[]): {
   for (const d of documents) bytesOut += d.content.length;
   // No ranged retrieve yet — full doc cost === served cost.
   return { bytesOut, bytesIn: bytesOut };
+}
+
+/** Returned when the caller passes argument names retrieve does not accept. */
+function invalidArgsResponse(unknownArgs: string[]): RetrieveResponse {
+  const searchHint = unknownArgs.includes('query')
+    ? ' `retrieve` does not search by content — use the `search` tool for queries.'
+    : '';
+  return {
+    success: false,
+    documents: [],
+    total: 0,
+    hasMore: false,
+    message:
+      `Unknown retrieve parameter(s): ${unknownArgs.join(', ')}.${searchHint} ` +
+      `Valid parameters: ${RETRIEVE_ARG_KEYS.join(', ')}.`,
+  };
 }
 
 /** Returned when the caller passes scope but it cannot be resolved. */
@@ -145,6 +165,7 @@ export class RetrieveTool {
       offset = 0,
       projectId,
       libraryName,
+      unknownArgs,
     } = options;
 
     const startTime = Date.now();
@@ -164,6 +185,15 @@ export class RetrieveTool {
       topK: limit,
       projectId: projectId,
     });
+
+    // Refuse unknown argument names before any scope resolution. Silently
+    // dropping them would turn a mis-shaped call into an unrelated error
+    // (or worse, an unintended broad read) further down.
+    if (unknownArgs && unknownArgs.length > 0) {
+      const result = invalidArgsResponse(unknownArgs);
+      this.finishRetrieve(eventId, result, startTime, 'invalid_args');
+      return result;
+    }
 
     // F-002 / F-011: resolve the tenant context up front so that BOTH
     // by-id verification AND by-filter scoping share the same answer.

@@ -2,6 +2,10 @@
  * Retrieve tool argument builder — parse raw MCP tool arguments into RetrieveOptions
  */
 
+import { RETRIEVE_ARG_KEYS } from '../tool-definitions/retrieve.js';
+
+const KNOWN_ARG_KEYS: ReadonlySet<string> = new Set(RETRIEVE_ARG_KEYS);
+
 export type RetrieveOptions = {
   documentId?: string;
   collection?: 'projects' | 'libraries' | 'rules' | 'scratchpad';
@@ -10,6 +14,13 @@ export type RetrieveOptions = {
   offset?: number;
   projectId?: string;
   libraryName?: string;
+  /**
+   * Argument names the caller passed that retrieve does not accept. The
+   * tool refuses such calls loudly instead of silently dropping the args
+   * (e.g. `query` — a search parameter — would otherwise degrade into a
+   * confusing unresolved-scope error).
+   */
+  unknownArgs?: string[];
 };
 
 /** Build retrieve options from raw tool arguments */
@@ -43,6 +54,9 @@ export function buildRetrieveOptions(args: Record<string, unknown> | undefined):
 
   const libraryName = args?.['libraryName'] as string | undefined;
   if (libraryName) options.libraryName = libraryName;
+
+  const unknownArgs = args ? Object.keys(args).filter((key) => !KNOWN_ARG_KEYS.has(key)) : [];
+  if (unknownArgs.length > 0) options.unknownArgs = unknownArgs;
 
   return options;
 }

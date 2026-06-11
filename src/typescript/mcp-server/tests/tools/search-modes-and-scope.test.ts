@@ -113,7 +113,10 @@ describe('SearchTool — search modes and scope', () => {
 
       await searchTool.search(options);
 
-      expect(mockDaemonClient.generateSparseVector).toHaveBeenCalledWith({ text: 'test query' });
+      expect(mockDaemonClient.generateSparseVector).toHaveBeenCalledWith({
+        text: 'test query',
+        collection: 'projects',
+      });
       expect(mockDaemonClient.embedText).not.toHaveBeenCalled();
     });
 
@@ -123,7 +126,10 @@ describe('SearchTool — search modes and scope', () => {
       await searchTool.search(options);
 
       expect(mockDaemonClient.embedText).toHaveBeenCalledWith({ text: 'test query' });
-      expect(mockDaemonClient.generateSparseVector).toHaveBeenCalledWith({ text: 'test query' });
+      expect(mockDaemonClient.generateSparseVector).toHaveBeenCalledWith({
+        text: 'test query',
+        collection: 'projects',
+      });
     });
 
     it('should use default hybrid mode when not specified', async () => {
