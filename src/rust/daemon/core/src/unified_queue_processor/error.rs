@@ -54,11 +54,10 @@ impl From<EmbeddingError> for UnifiedProcessorError {
             EmbeddingError::TemporarilyUnavailable { .. } => {
                 UnifiedProcessorError::EmbeddingUnavailable(e.to_string())
             }
-            EmbeddingError::RemoteError { status_code, .. }
-                if matches!(status_code, 400 | 413 | 422) =>
-            {
-                UnifiedProcessorError::InvalidPayload(e.to_string())
-            }
+            EmbeddingError::RemoteError {
+                status_code: 400 | 413 | 422,
+                ..
+            } => UnifiedProcessorError::InvalidPayload(e.to_string()),
             _ => UnifiedProcessorError::Embedding(e.to_string()),
         }
     }
