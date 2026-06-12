@@ -15,7 +15,7 @@ use crate::qdrant::fusion::{
     apply_rrf_fusion, diversify_results, point_to_tagged, SearchType, TaggedResult,
     DEFAULT_DIVERSITY_CONFIG,
 };
-use wqm_common::constants::COLLECTION_LIBRARIES;
+use wqm_common::constants::{COLLECTION_LIBRARIES, RANKING_AID_KEYS};
 
 use super::flow::SearchQdrant;
 use super::options::SearchOptions;
@@ -264,6 +264,12 @@ pub fn tagged_to_search_result(tagged: TaggedResult) -> SearchResult {
         (meta, None)
     } else {
         let mut meta = payload.clone();
+        // Strip the daemon's internal ranking-aid keys (~1.5–2k tokens/hit) that
+        // a reading agent never consumes — salvaged from alkmimm PR #134.
+        // The graph branch already returns a narrow metadata object.
+        for key in RANKING_AID_KEYS {
+            meta.remove(*key);
+        }
         meta.insert(
             "_search_type".to_string(),
             Value::String(tagged.search_type.as_str().to_string()),
@@ -352,5 +358,49 @@ fn assign_parent_contexts(
                 results[idx].parent_context = Some(ctx.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod ranking_aid_strip_tests {
+    use super::*;
+
+    fn payload_with_ranking_aids() -> HashMap<String, Value> {
+        let mut p = HashMap::new();
+        p.insert("content".to_string(), Value::String("body".to_string()));
+        p.insert(
+            "source_file".to_string(),
+            Value::String("src/main.rs".to_string()),
+        );
+        for key in RANKING_AID_KEYS {
+            p.insert((*key).to_string(), Value::String("noise".to_string()));
+        }
+        p
+    }
+
+    #[test]
+    fn default_search_strips_ranking_aid_keys() {
+        // Default (non-graph) results must drop the daemon's ranking-aid keys
+        // while keeping ordinary payload fields — alkmimm #134 salvage.
+        let tagged = TaggedResult {
+            id: "doc-1".to_string(),
+            score: 1.0,
+            collection: "projects".to_string(),
+            payload: payload_with_ranking_aids(),
+            search_type: SearchType::Hybrid,
+        };
+        let result = tagged_to_search_result(tagged);
+        let meta = &result.metadata;
+        for key in RANKING_AID_KEYS {
+            assert!(
+                !meta.contains_key(*key),
+                "ranking-aid key {key:?} must be stripped from default search metadata"
+            );
+        }
+        assert!(meta.contains_key("source_file"), "keeps ordinary fields");
+        assert!(
+            meta.contains_key("_search_type"),
+            "keeps the search-type tag"
+        );
     }
 }

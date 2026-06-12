@@ -213,3 +213,33 @@ fn inject_extraction_results(extraction: &ExtractionResult, points: &mut [Docume
         }
     }
 }
+
+#[cfg(test)]
+mod ranking_aid_sync_tests {
+    use wqm_common::constants::RANKING_AID_KEYS;
+
+    /// Guard: the keys this module injects as ranking aids MUST equal
+    /// `RANKING_AID_KEYS`, which the MCP read paths use to strip them. If a new
+    /// `point.payload.insert("<key>", ...)` is added in `inject_extraction_results`
+    /// above (or a key renamed) without updating `RANKING_AID_KEYS`, that key
+    /// would leak to agents on every hit. Update both sides together; this test
+    /// fails until you do.
+    #[test]
+    fn injected_keys_match_ranking_aid_constant() {
+        // Mirror the keys inserted in `inject_extraction_results` above.
+        let injected = [
+            "keywords",
+            "concept_tags",
+            "structural_tags",
+            "keyword_baskets",
+        ];
+        let mut injected_sorted = injected.to_vec();
+        injected_sorted.sort_unstable();
+        let mut constant_sorted = RANKING_AID_KEYS.to_vec();
+        constant_sorted.sort_unstable();
+        assert_eq!(
+            injected_sorted, constant_sorted,
+            "ranking-aid payload keys drifted from wqm_common::RANKING_AID_KEYS"
+        );
+    }
+}

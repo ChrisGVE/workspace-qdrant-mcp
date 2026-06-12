@@ -40,9 +40,13 @@ mod retrieve_types;
 
 use wqm_common::constants::{
     COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
+    RANKING_AID_KEYS,
 };
 
 /// Keys excluded from metadata — mirrors `extractMetadata` in retrieve-types.ts line 72.
+/// Vectors and the body `content` are stripped here; the ranking-aid keys
+/// (`RANKING_AID_KEYS`) are stripped additionally in `extract_metadata` so a
+/// reading agent never receives the daemon's internal retrieval scaffolding.
 const EXCLUDED_PAYLOAD_KEYS: &[&str] = &["content", "dense_vector", "sparse_vector"];
 
 // ---------------------------------------------------------------------------
@@ -71,6 +75,7 @@ fn extract_metadata(payload: &HashMap<String, Value>) -> Value {
     let map: serde_json::Map<String, Value> = payload
         .iter()
         .filter(|(k, _)| !EXCLUDED_PAYLOAD_KEYS.contains(&k.as_str()))
+        .filter(|(k, _)| !RANKING_AID_KEYS.contains(&k.as_str()))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     Value::Object(map)
