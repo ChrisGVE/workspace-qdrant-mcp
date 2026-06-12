@@ -369,6 +369,7 @@ fn rule_item_field_order_in_list() {
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T00:00:00Z".to_string()),
         similarity: None,
+        owner: None,
     };
     let text = serde_json::to_string_pretty(&item).unwrap();
     assert_eq!(
@@ -392,6 +393,7 @@ fn rule_item_field_order_with_all_optional_fields() {
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T00:00:00Z".to_string()),
         similarity: None,
+        owner: None,
     };
     let text = serde_json::to_string_pretty(&item).unwrap();
     let keys = top_level_keys(&text);
@@ -440,6 +442,7 @@ fn rule_item_similarity_field_is_last() {
         created_at: None,
         updated_at: None,
         similarity: Some(0.857),
+        owner: None,
     };
     let text = serde_json::to_string_pretty(&item).unwrap();
     let keys = top_level_keys(&text);

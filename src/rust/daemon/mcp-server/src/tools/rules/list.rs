@@ -120,6 +120,16 @@ fn point_to_rule_item(point: &crate::qdrant::client::QdrantRetrievedPoint) -> Ru
         .and_then(|v| v.as_str())
         .map(str::to_string);
 
+    // Owner = the rule's tenant (project id or "global"); explicit so an
+    // unresolved project-scope list cannot silently span tenants.
+    let owner = Some(
+        payload
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(TENANT_GLOBAL)
+            .to_string(),
+    );
+
     RuleItem {
         id: point.id.clone(),
         content,
@@ -132,6 +142,7 @@ fn point_to_rule_item(point: &crate::qdrant::client::QdrantRetrievedPoint) -> Ru
         created_at,
         updated_at,
         similarity: None,
+        owner,
     }
 }
 
@@ -322,6 +333,7 @@ where
                 created_at: None,
                 updated_at: None,
                 similarity: Some(similarity),
+                owner: None, // similar-rule hits don't carry the list-only owner
             }
         })
         .collect()
