@@ -101,7 +101,7 @@ async fn retrieve_is_daemon_independent() {
 fn from_args_defaults() {
     let args = serde_json::json!({});
     let map = args.as_object().unwrap();
-    let input = RetrieveInput::from_args(map);
+    let input = RetrieveInput::from_args(map).unwrap();
     assert!(input.document_id.is_none());
     assert_eq!(input.collection, "projects");
     assert_eq!(input.limit, 10);
@@ -123,7 +123,7 @@ fn from_args_all_fields() {
         "libraryName": "mylib"
     });
     let map = args.as_object().unwrap();
-    let input = RetrieveInput::from_args(map);
+    let input = RetrieveInput::from_args(map).unwrap();
     assert_eq!(input.document_id.as_deref(), Some("doc-abc"));
     assert_eq!(input.collection, "rules");
     assert_eq!(input.limit, 20);
@@ -132,6 +132,43 @@ fn from_args_all_fields() {
     assert_eq!(input.library_name.as_deref(), Some("mylib"));
     let f = input.filter.unwrap();
     assert_eq!(f.get("tag").map(|s| s.as_str()), Some("important"));
+}
+
+// ---------------------------------------------------------------------------
+// RetrieveInput::from_args — unknown-argument rejection (alkmimm #134 salvage)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn from_args_rejects_query_with_search_hint() {
+    // The canonical mistake: retrieve({query: "..."}). It must be rejected up
+    // front with a hint pointing at the `search` tool, not silently dropped.
+    let args = serde_json::json!({ "query": "how does fusion work" });
+    let map = args.as_object().unwrap();
+    let err = RetrieveInput::from_args(map).unwrap_err();
+    assert!(err.contains("query"), "names the offending key: {err}");
+    assert!(err.contains("`search` tool"), "nudges to search: {err}");
+}
+
+#[test]
+fn from_args_rejects_unknown_key() {
+    let args = serde_json::json!({ "collection": "rules", "limt": 5 });
+    let map = args.as_object().unwrap();
+    let err = RetrieveInput::from_args(map).unwrap_err();
+    assert!(err.contains("limt"), "names the typo'd key: {err}");
+    // A non-`query` typo gets the allowed-keys list but not the search nudge.
+    assert!(!err.contains("`search` tool"));
+}
+
+#[test]
+fn from_args_accepts_all_known_keys() {
+    // Every documented key must pass the guard (regression: the allowlist must
+    // not drift behind retrieve_schema()).
+    let args = serde_json::json!({
+        "documentId": "d", "collection": "projects", "filter": {},
+        "limit": 1, "offset": 0, "projectId": "p", "libraryName": "l"
+    });
+    let map = args.as_object().unwrap();
+    assert!(RetrieveInput::from_args(map).is_ok());
 }
 
 // ---------------------------------------------------------------------------

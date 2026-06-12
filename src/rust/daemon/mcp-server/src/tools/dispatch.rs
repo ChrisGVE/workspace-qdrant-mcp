@@ -227,7 +227,10 @@ async fn route_tool(
             apply_health_augmentation(raw, ctx.health_state)
         }
         "retrieve" => {
-            let input = RetrieveInput::from_args(args);
+            let input = match RetrieveInput::from_args(args) {
+                Ok(i) => i,
+                Err(e) => return error_text(&e),
+            };
             let session_project_id = ctx.session.project_id.as_deref();
             retrieve_tool(input, ctx.qdrant, session_project_id).await
         }

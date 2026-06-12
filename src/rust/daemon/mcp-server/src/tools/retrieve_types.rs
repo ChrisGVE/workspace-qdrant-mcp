@@ -85,6 +85,31 @@ impl RetrieveQdrant for QdrantReadClient {
 }
 
 // ---------------------------------------------------------------------------
+// Argument allowlist
+// ---------------------------------------------------------------------------
+
+/// The complete set of argument keys the `retrieve` tool accepts.
+///
+/// Kept in lock-step with `retrieve_schema()` in `tools/definitions.rs` (the
+/// published `inputSchema`). `cwd` is NOT included: in this server the working
+/// directory is carried on the session (`session.client_cwd`, #97), never as a
+/// per-call argument, so a `cwd` key in the args map is genuinely unknown.
+///
+/// Salvaged from alkmimm PR #134 (`8e61a37cc`): the TS arg-builder silently
+/// discarded unrecognized args, so a misdirected `retrieve({query: "..."})`
+/// degraded into an unrelated "no resolvable scope" error. Rejecting unknown
+/// args up front turns that confusing failure into an actionable one.
+pub const RETRIEVE_ARG_KEYS: &[&str] = &[
+    "documentId",
+    "collection",
+    "filter",
+    "limit",
+    "offset",
+    "projectId",
+    "libraryName",
+];
+
+// ---------------------------------------------------------------------------
 // Input struct
 // ---------------------------------------------------------------------------
 
@@ -104,8 +129,19 @@ pub struct RetrieveInput {
 impl RetrieveInput {
     /// Parse from the JSON `arguments` map of a `CallToolRequestParams`.
     ///
-    /// Mirrors the destructuring defaults in retrieve.ts lines 110-119.
-    pub fn from_args(args: &serde_json::Map<String, Value>) -> Self {
+    /// Mirrors the destructuring defaults in retrieve.ts lines 110-119, plus the
+    /// unknown-argument rejection salvaged from alkmimm PR #134 (`8e61a37cc`):
+    /// any key outside [`RETRIEVE_ARG_KEYS`] is rejected before scope resolution
+    /// or any Qdrant call, with a hint that points a stray `query` at the
+    /// `search` tool.
+    ///
+    /// # Errors
+    /// Returns `Err(message)` when the args map carries any unrecognized key.
+    pub fn from_args(args: &serde_json::Map<String, Value>) -> Result<Self, String> {
+        if let Some(err) = Self::reject_unknown_args(args) {
+            return Err(err);
+        }
+
         let document_id = args
             .get("documentId")
             .and_then(|v| v.as_str())
@@ -137,7 +173,7 @@ impl RetrieveInput {
             .and_then(|v| v.as_str())
             .map(str::to_string);
 
-        Self {
+        Ok(Self {
             document_id,
             collection,
             filter,
@@ -145,7 +181,38 @@ impl RetrieveInput {
             offset,
             project_id,
             library_name,
+        })
+    }
+
+    /// Return an error message if `args` contains any key outside
+    /// [`RETRIEVE_ARG_KEYS`], else `None`.
+    ///
+    /// Unknown keys are listed in their map order. When `query` is among them the
+    /// message also nudges the caller toward the `search` tool, since
+    /// `retrieve({query: ...})` is the canonical mistake this guard catches.
+    fn reject_unknown_args(args: &serde_json::Map<String, Value>) -> Option<String> {
+        let unknown: Vec<&str> = args
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !RETRIEVE_ARG_KEYS.contains(k))
+            .collect();
+
+        if unknown.is_empty() {
+            return None;
         }
+
+        let mut message = format!(
+            "Unknown argument(s) for retrieve: {}. Allowed: {}.",
+            unknown.join(", "),
+            RETRIEVE_ARG_KEYS.join(", "),
+        );
+        if unknown.contains(&"query") {
+            message.push_str(
+                " The `retrieve` tool fetches known documents by id or filter; \
+                 use the `search` tool to run a query.",
+            );
+        }
+        Some(message)
     }
 }
 
