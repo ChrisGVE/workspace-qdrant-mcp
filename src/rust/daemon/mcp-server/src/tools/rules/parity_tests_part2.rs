@@ -7,7 +7,9 @@ use serde_json::json;
 
 use super::types::RulesInput;
 use super::*;
-use super::{args, get_json, get_text, qdrant_pt, top_keys, PaDaemon, PaQdrant, PaReader};
+use super::{
+    args, get_json, get_text, qdrant_pt, qdrant_retrieved, top_keys, PaDaemon, PaQdrant, PaReader,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FIX 2 — add runs findSimilarRules dup-check before persisting
@@ -201,4 +203,78 @@ fn default_duplication_threshold_is_0_7() {
         (DEFAULT_DUPLICATION_THRESHOLD - 0.7).abs() < f64::EPSILON,
         "expected 0.7, got {DEFAULT_DUPLICATION_THRESHOLD}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exact-content idempotency (alkmimm PR #134 salvage, 5e7497759 item 3)
+// A byte-identical rule in the same scope is a no-op, not a new row, and the
+// check is deterministic + fail-open.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn exact_content_duplicate_is_idempotent_noop() {
+    // An existing rule with byte-identical content → success no-op, no write,
+    // and the fuzzy embed/search gate never runs (it short-circuits earlier).
+    let mut d = PaDaemon::ok_with_embed(vec![0.1_f32; 384]);
+    let existing = qdrant_retrieved("rule-existing", "remember to use uv");
+    let q = PaQdrant::scroll_ok(vec![existing]);
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({
+        "action": "add", "label": "use-uv", "content": "remember to use uv", "scope": "global"
+    })))
+    .unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    assert_eq!(j["success"], json!(true));
+    assert!(
+        j["message"]
+            .as_str()
+            .unwrap()
+            .contains("Identical rule already exists"),
+        "got: {}",
+        j["message"]
+    );
+    assert_eq!(d.ingest_count(), 0, "no ingest on an idempotent re-add");
+    assert_eq!(
+        d.embed_count(),
+        0,
+        "exact match short-circuits before the fuzzy gate"
+    );
+    assert_eq!(q.search_count(), 0, "no fuzzy search on an exact match");
+}
+
+#[tokio::test]
+async fn exact_check_fails_open_on_scroll_error() {
+    // A scroll failure must NOT block the add (deterministic + fail-open).
+    let mut d = PaDaemon::ok_no_embed(); // empty embed → fuzzy gate skipped
+    let q = PaQdrant::scroll_err("qdrant down");
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({
+        "action": "add", "label": "l", "content": "c", "scope": "global"
+    })))
+    .unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    assert_eq!(j["success"], json!(true));
+    assert_eq!(j["message"], json!("Rule added successfully"));
+    assert_eq!(d.ingest_count(), 1, "scroll error must not block the add");
+}
+
+#[tokio::test]
+async fn near_but_not_identical_content_is_not_a_noop() {
+    // Only BYTE-identical content is a no-op; different content proceeds to add
+    // (where the fuzzy gate, not this exact check, governs similarity).
+    let mut d = PaDaemon::ok_no_embed(); // empty embed → fuzzy gate skipped
+    let existing = qdrant_retrieved("rule-1", "remember to use uv");
+    let q = PaQdrant::scroll_ok(vec![existing]);
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({
+        "action": "add", "label": "l", "content": "remember to use poetry", "scope": "global"
+    })))
+    .unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    assert_eq!(j["success"], json!(true));
+    assert_eq!(j["message"], json!("Rule added successfully"));
+    assert_eq!(d.ingest_count(), 1);
 }
