@@ -224,6 +224,12 @@ pub fn get_git_remote_url(repo_root: &Path) -> Option<String> {
 ///
 /// Returns `Some(ProjectInfo)` for any `cwd` (project root falls back to `cwd`).
 pub fn detect_project<L: ProjectLookup + ?Sized>(cwd: &Path, lookup: &L) -> Option<ProjectInfo> {
+    // Fold a Windows-host WSL UNC cwd (`\\wsl.localhost\<distro>\...`) to the
+    // POSIX path the daemon registered; a no-op for native paths (#134 salvage).
+    let cwd_str = cwd.to_string_lossy();
+    let folded = wqm_common::paths::canonicalize_host_path(&cwd_str);
+    let cwd: &Path = Path::new(&folded);
+
     let project_root = find_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
 
     let git_remote = get_git_remote_url(&project_root);

@@ -51,6 +51,7 @@ pub use discovery::{find_config_file, get_config_search_paths};
 pub use error::PathError;
 pub use local::LocalPath;
 pub use mount_map::{mount_section_hash, MountEntry, MountMap};
+pub use normalize::canonicalize_host_path;
 pub use relative::{RelativePath, RelativePathError};
 pub use resolve::{
     get_cache_dir, get_canonical_log_dir, get_config_dir, get_data_dir, get_database_path,
