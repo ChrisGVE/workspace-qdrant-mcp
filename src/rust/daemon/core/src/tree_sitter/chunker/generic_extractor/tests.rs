@@ -83,6 +83,45 @@ fn rust_patterns() -> SemanticPatterns {
     }
 }
 
+fn typescript_patterns() -> SemanticPatterns {
+    SemanticPatterns {
+        preamble: PatternGroup {
+            node_types: vec!["import_statement".into()],
+        },
+        root_wrappers: vec!["export_statement".into(), "lexical_declaration".into()],
+        function: FunctionPatternGroup {
+            node_types: vec![
+                "function_declaration".into(),
+                "generator_function_declaration".into(),
+                "arrow_function".into(),
+                "function".into(),
+            ],
+            async_node_types: vec![],
+        },
+        class: PatternGroup {
+            node_types: vec!["class_declaration".into()],
+        },
+        method: MethodPatternGroup {
+            node_types: vec!["method_definition".into(), "public_field_definition".into()],
+            context: Some("inside_class".into()),
+        },
+        interface: PatternGroup {
+            node_types: vec!["interface_declaration".into()],
+        },
+        constant: PatternGroup {
+            node_types: vec!["variable_declarator".into()],
+        },
+        type_alias: PatternGroup {
+            node_types: vec!["type_alias_declaration".into()],
+        },
+        name_node: Some("identifier".into()),
+        body_node: Some("statement_block".into()),
+        comment_nodes: vec!["comment".into()],
+        docstring_style: DocstringStyle::Javadoc,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn test_python_function() {
     let Some(lang) = get_language("python") else {
@@ -241,4 +280,32 @@ impl Point {
         .filter(|c| c.chunk_type == ChunkType::Method)
         .collect();
     assert_eq!(methods.len(), 2, "Should find 2 impl methods");
+}
+
+#[test]
+fn test_typescript_exported_function_and_const_chunks() {
+    let Some(lang) = get_language("typescript") else {
+        return;
+    };
+    let source = r#"
+import type { SearchMode } from './types';
+
+const SPARSE_ONLY_WEIGHT = 0.5;
+
+export function applyRRFFusion(results: string[], mode: SearchMode): string[] {
+    return mode === 'hybrid' ? results : results;
+}
+"#;
+    let extractor = GenericExtractor::new("typescript", lang, typescript_patterns());
+    let chunks = extractor
+        .extract_chunks(source, &PathBuf::from("search-qdrant.ts"))
+        .unwrap();
+
+    assert!(chunks.iter().any(|c| c.chunk_type == ChunkType::Preamble));
+    assert!(chunks.iter().any(|c| {
+        c.chunk_type == ChunkType::Constant && c.symbol_name == "SPARSE_ONLY_WEIGHT"
+    }));
+    assert!(chunks.iter().any(|c| {
+        c.chunk_type == ChunkType::Function && c.symbol_name == "applyRRFFusion"
+    }));
 }

@@ -716,7 +716,8 @@
     has_cpp_scanner: false
   semantic_patterns:
     preamble:
-      node_types: [import_statement, export_statement]
+      node_types: [import_statement]
+    root_wrappers: [export_statement, lexical_declaration]
     function:
       node_types: [function_declaration, generator_function_declaration, arrow_function, function]
       async_node_types: []
@@ -736,7 +737,7 @@
     module:
       node_types: []
     constant:
-      node_types: []
+      node_types: [variable_declarator]
     macro:
       node_types: []
     type_alias:
@@ -1484,7 +1485,8 @@
     src_subdir: tsx
   semantic_patterns:
     preamble:
-      node_types: [import_statement, export_statement]
+      node_types: [import_statement]
+    root_wrappers: [export_statement, lexical_declaration]
     function:
       node_types: [function_declaration, generator_function_declaration, arrow_function, function]
       async_node_types: []
@@ -1504,7 +1506,7 @@
     module:
       node_types: []
     constant:
-      node_types: []
+      node_types: [variable_declarator]
     macro:
       node_types: []
     type_alias:
@@ -1538,7 +1540,8 @@
     src_subdir: typescript
   semantic_patterns:
     preamble:
-      node_types: [import_statement, export_statement]
+      node_types: [import_statement]
+    root_wrappers: [export_statement, lexical_declaration]
     function:
       node_types: [function_declaration, generator_function_declaration, arrow_function, function]
       async_node_types: []
@@ -1558,7 +1561,7 @@
     module:
       node_types: []
     constant:
-      node_types: []
+      node_types: [variable_declarator]
     macro:
       node_types: []
     type_alias:
