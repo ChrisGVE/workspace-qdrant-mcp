@@ -760,6 +760,10 @@ const RERANK_POOL = 30;
  * over the env default. */
 const RERANK_WEIGHT = tuningFromEnv('WQM_SEARCH_RERANK_WEIGHT', 0.05);
 const HIGH_RERANK_WEIGHT_WARNING_THRESHOLD = 0.5;
+// Cross-encoder latency scales mostly with per-document text length. Measured
+// on the 46-query benchmark: 500 chars preserved quality and cut semantic
+// rerank P95 from ~102ms to ~63ms; keep env override for larger-context corpora.
+const RERANK_DOCUMENT_CHARS = tuningFromEnv('WQM_RERANK_DOCUMENT_CHARS', 500);
 
 /** Blend min-max-normalized base (RRF + path boost) and cross-encoder scores
  * for the rerank pool: `(1-w)·norm(base) + w·norm(rerank)`. `baseScores` is
@@ -812,7 +816,7 @@ async function rerankResults(
   if (results.length <= 1) return results;
   const poolSize = Math.min(results.length, Math.max(limit, RERANK_POOL));
   const pool = results.slice(0, poolSize);
-  const documents = pool.map((r) => (r.content ?? '').slice(0, 4000));
+  const documents = pool.map((r) => (r.content ?? '').slice(0, RERANK_DOCUMENT_CHARS));
   try {
     const resp = await daemonClient.rerank({ query, documents });
     if (!resp.success || resp.results.length === 0) return results;
