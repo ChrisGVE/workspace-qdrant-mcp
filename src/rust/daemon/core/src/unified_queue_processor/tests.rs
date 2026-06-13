@@ -171,6 +171,7 @@ mod tests {
             error_message: None,
             last_error_at: None,
             file_path: None,
+            size_bytes: None,
             qdrant_status: None,
             search_status: None,
             decision_json: None,

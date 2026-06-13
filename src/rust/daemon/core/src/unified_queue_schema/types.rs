@@ -64,6 +64,12 @@ pub struct UnifiedQueueItem {
     /// Only set for item_type='file', None for other types.
     #[serde(default)]
     pub file_path: Option<String>,
+    /// Item payload size in bytes (#133 F1, schema v45). Populated at enqueue
+    /// for file items (payload size, else a `std::fs::metadata` stat-fallback);
+    /// None for non-file items and rows enqueued before v45. Read by the
+    /// per-item ms/KB + throughput EWMA update (None => the update is skipped).
+    #[serde(default)]
+    pub size_bytes: Option<i64>,
     /// Per-destination status: Qdrant vector write
     #[serde(default)]
     pub qdrant_status: Option<DestinationStatus>,

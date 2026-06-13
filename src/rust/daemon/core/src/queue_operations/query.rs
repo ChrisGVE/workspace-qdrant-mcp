@@ -205,6 +205,7 @@ impl QueueManager {
                     error_message: row.try_get("error_message")?,
                     last_error_at: row.try_get("last_error_at")?,
                     file_path: row.try_get("file_path")?, // Task 22
+                    size_bytes: row.try_get("size_bytes")?, // #133 F1 (v45)
                     qdrant_status: {
                         let s: Option<String> = row.try_get("qdrant_status")?;
                         s.and_then(|v| DestinationStatus::parse_str(&v))
