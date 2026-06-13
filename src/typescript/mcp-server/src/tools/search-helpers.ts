@@ -13,7 +13,6 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import type {
   IndexingProgress,
   SearchMode,
@@ -35,6 +34,10 @@ import {
 } from './search-qdrant.js';
 import { expandGraphContext } from './search-graph-context.js';
 import { logDebug } from '../utils/logger.js';
+import {
+  resolveEffectiveBranch,
+  resolveProjectIdentity,
+} from './branch-scope.js';
 
 /** Maximum active base_points we still attach as a Qdrant filter. Above
  * this the filter clause would blow past server-side limits; we instead
@@ -127,6 +130,7 @@ export async function attachIndexingProgress(
  * 'uncertain'` with an explicit `status_reason` instead. */
 export interface ProjectContextResolution {
   currentProjectId: string | undefined;
+  currentBranch: string | undefined;
   basePoints: string[] | undefined;
   /** True when active base-point count exceeds the filter cap. */
   basePointsDegraded?: boolean;
@@ -143,12 +147,21 @@ export async function resolveProjectContext(
   stateManager: SqliteStateManager
 ): Promise<ProjectContextResolution> {
   let currentProjectId = projectId;
-  if (!currentProjectId && scope === 'project') {
-    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-      fallbackToSoleProject: true,
-    });
-    currentProjectId = projectInfo?.projectId;
+  let projectPath: string | undefined;
+  if (scope === 'project') {
+    const identity = await resolveProjectIdentity(projectDetector, currentProjectId);
+    currentProjectId = identity.projectId;
+    projectPath =
+      identity.projectPath ??
+      (currentProjectId ? stateManager.getProjectById(currentProjectId).data?.project_path : undefined);
   }
+
+  const currentBranch = resolveEffectiveBranch({
+    explicitBranch: undefined,
+    scope,
+    projectId: currentProjectId,
+    projectPath,
+  });
 
   let basePoints: string[] | undefined;
   let basePointsDegraded = false;
@@ -178,7 +191,7 @@ export async function resolveProjectContext(
       }
     }
   }
-  const result: ProjectContextResolution = { currentProjectId, basePoints };
+  const result: ProjectContextResolution = { currentProjectId, currentBranch, basePoints };
   if (basePointsDegraded) {
     result.basePointsDegraded = true;
     if (basePointsActiveCount !== undefined) {

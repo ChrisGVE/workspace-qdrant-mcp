@@ -6,7 +6,6 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import { randomUUID } from 'node:crypto';
 import { utcNow } from '../utils/timestamps.js';
 import {
@@ -19,6 +18,7 @@ import {
 import type { RuleAction, RuleResponse, RuleScope } from './rules-types.js';
 import { RULES_BASENAME, RULES_COLLECTION } from './rules-types.js';
 import { TENANT_GLOBAL } from '../constants/tenants.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 
 export function isConnectivityError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -122,10 +122,7 @@ export async function resolveProjectScopeId(
 ): Promise<{ resolvedProjectId: string | undefined; error?: RuleResponse }> {
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-      fallbackToSoleProject: true,
-    });
-    resolvedProjectId = projectInfo?.projectId;
+    resolvedProjectId = (await resolveProjectIdentity(projectDetector, undefined)).projectId;
   }
   if (scope === 'project' && !resolvedProjectId) {
     // Caller decides which action label to report — the spread on the

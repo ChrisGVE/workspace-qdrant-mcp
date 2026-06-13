@@ -9,7 +9,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SqliteStateManager } from '../../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../utils/project-detector.js';
-import { getEffectiveCwd } from '../../utils/request-context.js';
 import type { TrackedFileEntry } from '../../clients/tracked-files-queries/index.js';
 import type {
   ListOptions,
@@ -20,6 +19,12 @@ import type {
 } from '../list-files-types.js';
 import { DEFAULT_DEPTH, MAX_DEPTH, DEFAULT_LIMIT, MAX_LIMIT } from '../list-files-types.js';
 import { SERVER_VERSION as MCP_SERVER_VERSION } from '../../server-types.js';
+import {
+  applyEffectiveBranch,
+  concreteBranchFilter,
+  resolveEffectiveBranch,
+  resolveProjectIdentity,
+} from '../branch-scope.js';
 
 /**
  * Approximate per-file byte cost the agent would pay if they ran
@@ -108,22 +113,10 @@ export class ListFilesTool {
 
     const startTime = Date.now();
     const eventId = randomUUID();
-    // Log start. queryText captures the most distinctive parameters
-    // (base path + format) so list events are self-describing under
-    // `wqm admin token-savings`.
-    this.stateManager.logSearchEvent({
-      id: eventId,
-      actor: 'claude',
-      tool: 'mcp_qdrant',
-      op: 'list',
-      queryText: basePath || '.',
-      topK: limit,
-      projectId: options.projectId,
-      filters: format !== 'tree' ? JSON.stringify({ format }) : undefined,
-    });
-
-    const projectId = options.projectId ?? (await this.resolveProjectId());
+    const identity = await resolveProjectIdentity(this.projectDetector, options.projectId);
+    const projectId = identity.projectId;
     if (!projectId) {
+      this.logListStart(eventId, basePath, format, limit, options.projectId, options.branch);
       const response = errorResponse(
         'Could not detect the project. Pass `cwd` (to auto-detect the project) or the `projectId` parameter.',
         basePath,
@@ -135,6 +128,7 @@ export class ListFilesTool {
 
     const watchFolderId = this.stateManager.getWatchFolderIdByTenantId(projectId);
     if (!watchFolderId) {
+      this.logListStart(eventId, basePath, format, limit, projectId, options.branch);
       const response = errorResponse(
         'Project not found in database. Has the daemon indexed it?',
         basePath,
@@ -144,10 +138,21 @@ export class ListFilesTool {
       return response;
     }
 
-    const response = this.buildListResult(
-      options,
+    const projectPath =
+      this.stateManager.getProjectById(projectId).data?.project_path ?? identity.projectPath ?? null;
+    const effectiveBranch = resolveEffectiveBranch({
+      explicitBranch: options.branch,
+      scope: 'project',
       projectId,
+      projectPath: projectPath ?? undefined,
+    });
+    this.logListStart(eventId, basePath, format, limit, projectId, effectiveBranch);
+    const effectiveOptions = applyEffectiveBranch(options, effectiveBranch);
+
+    const response = this.buildListResult(
+      effectiveOptions,
       watchFolderId,
+      projectPath,
       basePath,
       format,
       depth,
@@ -155,6 +160,30 @@ export class ListFilesTool {
     );
     this.finishList(eventId, response, startTime);
     return response;
+  }
+
+  private logListStart(
+    eventId: string,
+    basePath: string,
+    format: ListFormat,
+    limit: number,
+    projectId: string | undefined,
+    branch: string | undefined
+  ): void {
+    const filters: Record<string, string> = {};
+    if (format !== 'tree') filters.format = format;
+    const concreteBranch = concreteBranchFilter(branch);
+    if (concreteBranch) filters.branch = concreteBranch;
+    this.stateManager.logSearchEvent({
+      id: eventId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'list',
+      queryText: basePath || '.',
+      topK: limit,
+      projectId,
+      filters: Object.keys(filters).length > 0 ? JSON.stringify(filters) : undefined,
+    });
   }
 
   /** Record post-execution metrics for a list call. */
@@ -183,15 +212,13 @@ export class ListFilesTool {
 
   private buildListResult(
     options: ListOptions,
-    projectId: string,
     watchFolderId: string,
+    projectPath: string | null,
     basePath: string,
     format: ListFormat,
     depth: number,
     limit: number
   ): ListResponse {
-    const projectPath = this.stateManager.getProjectById(projectId).data?.project_path ?? null;
-
     const { components, componentSummaries } = this.resolveComponents(watchFolderId, projectPath);
 
     // Resolve component filter to SQL-level base paths before querying
@@ -298,6 +325,8 @@ export class ListFilesTool {
     if (options.extension) baseOpts.extension = options.extension;
     if (options.includeTests !== undefined) baseOpts.includeTests = options.includeTests;
     if (options.pattern) baseOpts.glob = options.pattern;
+    const branch = concreteBranchFilter(options.branch);
+    if (branch) baseOpts.branch = branch;
     if (componentBasePaths && componentBasePaths.length > 0)
       baseOpts.componentBasePaths = componentBasePaths;
 
@@ -352,13 +381,6 @@ export class ListFilesTool {
     return { components: undefined, componentSummaries: undefined };
   }
 
-  private async resolveProjectId(): Promise<string | undefined> {
-    const cwd = getEffectiveCwd();
-    const projectInfo = await this.projectDetector.getProjectInfo(cwd, false, {
-      fallbackToSoleProject: true,
-    });
-    return projectInfo?.projectId;
-  }
 }
 
 function errorResponse(message: string, basePath: string, format: ListFormat): ListResponse {

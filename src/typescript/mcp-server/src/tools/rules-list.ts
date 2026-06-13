@@ -5,11 +5,11 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import type { RuleOptions, RuleResponse, Rule, RuleScope } from './rules-types.js';
 import { RULES_COLLECTION } from './rules-types.js';
 import { FIELD_PROJECT_ID, FIELD_CONTENT, FIELD_TITLE } from '../common/native-bridge.js';
 import { TENANT_GLOBAL } from '../constants/tenants.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 
 /** Build Qdrant filter for list query based on scope. */
 function buildListFilter(
@@ -116,10 +116,7 @@ export async function listRules(
 
   let resolvedProjectId = projectId;
   if (scope === 'project' && !resolvedProjectId) {
-    const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-      fallbackToSoleProject: true,
-    });
-    resolvedProjectId = projectInfo?.projectId;
+    resolvedProjectId = (await resolveProjectIdentity(projectDetector, undefined)).projectId;
   }
 
   // When a project-scoped list can't resolve a tenant, buildListFilter yields

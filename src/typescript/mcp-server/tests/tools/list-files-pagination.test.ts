@@ -15,6 +15,10 @@ import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
 import type { ListTrackedFilesOptions } from '../../src/clients/tracked-files-queries/index.js';
 
+vi.mock('../../src/utils/git-utils.js', () => ({
+  getCurrentBranch: vi.fn().mockReturnValue('main'),
+}));
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function makeFile(path: string, ext = 'rs', lang = 'rust') {
@@ -122,6 +126,39 @@ describe('ListFilesTool — filter pushdown and accurate total_matches (F-016)',
     const callArg = (sm.listTrackedFiles as ReturnType<typeof vi.fn>).mock
       .calls[0][0] as ListTrackedFilesOptions;
     expect(callArg.componentBasePaths).toEqual(['src/rust/daemon']);
+  });
+
+  it('defaults project listings to the current git branch', async () => {
+    const sm = makeStateManager({ files: generateFiles(5) });
+    const tool = new ListFilesTool(sm, makeProjectDetector());
+
+    await tool.list({ format: 'flat' });
+
+    const callArg = (sm.listTrackedFiles as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as ListTrackedFilesOptions;
+    expect(callArg.branch).toBe('main');
+  });
+
+  it('omits branch filter when branch is wildcard', async () => {
+    const sm = makeStateManager({ files: generateFiles(5) });
+    const tool = new ListFilesTool(sm, makeProjectDetector());
+
+    await tool.list({ format: 'flat', branch: '*' });
+
+    const callArg = (sm.listTrackedFiles as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as ListTrackedFilesOptions;
+    expect(callArg.branch).toBeUndefined();
+  });
+
+  it('forwards explicit branch filters unchanged', async () => {
+    const sm = makeStateManager({ files: generateFiles(5) });
+    const tool = new ListFilesTool(sm, makeProjectDetector());
+
+    await tool.list({ format: 'flat', branch: 'dev' });
+
+    const callArg = (sm.listTrackedFiles as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as ListTrackedFilesOptions;
+    expect(callArg.branch).toBe('dev');
   });
 
   it('total_matches reflects countTrackedFiles result, not capped at 500', async () => {

@@ -9,8 +9,8 @@ import type { ProjectDetector } from './utils/project-detector.js';
 import type { SessionState } from './server-types.js';
 import { COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
 import { TENANT_GLOBAL } from './constants/tenants.js';
-import { getEffectiveCwd } from './utils/request-context.js';
 import { utcNow } from './utils/timestamps.js';
+import { resolveProjectIdentity } from './tools/branch-scope.js';
 
 type StoreResult = {
   success: boolean;
@@ -185,10 +185,8 @@ async function resolveScratchpadTenant(
   if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
   if (sessionState.projectId) return sessionState.projectId;
   try {
-    const info = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-      fallbackToSoleProject: true,
-    });
-    if (info?.projectId) return info.projectId;
+    const identity = await resolveProjectIdentity(projectDetector, undefined);
+    if (identity.projectId) return identity.projectId;
   } catch {
     // Detection failed (no project at cwd / ambiguous) — fall through to global.
   }

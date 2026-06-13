@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 import type {
   ImpactAnalysisRequest,
   PageRankRequest,
@@ -76,10 +76,8 @@ async function resolveTenant(
   // (`getEffectiveCwd()` honours the `cwd` arg / X-MCP-Host-Cwd header). This is
   // what keeps `graph` on the same project as the rest of the tools.
   // `fallbackToSoleProject` covers the single-project convenience case.
-  const detected = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-    fallbackToSoleProject: true,
-  });
-  if (detected?.projectId) return detected.projectId;
+  const detected = await resolveProjectIdentity(projectDetector, undefined);
+  if (detected.projectId) return detected.projectId;
   // Deliberately NO "first active project" fallback: with multiple projects and
   // an unresolvable cwd it picked an arbitrary (wrong) project and returned its
   // graph silently. Fail loudly instead.

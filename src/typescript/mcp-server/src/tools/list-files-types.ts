@@ -24,6 +24,8 @@ export interface ListOptions {
   includeTests?: boolean;
   limit?: number;
   projectId?: string;
+  /** Filter by branch name. Defaults to the current Git branch; "*" searches all branches. */
+  branch?: string;
   /** Filter by component (dot-separated ID or prefix, e.g. "daemon" or "daemon.core") */
   component?: string;
   /** Opaque pagination cursor from a previous response's next_token */

@@ -14,16 +14,8 @@ export type GrepOptions = {
   projectId?: string;
 };
 
-/** Build grep options from raw tool arguments.
- *
- * `defaults.branch` (typically `sessionState.currentBranch`) fills the
- * `branch` filter when the caller did not pass one explicitly. Pass
- * `branch: "*"` from the agent side to opt out and grep all branches.
- */
-export function buildGrepOptions(
-  args: Record<string, unknown> | undefined,
-  defaults?: { branch?: string | null }
-): GrepOptions {
+/** Build grep options from raw tool arguments. */
+export function buildGrepOptions(args: Record<string, unknown> | undefined): GrepOptions {
   const pattern = args?.['pattern'] as string;
   if (!pattern) {
     throw new Error('Pattern is required for grep operation');
@@ -50,11 +42,7 @@ export function buildGrepOptions(
   if (maxResults !== undefined) options.maxResults = maxResults;
 
   const branch = args?.['branch'] as string | undefined;
-  if (branch) {
-    options.branch = branch;
-  } else if (defaults?.branch) {
-    options.branch = defaults.branch;
-  }
+  if (branch) options.branch = branch;
 
   const projectId = args?.['projectId'] as string | undefined;
   if (projectId) options.projectId = projectId;

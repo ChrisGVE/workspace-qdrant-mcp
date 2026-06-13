@@ -5,10 +5,14 @@
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import type { SearchOptions, SearchResult, SearchResponse } from './search-types.js';
 import { PROJECTS_COLLECTION } from './search-types.js';
 import { attachIndexingProgress } from './search-helpers.js';
+import {
+  applyEffectiveBranch,
+  resolveEffectiveBranch,
+  resolveProjectIdentity,
+} from './branch-scope.js';
 
 /**
  * Resolution outcome for exact-search tenant scoping.
@@ -19,21 +23,25 @@ import { attachIndexingProgress } from './search-helpers.js';
  * tenant in the FTS index.
  */
 type ExactSearchTenantResolution =
-  | { kind: 'tenant'; tenantId: string }
+  | { kind: 'tenant'; tenantId: string; projectPath?: string | undefined }
   | { kind: 'unscoped' } // explicit `scope: 'all'` — caller asked for global FTS
   | { kind: 'unresolved' }; // project-scope but no tenant could be found
 
 async function resolveExactSearchTenant(
   options: SearchOptions,
-  projectDetector: ProjectDetector
+  projectDetector: ProjectDetector,
+  stateManager: SqliteStateManager
 ): Promise<ExactSearchTenantResolution> {
   if (options.scope === 'all') return { kind: 'unscoped' };
-  if (options.projectId) return { kind: 'tenant', tenantId: options.projectId };
-  const projectInfo = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-    fallbackToSoleProject: true,
-  });
-  if (projectInfo?.projectId) {
-    return { kind: 'tenant', tenantId: projectInfo.projectId };
+  const identity = await resolveProjectIdentity(projectDetector, options.projectId);
+  if (identity.projectId) {
+    return {
+      kind: 'tenant',
+      tenantId: identity.projectId,
+      projectPath:
+        identity.projectPath ??
+        stateManager.getProjectById(identity.projectId).data?.project_path,
+    };
   }
   return { kind: 'unresolved' };
 }
@@ -138,7 +146,7 @@ export async function searchExact(
   eventId: string
 ): Promise<SearchResponse> {
   const startTime = Date.now();
-  const resolution = await resolveExactSearchTenant(options, projectDetector);
+  const resolution = await resolveExactSearchTenant(options, projectDetector, stateManager);
 
   if (resolution.kind === 'unresolved') {
     // F-004: refuse to broaden to every tenant in the FTS index. The
@@ -160,16 +168,34 @@ export async function searchExact(
   }
 
   const tenantId = resolution.kind === 'tenant' ? resolution.tenantId : undefined;
+  const effectiveBranch = resolveEffectiveBranch({
+    explicitBranch: options.branch,
+    scope: options.scope ?? 'project',
+    projectId: tenantId,
+    projectPath: resolution.kind === 'tenant' ? resolution.projectPath : undefined,
+  });
+  const effectiveOptions = applyEffectiveBranch(options, effectiveBranch);
   stateManager.logSearchEvent({
     id: eventId,
     projectId: tenantId,
     actor: options.telemetryActor ?? 'claude',
     tool: 'mcp_qdrant',
     op: 'search_exact',
-    queryText: options.query,
+    queryText: effectiveOptions.query,
+    filters:
+      effectiveBranch && effectiveBranch !== '*'
+        ? JSON.stringify({ branch: effectiveBranch })
+        : undefined,
   });
 
-  return executeAndLogSearch(daemonClient, stateManager, options, tenantId, eventId, startTime);
+  return executeAndLogSearch(
+    daemonClient,
+    stateManager,
+    effectiveOptions,
+    tenantId,
+    eventId,
+    startTime
+  );
 }
 
 async function executeAndLogSearch(

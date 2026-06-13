@@ -50,6 +50,10 @@ export const listToolDefinition = {
         type: 'string',
         description: 'Specific project ID (default: current project)',
       },
+      branch: {
+        type: 'string',
+        description: 'Filter by branch name. Defaults to the current Git branch; use "*" for all branches.',
+      },
       cwd: {
         type: 'string',
         description:

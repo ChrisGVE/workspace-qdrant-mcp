@@ -26,10 +26,10 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import { FIELD_CONTENT, FIELD_TENANT_ID, FIELD_LIBRARY_NAME } from '../common/native-bridge.js';
 import { finishToolEvent, logSearchEvent } from '../clients/search-event-queries.js';
 import { SERVER_VERSION as MCP_SERVER_VERSION } from '../server-types.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 
 // Re-export all types so existing imports from './retrieve.js' continue to work
 export type {
@@ -415,10 +415,6 @@ export class RetrieveTool {
   }
 
   private async resolveProjectId(): Promise<string | undefined> {
-    const cwd = getEffectiveCwd();
-    const projectInfo = await this.projectDetector.getProjectInfo(cwd, false, {
-      fallbackToSoleProject: true,
-    });
-    return projectInfo?.projectId;
+    return (await resolveProjectIdentity(this.projectDetector, undefined)).projectId;
   }
 }

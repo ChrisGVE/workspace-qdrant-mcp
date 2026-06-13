@@ -76,9 +76,7 @@ async function routeTool(
   } = components;
   switch (toolName) {
     case 'search': {
-      const searchResult = await searchTool.search(
-        buildSearchOptions(args, { branch: sessionState.currentBranch })
-      );
+      const searchResult = await searchTool.search(buildSearchOptions(args));
       return healthMonitor.augmentSearchResults({ success: true, ...searchResult });
     }
     case 'retrieve':
@@ -90,7 +88,7 @@ async function routeTool(
     case 'scratchpad':
       return components.scratchpadTool.execute(buildScratchpadOptions(args));
     case 'grep':
-      return grepTool.grep(buildGrepOptions(args, { branch: sessionState.currentBranch }));
+      return grepTool.grep(buildGrepOptions(args));
     case 'list':
       return listTool.list(buildListOptions(args));
     case 'embedding':
@@ -117,8 +115,7 @@ export async function dispatchToolCall(
   sendHeartbeat(sessionState, components.daemonClient);
 
   // Refresh cached git state (branch + worktree flag) if stale. Cheap inside
-  // the TTL window; ~3ms `git` invocation outside it. Search/grep read
-  // `sessionState.currentBranch` as default when the caller omits `branch`.
+  // the TTL window; ~3ms `git` invocation outside it.
   ensureProjectFresh(sessionState);
 
   if (!KNOWN_TOOLS.includes(toolName as (typeof KNOWN_TOOLS)[number])) {

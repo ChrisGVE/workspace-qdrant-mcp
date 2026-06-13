@@ -14,8 +14,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import type { SearchScope } from './search-types.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 import {
   loadSemanticSearchBenchmarkDataset,
   runSemanticSearchBenchmark,
@@ -127,10 +127,8 @@ async function resolveTenant(
 ): Promise<{ tenantId?: string } | { error: string }> {
   if (scope === 'all') return {};
   if (projectId) return { tenantId: projectId };
-  const info = await projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-    fallbackToSoleProject: true,
-  });
-  if (info?.projectId) return { tenantId: info.projectId };
+  const identity = await resolveProjectIdentity(projectDetector, undefined);
+  if (identity.projectId) return { tenantId: identity.projectId };
   return {
     error:
       'Could not resolve a project for the eval. Pass `projectId`, run from a registered ' +

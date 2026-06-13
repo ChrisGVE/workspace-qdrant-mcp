@@ -10,14 +10,20 @@ import type { DaemonClient } from '../../src/clients/daemon-client.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../../src/utils/project-detector.js';
 
+const qdrantSearchMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+
 // Mock the Qdrant client
 vi.mock('@qdrant/js-client-rest', () => ({
   QdrantClient: vi.fn().mockImplementation(() => ({
-    search: vi.fn().mockResolvedValue([]),
+    search: qdrantSearchMock,
     scroll: vi.fn().mockResolvedValue({ points: [] }),
     retrieve: vi.fn().mockResolvedValue([]),
     getCollection: vi.fn().mockResolvedValue({ status: 'green' }),
   })),
+}));
+
+vi.mock('../../src/utils/git-utils.js', () => ({
+  getCurrentBranch: vi.fn().mockReturnValue('main'),
 }));
 
 function createMockDaemonClient(): DaemonClient {
@@ -61,6 +67,7 @@ function createMockStateManager(): SqliteStateManager {
     getKeywordBasketsForTags: vi.fn().mockReturnValue([]),
     listTags: vi.fn().mockReturnValue([]),
     getTagHierarchy: vi.fn().mockReturnValue([]),
+    getProjectById: vi.fn().mockReturnValue({ data: { project_path: '/test/project' } }),
     getWatchFolderIdByTenantId: vi.fn().mockReturnValue(null),
     getActiveBasePoints: vi.fn().mockReturnValue([]),
   } as unknown as SqliteStateManager;
@@ -85,6 +92,8 @@ describe('SearchTool — filter building', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    qdrantSearchMock.mockClear();
+    qdrantSearchMock.mockResolvedValue([]);
     mockDaemonClient = createMockDaemonClient();
     mockStateManager = createMockStateManager();
     mockProjectDetector = createMockProjectDetector();
@@ -115,10 +124,26 @@ describe('SearchTool — filter building', () => {
     expect(result.status).toBe('ok');
   });
 
+  it('should default project searches to the current git branch', async () => {
+    await searchTool.search({ query: 'test query', includeScratchpad: false });
+
+    const filter = qdrantSearchMock.mock.calls[0]?.[1]?.filter;
+    expect(filter).toMatchObject({
+      must: expect.arrayContaining([{ key: 'branch', match: { value: 'main' } }]),
+    });
+  });
+
   it('should not include branch filter for wildcard', async () => {
-    const result = await searchTool.search({ query: 'test query', branch: '*' });
+    const result = await searchTool.search({
+      query: 'test query',
+      branch: '*',
+      includeScratchpad: false,
+    });
 
     expect(result.status).toBe('ok');
+    const filter = qdrantSearchMock.mock.calls[0]?.[1]?.filter;
+    const must = (filter?.must ?? []) as Array<Record<string, unknown>>;
+    expect(must.some((c) => c.key === 'branch')).toBe(false);
   });
 
   it('should include file_type filter when provided', async () => {

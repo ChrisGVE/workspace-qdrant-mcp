@@ -45,6 +45,7 @@ import {
   DEFAULT_EXPANSION_WEIGHT,
   DEFAULT_MAX_EXPANDED_KEYWORDS,
 } from './search-types.js';
+import { applyEffectiveBranch } from './branch-scope.js';
 
 import { determineCollections } from './search-filters.js';
 import { retrieveParent, collectionExists } from './search-qdrant.js';
@@ -157,6 +158,7 @@ export class SearchTool {
     searchStartMs: number;
     currentProjectId: string | undefined;
     basePoints: string[] | undefined;
+    effectiveBranch: string | undefined;
     basePointsDegraded: boolean;
     basePointsActiveCount: number | undefined;
   }> {
@@ -167,10 +169,14 @@ export class SearchTool {
       this.projectDetector,
       this._stateManager
     );
+    const effectiveBranch =
+      options.branch === undefined && scope === 'project'
+        ? resolution.currentBranch
+        : options.branch;
     logSearchEventPre(this._stateManager, eventId, resolution.currentProjectId, query, limit, {
       collection: options.collection,
       scope,
-      branch: options.branch,
+      branch: effectiveBranch,
       fileType: options.fileType,
       libraryName: options.libraryName,
       tag: options.tag,
@@ -180,6 +186,7 @@ export class SearchTool {
       searchStartMs,
       currentProjectId: resolution.currentProjectId,
       basePoints: resolution.basePoints,
+      effectiveBranch,
       basePointsDegraded: resolution.basePointsDegraded ?? false,
       basePointsActiveCount: resolution.basePointsActiveCount,
     };
@@ -231,6 +238,7 @@ export class SearchTool {
       searchStartMs,
       currentProjectId,
       basePoints,
+      effectiveBranch,
       basePointsDegraded,
       basePointsActiveCount,
     } = await this.resolveContextAndLog(
@@ -241,9 +249,10 @@ export class SearchTool {
       options.projectId,
       eventId
     );
+    const effectiveOptions = applyEffectiveBranch(options, effectiveBranch);
     const embeddings = await this.prepareEmbeddings(
-      options,
-      options.query,
+      effectiveOptions,
+      effectiveOptions.query,
       mode,
       collectionsToSearch,
       currentProjectId,
@@ -263,7 +272,7 @@ export class SearchTool {
       return embeddings.fallback;
     }
     return this.runSearchAndFinalize(
-      options,
+      effectiveOptions,
       mode,
       limit,
       scope,

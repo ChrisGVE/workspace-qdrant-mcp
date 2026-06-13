@@ -105,28 +105,14 @@ function extractOutputOptions(
   if (summary !== undefined) options.summary = summary;
 }
 
-/** Build search options from raw tool arguments.
- *
- * When `defaults.branch` is provided and the caller did NOT pass an explicit
- * `branch` argument, the default fills in. This lets the dispatcher inject
- * the current git branch so the agent sees branch-scoped results by default
- * without every caller having to detect and pass it. Pass `branch: "*"` from
- * the agent side to opt out (treated as "any branch" by the search layer).
- */
-export function buildSearchOptions(
-  args: Record<string, unknown> | undefined,
-  defaults?: { branch?: string | null }
-): SearchOptions {
+/** Build search options from raw tool arguments. */
+export function buildSearchOptions(args: Record<string, unknown> | undefined): SearchOptions {
   const options: SearchOptions = { query: (args?.['query'] as string) ?? '' };
 
   extractScopeOptions(args, options);
   extractIdentifierOptions(args, options);
   extractFilterOptions(args, options);
   extractOutputOptions(args, options);
-
-  if (options.branch === undefined && defaults?.branch) {
-    options.branch = defaults.branch;
-  }
 
   return options;
 }

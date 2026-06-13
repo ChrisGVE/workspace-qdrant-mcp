@@ -15,7 +15,6 @@ import type { QdrantClient } from '@qdrant/js-client-rest';
 import { getQdrantClient } from '../clients/qdrant-client-factory.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
-import { getEffectiveCwd } from '../utils/request-context.js';
 import { randomUUID } from 'node:crypto';
 import { utcNow } from '../utils/timestamps.js';
 import {
@@ -26,6 +25,7 @@ import {
   FIELD_TITLE,
 } from '../common/native-bridge.js';
 import { TENANT_GLOBAL } from '../constants/tenants.js';
+import { resolveProjectIdentity } from './branch-scope.js';
 
 export type ScratchpadAction = 'list' | 'update' | 'delete';
 
@@ -98,10 +98,8 @@ export class ScratchpadTool {
   private async resolveTenant(projectId: string | undefined): Promise<string> {
     if (projectId && projectId.trim()) return projectId.trim();
     try {
-      const info = await this.projectDetector.getProjectInfo(getEffectiveCwd(), false, {
-        fallbackToSoleProject: true,
-      });
-      if (info?.projectId) return info.projectId;
+      const identity = await resolveProjectIdentity(this.projectDetector, undefined);
+      if (identity.projectId) return identity.projectId;
     } catch {
       // fall through to global
     }
