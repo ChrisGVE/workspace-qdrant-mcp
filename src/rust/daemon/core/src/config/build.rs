@@ -16,9 +16,9 @@ use super::{
     AutoIngestionConfig, ConceptConfig, EmbeddingSettings, GitConfig, GrammarConfig,
     GraphRagConfig, IngestionLimitsConfig, KeywordEmbedderConfig, LoggingConfig, LspSettings,
     MetricsConfig, MonitoringConfig, NarrativeConfig, ObservabilityConfig, OtlpExportConfig,
-    OtlpProtocol, PrometheusExportConfig, QueueProcessorSettings, ResourceLimitsConfig,
-    StartupConfig, TelemetryConfig, TracingConfig, UpdateChannel, UpdatesConfig,
-    UrlIngestionConfig,
+    OtlpProtocol, PrometheusExportConfig, QueueHealthConfig, QueueProcessorSettings,
+    ResourceLimitsConfig, StartupConfig, TelemetryConfig, TracingConfig, UpdateChannel,
+    UpdatesConfig, UrlIngestionConfig,
 };
 use crate::storage::StorageConfig;
 
@@ -39,6 +39,7 @@ impl From<&YamlConfig> for DaemonConfig {
             monitoring: MonitoringConfig::default(),
             git: build_git_config(yaml),
             observability: build_observability_config(yaml),
+            queue_health: QueueHealthConfig::default(),
             embedding: build_embedding_settings(yaml),
             lsp: build_lsp_settings(yaml),
             grammars: build_grammar_config(yaml),

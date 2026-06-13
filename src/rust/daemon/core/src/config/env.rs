@@ -84,6 +84,31 @@ fn build_specs() -> Vec<EnvOverride<DaemonConfig>> {
                 c.observability.collection_interval = n;
             }
         }),
+        // ── Queue health (#133) ─────────────────────────────────────────────
+        EnvOverride::single(
+            var("QUEUE_HEALTH__REGRESSION_RATIO"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.queue_health.regression_ratio = n;
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("QUEUE_HEALTH__DRAIN_BUDGET_SECS"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.queue_health.drain_budget_secs = n;
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("QUEUE_HEALTH__DEBOUNCE_WINDOW"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.queue_health.debounce_window = n;
+                }
+            },
+        ),
         // ── Qdrant ──────────────────────────────────────────────────────────
         EnvOverride::single(var("QDRANT__URL"), |c: &mut DaemonConfig, val| {
             c.qdrant.url = val;
@@ -214,6 +239,12 @@ mod tests {
         let default_chunk = DaemonConfig::default().chunk_size;
         let cfg = apply(&[("WORKSPACE_QDRANT_CHUNK_SIZE", "not-a-number")]);
         assert_eq!(cfg.chunk_size, default_chunk, "invalid value keeps default");
+    }
+
+    #[test]
+    fn queue_health_regression_ratio_override() {
+        let cfg = apply(&[("WORKSPACE_QDRANT_QUEUE_HEALTH__REGRESSION_RATIO", "3.5")]);
+        assert_eq!(cfg.queue_health.regression_ratio, 3.5);
     }
 
     #[test]

@@ -14,8 +14,8 @@ use wqm_common::yaml_defaults::{self, YamlMountEntry};
 use super::{
     AutoIngestionConfig, ConceptConfig, EmbeddingSettings, GitConfig, GrammarConfig,
     GraphRagConfig, IngestionLimitsConfig, LoggingConfig, LspSettings, MonitoringConfig,
-    NarrativeConfig, ObservabilityConfig, QueueProcessorSettings, ResourceLimitsConfig,
-    StartupConfig, UpdatesConfig, UrlIngestionConfig,
+    NarrativeConfig, ObservabilityConfig, QueueHealthConfig, QueueProcessorSettings,
+    ResourceLimitsConfig, StartupConfig, UpdatesConfig, UrlIngestionConfig,
 };
 
 /// Daemon endpoint configuration for service discovery.
@@ -120,6 +120,9 @@ pub struct DaemonConfig {
     /// Observability configuration (metrics and telemetry)
     #[serde(default)]
     pub observability: ObservabilityConfig,
+    /// Queue-health monitoring thresholds (#133 `[queue_health]`)
+    #[serde(default)]
+    pub queue_health: QueueHealthConfig,
     /// Embedding generation configuration
     #[serde(default)]
     pub embedding: EmbeddingSettings,

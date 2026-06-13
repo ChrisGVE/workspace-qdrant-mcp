@@ -303,6 +303,39 @@ environment:
 
 **Note:** The `watching` section replaces the old `patterns`/`ignore_patterns` approach. The allowlist (`allowed_extensions` + `allowed_filenames`) is the primary ingestion gate. See the [File Type Allowlist](06-file-watching.md#file-type-allowlist) section for the complete categorized list and ingestion gate layering. The full default list is embedded at build time from `assets/default_configuration.yaml`.
 
+### Queue Health (`[queue_health]`)
+
+Thresholds for the functional queue-health verdict (#133). All fields are runtime-tunable; every field has a serde default, so an absent `[queue_health]` section uses the documented defaults. The struct is defined in `config/queue_health.rs` and validated as part of `DaemonConfig::validate()`.
+
+| Field | Default | Meaning | Validation |
+|-------|---------|---------|------------|
+| `fast_alpha` | `0.3` | Fast EWMA lane smoothing (≈ last ~20 items; perceptible-immediate window). | finite, in `(0,1]` |
+| `slow_alpha` | `0.01` | Slow EWMA lane / baseline (≈ last ~200 items). | finite, in `(0,1]` |
+| `regression_ratio` | `2.0` | fast/slow ratio above which ms/KB processing is regressing. | `> 1.0` |
+| `embedder_ratio` | `2.0` | fast/slow ratio above which embedder latency is regressing. | `> 1.0` |
+| `dlq_flat_band` | `0.05` | Relative band within which the DLQ-depth slope counts as flat (stuck). | — |
+| `debounce_window` | `5` | Consecutive per-metric verdicts; majority (3) flips state. | non-zero, **odd** |
+| `drain_budget_secs` | `86400` | Backlog draining slower than this (1 day) is "falling behind". | — |
+| `disk_low_bytes` | `1073741824` (1 GiB) | Absolute free-disk low-water mark. | — |
+| `disk_low_pct` | `0.05` | Relative free-disk low-water mark. | in `(0,1)` |
+| `min_item_bytes` | `256` | ms/KB size floor; known-size items below this are clamped so a tiny file cannot produce an outlier ms/KB. | non-zero |
+| `default_item_bytes` | `65536` (64 KiB) | Imputed item size when no pending row has a known size, so the all-NULL drain fallback never divides by zero. | non-zero |
+
+An even `debounce_window` is rejected (DOM-04): an even window has no majority on a tie, leaving the per-metric vote undefined. A degenerate `[queue_health]` therefore fails config load rather than being silently accepted.
+
+Example:
+
+```yaml
+queue_health:
+  fast_alpha: 0.3
+  slow_alpha: 0.01
+  regression_ratio: 2.0
+  drain_budget_secs: 86400
+  debounce_window: 5
+```
+
+Environment overrides (highest precedence): `WORKSPACE_QDRANT_QUEUE_HEALTH__REGRESSION_RATIO`, `WORKSPACE_QDRANT_QUEUE_HEALTH__DRAIN_BUDGET_SECS`, `WORKSPACE_QDRANT_QUEUE_HEALTH__DEBOUNCE_WINDOW`.
+
 ### Configuration Validation
 
 #### `DaemonConfig::validate()`
