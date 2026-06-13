@@ -139,6 +139,10 @@ async function main(): Promise<void> {
     : config.database.path;
 
   const stateManager = new SqliteStateManager({ dbPath: databasePath });
+  const stateInit = stateManager.initialize();
+  if (stateInit.status !== 'ok') {
+    console.warn(`SQLite state unavailable for benchmark: ${stateInit.reason ?? 'unknown'}`);
+  }
   const projectDetector = new ProjectDetector({ stateManager });
   const daemonClient = new DaemonClient({
     host: daemonHost,

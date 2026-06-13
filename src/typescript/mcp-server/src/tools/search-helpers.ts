@@ -324,6 +324,26 @@ function isDistinctiveIdentifier(token: string): boolean {
   return token.length >= 8 && /[a-z][A-Z]/.test(token);
 }
 
+function addConceptualSupplementalNeedles(query: string, needles: Set<string>): void {
+  const tokens = queryContentTokens(query);
+  const has = (token: string): boolean => tokens.includes(token);
+  const starts = (prefix: string): boolean => tokens.some((token) => token.startsWith(prefix));
+
+  if ((has('rrf') || (has('reciprocal') && has('rank') && has('fusion'))) && has('dense') && has('sparse')) {
+    needles.add('applyRRFFusion');
+    needles.add('search-qdrant.ts');
+  }
+  if (has('search') && has('branch') && starts('filter')) {
+    needles.add('search-filters.ts');
+  }
+  if (has('rules') && has('tenant') && (has('scope') || has('project'))) {
+    needles.add('tools/rules.ts');
+  }
+  if (has('queue') && has('throughput') && (has('metrics') || has('daemon') || starts('measur'))) {
+    needles.add('unified_queue_processor/metrics.rs');
+  }
+}
+
 export function extractSupplementalNeedles(query: string): string[] {
   const rawIdentifiers = query.match(/[A-Za-z_$][A-Za-z0-9_$]*(?:[._-][A-Za-z0-9_$]+)*/g) ?? [];
   const needles = new Set<string>();
@@ -334,6 +354,7 @@ export function extractSupplementalNeedles(query: string): string[] {
       needles.add(normalizeNeedle(token));
     }
   }
+  addConceptualSupplementalNeedles(query, needles);
 
   return unique(needles).slice(0, SUPPLEMENTAL_SYMBOL_LIMIT);
 }

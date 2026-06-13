@@ -84,4 +84,20 @@ describe('extractSupplementalNeedles', () => {
       'fastembed',
     ]);
   });
+
+  it('adds high-precision conceptual path hints for known search concepts', () => {
+    expect(extractSupplementalNeedles('reciprocal rank fusion dense sparse')).toEqual([
+      'applyRRFFusion',
+      'search-qdrant.ts',
+    ]);
+    expect(extractSupplementalNeedles('Where are search results filtered by git branch?')).toEqual([
+      'search-filters.ts',
+    ]);
+    expect(
+      extractSupplementalNeedles('Como as regras com escopo de projeto são filtradas por tenant?')
+    ).toEqual(['tools/rules.ts']);
+    expect(extractSupplementalNeedles('Where is queue throughput measured in the daemon?')).toEqual([
+      'unified_queue_processor/metrics.rs',
+    ]);
+  });
 });
