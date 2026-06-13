@@ -212,6 +212,13 @@ CREATE INDEX IF NOT EXISTS idx_unified_queue_pending_size
 - **qdrant_status / search_status:** Per-destination state machines enabling parallel execution. Qdrant and search DB execute independently with no ordering dependency between them.
 - **decision_json:** Stores the keep/delete decision (computed once during the decision phase) before execution. On retry, only the failed destination is re-executed using the stored decision — no re-analysis needed.
 - **size_bytes (v45):** Item payload size, populated at enqueue for file items (from the payload size, else a `std::fs::metadata` stat-fallback). NULL for non-file items (rules, folder scans) and for rows enqueued before v45 — no backfill. Drain-time backlog estimation sums pending bytes with `COALESCE(size_bytes, :avg_known)`, so NULL rows are average-imputed rather than counted as zero.
+
+**Drain-time pending-bytes estimation (two-step, poll-loop only):** the queue-health drain probe needs *pending bytes*, not item count. `QueueManager::get_pending_bytes_estimate(default_item_bytes)` computes it in two steps, executed on the **poll loop** (never the Health-RPC path — the RPC reads a cached snapshot):
+
+1. `avg_known = SELECT AVG(size_bytes) FROM unified_queue WHERE status='pending' AND size_bytes IS NOT NULL` — NULL when no pending row has a known size.
+2. `pending_bytes = SELECT SUM(COALESCE(size_bytes, :imputed)) FROM unified_queue WHERE status='pending'`, where `:imputed` is `avg_known` from step 1, or the configured `default_item_bytes` (`[queue_health]`, F6) when step 1 is NULL.
+
+This never divides by zero downstream and never silently reports zero backlog. The `idx_unified_queue_pending_size` partial index (v45) bounds the scan to pending rows with a known size. Caveat: immediately after a v45 upgrade every pre-existing pending row is NULL-size, so the estimate is fully average-imputed until the backlog rotates.
 - **lease_until/worker_id:** Enables crash recovery by detecting stale leases
 - **idempotency_key:** SHA256 hash of `item_type|op|tenant_id|collection|payload_json` - prevents duplicate processing even for content items without file paths
 - **priority (computed at dequeue):** Not stored in the queue — calculated at dequeue time via JOINs with `watch_folders.is_active`, enabling dynamic priority based on current project activity state

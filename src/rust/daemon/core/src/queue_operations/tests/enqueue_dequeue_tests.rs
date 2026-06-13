@@ -516,3 +516,80 @@ async fn test_enqueue_size_bytes_stat_fallback() {
         "stat-fallback records the on-disk file length when payload omits size"
     );
 }
+
+// --- #133 F1: drain-time pending-bytes estimate (two-step COALESCE) ---
+
+/// No pending rows -> 0 bytes (SUM over empty set is NULL -> 0).
+#[tokio::test]
+async fn test_pending_bytes_estimate_empty_is_zero() {
+    let temp_dir = tempdir().unwrap();
+    let manager = size_bytes_test_manager(&temp_dir.path().join("drain_empty.db")).await;
+    let bytes = manager.get_pending_bytes_estimate(65536).await.unwrap();
+    assert_eq!(bytes, 0, "no pending rows => 0 pending bytes");
+}
+
+/// Mixed known/NULL sizes: NULL rows are imputed with the AVG of known sizes.
+#[tokio::test]
+async fn test_pending_bytes_estimate_mixed_uses_avg_of_known() {
+    let temp_dir = tempdir().unwrap();
+    let manager = size_bytes_test_manager(&temp_dir.path().join("drain_mixed.db")).await;
+
+    // Two file items with known sizes (1000, 2000) -> avg_known = 1500.
+    for (i, sz) in [("a", 1000), ("b", 2000)] {
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Add,
+                "t",
+                "projects",
+                &format!(r#"{{"file_path":"/f/{i}.rs","size_bytes":{sz}}}"#),
+                Some("main"),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    // One non-file item -> NULL size, imputed with avg_known (1500).
+    manager
+        .enqueue_unified(
+            ItemType::Text,
+            UnifiedOp::Add,
+            "t",
+            "scratchpad",
+            r#"{"content":"note"}"#,
+            Some("main"),
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 1000 + 2000 + 1500 (imputed) = 4500. default_item_bytes is NOT used here.
+    let bytes = manager.get_pending_bytes_estimate(65536).await.unwrap();
+    assert_eq!(bytes, 4500, "NULL row imputed with AVG of known sizes");
+}
+
+/// All-NULL sizes: no known size exists, so default_item_bytes is imputed.
+#[tokio::test]
+async fn test_pending_bytes_estimate_all_null_uses_default() {
+    let temp_dir = tempdir().unwrap();
+    let manager = size_bytes_test_manager(&temp_dir.path().join("drain_allnull.db")).await;
+
+    // Two non-file items -> both NULL size, no known size at all.
+    for i in ["x", "y"] {
+        manager
+            .enqueue_unified(
+                ItemType::Text,
+                UnifiedOp::Add,
+                "t",
+                "scratchpad",
+                &format!(r#"{{"content":"note-{i}"}}"#),
+                Some("main"),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    // avg_known is NULL -> impute default_item_bytes (64) for each row: 64 + 64 = 128.
+    let bytes = manager.get_pending_bytes_estimate(64).await.unwrap();
+    assert_eq!(bytes, 128, "all-NULL backlog imputes default_item_bytes");
+}
