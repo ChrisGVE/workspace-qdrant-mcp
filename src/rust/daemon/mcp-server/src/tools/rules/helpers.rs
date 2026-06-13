@@ -230,5 +230,10 @@ pub fn mirror_to_rule_item(row: &RulesMirrorEntry) -> RuleItem {
         created_at: Some(row.created_at.clone()),
         updated_at: Some(row.updated_at.clone()),
         similarity: None,
+        owner: Some(
+            row.tenant_id
+                .clone()
+                .unwrap_or_else(|| TENANT_GLOBAL.to_string()),
+        ),
     }
 }

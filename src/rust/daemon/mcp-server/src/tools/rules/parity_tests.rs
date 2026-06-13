@@ -375,6 +375,42 @@ async fn fix1_list_prefers_qdrant_over_mirror_when_both_available() {
 }
 
 #[tokio::test]
+async fn list_items_carry_owner_field() {
+    // alkmimm #134 salvage: every listed rule reports its owning tenant
+    // (project tenant_id, or "global") so an unresolved list cannot silently
+    // span tenants. A point with an explicit tenant_id reports that id; a
+    // tenant-less global point reports "global".
+    let mut d = PaDaemon::ok_no_embed();
+    let mut project_payload = HashMap::new();
+    project_payload.insert(
+        "content".to_string(),
+        Value::String("proj rule".to_string()),
+    );
+    project_payload.insert("scope".to_string(), Value::String("project".to_string()));
+    project_payload.insert("tenant_id".to_string(), Value::String("proj-7".to_string()));
+    let project_pt = QdrantRetrievedPoint {
+        id: "p-1".to_string(),
+        payload: project_payload,
+    };
+    let q = PaQdrant::scroll_ok(vec![project_pt, qdrant_retrieved("g-1", "global rule")]);
+    let r = PaReader::empty();
+    let input = RulesInput::from_args(&args(json!({ "action": "list" }))).unwrap();
+    let res = rules_tool(input, &mut d, &r, &q, None, None).await;
+    let j = get_json(&res);
+    let rules = j["rules"].as_array().unwrap();
+    assert_eq!(
+        rules[0]["owner"],
+        json!("proj-7"),
+        "project rule owner = tenant id"
+    );
+    assert_eq!(
+        rules[1]["owner"],
+        json!("global"),
+        "tenant-less rule owner = global"
+    );
+}
+
+#[tokio::test]
 async fn fix1_list_field_order_qdrant_success() {
     // success → action → rules → message
     let mut d = PaDaemon::ok_no_embed();

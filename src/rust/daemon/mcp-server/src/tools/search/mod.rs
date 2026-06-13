@@ -252,7 +252,10 @@ fn detect_project_id_from_cwd(
         .client_cwd
         .clone()
         .or_else(|| std::env::current_dir().ok())?;
-    resolve_cwd_project_id_locked(&cwd, state)
+    // Fold a Windows-host WSL UNC cwd to the POSIX path the daemon registered
+    // before the longest-prefix lookup; a no-op for native paths (#134 salvage).
+    let folded = wqm_common::paths::canonicalize_host_path(&cwd.to_string_lossy());
+    resolve_cwd_project_id_locked(std::path::Path::new(&folded), state)
 }
 
 /// Resolve a tenant id for `cwd` by longest-prefix `watch_folders` match.

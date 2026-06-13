@@ -197,6 +197,14 @@ pub struct RuleItem {
     /// (rules.ts:153)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub similarity: Option<f64>,
+    /// Owning tenant of the rule — the project `tenant_id`, or `"global"`.
+    ///
+    /// Present only on `list` results (salvaged from alkmimm PR #134): an
+    /// unresolved project-scope list can span tenants, so each row says who owns
+    /// it instead of leaving that implicit. Emitted last to preserve the
+    /// TS-mirrored field order of the other keys; absent on `similar_rules`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 /// Rules tool response — mirrors TS `RuleResponse` (rules-types.ts:38-47).

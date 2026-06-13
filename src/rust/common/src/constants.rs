@@ -29,6 +29,25 @@ pub const TENANT_GLOBAL: &str = "global";
 /// 512-dimensional vectors (CLIP ViT-B-32), dense-only (no sparse)
 pub const COLLECTION_IMAGES: &str = "images";
 
+/// Payload keys the daemon injects on every chunk purely as retrieval/ranking
+/// aids — never meant for a reading agent to consume.
+///
+/// The daemon's keyword pipeline writes these in
+/// `daemon/core/src/strategies/processing/file/keyword_extract.rs` (the producer
+/// uses these very constants for the insert keys, so this list cannot drift from
+/// what is written). Each chunk carries ~1.5–2k tokens of them; returning them to
+/// an agent on every search/retrieve hit is pure token waste. The MCP read paths
+/// (default-mode search in `wqm-client` and the `retrieve` tool) strip these keys
+/// before handing results back.
+///
+/// Salvaged from alkmimm PR #134 (`5e7497759` item 2 / `common/payload-noise.ts`).
+pub const RANKING_AID_KEYS: &[&str] = &[
+    "keywords",
+    "concept_tags",
+    "structural_tags",
+    "keyword_baskets",
+];
+
 /// Default Qdrant server URL
 pub const DEFAULT_QDRANT_URL: &str = "http://localhost:6333";
 

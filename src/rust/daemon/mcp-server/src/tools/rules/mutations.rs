@@ -20,7 +20,7 @@ use crate::tools::envelope::{error_text, ok_text};
 use super::helpers::{
     build_add_metadata, build_update_metadata, queue_rule_op, resolve_tenant, upsert_mirror,
 };
-use super::list::find_similar_rules;
+use super::list::{build_duplicate_scope_filter, find_similar_rules, FIELD_CONTENT};
 use super::traits::{RulesDaemon, RulesQdrant};
 use super::types::{RulesInput, RulesResponse};
 
@@ -28,6 +28,72 @@ use super::types::{RulesInput, RulesResponse};
 // add_rule — mirrors `persistAddRule` in rules-mutation-helpers.ts:177-218
 //            with dup-check prepended from rules.ts:68-93
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Cap on rules scanned for an exact-content match. Rules collections hold
+/// behavioral rules (small by nature); this covers any realistic scope without
+/// paging. If a scope ever exceeds it, the worst case is a missed idempotency
+/// short-circuit (the fuzzy gate still catches the near-duplicate) — never a
+/// wrong result.
+const EXACT_SCAN_LIMIT: u32 = 1000;
+
+/// Read-side exact-content idempotency check (alkmimm PR #134, `5e7497759`).
+///
+/// If a rule with byte-identical trimmed content already exists in the same
+/// scope/tenant, return a success no-op WITHOUT enqueuing any write — a
+/// re-added identical rule is a no-op, not a new row or a refusal. Runs before
+/// the fuzzy similarity gate and regardless of `force`, since there is
+/// genuinely nothing to add. Deterministic and fail-open: any scroll error
+/// returns `None`, allowing the add to proceed.
+async fn add_exact_duplicate<Q>(
+    input: &RulesInput,
+    qdrant: &Q,
+    content: &str,
+    session_project_id: Option<&str>,
+) -> Option<CallToolResult>
+where
+    Q: RulesQdrant,
+{
+    let scope = input.scope.as_str();
+    let project_id = input
+        .project_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or(session_project_id);
+    let filter = build_duplicate_scope_filter(scope, project_id);
+
+    let points = match qdrant.scroll_rules(filter, EXACT_SCAN_LIMIT).await {
+        Ok(p) => p,
+        Err(_) => return None, // fail-open: a scroll failure must not block adds
+    };
+
+    let target = content.trim();
+    let existing = points.into_iter().find(|pt| {
+        pt.payload
+            .get(FIELD_CONTENT)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            == Some(target)
+    })?;
+
+    let label = existing
+        .payload
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Some(ok_text(&RulesResponse {
+        success: true,
+        action: "add".to_string(),
+        label,
+        rules: None,
+        similar_rules: None,
+        message: Some(format!(
+            "Identical rule already exists (id {}); no change made.",
+            existing.id
+        )),
+        fallback_mode: None,
+        queue_id: None,
+    }))
+}
 
 /// Run the duplicate-detection step. Returns `Some(refusal)` when ≥1 similar
 /// rule is found (the add must NOT proceed), `None` to allow the add. Mirrors
@@ -101,7 +167,14 @@ where
         }
     };
 
-    // 2. Dup-check BEFORE label/tenant checks — rules.ts:71-91 runs this at
+    // 2a. Exact-content idempotency (alkmimm #134): a byte-identical rule in the
+    //     same scope/tenant is a no-op, not a new row — checked before the fuzzy
+    //     gate and regardless of `force`, since there is nothing to add.
+    if let Some(noop) = add_exact_duplicate(&input, qdrant, content, session_project_id).await {
+        return noop;
+    }
+
+    // 2b. Dup-check BEFORE label/tenant checks — rules.ts:71-91 runs this at
     //    the execute() level before delegating to addRule (rules-mutations.ts).
     //    Scope uses the raw input scope so an unresolvable-project add with
     //    duplicates still returns the dup-refusal.

@@ -200,6 +200,40 @@ async fn by_id_metadata_excludes_content_and_vectors() {
     assert!(meta.contains_key("source_file"));
 }
 
+#[tokio::test]
+async fn by_id_metadata_excludes_ranking_aid_keys() {
+    // Ranking-aid keys (alkmimm #134 salvage) must be stripped from retrieve
+    // metadata — they are internal retrieval scaffolding, never for the agent.
+    let mut point = make_point("doc-1", "body", "proj-a");
+    for key in wqm_common::constants::RANKING_AID_KEYS {
+        point
+            .payload
+            .insert((*key).to_string(), Value::String("noise".to_string()));
+    }
+    let qdrant = StubQdrant {
+        points: vec![point],
+        ..Default::default()
+    };
+    let input = RetrieveInput {
+        document_id: Some("doc-1".to_string()),
+        collection: "projects".to_string(),
+        project_id: Some("proj-a".to_string()),
+        limit: 10,
+        ..Default::default()
+    };
+    let r = retrieve_tool(input, &qdrant, None).await;
+    let resp = parse_response(&r);
+    let meta = resp.documents[0].metadata.as_object().unwrap();
+    for key in wqm_common::constants::RANKING_AID_KEYS {
+        assert!(
+            !meta.contains_key(*key),
+            "ranking-aid key {key:?} must be stripped from retrieve metadata"
+        );
+    }
+    // A normal payload field still passes through.
+    assert!(meta.contains_key("source_file"));
+}
+
 // ---------------------------------------------------------------------------
 // by-id: ownership check (F-002)
 // ---------------------------------------------------------------------------

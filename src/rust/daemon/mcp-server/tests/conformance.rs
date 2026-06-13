@@ -398,7 +398,7 @@ async fn retrieve_unresolved_scope_projects() {
     // collection=projects, no project_id → unresolved tenant response
     let mut args = serde_json::Map::new();
     args.insert("collection".to_string(), json!("projects"));
-    let input = RetrieveInput::from_args(&args);
+    let input = RetrieveInput::from_args(&args).expect("known args");
     let qdrant = RetrieveNotFound;
     let result = retrieve_tool(input, &qdrant, None).await;
     let actual: Value = serde_json::from_str(content_text(&result)).expect("valid json");
@@ -414,7 +414,7 @@ async fn retrieve_unresolved_scope_scratchpad() {
     let golden = load_golden("retrieve/unresolved_scope_scratchpad");
     let mut args = serde_json::Map::new();
     args.insert("collection".to_string(), json!("scratchpad"));
-    let input = RetrieveInput::from_args(&args);
+    let input = RetrieveInput::from_args(&args).expect("known args");
     let qdrant = RetrieveNotFound;
     let result = retrieve_tool(input, &qdrant, None).await;
     let actual: Value = serde_json::from_str(content_text(&result)).expect("valid json");
