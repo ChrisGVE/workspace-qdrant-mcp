@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { symbolNamedInQuery } from '../../src/tools/search-helpers.js';
+import { extractSupplementalNeedles, symbolNamedInQuery } from '../../src/tools/search-helpers.js';
 
 /** Mirror of the query-side tokenization relevant here (camelCase + _ split). */
 function tokens(query: string): Set<string> {
@@ -56,5 +56,32 @@ describe('symbolNamedInQuery', () => {
 
   it('never matches an empty symbol', () => {
     expect(symbolNamedInQuery(tokens('anything at all'), '')).toBe(false);
+  });
+});
+
+describe('extractSupplementalNeedles', () => {
+  it('extracts explicit distinctive code identifiers for supplemental lookup', () => {
+    expect(extractSupplementalNeedles('applyRRFFusion implementation')).toEqual([
+      'applyRRFFusion',
+      'applyrrffusion',
+    ]);
+    expect(extractSupplementalNeedles('SPARSE_ONLY_WEIGHT sparse-only demotion')).toEqual([
+      'SPARSE_ONLY_WEIGHT',
+      'sparse-only-weight',
+    ]);
+    expect(extractSupplementalNeedles('recover_stale_unified_leases startup recovery')).toEqual([
+      'recover_stale_unified_leases',
+      'recover-stale-unified-leases',
+    ]);
+  });
+
+  it('does not trigger on common acronyms in natural-language queries', () => {
+    expect(extractSupplementalNeedles('How does the MCP server resolve project scope?')).toEqual([]);
+    expect(extractSupplementalNeedles('Where is the BM25 tokenizer implemented?')).toEqual([]);
+    expect(extractSupplementalNeedles('Where is the FTS5 exact query built?')).toEqual([]);
+    expect(extractSupplementalNeedles('Where does the daemon use FastEmbed ONNX?')).toEqual([
+      'FastEmbed',
+      'fastembed',
+    ]);
   });
 });

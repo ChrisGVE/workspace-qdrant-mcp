@@ -79,6 +79,9 @@ pub const CREATE_QDRANT_CHUNKS_INDEXES_SQL: &[&str] = &[
     // Index for file's chunks
     r#"CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_file
        ON qdrant_chunks(file_id)"#,
+    // Index for supplemental symbol lookups
+    r#"CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_symbol
+       ON qdrant_chunks(symbol_name)"#,
 ];
 
 // ---------------------------------------------------------------------------

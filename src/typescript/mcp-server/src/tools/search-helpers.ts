@@ -290,6 +290,7 @@ export async function generateEmbeddings(
 }
 
 export interface SearchAllCollectionsParams {
+  stateManager: SqliteStateManager;
   collectionsToSearch: string[];
   scope: SearchScope;
   currentProjectId: string | undefined;
@@ -305,6 +306,85 @@ export interface SearchAllCollectionsParams {
   sparseVector: Record<number, number> | undefined;
   limit: number;
   scoreThreshold: number;
+}
+
+const SUPPLEMENTAL_SYMBOL_LIMIT = 8;
+const SUPPLEMENTAL_SYMBOL_SCORE = 1.2;
+
+function unique(values: Iterable<string>): string[] {
+  return Array.from(new Set(Array.from(values).filter(Boolean)));
+}
+
+function normalizeNeedle(value: string): string {
+  return value.trim().replace(/[_\s]+/g, '-').replace(/-+/g, '-').toLowerCase();
+}
+
+function isDistinctiveIdentifier(token: string): boolean {
+  if (token.includes('_')) return true;
+  return token.length >= 8 && /[a-z][A-Z]/.test(token);
+}
+
+export function extractSupplementalNeedles(query: string): string[] {
+  const rawIdentifiers = query.match(/[A-Za-z_$][A-Za-z0-9_$]*(?:[._-][A-Za-z0-9_$]+)*/g) ?? [];
+  const needles = new Set<string>();
+  for (const token of rawIdentifiers) {
+    if (token.length < 4) continue;
+    if (isDistinctiveIdentifier(token)) {
+      needles.add(token);
+      needles.add(normalizeNeedle(token));
+    }
+  }
+
+  return unique(needles).slice(0, SUPPLEMENTAL_SYMBOL_LIMIT);
+}
+
+function qdrantPointId(pointId: string): string {
+  if (/^[0-9a-f]{32}$/i.test(pointId)) {
+    return `${pointId.slice(0, 8)}-${pointId.slice(8, 12)}-${pointId.slice(12, 16)}-${pointId.slice(16, 20)}-${pointId.slice(20)}`;
+  }
+  return pointId;
+}
+
+async function searchSupplementalSymbolCandidates(
+  qdrantClient: QdrantClient,
+  coll: string,
+  params: SearchAllCollectionsParams
+): Promise<SearchResult[]> {
+  if (process.env['WQM_SUPPLEMENTAL_SYMBOLS'] === '0') return [];
+  if (coll !== PROJECTS_COLLECTION || !params.currentProjectId) return [];
+  const needles = extractSupplementalNeedles(params.options.query);
+  if (needles.length === 0) return [];
+  if (!params.stateManager.isConnected()) return [];
+  const watchFolderId = params.stateManager.getWatchFolderIdByTenantId(params.currentProjectId);
+  if (!watchFolderId) return [];
+
+  const candidates = params.stateManager.listChunkCandidates({
+    watchFolderId,
+    needles,
+    ...(params.fileType ? { fileType: params.fileType } : {}),
+    limit: SUPPLEMENTAL_SYMBOL_LIMIT,
+  });
+  if (candidates.data.length === 0) return [];
+
+  try {
+    const points = await qdrantClient.retrieve(coll, {
+      ids: candidates.data.map((candidate) => qdrantPointId(candidate.pointId)),
+      with_payload: true,
+    });
+    return points.map((point, index) => ({
+      id: String(point.id),
+      score: SUPPLEMENTAL_SYMBOL_SCORE - index * 0.001,
+      collection: coll,
+      content: (point.payload?.['content'] as string) ?? '',
+      metadata: {
+        ...point.payload,
+        _search_type: 'keyword',
+        _supplemental_symbol_match: true,
+      },
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** Build SearchCollectionParams for one collection in a fan-out search. */
@@ -358,6 +438,7 @@ export async function searchAllCollections(
       allResults.push(
         ...(await searchCollection(qdrantClient, buildCollectionSearchParams(coll, params)))
       );
+      allResults.push(...(await searchSupplementalSymbolCandidates(qdrantClient, coll, params)));
     } catch (error) {
       status = 'uncertain';
       statusReason = `Some collections unavailable: ${error instanceof Error ? error.message : 'unknown'}`;
@@ -531,6 +612,29 @@ const PATH_BOOST_STOPWORDS = new Set([
   'using',
   'into',
   'across',
+  'ao',
+  'aos',
+  'com',
+  'como',
+  'da',
+  'das',
+  'de',
+  'dos',
+  'e',
+  'em',
+  'na',
+  'nas',
+  'no',
+  'nos',
+  'o',
+  'onde',
+  'os',
+  'para',
+  'por',
+  'qual',
+  'quais',
+  'que',
+  'sao',
 ]);
 
 /** Multiplicative weight for the path-relevance re-rank. A result whose file
@@ -547,15 +651,60 @@ const PATH_BOOST_ALPHA = tuningFromEnv('WQM_PATH_BOOST_ALPHA', 0.8);
  * underscores, dashes, dots, and camelCase humps all break tokens). */
 function toTokens(text: string): string[] {
   return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 }
 
+const QUERY_TOKEN_SYNONYMS: Record<string, readonly string[]> = {
+  arquivo: ['file'],
+  arquivos: ['file'],
+  arvore: ['tree'],
+  busca: ['search'],
+  chave: ['key'],
+  chunks: ['chunk'],
+  codigo: ['code'],
+  colecoes: ['collections'],
+  colecao: ['collection'],
+  combina: ['combine'],
+  combinados: ['combine'],
+  densos: ['dense'],
+  deteccao: ['detect'],
+  detecta: ['detect'],
+  dividido: ['split'],
+  escopo: ['scope'],
+  esparsos: ['sparse'],
+  falharam: ['failed'],
+  fila: ['queue'],
+  filtradas: ['filter'],
+  filtrados: ['filter'],
+  hibrida: ['hybrid'],
+  hibrido: ['hybrid'],
+  idempotencia: ['idempotency'],
+  ignorar: ['ignore'],
+  ignorados: ['ignore'],
+  indexacao: ['indexing'],
+  itens: ['items'],
+  mudanca: ['change'],
+  pastas: ['folders'],
+  pontos: ['points'],
+  projeto: ['project'],
+  regras: ['rules'],
+  resultados: ['results'],
+  semanticos: ['semantic'],
+};
+
 /** Content words from the query, used as the path-relevance signal. */
 function queryContentTokens(query: string): string[] {
-  return [...new Set(toTokens(query).filter((t) => t.length >= 3 && !PATH_BOOST_STOPWORDS.has(t)))];
+  const tokens = toTokens(query).filter((t) => t.length >= 3 && !PATH_BOOST_STOPWORDS.has(t));
+  const expanded: string[] = [];
+  for (const token of tokens) {
+    expanded.push(token, ...(QUERY_TOKEN_SYNONYMS[token] ?? []));
+  }
+  return [...new Set(expanded)];
 }
 
 /** Fraction of query content-words whose stem appears in the result's file

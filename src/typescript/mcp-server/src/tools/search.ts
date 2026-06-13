@@ -301,6 +301,7 @@ export class SearchTool {
   ) {
     const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
     return searchAllCollections(this.qdrantClient, {
+      stateManager: this.stateManager,
       collectionsToSearch,
       scope,
       currentProjectId,

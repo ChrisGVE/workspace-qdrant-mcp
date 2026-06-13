@@ -164,7 +164,8 @@ pub(super) fn create_recovery_indexes(conn: &rusqlite::Connection) -> Result<()>
          CREATE INDEX IF NOT EXISTS idx_tracked_files_path ON tracked_files(file_path);
          CREATE INDEX IF NOT EXISTS idx_tracked_files_base_point ON tracked_files(base_point);
          CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_point ON qdrant_chunks(point_id);
-         CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_file ON qdrant_chunks(file_id);",
+         CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_file ON qdrant_chunks(file_id);
+         CREATE INDEX IF NOT EXISTS idx_qdrant_chunks_symbol ON qdrant_chunks(symbol_name);",
     )
     .context("Failed to create indexes")
 }

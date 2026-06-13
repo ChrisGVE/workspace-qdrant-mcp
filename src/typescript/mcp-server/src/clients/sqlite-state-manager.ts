@@ -65,9 +65,11 @@ export type { SearchEventInput, SearchEventUpdate } from './search-event-queries
 export type { RulesMirrorEntry } from './rules-mirror-queries.js';
 export type {
   TrackedFileEntry,
+  ChunkCandidateEntry,
   SubmoduleEntry,
   ComponentEntry,
   ListTrackedFilesOptions,
+  ListChunkCandidatesOptions,
 } from './tracked-files-queries/index.js';
 
 const DEFAULT_DB_PATH = getDatabasePath();
@@ -291,6 +293,10 @@ export class SqliteStateManager {
 
   countTrackedFiles(options: Omit<trackedFilesQueries.ListTrackedFilesOptions, 'limit'>) {
     return trackedFilesQueries.countTrackedFiles(this.db, options);
+  }
+
+  listChunkCandidates(options: trackedFilesQueries.ListChunkCandidatesOptions) {
+    return trackedFilesQueries.listChunkCandidates(this.db, options);
   }
 
   listSubmodules(watchFolderId: string) {

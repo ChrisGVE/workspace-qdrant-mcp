@@ -104,7 +104,7 @@ fn test_qdrant_chunks_sql_is_valid() {
 
 #[test]
 fn test_qdrant_chunks_indexes_sql() {
-    assert_eq!(CREATE_QDRANT_CHUNKS_INDEXES_SQL.len(), 2);
+    assert_eq!(CREATE_QDRANT_CHUNKS_INDEXES_SQL.len(), 3);
     for idx_sql in CREATE_QDRANT_CHUNKS_INDEXES_SQL {
         assert!(idx_sql.contains("CREATE INDEX"));
         assert!(idx_sql.contains("qdrant_chunks"));
@@ -112,6 +112,7 @@ fn test_qdrant_chunks_indexes_sql() {
     let all_sql = CREATE_QDRANT_CHUNKS_INDEXES_SQL.join(" ");
     assert!(all_sql.contains("idx_qdrant_chunks_point"));
     assert!(all_sql.contains("idx_qdrant_chunks_file"));
+    assert!(all_sql.contains("idx_qdrant_chunks_symbol"));
 }
 
 #[test]
