@@ -45,6 +45,100 @@ function Escape-TomlString([string]$Value) {
   return ($safe -replace '"', '\"')
 }
 
+function Escape-TomlLiteralKey([string]$Value) {
+  if ($Value -match "'") {
+    throw "TOML literal project keys do not support single quotes: $Value"
+  }
+  return $Value
+}
+
+function Escape-TomlBasicKey([string]$Value) {
+  return $Value.Replace('\', '\\').Replace('"', '\"')
+}
+
+function Add-UniquePath([System.Collections.Generic.List[string]]$Paths, [string]$PathValue) {
+  if (-not $PathValue) { return }
+  foreach ($existing in $Paths) {
+    if ($existing -eq $PathValue) { return }
+  }
+  $Paths.Add($PathValue) | Out-Null
+}
+
+function Convert-WslUncToPosix([string]$PathValue) {
+  if (-not $PathValue) { return $null }
+  $plain = $PathValue
+  if ($plain.StartsWith("\\?\UNC\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $plain = "\\" + $plain.Substring(8)
+  }
+  if ($plain -notmatch '^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)\\(.+)$') {
+    return $null
+  }
+
+  $relative = $Matches[2] -replace "\\", "/"
+  return "/" + $relative.TrimStart("/")
+}
+
+function Get-CodexProjectTrustPaths([string]$PathValue) {
+  $paths = [System.Collections.Generic.List[string]]::new()
+  $resolved = Resolve-Path -LiteralPath $PathValue -ErrorAction SilentlyContinue
+  $rawPath = if ($resolved) {
+    if ($resolved.ProviderPath) { $resolved.ProviderPath } else { $resolved.Path }
+  } else {
+    $PathValue
+  }
+  if ($rawPath -match '^Microsoft\.PowerShell\.Core\\FileSystem::(.+)$') {
+    $rawPath = $Matches[1]
+  }
+
+  $abs = if ($rawPath.StartsWith("\\", [System.StringComparison]::Ordinal)) {
+    $rawPath
+  } else {
+    [System.IO.Path]::GetFullPath($rawPath)
+  }
+
+  Add-UniquePath $paths $abs
+
+  if ($abs.StartsWith("\\?\UNC\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    Add-UniquePath $paths ("\\" + $abs.Substring(8))
+  } elseif ($abs.StartsWith("\\", [System.StringComparison]::Ordinal)) {
+    Add-UniquePath $paths ("\\?\UNC\" + $abs.Substring(2))
+  }
+
+  $posix = Convert-WslUncToPosix $abs
+  if ($posix) {
+    Add-UniquePath $paths $posix
+  }
+
+  return @($paths)
+}
+
+function New-CodexProjectTrustBlock([string[]]$ProjectPaths) {
+  if (-not $ProjectPaths -or $ProjectPaths.Count -eq 0) { return "" }
+
+  $items = $ProjectPaths | ForEach-Object {
+@"
+[projects.'$(Escape-TomlLiteralKey $_)']
+trust_level = "trusted"
+"@
+  }
+
+  return (($items -join "`r`n`r`n") + "`r`n`r`n")
+}
+
+function Remove-CodexProjectTrustTables([string]$Config, [string[]]$ProjectPaths) {
+  $clean = $Config
+  foreach ($path in $ProjectPaths) {
+    $literalPath = [regex]::Escape((Escape-TomlLiteralKey $path))
+    $literalPattern = "(?ms)^\[projects\.'$literalPath'\]\s*\r?\ntrust_level\s*=\s*""trusted""\s*(?=^\[|\z)"
+    $clean = [regex]::Replace($clean, $literalPattern, "")
+
+    $basicPath = [regex]::Escape((Escape-TomlBasicKey $path))
+    $basicPattern = "(?ms)^\[projects\.""$basicPath""\]\s*\r?\ntrust_level\s*=\s*""trusted""\s*(?=^\[|\z)"
+    $clean = [regex]::Replace($clean, $basicPattern, "")
+  }
+  return $clean
+}
+
 function Resolve-McpRemoteProxyPath {
   if ($ClaudeMcpRemotePath) {
     if (-not (Test-Path -LiteralPath $ClaudeMcpRemotePath)) {
@@ -155,6 +249,8 @@ $qdrantToml = Escape-TomlString $QdrantUrl
 $daemonToml = Escape-TomlString $DaemonEndpoint
 $codexHttpToml = Escape-TomlString $CodexHttpUrl
 $codexBearerTokenEnvVarToml = Escape-TomlString $CodexBearerTokenEnvVar
+$codexProjectTrustPaths = @(Get-CodexProjectTrustPaths $RepoDir)
+$codexProjectTrustBlock = New-CodexProjectTrustBlock $codexProjectTrustPaths
 
 if ($ClaudeTransport -eq "http") {
   $claudeTokenEnv = [Environment]::GetEnvironmentVariable($ClaudeBearerTokenEnvVar)
@@ -188,7 +284,7 @@ if ($CodexTransport -eq "http") {
 $codexBlock = if ($CodexTransport -eq "http") {
 @"
 # BEGIN workspace-qdrant-fork-kit
-[mcp_servers.$ServerName]
+$codexProjectTrustBlock[mcp_servers.$ServerName]
 url = "$codexHttpToml"
 bearer_token_env_var = "$codexBearerTokenEnvVarToml"
 startup_timeout_sec = $codexStartupTimeoutSec
@@ -201,7 +297,7 @@ enabled_tools = [$toolsToml]
 } else {
 @"
 # BEGIN workspace-qdrant-fork-kit
-[mcp_servers.$ServerName]
+$codexProjectTrustBlock[mcp_servers.$ServerName]
 command = "node"
 args = ["$idxToml"]
 startup_timeout_sec = $codexStartupTimeoutSec
@@ -256,6 +352,7 @@ if ($ApplyCodex) {
   }
   $pattern = "(?s)# BEGIN workspace-qdrant-fork-kit.*?# END workspace-qdrant-fork-kit\s*"
   $clean = [regex]::Replace($existing, $pattern, "")
+  $clean = Remove-CodexProjectTrustTables $clean $codexProjectTrustPaths
   Write-Utf8NoBomFile $CodexConfigPath ($clean.TrimEnd() + "`r`n`r`n" + $codexBlock.TrimEnd() + "`r`n")
   Write-Host "Aplicado Codex config: $CodexConfigPath"
 }

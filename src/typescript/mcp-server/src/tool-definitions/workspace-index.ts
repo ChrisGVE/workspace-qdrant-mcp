@@ -46,7 +46,7 @@ export const workspaceIndexToolDefinition = {
       projectId: {
         type: 'string',
         description:
-          'Project tenant ID from workspace-qdrant. Also accepted inside payload; use projectName when only the logical registry name is known.',
+          'Project tenant ID from workspace-qdrant. Also accepted inside payload. For project_status/indexing_status, omit it to resolve from cwd/repoDir/projectPath.',
       },
       projectPath: {
         type: 'string',
@@ -95,7 +95,12 @@ export const workspaceIndexToolDefinition = {
       repoDir: {
         type: 'string',
         description:
-          'For PowerShell-backed actions: path to the workspace-qdrant-mcp repo (defaults to WQM_REPO_DIR or process.cwd()). For sync_current_branch: absolute path to the target repo whose branch is being synced (required).',
+          'Path to the workspace-qdrant-mcp repo for registry-backed actions. Also used by project_status/indexing_status to resolve the current project when projectId is omitted. For sync_current_branch: absolute path to the target repo whose branch is being synced (required).',
+      },
+      cwd: {
+        type: 'string',
+        description:
+          'Caller working directory used by project_status/indexing_status when projectId is omitted and the transport cannot provide host cwd metadata.',
       },
       currentBranch: {
         type: 'string',
@@ -129,7 +134,7 @@ export const workspaceIndexToolDefinition = {
       payload: {
         type: 'object',
         description:
-          'Optional action-specific arguments. Top-level arguments take precedence; payload may contain projectId, branch, worktree, baseBranch, returnBranch, useWorktree, purpose, createdBy, projectName, projectPath, worktreePath, worktreeRoot, or repoDir.',
+          'Optional action-specific arguments. Top-level arguments take precedence; payload may contain projectId, branch, worktree, baseBranch, returnBranch, useWorktree, purpose, createdBy, projectName, projectPath, cwd, worktreePath, worktreeRoot, or repoDir.',
         additionalProperties: true,
       },
     },

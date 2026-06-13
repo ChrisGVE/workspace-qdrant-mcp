@@ -1,4 +1,13 @@
 # BEGIN workspace-qdrant-fork-kit
+[projects.'\\wsl.localhost\Ubuntu-24.04\home\alkmimm\respositorios\workspace-qdrant-mcp']
+trust_level = "trusted"
+
+[projects.'\\?\UNC\wsl.localhost\Ubuntu-24.04\home\alkmimm\respositorios\workspace-qdrant-mcp']
+trust_level = "trusted"
+
+[projects.'/home/alkmimm/respositorios/workspace-qdrant-mcp']
+trust_level = "trusted"
+
 [mcp_servers.workspace-qdrant]
 url = "http://localhost:6335/mcp"
 bearer_token_env_var = "MCP_HTTP_TOKEN"

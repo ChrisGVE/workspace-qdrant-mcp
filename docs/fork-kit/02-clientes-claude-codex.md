@@ -70,6 +70,9 @@ Depois de alterar, reinicie o Claude Desktop.
 Codex usa `config.toml`. Exemplo:
 
 ```toml
+[projects.'\\wsl.localhost\Ubuntu-24.04\home\alkmimm\respositorios\workspace-qdrant-mcp']
+trust_level = "trusted"
+
 [mcp_servers.workspace-qdrant]
 url = "http://localhost:6335/mcp"
 bearer_token_env_var = "MCP_HTTP_TOKEN"
@@ -78,6 +81,11 @@ tool_timeout_sec = 120
 required = true
 enabled_tools = ["search", "retrieve", "grep", "list", "store", "rules", "workspace_index", "graph"]
 ```
+
+No Windows/WSL, o `apply-config` também registra o projeto como trusted nas
+formas de caminho que o Codex pode receber (`\\wsl.localhost\...`, `\\?\UNC\...`
+e `/home/...`). Sem isso, o MCP pode aparecer configurado, mas o Codex pode
+ignorar camadas locais do projeto por não reconhecer o caminho como confiável.
 
 Use o mesmo valor de `MCP_HTTP_TOKEN` que você colocou em `docker/.env` para o stack Docker.
 No Windows, deixe `MCP_HTTP_TOKEN` disponível no ambiente antes de abrir o Codex, ou inicie o Codex a partir de um shell onde esse env var já esteja exportado.

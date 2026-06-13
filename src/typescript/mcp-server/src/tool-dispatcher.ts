@@ -96,7 +96,7 @@ async function routeTool(
     case 'embedding':
       return handleEmbedding(args, daemonClient);
     case 'workspace_index':
-      return handleWorkspaceIndex(args, daemonClient);
+      return handleWorkspaceIndex(args, daemonClient, projectDetector);
     case 'graph':
       return handleGraph(args, daemonClient, projectDetector);
     case 'search_eval':

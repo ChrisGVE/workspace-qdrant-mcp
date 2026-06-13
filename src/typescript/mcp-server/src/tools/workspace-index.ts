@@ -14,6 +14,8 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { DaemonClient } from './../clients/daemon-client.js';
+import type { ProjectDetector } from './../utils/project-detector.js';
+import { getEffectiveCwd } from './../utils/request-context.js';
 import { startGitHookTimer } from './../telemetry/metrics.js';
 import { getGitState } from './../utils/git-utils.js';
 import {
@@ -320,40 +322,66 @@ function formatEtaSeconds(seconds: number): string {
  * pending/in_progress/failed/done/total/percent_complete).
  *
  * Args:
- *   - `projectId` (optional): explicit tenant. If missing, the daemon's
- *     `ListProjects` is consulted and we pick the first active project.
- *     This keeps the action useful in the dockerized MCP container where
- *     cwd-based detection isn't available.
+ *   - `projectId` (optional): explicit tenant. If missing, resolve the current
+ *     repo via ProjectDetector using projectPath/projectDir/repoDir/cwd or the
+ *     effective request cwd, then fall back to the first active daemon project.
  */
-async function handleIndexingStatus(
+async function resolveProjectIdForStatus(
   args: JsonObject,
   daemonClient: DaemonClient,
-  actionLabel: 'indexing_status' | 'project_status' = 'indexing_status'
-): Promise<unknown> {
-  let projectId = stringArg(args, 'projectId');
+  projectDetector: ProjectDetector | undefined
+): Promise<{ projectId?: string; error?: string }> {
+  const explicitProjectId = stringArg(args, 'projectId');
+  if (explicitProjectId) return { projectId: explicitProjectId };
 
-  if (!projectId) {
+  if (projectDetector) {
+    const projectPath =
+      stringArg(args, 'projectPath', ['projectDir', 'repoDir', 'cwd']) ?? getEffectiveCwd();
     try {
-      const projects = await daemonClient.listProjects({ active_only: true });
-      const first = projects.projects[0];
-      if (first) projectId = first.project_id;
+      const info = await projectDetector.getProjectInfo(projectPath, false, {
+        fallbackToSoleProject: true,
+      });
+      if (info?.projectId) return { projectId: info.projectId };
     } catch (err) {
       return {
-        success: false,
-        action: actionLabel,
-        error: `Failed to enumerate active projects: ${err instanceof Error ? err.message : String(err)}`,
+        error: `Failed to resolve current project: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   }
 
-  if (!projectId) {
+  try {
+    const projects = await daemonClient.listProjects({ active_only: true });
+    const first = projects.projects[0];
+    if (first) return { projectId: first.project_id };
+  } catch (err) {
+    return {
+      error: `Failed to enumerate active projects: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  return {
+    error:
+      'No projectId provided and no current/active project found. Pass `projectId` or `cwd`/`repoDir` explicitly, or register a project first.',
+  };
+}
+
+async function handleIndexingStatus(
+  args: JsonObject,
+  daemonClient: DaemonClient,
+  actionLabel: 'indexing_status' | 'project_status' = 'indexing_status',
+  projectDetector?: ProjectDetector
+): Promise<unknown> {
+  const resolved = await resolveProjectIdForStatus(args, daemonClient, projectDetector);
+
+  if (!resolved.projectId) {
     return {
       success: false,
       action: actionLabel,
-      error:
-        'No projectId provided and no active project found. Pass `projectId` explicitly or register a project first.',
+      error: resolved.error,
     };
   }
+
+  const projectId = resolved.projectId;
 
   try {
     const status = await daemonClient.getProjectStatus({ project_id: projectId });
@@ -499,7 +527,8 @@ function dispatchTsAction(
   action: string,
   args: JsonObject,
   repoDir: string,
-  daemonClient: DaemonClient | undefined
+  daemonClient: DaemonClient | undefined,
+  projectDetector: ProjectDetector | undefined
 ): unknown | Promise<unknown> {
   const registryPath = stringArg(args, 'registryPath') ?? defaultRegistryPath(repoDir);
   const base: BaseArgs = { registryPath };
@@ -548,7 +577,7 @@ function dispatchTsAction(
       // PowerShell path reads is empty → "project not found" for a valid
       // tenant). Fall back to the registry/PowerShell path only without a daemon.
       return daemonClient
-        ? handleIndexingStatus(args, daemonClient, 'project_status')
+        ? handleIndexingStatus(args, daemonClient, 'project_status', projectDetector)
         : runProjectStatus(projectArgs, daemonClient);
     case 'status_all':
       return runStatusAll(base, daemonClient);
@@ -567,7 +596,8 @@ function dispatchTsAction(
 
 export async function handleWorkspaceIndex(
   rawArgs: Record<string, unknown> | undefined,
-  daemonClient?: DaemonClient
+  daemonClient?: DaemonClient,
+  projectDetector?: ProjectDetector
 ): Promise<unknown> {
   const args = rawArgs ?? {};
 
@@ -590,7 +620,7 @@ export async function handleWorkspaceIndex(
         'indexing_status requires a connected daemon client (gRPC unavailable)'
       );
     }
-    return handleIndexingStatus(args, daemonClient);
+    return handleIndexingStatus(args, daemonClient, 'indexing_status', projectDetector);
   }
 
   // TS-native registry actions (Phases 1 + 2 ports from
@@ -601,7 +631,7 @@ export async function handleWorkspaceIndex(
   if (action && TS_NATIVE_ACTIONS.has(action)) {
     assertMutationAllowed(action, args);
     const repoDir = resolveRepoDir(args);
-    return dispatchTsAction(action, args, repoDir, daemonClient);
+    return dispatchTsAction(action, args, repoDir, daemonClient, projectDetector);
   }
 
   // PowerShell-backed actions: require the workspace-qdrant-mcp checkout to

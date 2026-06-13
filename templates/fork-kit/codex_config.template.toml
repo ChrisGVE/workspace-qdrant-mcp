@@ -4,6 +4,12 @@
 # If you change them here, update the JSON too — drift is verified by the
 # config-drift test in src/admin/__tests__/.
 
+[projects.'\\wsl.localhost\Ubuntu-24.04\home\alkmimm\respositorios\workspace-qdrant-mcp']
+trust_level = "trusted"
+
+[projects."/home/alkmimm/respositorios/workspace-qdrant-mcp"]
+trust_level = "trusted"
+
 [mcp_servers.workspace-qdrant]
 command = "node"
 args = ["C:/Users/alber/Documents/repositorios/workspace-qdrant-mcp/src/typescript/mcp-server/dist/index.js"]
