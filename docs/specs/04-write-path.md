@@ -161,6 +161,7 @@ CREATE TABLE unified_queue (
     branch TEXT DEFAULT 'main',
     metadata TEXT DEFAULT '{}',
     file_path TEXT UNIQUE,               -- Per-file deduplication (set for item_type='file', NULL for others)
+    size_bytes INTEGER,                  -- Item payload size in bytes (v45); NULL = unknown (non-file items, or rows enqueued before v45)
 
     -- Error handling
     retry_count INTEGER NOT NULL DEFAULT 0,
@@ -197,6 +198,12 @@ CREATE INDEX idx_unified_queue_lease_expiry
 -- Tenant-based queries
 CREATE INDEX idx_unified_queue_collection_tenant
     ON unified_queue(collection, tenant_id);
+
+-- Pending-size index (v45): bounds the poll-loop drain aggregation to pending
+-- rows with a known size, so SUM(size_bytes) stays cheap on large backlogs.
+CREATE INDEX IF NOT EXISTS idx_unified_queue_pending_size
+    ON unified_queue(size_bytes)
+    WHERE status = 'pending' AND size_bytes IS NOT NULL;
 ```
 
 **Robust design features:**
@@ -204,6 +211,7 @@ CREATE INDEX idx_unified_queue_collection_tenant
 - **status column:** Derived value — tracks overall item lifecycle (pending -> in_progress -> done/failed). A queue item is `done` only when BOTH `qdrant_status = 'done'` AND `search_status = 'done'`.
 - **qdrant_status / search_status:** Per-destination state machines enabling parallel execution. Qdrant and search DB execute independently with no ordering dependency between them.
 - **decision_json:** Stores the keep/delete decision (computed once during the decision phase) before execution. On retry, only the failed destination is re-executed using the stored decision — no re-analysis needed.
+- **size_bytes (v45):** Item payload size, populated at enqueue for file items (from the payload size, else a `std::fs::metadata` stat-fallback). NULL for non-file items (rules, folder scans) and for rows enqueued before v45 — no backfill. Drain-time backlog estimation sums pending bytes with `COALESCE(size_bytes, :avg_known)`, so NULL rows are average-imputed rather than counted as zero.
 - **lease_until/worker_id:** Enables crash recovery by detecting stale leases
 - **idempotency_key:** SHA256 hash of `item_type|op|tenant_id|collection|payload_json` - prevents duplicate processing even for content items without file paths
 - **priority (computed at dequeue):** Not stored in the queue — calculated at dequeue time via JOINs with `watch_folders.is_active`, enabling dynamic priority based on current project activity state
