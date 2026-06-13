@@ -340,8 +340,8 @@ services:
       WQM_SEARCH_RERANK: ${WQM_SEARCH_RERANK:-}
       # Blend weight 0–1 for the rerank score: final pool order is
       # (1-w)·norm(rrf_boosted) + w·norm(rerank). 1 = pure cross-encoder
-      # order; empty = code default (0.25, the measured optimum on the
-      # 44-query benchmark). Per-call `rerankWeight` wins.
+      # order; empty = code default (0.05, the balanced BGE-M3 optimum after implementation-intent tuning;
+      # e5-large deployments can override to 0.25). Per-call rerankWeight wins.
       WQM_SEARCH_RERANK_WEIGHT: ${WQM_SEARCH_RERANK_WEIGHT:-}
       # Trust the bind-mounted repo: git's "dubious ownership" check
       # otherwise rejects every command because the bind mount preserves
@@ -535,9 +535,9 @@ services:
   # ─────────────────────────────────────────────────────────────────────────
   # Embedding backends (daemon provider: openai_compatible).
   #
-  # Two interchangeable servers for the SAME model (intfloat/multilingual-
-  # e5-large, 1024d). The daemon PREFERS the GPU endpoint and falls back to
-  # CPU automatically (embedding.base_url → wqm-embeddings-gpu:7997,
+  # Two interchangeable servers for the SAME model (default: intfloat/
+  # multilingual-e5-large, 1024d). The daemon PREFERS the GPU endpoint and
+  # falls back to CPU automatically (embedding.base_url → wqm-embeddings-gpu:7997,
   # embedding.fallback_base_url → wqm-embeddings:80 in config.yaml), so which
   # backends run is purely a COMPOSE_PROFILES choice in docker/.env:
   #   COMPOSE_PROFILES=embeddings-cpu                  # CPU only (default)
@@ -553,7 +553,7 @@ services:
     logging: *default-logging
     command:
       - --model-id
-      - intfloat/multilingual-e5-large
+      - ${WQM_EMBEDDING_SIDECAR_MODEL:-intfloat/multilingual-e5-large}
       - --auto-truncate
       - --hostname
       - 0.0.0.0
@@ -592,12 +592,12 @@ services:
     command:
       - v2
       - --model-id
-      - intfloat/multilingual-e5-large
+      - ${WQM_EMBEDDING_SIDECAR_MODEL:-intfloat/multilingual-e5-large}
       # Second served model: multilingual cross-encoder for 2nd-stage search
       # rerank (POST /v1/rerank). The daemon targets it via WQM_RERANK_BASE_URL
       # / WQM_RERANK_MODEL; ~1.2GB fp16 VRAM next to e5's ~1.1GB.
       - --model-id
-      - BAAI/bge-reranker-v2-m3
+      - ${WQM_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
       - --port
       - "7997"
       - --url-prefix

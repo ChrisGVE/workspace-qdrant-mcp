@@ -21,14 +21,18 @@ export const searchEvalToolDefinition = {
             expectedFiles: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Repo-relative paths expected in the results (e.g. "src/tools/search.ts").',
+              description:
+                'Repo-relative paths expected in the results (e.g. "src/tools/search.ts").',
             },
           },
           required: ['query', 'expectedFiles'],
         },
       },
       limit: { type: 'number', description: 'Results fetched per query (default: 10).' },
-      topK: { type: 'number', description: 'Evaluation cutoff K for hit@k / recall (default: 10).' },
+      topK: {
+        type: 'number',
+        description: 'Evaluation cutoff K for hit@k / recall (default: 10).',
+      },
       projectId: {
         type: 'string',
         description: 'Tenant to evaluate against (default: auto-detect from cwd).',
@@ -56,7 +60,7 @@ export const searchEvalToolDefinition = {
       rerankWeight: {
         type: 'number',
         description:
-          'Blend weight 0–1 for the rerank score: final pool order is (1-w)·norm(rrf_boosted) + w·norm(rerank). 1 = pure cross-encoder order; 0 = rerank off (default: WQM_SEARCH_RERANK_WEIGHT, else 0.25 — measured optimum).',
+          'Blend weight 0–1 for the rerank score: final pool order is (1-w)·norm(rrf_boosted) + w·norm(rerank). 1 = pure cross-encoder order; 0 = rerank off (default: WQM_SEARCH_RERANK_WEIGHT, else 0.05 — balanced BGE-M3 default after implementation-intent tuning; 0.10 maximizes top1/MRR).',
       },
     },
     required: [],

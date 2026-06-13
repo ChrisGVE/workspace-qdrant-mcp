@@ -3,7 +3,11 @@
  */
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_SCRATCHPAD } from '../common/native-bridge.js';
+import {
+  COLLECTION_PROJECTS,
+  COLLECTION_LIBRARIES,
+  COLLECTION_SCRATCHPAD,
+} from '../common/native-bridge.js';
 export const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 export const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 export const SCRATCHPAD_COLLECTION = COLLECTION_SCRATCHPAD;
@@ -76,15 +80,15 @@ export interface SearchOptions {
   contextLines?: number;
   /** When true, fetch 1-hop graph context for code symbol results */
   includeGraphContext?: boolean;
-  /** Cross-encoder rerank of the top candidates (default: true for
-   *  semantic/hybrid). Set false to skip the reranker (lower latency, weaker
-   *  top-k ordering). */
+  /** Cross-encoder rerank of the top candidates (default: deployment setting,
+   *  WQM_SEARCH_RERANK; code default is off). Set false to skip the reranker
+   *  (lower latency), or true to enable it for a call. */
   rerank?: boolean;
   /** Blend weight (0–1) for the cross-encoder score when reranking. The final
    *  pool order is `(1-w)·norm(rrf_boosted) + w·norm(rerank)` over min-max
    *  normalized scores. 1 = pure cross-encoder order (legacy replace
    *  behavior); 0 = reranking disabled. Default: WQM_SEARCH_RERANK_WEIGHT
-   *  env, else 0.25 (measured optimum on the 44-query benchmark). */
+   *  env, else 0.05 (balanced BGE-M3 default after implementation-intent tuning). */
   rerankWeight?: number;
   /** Per-hit text cap (in chars). Content longer than this is truncated
    *  with a marker pointing to retrieve() for the full chunk. Defaults

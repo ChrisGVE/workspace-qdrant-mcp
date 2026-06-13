@@ -108,13 +108,7 @@ fn qdrant_url() -> String {
 /// even when Qdrant is perfectly healthy. Map the standard gRPC port to the
 /// REST port for the HTTP probe; URLs on any other port pass through unchanged.
 fn qdrant_http_probe_url() -> String {
-    grpc_to_rest_url(&qdrant_url())
-}
-
-/// Rewrite Qdrant's standard gRPC port (6334) to its REST port (6333). Pure
-/// helper so the mapping is unit-testable without touching process env.
-fn grpc_to_rest_url(url: &str) -> String {
-    url.replace(":6334", ":6333")
+    crate::commands::qdrant_helpers::qdrant_rest_url(&qdrant_url())
 }
 
 /// Optional MCP HTTP URL. Returns `None` in stdio deployments so the probe
@@ -379,6 +373,10 @@ mod tests {
     const TEST_HOST_B: &str = "http://127.0.0.1:16334";
     const TEST_MCP_HOST: &str = "http://127.0.0.1:16335";
 
+    fn qdrant_http_probe_url_from(url: &str) -> String {
+        crate::commands::qdrant_helpers::qdrant_rest_url(url)
+    }
+
     fn clear_url_env() {
         env::remove_var("WQM_QDRANT_URL");
         env::remove_var("QDRANT_URL");
@@ -426,14 +424,14 @@ mod tests {
     fn grpc_url_maps_to_rest_port_for_readyz_probe() {
         // The daemon's gRPC URL (6334) must become the REST URL (6333) for
         // the HTTP /readyz probe; everything else is left untouched.
-        assert_eq!(grpc_to_rest_url("http://qdrant:6334"), "http://qdrant:6333");
+        assert_eq!(qdrant_http_probe_url_from("http://qdrant:6334"), "http://qdrant:6333");
         assert_eq!(
-            grpc_to_rest_url("http://host.docker.internal:6334"),
+            qdrant_http_probe_url_from("http://host.docker.internal:6334"),
             "http://host.docker.internal:6333"
         );
-        assert_eq!(grpc_to_rest_url("http://qdrant:6333"), "http://qdrant:6333");
+        assert_eq!(qdrant_http_probe_url_from("http://qdrant:6333"), "http://qdrant:6333");
         assert_eq!(
-            grpc_to_rest_url("https://example:9999"),
+            qdrant_http_probe_url_from("https://example:9999"),
             "https://example:9999"
         );
     }

@@ -475,10 +475,49 @@ function recordAndBuildResponse(
 /** Query words too generic to signal file relevance — dropped before
  * path matching so "how/where/the/search" don't inflate every result. */
 const PATH_BOOST_STOPWORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'how', 'does', 'do', 'did',
-  'where', 'what', 'which', 'when', 'who', 'why', 'to', 'of', 'in', 'on', 'for',
-  'and', 'or', 'with', 'from', 'by', 'that', 'this', 'it', 'its', 'as', 'at',
-  'be', 'can', 'we', 'you', 'i', 'use', 'used', 'using', 'into', 'across',
+  'the',
+  'a',
+  'an',
+  'is',
+  'are',
+  'was',
+  'were',
+  'how',
+  'does',
+  'do',
+  'did',
+  'where',
+  'what',
+  'which',
+  'when',
+  'who',
+  'why',
+  'to',
+  'of',
+  'in',
+  'on',
+  'for',
+  'and',
+  'or',
+  'with',
+  'from',
+  'by',
+  'that',
+  'this',
+  'it',
+  'its',
+  'as',
+  'at',
+  'be',
+  'can',
+  'we',
+  'you',
+  'i',
+  'use',
+  'used',
+  'using',
+  'into',
+  'across',
 ]);
 
 /** Multiplicative weight for the path-relevance re-rank. A result whose file
@@ -553,19 +592,54 @@ function pathRelevance(queryTokens: string[], result: SearchResult): number {
 // contains an identifier), not rescoring. Knob kept for experiments.
 const SYMBOL_MATCH_BOOST = tuningFromEnv('WQM_SYMBOL_MATCH_BOOST', 1.0);
 
+// Small implementation-intent nudge: when the user explicitly asks where code
+// lives, prefer source/proto/schema files and demote docs/tests that merely
+// mention the same terms. Tunable because path priors are corpus-dependent.
+const IMPLEMENTATION_INTENT_CODE_BOOST = tuningFromEnv(
+  'WQM_IMPLEMENTATION_INTENT_CODE_BOOST',
+  1.12
+);
+const IMPLEMENTATION_INTENT_NON_CODE_PENALTY = tuningFromEnv(
+  'WQM_IMPLEMENTATION_INTENT_NON_CODE_PENALTY',
+  0.86
+);
+
+const IMPLEMENTATION_INTENT_TERMS = new Set([
+  'code',
+  'implemented',
+  'implementation',
+  'implementacao',
+  'codigo',
+  'defined',
+  'definition',
+  'function',
+  'method',
+  'class',
+  'command',
+  'provider',
+  'schema',
+  'service',
+]);
+
+const CODE_PATH_PREFIX_RE = /^(src|app|lib|packages|crates|cmd|internal|pkg|components)\//;
+const CODE_PATH_EXT_RE =
+  /\.(rs|ts|tsx|js|jsx|mjs|cjs|py|go|java|kt|swift|c|cc|cpp|h|hpp|cs|rb|php|scala|sh|sql|proto)$/;
+const NON_IMPL_PATH_RE =
+  /(^|\/)(docs?|test|tests|__tests__|fixtures?|examples?|playwright-report|coverage)\/|\.(md|mdx|rst|txt)$|\.(test|spec)\.[^.]+$/;
+
 /** True when the query names this result's chunk symbol: every token of the
  * symbol appears among the query's content tokens (an identifier in the query
  * tokenizes into exactly its camelCase/snake_case parts, so
- * "applyRRFFusion implementation" ⊇ symbol `applyRRFFusion`).
+ * "applyRRFFusion implementation" includes symbol applyRRFFusion).
  *
- * Precision guards (a first sweep with a lax ≥4-char single-token rule
- * REGRESSED semantic top-1 36.4→20.5: every module/function literally named
- * `queue`, `search`, `config`… got boosted on ordinary queries):
- * - multi-token symbols: full containment required — high precision since the
+ * Precision guards (a first sweep with a lax >=4-char single-token rule
+ * REGRESSED semantic top-1 36.4->20.5: every module/function literally named
+ * queue, search, config got boosted on ordinary queries):
+ * - multi-token symbols: full containment required, high precision since the
  *   query must spell out the compound identifier;
- * - single-token symbols: only distinctive names (≥8 chars, e.g. `debouncer`)
+ * - single-token symbols: only distinctive names (>=8 chars, e.g. debouncer)
  *   qualify;
- * - pseudo-symbols (`_text`, `_preamble`) never match.
+ * - pseudo-symbols (_text, _preamble) never match.
  * Exported for unit tests. */
 export function symbolNamedInQuery(queryTokens: ReadonlySet<string>, symbolName: string): boolean {
   if (!symbolName || symbolName.startsWith('_')) return false;
@@ -578,14 +652,50 @@ export function symbolNamedInQuery(queryTokens: ReadonlySet<string>, symbolName:
   return symbolTokens.every((t) => queryTokens.has(t));
 }
 
+export function queryHasImplementationIntent(query: string): boolean {
+  const lowered = query.toLowerCase();
+  if (
+    /\bimplementa(?:do|da|cao|ção|r|tion|ed)?\b|\bc[oó]digo\b|\bdefini(?:do|da|ção|cao)\b/.test(
+      lowered
+    )
+  ) {
+    return true;
+  }
+  const tokens = queryContentTokens(query);
+  if (!tokens.some((token) => IMPLEMENTATION_INTENT_TERMS.has(token))) return false;
+  return /\b(where|which|what|how|onde|qual|como)\b/.test(lowered);
+}
+
+function resultPath(result: SearchResult): string {
+  return (
+    (result.metadata['relative_path'] as string | undefined) ??
+    (result.metadata['file_path'] as string | undefined) ??
+    ''
+  );
+}
+
+export function implementationIntentMultiplier(result: SearchResult): number {
+  const path = resultPath(result).toLowerCase();
+  const fileType = ((result.metadata['file_type'] as string | undefined) ?? '').toLowerCase();
+  if (NON_IMPL_PATH_RE.test(path) || fileType === 'docs' || fileType === 'text') {
+    return IMPLEMENTATION_INTENT_NON_CODE_PENALTY;
+  }
+  if (fileType === 'code' || CODE_PATH_PREFIX_RE.test(path) || CODE_PATH_EXT_RE.test(path)) {
+    return IMPLEMENTATION_INTENT_CODE_BOOST;
+  }
+  return 1;
+}
+
 /** Re-score results in place by their path relevance to the query. */
 function applyPathRelevanceBoost(results: SearchResult[], query: string): void {
   const queryTokens = queryContentTokens(query);
   if (queryTokens.length === 0) return;
   const querySet = new Set(queryTokens);
+  const hasImplementationIntent = queryHasImplementationIntent(query);
   for (const result of results) {
     const rel = pathRelevance(queryTokens, result);
     if (rel > 0) result.score *= 1 + PATH_BOOST_ALPHA * rel;
+    if (hasImplementationIntent) result.score *= implementationIntentMultiplier(result);
     if (SYMBOL_MATCH_BOOST !== 1) {
       const symbol = (result.metadata['chunk_symbol_name'] as string | undefined) ?? '';
       if (symbolNamedInQuery(querySet, symbol)) result.score *= SYMBOL_MATCH_BOOST;
@@ -625,13 +735,18 @@ const RERANK_POOL = 30;
 
 /** Default blend weight (0–1) for the cross-encoder score when reranking.
  * 1 sorts the pool purely by the reranker (legacy replace behavior); values
- * in between mix the bi-encoder + path-boost order with the reranker's.
- * 0.25 is the measured optimum on the 44-query benchmark (2026-06-10,
- * bge-reranker-v2-m3 on the GPU sidecar): the cross-encoder helps as a WEAK
- * nudge — semantic top1/top3/top10/recall/MRR all ≥ baseline — while w ≥ 0.5
- * degrades top1/top3 sharply (w=1: semantic top1 31.8→6.8). Per-call
- * `rerankWeight` wins over the env default. */
-const RERANK_WEIGHT = tuningFromEnv('WQM_SEARCH_RERANK_WEIGHT', 0.25);
+ * in between mix the bi-encoder + path-boost order with the reranker signal.
+ * 0.05 is the balanced measured default for the BGE-M3 profile after the
+ * implementation-intent nudge (2026-06-13, 46-query benchmark): semantic
+ * top1 39.1→41.3 and MRR 0.50→0.52 with unchanged recall@10/top10.
+ * The e5-large profile previously peaked at 0.25, and 0.10 maximizes BGE-M3
+ * top1/MRR at some recall cost, so deployments can still override via
+ * WQM_SEARCH_RERANK_WEIGHT. Values
+ * >= 0.5 consistently degrade code search; w=1 is the legacy pure-reranker
+ * order and should be used only for experiments. Per-call rerankWeight wins
+ * over the env default. */
+const RERANK_WEIGHT = tuningFromEnv('WQM_SEARCH_RERANK_WEIGHT', 0.05);
+const HIGH_RERANK_WEIGHT_WARNING_THRESHOLD = 0.5;
 
 /** Blend min-max-normalized base (RRF + path boost) and cross-encoder scores
  * for the rerank pool: `(1-w)·norm(base) + w·norm(rerank)`. `baseScores` is
@@ -694,7 +809,11 @@ async function rerankResults(
       rerankScores.set(rr.index, rr.score);
     }
     if (rerankScores.size === 0) return results;
-    const blended = blendPoolScores(pool.map((r) => r.score), rerankScores, weight);
+    const blended = blendPoolScores(
+      pool.map((r) => r.score),
+      rerankScores,
+      weight
+    );
     const scored: SearchResult[] = [];
     const leftover: SearchResult[] = [];
     pool.forEach((item, index) => {
@@ -763,11 +882,23 @@ export async function finalizeResults(
   // 31.8→6.8, MRR 0.45→0.21) — but as a weak nudge it beats the baseline on
   // every semantic aggregate: w=0.25 → top3 56.8→59.1, top10 68.2→72.7,
   // recall@10 60.2→62.5, MRR 0.45→0.47 at +24ms avg latency; hybrid top3
-  // 50→56.8. Hence the 0.25 default for WQM_SEARCH_RERANK_WEIGHT.
+  // 50→56.8. RE-TUNED 2026-06-13 for the BGE-M3 dense profile (46 queries):
+  // after the implementation-intent nudge, w=0.05 preserved top10/recall and
+  // improved top1/MRR; w=0.10 maximized top1/MRR but lost recall. The code
+  // default is the balanced 0.05; e5 deployments can still set
+  // WQM_SEARCH_RERANK_WEIGHT=0.25 explicitly.
   const rerankDefault = process.env['WQM_SEARCH_RERANK'] === '1';
+  const rerankEnabled = params.options.rerank ?? rerankDefault;
   const rerankWeight = Math.min(params.options.rerankWeight ?? RERANK_WEIGHT, 1);
+  if (rerankEnabled && rerankWeight >= HIGH_RERANK_WEIGHT_WARNING_THRESHOLD) {
+    logDebug('High rerankWeight may degrade code search; use only for experiments', {
+      rerankWeight,
+      threshold: HIGH_RERANK_WEIGHT_WARNING_THRESHOLD,
+      mode: params.mode,
+    });
+  }
   const ranked =
-    (params.options.rerank ?? rerankDefault) && rerankWeight > 0
+    rerankEnabled && rerankWeight > 0
       ? await rerankResults(daemonClient, params.query, deduped, params.limit, rerankWeight)
       : deduped;
   const finalResults = ranked.slice(0, params.limit);

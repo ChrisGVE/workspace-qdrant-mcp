@@ -96,6 +96,41 @@ Notes:
 Interactive search queries are fine on either (one short text per query);
 the GPU matters for ingestion/reembed throughput.
 
+## Alternative dense model: BGE-M3
+
+`BAAI/bge-m3` is supported as an alternate OpenAI-compatible dense model for
+experiments that need a robust multilingual, longer-context embedder. It is
+not the default because the current `multilingual-e5-large` profile is the
+measured baseline for this fork. Switching to BGE-M3 changes the model-bound
+vector space, so it requires the same destructive reembed flow as any other
+model change; switching back to e5 also requires a reembed.
+
+To run the same CPU/GPU sidecars with BGE-M3, set the sidecar model and make
+`config.yaml` match it exactly:
+
+```bash
+# docker/.env
+WQM_EMBEDDING_SIDECAR_MODEL=BAAI/bge-m3
+COMPOSE_PROFILES=embeddings-cpu,embeddings-gpu
+```
+
+```yaml
+embedding:
+  provider: openai_compatible
+  base_url: http://wqm-embeddings-gpu:7997
+  fallback_base_url: http://wqm-embeddings:80
+  model: BAAI/bge-m3
+  output_dim: 1024
+  remote_batch_size: 32
+  api_key_env_var: OPENAI_API_KEY
+  document_prefix: ""
+  query_prefix: ""
+```
+
+Both endpoints must serve `BAAI/bge-m3` before the daemon starts. Do not mix
+BGE-M3 on one endpoint with e5 on the other: failover is safe only when the
+model, dimension, and prefixes match.
+
 ## Cross-encoder reranker (2nd-stage search)
 
 The GPU Infinity service also serves a **second** model — the multilingual
@@ -122,14 +157,26 @@ top1 / top3 / top10 / recall@10 / MRR / avg ms):
 | w | top1 | top3 | top10 | rec@10 | MRR | ms |
 |---|---|---|---|---|---|---|
 | 0 (baseline) | 31.8 | 56.8 | 68.2 | 60.2 | 0.45 | 43 |
-| **0.25 (default)** | **34.1** | **59.1** | **72.7** | **62.5** | **0.47** | 67 |
+| **0.25 (e5 best)** | **34.1** | **59.1** | **72.7** | **62.5** | **0.47** | 67 |
 | 0.5 | 25.0 | 50.0 | 72.7 | 61.4 | 0.40 | 84 |
 | 1.0 (pure reranker) | 6.8 | 29.5 | 59.1 | 48.9 | 0.21 | 135 |
 
-The cross-encoder helps only as a **weak nudge**: at w=0.25 every semantic
-aggregate beats the no-rerank baseline (hybrid top3 50→56.8 too), while
-giving it full authority (w=1) is strictly worse even multilingual — same
-pathology previously measured with the English jina-turbo model.
+BGE-M3 retune on the same stack after the implementation-intent ranking nudge
+(2026-06-13, 46-query benchmark, semantic mode):
+
+| w | top1 | top3 | top10 | rec@10 | MRR | ms |
+|---|---|---|---|---|---|---|
+| 0 (baseline + implementation intent) | 39.1 | 56.5 | 80.4 | 72.8 | 0.50 | 10.5 |
+| **0.05 (BGE-M3 default)** | **41.3** | 56.5 | **80.4** | **72.8** | **0.52** | 71.8 |
+| 0.10 (top1/MRR max) | 43.5 | 56.5 | 78.3 | 70.7 | 0.53 | 71.3 |
+| 0.25 | 39.1 | 58.7 | 80.4 | 71.7 | 0.52 | 70.7 |
+| 0.5 | 30.4 | 45.7 | 80.4 | 68.5 | 0.436 | 71.6 |
+| 1.0 (pure reranker) | 4.3 | 23.9 | 56.5 | 48.9 | 0.195 | 71.6 |
+
+The cross-encoder helps only as a **weak nudge**: e5-large peaked at w=0.25,
+while BGE-M3 uses w=0.05 as the balanced default after implementation-intent tuning (w=0.10 maximizes top1/MRR at some recall cost). Giving the reranker full authority
+(w=1) is strictly worse even multilingual — the same pathology previously
+measured with the English jina-turbo model.
 
 There is deliberately **no failover** for reranking: the CPU TEI standby
 serves only the e5 embedder, and silently swapping to the (worse,

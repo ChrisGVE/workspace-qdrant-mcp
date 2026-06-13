@@ -352,14 +352,16 @@ enum Commands {
     )]
     Debug(commands::debug::DebugArgs),
 
-    /// Benchmarking tools (sparse vectors, search engines)
+    /// Benchmarking tools (sparse vectors, semantic-search, search engines)
     #[command(
         display_order = 63,
-        long_about = "Run performance benchmarks for sparse vector generation and search \
-            engine components. Results help tune chunking parameters and identify \
-            performance bottlenecks.",
+        long_about = "Run performance benchmarks for sparse vector generation, semantic-search \
+            quality, and search engine components. Results help tune chunking parameters and \
+            identify performance bottlenecks.",
         after_long_help = "Examples:\n  \
             wqm benchmark sparse                        Benchmark sparse vector generation\n  \
+            wqm benchmark semantic-search               Benchmark semantic-search quality\n  \
+            wqm benchmark semantic-search-sweep         Sweep semantic-search runtime parameters\n  \
             wqm benchmark search                        Benchmark search performance"
     )]
     Benchmark(commands::benchmark::BenchmarkArgs),

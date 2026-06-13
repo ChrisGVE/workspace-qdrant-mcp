@@ -9,8 +9,17 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 
 /// Get Qdrant REST base URL. Priority: `QDRANT_URL` env > active cli-config
 /// profile > workspace default (`http://localhost:6333`).
+///
+/// Docker deployments configure the daemon with Qdrant's gRPC port (`6334`),
+/// which is correct for the Rust storage client. This module only issues REST
+/// calls, so normalize the standard gRPC port to Qdrant's REST port (`6333`).
 pub fn qdrant_base_url() -> String {
-    crate::config::resolve_qdrant_url()
+    qdrant_rest_url(&crate::config::resolve_qdrant_url())
+}
+
+/// Convert a Qdrant daemon URL to the REST endpoint used by HTTP helpers.
+pub(crate) fn qdrant_rest_url(url: &str) -> String {
+    url.replace(":6334", ":6333")
 }
 
 /// Build an HTTP client for Qdrant REST API with optional API key.
@@ -339,5 +348,19 @@ mod tests {
         let url = qdrant_base_url();
         assert!(url.starts_with("http"));
         assert!(url.contains("6333"));
+    }
+    #[test]
+    fn qdrant_rest_url_maps_standard_grpc_port_to_rest() {
+        assert_eq!(qdrant_rest_url("http://qdrant:6334"), "http://qdrant:6333");
+        assert_eq!(
+            qdrant_rest_url("http://host.docker.internal:6334"),
+            "http://host.docker.internal:6333"
+        );
+    }
+
+    #[test]
+    fn qdrant_rest_url_leaves_rest_and_custom_ports_unchanged() {
+        assert_eq!(qdrant_rest_url("http://qdrant:6333"), "http://qdrant:6333");
+        assert_eq!(qdrant_rest_url("https://example:7443"), "https://example:7443");
     }
 }

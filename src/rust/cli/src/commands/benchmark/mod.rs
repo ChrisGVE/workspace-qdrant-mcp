@@ -1,5 +1,6 @@
 //! Benchmark commands — sparse vector and search evaluation tools.
 
+mod semantic;
 mod search;
 mod sparse;
 pub mod stats;
@@ -36,6 +37,14 @@ enum BenchmarkCommand {
         output: Option<String>,
     },
 
+    /// Benchmark semantic-search quality against known-item queries
+    #[command(name = "semantic-search")]
+    SemanticSearch(semantic::SemanticBenchmarkArgs),
+
+    /// Sweep semantic-search runtime parameters without redeploying
+    #[command(name = "semantic-search-sweep")]
+    SemanticSearchSweep(semantic::SemanticSweepBenchmarkArgs),
+
     /// Compare FTS5 search DB vs ripgrep (rg)
     Search {
         /// Tenant ID to scope FTS5 queries (auto-detected if omitted)
@@ -69,6 +78,10 @@ pub async fn execute(args: BenchmarkArgs) -> Result<()> {
             query_count,
             output: output_file,
         } => sparse::execute(&collection, sample_size, query_count, output_file).await,
+
+        BenchmarkCommand::SemanticSearch(args) => semantic::execute(args).await,
+
+        BenchmarkCommand::SemanticSearchSweep(args) => semantic::execute_sweep(args).await,
 
         BenchmarkCommand::Search {
             tenant_id,

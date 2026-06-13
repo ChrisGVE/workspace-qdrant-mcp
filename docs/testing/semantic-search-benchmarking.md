@@ -9,7 +9,7 @@ in [docs/plans/2026-05-25-search-quality-next-steps.md](../plans/2026-05-25-sear
 ## What the benchmark is
 
 - **Dataset:** `src/typescript/mcp-server/scripts/benchmark-data/semantic-search-quality.yaml`
-  — 12 curated *known-item* queries (natural-language questions about this
+  — 12 curated _known-item_ queries (natural-language questions about this
   codebase) each with 1–2 `expectedFiles`. It is a recall/ranking benchmark, not
   a relevance-grading benchmark.
 - **Runner:** `src/typescript/mcp-server/scripts/benchmark-semantic-search.ts`
@@ -21,13 +21,13 @@ in [docs/plans/2026-05-25-search-quality-next-steps.md](../plans/2026-05-25-sear
 
 ### Metrics
 
-| Metric | Meaning |
-|---|---|
+| Metric              | Meaning                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
 | top1 / top3 / top10 | fraction of queries with an expected file in the top-K **raw** results |
-| recall@10 | fraction of expected files found in the top-10 (deduped) |
-| precision@10 | relevant / returned — **reported, not gated** (see lesson 6) |
-| MRR | mean reciprocal rank of the first relevant hit |
-| duplicateRate | `1 − uniquePaths/rawPaths` — same-file chunks wasting slots |
+| recall@10           | fraction of expected files found in the top-10 (deduped)               |
+| precision@10        | relevant / returned — **reported, not gated** (see lesson 6)           |
+| MRR                 | mean reciprocal rank of the first relevant hit                         |
+| duplicateRate       | `1 − uniquePaths/rawPaths` — same-file chunks wasting slots            |
 
 Verdict gates (`DEFAULT_SEMANTIC_QUALITY_THRESHOLDS`): `top3UsefulRate ≥ 0.8`
 and `recallAt10 ≥ 0.7`. 0 reasons → `good`, 1 → `mixed`, ≥2 → `poor`.
@@ -54,7 +54,8 @@ search_eval({
 
 It returns per-mode `top1/top3/top10`, `recall@10`, `MRR`, `duplicateRate`,
 plus the verdict and per-query hit flags. It runs all three modes
-(semantic/hybrid/exact) per case. Use this for the fast measure→edit→measure
+(semantic/hybrid/exact) per case. From the CLI, `wqm benchmark semantic-search`
+is a thin wrapper around the same runner. Use this for the fast measure→edit→measure
 loop on a small case set; use the host runner below for the full curated
 dataset and to (re)generate the committed `reports/semantic-search.json`.
 
@@ -81,7 +82,7 @@ docker run --rm `
 ```
 
 **2. Run the benchmark from `src/typescript/mcp-server`.** Use `=`-form flags —
-`npm run benchmark:semantic -- --flag value` strips the flag *names* (they arrive
+`npm run benchmark:semantic -- --flag value` strips the flag _names_ (they arrive
 as positionals and error), so call `tsx` directly:
 
 ```powershell
@@ -95,7 +96,53 @@ npx tsx scripts/benchmark-semantic-search.ts `
 
 Because it runs the source, **edits to `src/tools/*` are picked up with no
 rebuild** — a fast measure → edit → measure loop. Deploying a change to the
-*live* MCP still needs `docker compose build mcp && docker compose up -d mcp`.
+_live_ MCP still needs `docker compose build mcp && docker compose up -d mcp`.
+
+**2b. Sweep runtime search parameters without redeploy.** For rerank A/B runs,
+use the sweep wrapper. It runs the same dataset repeatedly while changing
+per-call search options (`rerank`, `rerankWeight`) and prints one comparison
+table:
+
+```bash
+npm run benchmark:semantic:sweep -- \
+  --workspace-root=/home/alkmimm/respositorios/workspace-qdrant-mcp \
+  --project-id=367157a01d98 \
+  --qdrant-url=http://qdrant:6333 \
+  --daemon-host=localhost --daemon-port=50051 \
+  --database-path=/home/alkmimm/respositorios/workspace-qdrant-mcp/tmp/bench-memexd.db \
+  --weights=0,0.05,0.10,0.15,0.25,0.5,1 \
+  --output=/home/alkmimm/respositorios/workspace-qdrant-mcp/tmp/bench-sweep.json
+```
+
+After redeploying the CLI image, the same sweep is available from inside the
+`wqm-memexd` container as a first-class `wqm` command:
+
+```bash
+wqm benchmark semantic-search-sweep \
+  --workspace-root /home/alkmimm/respositorios/workspace-qdrant-mcp \
+  --project-id 367157a01d98 \
+  --qdrant-url http://qdrant:6333 \
+  --daemon-host localhost \
+  --daemon-port 50051 \
+  --database-path /home/alkmimm/respositorios/workspace-qdrant-mcp/tmp/bench-memexd.db \
+  --weights 0,0.05,0.10,0.15,0.25,0.5,1 \
+  --output /home/alkmimm/respositorios/workspace-qdrant-mcp/tmp/bench-sweep.json
+```
+
+For a small exploratory run, add repeated `--query-id=<id>` flags or define
+custom scenarios:
+
+```bash
+npm run benchmark:semantic:sweep -- \
+  --project-id=367157a01d98 \
+  --qdrant-url=http://qdrant:6333 \
+  --query-id=embedding-provider \
+  --query-id=impl-remote-embeddings \
+  --scenario=current \
+  --scenario=off:rerank=false \
+  --scenario=weak:rerank=true,weight=0.05 \
+  --scenario=pure:w=1
+```
 
 **3. Inspect a run** (per-query expected vs returned paths):
 
@@ -119,14 +166,14 @@ returns 0.
 
 Baseline → current, `semantic` mode, settled index, 12 queries:
 
-| metric | baseline | + dedup | + path-boost (α0.8) |
-|---|---|---|---|
-| top-1 | 8.3% | 8.3% | 16.7% |
-| top-3 | 33.3% | 33.3% | 50.0% |
-| top-10 | 41.7% | 75.0% | 83.3% |
-| recall@10 | 20.8% | 50.0% | 70.8% |
-| MRR | 0.22 | 0.25 | 0.39 |
-| duplicateRate | 24.2% | 0% | 0% |
+| metric        | baseline | + dedup | + path-boost (α0.8) |
+| ------------- | -------- | ------- | ------------------- |
+| top-1         | 8.3%     | 8.3%    | 16.7%               |
+| top-3         | 33.3%    | 33.3%   | 50.0%               |
+| top-10        | 41.7%    | 75.0%   | 83.3%               |
+| recall@10     | 20.8%    | 50.0%   | 70.8%               |
+| MRR           | 0.22     | 0.25    | 0.39                |
+| duplicateRate | 24.2%    | 0%      | 0%                  |
 
 Verdict: `poor` → `mixed` (only `top3 < 80%` remains).
 
