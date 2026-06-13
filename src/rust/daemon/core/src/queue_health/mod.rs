@@ -1,7 +1,14 @@
-//! Queue processor health state for monitoring
+//! Queue-health subsystem (#133).
 //!
-//! Shared between the UnifiedQueueProcessor (which updates it) and
-//! the gRPC SystemService (which reads it for health reporting).
+//! Hosts the functional queue-health model: the existing [`QueueProcessorHealth`]
+//! atomics (updated by the `UnifiedQueueProcessor`, read by the gRPC
+//! `SystemService`) plus the dual-rate EWMA primitive that backs trend and
+//! regression detection. Probes, persistence, and the verdict builder land in
+//! sibling submodules as the feature is built out.
+
+pub mod ewma;
+
+pub use ewma::{DualEwma, EwmaLane, Slope};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
