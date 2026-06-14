@@ -1,14 +1,17 @@
-/// Graph algorithms: PageRank, community detection, betweenness centrality.
+/// Graph algorithms: PageRank, community detection, betweenness centrality,
+/// and in-house deterministic Leiden community detection.
 ///
 /// Implemented as pure functions over adjacency data loaded from any
 /// `GraphStore` backend (SQLite or LadybugDB). The algorithms operate on
 /// in-memory adjacency lists, so they work identically regardless of backend.
 mod betweenness;
 mod community;
+pub mod leiden;
 mod pagerank;
 
 pub use betweenness::{compute_betweenness_centrality, BetweennessEntry};
 pub use community::{detect_communities, Community, CommunityConfig, CommunityMember};
+pub use leiden::{detect_communities_leiden, LeidenConfig};
 pub use pagerank::{compute_pagerank, PageRankConfig, PageRankEntry};
 
 use std::collections::HashMap;
