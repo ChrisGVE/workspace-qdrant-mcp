@@ -12,6 +12,7 @@ mod integration;
 mod narrative;
 mod observability;
 mod processing;
+pub mod queue_health;
 mod resource_limits;
 mod url_ingestion;
 
@@ -38,6 +39,7 @@ pub use observability::{
     OtlpProtocol, PrometheusExportConfig, TelemetryConfig, TracingConfig,
 };
 pub use processing::{QueueProcessorSettings, StartupConfig};
+pub use queue_health::QueueHealthConfig;
 pub use resource_limits::{detect_physical_cores, ResourceLimitsConfig};
 pub use url_ingestion::UrlIngestionConfig;
 

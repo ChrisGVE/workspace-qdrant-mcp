@@ -31,6 +31,30 @@ async fn test_service_with_queue_health() {
 }
 
 #[tokio::test]
+async fn test_service_with_ewma_state_shares_arc_with_processor() {
+    use workspace_qdrant_core::config::QueueHealthConfig;
+    use workspace_qdrant_core::EwmaState;
+
+    // The processor and the gRPC service are wired with the SAME `Arc<EwmaState>`
+    // (see queue_init::attach_adaptive_and_health). Modeling that here: a sample
+    // fed through one handle must be visible through the service's handle.
+    let ewma = Arc::new(EwmaState::new(&QueueHealthConfig::default()));
+    let service = SystemServiceImpl::new().with_ewma_state(Arc::clone(&ewma));
+    assert!(service.ewma_state.is_some());
+
+    // Feed a ms/KB sample through the "processor-side" Arc.
+    ewma.update_ms_per_kb(12.5);
+
+    // The service, holding the same Arc, observes the seeded lane.
+    let snapshot = service.ewma_state.as_ref().unwrap().ms_per_kb_snapshot();
+    assert!(
+        snapshot.seeded,
+        "service should see the processor-fed sample"
+    );
+    assert_eq!(snapshot.fast, 12.5);
+}
+
+#[tokio::test]
 async fn test_queue_processor_health_metrics() {
     let health = QueueProcessorHealth::new();
 

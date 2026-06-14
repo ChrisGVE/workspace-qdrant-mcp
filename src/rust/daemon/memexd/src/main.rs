@@ -94,6 +94,7 @@ fn wire_grpc(
         Arc::clone(&db_handles.pause_flag),
         Arc::clone(watch_refresh_signal),
         Arc::clone(&qc.queue_health),
+        Arc::clone(&qc.ewma_state),
         Arc::clone(&qc.adaptive_state),
         Arc::clone(&db_handles.search_db),
         db_handles.graph_sqlite.clone(),

@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use workspace_qdrant_core::{
-    adaptive_resources::AdaptiveResourceState, embedding::provider::DenseProvider,
+    adaptive_resources::AdaptiveResourceState, embedding::provider::DenseProvider, EwmaState,
     HierarchyBuilder, LanguageServerManager, ProjectLspConfig, QueueProcessorHealth,
     SearchDbManager,
 };
@@ -56,6 +56,7 @@ pub fn spawn_grpc_server(
     pause_flag: Arc<std::sync::atomic::AtomicBool>,
     watch_refresh_signal: Arc<Notify>,
     queue_health: Arc<QueueProcessorHealth>,
+    ewma_state: Arc<EwmaState>,
     adaptive_state: Arc<AdaptiveResourceState>,
     search_db: Arc<SearchDbManager>,
     graph_store: Option<GraphServiceStore>,
@@ -95,6 +96,7 @@ pub fn spawn_grpc_server(
             .with_pause_flag(pause_flag)
             .with_watch_refresh_signal(watch_refresh_signal)
             .with_queue_health(queue_health)
+            .with_ewma_state(ewma_state)
             .with_adaptive_state(adaptive_state)
             .with_search_db(search_db)
             .with_hierarchy_builder(hierarchy_builder)

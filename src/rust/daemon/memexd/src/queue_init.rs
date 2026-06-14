@@ -17,10 +17,10 @@ use workspace_qdrant_core::{
     create_grammar_manager,
     embedding::provider::{build_dense_provider, DenseProvider, FastEmbedProvider},
     ipc::IpcServer,
-    AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, HierarchyBuilder,
-    HierarchyRebuildConfig, LanguageServerManager, MultiTenantConfig, ProcessorConfig,
-    QueueProcessorHealth, SearchDbManager, StorageClient, StorageConfig, UnifiedProcessorConfig,
-    UnifiedQueueProcessor,
+    AllowedExtensions, DocumentProcessor, EmbeddingConfig, EmbeddingGenerator, EwmaState,
+    HierarchyBuilder, HierarchyRebuildConfig, LanguageServerManager, MultiTenantConfig,
+    ProcessorConfig, QueueProcessorHealth, SearchDbManager, StorageClient, StorageConfig,
+    UnifiedProcessorConfig, UnifiedQueueProcessor,
 };
 
 use crate::database::ConcreteGraphStore;
@@ -33,6 +33,9 @@ pub struct QueueComponents {
     pub adaptive_shutdown_token: tokio_util::sync::CancellationToken,
     pub adaptive_state: Arc<AdaptiveResourceState>,
     pub queue_health: Arc<QueueProcessorHealth>,
+    /// Shared dual-rate EWMA state (#133); the same `Arc` is wired into both the
+    /// queue processor and the gRPC SystemService.
+    pub ewma_state: Arc<EwmaState>,
     /// Pool clone for WatchManager (taken before pool is moved into queue processor).
     pub watch_pool: SqlitePool,
     /// Mirror storage for rules backfill.
@@ -383,7 +386,7 @@ pub async fn initialize(
         warn!("Tier-2 taxonomy tagger unavailable; concept-edge creation disabled");
     }
 
-    let (uqp, adaptive_shutdown_token, adaptive_state, queue_health) =
+    let (uqp, adaptive_shutdown_token, adaptive_state, queue_health, ewma_state) =
         attach_adaptive_and_health(config, uqp);
 
     info!(
@@ -398,6 +401,7 @@ pub async fn initialize(
         adaptive_shutdown_token,
         adaptive_state,
         queue_health,
+        ewma_state,
         watch_pool,
         mirror_storage,
         dense_provider,
@@ -412,6 +416,7 @@ fn attach_adaptive_and_health(
     tokio_util::sync::CancellationToken,
     Arc<AdaptiveResourceState>,
     Arc<QueueProcessorHealth>,
+    Arc<EwmaState>,
 ) {
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
     let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
@@ -426,7 +431,15 @@ fn attach_adaptive_and_health(
     let uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
     let queue_health = Arc::new(QueueProcessorHealth::new());
     let uqp = uqp.with_queue_health(Arc::clone(&queue_health));
-    (uqp, adaptive_shutdown_token, adaptive_state, queue_health)
+    let ewma_state = Arc::new(EwmaState::new(&config.queue_health));
+    let uqp = uqp.with_ewma_state(Arc::clone(&ewma_state));
+    (
+        uqp,
+        adaptive_shutdown_token,
+        adaptive_state,
+        queue_health,
+        ewma_state,
+    )
 }
 
 /// Recover stale leases, apply warmup delay, and start the queue processor.

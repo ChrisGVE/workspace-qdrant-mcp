@@ -207,7 +207,7 @@ pub use crate::processing::{
     Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskResultHandle, TaskSource,
     TaskSubmitter,
 };
-pub use crate::queue_health::QueueProcessorHealth;
+pub use crate::queue_health::{EwmaState, QueueProcessorHealth};
 pub use crate::queue_operations::{
     QueueError, QueueLoadLevel as QueueOpsLoadLevel, QueueManager, QueueThrottlingSummary,
 };
