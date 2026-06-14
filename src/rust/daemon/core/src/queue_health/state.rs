@@ -133,6 +133,10 @@ pub struct EwmaState {
     /// Re-seeds each poll from a fresh DLQ count; NOT persisted.
     dlq_depth: EwmaLane,
     alphas: EwmaAlphas,
+    /// ms/KB size floor (bytes): known-size items below this are treated as this
+    /// size so a tiny file's fixed per-item overhead can't masquerade as a huge
+    /// ms/KB outlier (DOM-07). Captured from config at construction.
+    min_item_bytes: u64,
     drain_snapshot: RwLock<Option<DrainSnapshot>>,
     debounce: Mutex<DebounceRings>,
 }
@@ -150,6 +154,7 @@ impl EwmaState {
                 fast: cfg.fast_alpha,
                 slow: cfg.slow_alpha,
             },
+            min_item_bytes: cfg.min_item_bytes,
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
         }
@@ -158,6 +163,11 @@ impl EwmaState {
     /// The configured smoothing factors.
     pub fn alphas(&self) -> EwmaAlphas {
         self.alphas
+    }
+
+    /// The ms/KB size floor in bytes (DOM-07 clamp).
+    pub fn min_item_bytes(&self) -> u64 {
+        self.min_item_bytes
     }
 
     // ── Per-item / per-poll lane updates (Relaxed) ──────────────────────────

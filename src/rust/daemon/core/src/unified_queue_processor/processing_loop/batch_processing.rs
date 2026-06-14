@@ -52,6 +52,9 @@ struct BatchContext {
     ingestion_limits: Arc<IngestionLimitsConfig>,
     metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
     queue_health: Option<Arc<QueueProcessorHealth>>,
+    /// Shared dual-rate EWMA state (#133); per-item handlers feed processing-cost
+    /// samples into it. Same `Arc` the gRPC SystemService reads for verdicts.
+    ewma_state: Option<Arc<EwmaState>>,
     keyword_embedding_generator: Option<Arc<EmbeddingGenerator>>,
     tier2_tagger: Option<Arc<crate::tagging::Tier2Tagger>>,
     concept_config: Arc<crate::config::ConceptConfig>,
@@ -101,8 +104,7 @@ pub(super) async fn process_batch(
     ingestion_limits: &Arc<IngestionLimitsConfig>,
     metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
     queue_health: &Option<Arc<QueueProcessorHealth>>,
-    // Threaded for per-item EWMA updates (#133, tasks 10/11); consumed there.
-    _ewma_state: &Option<Arc<EwmaState>>,
+    ewma_state: &Option<Arc<EwmaState>>,
     embedding_health: &Option<crate::embedding::EmbeddingHealth>,
     cancellation_token: &CancellationToken,
     _resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
@@ -159,6 +161,7 @@ pub(super) async fn process_batch(
         ingestion_limits: Arc::clone(ingestion_limits),
         metrics: Arc::clone(metrics),
         queue_health: queue_health.clone(),
+        ewma_state: ewma_state.clone(),
         keyword_embedding_generator: keyword_embedding_generator.clone(),
         tier2_tagger: tier2_tagger.clone(),
         concept_config: Arc::clone(concept_config),
@@ -360,13 +363,66 @@ fn emit_processing_metric(item: &UnifiedQueueItem, ctx: &BatchContext, duration_
     );
 }
 
+/// Compute the `(ms/KB, throughput-bytes/sec)` samples for one finished item.
+///
+/// Both lanes are size-derived, so each is `None` (skipped) unless the item has a
+/// known, positive `size_bytes` (DOM-07 — NULL/zero-size items contribute to
+/// neither lane). The ms/KB denominator is floored at `min_item_bytes` so a tiny
+/// file's fixed per-item overhead cannot masquerade as a huge ms/KB outlier.
+/// Throughput is `None` when no wall-time elapsed (avoids divide-by-zero). Pure,
+/// so the DOM-07 behavior is unit-testable without a `BatchContext`.
+fn cost_samples(
+    size_bytes: Option<i64>,
+    processing_ms: u64,
+    elapsed_secs: f64,
+    min_item_bytes: u64,
+) -> (Option<f64>, Option<f64>) {
+    let Some(size_bytes) = size_bytes.filter(|&b| b > 0) else {
+        return (None, None);
+    };
+    let min_kb = min_item_bytes as f64 / 1024.0;
+    let size_kb = (size_bytes as f64 / 1024.0).max(min_kb);
+    let ms_per_kb = Some(processing_ms as f64 / size_kb);
+    let throughput = (elapsed_secs > 0.0).then(|| size_bytes as f64 / elapsed_secs);
+    (ms_per_kb, throughput)
+}
+
+/// Feed per-item processing-cost samples into the shared EWMA lanes (#133).
+/// Size-derived lanes (ms/KB, throughput) follow DOM-07 via [`cost_samples`];
+/// non-finite samples are dropped inside `DualEwma::update`. Embedder latency is
+/// fed at the embedding site, not here.
+fn record_item_cost_ewma(
+    item: &UnifiedQueueItem,
+    processing_ms: u64,
+    elapsed: Duration,
+    ctx: &BatchContext,
+) {
+    let Some(ref ewma) = ctx.ewma_state else {
+        return;
+    };
+    let (ms_per_kb, throughput) = cost_samples(
+        item.size_bytes,
+        processing_ms,
+        elapsed.as_secs_f64(),
+        ewma.min_item_bytes(),
+    );
+    if let Some(sample) = ms_per_kb {
+        ewma.update_ms_per_kb(sample);
+    }
+    if let Some(sample) = throughput {
+        ewma.update_throughput(sample);
+    }
+}
+
 async fn handle_item_success(
     item: &UnifiedQueueItem,
     start_time: std::time::Instant,
     ctx: &BatchContext,
     item_type_str: &str,
 ) {
-    let processing_time = start_time.elapsed().as_millis() as u64;
+    let elapsed = start_time.elapsed();
+    let processing_time = elapsed.as_millis() as u64;
+    record_item_cost_ewma(item, processing_time, elapsed, ctx);
     METRICS.unified_queue_item_processed(
         &item.item_type.to_string(),
         &item.op.to_string(),
@@ -463,13 +519,17 @@ async fn handle_item_failure(
 ) {
     let error_category = UnifiedQueueProcessor::classify_error(&e);
     let is_permanent = UnifiedQueueProcessor::is_permanent_category(error_category);
+    let elapsed = start_time.elapsed();
     METRICS.unified_queue_item_processed(
         &item.item_type.to_string(),
         &item.op.to_string(),
         "failure",
-        start_time.elapsed().as_secs_f64(),
+        elapsed.as_secs_f64(),
     );
-    emit_processing_metric(item, ctx, start_time.elapsed().as_secs_f64());
+    emit_processing_metric(item, ctx, elapsed.as_secs_f64());
+    // A slowdown shows up regardless of outcome, so failures feed the cost lanes
+    // too (#133). Size-derived lanes still skip NULL-size items (DOM-07).
+    record_item_cost_ewma(item, elapsed.as_millis() as u64, elapsed, ctx);
 
     // SQLite lock-wait saturation (B6): count busy/locked failures on the
     // queue-processing DB path (the dominant state.db write-contention site).
@@ -623,5 +683,51 @@ mod tests {
                 "{op:?} does not embed and must proceed even while the provider is down"
             );
         }
+    }
+
+    // ── cost_samples (#133, DOM-07) ─────────────────────────────────────────
+    const MIN_ITEM_BYTES: u64 = 256;
+
+    #[test]
+    fn cost_samples_normal_item_feeds_both_lanes() {
+        // 4 KiB processed in 100 ms over 0.1 s wall time.
+        let (ms_per_kb, throughput) = cost_samples(Some(4096), 100, 0.1, MIN_ITEM_BYTES);
+        assert_eq!(ms_per_kb, Some(100.0 / 4.0)); // 4096 B = 4 KiB → 25 ms/KB
+        assert_eq!(throughput, Some(4096.0 / 0.1));
+    }
+
+    #[test]
+    fn cost_samples_tiny_known_file_is_clamped() {
+        // A 1-byte file would give a wild ms/KB without the floor; clamp to
+        // min_item_bytes (256 B = 0.25 KiB) so the denominator can't collapse.
+        let (ms_per_kb, _) = cost_samples(Some(1), 50, 0.05, MIN_ITEM_BYTES);
+        let expected_kb = MIN_ITEM_BYTES as f64 / 1024.0;
+        assert_eq!(ms_per_kb, Some(50.0 / expected_kb));
+    }
+
+    #[test]
+    fn cost_samples_null_size_skips_both_lanes() {
+        let (ms_per_kb, throughput) = cost_samples(None, 100, 0.1, MIN_ITEM_BYTES);
+        assert_eq!(ms_per_kb, None);
+        assert_eq!(throughput, None);
+    }
+
+    #[test]
+    fn cost_samples_zero_or_negative_size_skips_both_lanes() {
+        assert_eq!(
+            cost_samples(Some(0), 100, 0.1, MIN_ITEM_BYTES),
+            (None, None)
+        );
+        assert_eq!(
+            cost_samples(Some(-5), 100, 0.1, MIN_ITEM_BYTES),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn cost_samples_zero_elapsed_skips_throughput_only() {
+        let (ms_per_kb, throughput) = cost_samples(Some(4096), 100, 0.0, MIN_ITEM_BYTES);
+        assert!(ms_per_kb.is_some());
+        assert_eq!(throughput, None);
     }
 }
