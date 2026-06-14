@@ -446,7 +446,11 @@ async fn test_enqueue_size_bytes_from_payload_round_trip() {
         .await
         .unwrap();
     let item = items.iter().find(|i| i.queue_id == queue_id).unwrap();
-    assert_eq!(item.size_bytes, Some(4096), "payload size_bytes round-trips");
+    assert_eq!(
+        item.size_bytes,
+        Some(4096),
+        "payload size_bytes round-trips"
+    );
 }
 
 /// A non-file item carries no byte count, so size_bytes stays NULL.
