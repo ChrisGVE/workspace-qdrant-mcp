@@ -173,8 +173,8 @@ pub fn export_nodes_ladybug(
             file_path: row[4].clone(),
             start_line: row.get(5).and_then(|s| s.parse().ok()),
             end_line: row.get(6).and_then(|s| s.parse().ok()),
-            signature: row.get(7).map(|s| s.clone()).filter(|s| !s.is_empty()),
-            language: row.get(8).map(|s| s.clone()).filter(|s| !s.is_empty()),
+            signature: row.get(7).cloned().filter(|s| !s.is_empty()),
+            language: row.get(8).cloned().filter(|s| !s.is_empty()),
             branches: r#"["main"]"#.to_string(),
         });
     }
