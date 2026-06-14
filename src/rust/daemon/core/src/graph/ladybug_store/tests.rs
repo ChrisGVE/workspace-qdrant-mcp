@@ -427,6 +427,254 @@ async fn test_ladybug_execute_cypher() {
     assert_eq!(rows[0][0], "3");
 }
 
+// ---- find_path ---------------------------------------------------------------
+
+/// Build a 2-node chain (A→B via CALLS) in a fresh store.
+/// Returns (store, tmp, node_a, node_b).
+async fn build_chain_2(
+    name: &str,
+) -> (
+    LadybugGraphStore,
+    tempfile::TempDir,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+) {
+    use crate::graph::NodeType;
+    let (store, tmp) = fresh_store(name);
+    let a = crate::graph::GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = crate::graph::GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    store
+        .insert_edges(&[GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            EdgeType::Calls,
+            "a.rs",
+        )])
+        .await
+        .unwrap();
+    (store, tmp, a, b)
+}
+
+/// Build a 3-node chain (A→B→C via CALLS) in a fresh store.
+async fn build_chain_3(
+    name: &str,
+) -> (
+    LadybugGraphStore,
+    tempfile::TempDir,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+) {
+    use crate::graph::NodeType;
+    let (store, tmp) = fresh_store(name);
+    let a = crate::graph::GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = crate::graph::GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    let c = crate::graph::GraphNode::new(T, "c.rs", "gamma", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &c.node_id, EdgeType::Calls, "b.rs"),
+        ])
+        .await
+        .unwrap();
+    (store, tmp, a, b, c)
+}
+
+/// Build a 4-node chain (A→B→C→D via CALLS) in a fresh store.
+async fn build_chain_4(
+    name: &str,
+) -> (
+    LadybugGraphStore,
+    tempfile::TempDir,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+    crate::graph::GraphNode,
+) {
+    use crate::graph::NodeType;
+    let (store, tmp) = fresh_store(name);
+    let a = crate::graph::GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = crate::graph::GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    let c = crate::graph::GraphNode::new(T, "c.rs", "gamma", NodeType::Function);
+    let d = crate::graph::GraphNode::new(T, "d.rs", "delta", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone(), d.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &c.node_id, EdgeType::Calls, "b.rs"),
+            GraphEdge::new(T, &c.node_id, &d.node_id, EdgeType::Calls, "c.rs"),
+        ])
+        .await
+        .unwrap();
+    (store, tmp, a, b, c, d)
+}
+
+/// Assert a TraversalNode has the sentinel fields set by find_path.
+fn assert_path_node_sentinels(n: &crate::graph::TraversalNode, expected_depth: u32, tenant: &str) {
+    assert_eq!(n.depth, expected_depth, "node {} wrong depth", n.node_id);
+    assert_eq!(n.edge_type, "", "edge_type must be empty");
+    assert_eq!(n.path, "", "path must be empty");
+    assert_eq!(n.tenant_id, tenant, "tenant_id mismatch");
+    assert!(
+        (n.edge_confidence - 1.0).abs() < f64::EPSILON,
+        "edge_confidence must be 1.0"
+    );
+}
+
+/// (a) 2-hop path A→B→C: find_path(A,C) returns [A,B,C] at depths [0,1,2].
+#[tokio::test]
+async fn test_find_path_2hop() {
+    let (store, _tmp, a, _b, c) = build_chain_3("fp_2hop").await;
+    let path = store
+        .find_path(T, &a.node_id, &c.node_id, 5, None, None)
+        .await
+        .unwrap();
+    let path = path.expect("2-hop path must exist");
+    assert_eq!(path.len(), 3, "path must have 3 nodes: A, B, C");
+    assert_eq!(path[0].node_id, a.node_id);
+    assert_eq!(path[2].node_id, c.node_id);
+    for (i, node) in path.iter().enumerate() {
+        assert_path_node_sentinels(node, i as u32, T);
+    }
+    // Verify actual symbol names (source→target direction)
+    assert_eq!(path[0].symbol_name, "alpha");
+    assert_eq!(path[1].symbol_name, "beta");
+    assert_eq!(path[2].symbol_name, "gamma");
+}
+
+/// (b) 3-hop path A→B→C→D: find_path(A,D) returns [A,B,C,D] at depths [0,1,2,3].
+#[tokio::test]
+async fn test_find_path_3hop() {
+    let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_3hop").await;
+    let path = store
+        .find_path(T, &a.node_id, &d.node_id, 5, None, None)
+        .await
+        .unwrap();
+    let path = path.expect("3-hop path must exist");
+    assert_eq!(path.len(), 4);
+    assert_eq!(path[0].node_id, a.node_id);
+    assert_eq!(path[3].node_id, d.node_id);
+    for (i, node) in path.iter().enumerate() {
+        assert_path_node_sentinels(node, i as u32, T);
+    }
+}
+
+/// (c) Disconnected nodes: find_path returns None.
+#[tokio::test]
+async fn test_find_path_no_path() {
+    use crate::graph::NodeType;
+    let (store, _tmp) = fresh_store("fp_nopath");
+    let a = crate::graph::GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = crate::graph::GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    // Insert nodes but NO edge between them
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+
+    let result = store
+        .find_path(T, &a.node_id, &b.node_id, 5, None, None)
+        .await
+        .unwrap();
+    assert!(result.is_none(), "disconnected nodes must return None");
+}
+
+/// (d) Self-path: find_path(A, A) returns Some([A]) at depth 0.
+#[tokio::test]
+async fn test_find_path_self() {
+    let (store, _tmp, a, _b) = build_chain_2("fp_self").await;
+    let path = store
+        .find_path(T, &a.node_id, &a.node_id, 5, None, None)
+        .await
+        .unwrap();
+    let path = path.expect("self-path must return Some");
+    assert_eq!(path.len(), 1);
+    assert_eq!(path[0].node_id, a.node_id);
+    assert_path_node_sentinels(&path[0], 0, T);
+    assert_eq!(path[0].symbol_name, "alpha");
+}
+
+/// (e) Edge-type filter excludes the only available path.
+/// Graph: A→B via USES_TYPE, but we ask for CALLS only → no path.
+#[tokio::test]
+async fn test_find_path_edge_type_filter_excludes() {
+    use crate::graph::NodeType;
+    let (store, _tmp) = fresh_store("fp_filter_excl");
+    let a = crate::graph::GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = crate::graph::GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    store
+        .insert_edges(&[GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            EdgeType::UsesType,
+            "a.rs",
+        )])
+        .await
+        .unwrap();
+
+    // Filter to CALLS only — no CALLS edge exists, so no path
+    let result = store
+        .find_path(T, &a.node_id, &b.node_id, 5, Some(&[EdgeType::Calls]), None)
+        .await
+        .unwrap();
+    assert!(
+        result.is_none(),
+        "CALLS filter must exclude the USES_TYPE path"
+    );
+}
+
+/// (e continued) Edge-type filter allows the path when the type matches.
+#[tokio::test]
+async fn test_find_path_edge_type_filter_allows() {
+    let (store, _tmp, a, _b, c) = build_chain_3("fp_filter_allow").await;
+    // Chain uses CALLS edges; filter to CALLS — path must be found
+    let path = store
+        .find_path(T, &a.node_id, &c.node_id, 5, Some(&[EdgeType::Calls]), None)
+        .await
+        .unwrap();
+    assert!(path.is_some(), "CALLS filter must allow a CALLS path");
+    assert_eq!(path.unwrap().len(), 3);
+}
+
+/// (f) max_depth bound: path is 3 hops but max_depth=2 → None.
+#[tokio::test]
+async fn test_find_path_max_depth_too_small() {
+    let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_maxdepth").await;
+    // Path A→D is 3 hops; max_depth=2 must return None
+    let result = store
+        .find_path(T, &a.node_id, &d.node_id, 2, None, None)
+        .await
+        .unwrap();
+    assert!(
+        result.is_none(),
+        "path longer than max_depth must return None"
+    );
+}
+
+/// (f continued) max_depth exactly equal to path length works.
+#[tokio::test]
+async fn test_find_path_max_depth_exact() {
+    let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_maxdepth_exact").await;
+    // Path A→D is 3 hops; max_depth=3 must succeed
+    let path = store
+        .find_path(T, &a.node_id, &d.node_id, 3, None, None)
+        .await
+        .unwrap();
+    assert!(
+        path.is_some(),
+        "max_depth exactly equal to path length must find the path"
+    );
+    assert_eq!(path.unwrap().len(), 4);
+}
+
 // ---- Parameterized query injection safety ------------------------------------
 
 #[tokio::test]

@@ -393,6 +393,119 @@ impl LadybugGraphStore {
 
         Ok(out)
     }
+
+    // ---- find_path helpers ---------------------------------------------------
+
+    /// Return `Ok(Some([source_node]))` for the self-path case, or `Ok(None)`
+    /// when the source node does not exist in the tenant (matching SQLite: the
+    /// recursive CTE base case joins `graph_nodes`, so a missing node yields
+    /// no rows → None).
+    fn find_path_self(
+        &self,
+        tenant_id: &str,
+        node_id: &str,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let conn = self.connect()?;
+        let cypher = "MATCH (n:GraphNode {node_id: $id}) \
+                      WHERE n.tenant_id = $tid \
+                      RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+        let mut stmt = conn
+            .prepare(cypher)
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare find_path_self: {e}")))?;
+        let result = conn
+            .execute(
+                &mut stmt,
+                vec![
+                    ("id", Value::String(node_id.to_string())),
+                    ("tid", Value::String(tenant_id.to_string())),
+                ],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute find_path_self: {e}")))?;
+
+        for row in result {
+            if row.len() < 4 {
+                continue;
+            }
+            return Ok(Some(vec![TraversalNode {
+                node_id: value_to_string(&row[0]),
+                symbol_name: value_to_string(&row[1]),
+                symbol_type: value_to_string(&row[2]),
+                file_path: value_to_string(&row[3]),
+                edge_type: String::new(),
+                depth: 0,
+                path: String::new(),
+                tenant_id: tenant_id.to_string(),
+                edge_confidence: 1.0,
+            }]));
+        }
+        Ok(None)
+    }
+
+    /// Fetch each node in `path` (ordered vec of node_ids) from the graph and
+    /// return them as `TraversalNode`s with `depth` = index in the path.
+    ///
+    /// Called once the BFS has confirmed the full path exists. Re-queries each
+    /// node to populate all `TraversalNode` fields consistently with the rest of
+    /// the LadybugDB backend.
+    fn reconstruct_path(
+        &self,
+        tenant_id: &str,
+        path: &[String],
+        conn: &Connection<'_>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let mut nodes = Vec::with_capacity(path.len());
+        for (depth, nid) in path.iter().enumerate() {
+            let cypher = "MATCH (n:GraphNode {node_id: $id}) \
+                          WHERE n.tenant_id = $tid \
+                          RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+            let mut stmt = conn.prepare(cypher).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare reconstruct_path: {e}"))
+            })?;
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![
+                        ("id", Value::String(nid.clone())),
+                        ("tid", Value::String(tenant_id.to_string())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute reconstruct_path: {e}"))
+                })?;
+
+            let mut found = false;
+            for row in result {
+                if row.len() < 4 {
+                    continue;
+                }
+                nodes.push(TraversalNode {
+                    node_id: value_to_string(&row[0]),
+                    symbol_name: value_to_string(&row[1]),
+                    symbol_type: value_to_string(&row[2]),
+                    file_path: value_to_string(&row[3]),
+                    edge_type: String::new(),
+                    depth: depth as u32,
+                    path: String::new(),
+                    tenant_id: tenant_id.to_string(),
+                    edge_confidence: 1.0,
+                });
+                found = true;
+                break;
+            }
+            if !found {
+                // A node in a valid path disappeared from the graph (concurrent
+                // delete race). Treat as no path rather than returning a partial
+                // result — matches SQLite's JOIN behaviour where a missing node
+                // simply drops the row.
+                debug!(
+                    "find_path reconstruct: node {} vanished mid-path for tenant {}",
+                    nid, tenant_id
+                );
+                return Ok(None);
+            }
+        }
+        Ok(Some(nodes))
+    }
 }
 
 /// Build a parameterized Cypher tenant IN-list. Returns the bracketed fragment
@@ -737,15 +850,110 @@ impl GraphStore for LadybugGraphStore {
 
     async fn find_path(
         &self,
-        _tenant_id: &str,
-        _source_id: &str,
-        _target_id: &str,
-        _max_depth: u32,
-        _edge_types: Option<&[EdgeType]>,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
         _branch: Option<&str>,
+        // NOTE: branch scoping is intentionally ignored at the LadybugDB layer,
+        // matching the convention established in `query_related` (_branch param).
+        // SQLite uses branch-aware edge filters; the cross-backend branch-parity
+        // gap is formally asserted in the conformance suite (task 8).
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
-        // LadybugDB path-finding will use Cypher SHORTEST PATH in a future iteration.
-        // For now, return None (no path found) — callers handle this gracefully.
+        // Self-path: source == target — return the source node at depth 0,
+        // matching SQLite's BFS base-case behaviour.
+        if source_id == target_id {
+            return self.find_path_self(tenant_id, source_id);
+        }
+
+        // Rel-type pattern for the single-hop neighbour query.
+        // Rel type names come from EdgeType::as_str() (compile-time literals),
+        // so string interpolation is injection-safe.
+        let rel_pattern = match edge_types {
+            Some(types) if !types.is_empty() => types
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join("|"),
+            _ => ALL_REL_TYPES.join("|"),
+        };
+
+        // Rust-side BFS replicating SQLite's `WITH RECURSIVE bfs` logic:
+        //   - Each candidate is a full path (Vec<String> of node_ids) rather
+        //     than just a frontier node, so the no-revisit check is O(path len)
+        //     and the reconstruction step is trivial.
+        //   - We process complete hop levels in ascending order, so the first
+        //     time target_id is reached it is guaranteed to be a minimum-hop path.
+        //   - Tie-breaking among equal-depth paths is implementation-defined
+        //     (matches SQLite, which also gives no tie-break guarantee via LIMIT 1
+        //     on the CTE result); tests use unique-shortest-path fixtures only.
+
+        // frontier: list of in-progress paths, each ending at the current node.
+        let mut frontier: Vec<Vec<String>> = vec![vec![source_id.to_string()]];
+
+        let conn = self.connect()?;
+
+        for _hop in 0..max_depth {
+            if frontier.is_empty() {
+                break;
+            }
+            let mut next_frontier: Vec<Vec<String>> = Vec::new();
+
+            for path in &frontier {
+                let current_id = path.last().expect("path is non-empty");
+
+                // Single-hop outgoing neighbour query for this node.
+                let cypher = format!(
+                    "MATCH (a:GraphNode {{node_id: $id}})\
+                     -[:{rel_pattern}*1..1]->(b:GraphNode) \
+                     WHERE b.tenant_id = $tid \
+                     RETURN b.node_id, b.symbol_name, b.symbol_type, b.file_path"
+                );
+                let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Prepare find_path neighbour: {e}"))
+                })?;
+                let result = conn
+                    .execute(
+                        &mut stmt,
+                        vec![
+                            ("id", Value::String(current_id.clone())),
+                            ("tid", Value::String(tenant_id.to_string())),
+                        ],
+                    )
+                    .map_err(|e| {
+                        GraphDbError::InvalidInput(format!("Execute find_path neighbour: {e}"))
+                    })?;
+
+                for row in result {
+                    if row.len() < 4 {
+                        continue;
+                    }
+                    let neighbour_id = value_to_string(&row[0]);
+
+                    // No-revisit within this path (mirrors SQLite's INSTR check).
+                    if path.contains(&neighbour_id) {
+                        continue;
+                    }
+
+                    let mut new_path = path.clone();
+                    new_path.push(neighbour_id.clone());
+
+                    if neighbour_id == target_id {
+                        // Found the target — reconstruct TraversalNode vec and return.
+                        // The final node's fields are already in `row`; all prior
+                        // nodes in the path must be fetched from the graph.
+                        return self.reconstruct_path(tenant_id, &new_path, &conn);
+                    }
+
+                    next_frontier.push(new_path);
+                }
+            }
+
+            frontier = next_frontier;
+        }
+
+        // Exhausted all paths within max_depth without reaching target.
         Ok(None)
     }
 
