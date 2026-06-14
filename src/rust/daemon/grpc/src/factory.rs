@@ -97,6 +97,9 @@ impl GrpcServer {
         if let Some(ref health) = self.queue_health {
             svc = svc.with_queue_health(Arc::clone(health));
         }
+        if let Some(ref ewma_state) = self.ewma_state {
+            svc = svc.with_ewma_state(Arc::clone(ewma_state));
+        }
         if let Some(ref adaptive_state) = self.adaptive_state {
             svc = svc.with_adaptive_state(Arc::clone(adaptive_state));
         }

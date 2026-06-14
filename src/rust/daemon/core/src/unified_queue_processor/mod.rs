@@ -30,7 +30,7 @@ use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
-use crate::queue_health::QueueProcessorHealth;
+use crate::queue_health::{EwmaState, QueueProcessorHealth};
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::{StorageClient, StorageConfig};
@@ -80,6 +80,10 @@ pub struct UnifiedQueueProcessor {
 
     /// Shared health state for gRPC monitoring
     queue_health: Option<Arc<QueueProcessorHealth>>,
+
+    /// Shared dual-rate EWMA state (#133). The SAME `Arc` is handed to the gRPC
+    /// SystemService so verdict reads see the processor's live samples.
+    ewma_state: Option<Arc<EwmaState>>,
 
     /// Dense-embedding availability flag maintained by the embedding watchdog.
     /// When the provider is down, embedding-bearing items are re-leased (parked)
@@ -187,6 +191,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            ewma_state: None,
             embedding_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -255,6 +260,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            ewma_state: None,
             embedding_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -329,6 +335,14 @@ impl UnifiedQueueProcessor {
     /// Set shared queue processor health state for gRPC monitoring
     pub fn with_queue_health(mut self, health: Arc<QueueProcessorHealth>) -> Self {
         self.queue_health = Some(health);
+        self
+    }
+
+    /// Set the shared dual-rate EWMA state (#133). The same `Arc` must also be
+    /// handed to the gRPC `SystemService` so verdict reads observe the samples
+    /// this processor feeds in.
+    pub fn with_ewma_state(mut self, ewma_state: Arc<EwmaState>) -> Self {
+        self.ewma_state = Some(ewma_state);
         self
     }
 

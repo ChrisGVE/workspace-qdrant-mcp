@@ -216,6 +216,8 @@ pub struct Config {
     pub queue_backpressure_threshold: Option<i64>,
     /// Resource limits for daemon processing
     pub resource_limits: ResourceLimitsConfig,
+    /// Queue-health monitoring thresholds (#133 `[queue_health]`).
+    pub queue_health: QueueHealthConfig,
     /// Code-relationship graph backend selection (`graph.*`).
     pub graph: crate::graph::GraphConfig,
     /// Cross-boundary graph-RAG traversal fan-out caps (`search.graph_rag.*`).
@@ -239,6 +241,7 @@ impl From<DaemonConfig> for Config {
             queue_worker_count: Some(4), // Default worker count
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
             resource_limits: daemon_config.resource_limits,
+            queue_health: daemon_config.queue_health,
             graph: daemon_config.graph,
             graph_rag: daemon_config.graph_rag,
         }
@@ -263,6 +266,7 @@ impl Config {
             queue_worker_count: Some(4),
             queue_backpressure_threshold: Some(1000),
             resource_limits: ResourceLimitsConfig::default(),
+            queue_health: QueueHealthConfig::default(),
             graph: crate::graph::GraphConfig::default(),
             graph_rag: GraphRagConfig::default(),
         }
