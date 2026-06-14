@@ -458,6 +458,26 @@ pub struct ImpactNode {
     pub distance: u32,
 }
 
+/// Canonical adjacency export for graph algorithms (IMPL-04-R2, CONS-03).
+///
+/// `edges` are `(source_index, target_index, weight)` where the indices address
+/// into `node_ids`.  Returned data is fully owned — no lock or borrow is held
+/// once this value is returned to the caller (LOCK-SCOPE contract: any read
+/// guard acquired during the query is released before the owned result is
+/// returned).
+///
+/// `node_ids` are sorted deterministically (ORDER BY node_id) so that algorithm
+/// consumers receive a stable index mapping across repeated calls on the same
+/// graph state.
+#[derive(Debug, Clone, Default)]
+pub struct AdjacencyExport {
+    /// All node IDs for the tenant, sorted deterministically.
+    pub node_ids: Vec<String>,
+    /// Directed edges as (source_index, target_index, weight), indexing into
+    /// `node_ids`.
+    pub edges: Vec<(usize, usize, f64)>,
+}
+
 /// Graph statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GraphStats {
@@ -552,6 +572,27 @@ pub trait GraphStore: Send + Sync {
         edge_types: Option<&[EdgeType]>,
         branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>>;
+
+    /// Export the full adjacency structure for a tenant as an owned, indexed
+    /// representation suitable for graph algorithms.
+    ///
+    /// Returns an [`AdjacencyExport`] where:
+    /// - `node_ids` lists every node in the tenant, sorted deterministically
+    ///   (`ORDER BY node_id`), satisfying DOM-01.
+    /// - `edges` are `(src_idx, tgt_idx, weight)` with indices into `node_ids`.
+    ///   Edges whose source or target node is absent from the node list (orphan
+    ///   edges) are silently skipped.
+    ///
+    /// `edge_types`: when `Some`, only edges of those types are returned;
+    /// `None` returns all edge types.
+    ///
+    /// LOCK-SCOPE: any read lock acquired during the query is released before
+    /// the owned `AdjacencyExport` is returned — no borrow escapes.
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport>;
 
     /// Traverse graph crossing tenant boundaries via concept/narrative edges.
     ///

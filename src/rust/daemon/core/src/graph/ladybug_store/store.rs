@@ -15,8 +15,8 @@ use crate::graph::{
     compute_edge_id,
     cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
     schema::{GraphDbError, GraphDbResult},
-    EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow,
-    TraversalNode,
+    AdjacencyExport, EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
+    ImpactReport, SymbolRow, TraversalNode,
 };
 
 use super::config::LadybugConfig;
@@ -1498,5 +1498,105 @@ impl GraphStore for LadybugGraphStore {
 
         let results: Vec<TraversalNode> = reached.into_values().collect();
         Ok(apply_fan_out_caps(results, &self.graph_rag))
+    }
+
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        use std::collections::HashMap;
+
+        let conn = self.connect()?;
+
+        // 1. Load all nodes for the tenant, sorted deterministically (DOM-01).
+        let mut node_stmt = conn
+            .prepare(
+                "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
+                 RETURN n.node_id ORDER BY n.node_id",
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare export_adjacency nodes: {e}"))
+            })?;
+
+        let node_result = conn
+            .execute(
+                &mut node_stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute export_adjacency nodes: {e}"))
+            })?;
+
+        let node_ids: Vec<String> = node_result
+            .into_iter()
+            .filter_map(|row| row.into_iter().next().map(|v| value_to_string(&v)))
+            .collect();
+
+        // Build a node_id→index map for O(1) edge lookups.
+        let index_map: HashMap<String, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
+
+        // 2. Build the rel-type pattern.
+        //
+        //    Rel type names come from EdgeType::as_str() (compile-time constants),
+        //    so string interpolation into the rel-pattern position is injection-safe
+        //    (same convention as query_related, find_path, etc. in this backend).
+        //
+        //    NOTE: LadybugDB rel tables carry a `weight DOUBLE` property (confirmed
+        //    in init_schema DDL). Weight is returned and stored directly; no default
+        //    substitution is needed. This ensures cross-backend weight equivalence
+        //    with the SQLite backend (relevant for the conformance suite, task 8).
+        let rel_pattern = match edge_types {
+            Some(types) if !types.is_empty() => types
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join("|"),
+            _ => ALL_REL_TYPES.join("|"),
+        };
+
+        // 3. Query edges: source node_id, target node_id, weight.
+        let edge_cypher = format!(
+            "MATCH (a:GraphNode)-[r:{rel_pattern}]->(b:GraphNode) \
+             WHERE a.tenant_id = $tid \
+             RETURN a.node_id, b.node_id, r.weight \
+             ORDER BY a.node_id, b.node_id"
+        );
+
+        let mut edge_stmt = conn.prepare(&edge_cypher).map_err(|e| {
+            GraphDbError::InvalidInput(format!("Prepare export_adjacency edges: {e}"))
+        })?;
+
+        let edge_result = conn
+            .execute(
+                &mut edge_stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute export_adjacency edges: {e}"))
+            })?;
+
+        // 4. Convert to indexed edges; skip orphan endpoints.
+        let mut edges: Vec<(usize, usize, f64)> = Vec::new();
+        for row in edge_result {
+            if row.len() < 3 {
+                continue;
+            }
+            let src = value_to_string(&row[0]);
+            let tgt = value_to_string(&row[1]);
+            let weight = value_to_f64(&row[2]);
+
+            let (Some(&si), Some(&ti)) = (index_map.get(&src), index_map.get(&tgt)) else {
+                // Orphan edge: at least one endpoint absent from the node list.
+                continue;
+            };
+            edges.push((si, ti, weight));
+        }
+
+        Ok(AdjacencyExport { node_ids, edges })
     }
 }

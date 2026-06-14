@@ -37,6 +37,7 @@ pub(super) struct AdjacencyGraph {
     pub(super) incoming: HashMap<String, Vec<String>>,
 }
 
+// Retained until A0.2a call-chain re-target (task 4) migrates consumers to export_adjacency.
 /// Load the full adjacency graph for a tenant from SQLite.
 pub(super) async fn load_adjacency_graph(
     pool: &SqlitePool,

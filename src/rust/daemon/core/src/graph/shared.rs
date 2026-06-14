@@ -17,8 +17,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use super::{
-    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport, SymbolRow,
-    TraversalNode,
+    AdjacencyExport, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
+    ImpactReport, SymbolRow, TraversalNode,
 };
 
 /// Threshold after which a lock acquisition emits a `warn!` log.
@@ -295,6 +295,20 @@ impl<S: GraphStore> SharedGraphStore<S> {
         let guard = self.acquire_read("query_edges_by_type").await?;
         guard.query_edges_by_type(edge_type).await
     }
+
+    /// Export the full adjacency structure for a tenant (shared read lock).
+    ///
+    /// The read guard is acquired, the inner store's `export_adjacency` runs to
+    /// completion, and the owned `AdjacencyExport` is returned. The guard drops
+    /// when this function returns — no borrow escapes (LOCK-SCOPE contract).
+    pub async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        let guard = self.acquire_read("export_adjacency").await?;
+        guard.export_adjacency(tenant_id, edge_types).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -419,6 +433,14 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
 
     async fn query_edges_by_type(&self, edge_type: EdgeType) -> GraphDbResult<Vec<GraphEdge>> {
         self.query_edges_by_type(edge_type).await
+    }
+
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        self.export_adjacency(tenant_id, edge_types).await
     }
 
     /// List tenants with graph data (shared read lock).

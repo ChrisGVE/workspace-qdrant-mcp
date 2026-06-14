@@ -811,3 +811,153 @@ async fn test_ladybug_resolve_stub_edges_same_file_tiebreaker() {
         "the b.rs helper must NOT be chosen when the caller's own file defines one"
     );
 }
+
+// ── export_adjacency (LadybugDB) ───────────────────────────────────────────────
+
+/// (a) Empty tenant: both node_ids and edges are empty.
+#[tokio::test]
+async fn test_lbug_export_adjacency_empty_tenant() {
+    let (store, _tmp) = fresh_store("ea_empty");
+    let result = store
+        .export_adjacency("no-such-tenant", None)
+        .await
+        .unwrap();
+    assert!(result.node_ids.is_empty(), "empty tenant yields no nodes");
+    assert!(result.edges.is_empty(), "empty tenant yields no edges");
+}
+
+/// (b) Single isolated node: node_ids has one entry, edges is empty.
+#[tokio::test]
+async fn test_lbug_export_adjacency_single_isolated_node() {
+    let (store, _tmp) = fresh_store("ea_isolated");
+    let node = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    store.upsert_nodes(&[node]).await.unwrap();
+
+    let result = store.export_adjacency(T, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 1, "one node expected");
+    assert!(result.edges.is_empty(), "isolated node has no edges");
+}
+
+/// (c) Two connected nodes A→B: correct (src_idx, tgt_idx, weight) returned.
+#[tokio::test]
+async fn test_lbug_export_adjacency_two_connected_nodes() {
+    let (store, _tmp) = fresh_store("ea_two");
+    let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    let edge = GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[edge]).await.unwrap();
+
+    let result = store.export_adjacency(T, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 2, "two nodes");
+
+    let idx_a = result
+        .node_ids
+        .iter()
+        .position(|id| id == &a.node_id)
+        .unwrap();
+    let idx_b = result
+        .node_ids
+        .iter()
+        .position(|id| id == &b.node_id)
+        .unwrap();
+
+    assert_eq!(result.edges.len(), 1, "exactly one edge");
+    let (si, ti, w) = result.edges[0];
+    assert_eq!(si, idx_a, "source index must be A");
+    assert_eq!(ti, idx_b, "target index must be B");
+    // LadybugDB rel tables carry a weight DOUBLE property (confirmed in
+    // init_schema DDL). Default GraphEdge weight is 1.0.
+    assert!((w - 1.0).abs() < f64::EPSILON, "default weight must be 1.0");
+}
+
+/// (d) edge_types=Some([Calls]) returns only CALLS edges; None returns all.
+#[tokio::test]
+async fn test_lbug_export_adjacency_edge_type_filter() {
+    let (store, _tmp) = fresh_store("ea_filter");
+    let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "beta", NodeType::Function);
+    let c = GraphNode::new(T, "c.rs", "gamma", NodeType::Struct);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+    let calls_edge = GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
+    let uses_edge = GraphEdge::new(T, &a.node_id, &c.node_id, EdgeType::UsesType, "a.rs");
+    store.insert_edges(&[calls_edge, uses_edge]).await.unwrap();
+
+    // Filter to CALLS only: one edge.
+    let calls_only = store
+        .export_adjacency(T, Some(&[EdgeType::Calls]))
+        .await
+        .unwrap();
+    assert_eq!(calls_only.node_ids.len(), 3, "all nodes always returned");
+    assert_eq!(calls_only.edges.len(), 1, "CALLS filter yields one edge");
+
+    // No filter: both edges.
+    let all = store.export_adjacency(T, None).await.unwrap();
+    assert_eq!(all.edges.len(), 2, "None filter yields both edges");
+}
+
+/// (e) Orphan edge (endpoint absent from node table) is silently skipped.
+///
+/// We insert only node A (no B) but try to create an edge A→B.
+/// LadybugDB MATCH-based CREATE will silently produce no edge when B is
+/// absent. This test therefore validates the no-edge case; the skip logic
+/// in the Rust post-processing layer is covered by the SQLite orphan test.
+#[tokio::test]
+async fn test_lbug_export_adjacency_orphan_edge_skipped() {
+    let (store, _tmp) = fresh_store("ea_orphan");
+    let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
+    // Insert only A — no B node exists.
+    store.upsert_nodes(&[a.clone()]).await.unwrap();
+
+    // Attempt to insert an edge whose target does not exist.
+    // LadybugDB MATCH(a)-MATCH(b)-CREATE will produce no edge (MATCH fails).
+    // This is idiomatic lbug behaviour — no panic, just a no-op.
+    let fake_b_id = "nonexistent-node-id";
+    let edge = GraphEdge {
+        edge_id: "fake-edge".to_string(),
+        tenant_id: T.to_string(),
+        source_node_id: a.node_id.clone(),
+        target_node_id: fake_b_id.to_string(),
+        edge_type: EdgeType::Calls,
+        source_file: "a.rs".to_string(),
+        weight: 1.0,
+        metadata_json: None,
+        branch: None,
+    };
+    // insert_edge silently fails (no matching target node) — do not unwrap.
+    let _ = store.insert_edge(&edge).await;
+
+    let result = store.export_adjacency(T, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 1, "only A in the node list");
+    assert!(
+        result.edges.is_empty(),
+        "no valid edge when target is absent"
+    );
+}
+
+/// (f) node_ids are sorted deterministically (DOM-01).
+#[tokio::test]
+async fn test_lbug_export_adjacency_node_ids_sorted() {
+    let (store, _tmp) = fresh_store("ea_sorted");
+    // Insert nodes — LadybugDB stores them in insertion order internally;
+    // our query uses ORDER BY n.node_id to guarantee deterministic output.
+    let nodes = vec![
+        GraphNode::new(T, "c.rs", "gamma", NodeType::Function),
+        GraphNode::new(T, "a.rs", "alpha", NodeType::Function),
+        GraphNode::new(T, "b.rs", "beta", NodeType::Function),
+    ];
+    store.upsert_nodes(&nodes).await.unwrap();
+
+    let result = store.export_adjacency(T, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 3, "three nodes");
+    // node_ids must be in ascending lexicographic order.
+    let mut sorted = result.node_ids.clone();
+    sorted.sort();
+    assert_eq!(
+        result.node_ids, sorted,
+        "node_ids must be sorted by node_id"
+    );
+}

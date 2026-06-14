@@ -7,8 +7,8 @@ use tracing::debug;
 use wqm_common::timestamps::now_utc;
 
 use super::{
-    compute_edge_id, is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats,
-    GraphStore, ImpactNode, ImpactReport, SymbolRow, TraversalNode,
+    compute_edge_id, is_cross_branch, AdjacencyExport, EdgeType, GraphDbResult, GraphEdge,
+    GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow, TraversalNode,
 };
 
 use super::cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS};
@@ -1037,6 +1037,77 @@ impl GraphStore for SqliteGraphStore {
             total += self.resolve_stub_edges(&tenant).await?;
         }
         Ok(total)
+    }
+
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        use std::collections::HashMap;
+
+        // 1. Load all nodes for the tenant, sorted deterministically (DOM-01).
+        let node_rows =
+            sqlx::query("SELECT node_id FROM graph_nodes WHERE tenant_id = ?1 ORDER BY node_id")
+                .bind(tenant_id)
+                .fetch_all(&self.pool)
+                .await?;
+
+        let node_ids: Vec<String> = node_rows.iter().map(|r| r.get::<String, _>(0)).collect();
+
+        // Build a name→index map so edge lookups are O(1).
+        let index_map: HashMap<&str, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
+
+        // 2. Load edges with an optional type filter.
+        //    Bind types as individual parameters (no string interpolation of
+        //    values, unlike the old load_adjacency_graph which used format!).
+        let num_et = edge_types.map_or(0, |t| t.len());
+        let edge_rows = if num_et > 0 {
+            // Build a query with bound placeholders for each edge type value.
+            let placeholders: Vec<String> = (0..num_et).map(|i| format!("?{}", i + 2)).collect();
+            let sql = format!(
+                "SELECT source_node_id, target_node_id, weight \
+                 FROM graph_edges \
+                 WHERE tenant_id = ?1 AND edge_type IN ({}) \
+                 ORDER BY source_node_id, target_node_id",
+                placeholders.join(", ")
+            );
+            let mut q = sqlx::query(&sql).bind(tenant_id);
+            for et in edge_types.unwrap_or(&[]) {
+                q = q.bind(et.as_str());
+            }
+            q.fetch_all(&self.pool).await?
+        } else {
+            sqlx::query(
+                "SELECT source_node_id, target_node_id, weight \
+                 FROM graph_edges \
+                 WHERE tenant_id = ?1 \
+                 ORDER BY source_node_id, target_node_id",
+            )
+            .bind(tenant_id)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        // 3. Convert to indexed edges; skip orphan endpoints.
+        let mut edges: Vec<(usize, usize, f64)> = Vec::with_capacity(edge_rows.len());
+        for row in &edge_rows {
+            let src: String = row.get(0);
+            let tgt: String = row.get(1);
+            let weight: f64 = row.get(2);
+            let (Some(&si), Some(&ti)) = (index_map.get(src.as_str()), index_map.get(tgt.as_str()))
+            else {
+                // Orphan edge: at least one endpoint is absent from the node list.
+                continue;
+            };
+            edges.push((si, ti, weight));
+        }
+
+        Ok(AdjacencyExport { node_ids, edges })
     }
 }
 
