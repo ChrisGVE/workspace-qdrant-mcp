@@ -199,10 +199,34 @@ pub(super) async fn embed_chunks(
         chunk_records.push(output.record);
     }
 
+    let embed_ms = embedding_start.elapsed().as_millis();
+
+    // Route the stage-3 batch embed latency to the metrics switchboard: telemetry
+    // (Prometheus) plus the always-on queue-health control lane that drives the
+    // EWMA verdict. embed_ms and source size are co-measured for one batch. The
+    // handle is resolved inline per batch — `metrics_label()` is a `&'static str`,
+    // so this is one OnceCell load + a two-field struct, off the per-chunk loop.
+    // (This is the LIVE production embedding path; the arch doc's original anchor
+    // `IngestionEngine::stage3_embed_chunks` is never constructed in the daemon.)
+    if let Some(sw) = crate::switchboard::switchboard() {
+        let source_bytes = chunk_texts.iter().map(|s| s.len()).sum::<usize>();
+        let handle = sw.handle(
+            crate::switchboard::MetricId::EmbedderLatency,
+            ctx.embedding_generator.metrics_label(),
+        );
+        sw.emit_record(
+            handle,
+            crate::switchboard::EmbedLatencyRec {
+                embed_ms,
+                source_bytes,
+            },
+        );
+    }
+
     info!(
         "Embedding generation completed: {} chunks in {}ms",
         chunk_records.len(),
-        embedding_start.elapsed().as_millis()
+        embed_ms
     );
 
     Ok(EmbedResult {

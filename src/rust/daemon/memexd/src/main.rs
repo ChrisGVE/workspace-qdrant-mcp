@@ -147,9 +147,8 @@ async fn run_daemon(
     // emitter thread / queue processor starts (so the routing table is frozen
     // before the first real emit). See docs/architecture/metrics-switchboard.md §3d, §5e.
     {
-        use std::sync::atomic::Ordering;
         use workspace_qdrant_core::switchboard::{
-            MetricId, MetricSample, SwitchboardBuilder, SWITCHBOARD,
+            store_embedder_latency_fast, MetricId, SwitchboardBuilder, SWITCHBOARD,
         };
 
         let mut builder = SwitchboardBuilder::new();
@@ -157,12 +156,7 @@ async fn run_daemon(
 
         // Embedder-latency control fn: store the measured embed_ms into the fast
         // lane as IEEE-754 bits (the read side recovers it with f64::from_bits).
-        builder.wire_control(MetricId::EmbedderLatency, |fanout, sample| {
-            if let MetricSample::EmbedderLatency { rec, .. } = sample {
-                let bits = (rec.embed_ms as f64).to_bits();
-                fanout.embedder_latency_fast.store(bits, Ordering::Release);
-            }
-        });
+        builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
 
         if SWITCHBOARD.set(builder.seal()).is_err() {
             warn!("SWITCHBOARD already initialized — skipping re-init");

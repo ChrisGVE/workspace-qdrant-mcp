@@ -894,17 +894,37 @@ Incremental, green at every step.
 8. Full suite green. Ship.
 
 **Phase 1 — Embedder lane (task 11).**
+
+> **Emit-site correction (impl finding, 2026-06-14).** §3b and the steps below
+> originally named `IngestionEngine::stage3_embed_chunks` (`ingestion.rs:218`) as
+> the authoritative emit site. Implementation verified that **`IngestionEngine`
+> is never constructed in the daemon** — `IngestionEngine::new` has zero call
+> sites (tests included) and `Pipeline::set_ingestion_engine` is never invoked, so
+> that path is dead in production. The LIVE document-embedding path is the
+> unified-queue strategy `embed_chunks`
+> (`strategies/processing/file/chunk_embed/mod.rs`), which already times the batch
+> (`embedding_start` at `:83` → `.elapsed().as_millis()` at `:205`). Emitting in
+> dead code would produce no real data and defeat §1's purpose, so Phase 1 emits
+> at the live site per First Principle 2 (Evidence). The measurement semantics are
+> identical (stage-3 batch `embed_ms` + summed chunk byte length).
+
 1. `MetricId::EmbedderLatency` + `EmbedLatencyRec` already in the module.
-2. Register the handle with the provider's `metrics_label()` and store it on the
-   `IngestionEngine` (it computes `embed_ms`/`source_bytes`).
-3. In `stage3_embed_chunks` (after `embed_ms` at `ingestion.rs:218`):
+2. The live emitter (`embed_chunks`) is a free strategy fn with no per-instance
+   init struct, so the handle is resolved inline per batch from
+   `ctx.embedding_generator.metrics_label()` (a `&'static str` — no alloc; one
+   `OnceCell` load + a two-field struct, off the per-chunk loop). This is a
+   deliberate, documented deviation from "store the handle on the emitter": there
+   is no live emitter struct to store it on.
+3. In `embed_chunks`, capture `let embed_ms = embedding_start.elapsed().as_millis();`
+   then, when `switchboard()` is `Some`:
    `let source_bytes = chunk_texts.iter().map(|s| s.len()).sum::<usize>();`
-   `SWITCHBOARD.get().map(|sw| sw.emit_record(self.embed_latency_handle, EmbedLatencyRec { embed_ms, source_bytes }));`
-   (`source_bytes` is derived here, where `chunk_texts`
-   (`ingestion.rs:184`) is in scope; it is not assumed to pre-exist.)
-4. Wire the control fn for `EmbedderLatency` at init → the `Arc<AtomicU64>` pair.
+   `sw.emit_record(handle, EmbedLatencyRec { embed_ms, source_bytes });`
+   (`chunk_texts` is in scope from `:106`; `source_bytes` is derived here.)
+4. Wire the control fn for `EmbedderLatency` at init → the `Arc<AtomicU64>` pair
+   (done in Phase 0, `memexd/src/main.rs`).
 5. Tests: fn fires; `read_fast()` reflects the emitted value.
-6. Ship. `feat/queue-health-133` can rebase on top to run EWMA on real data.
+6. Ship. `feat/queue-health-133`'s `EwmaState` adopts the fanout `Arc` to run EWMA
+   on real data.
 
 **Phase 2 — Telemetry drain.**
 1. Background drain task in `monitoring/background.rs` (alongside `start_uptime_tracker`).

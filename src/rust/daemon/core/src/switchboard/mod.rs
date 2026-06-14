@@ -225,6 +225,17 @@ impl MetricsSwitchboard {
     }
 }
 
+/// Control fn for [`MetricId::EmbedderLatency`]: store the measured `embed_ms`
+/// into the fast lane as IEEE-754 bits (the read side recovers it via
+/// `f64::from_bits`). Wired at daemon init; a named fn (not a closure) so it is
+/// shared and unit-testable.
+pub fn store_embedder_latency_fast(fanout: &ControlFanout, sample: &MetricSample) {
+    if let MetricSample::EmbedderLatency { rec, .. } = sample {
+        let bits = (rec.embed_ms as f64).to_bits();
+        fanout.embedder_latency_fast.store(bits, Ordering::Release);
+    }
+}
+
 /// Build the scalar `MetricSample` for a scalar id, or `None` for a record id.
 #[inline]
 fn scalar_sample(id: MetricId, value: f64) -> Option<MetricSample> {

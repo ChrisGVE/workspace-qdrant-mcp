@@ -138,6 +138,27 @@ fn test_control_fn_stores_into_fanout() {
 }
 
 #[test]
+fn test_production_embedder_control_fn_stores_embed_ms() {
+    // The exact fn wired in main.rs: emit_record -> fast lane reflects embed_ms.
+    let mut b = SwitchboardBuilder::new();
+    b.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+    let sw = b.seal();
+
+    let h = sw.handle(MetricId::EmbedderLatency, "fastembed");
+    sw.emit_record(
+        h,
+        EmbedLatencyRec {
+            embed_ms: 873,
+            source_bytes: 4096,
+        },
+    );
+    assert_eq!(
+        sw.fanout().read_fast(MetricId::EmbedderLatency),
+        Some(873.0)
+    );
+}
+
+#[test]
 fn test_buffer_overflow_is_counted() {
     let sw = SwitchboardBuilder::new().seal();
     let h = sw.handle(MetricId::QueueItemMs, "t");
