@@ -8807,6 +8807,7 @@ dependencies = [
  "chrono",
  "clap",
  "criterion",
+ "crossbeam-queue",
  "csv",
  "dirs 5.0.1",
  "encoding_rs",

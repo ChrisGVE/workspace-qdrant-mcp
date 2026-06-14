@@ -36,7 +36,7 @@ pub use integration::{GitConfig, UpdateChannel, UpdatesConfig};
 pub use narrative::NarrativeConfig;
 pub use observability::{
     LoggingConfig, MetricsConfig, MonitoringConfig, ObservabilityConfig, OtlpExportConfig,
-    OtlpProtocol, PrometheusExportConfig, TelemetryConfig, TracingConfig,
+    OtlpProtocol, PrometheusExportConfig, SwitchboardConfig, TelemetryConfig, TracingConfig,
 };
 pub use processing::{QueueProcessorSettings, StartupConfig};
 pub use queue_health::QueueHealthConfig;

@@ -21,6 +21,9 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 async-trait = "0.1"
 futures = "0.3"
+# Lock-free MPMC ring for the metrics-switchboard telemetry buffer.
+# Already in the workspace lock via sqlx; this is a new direct edge only.
+crossbeam-queue = "0.3"
 
 # Document processing and file watching
 # Use notify v8 for compatibility with notify-debouncer-full

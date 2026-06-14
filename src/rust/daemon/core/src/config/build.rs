@@ -17,8 +17,8 @@ use super::{
     GraphRagConfig, IngestionLimitsConfig, KeywordEmbedderConfig, LoggingConfig, LspSettings,
     MetricsConfig, MonitoringConfig, NarrativeConfig, ObservabilityConfig, OtlpExportConfig,
     OtlpProtocol, PrometheusExportConfig, QueueHealthConfig, QueueProcessorSettings,
-    ResourceLimitsConfig, StartupConfig, TelemetryConfig, TracingConfig, UpdateChannel,
-    UpdatesConfig, UrlIngestionConfig,
+    ResourceLimitsConfig, StartupConfig, SwitchboardConfig, TelemetryConfig, TracingConfig,
+    UpdateChannel, UpdatesConfig, UrlIngestionConfig,
 };
 use crate::storage::StorageConfig;
 
@@ -183,6 +183,10 @@ fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
                 attribute_cardinality_cap: y_telemetry.tracing.attribute_cardinality_cap,
             },
         },
+        // Switchboard telemetry off-switch. No YAML section maps to it yet, so it
+        // takes the compiled-in default (telemetry_enabled = true); the serde
+        // `#[serde(default)]` path covers direct ObservabilityConfig deserialize.
+        switchboard: SwitchboardConfig::default(),
     }
 }
 

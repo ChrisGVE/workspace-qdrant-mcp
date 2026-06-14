@@ -141,6 +141,39 @@ async fn run_daemon(
     info!("Trace tier: {:?}", trace_tier);
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
+
+    // Phase 2b: Metrics switchboard — build, wire control fns, seal, reload.
+    // Must run AFTER migrations (so `control_baseline` exists) and BEFORE any
+    // emitter thread / queue processor starts (so the routing table is frozen
+    // before the first real emit). See docs/architecture/metrics-switchboard.md §3d, §5e.
+    {
+        use std::sync::atomic::Ordering;
+        use workspace_qdrant_core::switchboard::{
+            MetricId, MetricSample, SwitchboardBuilder, SWITCHBOARD,
+        };
+
+        let mut builder = SwitchboardBuilder::new();
+        builder.set_telemetry_enabled(daemon_config.observability.switchboard.telemetry_enabled);
+
+        // Embedder-latency control fn: store the measured embed_ms into the fast
+        // lane as IEEE-754 bits (the read side recovers it with f64::from_bits).
+        builder.wire_control(MetricId::EmbedderLatency, |fanout, sample| {
+            if let MetricSample::EmbedderLatency { rec, .. } = sample {
+                let bits = (rec.embed_ms as f64).to_bits();
+                fanout.embedder_latency_fast.store(bits, Ordering::Release);
+            }
+        });
+
+        if SWITCHBOARD.set(builder.seal()).is_err() {
+            warn!("SWITCHBOARD already initialized — skipping re-init");
+        }
+        if let Some(sw) = SWITCHBOARD.get() {
+            if let Err(e) = sw.reload_baselines(&db_handles.queue_pool).await {
+                warn!("Failed to reload switchboard baselines: {}", e);
+            }
+        }
+    }
+
     // Graph metrics snapshotter (D5): snapshot the code-graph gauges on the
     // collection_interval. Uses the SQLite graph pool directly for a single
     // read transaction per tick; no-ops when telemetry is disabled.

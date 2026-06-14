@@ -1,0 +1,82 @@
+//! The single event type that flows through the switchboard.
+//!
+//! `MetricSample` is the **one** event both sinks consume — the telemetry buffer
+//! and the control fn-pointer. There is deliberately no separate
+//! `ControlEvent`/`TelemetryEvent` split (arch doc §2, §5b). One variant per
+//! `MetricId`, each carrying that id's typed record with raw values (no
+//! pre-normalization — arch §1.5). `MetricSample` is `Copy`: the hot path never
+//! heap-allocates.
+
+use super::MetricId;
+
+/// Co-measured fields for one embedding call. Raw values (arch §1.5).
+///
+/// `embed_ms` is `u128` (`Instant::elapsed().as_millis()`); it is converted to
+/// `f64` only at the control store (`(embed_ms as f64).to_bits()`, arch §9), so
+/// the read side recovers IEEE-754 bits. `source_bytes` is the summed length of
+/// the chunk texts that were embedded.
+#[derive(Debug, Clone, Copy)]
+pub struct EmbedLatencyRec {
+    pub embed_ms: u128,
+    pub source_bytes: usize,
+}
+
+/// THE event type through the switchboard — telemetry buffer AND control fn.
+///
+/// One variant per `MetricId`. `model` rides along as the stable telemetry label
+/// (never affects routing — arch §1.6). `Copy`, so no per-emit allocation.
+#[derive(Debug, Clone, Copy)]
+pub enum MetricSample {
+    EmbedderLatency {
+        rec: EmbedLatencyRec,
+        model: &'static str,
+    },
+    QueueItemMs(u64),
+    QueueKb(u64),
+    QueueThroughput(f64),
+}
+
+impl MetricSample {
+    /// The routing key. Matches the emitting handle's id (debug-asserted at
+    /// emit). The exhaustive `match` makes a new `MetricId` variant a compile
+    /// error here until its sample variant is mapped.
+    #[inline]
+    pub fn id(&self) -> MetricId {
+        match self {
+            MetricSample::EmbedderLatency { .. } => MetricId::EmbedderLatency,
+            MetricSample::QueueItemMs(_) => MetricId::QueueItemMs,
+            MetricSample::QueueKb(_) => MetricId::QueueKb,
+            MetricSample::QueueThroughput(_) => MetricId::QueueThroughput,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_id_matches_variant() {
+        let s = MetricSample::EmbedderLatency {
+            rec: EmbedLatencyRec {
+                embed_ms: 100,
+                source_bytes: 1000,
+            },
+            model: "fastembed",
+        };
+        assert_eq!(s.id(), MetricId::EmbedderLatency);
+        assert_eq!(MetricSample::QueueItemMs(7).id(), MetricId::QueueItemMs);
+        assert_eq!(MetricSample::QueueKb(7).id(), MetricId::QueueKb);
+        assert_eq!(
+            MetricSample::QueueThroughput(1.0).id(),
+            MetricId::QueueThroughput
+        );
+    }
+
+    #[test]
+    fn test_sample_is_copy() {
+        let s = MetricSample::QueueItemMs(42);
+        let s2 = s; // Copy — `s` still usable below.
+        assert_eq!(s.id(), s2.id());
+    }
+}

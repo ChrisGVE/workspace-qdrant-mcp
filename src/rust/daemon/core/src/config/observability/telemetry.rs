@@ -13,6 +13,27 @@ fn default_history_retention() -> usize {
 fn default_telemetry_enabled() -> bool {
     true
 }
+fn default_switchboard_telemetry_enabled() -> bool {
+    true
+}
+
+/// Metrics-switchboard configuration. Controls ONLY the telemetry sink; control
+/// sinks (EWMA lanes, health verdict) are NEVER affected by this flag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwitchboardConfig {
+    /// When false, the switchboard suppresses telemetry export (no buffer fill,
+    /// no series advance). The control path is unaffected.
+    #[serde(default = "default_switchboard_telemetry_enabled")]
+    pub telemetry_enabled: bool,
+}
+
+impl Default for SwitchboardConfig {
+    fn default() -> Self {
+        Self {
+            telemetry_enabled: default_switchboard_telemetry_enabled(),
+        }
+    }
+}
 
 /// Observability configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +49,10 @@ pub struct ObservabilityConfig {
     /// Detailed telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
+
+    /// Metrics-switchboard telemetry off-switch
+    #[serde(default)]
+    pub switchboard: SwitchboardConfig,
 }
 
 impl Default for ObservabilityConfig {
@@ -36,6 +61,7 @@ impl Default for ObservabilityConfig {
             collection_interval: default_collection_interval(),
             metrics: MetricsConfig::default(),
             telemetry: TelemetryConfig::default(),
+            switchboard: SwitchboardConfig::default(),
         }
     }
 }

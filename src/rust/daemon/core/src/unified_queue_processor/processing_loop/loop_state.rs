@@ -72,6 +72,9 @@ impl LoopState {
         maintenance_scheduler.register(Box::new(
             crate::idle::tasks::ElaboratesMaintenanceTask::new(),
         ));
+        maintenance_scheduler.register(Box::new(
+            crate::switchboard::persist_task::ControlBaselinePersistTask::new(),
+        ));
 
         Self {
             last_metrics_log: chrono::Utc::now(),

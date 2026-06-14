@@ -79,6 +79,7 @@ pub mod service_discovery;
 pub mod source_diversity;
 pub mod startup;
 pub mod storage;
+pub mod switchboard;
 pub mod tagging;
 pub mod text_search;
 pub mod thumbnail;
