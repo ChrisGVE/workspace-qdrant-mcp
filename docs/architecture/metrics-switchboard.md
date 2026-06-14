@@ -14,6 +14,27 @@
   All cited file:line references verified against branch feat/metrics-switchboard.
 -->
 
+## Post-Merge Reconciliation (2026-06-14)
+
+This document was authored when #133 queue-health lived on a separate branch
+(`feat/queue-health-133`). That branch is now **merged into this branch**, so:
+
+- **`EwmaState`, `DualEwma`, `EwmaLane`, `queue_health/`, and `config/queue_health.rs`
+  are present in-tree** — no longer "absent by design." References below to those
+  types being on a separate branch are historical; they are now local.
+- **`control_baseline` is schema v46, not v45.** #133 already consumed **v45** for
+  the `unified_queue.size_bytes` column. The current max is v45; the switchboard's
+  table is the next additive migration, **v46**. (§4a reflects this; some prose
+  still narrates the original v45 intent — the binding number is v46.)
+- **Scope is full re-route (no carve-outs)** per the locked §1.1: the switchboard
+  re-routes #133's existing direct-feed lanes (ms/KB, throughput, DLQ) in addition
+  to the embedder lane, and its generic `control_baseline` (v46) **supersedes #133
+  task 17's bespoke `queue_health_baseline`** and tasks 18–20.
+- The §10/§11 "`feat/queue-health-133` can rebase on top" framing is obsolete — the
+  code is merged; the switchboard is built directly on it.
+
+---
+
 ## 0. Stale-Reference Notice (Brief §4)
 
 The brief's §4 cites `config/queue_health.rs` as a config anchor. **No file exists
@@ -102,7 +123,7 @@ graph TD
         PROM["Prometheus / OTLP\nexisting DaemonMetrics"]
         EWMA["EwmaState\nfeat/queue-health-133"]
         PERSIST["ControlBaselinePersistTask\nMaintenanceTask"]
-        DB["state.db\ncontrol_baseline (v45)"]
+        DB["state.db\ncontrol_baseline (v46)"]
     end
 
     GEN -->|register at init| REG
@@ -182,7 +203,7 @@ A `MaintenanceTask` registered with the existing `MaintenanceScheduler` in
 `unified_queue_processor/processing_loop/loop_state.rs` (the real registration
 site, lines 63–75; `queue_init.rs` has no scheduler). On each qualifying idle tick
 it reads slow-lane values from
-`ControlFanout`, upserts rows into `control_baseline` (v45) with bound parameters,
+`ControlFanout`, upserts rows into `control_baseline` (v46) with bound parameters,
 and prunes dead rows. Must NOT: run on the hot path, write fast-lane atomics, or
 contain EWMA math. The daemon (scheduler) drives it; it owns the SQL; control
 sinks never see a pool.
@@ -292,14 +313,14 @@ On daemon restart:
 
 ## 4. Data Model and Storage
 
-### 4a. `control_baseline` table (schema version v45)
+### 4a. `control_baseline` table (schema version v46)
 
-Current max schema version is **v44** (`schema_version/mod.rs:178` —
-`pub const CURRENT_SCHEMA_VERSION: i32 = 44`; latest migration file `v44.rs`).
-`control_baseline` is the next additive migration: **v45**.
+Current max schema version is **v45** (`schema_version/mod.rs:179` —
+`pub const CURRENT_SCHEMA_VERSION: i32 = 45`; latest migration file `v45.rs`, the
+#133 `size_bytes` column). `control_baseline` is the next additive migration: **v46**.
 
 ```sql
--- Migration v45: control_baseline — switchboard slow-lane persistence.
+-- Migration v46: control_baseline — switchboard slow-lane persistence.
 -- Additive CREATE TABLE IF NOT EXISTS — idempotent, no ALTER, no FK changes.
 -- Replaces the bespoke queue_health_baseline planned in #133 task 17, which is
 -- now never created.
@@ -320,16 +341,15 @@ CREATE INDEX IF NOT EXISTS idx_control_baseline_updated
 ```
 
 **Migration registration (the prior draft omitted these).**
-Adding v45 requires, in the same change-set:
-- `schema_version/v45.rs` — `V45Migration` implementing the migration trait.
-- `schema_version/mod.rs:178` — `CURRENT_SCHEMA_VERSION = 45`.
-- `schema_version/mod.rs:326` — add `V45Migration` to `build_registry()`.
-- Update the hard sentinel `assert_eq!(CURRENT_SCHEMA_VERSION, 44)` to `45` — it
-  lives at the crate integration-test root, `tests/migration_crash_recovery_tests.rs:291`
-  (verified: line 290 asserts the symbol, line 291 hard-pins the literal `44`, so
-  the bump is a required manual edit, not self-updating).
+Adding v46 requires, in the same change-set:
+- `schema_version/v46.rs` — `V46Migration` implementing the migration trait.
+- `schema_version/mod.rs:179` — `CURRENT_SCHEMA_VERSION = 46`.
+- `schema_version/mod.rs` `build_registry()` — add `registry.register(Box::new(v46::V46Migration))`.
+- Update the hard sentinel `assert_eq!(CURRENT_SCHEMA_VERSION, 45)` to `46` at
+  `tests/migration_crash_recovery_tests.rs:291` (line 291 hard-pins the literal —
+  now `45` post-#133-merge — so the bump to `46` is a required manual edit).
 - `schema_version/tests/constants.rs::test_build_registry_has_all_migrations`
-  passes once v45 is in the registry (it iterates `1..=CURRENT_SCHEMA_VERSION`).
+  passes once v46 is in the registry (it iterates `1..=CURRENT_SCHEMA_VERSION`).
 
 **Invariants:**
 - `labels` is a canonicalized JSON object produced from a **`BTreeMap<&str,&str>`**
@@ -754,7 +774,7 @@ All within the Rust 500-line file / 80-line function limits (coding.md §VIII).
 - `config/observability/telemetry.rs` — `SwitchboardConfig` + one field (§7c).
 - `config/observability/mod.rs` — re-export `SwitchboardConfig`.
 - `monitoring/metrics_core.rs` — two switchboard health counters; `metrics_helpers.rs` — their setters; `monitoring/mod.rs` — `switchboard` re-export.
-- `schema_version/v45.rs` (new), `schema_version/mod.rs` (`CURRENT_SCHEMA_VERSION = 45`, `build_registry()` at :326), and the two test fixups (§4a).
+- `schema_version/v46.rs` (new), `schema_version/mod.rs` (`CURRENT_SCHEMA_VERSION = 46`, add `V46Migration` to `build_registry()`), and the test-sentinel bump (§4a).
 - `unified_queue_processor/processing_loop/loop_state.rs:63–75` — register `ControlBaselinePersistTask`.
 - `memexd/src/main.rs` — build+seal `SWITCHBOARD` at init; `set_telemetry_enabled`; `reload_baselines(&db_handles.queue_pool)` after migration, before processing loop.
 - `embedding/generator.rs` / `ingestion.rs` — register the embedder-latency handle; `emit_record` in `stage3_embed_chunks` (§11 Phase 1).
@@ -843,7 +863,7 @@ switchboard branch, follow-up cleanup, and deferred items.
 | 8–10 | ms/KB/throughput EWMA lanes | SHIPPED (feat/queue-health-133) | Direct feed into `EwmaState`, no switchboard | Migrate onto switchboard later (§11 Phase 3) — emit values + wire control fn to the same `Arc<AtomicU64>` `EwmaState` reads; EWMA wiring unchanged |
 | 11 | Embedder lane — `embed_ms` → EWMA | THIS BRANCH | Measured, logged, routed nowhere | `ingestion.rs` `stage3_embed_chunks` emits `emit_record(EmbedLatencyRec{embed_ms, source_bytes})`; `EwmaState` reads `fanout.embedder_latency_fast` |
 | 13 | Probes read lane values | THIS BRANCH (read API) | Plan TBD | Consumers call `SWITCHBOARD.get()?.fanout().read_fast(MetricId::EmbedderLatency)`; verdict logic unchanged |
-| 17 | `queue_health_baseline` table | THIS BRANCH (replaced) | Bespoke table planned | REPLACED by generic `control_baseline` (v45); bespoke table never created |
+| 17 | `queue_health_baseline` table | THIS BRANCH (replaced) | Bespoke table planned | REPLACED by generic `control_baseline` (v46); #133 task 17's queue_health_baseline never created |
 | 18–20 | Baseline flush/reload/prune | THIS BRANCH | Bespoke queue-health logic | Generic `ControlBaselinePersistTask` for ALL control metrics |
 | 26 | Telemetry emit for health metrics | LATER CLEANUP | Ad-hoc `METRICS` calls | Route through switchboard telemetry sink; drain maps to existing `DaemonMetrics` |
 
@@ -863,14 +883,14 @@ Incremental, green at every step.
 1. Add the `switchboard/` module (all types; builder/seal; `SWITCHBOARD` OnceCell).
 2. Add `SwitchboardConfig` (§7c); wire `set_telemetry_enabled` from config in `main.rs`.
 3. Add `crossbeam-queue` to `daemon/core/Cargo.toml`.
-4. Add `schema_version/v45.rs`; bump `CURRENT_SCHEMA_VERSION` to 45; add to
-   `build_registry()` (mod.rs:326); update the `assert_eq!(…, 44)→45` sentinel
+4. Add `schema_version/v46.rs`; bump `CURRENT_SCHEMA_VERSION` to 46; add
+   `V46Migration` to `build_registry()`; update the `assert_eq!(…, 45)→46` sentinel
    (`migration_crash_recovery_tests.rs:291`). Verify
    `test_build_registry_has_all_migrations` passes.
 5. Register `ControlBaselinePersistTask` in `loop_state.rs:63–75`.
 6. Build+seal `SWITCHBOARD` at init; call `reload_baselines(&db_handles.queue_pool)`
    from `main.rs` after migration, before the processing loop.
-7. Tests: emit*; `ControlFanout::read_*`; BTreeMap canonicalization; v45 idempotency.
+7. Tests: emit*; `ControlFanout::read_*`; BTreeMap canonicalization; v46 idempotency.
 8. Full suite green. Ship.
 
 **Phase 1 — Embedder lane (task 11).**
@@ -934,7 +954,7 @@ Concerns investigated and resolved:
 - **crossbeam-queue dependency.** Honest framing (§6a): new direct edge for
   `daemon/core`, but already in the workspace lock via `sqlx` — no new
   third-party code, no new lock entry (arch-F1).
-- **Migration framework.** v45 additive `CREATE TABLE IF NOT EXISTS` + registry +
+- **Migration framework.** v46 additive `CREATE TABLE IF NOT EXISTS` + registry +
   test-sentinel fixups all enumerated (§4a, data-F2).
 - **#133 branch absent.** Interface-only design; `EwmaState` adopts the
   `Arc<AtomicU64>` read pattern at merge — a one-time init wiring, no EWMA-math
