@@ -22,7 +22,7 @@ use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
 use crate::monitoring::metrics_core::METRICS;
 use crate::patterns::detection::detect_language_from_path;
-use crate::queue_health::QueueProcessorHealth;
+use crate::queue_health::{EwmaState, QueueProcessorHealth};
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
@@ -101,6 +101,8 @@ pub(super) async fn process_batch(
     ingestion_limits: &Arc<IngestionLimitsConfig>,
     metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
     queue_health: &Option<Arc<QueueProcessorHealth>>,
+    // Threaded for per-item EWMA updates (#133, tasks 10/11); consumed there.
+    _ewma_state: &Option<Arc<EwmaState>>,
     embedding_health: &Option<crate::embedding::EmbeddingHealth>,
     cancellation_token: &CancellationToken,
     _resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
