@@ -215,6 +215,10 @@ harness = false
 name = "perf_extract_comparison"
 harness = false
 
+[[bench]]
+name = "switchboard_bench"
+harness = false
+
 [dev-dependencies]
 # Shared test utilities
 shared-test-utils = { path = "../shared-test-utils" }
