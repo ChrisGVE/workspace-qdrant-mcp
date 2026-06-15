@@ -166,6 +166,11 @@ async fn run_daemon(
                 warn!("Failed to reload switchboard baselines: {}", e);
             }
         }
+
+        // Telemetry drain: the single bridge from the switchboard ring to
+        // DaemonMetrics/Prometheus (the hub owns all telemetry). Detached for the
+        // process lifetime — a lightweight loop that idles when the ring is empty.
+        tokio::spawn(workspace_qdrant_core::switchboard::drain::run_switchboard_drain());
     }
 
     // Graph metrics snapshotter (D5): snapshot the code-graph gauges on the

@@ -33,6 +33,41 @@ This document was authored when #133 queue-health lived on a separate branch
 - The §10/§11 "`feat/queue-health-133` can rebase on top" framing is obsolete — the
   code is merged; the switchboard is built directly on it.
 
+### Embedder telemetry already existed — dual-id reconciliation (2026-06-15)
+
+The §1 premise that `embed_ms` "is routed to no consumer … no Prometheus histogram
+for it" was **inaccurate**. `EmbeddingGenerator::generate_embeddings_batch`
+(`generator.rs`) already called `DaemonMetrics::record_embedding(model, batch_size,
+elapsed)`, exporting `wqm_memexd_embedding_duration_seconds{model}` +
+`wqm_memexd_embedding_batch_size{model}` for **every** embedding batch (ingestion,
+keyword-extraction, tagging). The switchboard's genuinely-new value is the
+**control feed** (the EWMA lane), not telemetry. Per Chris's ruling the hub still
+**owns all telemetry** — but it must **route** that existing series, not duplicate
+it. Two facts force a two-id split (the original single `EmbedderLatency` design
+conflated them):
+
+| | `EmbedderLatency` (existing) | `EmbedderBatch` (new, id=4) |
+|---|---|---|
+| Purpose | **Control** feed (EWMA fast lane) | **Telemetry** only (no control fn) |
+| Site | ingestion stage-3 (`chunk_embed`) | `generator.rs` (every batch call) |
+| Scope | ingestion only | all callers |
+| Measure | whole-stage `embed_ms` + `source_bytes` | batch `elapsed` + `batch_size` |
+| Drain → | no Prometheus series (no-op; control only) | `record_embedding(model, batch_size, elapsed)` — byte-identical to the prior direct call |
+
+The direct `record_embedding` call at `generator.rs` is **removed**; the drain
+re-emits the identical observation, so the Prometheus series are unchanged — only
+the path (emitter → switchboard ring → drain → `DaemonMetrics`) changed. The model
+label is interned to `&'static` (`switchboard/intern.rs`) so the `Copy` sample
+carries it losslessly. Draining `EmbedderLatency` to `record_embedding` would
+**double-count** (every ingestion batch also flows through `EmbedderBatch`), so its
+drain arm is a deliberate no-op.
+
+> **Why metrics_label() is NOT used as the telemetry label.** `record_embedding`
+> labels by the caller's requested `model_name` arg ("default", "all-MiniLM-L6-v2",
+> provider label). Preserving that exactly (FP2 — no regression of verified
+> behaviour) is why the label is interned rather than replaced with the provider's
+> bounded `metrics_label()`.
+
 ---
 
 ## 0. Stale-Reference Notice (Brief §4)
@@ -230,12 +265,18 @@ flowchart LR
 
 ### 3b. Embed-event end-to-end sequence
 
-The single measurement that reaches the switchboard is the **stage-3 batch
-`embed_ms` computed in `IngestionEngine::stage3_embed_chunks` at
-`ingestion.rs:218`** (this resolves the prior ambiguity
-about which of the several `embed_ms` measurements is authoritative). `source_bytes`
-is derived in the same function from the chunk texts already in scope at
-`ingestion.rs:184`.
+> **Superseded — see "Embedder telemetry already existed" above (2026-06-15).**
+> Two corrections to the sequence below: (1) `IngestionEngine::stage3_embed_chunks`
+> is dead code (never constructed); the **control** emit lives at the live
+> ingestion path `strategies/processing/file/chunk_embed/mod.rs`. (2) The drain
+> does **not** call `record_embedding` for `EmbedderLatency` (that would
+> double-count). The `record_embedding` series is routed via the separate
+> **`EmbedderBatch`** id emitted at `generator.rs` (all callers, real `batch_size`,
+> full `Duration`), `record_embedding(model, batch_size, elapsed)`.
+
+The control measurement that reaches the switchboard is the **stage-3 batch
+`embed_ms`** at the live `chunk_embed` path. `source_bytes` is derived in the same
+function from the chunk texts in scope.
 
 ```mermaid
 sequenceDiagram
@@ -408,12 +449,13 @@ on `MetricSample`). No codegen.
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricId {
-    EmbedderLatency = 0,  // EmbedLatencyRec { embed_ms, source_bytes } — #133 task 11
+    EmbedderLatency = 0,  // EmbedLatencyRec { embed_ms, source_bytes } — control feed (#133 task 11)
     QueueItemMs     = 1,  // scalar u64  — tasks 8–10, migrated later
     QueueKb         = 2,  // scalar u64  — tasks 8–10, migrated later
     QueueThroughput = 3,  // scalar f64  — tasks 8–10, migrated later
+    EmbedderBatch   = 4,  // EmbedderBatchRec { batch_size, elapsed } — telemetry-only (2026-06-15 reconciliation)
 }
-pub const METRIC_COUNT: usize = 4;
+pub const METRIC_COUNT: usize = 5;
 
 pub struct MetricDescriptor { pub zone: &'static str, pub name: &'static str, pub unit: &'static str }
 pub const DESCRIPTORS: [MetricDescriptor; METRIC_COUNT] = [
@@ -421,6 +463,7 @@ pub const DESCRIPTORS: [MetricDescriptor; METRIC_COUNT] = [
     MetricDescriptor { zone: "queue",     name: "item_ms",    unit: "ms"      },
     MetricDescriptor { zone: "queue",     name: "memory_kb",  unit: "kb"      },
     MetricDescriptor { zone: "queue",     name: "throughput", unit: "items_s" },
+    MetricDescriptor { zone: "embedding", name: "batch",      unit: "ms"      },
 ];
 ```
 

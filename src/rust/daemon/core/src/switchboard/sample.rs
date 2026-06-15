@@ -7,6 +7,8 @@
 //! pre-normalization — arch §1.5). `MetricSample` is `Copy`: the hot path never
 //! heap-allocates.
 
+use std::time::Duration;
+
 use super::MetricId;
 
 /// Co-measured fields for one embedding call. Raw values (arch §1.5).
@@ -19,6 +21,16 @@ use super::MetricId;
 pub struct EmbedLatencyRec {
     pub embed_ms: u128,
     pub source_bytes: usize,
+}
+
+/// Telemetry record for one `generate_embeddings_batch` call: the values the
+/// existing `DaemonMetrics::record_embedding` path consumes. `elapsed` is carried
+/// as a `Copy` `Duration` so the drain reproduces the duration histogram with no
+/// precision loss; `batch_size` feeds the batch-size histogram.
+#[derive(Debug, Clone, Copy)]
+pub struct EmbedderBatchRec {
+    pub batch_size: usize,
+    pub elapsed: Duration,
 }
 
 /// THE event type through the switchboard — telemetry buffer AND control fn.
@@ -34,6 +46,10 @@ pub enum MetricSample {
     QueueItemMs(u64),
     QueueKb(u64),
     QueueThroughput(f64),
+    EmbedderBatch {
+        rec: EmbedderBatchRec,
+        model: &'static str,
+    },
 }
 
 impl MetricSample {
@@ -47,6 +63,7 @@ impl MetricSample {
             MetricSample::QueueItemMs(_) => MetricId::QueueItemMs,
             MetricSample::QueueKb(_) => MetricId::QueueKb,
             MetricSample::QueueThroughput(_) => MetricId::QueueThroughput,
+            MetricSample::EmbedderBatch { .. } => MetricId::EmbedderBatch,
         }
     }
 }

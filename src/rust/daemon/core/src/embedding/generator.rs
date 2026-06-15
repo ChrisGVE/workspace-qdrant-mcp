@@ -276,11 +276,28 @@ impl EmbeddingGenerator {
             per_item_ms = per_item_ms,
             "embedding batch completed"
         );
-        crate::monitoring::metrics_core::METRICS.record_embedding(
-            model_name,
-            batch_size,
-            batch_start.elapsed(),
-        );
+        // Route this batch's telemetry through the metrics switchboard (the hub
+        // owns ALL telemetry — no emitter writes DaemonMetrics directly). The
+        // drain task reproduces the exact `record_embedding(model, batch_size,
+        // elapsed)` observation, so the Prometheus series are byte-identical;
+        // the only change is the path. The model label is interned to `&'static`
+        // (the sample is `Copy`) so it is preserved exactly across the buffer.
+        // Emitted per batch (coarse), not the per-chunk hot loop. If the
+        // switchboard is not yet sealed (very early init, before any processing),
+        // the emit is skipped — embedding never runs in that window.
+        if let Some(sw) = crate::switchboard::switchboard() {
+            let handle = sw.handle(
+                crate::switchboard::MetricId::EmbedderBatch,
+                crate::switchboard::intern_model_label(model_name),
+            );
+            sw.emit_embedder_batch(
+                handle,
+                crate::switchboard::EmbedderBatchRec {
+                    batch_size,
+                    elapsed: batch_start.elapsed(),
+                },
+            );
+        }
         Ok(results)
     }
 

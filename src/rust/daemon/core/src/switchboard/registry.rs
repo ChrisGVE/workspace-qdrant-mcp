@@ -24,12 +24,19 @@ pub enum MetricId {
     QueueKb = 2,
     /// Drain throughput (items/s). Scalar. #133 tasks 8–10, migrated later.
     QueueThroughput = 3,
+    /// Embedding-batch telemetry: duration + batch size for one
+    /// `generate_embeddings_batch` call. Record-shaped (`EmbedderBatchRec`).
+    /// **Telemetry-only** (no control fn) — routes the pre-existing
+    /// `record_embedding` Prometheus path through the switchboard so the hub owns
+    /// all telemetry. Distinct from `EmbedderLatency`, which is the ingestion
+    /// stage-3 *control* feed; this id covers **every** embedding batch call.
+    EmbedderBatch = 4,
 }
 
 /// Number of `MetricId` variants — the routing-table and descriptor length.
 /// Keep in lockstep with the enum (the `DESCRIPTORS` array length is checked
 /// against this at compile time by its type annotation).
-pub const METRIC_COUNT: usize = 4;
+pub const METRIC_COUNT: usize = 5;
 
 /// Static metadata for one metric kind: zone path, base name, unit. Indexed by
 /// `MetricId as usize` (same order as the enum).
@@ -61,6 +68,11 @@ pub const DESCRIPTORS: [MetricDescriptor; METRIC_COUNT] = [
         name: "throughput",
         unit: "items_s",
     },
+    MetricDescriptor {
+        zone: "embedding",
+        name: "batch",
+        unit: "ms",
+    },
 ];
 
 #[cfg(test)]
@@ -73,6 +85,7 @@ mod tests {
         assert_eq!(MetricId::QueueItemMs as usize, 1);
         assert_eq!(MetricId::QueueKb as usize, 2);
         assert_eq!(MetricId::QueueThroughput as usize, 3);
+        assert_eq!(MetricId::EmbedderBatch as usize, 4);
     }
 
     #[test]

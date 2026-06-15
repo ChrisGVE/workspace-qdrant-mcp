@@ -24,7 +24,9 @@
 //! dispatch — the string id is resolved to a handle once at registration.
 
 pub mod control_fanout;
+pub mod drain;
 pub mod handle;
+pub mod intern;
 pub mod labels;
 pub mod persist_task;
 pub mod registry;
@@ -38,9 +40,10 @@ use once_cell::sync::OnceCell;
 
 pub use control_fanout::ControlFanout;
 pub use handle::MetricHandle;
+pub use intern::intern_model_label;
 pub use registry::{MetricDescriptor, MetricId, DESCRIPTORS, METRIC_COUNT};
 pub use routing::{ControlFn, RoutingEntry};
-pub use sample::{EmbedLatencyRec, MetricSample};
+pub use sample::{EmbedLatencyRec, EmbedderBatchRec, MetricSample};
 
 /// The single global switchboard. Set exactly once at daemon init via
 /// `SWITCHBOARD.set(builder.seal())`, before any emitter thread starts.
@@ -168,6 +171,20 @@ impl MetricsSwitchboard {
         self.dispatch(h, sample);
     }
 
+    /// Emit one embedding-batch telemetry record (`EmbedderBatchRec`). Routes the
+    /// pre-existing `record_embedding` Prometheus path through the switchboard:
+    /// telemetry-only (the `EmbedderBatch` id has no control fn). Coarse path
+    /// (once per batch), so resolving `h.model` via the interner upstream is off
+    /// the per-chunk hot loop.
+    #[inline]
+    pub fn emit_embedder_batch(&self, h: MetricHandle, rec: EmbedderBatchRec) {
+        let sample = MetricSample::EmbedderBatch {
+            rec,
+            model: h.model,
+        };
+        self.dispatch(h, sample);
+    }
+
     /// The shared tail of every emit shape: telemetry push (if on) + control
     /// dispatch (always).
     #[inline]
@@ -244,6 +261,7 @@ fn scalar_sample(id: MetricId, value: f64) -> Option<MetricSample> {
         MetricId::QueueKb => Some(MetricSample::QueueKb(value as u64)),
         MetricId::QueueThroughput => Some(MetricSample::QueueThroughput(value)),
         MetricId::EmbedderLatency => None, // record-shaped — use emit_record
+        MetricId::EmbedderBatch => None,   // record-shaped — use emit_embedder_batch
     }
 }
 
