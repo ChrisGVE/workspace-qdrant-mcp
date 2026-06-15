@@ -239,6 +239,7 @@ present **only** on `graph_extract_duration_seconds`; `algorithm` labels the
 | Metric | Type | Labels | Description |
 |---|---|---|---|
 | `wqm_memexd_circuit_breaker_pauses_total` | Counter | `subsystem` | Circuit-breaker pause events by subsystem |
+| `wqm_memexd_switchboard_buffer_full_total` | Counter | — | Telemetry samples dropped on a full metrics-switchboard ring (telemetry sheds under back-pressure; the control path is unaffected) |
 
 > Histograms outside the four frozen A5 layouts below (e.g.
 > `embedding_batch_size`, `sqlite_query_duration_seconds`,

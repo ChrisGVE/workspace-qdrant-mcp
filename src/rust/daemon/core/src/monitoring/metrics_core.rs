@@ -214,6 +214,10 @@ pub struct DaemonMetrics {
     /// Total SQLite busy/locked (`SQLITE_BUSY`) occurrences.
     pub sqlite_busy_total: IntCounter,
 
+    /// Samples dropped because the metrics-switchboard telemetry ring was full
+    /// (telemetry sheds under back-pressure; the control path is unaffected).
+    pub switchboard_buffer_full_total: IntCounter,
+
     /// Telemetry kill switch (from `observability.metrics.enabled`). When false,
     /// the A2 dimensional emission path is skipped so no series are created.
     pub enabled: std::sync::atomic::AtomicBool,
@@ -267,6 +271,7 @@ struct CreatedMetrics {
     search_result_count: HistogramVec,
     embedding_inflight: IntGauge,
     sqlite_busy_total: IntCounter,
+    switchboard_buffer_full_total: IntCounter,
 }
 
 /// Create all metric instances from subsystem factories.
@@ -316,6 +321,12 @@ fn create_all_metrics() -> CreatedMetrics {
     let queue_oldest_pending_age_seconds = IntGauge::new(
         "wqm_memexd_queue_oldest_pending_age_seconds",
         "Age in seconds of the oldest pending queue item",
+    )
+    .expect("metric can be created");
+
+    let switchboard_buffer_full_total = IntCounter::new(
+        "wqm_memexd_switchboard_buffer_full_total",
+        "Samples dropped due to a full metrics-switchboard telemetry buffer",
     )
     .expect("metric can be created");
 
@@ -392,6 +403,7 @@ fn create_all_metrics() -> CreatedMetrics {
         search_result_count,
         embedding_inflight,
         sqlite_busy_total,
+        switchboard_buffer_full_total,
     }
 }
 
@@ -446,6 +458,7 @@ fn register_metrics(registry: &Registry, m: &CreatedMetrics) {
             Box::new(m.search_result_count.clone()),
             Box::new(m.embedding_inflight.clone()),
             Box::new(m.sqlite_busy_total.clone()),
+            Box::new(m.switchboard_buffer_full_total.clone()),
         ],
     );
 }
@@ -509,6 +522,7 @@ impl DaemonMetrics {
             search_result_count: m.search_result_count,
             embedding_inflight: m.embedding_inflight,
             sqlite_busy_total: m.sqlite_busy_total,
+            switchboard_buffer_full_total: m.switchboard_buffer_full_total,
             enabled: std::sync::atomic::AtomicBool::new(true),
         }
     }
