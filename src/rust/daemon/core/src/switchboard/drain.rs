@@ -121,7 +121,7 @@ mod tests {
     fn test_apply_control_and_queue_samples_are_noops() {
         // These must NOT touch record_embedding (no double-count / no panic).
         apply_to_metrics(&MetricSample::QueueMsPerKb(5.0));
-        apply_to_metrics(&MetricSample::QueueDlqDepth(9));
+        apply_to_metrics(&MetricSample::QueueDlqDepth(9.0));
         apply_to_metrics(&MetricSample::QueueThroughput(1.0));
     }
 

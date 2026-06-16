@@ -211,6 +211,15 @@ impl QueueManager {
         Ok((deleted, has_more))
     }
 
+    /// Count all dead-letter-queue rows. Feeds the A3 queue-health probe's
+    /// per-poll delta-rate and its emptiness test (#133 F2b/F3).
+    pub async fn count_dlq(&self) -> QueueResult<u64> {
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dead_letter_queue")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(total.max(0) as u64)
+    }
+
     pub async fn list_dlq(
         &self,
         tenant_id: Option<&str>,

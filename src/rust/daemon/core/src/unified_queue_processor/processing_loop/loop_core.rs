@@ -13,10 +13,14 @@ use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::FairnessScheduler;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
+use crate::queue_health::probes::hard_state::{b4_all_failing, PollOutcome};
+use crate::queue_health::probes::trend::{a1_ms_per_kb, a2_embedder_latency, a3_dlq_trend};
+use crate::queue_health::probes::ProbeResult;
 use crate::queue_health::{EwmaState, QueueProcessorHealth};
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
+use crate::switchboard::{switchboard, MetricId};
 use crate::tree_sitter::GrammarManager;
 use crate::{DocumentProcessor, EmbeddingGenerator};
 
@@ -172,6 +176,7 @@ impl UnifiedQueueProcessor {
         }
         Self::update_queue_depth_metrics(queue_manager, metrics, queue_health, queue_depth_counter)
             .await;
+        Self::update_health_probes(queue_manager, queue_health, ewma_state, state).await;
         Self::record_oldest_pending_age(queue_manager).await;
         if !Self::run_loop_iteration(
             fairness_scheduler,
@@ -280,6 +285,83 @@ impl UnifiedQueueProcessor {
         }
         Self::maybe_log_metrics(metrics, state, metrics_log_interval).await;
         false
+    }
+
+    /// Per-poll queue-health feed (#133 F2b/F3/F4/F5). Once per poll:
+    /// emit the signed DLQ delta-rate (A3) and an idle-zero throughput sample
+    /// (F5), refresh the drain snapshot (F5), push the B4 outcome ring and store
+    /// its predicate (lock-free), then evaluate + debounce + cache the trend
+    /// probes (A1/A2/A3) for the on-RPC verdict. No-op until both the EWMA state
+    /// and processor health are wired.
+    async fn update_health_probes(
+        queue_manager: &QueueManager,
+        queue_health: &Option<Arc<QueueProcessorHealth>>,
+        ewma_state: &Option<Arc<EwmaState>>,
+        state: &mut LoopState,
+    ) {
+        let (Some(ewma), Some(health)) = (ewma_state.as_ref(), queue_health.as_ref()) else {
+            return;
+        };
+        let cfg = ewma.config();
+
+        // DLQ delta-rate (A3). DOM-09: seed prev_dlq from the live count on the
+        // first poll so a restart with a static backlog feeds delta≈0, not the
+        // whole backlog.
+        let dlq_count = queue_manager.count_dlq().await.unwrap_or(0);
+        let prev = state.prev_dlq.unwrap_or(dlq_count);
+        let delta = dlq_count as f64 - prev as f64;
+        state.prev_dlq = Some(dlq_count);
+        state.dlq_samples_seen = state.dlq_samples_seen.saturating_add(1);
+
+        // Pending-bytes drain snapshot (F5).
+        let pending_bytes = queue_manager
+            .get_pending_bytes_estimate(cfg.default_item_bytes)
+            .await
+            .unwrap_or(0);
+        ewma.set_drain_snapshot(pending_bytes);
+
+        if let Some(sw) = switchboard() {
+            sw.emit(sw.handle(MetricId::QueueDlqDepth, "queue"), delta);
+            // An idle poll (no pending work) samples throughput as 0 so the lane
+            // decays toward zero instead of holding a stale rate (F5 DOM-06).
+            if pending_bytes == 0 {
+                sw.emit(sw.handle(MetricId::QueueThroughput, "queue"), 0.0);
+            }
+        }
+
+        // B4 outcome ring + predicate (kept poll-local; verdict reads the atomic).
+        let items_processed = health
+            .items_processed
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let items_failed = health
+            .items_failed
+            .load(std::sync::atomic::Ordering::SeqCst);
+        state.outcome_ring.push_back(PollOutcome {
+            items_processed,
+            dlq_count,
+            attempts: items_processed + items_failed,
+        });
+        let cap = cfg.all_failing_window + 1;
+        while state.outcome_ring.len() > cap {
+            state.outcome_ring.pop_front();
+        }
+        let window: Vec<PollOutcome> = state.outcome_ring.iter().copied().collect();
+        ewma.set_all_failing(b4_all_failing(&window));
+
+        // Trend probes: evaluate raw, debounce via observe, cache for the verdict.
+        let raw = [
+            a1_ms_per_kb(ewma, cfg),
+            a2_embedder_latency(ewma, cfg),
+            a3_dlq_trend(ewma, cfg, dlq_count, state.dlq_samples_seen),
+        ];
+        let debounced: Vec<ProbeResult> = raw
+            .into_iter()
+            .map(|r| {
+                let rag = ewma.observe(r.culprit, r.rag);
+                ProbeResult { rag, ..r }
+            })
+            .collect();
+        ewma.set_trend_cache(debounced);
     }
 
     /// Record the age of the oldest pending queue item into metrics.

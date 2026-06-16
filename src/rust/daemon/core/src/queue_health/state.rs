@@ -136,10 +136,11 @@ pub struct EwmaState {
     throughput_bytes_per_sec: Arc<ControlLane>,
     /// Re-seeds each poll from a fresh DLQ count; NOT persisted.
     dlq_depth: Arc<ControlLane>,
-    /// ms/KB size floor (bytes): known-size items below this are treated as this
-    /// size so a tiny file's fixed per-item overhead can't masquerade as a huge
-    /// ms/KB outlier (DOM-07). Captured from config at construction.
-    min_item_bytes: u64,
+    /// The queue-health thresholds (alphas, ratios, floors, timeouts), captured
+    /// at construction. The poll loop and the verdict read probe thresholds and
+    /// the ms/KB size floor (DOM-07) from here, so they need no separate config
+    /// handle.
+    config: QueueHealthConfig,
     drain_snapshot: RwLock<Option<DrainSnapshot>>,
     debounce: Mutex<DebounceRings>,
     /// The poll-loop-debounced trend probes (A1/A2/A3), cached for the on-RPC
@@ -165,7 +166,7 @@ impl EwmaState {
             embedder_latency: lane(),
             throughput_bytes_per_sec: lane(),
             dlq_depth: lane(),
-            min_item_bytes: cfg.min_item_bytes,
+            config: cfg.clone(),
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
             trend_cache: RwLock::new(Vec::new()),
@@ -184,7 +185,7 @@ impl EwmaState {
             embedder_latency: Arc::clone(&fanout.embedder_latency),
             throughput_bytes_per_sec: Arc::clone(&fanout.throughput),
             dlq_depth: Arc::clone(&fanout.dlq_depth),
-            min_item_bytes: cfg.min_item_bytes,
+            config: cfg.clone(),
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
             trend_cache: RwLock::new(Vec::new()),
@@ -201,7 +202,13 @@ impl EwmaState {
 
     /// The ms/KB size floor in bytes (DOM-07 clamp).
     pub fn min_item_bytes(&self) -> u64 {
-        self.min_item_bytes
+        self.config.min_item_bytes
+    }
+
+    /// The queue-health thresholds captured at construction (probe floors,
+    /// ratios, timeouts). The poll loop and verdict read thresholds from here.
+    pub fn config(&self) -> &QueueHealthConfig {
+        &self.config
     }
 
     // ── Per-item / per-poll lane updates (Relaxed) ──────────────────────────

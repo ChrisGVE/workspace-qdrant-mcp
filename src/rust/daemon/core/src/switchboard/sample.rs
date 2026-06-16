@@ -46,8 +46,11 @@ pub enum MetricSample {
     /// Per-byte processing cost (ms/KB) — a ratio, carried as `f64` so the EWMA
     /// lane keeps sub-integer precision.
     QueueMsPerKb(f64),
-    /// Dead-letter-queue depth (count).
-    QueueDlqDepth(u64),
+    /// Dead-letter-queue per-poll **delta-rate** (counts/poll), carried as `f64`
+    /// so a *draining* DLQ (negative delta) is preserved — the A3 probe needs the
+    /// sign to distinguish draining (Green) from growing (Red). The lane smooths
+    /// this rate; the absolute count is read separately for the emptiness test.
+    QueueDlqDepth(f64),
     QueueThroughput(f64),
     EmbedderBatch {
         rec: EmbedderBatchRec,
@@ -86,7 +89,10 @@ mod tests {
         };
         assert_eq!(s.id(), MetricId::EmbedderLatency);
         assert_eq!(MetricSample::QueueMsPerKb(7.0).id(), MetricId::QueueMsPerKb);
-        assert_eq!(MetricSample::QueueDlqDepth(7).id(), MetricId::QueueDlqDepth);
+        assert_eq!(
+            MetricSample::QueueDlqDepth(7.0).id(),
+            MetricId::QueueDlqDepth
+        );
         assert_eq!(
             MetricSample::QueueThroughput(1.0).id(),
             MetricId::QueueThroughput
@@ -95,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_sample_is_copy() {
-        let s = MetricSample::QueueDlqDepth(42);
+        let s = MetricSample::QueueDlqDepth(42.0);
         let s2 = s; // Copy — `s` still usable below.
         assert_eq!(s.id(), s2.id());
     }

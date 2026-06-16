@@ -242,10 +242,10 @@ impl MetricsSwitchboard {
                 ("QueueThroughput", "bytes_per_sec") => {
                     self.fanout.throughput.restore_baseline(value);
                 }
-                ("QueueDlqDepth", "depth") => {
-                    self.fanout.dlq_depth.restore_baseline(value);
-                }
-                _ => {} // Unknown metric/field — ignore (forward-compatible).
+                // QueueDlqDepth is persist:false (a delta-rate, not a level
+                // baseline) — DATA-10: even a stray hand-edited row is ignored,
+                // never loaded as a DLQ baseline.
+                _ => {} // Unknown / non-persisted metric/field — ignore.
             }
         }
 
@@ -281,10 +281,11 @@ pub fn store_throughput(fanout: &ControlFanout, sample: &MetricSample) {
     }
 }
 
-/// Control fn for [`MetricId::QueueDlqDepth`]: EWMA-smooth the DLQ delta-rate.
+/// Control fn for [`MetricId::QueueDlqDepth`]: EWMA-smooth the DLQ delta-rate
+/// (signed — a negative sample is a draining DLQ).
 pub fn store_dlq_depth(fanout: &ControlFanout, sample: &MetricSample) {
     if let MetricSample::QueueDlqDepth(value) = sample {
-        fanout.dlq_depth.update(*value as f64);
+        fanout.dlq_depth.update(*value);
     }
 }
 
@@ -293,7 +294,7 @@ pub fn store_dlq_depth(fanout: &ControlFanout, sample: &MetricSample) {
 fn scalar_sample(id: MetricId, value: f64) -> Option<MetricSample> {
     match id {
         MetricId::QueueMsPerKb => Some(MetricSample::QueueMsPerKb(value)),
-        MetricId::QueueDlqDepth => Some(MetricSample::QueueDlqDepth(value as u64)),
+        MetricId::QueueDlqDepth => Some(MetricSample::QueueDlqDepth(value)),
         MetricId::QueueThroughput => Some(MetricSample::QueueThroughput(value)),
         MetricId::EmbedderLatency => None, // record-shaped — use emit_record
         MetricId::EmbedderBatch => None,   // record-shaped — use emit_embedder_batch

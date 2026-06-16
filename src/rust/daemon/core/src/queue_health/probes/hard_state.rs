@@ -15,6 +15,7 @@
 //! - **B4** evaluates a slice of poll outcomes (the poll loop keeps the ring
 //!   locally and stores the predicate in a lock-free atomic for the verdict).
 
+use std::path::Path;
 use std::sync::atomic::Ordering;
 
 use super::{ProbeResult, ALL_FAILING, DISK, QDRANT, STALL};
@@ -60,6 +61,36 @@ pub fn b2_disk(
         )
     } else {
         ProbeResult::green(DISK)
+    }
+}
+
+/// Production B2 disk reader (the `fn(&Path) -> bytes` seam): free + total bytes
+/// on the volume containing `path`, found by longest-prefix-matching `path`
+/// against the mounted filesystems. Returns `(None, None)` when no mount matches,
+/// so [`b2_disk`] stays Green rather than raising a false alarm. Tests drive
+/// `b2_disk` with injected values; this hits the real filesystem and is not
+/// unit-tested.
+pub fn read_disk_space(path: &Path) -> (Option<u64>, Option<u64>) {
+    use sysinfo::Disks;
+    let disks = Disks::new_with_refreshed_list();
+    let mut best: Option<(usize, u64, u64)> = None;
+    for disk in &disks {
+        let mount = disk.mount_point();
+        if !path.starts_with(mount) {
+            continue;
+        }
+        let mount_len = mount.as_os_str().len();
+        let better = match best {
+            Some((best_len, _, _)) => mount_len > best_len,
+            None => true,
+        };
+        if better {
+            best = Some((mount_len, disk.available_space(), disk.total_space()));
+        }
+    }
+    match best {
+        Some((_, free, total)) => (Some(free), Some(total)),
+        None => (None, None),
     }
 }
 
