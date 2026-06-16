@@ -4,6 +4,7 @@
 
 mod batch_processing;
 mod circuit_breakers;
+mod health_probes;
 mod idle_work;
 mod item_dispatch;
 mod loop_core;

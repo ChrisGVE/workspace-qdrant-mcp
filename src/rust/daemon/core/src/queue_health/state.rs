@@ -8,10 +8,12 @@
 //!
 //! Concurrency contract (PERF-01): the four EWMA lanes are atomics-backed
 //! ([`EwmaLane`]) and updated `Relaxed` last-writer-wins on the per-item hot
-//! loop — no hot mutex. The only `Mutex` guards the per-probe debounce rings,
-//! which are touched at *poll cadence* only (never per item), so it is
-//! uncontended on the hot path. The drain snapshot is a small `RwLock`, also
-//! written at poll cadence and read by the Health RPC.
+//! loop — no hot mutex. The remaining shared primitives are all **poll-cadence
+//! write / RPC-cadence read** and never touched per item, so none is on the hot
+//! path: the per-probe debounce-ring `Mutex`, the drain-snapshot `RwLock`, and
+//! the trend-cache `RwLock`. The verdict reads the latter two (and the
+//! `all_failing` atomic) but never the debounce `Mutex` (PERF-04). All three are
+//! uncontended in practice (poll interval ≥ 1 s vs. operator-driven RPCs).
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -263,8 +265,9 @@ impl EwmaState {
             pending_bytes,
             sampled_at: Instant::now(),
         };
-        if let Ok(mut guard) = self.drain_snapshot.write() {
-            *guard = Some(snap);
+        match self.drain_snapshot.write() {
+            Ok(mut guard) => *guard = Some(snap),
+            Err(_) => tracing::warn!("drain_snapshot lock poisoned; drain sample dropped"),
         }
     }
 
@@ -300,8 +303,9 @@ impl EwmaState {
     /// Replace the cached debounced trend-probe results (poll loop, once per
     /// poll after `observe`-ing each trend probe).
     pub fn set_trend_cache(&self, probes: Vec<ProbeResult>) {
-        if let Ok(mut guard) = self.trend_cache.write() {
-            *guard = probes;
+        match self.trend_cache.write() {
+            Ok(mut guard) => *guard = probes,
+            Err(_) => tracing::warn!("trend_cache lock poisoned; debounced probes dropped"),
         }
     }
 
@@ -314,7 +318,10 @@ impl EwmaState {
             .unwrap_or_default()
     }
 
-    /// Store the B4 all-items-failing predicate (poll loop).
+    /// Store the B4 all-items-failing predicate (poll loop). `Relaxed`: a
+    /// one-poll staleness is tolerated (the predicate is recomputed every poll
+    /// and the verdict is debounced anyway), so no cross-thread ordering is
+    /// needed — unlike the SeqCst counters in `QueueProcessorHealth`.
     pub fn set_all_failing(&self, all_failing: bool) {
         self.all_failing.store(all_failing, Ordering::Relaxed);
     }

@@ -13,10 +13,10 @@ use super::MetricId;
 
 /// Co-measured fields for one embedding call. Raw values (arch §1.5).
 ///
-/// `embed_ms` is `u128` (`Instant::elapsed().as_millis()`); it is converted to
-/// `f64` only at the control store (`(embed_ms as f64).to_bits()`, arch §9), so
-/// the read side recovers IEEE-754 bits. `source_bytes` is the summed length of
-/// the chunk texts that were embedded.
+/// `embed_ms` is `u128` (`Instant::elapsed().as_millis()`). The control fn casts
+/// it to `f64` (`store_embedder_latency`), and the EWMA lane then stores that
+/// `f64` as `to_bits()` in its atomic (arch §9); the read side recovers the
+/// IEEE-754 bits. `source_bytes` is the summed length of the embedded chunk texts.
 #[derive(Debug, Clone, Copy)]
 pub struct EmbedLatencyRec {
     pub embed_ms: u128,

@@ -90,10 +90,11 @@ fn evaluate_regression(
 pub fn a3_dlq_trend(
     state: &EwmaState,
     cfg: &QueueHealthConfig,
-    count_now: u64,
+    absolute_dlq_count: u64,
     samples_seen: u64,
 ) -> ProbeResult {
-    if count_now < cfg.dlq_empty_eps {
+    // Emptiness uses the live ABSOLUTE count, never the smoothed delta-rate EWMA.
+    if absolute_dlq_count < cfg.dlq_empty_eps {
         return ProbeResult::green(DLQ);
     }
     if samples_seen < 2 {

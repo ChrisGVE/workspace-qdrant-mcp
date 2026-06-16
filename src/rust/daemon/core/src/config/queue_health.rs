@@ -256,6 +256,11 @@ impl QueueHealthConfig {
         if self.drain_snapshot_max_age_secs == 0 {
             return Err("drain_snapshot_max_age_secs must be greater than 0".to_string());
         }
+        if self.drain_budget_secs == 0 {
+            return Err(
+                "drain_budget_secs must be at least 1 (0 ⇒ permanent false Amber)".to_string(),
+            );
+        }
         // 30-day default; never accept a TTL shorter than a day (would risk
         // pruning an in-use baseline before the next idle flush).
         if self.baseline_ttl_secs < 86_400 {
@@ -440,6 +445,15 @@ mod tests {
         for c in cases {
             assert!(c.validate().is_err());
         }
+    }
+
+    #[test]
+    fn rejects_zero_drain_budget_secs() {
+        let c = QueueHealthConfig {
+            drain_budget_secs: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
     }
 
     #[test]

@@ -25,7 +25,9 @@ use crate::idle::{IdleState, MaintenanceContext, MaintenanceResult, MaintenanceT
 /// Orphaned-baseline TTL (secs). Mirrors `QueueHealthConfig::baseline_ttl_secs`'s
 /// 30-day default. Runtime-tuning this field needs `QueueHealthConfig` threaded
 /// into the maintenance scheduler (built from `UnifiedProcessorConfig`, which
-/// does not carry queue-health) — deferred; the default is used here.
+/// does not carry queue-health) — deferred, tracked in #143; the default is used
+/// here. The const is compile-time-fixed, so its interpolation into the prune SQL
+/// is injection-safe today; bind it as a parameter when #143 makes it runtime.
 const BASELINE_TTL_SECS: u64 = 2_592_000;
 
 /// Persists switchboard slow-lane control values during idle windows.
