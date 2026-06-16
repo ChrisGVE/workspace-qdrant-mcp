@@ -88,6 +88,9 @@ config module here exposes `config/observability/` with submodules `telemetry.rs
 
 ## 1. Overview
 
+> The queue-health verdict consumer — probes, worst-of logic, debounce, and health
+> RPC surfacing — is documented in [`./queue-health.md`](./queue-health.md).
+
 The metrics switchboard is a single global routing hub between every metric
 emitter in the daemon and two distinct sink classes: **telemetry** (the existing
 Prometheus/OTLP export path) and **control** (in-process consumers that react to
@@ -127,10 +130,10 @@ and requiring emitters to be routing-blind.
 | Control | Always-on, in-process reaction (EWMA lanes today) | NEVER suppressed by any global flag; blindness here = health verdict goes dark |
 
 **Scope on this branch.** The queue-health EWMA types (`EwmaState`, `EwmaLane`,
-`DualEwma`, `config/queue_health.rs`) live on `feat/queue-health-133` and are
-absent here. This document designs the **interface** the switchboard exposes to
-those types when the branches merge — it does not redesign EWMA math or the
-health verdict.
+`DualEwma`, `config/queue_health.rs`) are **present in-tree** (merged from
+`feat/queue-health-133` — see Post-Merge Reconciliation header above). This
+document defines the switchboard interface those types consume; it does not
+redesign EWMA math or the health verdict (see [`./queue-health.md`](./queue-health.md)).
 
 ---
 
@@ -150,13 +153,13 @@ graph TD
         ROUTE["Routing Table\nBox<[RoutingEntry]>"]
         FLAG["telemetry_on\nAtomicBool"]
         TBUF["Telemetry Buffer\nArrayQueue<MetricSample>"]
-        FAN["ControlFanout\nArc<AtomicU64> per lane"]
+        FAN["ControlFanout\nArc<ControlLane> per control metric"]
     end
 
     subgraph Sinks
         DRAIN["Telemetry Drainer\nbackground task"]
         PROM["Prometheus / OTLP\nexisting DaemonMetrics"]
-        EWMA["EwmaState\nfeat/queue-health-133"]
+        EWMA["EwmaState\nqueue_health/state.rs"]
         PERSIST["ControlBaselinePersistTask\nMaintenanceTask"]
         DB["state.db\ncontrol_baseline (v46)"]
     end
@@ -173,8 +176,8 @@ graph TD
     TBUF -->|drain| DRAIN
     DRAIN --> PROM
 
-    FAN -->|Arc<AtomicU64> read| EWMA
-    FAN -->|slow-lane values| PERSIST
+    FAN -->|Arc<ControlLane> clone| EWMA
+    FAN -->|slow_value(id) → slow-lane f64| PERSIST
     PERSIST --> DB
 ```
 
@@ -225,13 +228,18 @@ is independent. Must NOT: be read on the hot path (drain is background), block
 emitters, or carry control state.
 
 **Control Fanout (`ControlFanout`, `switchboard/control_fanout.rs`).**
-Concrete struct holding one `Arc<AtomicU64>` per control metric per lane
-(fast/slow for dual-EWMA). The `Arc` is cloned at init and shared with the
-`EwmaState` that owns the read side on `feat/queue-health-133`. Emit stores an
-`f64` via `f64::to_bits()` (§9). The read side (`read_fast`/`read_slow`) returns
-`Option<f64>` — explicit arms for control ids, `None` for non-control ids (round-2
-fix read-F4: no silent `0.0` fallthrough). Must NOT: hold locks, block, allocate
-per-call, or contain EWMA math.
+Concrete struct holding one `Arc<ControlLane>` per control metric (`embedder_latency`,
+`ms_per_kb`, `throughput`, `dlq_depth`). Each `ControlLane` wraps the shipped
+`EwmaLane` (dual-rate EWMA atomics with torn-read-safe ordering) plus the two
+immutable smoothing factors (`fast_alpha`, `slow_alpha`) for that lane. The same
+`Arc<ControlLane>`s are cloned at init and shared with `EwmaState` via
+`EwmaState::from_fanout` (the #133 F1 single-source handshake). EWMA smoothing
+happens inside `ControlLane::update` at the store; the control fn stays a bare
+`fn(&ControlFanout, &MetricSample)` pointer with no captured state. The fanout's
+only read API is `slow_value(id) -> Option<f64>` — the slow-lane scalar the persist
+task flushes; `None` for non-control ids (`EmbedderBatch`). The verdict reads
+through its own cloned lanes, not through the fanout. Must NOT: hold locks, block,
+allocate per-call, or contain EWMA math.
 
 **Control-Persistence Component (`ControlBaselinePersistTask`, `switchboard/persist_task.rs`).**
 A `MaintenanceTask` registered with the existing `MaintenanceScheduler` in
@@ -256,11 +264,11 @@ flowchart LR
     A -->|no| C[skip push]
     B --> D[MetricSample in buffer]
     E --> F["routing[handle.id as usize]\narray index"]
-    F -->|control_fn Some| G["fn_ptr(&fanout, &sample)\nf64::to_bits → AtomicU64 store"]
+    F -->|control_fn Some| G["fn_ptr(&fanout, &sample)\nControlLane::update(f64) → EwmaLane atomics"]
     F -->|control_fn None| H[no-op]
 
     D -->|background drain| I[DaemonMetrics\nPrometheus / OTLP]
-    G --> J["EwmaState reads lane\nf64::from_bits(AtomicU64)"]
+    G --> J["EwmaState (Arc<ControlLane> clone)\nsnapshot() → DualEwma → verdict"]
 ```
 
 ### 3b. Embed-event end-to-end sequence
@@ -284,7 +292,7 @@ sequenceDiagram
     participant GEN as EmbeddingGenerator (generator.rs)
     participant SW as MetricsSwitchboard
     participant BUF as ArrayQueue (telemetry)
-    participant EWMA as embedder_latency fast lane (AtomicU64)
+    participant EWMA as embedder_latency ControlLane (EwmaLane atomics)
     participant DRAIN as TelemetryDrainer
     participant PROM as DaemonMetrics / Prometheus
 
@@ -300,8 +308,8 @@ sequenceDiagram
     Note over SW,BUF: lock-free MPMC; drop+count on full
 
     SW->>SW: routing[EmbedderLatency as usize].control_fn → Some(fn)
-    SW->>EWMA: fn_ptr(&fanout, &sample)\n→ fast.store((embed_ms as f64).to_bits(), Release)
-    Note over SW,EWMA: 1 atomic store, no lock, no alloc
+    SW->>EWMA: fn_ptr(&fanout, &sample)\n→ fanout.embedder_latency.update(embed_ms as f64)\n(EwmaLane::update: 5 Relaxed atomics + 2 FP ops)
+    Note over SW,EWMA: no lock, no alloc; EWMA smoothing at the store (F1)
 
     Note over ING,SW: Hot path complete (~10–20 ns, §9).
 
@@ -309,7 +317,7 @@ sequenceDiagram
     DRAIN->>PROM: METRICS.record_embedding(model, 1, Duration::from_millis(embed_ms))
     Note over DRAIN,PROM: existing DaemonMetrics path unchanged
 
-    Note over EWMA: EwmaState (feat/queue-health-133) reads the\nfast-lane Arc<AtomicU64>, runs EWMA math → verdict
+    Note over EWMA: EwmaState holds Arc<ControlLane> clones (from_fanout);\nsnapshot() reads the same atomics the control fn fed → verdict
 ```
 
 ### 3c. Off-switch path
@@ -333,7 +341,8 @@ task's `run_batch(ctx, cancel)` (`MaintenanceContext` carries `pool` at
 `idle/task.rs:28` — the same state.db pool as `DatabaseHandles::queue_pool` used
 for reload below):
 
-1. For each registered slow-lane metric: load the `AtomicU64`, `f64::from_bits`.
+1. For each `persist: true` metric id: call `fanout.slow_value(id)` (which delegates
+   to `ControlLane::read_slow()`) to get the slow-lane `f64` baseline.
 2. Upsert into `control_baseline` via a parameter-bound query (§5g, §7a).
 3. Prune rows whose `metric_id` has no registered handle (bound-parameter
    `NOT IN`, §4c).
@@ -341,8 +350,9 @@ for reload below):
 
 On daemon restart:
 
-1. `MetricsSwitchboard::reload_baselines(queue_pool)` reads all rows and stores
-   values back into the slow-lane `AtomicU64` cells.
+1. `MetricsSwitchboard::reload_baselines(queue_pool)` reads all rows and restores
+   values via `ControlLane::restore_baseline(slow)` — which seeds both EWMA lanes
+   to the persisted slow value and marks the lane as seeded.
 2. Called from `memexd/src/main.rs` after the schema migration completes
    (`database.rs` `SchemaManager`) **and after the switchboard is sealed**
    (§5e, §7c), **before** the processing loop starts. The pool is the
@@ -400,7 +410,7 @@ Adding v46 requires, in the same change-set:
 - Only `lane = 'slow'` rows are persisted; the fast lane is rebuilt live.
 - **Telemetry is never written here** — this table is control-lane only.
 - **The daemon owns all SQL.** `ControlBaselinePersistTask` is the only writer;
-  `EwmaState` holds only `Arc<AtomicU64>`, never a pool.
+  `EwmaState` holds only `Arc<ControlLane>` clones, never a pool.
 
 ### 4b. Labels cardinality
 
@@ -449,21 +459,28 @@ on `MetricSample`). No codegen.
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricId {
-    EmbedderLatency = 0,  // EmbedLatencyRec { embed_ms, source_bytes } — control feed (#133 task 11)
-    QueueItemMs     = 1,  // scalar u64  — tasks 8–10, migrated later
-    QueueKb         = 2,  // scalar u64  — tasks 8–10, migrated later
-    QueueThroughput = 3,  // scalar f64  — tasks 8–10, migrated later
-    EmbedderBatch   = 4,  // EmbedderBatchRec { batch_size, elapsed } — telemetry-only (2026-06-15 reconciliation)
+    EmbedderLatency = 0,  // EmbedLatencyRec { embed_ms, source_bytes } — control feed (#133 embedder lane)
+    QueueMsPerKb    = 1,  // scalar f64 — A1 trend probe signal (ms per KB); persist: true
+    QueueDlqDepth   = 2,  // scalar f64 — A3 delta-rate (signed); persist: false (re-seeded per poll)
+    QueueThroughput = 3,  // scalar f64 — drain-budget denominator; persist: true
+    EmbedderBatch   = 4,  // EmbedderBatchRec { batch_size, elapsed } — telemetry-only, persist: false
 }
 pub const METRIC_COUNT: usize = 5;
 
-pub struct MetricDescriptor { pub zone: &'static str, pub name: &'static str, pub unit: &'static str }
+/// `persist: true` — slow-lane baseline is written to `control_baseline` by the persist task.
+/// `persist: false` — either re-seeded live (QueueDlqDepth) or telemetry-only (EmbedderBatch).
+pub struct MetricDescriptor {
+    pub zone: &'static str,
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub persist: bool,
+}
 pub const DESCRIPTORS: [MetricDescriptor; METRIC_COUNT] = [
-    MetricDescriptor { zone: "embedding", name: "latency",    unit: "ms"      },
-    MetricDescriptor { zone: "queue",     name: "item_ms",    unit: "ms"      },
-    MetricDescriptor { zone: "queue",     name: "memory_kb",  unit: "kb"      },
-    MetricDescriptor { zone: "queue",     name: "throughput", unit: "items_s" },
-    MetricDescriptor { zone: "embedding", name: "batch",      unit: "ms"      },
+    MetricDescriptor { zone: "embedding", name: "latency",    unit: "ms",      persist: true  },
+    MetricDescriptor { zone: "queue",     name: "ms_per_kb",  unit: "ms",      persist: true  },
+    MetricDescriptor { zone: "queue",     name: "dlq_depth",  unit: "count",   persist: false },
+    MetricDescriptor { zone: "queue",     name: "throughput", unit: "items_s", persist: true  },
+    MetricDescriptor { zone: "embedding", name: "batch",      unit: "ms",      persist: false },
 ];
 ```
 
@@ -478,15 +495,24 @@ pub const DESCRIPTORS: [MetricDescriptor; METRIC_COUNT] = [
 #[derive(Debug, Clone, Copy)]
 pub struct EmbedLatencyRec { pub embed_ms: u128, pub source_bytes: usize }
 
+/// Telemetry record for one generate_embeddings_batch call. elapsed is Duration
+/// (Copy) so the drain reproduces the histogram with no precision loss.
+#[derive(Debug, Clone, Copy)]
+pub struct EmbedderBatchRec { pub batch_size: usize, pub elapsed: Duration }
+
 /// THE event type through the switchboard — telemetry buffer AND control fn.
 /// One variant per MetricId. `model` is the stable label carried for telemetry
 /// dimensionality (never affects routing, brief §1.6). Copy — no per-emit alloc.
 #[derive(Debug, Clone, Copy)]
 pub enum MetricSample {
     EmbedderLatency { rec: EmbedLatencyRec, model: &'static str },
-    QueueItemMs(u64),
-    QueueKb(u64),
+    /// Per-byte processing cost (ms/KB). f64 preserves sub-integer precision.
+    QueueMsPerKb(f64),
+    /// DLQ per-poll delta-rate (counts/poll). f64 preserves sign — a draining
+    /// DLQ (negative delta) is distinct from growth (positive). Not persisted.
+    QueueDlqDepth(f64),
     QueueThroughput(f64),
+    EmbedderBatch { rec: EmbedderBatchRec, model: &'static str },
 }
 
 impl MetricSample {
@@ -495,9 +521,10 @@ impl MetricSample {
     pub fn id(&self) -> MetricId {
         match self {
             MetricSample::EmbedderLatency { .. } => MetricId::EmbedderLatency,
-            MetricSample::QueueItemMs(_)         => MetricId::QueueItemMs,
-            MetricSample::QueueKb(_)             => MetricId::QueueKb,
+            MetricSample::QueueMsPerKb(_)        => MetricId::QueueMsPerKb,
+            MetricSample::QueueDlqDepth(_)       => MetricId::QueueDlqDepth,
             MetricSample::QueueThroughput(_)     => MetricId::QueueThroughput,
+            MetricSample::EmbedderBatch { .. }   => MetricId::EmbedderBatch,
         }
     }
 }
@@ -595,31 +622,39 @@ and store it as an instance field.
 ```rust
 // switchboard/control_fanout.rs
 pub struct ControlFanout {
-    pub embedder_latency_fast: Arc<AtomicU64>,  // live signal (transient)
-    pub embedder_latency_slow: Arc<AtomicU64>,  // EWMA accumulator (persisted)
-    // one pair per control metric
+    pub embedder_latency: Arc<ControlLane>,  // ms; persist: true
+    pub ms_per_kb:        Arc<ControlLane>,  // ms/KB ratio; persist: true
+    pub throughput:       Arc<ControlLane>,  // bytes/s; persist: true
+    pub dlq_depth:        Arc<ControlLane>,  // delta-rate; persist: false
 }
 impl ControlFanout {
-    /// Live fast-lane value, or None for a non-control id (no silent 0.0).
-    pub fn read_fast(&self, id: MetricId) -> Option<f64> {
+    /// Slow-lane (persisted baseline) value for a control id.
+    /// None for EmbedderBatch (telemetry-only, no slow lane).
+    /// This is the persist task's only read API — the verdict reads via its own
+    /// Arc<ControlLane> clones obtained at construction from from_fanout().
+    pub fn slow_value(&self, id: MetricId) -> Option<f64> {
         match id {
-            MetricId::EmbedderLatency => Some(f64::from_bits(self.embedder_latency_fast.load(Acquire))),
-            _ => None,
+            MetricId::EmbedderLatency => Some(self.embedder_latency.read_slow()),
+            MetricId::QueueMsPerKb    => Some(self.ms_per_kb.read_slow()),
+            MetricId::QueueThroughput => Some(self.throughput.read_slow()),
+            MetricId::QueueDlqDepth   => Some(self.dlq_depth.read_slow()),
+            MetricId::EmbedderBatch   => None,
         }
     }
-    pub fn read_slow(&self, id: MetricId) -> Option<f64> { … }   // same shape
 }
 ```
 
-`EwmaState` (on `feat/queue-health-133`) holds an `Arc<AtomicU64>` cloned from the
-fanout at init and calls `load(Acquire)` directly each verdict cycle — no call
-through the switchboard, no lock, no map lookup.
+`EwmaState` is wired at init via `EwmaState::from_fanout(&fanout, &cfg)`, which
+clones the `Arc<ControlLane>` pointers. The verdict calls `.snapshot()` on those
+cloned lanes directly — no call through the fanout, no lock, no map lookup.
+`ControlLane::read_fast()` and `ControlLane::read_slow()` exist on the lane itself
+for direct per-lane reads; they are distinct from the fanout's `slow_value` method.
 
 > **Honest limitation:** adding a control metric requires
-> manually adding a fanout field **and** a `read_*` arm. This is NOT
+> manually adding a fanout field **and** a `slow_value` arm. This is NOT
 > compile-enforced (a missing field just yields `None`). It is a deliberate,
 > documented init-time checklist item, not a claimed compile guarantee. The
-> cardinality is tiny (one field pair per control metric), so the manual step is
+> cardinality is tiny (one lane per control metric), so the manual step is
 > acceptable per the simplicity guardrail.
 
 ### 5g. Persistence task — real trait shape
@@ -738,10 +773,10 @@ hot path). `once_cell` (for `OnceCell`) is already a direct dep
 ### 7b. Daemon-owns-state boundary
 
 `ControlBaselinePersistTask` is the ONLY writer to `control_baseline`. `EwmaState`
-holds only `Arc<AtomicU64>` — it has no `SqlitePool` and the `MaintenanceContext`
-is never handed to a control sink. This extends the existing daemon-owns-state
-invariant. The type design closes the boundary: a sink literally cannot reach a
-pool.
+holds only `Arc<ControlLane>` clones — it has no `SqlitePool` and the
+`MaintenanceContext` is never handed to a control sink. This extends the existing
+daemon-owns-state invariant. The type design closes the boundary: a sink literally
+cannot reach a pool.
 
 ### 7c. Config placement: off-switch (concrete additive patch)
 
@@ -805,7 +840,7 @@ switchboard/
   sample.rs         — EmbedLatencyRec, MetricSample, id()                     (~70 ln)
   handle.rs         — MetricHandle                                            (~25 ln)
   routing.rs        — RoutingEntry, fn-ptr type alias, table builder          (~80 ln)
-  control_fanout.rs — ControlFanout, read_fast/read_slow                      (~90 ln)
+  control_fanout.rs — ControlFanout, slow_value(id); control_lane.rs added    (~90 ln)
   telemetry_buf.rs  — ArrayQueue wrapper, drain helpers                       (~110 ln)
   persist_task.rs   — ControlBaselinePersistTask (MaintenanceTask impl)       (~150 ln)
   labels.rs         — BTreeMap canonical-JSON label encoding                  (~55 ln)
@@ -859,14 +894,32 @@ dynamic dispatch.
 
 5. if let Some(f) = entry.control_fn:
      f(&self.fanout, &s)                          [1 fn-pointer indirect call]
-   A bare fn pointer — single indirection, NO vtable, NO fat pointer. Inside:
-     let bits = (rec.embed_ms as f64).to_bits();  [u128→f64 cast, then to_bits]
-     self.fanout.embedder_latency_fast            [1 AtomicU64 store, Release]
-         .store(bits, Release);
+   A bare fn pointer — single indirection, NO vtable, NO fat pointer. Inside
+   (since #133 F1):
+     self.fanout.embedder_latency                 [Arc<ControlLane>::update]
+         .update((rec.embed_ms as f64));          [EwmaLane::update: 5 Relaxed
+                                                    atomics + 2 FP mul + 2 FP add;
+                                                    6 atomics on the first sample]
+   The alphas ride on the ControlLane (data on the receiver), so the fn pointer
+   stays monomorphic — no closure, no boxing, no vtable.
 
 TOTAL: 1 OnceCell load + 1 atomic load + 1 ArrayQueue CAS (~48 B slot)
-       + 1 array index + 1 fn-ptr call + 1 AtomicU64 store  ≈ 12–22 ns uncontended.
+       + 1 array index + 1 fn-ptr call + EwmaLane::update (≈5 atomics + 2 FMA)
+       ≈ 20–30 ns uncontended.
 ```
+
+**#133 F1 control-fn cost (supersedes the single-store line above).** The control
+fn is no longer one `AtomicU64::store`. EWMA smoothing now happens **at the store**
+(`EwmaLane::update`, `ewma.rs`): load fast/slow/seeded + store fast/slow = 5
+`Relaxed` atomics, plus 2 FP multiplies and 2 FP adds; the first-sample branch
+adds a 6th atomic (`seeded.store(true, Release)`). This is accepted because (a) it
+is the same per-item `EwmaLane::update` cost #133 already incurred when EwmaState
+smoothed inline — F1 relocates it to the switchboard, it does not invent it; (b)
+ms/KB + throughput emit per-item, embedder per-batch, DLQ/drain per-poll — none on
+the per-chunk inner loop; (c) the embedding call dominates (10–100 ms), so ~10 ns
+added is ~0.0001%. The ms/KB and throughput lanes are genuinely multi-writer
+(`max_concurrent_embeddings` embed tasks); the bounded `Relaxed` lost-update is
+accepted within EWMA trend tolerance (≤5%, verified by an N-writer stress test).
 
 **Note.** The store is
 `(rec.embed_ms as f64).to_bits()`, NOT `rec.embed_ms as u64`. The read side
@@ -903,18 +956,19 @@ switchboard branch, follow-up cleanup, and deferred items.
 
 | Task | Description | State | Before | After (switchboard) |
 |---|---|---|---|---|
-| 8–10 | ms/KB/throughput EWMA lanes | SHIPPED (feat/queue-health-133) | Direct feed into `EwmaState`, no switchboard | Migrate onto switchboard later (§11 Phase 3) — emit values + wire control fn to the same `Arc<AtomicU64>` `EwmaState` reads; EWMA wiring unchanged |
-| 11 | Embedder lane — `embed_ms` → EWMA | THIS BRANCH | Measured, logged, routed nowhere | `ingestion.rs` `stage3_embed_chunks` emits `emit_record(EmbedLatencyRec{embed_ms, source_bytes})`; `EwmaState` reads `fanout.embedder_latency_fast` |
-| 13 | Probes read lane values | THIS BRANCH (read API) | Plan TBD | Consumers call `SWITCHBOARD.get()?.fanout().read_fast(MetricId::EmbedderLatency)`; verdict logic unchanged |
-| 17 | `queue_health_baseline` table | THIS BRANCH (replaced) | Bespoke table planned | REPLACED by generic `control_baseline` (v46); #133 task 17's queue_health_baseline never created |
-| 18–20 | Baseline flush/reload/prune | THIS BRANCH | Bespoke queue-health logic | Generic `ControlBaselinePersistTask` for ALL control metrics |
+| 8–10 | ms/KB/throughput EWMA lanes | SHIPPED (this branch — F2a/F2b) | Direct feed into `EwmaState`, no switchboard | `QueueMsPerKb`, `QueueDlqDepth`, `QueueThroughput` ids wired as switchboard-fed control ids; `EwmaState::from_fanout` clones the same `Arc<ControlLane>`s |
+| 11 | Embedder lane — `embed_ms` → EWMA | SHIPPED (this branch — F1/F2a) | Measured, logged, routed nowhere | Live `chunk_embed` path emits `emit_record(EmbedLatencyRec{embed_ms, source_bytes})`; `EwmaState` holds `Arc<ControlLane>` clone of `fanout.embedder_latency` |
+| 13 | Probes read lane values | SHIPPED (this branch — queue_health/probes) | Plan TBD | `EwmaState` snapshots its cloned `Arc<ControlLane>` lanes via `snapshot()`; probes and verdict read `DualEwma` snapshots, not the fanout directly |
+| 17 | `queue_health_baseline` table | SHIPPED (this branch — replaced) | Bespoke table planned | REPLACED by generic `control_baseline` (v46); #133 task 17's queue_health_baseline never created |
+| 18–20 | Baseline flush/reload/prune | SHIPPED (this branch) | Bespoke queue-health logic | Generic `ControlBaselinePersistTask` for all `persist: true` control metrics |
 | 26 | Telemetry emit for health metrics | LATER CLEANUP | Ad-hoc `METRICS` calls | Route through switchboard telemetry sink; drain maps to existing `DaemonMetrics` |
 
-**Tasks 8–10 migration (Phase 3).** The shipped lanes feed `EwmaState` directly.
-Migration: (a) emit the same values via `SWITCHBOARD.emit(handle, v)`; (b) wire a
-control fn that stores into the same `Arc<AtomicU64>` `EwmaState` already reads.
-The `EwmaState` side does not change — only the *source* of the atomic write moves
-from inline code to switchboard dispatch. Mechanical, green at each step.
+**Tasks 8–10 (shipped).** `QueueMsPerKb`, `QueueDlqDepth`, and `QueueThroughput` are
+wired as switchboard control ids on this branch. `ControlFanout` holds an
+`Arc<ControlLane>` for each; `EwmaState::from_fanout` clones those arcs. `QueueDlqDepth`
+is `f64` (signed delta-rate, not `u64`), carrying the sign so a draining DLQ is
+distinguishable from growth. `QueueDlqDepth` and `EmbedderBatch` are `persist: false`
+— re-seeded live or telemetry-only respectively.
 
 ---
 
@@ -963,11 +1017,12 @@ Incremental, green at every step.
    `let source_bytes = chunk_texts.iter().map(|s| s.len()).sum::<usize>();`
    `sw.emit_record(handle, EmbedLatencyRec { embed_ms, source_bytes });`
    (`chunk_texts` is in scope from `:106`; `source_bytes` is derived here.)
-4. Wire the control fn for `EmbedderLatency` at init → the `Arc<AtomicU64>` pair
+4. Wire the control fn for `EmbedderLatency` at init → `fanout.embedder_latency`
+   (`Arc<ControlLane>`), calling `ControlLane::update(embed_ms as f64)`
    (done in Phase 0, `memexd/src/main.rs`).
-5. Tests: fn fires; `read_fast()` reflects the emitted value.
-6. Ship. `feat/queue-health-133`'s `EwmaState` adopts the fanout `Arc` to run EWMA
-   on real data.
+5. Tests: fn fires; `fanout.embedder_latency.read_fast()` reflects the emitted value.
+6. Ship. `EwmaState::from_fanout` clones `fanout.embedder_latency` so the verdict
+   snapshots exactly the values the control fn fed.
 
 **Phase 2 — Telemetry drain.**
 1. Background drain task in `monitoring/background.rs` (alongside `start_uptime_tracker`).
@@ -978,12 +1033,11 @@ Incremental, green at every step.
 4. Tests: emit 100, drain, assert histogram count advanced.
 5. Ship.
 
-**Phase 3 — Queue lanes (tasks 8–10 migration).**
-1. Add `QueueItemMs`/`QueueKb`/`QueueThroughput` emit sites.
-2. Wire control fns to the same `Arc<AtomicU64>` cells the shipped EWMA lanes read.
-3. Replace inline lane updates with switchboard dispatch.
-4. Tests: emit → EWMA fast lane updated → drain updates METRICS.
-5. Ship.
+**Phase 3 — Queue lanes (tasks 8–10 — SHIPPED on this branch).**
+`QueueMsPerKb`, `QueueDlqDepth`, and `QueueThroughput` are wired as switchboard
+control ids. `EwmaState::from_fanout` clones the fanout `Arc<ControlLane>`s so
+inline `EwmaState::update_*` calls drive the same lanes the switchboard feeds. See
+§10 re-scope table for the per-id `persist` decisions.
 
 **Phase 4 — Remaining hot-path METRICS calls (task 26).**
 For high-frequency `METRICS` families that benefit from the off-switch: add
@@ -1019,9 +1073,8 @@ Concerns investigated and resolved:
   third-party code, no new lock entry (arch-F1).
 - **Migration framework.** v46 additive `CREATE TABLE IF NOT EXISTS` + registry +
   test-sentinel fixups all enumerated (§4a, data-F2).
-- **#133 branch absent.** Interface-only design; `EwmaState` adopts the
-  `Arc<AtomicU64>` read pattern at merge — a one-time init wiring, no EWMA-math
-  change.
+- **#133 branch merged.** `EwmaState::from_fanout` clones `Arc<ControlLane>` from the
+  fanout at init — a one-time init wiring, no EWMA-math change.
 - **Stale config reference (brief §4).** `config/queue_health.rs` absent;
   resolved to `config/observability/telemetry.rs` (§0, §7c).
 
@@ -1034,10 +1087,9 @@ frequency vs. Prometheus scrape intervals needs testing so observations are not
 chronically stale. Mitigation: drain in a tight loop while the queue is non-empty,
 short sleep when empty; negligible CPU. Tunable.
 
-**R2 — Phase 3 coordination with `feat/queue-health-133`.** Migrating tasks 8–10
-lanes replaces inline `EwmaState::update()` calls. If that branch has not landed,
-the switchboard ships first with control fns pre-wired (a no-op until `EwmaState`
-arrives). Additive, low risk.
+**R2 — Phase 3 coordination (RESOLVED).** Tasks 8–10 lanes are wired on this branch
+(`feat/metrics-switchboard`) and `feat/queue-health-133` is merged — `EwmaState::from_fanout`
+connects the two sides. Risk closed.
 
 **R3 — A future probe-latency control metric (task 13).** A probe latency signal
 would be a new `MetricId::EmbedderProbeLatency` fed by a **new** measurement at the
