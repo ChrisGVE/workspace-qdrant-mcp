@@ -313,7 +313,15 @@ Thresholds for the functional queue-health verdict (#133). All fields are runtim
 | `slow_alpha` | `0.01` | Slow EWMA lane / baseline (≈ last ~200 items). | finite, in `(0,1]` |
 | `regression_ratio` | `2.0` | fast/slow ratio above which ms/KB processing is regressing. | `> 1.0` |
 | `embedder_ratio` | `2.0` | fast/slow ratio above which embedder latency is regressing. | `> 1.0` |
-| `dlq_flat_band` | `0.05` | Relative band within which the DLQ-depth slope counts as flat (stuck). | — |
+| `dlq_rate_band` | `1.0` | DLQ delta-rate (counts/poll) at or below which the backlog is "stuck"; above it it is growing (Red). Absolute, not relative (A3). | finite, `> 0` |
+| `dlq_empty_eps` | `1` | DLQ "empty" threshold (count): below this ⇒ Green regardless of rate (A3). | `≥ 1` |
+| `ms_per_kb_floor` | `0.1` | ms/KB baseline below this is "too fast to matter" ⇒ Green; never divides by a near-zero baseline (A1). | finite, `> 0` |
+| `embedder_latency_floor` | `1.0` | Embedder-latency baseline (ms) floor, analogous to `ms_per_kb_floor` (A2). | finite, `> 0` |
+| `stall_timeout_secs` | `60` | Pending > 0 AND no poll/heartbeat within this window ⇒ Red (B3). | `≥ 1` |
+| `all_failing_window` | `3` | All-items-failing detection window, in poll cycles (B4). | `≥ 1` |
+| `qdrant_probe_timeout_secs` | `2` | Timeout for the B1 Qdrant reachability check; exceed ⇒ Red. | `≥ 1` |
+| `drain_snapshot_max_age_secs` | `15` | A pending-bytes snapshot older than this is insufficient data ⇒ Green (F5). | `> 0` |
+| `baseline_ttl_secs` | `2592000` (30 days) | Orphaned `control_baseline` rows older than this are pruned (F10). | `≥ 86400` (1 day) |
 | `debounce_window` | `5` | Consecutive per-metric verdicts; majority (3) flips state. | non-zero, **odd** |
 | `drain_budget_secs` | `86400` | Backlog draining slower than this (1 day) is "falling behind". | — |
 | `disk_low_bytes` | `1073741824` (1 GiB) | Absolute free-disk low-water mark. | — |

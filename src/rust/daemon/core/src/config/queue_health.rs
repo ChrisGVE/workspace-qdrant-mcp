@@ -24,8 +24,32 @@ fn default_regression_ratio() -> f64 {
 fn default_embedder_ratio() -> f64 {
     2.0
 }
-fn default_dlq_flat_band() -> f64 {
-    0.05
+fn default_dlq_rate_band() -> f64 {
+    1.0
+}
+fn default_dlq_empty_eps() -> u64 {
+    1
+}
+fn default_ms_per_kb_floor() -> f64 {
+    0.1
+}
+fn default_embedder_latency_floor() -> f64 {
+    1.0
+}
+fn default_stall_timeout_secs() -> u64 {
+    60
+}
+fn default_all_failing_window() -> usize {
+    3
+}
+fn default_qdrant_probe_timeout_secs() -> u64 {
+    2
+}
+fn default_drain_snapshot_max_age_secs() -> u64 {
+    15
+}
+fn default_baseline_ttl_secs() -> u64 {
+    2_592_000 // 30 days
 }
 fn default_debounce_window() -> usize {
     5
@@ -55,7 +79,13 @@ fn default_item_bytes() -> u64 {
 ///   not frozen.
 /// - `regression_ratio` / `embedder_ratio = 2.0` — a 2× slowdown vs baseline is
 ///   the degrade trigger (clear regression, not noise).
-/// - `dlq_flat_band = 0.05` — within 5% relative ⇒ DLQ slope is flat (stuck).
+/// - `dlq_rate_band = 1.0` — DLQ delta-rate (counts/poll) at or below this is
+///   "stuck"; above it the backlog is growing (Red). Absolute, not relative.
+/// - probe floors (`ms_per_kb_floor = 0.1`, `embedder_latency_floor = 1.0`) — a
+///   baseline below the floor is "too fast to matter" ⇒ Green (no near-zero
+///   division). `stall_timeout_secs = 60`, `all_failing_window = 3` poll cycles,
+///   `qdrant_probe_timeout_secs = 2`, `drain_snapshot_max_age_secs = 15`,
+///   `baseline_ttl_secs = 2_592_000` (30d).
 /// - `debounce_window = 5` (majority = 3) — five consecutive verdicts; three
 ///   agree to flip a per-metric state. Anti-flap without burying sustained
 ///   swings. MUST be odd so the majority vote is always well-defined.
@@ -80,9 +110,41 @@ pub struct QueueHealthConfig {
     /// fast/slow ratio above which embedder latency is "regressing".
     #[serde(default = "default_embedder_ratio")]
     pub embedder_ratio: f64,
-    /// Relative band within which the DLQ-depth slope counts as flat.
-    #[serde(default = "default_dlq_flat_band")]
-    pub dlq_flat_band: f64,
+    /// DLQ delta-rate flat band (counts/poll): `|rate|` at or below this is
+    /// "stuck" (A3). An absolute rate, not a relative band (DOM-03).
+    #[serde(default = "default_dlq_rate_band")]
+    pub dlq_rate_band: f64,
+    /// DLQ "empty" threshold (count): `count < dlq_empty_eps` ⇒ Green regardless
+    /// of rate (A3 emptiness test on the live sampled count).
+    #[serde(default = "default_dlq_empty_eps")]
+    pub dlq_empty_eps: u64,
+    /// ms/KB absolute floor: a seeded baseline below this is "too fast to
+    /// matter" ⇒ Green (A1, never divides by a near-zero baseline; DOM-05).
+    #[serde(default = "default_ms_per_kb_floor")]
+    pub ms_per_kb_floor: f64,
+    /// Embedder-latency absolute floor (ms): analogous to `ms_per_kb_floor` for
+    /// A2.
+    #[serde(default = "default_embedder_latency_floor")]
+    pub embedder_latency_floor: f64,
+    /// Processing-stall timeout (secs): pending > 0 AND no poll/heartbeat within
+    /// this window ⇒ Red (B3).
+    #[serde(default = "default_stall_timeout_secs")]
+    pub stall_timeout_secs: u64,
+    /// All-items-failing detection window in **poll cycles** (B4).
+    #[serde(default = "default_all_failing_window")]
+    pub all_failing_window: usize,
+    /// Qdrant reachability probe timeout (secs): the B1 health call must return
+    /// within this or the probe is Red (B1).
+    #[serde(default = "default_qdrant_probe_timeout_secs")]
+    pub qdrant_probe_timeout_secs: u64,
+    /// Drain snapshot staleness bound (secs): a pending-bytes snapshot older than
+    /// this is insufficient data ⇒ Green (F5, SEC-05).
+    #[serde(default = "default_drain_snapshot_max_age_secs")]
+    pub drain_snapshot_max_age_secs: u64,
+    /// Persisted-baseline TTL (secs): an orphaned `control_baseline` row older
+    /// than this is pruned (F10, DATA-04). Default 30 days.
+    #[serde(default = "default_baseline_ttl_secs")]
+    pub baseline_ttl_secs: u64,
     /// Per-metric debounce window (consecutive verdicts; majority flips state).
     /// Must be odd.
     #[serde(default = "default_debounce_window")]
@@ -111,7 +173,15 @@ impl Default for QueueHealthConfig {
             slow_alpha: default_slow_alpha(),
             regression_ratio: default_regression_ratio(),
             embedder_ratio: default_embedder_ratio(),
-            dlq_flat_band: default_dlq_flat_band(),
+            dlq_rate_band: default_dlq_rate_band(),
+            dlq_empty_eps: default_dlq_empty_eps(),
+            ms_per_kb_floor: default_ms_per_kb_floor(),
+            embedder_latency_floor: default_embedder_latency_floor(),
+            stall_timeout_secs: default_stall_timeout_secs(),
+            all_failing_window: default_all_failing_window(),
+            qdrant_probe_timeout_secs: default_qdrant_probe_timeout_secs(),
+            drain_snapshot_max_age_secs: default_drain_snapshot_max_age_secs(),
+            baseline_ttl_secs: default_baseline_ttl_secs(),
             debounce_window: default_debounce_window(),
             drain_budget_secs: default_drain_budget_secs(),
             disk_low_bytes: default_disk_low_bytes(),
@@ -167,6 +237,45 @@ impl QueueHealthConfig {
         if self.default_item_bytes == 0 {
             return Err("default_item_bytes must be greater than 0".to_string());
         }
+
+        // Probe thresholds: every floor/band/timeout must be a positive value;
+        // a zero would make its probe fire instantly or divide by zero.
+        Self::validate_positive("dlq_rate_band", self.dlq_rate_band)?;
+        Self::validate_positive("ms_per_kb_floor", self.ms_per_kb_floor)?;
+        Self::validate_positive("embedder_latency_floor", self.embedder_latency_floor)?;
+        if self.dlq_empty_eps == 0 {
+            return Err("dlq_empty_eps must be at least 1".to_string());
+        }
+        if self.stall_timeout_secs == 0 {
+            return Err(
+                "stall_timeout_secs must be at least 1 (0 ⇒ instant false-Red)".to_string(),
+            );
+        }
+        if self.all_failing_window == 0 {
+            return Err("all_failing_window must be at least 1 poll cycle".to_string());
+        }
+        if self.qdrant_probe_timeout_secs == 0 {
+            return Err("qdrant_probe_timeout_secs must be at least 1".to_string());
+        }
+        if self.drain_snapshot_max_age_secs == 0 {
+            return Err("drain_snapshot_max_age_secs must be greater than 0".to_string());
+        }
+        // 30-day default; never accept a TTL shorter than a day (would risk
+        // pruning an in-use baseline before the next idle flush).
+        if self.baseline_ttl_secs < 86_400 {
+            return Err(format!(
+                "baseline_ttl_secs must be at least 86400 (1 day) (got {})",
+                self.baseline_ttl_secs
+            ));
+        }
+        Ok(())
+    }
+
+    /// A probe floor/band must be finite and strictly positive.
+    fn validate_positive(name: &str, value: f64) -> Result<(), String> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(format!("{name} must be a finite value > 0 (got {value})"));
+        }
         Ok(())
     }
 
@@ -192,7 +301,15 @@ mod tests {
         assert_eq!(c.slow_alpha, 0.01);
         assert_eq!(c.regression_ratio, 2.0);
         assert_eq!(c.embedder_ratio, 2.0);
-        assert_eq!(c.dlq_flat_band, 0.05);
+        assert_eq!(c.dlq_rate_band, 1.0);
+        assert_eq!(c.dlq_empty_eps, 1);
+        assert_eq!(c.ms_per_kb_floor, 0.1);
+        assert_eq!(c.embedder_latency_floor, 1.0);
+        assert_eq!(c.stall_timeout_secs, 60);
+        assert_eq!(c.all_failing_window, 3);
+        assert_eq!(c.qdrant_probe_timeout_secs, 2);
+        assert_eq!(c.drain_snapshot_max_age_secs, 15);
+        assert_eq!(c.baseline_ttl_secs, 2_592_000);
         assert_eq!(c.debounce_window, 5);
         assert_eq!(c.drain_budget_secs, 86_400);
         assert_eq!(c.disk_low_bytes, 1_073_741_824);
@@ -284,6 +401,57 @@ mod tests {
             };
             assert!(c.validate().is_err(), "disk_low_pct {pct} must be rejected");
         }
+    }
+
+    #[test]
+    fn rejects_zero_probe_thresholds() {
+        // Each new probe threshold must reject 0 / non-positive.
+        let cases: Vec<QueueHealthConfig> = vec![
+            QueueHealthConfig {
+                dlq_rate_band: 0.0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                ms_per_kb_floor: 0.0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                embedder_latency_floor: -1.0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                dlq_empty_eps: 0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                stall_timeout_secs: 0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                all_failing_window: 0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                qdrant_probe_timeout_secs: 0,
+                ..Default::default()
+            },
+            QueueHealthConfig {
+                drain_snapshot_max_age_secs: 0,
+                ..Default::default()
+            },
+        ];
+        for c in cases {
+            assert!(c.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_baseline_ttl_below_one_day() {
+        let c = QueueHealthConfig {
+            baseline_ttl_secs: 3_600,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
     }
 
     #[test]
