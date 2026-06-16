@@ -22,6 +22,7 @@ Shared crates: `common` (types, project-id calculation, constants), `proto` (gRP
 - [Write Path Architecture](#write-path-architecture)
 - [Hybrid Search Flow](#hybrid-search-flow)
 - [SQLite State Management](#sqlite-state-management)
+- [Queue-Processor Health](#queue-processor-health)
 - [Rule Injection](#rule-injection)
 
 ## System Overview
@@ -250,6 +251,20 @@ Conventions:
 - Schema migrations are versioned (`schema_version` module); table-rebuild migrations own their transaction and FK-guard.
 - Watch-folder changes are made via gRPC (`EnableWatch`/`DisableWatch`, registration) and picked up by the daemon — the CLI never mutates `watch_folders` directly.
 
+## Queue-Processor Health
+
+The queue processor's health is determined by a functional verdict (#133) rather than simple counters. Four dual-EWMA control lanes — ms/KB processing cost, embedder-call latency, drain throughput, and DLQ delta-rate — are fed through the metrics switchboard (`switchboard/control_fanout.rs`, `ControlLane`) and shared with `EwmaState` (`queue_health/state.rs`) via `Arc<ControlLane>` clones. At each poll the verdict runs:
+
+- **Trend probes (A-series):** dual-EWMA crossover on ms/KB cost, embedder latency, and DLQ delta-rate. Slow-lane baseline divergence from the fast lane signals degradation; a signed DLQ delta distinguishes draining (Green) from growing (Red).
+- **Hard-state probes (B-series):** Qdrant reachability, disk headroom, processor-stall detection, and an all-items-failing predicate.
+- **Drain-budget probe (F5):** pending-byte backlog vs. estimated drain rate.
+
+Each probe verdict is debounced by a sliding window (plurality/severity tie-break). The overall health is the worst-of across all probes, surfaced via the `Health` gRPC RPC. Before any control lane is seeded (daemon cold-start) the verdict is `Unknown` ("learning baseline") rather than false Red.
+
+Slow-lane baselines for the three persist-true metrics (`EmbedderLatency`, `QueueMsPerKb`, `QueueThroughput`) are flushed to `state.db::control_baseline` (schema v46) by `ControlBaselinePersistTask` during idle windows and restored on restart via `ControlLane::restore_baseline`, so cold-start learning converges faster after a normal shutdown.
+
+This replaces the earlier `error_count > 100` threshold check and the interim `is_running` / `> 60 s` stall heuristic. Full design: [`docs/architecture/queue-health.md`](./architecture/queue-health.md). Switchboard wiring: [`docs/architecture/metrics-switchboard.md`](./architecture/metrics-switchboard.md).
+
 ## Rule Injection
 
 Behavioral rules live in the `rules` collection (with a SQLite mirror for fast listing) and reach Claude Code through installed hooks rather than a separate injector component:
@@ -274,7 +289,7 @@ Behavioral rules live in the `rules` collection (with a SQLite mirror for fast l
 - **Shared**: `src/rust/common/`, `src/rust/proto/`, `src/rust/client/`
 
 **Version**: 2.0
-**Last Updated**: 2026-06-10
+**Last Updated**: 2026-06-16
 **Spec Alignment**: docs/specs/ (modular specification)
 **ADR Alignment**: ADR-001 (canonical collections), ADR-002 (daemon-only writes), ADR-003 (daemon owns SQLite)
 **Updates**: Rewritten for the all-Rust architecture (daemon + MCP server + CLI); removed obsolete Python/FastMCP component model

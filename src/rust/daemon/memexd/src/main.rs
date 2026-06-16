@@ -94,6 +94,7 @@ fn wire_grpc(
         Arc::clone(&db_handles.pause_flag),
         Arc::clone(watch_refresh_signal),
         Arc::clone(&qc.queue_health),
+        Arc::clone(&qc.ewma_state),
         Arc::clone(&qc.adaptive_state),
         Arc::clone(&db_handles.search_db),
         db_handles.graph_sqlite.clone(),
@@ -140,6 +141,44 @@ async fn run_daemon(
     info!("Trace tier: {:?}", trace_tier);
     // Phase 2: Database
     let db_handles = database::initialize_all(&config).await?;
+
+    // Phase 2b: Metrics switchboard — build, wire control fns, seal, reload.
+    // Must run AFTER migrations (so `control_baseline` exists) and BEFORE any
+    // emitter thread / queue processor starts (so the routing table is frozen
+    // before the first real emit). See docs/architecture/metrics-switchboard.md §3d, §5e.
+    {
+        use workspace_qdrant_core::switchboard::{
+            store_dlq_depth, store_embedder_latency, store_ms_per_kb, store_throughput, MetricId,
+            SwitchboardBuilder, SWITCHBOARD,
+        };
+
+        // Builder constructs the control lanes with the configured EWMA alphas;
+        // EwmaState (queue_init) later clones the very same Arc<ControlLane>s.
+        let mut builder = SwitchboardBuilder::new(&config.queue_health);
+        builder.set_telemetry_enabled(daemon_config.observability.switchboard.telemetry_enabled);
+
+        // Wire each control id to its EWMA-smoothing control fn. The fast/slow
+        // lanes these advance are the lanes the health verdict reads (F1 handshake).
+        builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
+        builder.wire_control(MetricId::QueueMsPerKb, store_ms_per_kb);
+        builder.wire_control(MetricId::QueueThroughput, store_throughput);
+        builder.wire_control(MetricId::QueueDlqDepth, store_dlq_depth);
+
+        if SWITCHBOARD.set(builder.seal()).is_err() {
+            warn!("SWITCHBOARD already initialized — skipping re-init");
+        }
+        if let Some(sw) = SWITCHBOARD.get() {
+            if let Err(e) = sw.reload_baselines(&db_handles.queue_pool).await {
+                warn!("Failed to reload switchboard baselines: {}", e);
+            }
+        }
+
+        // Telemetry drain: the single bridge from the switchboard ring to
+        // DaemonMetrics/Prometheus (the hub owns all telemetry). Detached for the
+        // process lifetime — a lightweight loop that idles when the ring is empty.
+        tokio::spawn(workspace_qdrant_core::switchboard::drain::run_switchboard_drain());
+    }
+
     // Graph metrics snapshotter (D5): snapshot the code-graph gauges on the
     // collection_interval. Uses the SQLite graph pool directly for a single
     // read transaction per tick; no-ops when telemetry is disabled.

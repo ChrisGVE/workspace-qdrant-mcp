@@ -134,51 +134,6 @@ impl SystemServiceImpl {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl SystemServiceImpl {
-    /// Build the `queue_processor` ComponentHealth entry.
-    pub(super) fn get_queue_processor_health(&self) -> ComponentHealth {
-        if let Some(health) = &self.queue_health {
-            let is_running = health.is_running.load(Ordering::SeqCst);
-            let secs_since_poll = health.seconds_since_last_poll();
-            let secs_since_heartbeat = health.seconds_since_last_heartbeat();
-            // Stalled only when both poll AND per-item heartbeat are old.
-            let secs_since_activity = secs_since_poll.min(secs_since_heartbeat);
-
-            // NOTE (#131): the health verdict deliberately does NOT consider
-            // `error_count`. That field is a lifetime-cumulative counter, so a
-            // fixed `> 100` threshold made any long-lived daemon report a
-            // permanent "High error count detected" degradation long after the
-            // errors stopped mattering — a false positive. `error_count` is
-            // retained purely as a metric (see `get_queue_metrics`). A real
-            // functional-degradation model (DLQ trend, drain-time budget,
-            // ms/KB and embedder-latency regression, component diagnosis) is
-            // tracked in #133.
-            let (status, message) = if !is_running {
-                (ServiceStatus::Unhealthy, "Queue processor is not running")
-            } else if secs_since_activity > 60 {
-                (
-                    ServiceStatus::Degraded,
-                    "Queue processor may be stalled (>60s since last activity)",
-                )
-            } else {
-                (ServiceStatus::Healthy, "Running normally")
-            };
-
-            ComponentHealth {
-                component_name: "queue_processor".to_string(),
-                status: status as i32,
-                message: message.to_string(),
-                last_check: Some(prost_types::Timestamp::from(SystemTime::now())),
-            }
-        } else {
-            ComponentHealth {
-                component_name: "queue_processor".to_string(),
-                status: ServiceStatus::Unspecified as i32,
-                message: "Health monitoring not connected".to_string(),
-                last_check: Some(prost_types::Timestamp::from(SystemTime::now())),
-            }
-        }
-    }
-
     /// Build queue-processor metric list.
     pub(super) fn get_queue_metrics(&self) -> Vec<Metric> {
         let now = Some(prost_types::Timestamp::from(SystemTime::now()));

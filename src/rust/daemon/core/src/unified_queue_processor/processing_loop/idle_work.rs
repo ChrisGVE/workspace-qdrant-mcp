@@ -39,6 +39,8 @@ pub(super) async fn run_idle_work(
     graph_store: &Option<Arc<dyn GraphStore>>,
     ingestion_limits: &Arc<IngestionLimitsConfig>,
     poll_interval: Duration,
+    // Threaded for the idle baseline-flush wiring (#133, task 19); consumed there.
+    _ewma_state: &Option<Arc<crate::queue_health::EwmaState>>,
 ) -> bool {
     if state.idle_since.is_none() {
         state.idle_since = Some(std::time::Instant::now());

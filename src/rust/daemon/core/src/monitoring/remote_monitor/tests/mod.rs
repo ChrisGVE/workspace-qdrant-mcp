@@ -84,7 +84,8 @@ pub(super) async fn create_test_database() -> SqlitePool {
             last_error_at TEXT,
             branch TEXT DEFAULT 'main',
             metadata TEXT DEFAULT '{}',
-            file_path TEXT
+            file_path TEXT,
+            size_bytes INTEGER
         )
         "#,
     )

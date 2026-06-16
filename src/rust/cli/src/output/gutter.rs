@@ -33,6 +33,8 @@ pub enum Gutter {
     Info,
     /// Yellow `▲` — orphan / unknown state.
     Orphan,
+    /// Cyan `…` — probing / learning baseline (cold-start health verdict, #133 F8).
+    Probing,
 }
 
 impl Gutter {
@@ -48,6 +50,7 @@ impl Gutter {
             Gutter::Warning => "▲".yellow(),
             Gutter::Info => "·".blue(),
             Gutter::Orphan => "▲".yellow(),
+            Gutter::Probing => "…".cyan(),
         }
     }
 
@@ -63,6 +66,7 @@ impl Gutter {
             Gutter::Warning => "!",
             Gutter::Info => ".",
             Gutter::Orphan => "!",
+            Gutter::Probing => "~",
         }
     }
 
@@ -89,6 +93,7 @@ mod tests {
             Gutter::Warning,
             Gutter::Info,
             Gutter::Orphan,
+            Gutter::Probing,
         ];
         for g in variants {
             assert_eq!(
@@ -112,6 +117,7 @@ mod tests {
             Gutter::Warning,
             Gutter::Info,
             Gutter::Orphan,
+            Gutter::Probing,
         ];
         for g in variants {
             let _ = g.colored();
@@ -121,5 +127,12 @@ mod tests {
     #[test]
     fn gutter_width_is_two() {
         assert_eq!(Gutter::WIDTH, 2);
+    }
+
+    #[test]
+    fn probing_renders_non_color_channel() {
+        // #133 F8: the cold-start gutter has a real non-color channel.
+        assert_eq!(Gutter::Probing.plain(), "~");
+        assert!(Gutter::Probing.colored().to_string().contains('…'));
     }
 }

@@ -98,6 +98,7 @@ impl QueueManager {
         );
         let metadata = merged_metadata.as_deref().or(metadata).unwrap_or("{}");
         let file_path = Self::extract_file_path(item_type, &payload);
+        let size_bytes = Self::extract_size_bytes(item_type, &payload);
 
         let (is_new, _) = self
             .insert_queue_item(
@@ -110,6 +111,7 @@ impl QueueManager {
                 metadata,
                 &idempotency_key,
                 &file_path,
+                size_bytes,
             )
             .await?;
 
@@ -185,6 +187,27 @@ impl QueueManager {
         }
     }
 
+    /// Extract `size_bytes` for the queue row (#133 F1, schema v45).
+    ///
+    /// File items: the payload's `size_bytes` when present, else a
+    /// `std::fs::metadata(path).len()` stat-fallback (the #121 pattern), so a
+    /// path that omitted its size still records pending bytes for drain
+    /// estimation. Non-file items (rules, folder scans, content, url) carry no
+    /// byte count and return `None` — the drain SUM average-imputes NULL rows.
+    fn extract_size_bytes(item_type: ItemType, payload: &serde_json::Value) -> Option<i64> {
+        if item_type != ItemType::File {
+            return None;
+        }
+        if let Some(size) = payload.get("size_bytes").and_then(|v| v.as_i64()) {
+            return Some(size);
+        }
+        payload
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len() as i64)
+    }
+
     /// Bulk-enqueue `(item_type, op, tenant_id, collection, payload_json)` tuples
     /// inside a single SQLite transaction.
     ///
@@ -237,13 +260,14 @@ impl QueueManager {
             )
             .map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
             let file_path = Self::extract_file_path(item_type, &payload);
+            let size_bytes = Self::extract_size_bytes(item_type, &payload);
 
             let result = sqlx::query(
                 r#"
                 INSERT OR IGNORE INTO unified_queue (
                     item_type, op, tenant_id, collection,
-                    branch, payload_json, metadata, idempotency_key, file_path
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    branch, payload_json, metadata, idempotency_key, file_path, size_bytes
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
             )
             .bind(item_type.to_string())
@@ -255,6 +279,7 @@ impl QueueManager {
             .bind(metadata)
             .bind(&idempotency_key)
             .bind(&file_path)
+            .bind(size_bytes)
             .execute(&mut *tx)
             .await?;
 
@@ -287,13 +312,14 @@ impl QueueManager {
         metadata: &str,
         idempotency_key: &str,
         file_path: &Option<String>,
+        size_bytes: Option<i64>,
     ) -> QueueResult<(bool, u64)> {
         let result = sqlx::query(
             r#"
             INSERT OR IGNORE INTO unified_queue (
                 item_type, op, tenant_id, collection,
-                branch, payload_json, metadata, idempotency_key, file_path
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                branch, payload_json, metadata, idempotency_key, file_path, size_bytes
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         "#,
         )
         .bind(item_type.to_string())
@@ -305,6 +331,7 @@ impl QueueManager {
         .bind(metadata)
         .bind(idempotency_key)
         .bind(file_path)
+        .bind(size_bytes)
         .execute(&self.pool)
         .await?;
 

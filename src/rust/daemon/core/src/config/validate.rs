@@ -38,6 +38,9 @@ impl DaemonConfig {
         self.observability
             .validate()
             .map_err(|e| format!("observability: {e}"))?;
+        self.queue_health
+            .validate()
+            .map_err(|e| format!("queue_health: {e}"))?;
         self.embedding
             .validate()
             .map_err(|e| format!("embedding: {e}"))?;
@@ -169,6 +172,22 @@ mod tests {
             host: host.to_string(),
             container: container.to_string(),
         }
+    }
+
+    #[test]
+    fn degenerate_queue_health_fails_top_level_validate() {
+        // SEC-01: a degenerate [queue_health] is rejected by the top-level chain,
+        // not silently accepted.
+        let mut cfg = DaemonConfig::default();
+        assert!(cfg.validate().is_ok(), "default config validates");
+        cfg.queue_health.debounce_window = 0; // zero window is rejected
+        let err = cfg
+            .validate()
+            .expect_err("zero debounce_window must fail load");
+        assert!(
+            err.contains("queue_health"),
+            "error should be attributed to queue_health: {err}"
+        );
     }
 
     #[test]

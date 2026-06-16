@@ -282,6 +282,14 @@ impl DaemonMetrics {
             .observe(batch_size as f64);
     }
 
+    /// Add to the count of telemetry samples dropped on a full
+    /// metrics-switchboard buffer. Called by the drain task with the delta
+    /// observed since the previous tick (the switchboard owns the running
+    /// total; this counter mirrors it into Prometheus).
+    pub fn record_switchboard_buffer_full(&self, count: u64) {
+        self.switchboard_buffer_full_total.inc_by(count);
+    }
+
     /// Record a SQLite query by op (read, write, transaction).
     pub fn record_sqlite(&self, op: &str, duration: std::time::Duration) {
         self.sqlite_query_duration_seconds

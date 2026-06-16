@@ -241,4 +241,21 @@ mod tests {
         assert!(output.contains("wqm_memexd_unified_queue_depth"));
         assert!(output.contains("wqm_memexd_unified_queue_enqueues_total"));
     }
+
+    #[test]
+    fn test_switchboard_buffer_full_counter() {
+        let metrics = DaemonMetrics::new();
+
+        // Mirrors what the drain task does each tick: feed the running delta.
+        metrics.record_switchboard_buffer_full(3);
+        metrics.record_switchboard_buffer_full(2);
+
+        let output = metrics.encode().expect("encoding should succeed");
+        assert!(output.contains("wqm_memexd_switchboard_buffer_full_total"));
+        // 3 + 2 = 5 cumulative drops.
+        assert!(
+            output.contains("wqm_memexd_switchboard_buffer_full_total 5"),
+            "expected cumulative counter of 5 in:\n{output}"
+        );
+    }
 }

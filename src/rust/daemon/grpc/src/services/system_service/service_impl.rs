@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, Notify, RwLock};
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 use workspace_qdrant_core::config::EmbeddingSettings;
 use workspace_qdrant_core::embedding::provider::{DenseProvider, SharedProbeCache};
-use workspace_qdrant_core::QueueProcessorHealth;
+use workspace_qdrant_core::{EwmaState, QueueProcessorHealth};
 
 use super::types::ServerStatusStore;
 
@@ -24,6 +24,9 @@ pub struct SystemServiceImpl {
     pub(super) start_time: SystemTime,
     /// Optional queue processor health state
     pub(super) queue_health: Option<Arc<QueueProcessorHealth>>,
+    /// Optional shared dual-rate EWMA state (#133). Same `Arc` as the processor's
+    /// — verdict reads here observe the samples the processor feeds in.
+    pub(super) ewma_state: Option<Arc<EwmaState>>,
     /// Optional database pool for refresh signal operations
     pub(super) db_pool: Option<sqlx::SqlitePool>,
     /// Server status store for tracking component status
@@ -59,6 +62,7 @@ impl std::fmt::Debug for SystemServiceImpl {
         f.debug_struct("SystemServiceImpl")
             .field("start_time", &self.start_time)
             .field("queue_health", &self.queue_health.is_some())
+            .field("ewma_state", &self.ewma_state.is_some())
             .field("db_pool", &self.db_pool.is_some())
             .field("hierarchy_builder", &self.hierarchy_builder.is_some())
             .field("search_db", &self.search_db.is_some())
@@ -74,6 +78,7 @@ impl SystemServiceImpl {
         Self {
             start_time: SystemTime::now(),
             queue_health: None,
+            ewma_state: None,
             db_pool: None,
             status_store: Arc::new(RwLock::new(HashMap::new())),
             pause_flag: Arc::new(AtomicBool::new(false)),
@@ -92,6 +97,13 @@ impl SystemServiceImpl {
     /// Set queue processor health state for monitoring
     pub fn with_queue_health(mut self, queue_health: Arc<QueueProcessorHealth>) -> Self {
         self.queue_health = Some(queue_health);
+        self
+    }
+
+    /// Set the shared dual-rate EWMA state (#133). This is the same `Arc` handed
+    /// to the `UnifiedQueueProcessor`, so verdict reads here see live samples.
+    pub fn with_ewma_state(mut self, ewma_state: Arc<EwmaState>) -> Self {
+        self.ewma_state = Some(ewma_state);
         self
     }
 

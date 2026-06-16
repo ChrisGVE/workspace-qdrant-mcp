@@ -16,9 +16,9 @@ use super::{
     AutoIngestionConfig, ConceptConfig, EmbeddingSettings, GitConfig, GrammarConfig,
     GraphRagConfig, IngestionLimitsConfig, KeywordEmbedderConfig, LoggingConfig, LspSettings,
     MetricsConfig, MonitoringConfig, NarrativeConfig, ObservabilityConfig, OtlpExportConfig,
-    OtlpProtocol, PrometheusExportConfig, QueueProcessorSettings, ResourceLimitsConfig,
-    StartupConfig, TelemetryConfig, TracingConfig, UpdateChannel, UpdatesConfig,
-    UrlIngestionConfig,
+    OtlpProtocol, PrometheusExportConfig, QueueHealthConfig, QueueProcessorSettings,
+    ResourceLimitsConfig, StartupConfig, SwitchboardConfig, TelemetryConfig, TracingConfig,
+    UpdateChannel, UpdatesConfig, UrlIngestionConfig,
 };
 use crate::storage::StorageConfig;
 
@@ -39,6 +39,7 @@ impl From<&YamlConfig> for DaemonConfig {
             monitoring: MonitoringConfig::default(),
             git: build_git_config(yaml),
             observability: build_observability_config(yaml),
+            queue_health: QueueHealthConfig::default(),
             embedding: build_embedding_settings(yaml),
             lsp: build_lsp_settings(yaml),
             grammars: build_grammar_config(yaml),
@@ -182,6 +183,10 @@ fn build_observability_config(yaml: &YamlConfig) -> ObservabilityConfig {
                 attribute_cardinality_cap: y_telemetry.tracing.attribute_cardinality_cap,
             },
         },
+        // Switchboard telemetry off-switch. No YAML section maps to it yet, so it
+        // takes the compiled-in default (telemetry_enabled = true); the serde
+        // `#[serde(default)]` path covers direct ObservabilityConfig deserialize.
+        switchboard: SwitchboardConfig::default(),
     }
 }
 

@@ -303,6 +303,47 @@ environment:
 
 **Note:** The `watching` section replaces the old `patterns`/`ignore_patterns` approach. The allowlist (`allowed_extensions` + `allowed_filenames`) is the primary ingestion gate. See the [File Type Allowlist](06-file-watching.md#file-type-allowlist) section for the complete categorized list and ingestion gate layering. The full default list is embedded at build time from `assets/default_configuration.yaml`.
 
+### Queue Health (`[queue_health]`)
+
+Thresholds for the functional queue-health verdict (#133). All fields are runtime-tunable; every field has a serde default, so an absent `[queue_health]` section uses the documented defaults. The struct is defined in `config/queue_health.rs` and validated as part of `DaemonConfig::validate()`.
+
+| Field | Default | Meaning | Validation |
+|-------|---------|---------|------------|
+| `fast_alpha` | `0.3` | Fast EWMA lane smoothing (≈ last ~20 items; perceptible-immediate window). | finite, in `(0,1]` |
+| `slow_alpha` | `0.01` | Slow EWMA lane / baseline (≈ last ~200 items). | finite, in `(0,1]` |
+| `regression_ratio` | `2.0` | fast/slow ratio above which ms/KB processing is regressing. | `> 1.0` |
+| `embedder_ratio` | `2.0` | fast/slow ratio above which embedder latency is regressing. | `> 1.0` |
+| `dlq_rate_band` | `1.0` | DLQ delta-rate (counts/poll) at or below which the backlog is "stuck"; above it it is growing (Red). Absolute, not relative (A3). | finite, `> 0` |
+| `dlq_empty_eps` | `1` | DLQ "empty" threshold (count): below this ⇒ Green regardless of rate (A3). | `≥ 1` |
+| `ms_per_kb_floor` | `0.1` | ms/KB baseline below this is "too fast to matter" ⇒ Green; never divides by a near-zero baseline (A1). | finite, `> 0` |
+| `embedder_latency_floor` | `1.0` | Embedder-latency baseline (ms) floor, analogous to `ms_per_kb_floor` (A2). | finite, `> 0` |
+| `stall_timeout_secs` | `60` | Pending > 0 AND no poll/heartbeat within this window ⇒ Red (B3). | `≥ 1` |
+| `all_failing_window` | `3` | All-items-failing detection window, in poll cycles (B4). | `≥ 1` |
+| `qdrant_probe_timeout_secs` | `2` | Timeout for the B1 Qdrant reachability check; exceed ⇒ Red. | `≥ 1` |
+| `drain_snapshot_max_age_secs` | `15` | A pending-bytes snapshot older than this is insufficient data ⇒ Green (F5). | `> 0` |
+| `baseline_ttl_secs` | `2592000` (30 days) | Orphaned `control_baseline` rows older than this are pruned (F10). | `≥ 86400` (1 day) |
+| `debounce_window` | `5` | Consecutive per-metric verdicts; majority (3) flips state. | non-zero, **odd** |
+| `drain_budget_secs` | `86400` | Backlog draining slower than this (1 day) is "falling behind". | — |
+| `disk_low_bytes` | `1073741824` (1 GiB) | Absolute free-disk low-water mark. | — |
+| `disk_low_pct` | `0.05` | Relative free-disk low-water mark. | in `(0,1)` |
+| `min_item_bytes` | `256` | ms/KB size floor; known-size items below this are clamped so a tiny file cannot produce an outlier ms/KB. | non-zero |
+| `default_item_bytes` | `65536` (64 KiB) | Imputed item size when no pending row has a known size, so the all-NULL drain fallback never divides by zero. | non-zero |
+
+An even `debounce_window` is rejected (DOM-04): an even window has no majority on a tie, leaving the per-metric vote undefined. A degenerate `[queue_health]` therefore fails config load rather than being silently accepted.
+
+Example:
+
+```yaml
+queue_health:
+  fast_alpha: 0.3
+  slow_alpha: 0.01
+  regression_ratio: 2.0
+  drain_budget_secs: 86400
+  debounce_window: 5
+```
+
+Environment overrides (highest precedence): `WORKSPACE_QDRANT_QUEUE_HEALTH__REGRESSION_RATIO`, `WORKSPACE_QDRANT_QUEUE_HEALTH__DRAIN_BUDGET_SECS`, `WORKSPACE_QDRANT_QUEUE_HEALTH__DEBOUNCE_WINDOW`.
+
 ### Configuration Validation
 
 #### `DaemonConfig::validate()`

@@ -288,7 +288,7 @@ async fn crash_recovery_migrations_from_scratch_reach_v37() {
 
     let version = manager.get_current_version().await.unwrap();
     assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
-    assert_eq!(CURRENT_SCHEMA_VERSION, 44);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 46);
 
     let table_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master \

@@ -161,6 +161,45 @@ impl QueueManager {
         Ok(age.unwrap_or(0).max(0))
     }
 
+    /// Estimate the total pending bytes in the unified queue (#133 F1, drain).
+    ///
+    /// Runs the two-step NULL-imputing aggregation that backs drain-time backlog
+    /// estimation. **Intended for the poll loop only** — the Health RPC reads a
+    /// cached snapshot of this scalar, never re-running the scan on the RPC path.
+    ///
+    /// Step 1 computes the mean of known sizes among pending rows; step 2 sums
+    /// `COALESCE(size_bytes, imputed)` so NULL-size rows (non-file items, or rows
+    /// enqueued before v45) are average-imputed rather than counted as zero. When
+    /// no pending row has a known size, `default_item_bytes` (F6 config) is used
+    /// as the imputed value, so the estimate never silently reports zero backlog
+    /// nor divides by zero downstream. Returns 0 when there are no pending rows.
+    ///
+    /// Caveat: immediately after a v45 upgrade, every pre-existing pending row is
+    /// NULL-size, so the estimate is fully average-imputed until the backlog
+    /// rotates and freshly-enqueued rows carry real sizes.
+    pub async fn get_pending_bytes_estimate(&self, default_item_bytes: u64) -> QueueResult<u64> {
+        // Step 1: average of known sizes (NULL when no pending row has a size).
+        let avg_known: Option<f64> = sqlx::query_scalar(
+            "SELECT AVG(size_bytes) FROM unified_queue \
+             WHERE status = 'pending' AND size_bytes IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let imputed = avg_known.unwrap_or(default_item_bytes as f64);
+
+        // Step 2: sum with NULL rows imputed. SUM over zero pending rows is NULL.
+        let pending_bytes: Option<f64> = sqlx::query_scalar(
+            "SELECT SUM(COALESCE(size_bytes, ?1)) FROM unified_queue \
+             WHERE status = 'pending'",
+        )
+        .bind(imputed)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(pending_bytes.unwrap_or(0.0).max(0.0) as u64)
+    }
+
     /// Get the oldest pending item in the unified queue
     ///
     /// Used by the fairness scheduler to check for stale items that need
@@ -205,6 +244,7 @@ impl QueueManager {
                     error_message: row.try_get("error_message")?,
                     last_error_at: row.try_get("last_error_at")?,
                     file_path: row.try_get("file_path")?, // Task 22
+                    size_bytes: row.try_get("size_bytes")?, // #133 F1 (v45)
                     qdrant_status: {
                         let s: Option<String> = row.try_get("qdrant_status")?;
                         s.and_then(|v| DestinationStatus::parse_str(&v))

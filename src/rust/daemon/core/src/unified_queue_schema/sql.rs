@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
     search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
     -- Pre-computed processing decision (JSON)
-    decision_json TEXT
+    decision_json TEXT,
+    -- Item payload size in bytes (#133 F1, v45). NULL = unknown size
+    -- (non-file items, or rows enqueued before v45). Feeds drain-time
+    -- pending-bytes estimation. Kept in sync with migration v45.
+    size_bytes INTEGER
 )
 "#;
 
@@ -75,6 +79,11 @@ pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
     r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unified_queue_file_path_composite
        ON unified_queue(tenant_id, branch, collection, item_type, op, file_path)
        WHERE file_path IS NOT NULL"#,
+    // Pending-size index (#133 F1, v45). Bounds the poll-loop drain
+    // aggregation to pending rows with a known size. Mirrors migration v45.
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_pending_size
+       ON unified_queue(size_bytes)
+       WHERE status = 'pending' AND size_bytes IS NOT NULL"#,
 ];
 
 // ---------------------------------------------------------------------------

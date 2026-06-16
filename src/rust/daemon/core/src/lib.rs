@@ -79,6 +79,7 @@ pub mod service_discovery;
 pub mod source_diversity;
 pub mod startup;
 pub mod storage;
+pub mod switchboard;
 pub mod tagging;
 pub mod text_search;
 pub mod thumbnail;
@@ -207,7 +208,7 @@ pub use crate::processing::{
     Pipeline, TaskPayload, TaskPriority, TaskResult, TaskResultData, TaskResultHandle, TaskSource,
     TaskSubmitter,
 };
-pub use crate::queue_health::QueueProcessorHealth;
+pub use crate::queue_health::{EwmaState, QueueProcessorHealth};
 pub use crate::queue_operations::{
     QueueError, QueueLoadLevel as QueueOpsLoadLevel, QueueManager, QueueThrottlingSummary,
 };

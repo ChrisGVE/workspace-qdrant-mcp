@@ -37,6 +37,10 @@ pub struct HealthComponentJson {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Per-line remediation, unbounded (the gRPC `message` is bounded; the full
+    /// set rides here for scripts — #133 F8/UX-4). Empty when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remediation: Vec<String>,
 }
 
 pub fn status_label(s: ServiceStatus) -> &'static str {
@@ -152,11 +156,13 @@ mod tests {
                     name: "qdrant".to_string(),
                     status: "healthy".to_string(),
                     message: None,
+                    remediation: Vec::new(),
                 },
                 HealthComponentJson {
                     name: "sqlite".to_string(),
                     status: "degraded".to_string(),
                     message: Some("high latency".to_string()),
+                    remediation: vec!["[amber sqlite] high latency".to_string()],
                 },
             ],
         };

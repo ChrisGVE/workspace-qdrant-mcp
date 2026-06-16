@@ -75,6 +75,14 @@ impl GrpcServer {
         self
     }
 
+    /// Set the shared dual-rate EWMA state (#133). This is the same `Arc` passed
+    /// to `UnifiedQueueProcessor`, so SystemService verdict reads observe the
+    /// processor's live samples.
+    pub fn with_ewma_state(mut self, ewma_state: Arc<workspace_qdrant_core::EwmaState>) -> Self {
+        self.ewma_state = Some(ewma_state);
+        self
+    }
+
     /// Set adaptive resource state for idle/burst mode reporting in system status.
     pub fn with_adaptive_state(mut self, state: Arc<AdaptiveResourceState>) -> Self {
         self.adaptive_state = Some(state);

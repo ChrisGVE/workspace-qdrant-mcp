@@ -84,7 +84,7 @@ impl ServiceView {
 
         frame.render_widget(self.render_daemon_panel(&live), top[0]);
         frame.render_widget(self.render_qdrant_panel(&live), top[1]);
-        frame.render_widget(self.render_queue_panel(), mid[0]);
+        frame.render_widget(self.render_queue_panel(&live), mid[0]);
         frame.render_widget(self.render_index_panel(), mid[1]);
         frame.render_widget(self.render_storage_panel(), rows[2]);
         frame.render_widget(self.render_hints_panel(), rows[3]);
@@ -165,6 +165,32 @@ impl ServiceView {
         }
     }
 
+    /// Render the functional queue-health verdict (#133 F9). A NEW render path,
+    /// deliberately NOT `health_indicator` (which is probe-liveness): verdict
+    /// `Unknown` is the daemon's cold-start ("learning baseline"), distinct from
+    /// the probe-pending "… probing" (UX-7). Each state has a glyph AND a word, so
+    /// Amber/Red are distinguishable without color (UX-1).
+    fn verdict_indicator(verdict: Option<crate::output::ServiceStatus>) -> Span<'static> {
+        use crate::output::ServiceStatus as Vs;
+        match verdict {
+            Some(Vs::Healthy) | Some(Vs::Active) => Span::styled(
+                format!("{} healthy", theme::GUTTER_SYNC),
+                Style::default().fg(theme::COLOR_SUCCESS),
+            ),
+            Some(Vs::Degraded) => Span::styled(
+                format!("{} degraded", theme::GUTTER_WARNING),
+                Style::default().fg(theme::COLOR_WARNING),
+            ),
+            Some(Vs::Unhealthy) => Span::styled(
+                format!("{} unhealthy", theme::GUTTER_REMOVE),
+                Style::default().fg(theme::COLOR_ERROR),
+            ),
+            Some(Vs::Unknown) | Some(Vs::Inactive) | None => {
+                Span::styled("… learning baseline", Style::default().fg(theme::COLOR_DIM))
+            }
+        }
+    }
+
     fn render_daemon_panel(&self, live: &ServiceLive) -> Paragraph<'static> {
         let block_style = if live.daemon_healthy == Some(false) {
             theme::alarm_style()
@@ -205,7 +231,7 @@ impl ServiceView {
         panel(lines, " Qdrant ", block_style)
     }
 
-    fn render_queue_panel(&self) -> Paragraph<'static> {
+    fn render_queue_panel(&self, live: &ServiceLive) -> Paragraph<'static> {
         let s = &self.status;
         let failed_fg = if s.queue_failed > 0 {
             theme::COLOR_ERROR
@@ -217,7 +243,8 @@ impl ServiceView {
         } else {
             theme::COLOR_DIM
         };
-        let lines = vec![
+        let mut lines = vec![
+            kv("Health", Self::verdict_indicator(live.queue_verdict)),
             kv(
                 "Pending",
                 Span::styled(
@@ -241,6 +268,14 @@ impl ServiceView {
                 Span::styled(fmt_count(s.dlq_count), Style::default().fg(dlq_fg)),
             ),
         ];
+        // Per-line attributed remediation beneath the counts (clipped to the
+        // panel height); each line is already `[<rag> <culprit>] <text>`.
+        for line in &live.queue_remediation {
+            lines.push(Line::from(Span::styled(
+                format!("  {line}"),
+                Style::default().fg(theme::COLOR_DIM),
+            )));
+        }
         panel(lines, " Queue ", Style::default())
     }
 
@@ -343,5 +378,27 @@ mod tests {
         assert!(ServiceView::health_indicator(None)
             .content
             .contains("probing"));
+    }
+
+    #[test]
+    fn verdict_indicator_states() {
+        use crate::output::ServiceStatus as Vs;
+        // Cold-start renders "learning baseline" via the NEW path, NOT the
+        // probe-pending "probing" (#133 F9/UX-7).
+        let cold = ServiceView::verdict_indicator(Some(Vs::Unknown));
+        assert!(cold.content.contains("learning baseline"));
+        assert!(!cold.content.contains("probing"));
+        assert!(ServiceView::verdict_indicator(None)
+            .content
+            .contains("learning baseline"));
+        // Amber vs Red distinguished by word + glyph, not color alone (UX-1).
+        let amber = ServiceView::verdict_indicator(Some(Vs::Degraded));
+        let red = ServiceView::verdict_indicator(Some(Vs::Unhealthy));
+        assert!(amber.content.contains("degraded"));
+        assert!(red.content.contains("unhealthy"));
+        assert_ne!(amber.content, red.content);
+        assert!(ServiceView::verdict_indicator(Some(Vs::Healthy))
+            .content
+            .contains("healthy"));
     }
 }

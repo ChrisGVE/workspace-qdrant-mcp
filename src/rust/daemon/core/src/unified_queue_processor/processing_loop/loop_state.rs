@@ -1,7 +1,10 @@
 //! `LoopState` groups all mutable variables that persist across loop iterations
 //! in the unified queue processing loop.
 
+use std::collections::VecDeque;
+
 use crate::circuit_breaker::CircuitBreaker;
+use crate::queue_health::probes::hard_state::PollOutcome;
 use crate::unified_queue_processor::config::UnifiedProcessorConfig;
 
 use super::circuit_breakers::new_sqlite_breaker;
@@ -33,6 +36,14 @@ pub(super) struct LoopState {
     pub recovery_ramp_remaining: usize,
     /// Maintenance task scheduler.
     pub maintenance_scheduler: crate::idle::MaintenanceScheduler,
+    /// Previous absolute DLQ count, for the A3 per-poll delta-rate. `None` until
+    /// the first poll seeds it from a live count (DOM-09 — never starts at 0).
+    pub prev_dlq: Option<u64>,
+    /// Number of DLQ delta samples fed so far (gates A3's ≥2-sample rule).
+    pub dlq_samples_seen: u64,
+    /// Poll-local outcome ring for the B4 all-items-failing predicate (kept
+    /// local, never shared, so B4 needs no shared `Mutex` — PERF-08).
+    pub outcome_ring: VecDeque<PollOutcome>,
 }
 
 impl LoopState {
@@ -72,6 +83,9 @@ impl LoopState {
         maintenance_scheduler.register(Box::new(
             crate::idle::tasks::ElaboratesMaintenanceTask::new(),
         ));
+        maintenance_scheduler.register(Box::new(
+            crate::switchboard::persist_task::ControlBaselinePersistTask::new(),
+        ));
 
         Self {
             last_metrics_log: chrono::Utc::now(),
@@ -87,6 +101,9 @@ impl LoopState {
             sqlite_breaker: new_sqlite_breaker(config),
             recovery_ramp_remaining: 0,
             maintenance_scheduler,
+            prev_dlq: None,
+            dlq_samples_seen: 0,
+            outcome_ring: VecDeque::new(),
         }
     }
 }

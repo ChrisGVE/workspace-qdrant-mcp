@@ -299,6 +299,9 @@ pub struct GrpcServer {
     pub(crate) watch_refresh_signal: Option<Arc<Notify>>,
     /// Queue processor health state for monitoring
     pub(crate) queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
+    /// Shared dual-rate EWMA state for queue-health verdicts (#133); same `Arc`
+    /// as the queue processor's.
+    pub(crate) ewma_state: Option<Arc<workspace_qdrant_core::EwmaState>>,
     /// Adaptive resource state for idle/burst mode reporting
     pub(crate) adaptive_state: Option<Arc<AdaptiveResourceState>>,
     /// Search database manager for TextSearchService
@@ -352,6 +355,7 @@ impl GrpcServer {
             pause_flag: None,
             watch_refresh_signal: None,
             queue_health: None,
+            ewma_state: None,
             adaptive_state: None,
             search_db: None,
             graph_store: None,

@@ -13,7 +13,7 @@ use crate::config::IngestionLimitsConfig;
 use crate::fairness_scheduler::FairnessScheduler;
 use crate::lexicon::LexiconManager;
 use crate::lsp::LanguageServerManager;
-use crate::queue_health::QueueProcessorHealth;
+use crate::queue_health::{EwmaState, QueueProcessorHealth};
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
@@ -48,6 +48,7 @@ impl UnifiedQueueProcessor {
         lexicon_manager: Arc<LexiconManager>,
         warmup_state: Arc<WarmupState>,
         queue_health: Option<Arc<QueueProcessorHealth>>,
+        ewma_state: Option<Arc<EwmaState>>,
         embedding_health: Option<crate::embedding::EmbeddingHealth>,
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -96,6 +97,7 @@ impl UnifiedQueueProcessor {
                 &ingestion_limits,
                 &metrics,
                 &queue_health,
+                &ewma_state,
                 &embedding_health,
                 &queue_depth_counter,
                 &warmup_state,
@@ -137,6 +139,7 @@ impl UnifiedQueueProcessor {
         ingestion_limits: &Arc<IngestionLimitsConfig>,
         metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
         queue_health: &Option<Arc<QueueProcessorHealth>>,
+        ewma_state: &Option<Arc<EwmaState>>,
         embedding_health: &Option<crate::embedding::EmbeddingHealth>,
         queue_depth_counter: &Arc<std::sync::atomic::AtomicUsize>,
         warmup_state: &Arc<WarmupState>,
@@ -169,6 +172,8 @@ impl UnifiedQueueProcessor {
         }
         Self::update_queue_depth_metrics(queue_manager, metrics, queue_health, queue_depth_counter)
             .await;
+        super::health_probes::update_health_probes(queue_manager, queue_health, ewma_state, state)
+            .await;
         Self::record_oldest_pending_age(queue_manager).await;
         if !Self::run_loop_iteration(
             fairness_scheduler,
@@ -189,6 +194,7 @@ impl UnifiedQueueProcessor {
             ingestion_limits,
             metrics,
             queue_health,
+            ewma_state,
             embedding_health,
             resource_profile_rx,
             warmup_state,
@@ -228,6 +234,7 @@ impl UnifiedQueueProcessor {
         ingestion_limits: &Arc<IngestionLimitsConfig>,
         metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
         queue_health: &Option<Arc<QueueProcessorHealth>>,
+        ewma_state: &Option<Arc<EwmaState>>,
         embedding_health: &Option<crate::embedding::EmbeddingHealth>,
         resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         warmup_state: &Arc<WarmupState>,
@@ -258,6 +265,7 @@ impl UnifiedQueueProcessor {
             ingestion_limits,
             metrics,
             queue_health,
+            ewma_state,
             embedding_health,
             resource_profile_rx,
             warmup_state,
@@ -307,6 +315,7 @@ impl UnifiedQueueProcessor {
         ingestion_limits: &Arc<IngestionLimitsConfig>,
         metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
         queue_health: &Option<Arc<QueueProcessorHealth>>,
+        ewma_state: &Option<Arc<EwmaState>>,
         embedding_health: &Option<crate::embedding::EmbeddingHealth>,
         resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         warmup_state: &Arc<WarmupState>,
@@ -339,6 +348,7 @@ impl UnifiedQueueProcessor {
                     graph_store,
                     ingestion_limits,
                     poll_interval,
+                    ewma_state,
                 )
                 .await;
                 true
@@ -364,6 +374,7 @@ impl UnifiedQueueProcessor {
                     ingestion_limits,
                     metrics,
                     queue_health,
+                    ewma_state,
                     embedding_health,
                     resource_profile_rx,
                     warmup_state,
@@ -406,6 +417,7 @@ impl UnifiedQueueProcessor {
         ingestion_limits: &Arc<IngestionLimitsConfig>,
         metrics: &Arc<RwLock<UnifiedProcessingMetrics>>,
         queue_health: &Option<Arc<QueueProcessorHealth>>,
+        ewma_state: &Option<Arc<EwmaState>>,
         embedding_health: &Option<crate::embedding::EmbeddingHealth>,
         resource_profile_rx: &Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         warmup_state: &Arc<WarmupState>,
@@ -442,6 +454,7 @@ impl UnifiedQueueProcessor {
             ingestion_limits,
             metrics,
             queue_health,
+            ewma_state,
             embedding_health,
             cancellation_token,
             resource_profile_rx,

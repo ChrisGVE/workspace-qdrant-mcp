@@ -7,6 +7,7 @@
 //! RebuildIndex
 
 mod helpers;
+mod queue_verdict;
 mod rebuild;
 mod rpc_handlers;
 mod service_impl;
