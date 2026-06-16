@@ -86,9 +86,10 @@ fn default_item_bytes() -> u64 {
 ///   division). `stall_timeout_secs = 60`, `all_failing_window = 3` poll cycles,
 ///   `qdrant_probe_timeout_secs = 2`, `drain_snapshot_max_age_secs = 15`,
 ///   `baseline_ttl_secs = 2_592_000` (30d).
-/// - `debounce_window = 5` (majority = 3) — five consecutive verdicts; three
-///   agree to flip a per-metric state. Anti-flap without burying sustained
-///   swings. MUST be odd so the majority vote is always well-defined.
+/// - `debounce_window = 5` — five consecutive verdicts feed a **plurality vote
+///   with a severity-biased tie-break** (`state.rs` `DebounceRings`). Anti-flap
+///   without burying sustained swings. Well-defined for any window size (even or
+///   odd), so no odd-window constraint is imposed.
 /// - `drain_budget_secs = 86400` — one day of backlog is the "falling behind"
 ///   line.
 /// - disk low ⇒ `free < 1 GiB OR < 5%`.
@@ -145,8 +146,8 @@ pub struct QueueHealthConfig {
     /// than this is pruned (F10, DATA-04). Default 30 days.
     #[serde(default = "default_baseline_ttl_secs")]
     pub baseline_ttl_secs: u64,
-    /// Per-metric debounce window (consecutive verdicts; majority flips state).
-    /// Must be odd.
+    /// Per-metric debounce window (consecutive verdicts; a plurality vote with a
+    /// severity-biased tie-break sets the debounced state).
     #[serde(default = "default_debounce_window")]
     pub debounce_window: usize,
     /// Drain budget in seconds; a backlog draining slower than this is "behind".
@@ -197,9 +198,10 @@ impl QueueHealthConfig {
     ///
     /// A degenerate config is rejected at load (not silently accepted): EWMA
     /// alphas must be finite in (0,1]; the two regression ratios must exceed 1;
-    /// `debounce_window` must be a non-zero **odd** number (an even window has no
-    /// majority on a tie, leaving the vote undefined); `disk_low_pct` must be in
-    /// (0,1); and the two byte floors must be non-zero.
+    /// `debounce_window` must be non-zero (the plurality vote with a
+    /// severity-biased tie-break is well-defined for any window size, so no
+    /// odd-window constraint is imposed); `disk_low_pct` must be in (0,1); and
+    /// the two byte floors must be non-zero.
     pub fn validate(&self) -> Result<(), String> {
         Self::validate_alpha("fast_alpha", self.fast_alpha)?;
         Self::validate_alpha("slow_alpha", self.slow_alpha)?;
@@ -218,12 +220,6 @@ impl QueueHealthConfig {
         }
         if self.debounce_window == 0 {
             return Err("debounce_window must be at least 1".to_string());
-        }
-        if self.debounce_window % 2 == 0 {
-            return Err(format!(
-                "debounce_window must be odd so the majority vote is well-defined (got {})",
-                self.debounce_window
-            ));
         }
         if !(self.disk_low_pct > 0.0 && self.disk_low_pct < 1.0) {
             return Err(format!(
@@ -383,13 +379,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_even_debounce_window() {
-        // DOM-04: an even window has no majority on a tie.
+    fn accepts_even_debounce_window() {
+        // IMPL-12: the debounce is a plurality vote with a severity-biased
+        // tie-break, well-defined for any window size — no odd constraint.
         let c = QueueHealthConfig {
             debounce_window: 4,
             ..Default::default()
         };
-        assert!(c.validate().is_err());
+        assert!(c.validate().is_ok());
     }
 
     #[test]

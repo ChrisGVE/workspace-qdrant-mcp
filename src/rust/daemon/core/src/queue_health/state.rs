@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
@@ -23,6 +24,7 @@ use crate::switchboard::control_lane::ControlLane;
 use crate::switchboard::ControlFanout;
 
 use super::ewma::DualEwma;
+use super::probes::ProbeResult;
 
 /// Health Red/Amber/Green status of a probe or the overall verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +142,13 @@ pub struct EwmaState {
     min_item_bytes: u64,
     drain_snapshot: RwLock<Option<DrainSnapshot>>,
     debounce: Mutex<DebounceRings>,
+    /// The poll-loop-debounced trend probes (A1/A2/A3), cached for the on-RPC
+    /// verdict to read without touching the debounce `Mutex` (PERF-04). Poll
+    /// cadence write, RPC read — the same uncontended pattern as `drain_snapshot`.
+    trend_cache: RwLock<Vec<ProbeResult>>,
+    /// B4 all-items-failing predicate, precomputed by the poll loop from its
+    /// poll-local outcome ring and read lock-free by the verdict (PERF-08).
+    all_failing: AtomicBool,
 }
 
 impl EwmaState {
@@ -159,6 +168,8 @@ impl EwmaState {
             min_item_bytes: cfg.min_item_bytes,
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
+            trend_cache: RwLock::new(Vec::new()),
+            all_failing: AtomicBool::new(false),
         }
     }
 
@@ -176,6 +187,8 @@ impl EwmaState {
             min_item_bytes: cfg.min_item_bytes,
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
+            trend_cache: RwLock::new(Vec::new()),
+            all_failing: AtomicBool::new(false),
         }
     }
 
@@ -253,6 +266,18 @@ impl EwmaState {
         self.drain_snapshot.read().ok().and_then(|g| *g)
     }
 
+    /// Seed a drain snapshot with an explicit timestamp — test-only, so the
+    /// staleness path can be exercised without sleeping.
+    #[cfg(test)]
+    pub fn set_drain_snapshot_at(&self, pending_bytes: u64, sampled_at: Instant) {
+        if let Ok(mut guard) = self.drain_snapshot.write() {
+            *guard = Some(DrainSnapshot {
+                pending_bytes,
+                sampled_at,
+            });
+        }
+    }
+
     // ── Debounce ────────────────────────────────────────────────────────────
 
     /// Record a raw probe verdict and return the debounced (plurality) RAG.
@@ -261,6 +286,51 @@ impl EwmaState {
             .lock()
             .map(|mut d| d.observe(probe, rag))
             .unwrap_or(rag)
+    }
+
+    // ── Verdict cache (poll-loop write, RPC read) ───────────────────────────
+
+    /// Replace the cached debounced trend-probe results (poll loop, once per
+    /// poll after `observe`-ing each trend probe).
+    pub fn set_trend_cache(&self, probes: Vec<ProbeResult>) {
+        if let Ok(mut guard) = self.trend_cache.write() {
+            *guard = probes;
+        }
+    }
+
+    /// Clone the cached debounced trend-probe results for the verdict. Empty
+    /// before the first poll completes (handled as cold start by the verdict).
+    pub fn trend_cache(&self) -> Vec<ProbeResult> {
+        self.trend_cache
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
+    /// Store the B4 all-items-failing predicate (poll loop).
+    pub fn set_all_failing(&self, all_failing: bool) {
+        self.all_failing.store(all_failing, Ordering::Relaxed);
+    }
+
+    /// Read the B4 all-items-failing predicate (verdict, lock-free).
+    pub fn all_failing(&self) -> bool {
+        self.all_failing.load(Ordering::Relaxed)
+    }
+
+    /// Hold the debounce `Mutex` for the duration of a test, to prove the verdict
+    /// path never tries to `observe` (which would deadlock).
+    #[cfg(test)]
+    pub fn lock_debounce_for_test(&self) -> std::sync::MutexGuard<'_, DebounceRings> {
+        self.debounce.lock().unwrap()
+    }
+
+    /// Whether any control lane has been seeded — false only on a fresh daemon
+    /// that has taken no measurement yet (the cold-start condition, UX-3).
+    pub fn any_lane_seeded(&self) -> bool {
+        self.ms_per_kb.is_seeded()
+            || self.embedder_latency.is_seeded()
+            || self.throughput_bytes_per_sec.is_seeded()
+            || self.dlq_depth.is_seeded()
     }
 }
 

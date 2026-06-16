@@ -26,6 +26,7 @@ use crate::queue_health::{EwmaState, QueueProcessorHealth};
 use crate::queue_operations::QueueManager;
 use crate::search_db::SearchDbManager;
 use crate::storage::StorageClient;
+use crate::switchboard::{switchboard, MetricId};
 use crate::tree_sitter::GrammarManager;
 use crate::unified_queue_processor::config::{
     UnifiedProcessingMetrics, UnifiedProcessorConfig, WarmupState,
@@ -387,10 +388,17 @@ fn cost_samples(
     (ms_per_kb, throughput)
 }
 
-/// Feed per-item processing-cost samples into the shared EWMA lanes (#133).
+/// Feed per-item processing-cost samples into the shared EWMA lanes (#133 F2b).
 /// Size-derived lanes (ms/KB, throughput) follow DOM-07 via [`cost_samples`];
-/// non-finite samples are dropped inside `DualEwma::update`. Embedder latency is
+/// non-finite samples are dropped inside `EwmaLane::update`. Embedder latency is
 /// fed at the embedding site, not here.
+///
+/// The samples are emitted through the switchboard rather than written inline:
+/// each `emit` runs the wired control fn (`store_ms_per_kb` / `store_throughput`),
+/// which EWMA-smooths the value into the shared `Arc<ControlLane>` that `ewma`
+/// snapshots. So the lane the verdict reads IS the lane the emit advances — the
+/// single-source handshake (F1). `ewma` is still consulted for `min_item_bytes`,
+/// the DOM-07 size floor captured at construction.
 fn record_item_cost_ewma(
     item: &UnifiedQueueItem,
     processing_ms: u64,
@@ -406,11 +414,14 @@ fn record_item_cost_ewma(
         elapsed.as_secs_f64(),
         ewma.min_item_bytes(),
     );
+    let Some(sw) = switchboard() else {
+        return; // very early init only — emitters log-and-skip until seal.
+    };
     if let Some(sample) = ms_per_kb {
-        ewma.update_ms_per_kb(sample);
+        sw.emit(sw.handle(MetricId::QueueMsPerKb, "queue"), sample);
     }
     if let Some(sample) = throughput {
-        ewma.update_throughput(sample);
+        sw.emit(sw.handle(MetricId::QueueThroughput, "queue"), sample);
     }
 }
 

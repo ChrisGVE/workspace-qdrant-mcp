@@ -180,10 +180,10 @@ mod tests {
         // not silently accepted.
         let mut cfg = DaemonConfig::default();
         assert!(cfg.validate().is_ok(), "default config validates");
-        cfg.queue_health.debounce_window = 4; // even -> no majority (DOM-04)
+        cfg.queue_health.debounce_window = 0; // zero window is rejected
         let err = cfg
             .validate()
-            .expect_err("even debounce_window must fail load");
+            .expect_err("zero debounce_window must fail load");
         assert!(
             err.contains("queue_health"),
             "error should be attributed to queue_health: {err}"

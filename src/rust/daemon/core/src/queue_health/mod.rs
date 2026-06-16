@@ -7,10 +7,14 @@
 //! sibling submodules as the feature is built out.
 
 pub mod ewma;
+pub mod probes;
 pub mod state;
+pub mod verdict;
 
 pub use ewma::{DualEwma, EwmaLane, Slope};
+pub use probes::ProbeResult;
 pub use state::{DrainSnapshot, EwmaAlphas, EwmaState, Rag};
+pub use verdict::{verdict, HealthVerdict};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
