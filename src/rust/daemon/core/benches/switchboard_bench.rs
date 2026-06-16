@@ -9,13 +9,14 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use workspace_qdrant_core::config::queue_health::QueueHealthConfig;
 use workspace_qdrant_core::switchboard::{
-    store_embedder_latency_fast, EmbedLatencyRec, EmbedderBatchRec, MetricId, SwitchboardBuilder,
+    store_embedder_latency, EmbedLatencyRec, EmbedderBatchRec, MetricId, SwitchboardBuilder,
 };
 
 /// Scalar emit: one telemetry buffer push plus the control store.
 fn bench_emit_scalar(c: &mut Criterion) {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&QueueHealthConfig::default()).seal();
     let handle = sw.handle(MetricId::QueueMsPerKb, "bench");
     c.bench_function("switchboard_emit_scalar", |b| {
         b.iter(|| sw.emit(black_box(handle), black_box(42.0)));
@@ -24,7 +25,7 @@ fn bench_emit_scalar(c: &mut Criterion) {
 
 /// Telemetry-only record emit (EmbedderBatch, no control fn).
 fn bench_emit_embedder_batch(c: &mut Criterion) {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&QueueHealthConfig::default()).seal();
     let handle = sw.handle(MetricId::EmbedderBatch, "fastembed");
     let rec = EmbedderBatchRec {
         batch_size: 50,
@@ -38,8 +39,8 @@ fn bench_emit_embedder_batch(c: &mut Criterion) {
 /// Control + telemetry record emit (EmbedderLatency wired to the fast lane) —
 /// the worst case: buffer push AND an atomic control store.
 fn bench_emit_record_with_control(c: &mut Criterion) {
-    let mut builder = SwitchboardBuilder::new();
-    builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+    let mut builder = SwitchboardBuilder::new(&QueueHealthConfig::default());
+    builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
     let sw = builder.seal();
     let handle = sw.handle(MetricId::EmbedderLatency, "fastembed");
     let rec = EmbedLatencyRec {

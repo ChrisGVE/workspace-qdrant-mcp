@@ -121,7 +121,7 @@ impl MaintenanceTask for ControlBaselinePersistTask {
         // Persist the embedder-latency slow lane. The label matches the emitter's
         // stable `model` label; the slow lane is written by the EWMA accumulator
         // (queue-health) once that side shares the fanout `Arc`.
-        if let Some(value) = sw.fanout().read_slow(MetricId::EmbedderLatency) {
+        if let Some(value) = sw.fanout().slow_value(MetricId::EmbedderLatency) {
             let mut labels = BTreeMap::new();
             labels.insert("model", "fastembed");
             let labels_json = canonicalize_labels(&labels);

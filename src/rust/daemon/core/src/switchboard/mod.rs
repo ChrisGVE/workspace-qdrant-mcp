@@ -39,6 +39,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use once_cell::sync::OnceCell;
 
+use crate::config::queue_health::QueueHealthConfig;
+
 pub use control_fanout::ControlFanout;
 pub use control_lane::ControlLane;
 pub use handle::MetricHandle;
@@ -73,10 +75,13 @@ pub struct SwitchboardBuilder {
 }
 
 impl SwitchboardBuilder {
-    pub fn new() -> Self {
+    /// Build an empty builder whose control lanes carry the configured EWMA
+    /// alphas (`cfg.fast_alpha`/`cfg.slow_alpha`). The alphas are captured into
+    /// each `ControlLane` here, at builder time, and are immutable thereafter.
+    pub fn new(cfg: &QueueHealthConfig) -> Self {
         Self {
             routing: routing::RoutingTableBuilder::new(),
-            fanout: ControlFanout::new(),
+            fanout: ControlFanout::new(cfg),
             telemetry_on: true,
         }
     }
@@ -106,12 +111,6 @@ impl SwitchboardBuilder {
             telemetry_buf: telemetry_buf::TelemetryBuffer::new(),
             buffer_full_count: AtomicU64::new(0),
         }
-    }
-}
-
-impl Default for SwitchboardBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -229,11 +228,22 @@ impl MetricsSwitchboard {
 
         let count = rows.len();
         for (metric_id, field, value) in rows {
+            // restore_baseline seeds BOTH lanes and sets seeded=true (DOM-06), so
+            // the first live sample after restart advances the restored baseline
+            // instead of overwriting it (the bug this fixes: raw slow-lane store
+            // left seeded=false → next update re-seeded from scratch).
             match (metric_id.as_str(), field.as_str()) {
                 ("EmbedderLatency", "embed_ms") => {
-                    self.fanout
-                        .embedder_latency_slow
-                        .store(value.to_bits(), Ordering::Release);
+                    self.fanout.embedder_latency.restore_baseline(value);
+                }
+                ("QueueMsPerKb", "ms_per_kb") => {
+                    self.fanout.ms_per_kb.restore_baseline(value);
+                }
+                ("QueueThroughput", "bytes_per_sec") => {
+                    self.fanout.throughput.restore_baseline(value);
+                }
+                ("QueueDlqDepth", "depth") => {
+                    self.fanout.dlq_depth.restore_baseline(value);
                 }
                 _ => {} // Unknown metric/field — ignore (forward-compatible).
             }
@@ -244,14 +254,37 @@ impl MetricsSwitchboard {
     }
 }
 
-/// Control fn for [`MetricId::EmbedderLatency`]: store the measured `embed_ms`
-/// into the fast lane as IEEE-754 bits (the read side recovers it via
-/// `f64::from_bits`). Wired at daemon init; a named fn (not a closure) so it is
-/// shared and unit-testable.
-pub fn store_embedder_latency_fast(fanout: &ControlFanout, sample: &MetricSample) {
+// ── Control fns (wired at daemon init; named fns, not closures, so dispatch
+//    stays a bare fn-pointer — no vtable, §9 — and each is unit-testable).
+//    Each feeds its sample through `ControlLane::update` (EWMA-smoothed at the
+//    lane's immutable alphas), advancing BOTH the fast and slow lanes.
+
+/// Control fn for [`MetricId::EmbedderLatency`]: EWMA-smooth `embed_ms` into the
+/// embedder-latency lane.
+pub fn store_embedder_latency(fanout: &ControlFanout, sample: &MetricSample) {
     if let MetricSample::EmbedderLatency { rec, .. } = sample {
-        let bits = (rec.embed_ms as f64).to_bits();
-        fanout.embedder_latency_fast.store(bits, Ordering::Release);
+        fanout.embedder_latency.update(rec.embed_ms as f64);
+    }
+}
+
+/// Control fn for [`MetricId::QueueMsPerKb`]: EWMA-smooth the ms/KB ratio.
+pub fn store_ms_per_kb(fanout: &ControlFanout, sample: &MetricSample) {
+    if let MetricSample::QueueMsPerKb(value) = sample {
+        fanout.ms_per_kb.update(*value);
+    }
+}
+
+/// Control fn for [`MetricId::QueueThroughput`]: EWMA-smooth the bytes/s rate.
+pub fn store_throughput(fanout: &ControlFanout, sample: &MetricSample) {
+    if let MetricSample::QueueThroughput(value) = sample {
+        fanout.throughput.update(*value);
+    }
+}
+
+/// Control fn for [`MetricId::QueueDlqDepth`]: EWMA-smooth the DLQ delta-rate.
+pub fn store_dlq_depth(fanout: &ControlFanout, sample: &MetricSample) {
+    if let MetricSample::QueueDlqDepth(value) = sample {
+        fanout.dlq_depth.update(*value as f64);
     }
 }
 

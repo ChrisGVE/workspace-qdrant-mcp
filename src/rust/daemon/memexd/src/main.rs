@@ -148,15 +148,21 @@ async fn run_daemon(
     // before the first real emit). See docs/architecture/metrics-switchboard.md §3d, §5e.
     {
         use workspace_qdrant_core::switchboard::{
-            store_embedder_latency_fast, MetricId, SwitchboardBuilder, SWITCHBOARD,
+            store_dlq_depth, store_embedder_latency, store_ms_per_kb, store_throughput, MetricId,
+            SwitchboardBuilder, SWITCHBOARD,
         };
 
-        let mut builder = SwitchboardBuilder::new();
+        // Builder constructs the control lanes with the configured EWMA alphas;
+        // EwmaState (queue_init) later clones the very same Arc<ControlLane>s.
+        let mut builder = SwitchboardBuilder::new(&config.queue_health);
         builder.set_telemetry_enabled(daemon_config.observability.switchboard.telemetry_enabled);
 
-        // Embedder-latency control fn: store the measured embed_ms into the fast
-        // lane as IEEE-754 bits (the read side recovers it with f64::from_bits).
-        builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+        // Wire each control id to its EWMA-smoothing control fn. The fast/slow
+        // lanes these advance are the lanes the health verdict reads (F1 handshake).
+        builder.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
+        builder.wire_control(MetricId::QueueMsPerKb, store_ms_per_kb);
+        builder.wire_control(MetricId::QueueThroughput, store_throughput);
+        builder.wire_control(MetricId::QueueDlqDepth, store_dlq_depth);
 
         if SWITCHBOARD.set(builder.seal()).is_err() {
             warn!("SWITCHBOARD already initialized — skipping re-init");

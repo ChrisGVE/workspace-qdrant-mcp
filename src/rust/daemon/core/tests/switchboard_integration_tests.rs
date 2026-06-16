@@ -10,10 +10,11 @@
 
 use std::time::Duration;
 
+use workspace_qdrant_core::config::queue_health::QueueHealthConfig;
 use workspace_qdrant_core::monitoring::metrics_core::METRICS;
 use workspace_qdrant_core::switchboard::drain::{apply_to_metrics, run_switchboard_drain};
 use workspace_qdrant_core::switchboard::{
-    store_embedder_latency_fast, EmbedLatencyRec, EmbedderBatchRec, MetricId, MetricsSwitchboard,
+    store_embedder_latency, EmbedLatencyRec, EmbedderBatchRec, MetricId, MetricsSwitchboard,
     SwitchboardBuilder, SWITCHBOARD,
 };
 
@@ -35,15 +36,15 @@ fn batch_size_count(model: &str) -> u64 {
 /// wired, exactly as `memexd` does.
 fn global() -> &'static MetricsSwitchboard {
     SWITCHBOARD.get_or_init(|| {
-        let mut b = SwitchboardBuilder::new();
-        b.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+        let mut b = SwitchboardBuilder::new(&QueueHealthConfig::default());
+        b.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
         b.seal()
     })
 }
 
 #[test]
 fn test_telemetry_on_buffers_then_drains() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&QueueHealthConfig::default()).seal();
     let h = sw.handle(MetricId::EmbedderBatch, "itest-local");
     sw.emit_embedder_batch(
         h,
@@ -60,7 +61,7 @@ fn test_telemetry_on_buffers_then_drains() {
 
 #[test]
 fn test_telemetry_off_does_not_buffer() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&QueueHealthConfig::default()).seal();
     sw.set_telemetry_enabled(false);
     let h = sw.handle(MetricId::EmbedderBatch, "itest-off");
     sw.emit_embedder_batch(
@@ -78,8 +79,8 @@ fn test_telemetry_off_does_not_buffer() {
 
 #[test]
 fn test_control_lane_runs_even_when_telemetry_off() {
-    let mut b = SwitchboardBuilder::new();
-    b.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+    let mut b = SwitchboardBuilder::new(&QueueHealthConfig::default());
+    b.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
     let sw = b.seal();
     sw.set_telemetry_enabled(false);
 
@@ -94,11 +95,9 @@ fn test_control_lane_runs_even_when_telemetry_off() {
 
     // Telemetry suppressed — nothing buffered…
     assert!(sw.drain_one().is_none());
-    // …but the always-on control fanout still advanced.
-    let v = sw
-        .fanout()
-        .read_fast(MetricId::EmbedderLatency)
-        .expect("EmbedderLatency is a control id");
+    // …but the always-on control fanout still advanced. First sample seeds the
+    // lane, so the fast lane reads embed_ms exactly.
+    let v = sw.fanout().embedder_latency.read_fast();
     assert!(
         (v - 55.0).abs() < 1e-9,
         "control fast lane = emitted embed_ms"

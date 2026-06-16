@@ -5,11 +5,16 @@
 //! independent of init order and run in parallel.
 
 use super::*;
+use crate::config::queue_health::QueueHealthConfig;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+fn test_cfg() -> QueueHealthConfig {
+    QueueHealthConfig::default()
+}
 
 #[test]
 fn test_handle_is_copy_and_accessors() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::EmbedderLatency, "m");
     let h2 = h; // Copy — `h` still usable.
     assert_eq!(h.id(), h2.id());
@@ -18,7 +23,7 @@ fn test_handle_is_copy_and_accessors() {
 
 #[test]
 fn test_emit_scalar_buffers_sample() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::QueueMsPerKb, "t");
     sw.emit(h, 42.0);
     match sw.drain_one() {
@@ -29,7 +34,7 @@ fn test_emit_scalar_buffers_sample() {
 
 #[test]
 fn test_emit_record_buffers_sample() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::EmbedderLatency, "fastembed");
     sw.emit_record(
         h,
@@ -51,7 +56,7 @@ fn test_emit_record_buffers_sample() {
 #[test]
 fn test_emit_record_on_scalar_handle_is_noop_for_emit() {
     // `emit` (scalar) must not produce a sample for a record-shaped id.
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::EmbedderLatency, "t");
     sw.emit(h, 1.0);
     assert!(sw.drain_one().is_none());
@@ -59,7 +64,7 @@ fn test_emit_record_on_scalar_handle_is_noop_for_emit() {
 
 #[test]
 fn test_emit_batch_folds_to_one_sample() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::QueueThroughput, "t");
     sw.emit_batch(h, &[2.0, 4.0, 6.0]); // mean = 4.0
     match sw.drain_one() {
@@ -71,7 +76,7 @@ fn test_emit_batch_folds_to_one_sample() {
 
 #[test]
 fn test_emit_batch_empty_is_noop() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::QueueThroughput, "t");
     sw.emit_batch(h, &[]);
     assert!(sw.drain_one().is_none());
@@ -79,7 +84,7 @@ fn test_emit_batch_empty_is_noop() {
 
 #[test]
 fn test_telemetry_off_skips_buffer() {
-    let mut b = SwitchboardBuilder::new();
+    let mut b = SwitchboardBuilder::new(&test_cfg());
     b.set_telemetry_enabled(false);
     let sw = b.seal();
     let h = sw.handle(MetricId::QueueMsPerKb, "t");
@@ -94,7 +99,7 @@ fn test_control_fn_runs_even_when_telemetry_off() {
         CALLED.store(true, Ordering::SeqCst);
     }
 
-    let mut b = SwitchboardBuilder::new();
+    let mut b = SwitchboardBuilder::new(&test_cfg());
     b.set_telemetry_enabled(false);
     b.wire_control(MetricId::EmbedderLatency, record);
     let sw = b.seal();
@@ -114,12 +119,11 @@ fn test_control_fn_runs_even_when_telemetry_off() {
 fn test_control_fn_stores_into_fanout() {
     fn store_fast(f: &ControlFanout, s: &MetricSample) {
         if let MetricSample::EmbedderLatency { rec, .. } = s {
-            let bits = (rec.embed_ms as f64).to_bits();
-            f.embedder_latency_fast.store(bits, Ordering::Release);
+            f.embedder_latency.update(rec.embed_ms as f64);
         }
     }
 
-    let mut b = SwitchboardBuilder::new();
+    let mut b = SwitchboardBuilder::new(&test_cfg());
     b.wire_control(MetricId::EmbedderLatency, store_fast);
     let sw = b.seal();
 
@@ -131,17 +135,15 @@ fn test_control_fn_stores_into_fanout() {
             source_bytes: 1,
         },
     );
-    assert_eq!(
-        sw.fanout().read_fast(MetricId::EmbedderLatency),
-        Some(12345.0)
-    );
+    // First sample seeds the lane, so the fast lane reads embed_ms exactly.
+    assert_eq!(sw.fanout().embedder_latency.read_fast(), 12345.0);
 }
 
 #[test]
 fn test_production_embedder_control_fn_stores_embed_ms() {
     // The exact fn wired in main.rs: emit_record -> fast lane reflects embed_ms.
-    let mut b = SwitchboardBuilder::new();
-    b.wire_control(MetricId::EmbedderLatency, store_embedder_latency_fast);
+    let mut b = SwitchboardBuilder::new(&test_cfg());
+    b.wire_control(MetricId::EmbedderLatency, store_embedder_latency);
     let sw = b.seal();
 
     let h = sw.handle(MetricId::EmbedderLatency, "fastembed");
@@ -152,15 +154,12 @@ fn test_production_embedder_control_fn_stores_embed_ms() {
             source_bytes: 4096,
         },
     );
-    assert_eq!(
-        sw.fanout().read_fast(MetricId::EmbedderLatency),
-        Some(873.0)
-    );
+    assert_eq!(sw.fanout().embedder_latency.read_fast(), 873.0);
 }
 
 #[test]
 fn test_buffer_overflow_is_counted() {
-    let sw = SwitchboardBuilder::new().seal();
+    let sw = SwitchboardBuilder::new(&test_cfg()).seal();
     let h = sw.handle(MetricId::QueueMsPerKb, "t");
     // Exceed the 4096 ring capacity without draining.
     for _ in 0..5000 {

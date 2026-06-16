@@ -129,7 +129,9 @@ mod tests {
     fn test_drain_one_roundtrips_emitted_batch() {
         // emit_embedder_batch → drain_one yields the same record (no control fn,
         // telemetry-only id).
-        let sw = SwitchboardBuilder::new().seal();
+        let sw =
+            SwitchboardBuilder::new(&crate::config::queue_health::QueueHealthConfig::default())
+                .seal();
         let h = sw.handle(MetricId::EmbedderBatch, "openai");
         sw.emit_embedder_batch(
             h,
