@@ -139,13 +139,22 @@ impl DualEwma {
     }
 
     /// Snapshot an atomics-backed lane into a logical value, carrying the alphas.
+    ///
+    /// CRITICAL (DATA-03/DOM-10/SEC-08): read `seeded` **first** with `Acquire`,
+    /// before either lane. The write side publishes `seeded` **last** with
+    /// `Release` (see [`EwmaLane::update`] / [`EwmaLane::store`]); reading it first
+    /// here establishes the acquire/release pairing so a reader that observes
+    /// `seeded = true` is guaranteed to also observe the matching `fast`/`slow`
+    /// stores — never the torn `(seeded = true, slow = 0)` state that would
+    /// silently suppress every verdict on a weakly-ordered target (aarch64).
     pub fn from_atomics(lane: &EwmaLane, fast_alpha: f64, slow_alpha: f64) -> Self {
+        let seeded = lane.is_seeded(); // Acquire — read before the lanes.
         Self {
             fast: lane.load_fast(),
             slow: lane.load_slow(),
             fast_alpha,
             slow_alpha,
-            seeded: lane.is_seeded(),
+            seeded,
         }
     }
 }
@@ -180,6 +189,9 @@ impl EwmaLane {
         }
     }
 
+    // `fast`/`slow` load `Relaxed`: the `Acquire` on `seeded` (read FIRST by every
+    // caller — `from_atomics`, `update`'s steady branch) establishes the
+    // happens-before, so the values seen here are at-or-after the publishing store.
     fn load_fast(&self) -> f64 {
         f64::from_bits(self.fast.load(Ordering::Relaxed))
     }
@@ -188,8 +200,10 @@ impl EwmaLane {
         f64::from_bits(self.slow.load(Ordering::Relaxed))
     }
 
+    /// The publish/consume synchronization point: `Acquire` here pairs with the
+    /// `Release` store in [`update`](Self::update)/[`store`](Self::store).
     fn is_seeded(&self) -> bool {
-        self.seeded.load(Ordering::Relaxed)
+        self.seeded.load(Ordering::Acquire)
     }
 
     /// Feed one sample at the given smoothing rates (mirrors
@@ -199,10 +213,16 @@ impl EwmaLane {
         if !sample.is_finite() {
             return;
         }
-        if !self.seeded.load(Ordering::Relaxed) {
+        if !self.is_seeded() {
+            // First sample: store BOTH lanes (Relaxed) FIRST, then publish
+            // `seeded` (Release, last). The Release on `seeded` makes the two
+            // preceding Relaxed lane stores visible to any reader that observes
+            // the released `seeded` — so a reader never sees a torn
+            // `(seeded = true, slow = 0)`. Fast/slow stay Relaxed (the accepted
+            // last-writer-wins tolerance, PERF-02).
             self.fast.store(sample.to_bits(), Ordering::Relaxed);
             self.slow.store(sample.to_bits(), Ordering::Relaxed);
-            self.seeded.store(true, Ordering::Relaxed);
+            self.seeded.store(true, Ordering::Release);
             return;
         }
         let fast = self.load_fast();
@@ -218,10 +238,14 @@ impl EwmaLane {
     }
 
     /// Overwrite the lane from a logical value (F5 reload / seeding).
+    ///
+    /// Publishes the lane values (Release) before `seeded` (Release, last), the
+    /// same publish ordering as the first-sample branch of [`update`](Self::update)
+    /// so a concurrent reader never observes `seeded = true` with stale lanes.
     pub fn store(&self, value: &DualEwma) {
         self.fast.store(value.fast.to_bits(), Ordering::Relaxed);
         self.slow.store(value.slow.to_bits(), Ordering::Relaxed);
-        self.seeded.store(value.seeded, Ordering::Relaxed);
+        self.seeded.store(value.seeded, Ordering::Release);
     }
 }
 

@@ -24,6 +24,7 @@
 //! dispatch — the string id is resolved to a handle once at registration.
 
 pub mod control_fanout;
+pub mod control_lane;
 pub mod drain;
 pub mod handle;
 pub mod intern;
@@ -39,6 +40,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use once_cell::sync::OnceCell;
 
 pub use control_fanout::ControlFanout;
+pub use control_lane::ControlLane;
 pub use handle::MetricHandle;
 pub use intern::intern_model_label;
 pub use registry::{MetricDescriptor, MetricId, DESCRIPTORS, METRIC_COUNT};
