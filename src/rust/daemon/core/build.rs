@@ -9,6 +9,10 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // Register the private loom cfg so `unexpected_cfgs` does not warn under
+    // `-D warnings` (#133 F10). Enabled via `RUSTFLAGS="--cfg wqm_loom"`.
+    println!("cargo:rustc-check-cfg=cfg(wqm_loom)");
+
     // Cargo.lock lives at the workspace root (src/rust/Cargo.lock)
     let lock_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent() // src/rust/daemon

@@ -17,9 +17,16 @@ use std::collections::BTreeMap;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
+use super::control_lane::ControlLane;
 use super::labels::canonicalize_labels;
 use super::{switchboard, MetricId, DESCRIPTORS};
 use crate::idle::{IdleState, MaintenanceContext, MaintenanceResult, MaintenanceTask};
+
+/// Orphaned-baseline TTL (secs). Mirrors `QueueHealthConfig::baseline_ttl_secs`'s
+/// 30-day default. Runtime-tuning this field needs `QueueHealthConfig` threaded
+/// into the maintenance scheduler (built from `UnifiedProcessorConfig`, which
+/// does not carry queue-health) — deferred; the default is used here.
+const BASELINE_TTL_SECS: u64 = 2_592_000;
 
 /// Persists switchboard slow-lane control values during idle windows.
 pub struct ControlBaselinePersistTask;
@@ -65,6 +72,56 @@ impl ControlBaselinePersistTask {
         .bind(value)
         .execute(pool)
         .await?;
+        Ok(())
+    }
+
+    /// Flush one seeded slow lane, returning its live `(metric_id, labels_json)`
+    /// key for TTL-prune protection. An unseeded lane is skipped — never persist
+    /// a not-yet-learned baseline (it would round-trip a zero). The label is the
+    /// lane's live model when known (embedder, SEC-02), else the caller's default.
+    async fn flush_lane(
+        pool: &SqlitePool,
+        lane: &ControlLane,
+        metric_id: &str,
+        field: &str,
+        model: &str,
+    ) -> Option<(String, String)> {
+        if !lane.is_seeded() {
+            return None;
+        }
+        let value = lane.read_slow();
+        let mut labels = BTreeMap::new();
+        labels.insert("model", model);
+        let labels_json = canonicalize_labels(&labels);
+        if let Err(e) = Self::upsert_row(pool, metric_id, field, &labels_json, value).await {
+            warn!("control_baseline persist failed for {metric_id}: {e}");
+            return None;
+        }
+        Some((metric_id.to_string(), labels_json))
+    }
+
+    /// Delete aged slow-lane rows whose `(metric_id, labels)` is no longer a live
+    /// seeded baseline (DATA-09) — bounds growth across model-label changes
+    /// without ever deleting an in-use baseline. `live` is the set just flushed
+    /// this cycle. Every value is bound (injection-safe).
+    async fn ttl_prune(pool: &SqlitePool, live: &[(String, String)]) -> Result<(), sqlx::Error> {
+        let cutoff = format!(
+            "updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-{BASELINE_TTL_SECS} seconds')"
+        );
+        if live.is_empty() {
+            let sql = format!("DELETE FROM control_baseline WHERE lane = 'slow' AND {cutoff}");
+            sqlx::query(&sql).execute(pool).await?;
+            return Ok(());
+        }
+        let keep = vec!["(metric_id = ? AND labels = ?)"; live.len()].join(" OR ");
+        let sql = format!(
+            "DELETE FROM control_baseline WHERE lane = 'slow' AND {cutoff} AND NOT ({keep})"
+        );
+        let mut q = sqlx::query(&sql);
+        for (metric_id, labels) in live {
+            q = q.bind(metric_id).bind(labels);
+        }
+        q.execute(pool).await?;
         Ok(())
     }
 
@@ -117,23 +174,39 @@ impl MaintenanceTask for ControlBaselinePersistTask {
         let Some(sw) = switchboard() else {
             return MaintenanceResult::Done;
         };
+        let fanout = sw.fanout();
 
-        // Persist the embedder-latency slow lane. The label matches the emitter's
-        // stable `model` label; the slow lane is written by the EWMA accumulator
-        // (queue-health) once that side shares the fanout `Arc`.
-        if let Some(value) = sw.fanout().slow_value(MetricId::EmbedderLatency) {
-            let mut labels = BTreeMap::new();
-            labels.insert("model", "fastembed");
-            let labels_json = canonicalize_labels(&labels);
-            if let Err(e) =
-                Self::upsert_row(ctx.pool, "EmbedderLatency", "embed_ms", &labels_json, value).await
-            {
-                warn!("control_baseline persist failed: {e}");
+        // Flush every persist:true slow lane that has seeded. The embedder lane
+        // carries the live provider model label (SEC-02); the queue-cost lanes
+        // are not provider-specific, so they use a fixed "queue" label.
+        let mut live: Vec<(String, String)> = Vec::new();
+        let embed_model = fanout.embedder_latency.model().unwrap_or("fastembed");
+        let flushes = [
+            (
+                &fanout.embedder_latency,
+                "EmbedderLatency",
+                "embed_ms",
+                embed_model,
+            ),
+            (&fanout.ms_per_kb, "QueueMsPerKb", "ms_per_kb", "queue"),
+            (
+                &fanout.throughput,
+                "QueueThroughput",
+                "bytes_per_sec",
+                "queue",
+            ),
+        ];
+        for (lane, metric_id, field, model) in flushes {
+            if let Some(key) = Self::flush_lane(ctx.pool, lane, metric_id, field, model).await {
+                live.push(key);
             }
         }
 
         if let Err(e) = Self::prune_dead_rows(ctx.pool).await {
             warn!("control_baseline prune failed: {e}");
+        }
+        if let Err(e) = Self::ttl_prune(ctx.pool, &live).await {
+            warn!("control_baseline TTL prune failed: {e}");
         }
 
         MaintenanceResult::Done

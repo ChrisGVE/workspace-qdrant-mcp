@@ -161,6 +161,16 @@ inotify = "0.11"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase"] }
 
+# loom is compiled ONLY under `RUSTFLAGS="--cfg wqm_loom"` (#133 F10 torn-read
+# proof, DATA-03). Normal builds and `cargo test` are entirely unaffected — zero
+# new runtime dependency, zero added compile cost off-cfg. The cfg is named
+# `wqm_loom`, NOT the conventional `loom`, deliberately: a bare `--cfg loom`
+# RUSTFLAG is global and would also activate transitive deps' own `cfg(loom)`
+# code paths (e.g. concurrent-queue 2.5), which don't compile without their loom
+# feature wired — a private cfg name switches only our atomics.
+[target.'cfg(wqm_loom)'.dependencies]
+loom = "0.7"
+
 [features]
 default = []
 

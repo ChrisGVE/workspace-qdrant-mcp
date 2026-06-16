@@ -24,6 +24,16 @@
 //! - **Near-zero slow lane yields no ratio / a Flat slope** — division by a
 //!   ≈0 baseline is never performed.
 
+// Under `--cfg wqm_loom` the atomics resolve to loom's model-checked shadow
+// types (same load/store/Ordering surface), so the torn-read test
+// (`queue_health/ewma_loom.rs`) can exhaustively explore weak-memory
+// reorderings. Off-cfg (normal builds, `cargo test`) they are the std atomics
+// with zero behavioral or cost difference (#133 F10 / DATA-03 / IMPL-13). The
+// cfg is `wqm_loom`, not the conventional `loom`, so the global RUSTFLAG does
+// not trip transitive deps' own `cfg(loom)` paths.
+#[cfg(wqm_loom)]
+use loom::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(not(wqm_loom))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// A slow lane whose magnitude is below this is treated as zero, so neither the

@@ -22,6 +22,8 @@
 //! identical atomics with the identical alphas — closing the #133 gap where the
 //! emitter fed one lane set and the verdict read a different, never-fed one.
 
+use std::sync::atomic::{AtomicPtr, Ordering};
+
 use crate::queue_health::ewma::{DualEwma, EwmaLane};
 
 /// A control metric's live lane: the shared smoothed [`EwmaLane`] plus its two
@@ -34,6 +36,14 @@ pub struct ControlLane {
     fast_alpha: f64,
     /// Slow-lane smoothing factor, captured at construction.
     slow_alpha: f64,
+    /// Last model label seen on this lane (F10/SEC-02), so the persist task can
+    /// stamp the baseline row with the **live** provider label instead of a
+    /// hardcoded one. Lock-free: a pointer to a leaked `&'static str` slot, set
+    /// only on a labeled feed (the coarse embedder-batch control fn — never the
+    /// per-chunk hot path) and only when the label actually changes, so the leak
+    /// is bounded to one slot per distinct provider label (like the label
+    /// interner). `null` until the first labeled feed.
+    model: AtomicPtr<&'static str>,
 }
 
 impl ControlLane {
@@ -45,7 +55,29 @@ impl ControlLane {
             lane: EwmaLane::new(),
             fast_alpha,
             slow_alpha,
+            model: AtomicPtr::new(std::ptr::null_mut()),
         }
+    }
+
+    /// Record the model label seen on a labeled feed (embedder lane). No-op when
+    /// the interned label pointer is unchanged (steady state), so it leaks at
+    /// most one slot per distinct label.
+    pub fn set_model(&self, model: &'static str) {
+        let current = self.model.load(Ordering::Relaxed);
+        // SAFETY: a non-null slot was produced by an earlier `Box::into_raw`
+        // below and is never freed, so the deref is always valid.
+        if !current.is_null() && std::ptr::eq(unsafe { *current }, model) {
+            return;
+        }
+        let slot = Box::into_raw(Box::new(model));
+        self.model.store(slot, Ordering::Relaxed);
+    }
+
+    /// The last model label seen on this lane, or `None` if never fed a label.
+    pub fn model(&self) -> Option<&'static str> {
+        let p = self.model.load(Ordering::Relaxed);
+        // SAFETY: as in `set_model`, a non-null slot is a never-freed leak.
+        (!p.is_null()).then(|| unsafe { *p })
     }
 
     /// Feed one sample through the EWMA recurrence at this lane's alphas. This is

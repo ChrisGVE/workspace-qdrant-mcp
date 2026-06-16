@@ -262,7 +262,8 @@ impl MetricsSwitchboard {
 /// Control fn for [`MetricId::EmbedderLatency`]: EWMA-smooth `embed_ms` into the
 /// embedder-latency lane.
 pub fn store_embedder_latency(fanout: &ControlFanout, sample: &MetricSample) {
-    if let MetricSample::EmbedderLatency { rec, .. } = sample {
+    if let MetricSample::EmbedderLatency { rec, model } = sample {
+        fanout.embedder_latency.set_model(model);
         fanout.embedder_latency.update(rec.embed_ms as f64);
     }
 }

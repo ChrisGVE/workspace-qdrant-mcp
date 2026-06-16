@@ -11,6 +11,15 @@ pub mod probes;
 pub mod state;
 pub mod verdict;
 
+// Loom torn-read proof — compiled only under `--cfg wqm_loom` (#133 F10, DATA-03).
+#[cfg(wqm_loom)]
+#[path = "ewma_loom.rs"]
+mod ewma_loom;
+
+#[cfg(test)]
+#[path = "pipeline_tests.rs"]
+mod pipeline_tests;
+
 pub use ewma::{DualEwma, EwmaLane, Slope};
 pub use probes::ProbeResult;
 pub use state::{DrainSnapshot, EwmaAlphas, EwmaState, Rag};
