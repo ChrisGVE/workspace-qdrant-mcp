@@ -19,10 +19,10 @@ fn test_handle_is_copy_and_accessors() {
 #[test]
 fn test_emit_scalar_buffers_sample() {
     let sw = SwitchboardBuilder::new().seal();
-    let h = sw.handle(MetricId::QueueItemMs, "t");
+    let h = sw.handle(MetricId::QueueMsPerKb, "t");
     sw.emit(h, 42.0);
     match sw.drain_one() {
-        Some(MetricSample::QueueItemMs(v)) => assert_eq!(v, 42),
+        Some(MetricSample::QueueMsPerKb(v)) => assert!((v - 42.0).abs() < 1e-10),
         other => panic!("unexpected: {other:?}"),
     }
 }
@@ -82,7 +82,7 @@ fn test_telemetry_off_skips_buffer() {
     let mut b = SwitchboardBuilder::new();
     b.set_telemetry_enabled(false);
     let sw = b.seal();
-    let h = sw.handle(MetricId::QueueItemMs, "t");
+    let h = sw.handle(MetricId::QueueMsPerKb, "t");
     sw.emit(h, 42.0);
     assert!(sw.drain_one().is_none());
 }
@@ -161,7 +161,7 @@ fn test_production_embedder_control_fn_stores_embed_ms() {
 #[test]
 fn test_buffer_overflow_is_counted() {
     let sw = SwitchboardBuilder::new().seal();
-    let h = sw.handle(MetricId::QueueItemMs, "t");
+    let h = sw.handle(MetricId::QueueMsPerKb, "t");
     // Exceed the 4096 ring capacity without draining.
     for _ in 0..5000 {
         sw.emit(h, 1.0);

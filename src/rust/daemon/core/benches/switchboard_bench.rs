@@ -13,10 +13,10 @@ use workspace_qdrant_core::switchboard::{
     store_embedder_latency_fast, EmbedLatencyRec, EmbedderBatchRec, MetricId, SwitchboardBuilder,
 };
 
-/// Scalar emit: one telemetry buffer push, no control fn (QueueItemMs is unwired).
+/// Scalar emit: one telemetry buffer push plus the control store.
 fn bench_emit_scalar(c: &mut Criterion) {
     let sw = SwitchboardBuilder::new().seal();
-    let handle = sw.handle(MetricId::QueueItemMs, "bench");
+    let handle = sw.handle(MetricId::QueueMsPerKb, "bench");
     c.bench_function("switchboard_emit_scalar", |b| {
         b.iter(|| sw.emit(black_box(handle), black_box(42.0)));
     });

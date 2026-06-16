@@ -43,8 +43,11 @@ pub enum MetricSample {
         rec: EmbedLatencyRec,
         model: &'static str,
     },
-    QueueItemMs(u64),
-    QueueKb(u64),
+    /// Per-byte processing cost (ms/KB) — a ratio, carried as `f64` so the EWMA
+    /// lane keeps sub-integer precision.
+    QueueMsPerKb(f64),
+    /// Dead-letter-queue depth (count).
+    QueueDlqDepth(u64),
     QueueThroughput(f64),
     EmbedderBatch {
         rec: EmbedderBatchRec,
@@ -60,8 +63,8 @@ impl MetricSample {
     pub fn id(&self) -> MetricId {
         match self {
             MetricSample::EmbedderLatency { .. } => MetricId::EmbedderLatency,
-            MetricSample::QueueItemMs(_) => MetricId::QueueItemMs,
-            MetricSample::QueueKb(_) => MetricId::QueueKb,
+            MetricSample::QueueMsPerKb(_) => MetricId::QueueMsPerKb,
+            MetricSample::QueueDlqDepth(_) => MetricId::QueueDlqDepth,
             MetricSample::QueueThroughput(_) => MetricId::QueueThroughput,
             MetricSample::EmbedderBatch { .. } => MetricId::EmbedderBatch,
         }
@@ -82,8 +85,8 @@ mod tests {
             model: "fastembed",
         };
         assert_eq!(s.id(), MetricId::EmbedderLatency);
-        assert_eq!(MetricSample::QueueItemMs(7).id(), MetricId::QueueItemMs);
-        assert_eq!(MetricSample::QueueKb(7).id(), MetricId::QueueKb);
+        assert_eq!(MetricSample::QueueMsPerKb(7.0).id(), MetricId::QueueMsPerKb);
+        assert_eq!(MetricSample::QueueDlqDepth(7).id(), MetricId::QueueDlqDepth);
         assert_eq!(
             MetricSample::QueueThroughput(1.0).id(),
             MetricId::QueueThroughput
@@ -92,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_sample_is_copy() {
-        let s = MetricSample::QueueItemMs(42);
+        let s = MetricSample::QueueDlqDepth(42);
         let s2 = s; // Copy — `s` still usable below.
         assert_eq!(s.id(), s2.id());
     }

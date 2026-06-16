@@ -72,6 +72,6 @@ mod tests {
         assert!(table[MetricId::EmbedderLatency as usize]
             .control_fn
             .is_some());
-        assert!(table[MetricId::QueueItemMs as usize].control_fn.is_none());
+        assert!(table[MetricId::QueueMsPerKb as usize].control_fn.is_none());
     }
 }

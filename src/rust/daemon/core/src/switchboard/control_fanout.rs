@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn test_non_control_id_returns_none() {
         let f = ControlFanout::new();
-        assert!(f.read_fast(MetricId::QueueItemMs).is_none());
+        assert!(f.read_fast(MetricId::QueueMsPerKb).is_none());
         assert!(f.read_slow(MetricId::QueueThroughput).is_none());
     }
 }

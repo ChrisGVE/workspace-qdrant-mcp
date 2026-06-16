@@ -63,9 +63,9 @@ mod tests {
     #[test]
     fn test_push_pop_roundtrip() {
         let b = TelemetryBuffer::new();
-        assert!(b.push(MetricSample::QueueItemMs(7)));
+        assert!(b.push(MetricSample::QueueDlqDepth(7)));
         match b.pop() {
-            Some(MetricSample::QueueItemMs(v)) => assert_eq!(v, 7),
+            Some(MetricSample::QueueDlqDepth(v)) => assert_eq!(v, 7),
             other => panic!("unexpected: {other:?}"),
         }
         assert!(b.pop().is_none());
@@ -75,9 +75,9 @@ mod tests {
     fn test_push_returns_false_when_full() {
         let b = TelemetryBuffer::new();
         for _ in 0..BUFFER_CAPACITY {
-            assert!(b.push(MetricSample::QueueItemMs(1)));
+            assert!(b.push(MetricSample::QueueDlqDepth(1)));
         }
         // Ring is full now — next push must fail.
-        assert!(!b.push(MetricSample::QueueItemMs(1)));
+        assert!(!b.push(MetricSample::QueueDlqDepth(1)));
     }
 }

@@ -259,8 +259,8 @@ pub fn store_embedder_latency_fast(fanout: &ControlFanout, sample: &MetricSample
 #[inline]
 fn scalar_sample(id: MetricId, value: f64) -> Option<MetricSample> {
     match id {
-        MetricId::QueueItemMs => Some(MetricSample::QueueItemMs(value as u64)),
-        MetricId::QueueKb => Some(MetricSample::QueueKb(value as u64)),
+        MetricId::QueueMsPerKb => Some(MetricSample::QueueMsPerKb(value)),
+        MetricId::QueueDlqDepth => Some(MetricSample::QueueDlqDepth(value as u64)),
         MetricId::QueueThroughput => Some(MetricSample::QueueThroughput(value)),
         MetricId::EmbedderLatency => None, // record-shaped — use emit_record
         MetricId::EmbedderBatch => None,   // record-shaped — use emit_embedder_batch

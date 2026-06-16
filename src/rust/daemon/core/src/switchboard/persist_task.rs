@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use super::labels::canonicalize_labels;
-use super::{switchboard, MetricId};
+use super::{switchboard, MetricId, DESCRIPTORS};
 use crate::idle::{IdleState, MaintenanceContext, MaintenanceResult, MaintenanceTask};
 
 /// Persists switchboard slow-lane control values during idle windows.
@@ -29,10 +29,17 @@ impl ControlBaselinePersistTask {
         Self
     }
 
-    /// The fixed, compile-time set of registered `MetricId` variant names. Used
-    /// as the prune allow-list. Expand as control metrics are added.
-    fn registered_ids() -> &'static [&'static str] {
-        &["EmbedderLatency"]
+    /// The prune allow-list: exactly the variant names of the `persist: true`
+    /// descriptor ids. DERIVED from `DESCRIPTORS` so the prune-gate and the
+    /// persist-write-gate share one source and cannot silently diverge (DATA-08)
+    /// — a `persist: true`-but-unregistered id would write rows the prune then
+    /// deletes (silent persistence failure + cold-start every restart).
+    fn registered_ids() -> Vec<&'static str> {
+        MetricId::ALL
+            .iter()
+            .filter(|id| DESCRIPTORS[**id as usize].persist)
+            .map(|id| id.variant_name())
+            .collect()
     }
 
     /// Upsert one slow-lane row, bumping `sample_count` on conflict.
@@ -69,7 +76,7 @@ impl ControlBaselinePersistTask {
         let placeholders = vec!["?"; ids.len()].join(", ");
         let sql = format!("DELETE FROM control_baseline WHERE metric_id NOT IN ({placeholders})");
         let mut q = sqlx::query(&sql);
-        for id in ids {
+        for id in &ids {
             q = q.bind(*id);
         }
         q.execute(pool).await?;
@@ -130,5 +137,34 @@ impl MaintenanceTask for ControlBaselinePersistTask {
         }
 
         MaintenanceResult::Done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registered_ids_equals_persist_true_set() {
+        // DATA-08: the prune allow-list IS the persist:true descriptor set.
+        let registered = ControlBaselinePersistTask::registered_ids();
+        let expected: Vec<&'static str> = MetricId::ALL
+            .iter()
+            .filter(|id| DESCRIPTORS[**id as usize].persist)
+            .map(|id| id.variant_name())
+            .collect();
+        assert_eq!(registered, expected);
+        // Pin the concrete set so a stray persist-flag flip is caught.
+        assert_eq!(
+            registered,
+            vec!["EmbedderLatency", "QueueMsPerKb", "QueueThroughput"]
+        );
+    }
+
+    #[test]
+    fn test_dlq_and_batch_not_registered() {
+        let registered = ControlBaselinePersistTask::registered_ids();
+        assert!(!registered.contains(&"QueueDlqDepth"));
+        assert!(!registered.contains(&"EmbedderBatch"));
     }
 }

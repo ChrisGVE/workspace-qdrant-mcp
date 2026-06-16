@@ -43,8 +43,8 @@ pub fn apply_to_metrics(sample: &MetricSample) {
         // The #133 queue scalar lanes still update EwmaState inline and are not
         // emitted to the switchboard yet. When they migrate, map them to their
         // existing series here.
-        MetricSample::QueueItemMs(_)
-        | MetricSample::QueueKb(_)
+        MetricSample::QueueMsPerKb(_)
+        | MetricSample::QueueDlqDepth(_)
         | MetricSample::QueueThroughput(_) => {}
     }
 }
@@ -120,8 +120,8 @@ mod tests {
     #[test]
     fn test_apply_control_and_queue_samples_are_noops() {
         // These must NOT touch record_embedding (no double-count / no panic).
-        apply_to_metrics(&MetricSample::QueueItemMs(5));
-        apply_to_metrics(&MetricSample::QueueKb(9));
+        apply_to_metrics(&MetricSample::QueueMsPerKb(5.0));
+        apply_to_metrics(&MetricSample::QueueDlqDepth(9));
         apply_to_metrics(&MetricSample::QueueThroughput(1.0));
     }
 
