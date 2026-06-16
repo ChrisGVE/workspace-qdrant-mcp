@@ -38,7 +38,7 @@ impl SystemService for SystemServiceImpl {
         }];
 
         // Add queue processor health
-        let queue_health = self.get_queue_processor_health();
+        let queue_health = self.get_queue_processor_health().await;
         let queue_status = queue_health.status;
         components.push(queue_health);
 

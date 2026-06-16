@@ -227,8 +227,10 @@ fn print_health_columnar(
             let comp_status = ServiceStatus::from_proto(comp.status);
             let gutter = status_gutter(comp_status);
             builder = builder.kv_gutter(&comp.component_name, format_status(comp_status), gutter);
-            if !comp.message.is_empty() {
-                builder = builder.raw(&format!("  {}", comp.message.dimmed()), Gutter::None);
+            // Each remediation line is already `[<rag> <culprit>] <text>` from the
+            // daemon (#133 F7/UX-5) — render them one per row, not as one blob.
+            for line in comp.message.lines().filter(|l| !l.is_empty()) {
+                builder = builder.raw(&format!("  {}", line.dimmed()), Gutter::None);
             }
         }
     }
@@ -281,11 +283,14 @@ fn format_status(status: ServiceStatus) -> String {
 }
 
 fn status_gutter(status: ServiceStatus) -> Gutter {
+    // Exhaustive (UX-6): cold-start `Unknown` maps to a visible `…` gutter, never
+    // the blank `Gutter::None` a wildcard would give it.
     match status {
         ServiceStatus::Healthy | ServiceStatus::Active => Gutter::Sync,
         ServiceStatus::Degraded => Gutter::Warning,
         ServiceStatus::Unhealthy => Gutter::Error,
-        _ => Gutter::None,
+        ServiceStatus::Unknown => Gutter::Probing,
+        ServiceStatus::Inactive => Gutter::None,
     }
 }
 
@@ -305,6 +310,12 @@ fn print_health_json(
             } else {
                 Some(c.message.clone())
             },
+            remediation: c
+                .message
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect(),
         })
         .collect();
     // External probes appear in the same JSON array with a qualified name
@@ -315,6 +326,7 @@ fn print_health_json(
             name: format!("external:{}", probe.name),
             status: status_label(probe.status).to_string(),
             message: probe.message.clone().or_else(|| Some(probe.url.clone())),
+            remediation: Vec::new(),
         });
     }
     let json_out = HealthStatusJson {
@@ -332,6 +344,7 @@ fn print_health_json_disconnected(connected: bool, external: &[Probe]) {
             name: format!("external:{}", probe.name),
             status: status_label(probe.status).to_string(),
             message: probe.message.clone().or_else(|| Some(probe.url.clone())),
+            remediation: Vec::new(),
         })
         .collect();
     let json_out = HealthStatusJson {
@@ -350,6 +363,15 @@ fn print_health_json_disconnected(connected: bool, external: &[Probe]) {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    #[test]
+    fn cold_start_status_maps_to_probing_gutter() {
+        // #133 F8/UX-6: Unknown (cold-start) gets a visible `…` gutter, not blank.
+        assert_eq!(status_gutter(ServiceStatus::Unknown), Gutter::Probing);
+        assert_eq!(status_gutter(ServiceStatus::Healthy), Gutter::Sync);
+        assert_eq!(status_gutter(ServiceStatus::Unhealthy), Gutter::Error);
+        assert_eq!(status_gutter(ServiceStatus::Degraded), Gutter::Warning);
+    }
 
     /// Sentinel values chosen so the tests can't collide with production env.
     const TEST_HOST: &str = "http://127.0.0.1:16333";

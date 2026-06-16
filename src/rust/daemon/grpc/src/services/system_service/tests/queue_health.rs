@@ -115,45 +115,62 @@ async fn test_heartbeat_after_record_is_recent() {
     assert!(secs < 2);
 }
 
+/// Wire a service with a seeded EWMA lane (so the verdict is past cold-start)
+/// plus the given health handle. With no storage client / db pool, B1 is
+/// reachable and B2/drain are Green, so an all-quiet queue reads Healthy.
+fn seeded_service(health: Arc<QueueProcessorHealth>) -> SystemServiceImpl {
+    use workspace_qdrant_core::config::QueueHealthConfig;
+    use workspace_qdrant_core::EwmaState;
+    let ewma = Arc::new(EwmaState::new(&QueueHealthConfig::default()));
+    ewma.update_ms_per_kb(1.0); // seed a lane ⇒ not cold-start, ratio 1.0 ⇒ Green
+    SystemServiceImpl::new()
+        .with_queue_health(health)
+        .with_ewma_state(ewma)
+}
+
 #[tokio::test]
-async fn test_healthy_when_only_heartbeat_is_recent() {
-    // Simulates: poll is old (long batch), but heartbeat is fresh (item just processed)
-    // Stalled = min(poll, heartbeat) > 60 — should stay Healthy when heartbeat is fresh
+async fn test_healthy_when_seeded_and_all_probes_green() {
+    // #133 F7: a seeded, all-quiet queue (empty depth, no failures) reads Healthy
+    // via the functional verdict — replacing the old is_running/>60s check.
     let health = Arc::new(QueueProcessorHealth::new());
     health.set_running(true);
-    // poll stays at 0 (MAX seconds ago)
-    health.record_heartbeat(); // heartbeat is fresh
+    health.record_poll();
+    health.record_heartbeat();
 
-    let service = SystemServiceImpl::new().with_queue_health(health);
+    let service = seeded_service(health);
     let response = service.health(Request::new(())).await.unwrap();
-    let health_response = response.into_inner();
-    let queue_comp = health_response
+    let queue_comp = response
+        .into_inner()
         .components
-        .iter()
+        .into_iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
-    // min(MAX, ~0) = ~0 which is not > 60, so Healthy
     assert_eq!(queue_comp.status, ServiceStatus::Healthy as i32);
 }
 
 #[tokio::test]
-async fn test_healthy_when_only_poll_is_recent() {
-    // Simulates: poll just fired, but no items have been processed yet
+async fn test_cold_start_reports_unspecified() {
+    // #133 F7/UX-3: an unseeded EWMA state (fresh daemon) reports Unspecified
+    // ("unknown / learning baseline"), NOT a false Healthy.
     let health = Arc::new(QueueProcessorHealth::new());
     health.set_running(true);
-    health.record_poll(); // poll is fresh
-                          // heartbeat stays at 0 (MAX seconds ago)
+    health.record_poll();
 
-    let service = SystemServiceImpl::new().with_queue_health(health);
+    use workspace_qdrant_core::config::QueueHealthConfig;
+    use workspace_qdrant_core::EwmaState;
+    let ewma = Arc::new(EwmaState::new(&QueueHealthConfig::default())); // unseeded
+    let service = SystemServiceImpl::new()
+        .with_queue_health(health)
+        .with_ewma_state(ewma);
+
     let response = service.health(Request::new(())).await.unwrap();
-    let health_response = response.into_inner();
-    let queue_comp = health_response
+    let queue_comp = response
+        .into_inner()
         .components
-        .iter()
+        .into_iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
-    // min(~0, MAX) = ~0 which is not > 60, so Healthy
-    assert_eq!(queue_comp.status, ServiceStatus::Healthy as i32);
+    assert_eq!(queue_comp.status, ServiceStatus::Unspecified as i32);
 }
 
 #[tokio::test]
@@ -214,7 +231,7 @@ async fn test_high_error_count_alone_stays_healthy() {
         health.record_error();
     }
 
-    let service = SystemServiceImpl::new().with_queue_health(health);
+    let service = seeded_service(health);
     let response = service.health(Request::new(())).await.unwrap();
     let health_response = response.into_inner();
 
@@ -227,17 +244,21 @@ async fn test_high_error_count_alone_stays_healthy() {
 }
 
 #[tokio::test]
-async fn test_health_status_unhealthy_when_not_running() {
+async fn test_stall_reports_unhealthy() {
+    // #133 F7/B3: pending work with no recent poll/heartbeat reads Unhealthy via
+    // the functional verdict (the stall probe), replacing the old is_running
+    // check. `is_running` is no longer a verdict input.
     let health = Arc::new(QueueProcessorHealth::new());
-    health.set_running(false);
+    health.set_queue_depth(5); // pending work
+    health.last_poll_time.store(1, Ordering::SeqCst); // epoch ms 1 ⇒ long ago
+                                                      // heartbeat stays 0 ⇒ never
 
-    let service = SystemServiceImpl::new().with_queue_health(health);
+    let service = seeded_service(health);
     let response = service.health(Request::new(())).await.unwrap();
-    let health_response = response.into_inner();
-
-    let queue_comp = health_response
+    let queue_comp = response
+        .into_inner()
         .components
-        .iter()
+        .into_iter()
         .find(|c| c.component_name == "queue_processor")
         .unwrap();
     assert_eq!(queue_comp.status, ServiceStatus::Unhealthy as i32);

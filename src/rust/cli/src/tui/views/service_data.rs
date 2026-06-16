@@ -213,6 +213,13 @@ pub struct ServiceLive {
     pub qdrant_healthy: Option<bool>,
     /// Process dirty footprint in bytes, from the metrics endpoint.
     pub footprint_bytes: Option<u64>,
+    /// Functional queue-health verdict, decoded from the `queue_processor`
+    /// gRPC component (#133 F9). `None` until the first probe; `Unknown` is the
+    /// daemon-reported cold-start ("learning baseline"), distinct from
+    /// `daemon_healthy == None` (the probe itself has not returned yet — UX-7).
+    pub queue_verdict: Option<crate::output::ServiceStatus>,
+    /// Per-line attributed remediation for a non-green queue verdict.
+    pub queue_remediation: Vec<String>,
 }
 
 /// Spawn the background prober. Returns shared state the view reads each frame.
@@ -246,10 +253,33 @@ pub fn spawn_service_fetcher() -> Arc<Mutex<ServiceLive>> {
 async fn probe_live() -> ServiceLive {
     let mut live = ServiceLive::default();
 
-    live.daemon_healthy = Some(match crate::grpc::connect_default().await {
-        Ok(mut client) => client.system().health(()).await.is_ok(),
-        Err(_) => false,
-    });
+    match crate::grpc::connect_default().await {
+        Ok(mut client) => match client.system().health(()).await {
+            Ok(resp) => {
+                live.daemon_healthy = Some(true);
+                // Decode the functional queue-health verdict (#133 F9) from the
+                // queue_processor component — verdict-Unknown is the daemon's
+                // cold-start, NOT the probe-pending state.
+                let resp = resp.into_inner();
+                if let Some(comp) = resp
+                    .components
+                    .iter()
+                    .find(|c| c.component_name == "queue_processor")
+                {
+                    live.queue_verdict =
+                        Some(crate::output::ServiceStatus::from_proto(comp.status));
+                    live.queue_remediation = comp
+                        .message
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                }
+            }
+            Err(_) => live.daemon_healthy = Some(false),
+        },
+        Err(_) => live.daemon_healthy = Some(false),
+    }
 
     if let Ok(client) = crate::commands::qdrant_helpers::build_qdrant_http_client() {
         let url = format!(
