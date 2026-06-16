@@ -15,12 +15,14 @@
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use crate::config::queue_health::QueueHealthConfig;
+use crate::switchboard::control_lane::ControlLane;
+use crate::switchboard::ControlFanout;
 
-use super::ewma::{DualEwma, EwmaLane};
+use super::ewma::DualEwma;
 
 /// Health Red/Amber/Green status of a probe or the overall verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,12 +129,11 @@ impl DebounceRings {
 /// service.
 #[derive(Debug)]
 pub struct EwmaState {
-    ms_per_kb: EwmaLane,
-    embedder_latency: EwmaLane,
-    throughput_bytes_per_sec: EwmaLane,
+    ms_per_kb: Arc<ControlLane>,
+    embedder_latency: Arc<ControlLane>,
+    throughput_bytes_per_sec: Arc<ControlLane>,
     /// Re-seeds each poll from a fresh DLQ count; NOT persisted.
-    dlq_depth: EwmaLane,
-    alphas: EwmaAlphas,
+    dlq_depth: Arc<ControlLane>,
     /// ms/KB size floor (bytes): known-size items below this are treated as this
     /// size so a tiny file's fixed per-item overhead can't masquerade as a huge
     /// ms/KB outlier (DOM-07). Captured from config at construction.
@@ -142,27 +143,47 @@ pub struct EwmaState {
 }
 
 impl EwmaState {
-    /// Construct from config, taking the (immutable) smoothing factors and the
-    /// debounce window.
+    /// Construct a standalone `EwmaState` with freshly-allocated lanes carrying
+    /// the config alphas. **Test-only path** — production uses [`from_fanout`]
+    /// (Self::from_fanout) so the lanes are the same `Arc<ControlLane>`s the
+    /// switchboard's control fns feed. A standalone state's lanes are never fed
+    /// by any emitter (the #133 bug), so it is only useful in unit tests that
+    /// drive the lanes directly.
     pub fn new(cfg: &QueueHealthConfig) -> Self {
+        let lane = || Arc::new(ControlLane::new(cfg.fast_alpha, cfg.slow_alpha));
         Self {
-            ms_per_kb: EwmaLane::new(),
-            embedder_latency: EwmaLane::new(),
-            throughput_bytes_per_sec: EwmaLane::new(),
-            dlq_depth: EwmaLane::new(),
-            alphas: EwmaAlphas {
-                fast: cfg.fast_alpha,
-                slow: cfg.slow_alpha,
-            },
+            ms_per_kb: lane(),
+            embedder_latency: lane(),
+            throughput_bytes_per_sec: lane(),
+            dlq_depth: lane(),
             min_item_bytes: cfg.min_item_bytes,
             drain_snapshot: RwLock::new(None),
             debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
         }
     }
 
-    /// The configured smoothing factors.
+    /// Construct by cloning the switchboard fanout's `Arc<ControlLane>`s — the
+    /// production path (ARCH-03). The resulting state's lanes ARE the lanes the
+    /// control fns advance on every emit, so the verdict snapshots exactly the
+    /// values the emitters fed. Called at `queue_init.rs` after the switchboard
+    /// is sealed.
+    pub fn from_fanout(fanout: &ControlFanout, cfg: &QueueHealthConfig) -> Self {
+        Self {
+            ms_per_kb: Arc::clone(&fanout.ms_per_kb),
+            embedder_latency: Arc::clone(&fanout.embedder_latency),
+            throughput_bytes_per_sec: Arc::clone(&fanout.throughput),
+            dlq_depth: Arc::clone(&fanout.dlq_depth),
+            min_item_bytes: cfg.min_item_bytes,
+            drain_snapshot: RwLock::new(None),
+            debounce: Mutex::new(DebounceRings::new(cfg.debounce_window)),
+        }
+    }
+
+    /// The configured smoothing factors (read off a lane — all four lanes share
+    /// the same immutable alphas).
     pub fn alphas(&self) -> EwmaAlphas {
-        self.alphas
+        let (fast, slow) = self.ms_per_kb.alphas();
+        EwmaAlphas { fast, slow }
     }
 
     /// The ms/KB size floor in bytes (DOM-07 clamp).
@@ -174,52 +195,44 @@ impl EwmaState {
 
     /// Feed a ms/KB processing-cost sample (per-item success path).
     pub fn update_ms_per_kb(&self, sample: f64) {
-        self.ms_per_kb
-            .update(sample, self.alphas.fast, self.alphas.slow);
+        self.ms_per_kb.update(sample);
     }
 
     /// Feed an embedder-latency sample (ms).
     pub fn update_embedder_latency(&self, sample: f64) {
-        self.embedder_latency
-            .update(sample, self.alphas.fast, self.alphas.slow);
+        self.embedder_latency.update(sample);
     }
 
     /// Feed a throughput sample (bytes/sec).
     pub fn update_throughput(&self, sample: f64) {
-        self.throughput_bytes_per_sec
-            .update(sample, self.alphas.fast, self.alphas.slow);
+        self.throughput_bytes_per_sec.update(sample);
     }
 
     /// Feed a DLQ-depth sample (per-poll).
     pub fn update_dlq_depth(&self, sample: f64) {
-        self.dlq_depth
-            .update(sample, self.alphas.fast, self.alphas.slow);
+        self.dlq_depth.update(sample);
     }
 
-    // ── Snapshots for the verdict path (Relaxed loads) ──────────────────────
+    // ── Snapshots for the verdict path (Acquire-gated reads) ────────────────
 
     /// Snapshot the ms/KB lane.
     pub fn ms_per_kb_snapshot(&self) -> DualEwma {
-        DualEwma::from_atomics(&self.ms_per_kb, self.alphas.fast, self.alphas.slow)
+        self.ms_per_kb.snapshot()
     }
 
     /// Snapshot the embedder-latency lane.
     pub fn embedder_latency_snapshot(&self) -> DualEwma {
-        DualEwma::from_atomics(&self.embedder_latency, self.alphas.fast, self.alphas.slow)
+        self.embedder_latency.snapshot()
     }
 
     /// Snapshot the throughput lane.
     pub fn throughput_snapshot(&self) -> DualEwma {
-        DualEwma::from_atomics(
-            &self.throughput_bytes_per_sec,
-            self.alphas.fast,
-            self.alphas.slow,
-        )
+        self.throughput_bytes_per_sec.snapshot()
     }
 
     /// Snapshot the DLQ-depth lane.
     pub fn dlq_depth_snapshot(&self) -> DualEwma {
-        DualEwma::from_atomics(&self.dlq_depth, self.alphas.fast, self.alphas.slow)
+        self.dlq_depth.snapshot()
     }
 
     // ── Drain snapshot cache ────────────────────────────────────────────────

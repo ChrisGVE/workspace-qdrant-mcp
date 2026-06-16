@@ -2,9 +2,26 @@
 
 use super::*;
 use crate::config::queue_health::QueueHealthConfig;
+use crate::switchboard::ControlFanout;
 
 fn state() -> EwmaState {
     EwmaState::new(&QueueHealthConfig::default())
+}
+
+#[test]
+fn from_fanout_shares_lanes_with_fanout() {
+    // DATA-07 identity: a sample fed into a fanout lane is observed by the
+    // EwmaState built from that fanout — proving from_fanout cloned the SAME
+    // Arc<ControlLane> the emit advances (the #133 single-source handshake).
+    let cfg = QueueHealthConfig::default();
+    let fanout = ControlFanout::new(&cfg);
+    let s = EwmaState::from_fanout(&fanout, &cfg);
+
+    fanout.embedder_latency.update(123.0); // first sample seeds the lane
+    let snap = s.embedder_latency_snapshot();
+    assert!(snap.seeded);
+    assert_eq!(snap.fast, 123.0);
+    assert_eq!(snap.slow, 123.0);
 }
 
 #[test]

@@ -431,7 +431,13 @@ fn attach_adaptive_and_health(
     let uqp = uqp.with_adaptive_resources(adaptive_manager.subscribe());
     let queue_health = Arc::new(QueueProcessorHealth::new());
     let uqp = uqp.with_queue_health(Arc::clone(&queue_health));
-    let ewma_state = Arc::new(EwmaState::new(&config.queue_health));
+    // Clone the switchboard fanout's control lanes so EwmaState and the emit
+    // path share the SAME Arc<ControlLane>s (ARCH-03). The switchboard is sealed
+    // in main.rs Phase 2b, before this Phase-5 init, so the global is set.
+    let fanout = workspace_qdrant_core::switchboard::switchboard()
+        .expect("switchboard must be sealed (main.rs Phase 2b) before queue init")
+        .fanout();
+    let ewma_state = Arc::new(EwmaState::from_fanout(fanout, &config.queue_health));
     let uqp = uqp.with_ewma_state(Arc::clone(&ewma_state));
     (
         uqp,
