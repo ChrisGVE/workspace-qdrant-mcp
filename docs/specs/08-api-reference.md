@@ -251,7 +251,14 @@ grep({
 
 **Branch default (#102):** Project-scoped greps default `branch` to the session's current branch (or the target project's branch for an explicit cross-project `projectId`, as in #99), preventing duplicate matches from per-branch `file_metadata` rows. Pass `"*"` to search across all branches. Scope `"all"` applies no branch default.
 
-**Indexing state (#97):** Tenant-scoped responses carry an `index_status` object — `{ files_tracked, queue_pending, index_complete }` — sourced from `tracked_files` and the unified queue. When the index is incomplete a `warning` string is set so a zero-match result is not misread as pattern absence (it may be indexing lag).
+**Indexing state (#97, #137, #141):** Tenant-scoped responses carry an `index_status` object — `{ files_tracked, queue_pending, index_complete }` — scoped to the **branch the grep filtered on**. `files_tracked` counts searchable `file_metadata` files for that branch (the table the FTS query joins); `queue_pending` counts pending/in-progress unified-queue items for that tenant+branch. `index_complete` is `true` only when the branch is fully searchable: nothing queued **and** at least one file indexed.
+
+Branch scoping matters because `file_metadata` is per-branch — a file indexed on branch A is invisible to a grep filtered on branch B (#137). Counting tenant-wide masked that: it reported a healthy tenant while the queried branch returned nothing. When `index_complete` is `false` a `warning` string is set so a zero-match result is not misread as pattern absence. Two cases are distinguished:
+
+- `queue_pending > 0` — the branch is mid-index; results reflect indexing lag (#141).
+- `queue_pending == 0` but `files_tracked == 0` — no files are indexed for this branch yet; content indexed on another branch is not visible to a branch-scoped grep (#137).
+
+A `"*"` (all-branches) filter and scope `"all"` are treated as branch-less: the counts span every branch.
 
 #### list
 

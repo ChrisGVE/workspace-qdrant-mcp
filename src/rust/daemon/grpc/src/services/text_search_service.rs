@@ -101,41 +101,119 @@ impl TextSearchServiceImpl {
         self
     }
 
-    /// Tenant indexing state for a tenant-scoped request (#97).
+    /// Tenant+branch indexing state for a tenant-scoped request (#97, #137, #141).
+    ///
+    /// All counts are scoped to the branch the search actually filtered on.
+    /// `file_metadata` is per-branch: a file indexed on branch A is invisible to
+    /// a grep filtered on branch B (#137). Counting tenant-wide masked that — it
+    /// reported a healthy tenant while the queried branch returned nothing, so a
+    /// branch with no indexed content produced a silent false negative.
+    ///
+    /// `files_tracked` is therefore the count of searchable `file_metadata` files
+    /// for the queried branch (read from search.db, the table the FTS query
+    /// joins). `index_complete` is true only when that branch is fully
+    /// searchable: nothing queued AND at least one file indexed. When the branch
+    /// has zero indexed files but the tenant has data on other branches, the grep
+    /// tool surfaces a warning instead of letting an empty result look like
+    /// genuine pattern absence.
     ///
     /// Returns `None` when the request has no tenant filter, no state pool is
-    /// attached, or the queries fail (status is best-effort — a search must
-    /// never fail because the status lookup did).
-    async fn tenant_index_status(&self, tenant_id: Option<&str>) -> Option<TextIndexStatus> {
+    /// attached, or the queue query fails (status is best-effort — a search must
+    /// never fail because the status lookup did). The search.db file count is
+    /// best-effort within that: a lookup failure yields `0`, which is the safe,
+    /// degrade-gracefully value (it flags the branch as not-complete rather than
+    /// hiding the gap).
+    async fn tenant_index_status(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> Option<TextIndexStatus> {
         let tenant = tenant_id.filter(|t| !t.is_empty())?;
         let pool = self.state_pool.as_ref()?;
 
-        let files_tracked: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tracked_files tf \
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id \
-             WHERE wf.tenant_id = ?1",
-        )
-        .bind(tenant)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| debug!("index_status: tracked_files count failed: {e}"))
-        .ok()?;
+        // A "*" branch opts into all branches (no filter); treat as branch-less.
+        let branch = branch.filter(|b| !b.is_empty() && *b != "*");
 
-        let queue_pending: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM unified_queue \
-             WHERE tenant_id = ?1 AND status IN ('pending', 'in_progress')",
-        )
-        .bind(tenant)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| debug!("index_status: unified_queue count failed: {e}"))
-        .ok()?;
+        let files_tracked = self.branch_indexed_file_count(tenant, branch).await;
+        let queue_pending = self
+            .tenant_branch_queue_pending(pool, tenant, branch)
+            .await?;
 
         Some(TextIndexStatus {
-            files_tracked: files_tracked.max(0) as u64,
-            queue_pending: queue_pending.max(0) as u64,
-            index_complete: queue_pending == 0,
+            files_tracked,
+            queue_pending,
+            // The queried branch is searchable only when nothing is still queued
+            // for it AND it actually has indexed files. files_tracked == 0 with a
+            // non-empty tenant means the branch is not yet indexed (#137).
+            index_complete: queue_pending == 0 && files_tracked > 0,
         })
+    }
+
+    /// Count searchable `file_metadata` files for a tenant on a given branch
+    /// (search.db). When `branch` is `None`, counts across all branches.
+    ///
+    /// Best-effort: returns `0` on query failure so an unknown state is reported
+    /// as "not searchable" rather than silently masking a gap.
+    async fn branch_indexed_file_count(&self, tenant: &str, branch: Option<&str>) -> u64 {
+        let result: Result<i64, _> = if let Some(branch) = branch {
+            sqlx::query_scalar(
+                "SELECT COUNT(DISTINCT file_path) FROM file_metadata \
+                 WHERE tenant_id = ?1 AND branch = ?2",
+            )
+            .bind(tenant)
+            .bind(branch)
+            .fetch_one(self.search_db.pool())
+            .await
+        } else {
+            sqlx::query_scalar(
+                "SELECT COUNT(DISTINCT file_path) FROM file_metadata WHERE tenant_id = ?1",
+            )
+            .bind(tenant)
+            .fetch_one(self.search_db.pool())
+            .await
+        };
+
+        result
+            .map_err(|e| debug!("index_status: file_metadata count failed: {e}"))
+            .map(|n| n.max(0) as u64)
+            .unwrap_or(0)
+    }
+
+    /// Count pending/in-progress `unified_queue` items for a tenant on a given
+    /// branch (state.db). When `branch` is `None`, counts across all branches.
+    ///
+    /// Returns `None` on query failure (propagated so the whole status is omitted
+    /// rather than reported with a misleading queue count).
+    async fn tenant_branch_queue_pending(
+        &self,
+        pool: &sqlx::SqlitePool,
+        tenant: &str,
+        branch: Option<&str>,
+    ) -> Option<u64> {
+        let result: Result<i64, _> = if let Some(branch) = branch {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM unified_queue \
+                 WHERE tenant_id = ?1 AND branch = ?2 \
+                 AND status IN ('pending', 'in_progress')",
+            )
+            .bind(tenant)
+            .bind(branch)
+            .fetch_one(pool)
+            .await
+        } else {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM unified_queue \
+                 WHERE tenant_id = ?1 AND status IN ('pending', 'in_progress')",
+            )
+            .bind(tenant)
+            .fetch_one(pool)
+            .await
+        };
+
+        result
+            .map_err(|e| debug!("index_status: unified_queue count failed: {e}"))
+            .map(|n| n.max(0) as u64)
+            .ok()
     }
 
     /// Convert a gRPC request into SearchOptions
@@ -312,9 +390,13 @@ impl TextSearchService for TextSearchServiceImpl {
             .apply_max_results_and_context(results, &req, &options)
             .await;
 
-        // Tenant indexing state (#97): lets callers distinguish "pattern
-        // absent" from "files not indexed yet" on zero-match responses.
-        let index_status = self.tenant_index_status(req.tenant_id.as_deref()).await;
+        // Tenant+branch indexing state (#97, #137, #141): lets callers
+        // distinguish "pattern absent" from "files not indexed yet" / "branch
+        // not indexed" on zero-match responses. Scoped to the branch the search
+        // filtered on so a per-branch gap is not masked by tenant-wide counts.
+        let index_status = self
+            .tenant_index_status(req.tenant_id.as_deref(), req.branch.as_deref())
+            .await;
 
         let query_time_ms = start.elapsed().as_millis() as i64;
 
@@ -633,5 +715,205 @@ mod tests {
         assert_eq!(total_matches, 42);
         assert_eq!(capped_count, 42);
         assert_eq!(total_matches, capped_count);
+    }
+
+    // ── Branch-aware index status (#137, #141) ──
+    //
+    // `file_metadata` is per-branch: a file indexed on branch A is invisible to
+    // a grep filtered on branch B. The index status must reflect the BRANCH the
+    // search filtered on, so a per-branch gap is not masked by tenant-wide
+    // counts (the #137 false negative).
+
+    use std::sync::Arc;
+
+    use sqlx::sqlite::SqlitePoolOptions;
+    use workspace_qdrant_core::fts_batch_processor::{FtsBatchConfig, FtsBatchProcessor};
+
+    /// Minimal in-memory state pool exposing the `unified_queue` columns the
+    /// status query reads (tenant_id, branch, status).
+    async fn empty_state_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE unified_queue (\
+                 queue_id INTEGER PRIMARY KEY,\
+                 tenant_id TEXT NOT NULL,\
+                 branch TEXT,\
+                 status TEXT NOT NULL\
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    /// Index `content` for `tenant`/`branch` into a fresh search.db, then build a
+    /// service over it with the given (empty) state pool.
+    async fn service_with_indexed(
+        tmp: &tempfile::TempDir,
+        tenant: &str,
+        branch: &str,
+        file_id: i64,
+        file_path: &str,
+        content: &str,
+        state_pool: sqlx::SqlitePool,
+    ) -> TextSearchServiceImpl {
+        let db_path = tmp.path().join("search.db");
+        let search_db = Arc::new(SearchDbManager::new(&db_path).await.unwrap());
+        let processor = FtsBatchProcessor::new(&search_db, FtsBatchConfig::default());
+        processor
+            .full_rewrite(
+                file_id,
+                content,
+                tenant,
+                Some(branch),
+                file_path,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        TextSearchServiceImpl::new(search_db).with_state_pool(state_pool)
+    }
+
+    /// #137: a file indexed on `main` must NOT count toward a grep filtered on a
+    /// different branch — that branch reports zero searchable files and is
+    /// therefore not complete, even with an empty queue.
+    #[tokio::test]
+    async fn index_status_is_branch_scoped_for_file_count() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let svc = service_with_indexed(
+            &tmp,
+            "tenant-a",
+            "main",
+            1,
+            "src/narrative/mod.rs",
+            "pub async fn run_narrative_pipeline() {}",
+            empty_state_pool().await,
+        )
+        .await;
+
+        // The branch that owns the file: one searchable file, complete.
+        let on_main = svc
+            .tenant_index_status(Some("tenant-a"), Some("main"))
+            .await
+            .expect("status present for tenant+branch");
+        assert_eq!(on_main.files_tracked, 1);
+        assert_eq!(on_main.queue_pending, 0);
+        assert!(on_main.index_complete);
+
+        // A different branch: the file is invisible, so zero files and NOT
+        // complete — this is exactly the #137 false-negative made explicit.
+        let on_other = svc
+            .tenant_index_status(Some("tenant-a"), Some("fix/issue-137"))
+            .await
+            .expect("status present for tenant+branch");
+        assert_eq!(on_other.files_tracked, 0);
+        assert_eq!(on_other.queue_pending, 0);
+        assert!(
+            !on_other.index_complete,
+            "a branch with no indexed files must be reported incomplete"
+        );
+    }
+
+    /// #141: pending queue items for the queried branch keep it incomplete even
+    /// when files are already indexed, so partial results carry the lag warning.
+    #[tokio::test]
+    async fn index_status_branch_scoped_queue_pending() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let state_pool = empty_state_pool().await;
+        // One item still queued for tenant-a on main; an unrelated branch's item
+        // must not leak into main's count.
+        sqlx::query("INSERT INTO unified_queue (tenant_id, branch, status) VALUES (?1, ?2, ?3)")
+            .bind("tenant-a")
+            .bind("main")
+            .bind("pending")
+            .execute(&state_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO unified_queue (tenant_id, branch, status) VALUES (?1, ?2, ?3)")
+            .bind("tenant-a")
+            .bind("other")
+            .bind("pending")
+            .execute(&state_pool)
+            .await
+            .unwrap();
+
+        let svc = service_with_indexed(
+            &tmp,
+            "tenant-a",
+            "main",
+            1,
+            "src/lib.rs",
+            "fn QueryBuilder() {}",
+            state_pool,
+        )
+        .await;
+
+        let status = svc
+            .tenant_index_status(Some("tenant-a"), Some("main"))
+            .await
+            .expect("status present");
+        assert_eq!(status.files_tracked, 1, "main has one indexed file");
+        assert_eq!(
+            status.queue_pending, 1,
+            "only main's queued item counts, not other branch's"
+        );
+        assert!(
+            !status.index_complete,
+            "queued items for the branch keep it incomplete"
+        );
+    }
+
+    /// A "*" (all-branches) filter is treated as branch-less: counts span every
+    /// branch so the caller opting out of branch scoping sees the whole tenant.
+    #[tokio::test]
+    async fn index_status_star_branch_counts_all() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let search_db = Arc::new(SearchDbManager::new(&db_path).await.unwrap());
+        let processor = FtsBatchProcessor::new(&search_db, FtsBatchConfig::default());
+        // Same logical file on two branches → two file_metadata rows, distinct
+        // file_path counts collapse to one path but across branches we expect
+        // the all-branches count to include both branch rows' distinct paths.
+        processor
+            .full_rewrite(
+                1,
+                "fn a() {}",
+                "tenant-a",
+                Some("main"),
+                "a.rs",
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        processor
+            .full_rewrite(
+                2,
+                "fn b() {}",
+                "tenant-a",
+                Some("dev"),
+                "b.rs",
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let svc = TextSearchServiceImpl::new(search_db).with_state_pool(empty_state_pool().await);
+
+        let all = svc
+            .tenant_index_status(Some("tenant-a"), Some("*"))
+            .await
+            .expect("status present");
+        assert_eq!(all.files_tracked, 2, "* spans both branches");
+        assert!(all.index_complete);
     }
 }

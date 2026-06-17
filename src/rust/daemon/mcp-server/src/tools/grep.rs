@@ -201,6 +201,38 @@ fn map_match(m: TextSearchMatch) -> GrepMatch {
     }
 }
 
+/// Build the indexing-completeness warning for a grep response (#97, #137, #141).
+///
+/// Returns `None` when the queried branch is fully searchable. Otherwise it
+/// distinguishes the two ways a result can be incomplete so a zero-match result
+/// is never silently misread as pattern absence:
+///
+/// - **Items still queued** (`queue_pending > 0`): the branch is mid-index, so
+///   results reflect indexing lag.
+/// - **Branch not indexed** (`queue_pending == 0` but `files_tracked == 0`): no
+///   files are indexed for this branch yet — a file indexed on another branch is
+///   invisible here because `file_metadata` is per-branch (#137). This otherwise
+///   looked like a healthy index returning an honest "not found".
+fn build_index_warning(status: &GrepIndexStatus) -> Option<String> {
+    if status.index_complete {
+        return None;
+    }
+    if status.queue_pending > 0 {
+        Some(format!(
+            "Index incomplete for this branch: {} item(s) still queued — \
+             results may reflect indexing lag rather than pattern absence",
+            status.queue_pending
+        ))
+    } else {
+        Some(
+            "No files are indexed for this branch yet — results may reflect a \
+             not-yet-indexed branch rather than pattern absence. Content indexed \
+             on another branch is not visible to a branch-scoped grep."
+                .to_string(),
+        )
+    }
+}
+
 /// Build a failure [`GrepResponse`] (daemon down or validation error).
 fn grep_error(message: String, latency_ms: u64) -> GrepResponse {
     GrepResponse {
@@ -315,16 +347,7 @@ where
                 queue_pending: s.queue_pending,
                 index_complete: s.index_complete,
             });
-            let warning = index_status
-                .as_ref()
-                .filter(|s| !s.index_complete)
-                .map(|s| {
-                    format!(
-                        "Index incomplete for this project: {} item(s) still queued — \
-                         results may reflect indexing lag rather than pattern absence",
-                        s.queue_pending
-                    )
-                });
+            let warning = index_status.as_ref().and_then(build_index_warning);
             let response = GrepResponse {
                 success: true,
                 matches,

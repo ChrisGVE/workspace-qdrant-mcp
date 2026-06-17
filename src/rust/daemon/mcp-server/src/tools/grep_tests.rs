@@ -553,6 +553,46 @@ async fn index_status_incomplete_sets_warning() {
         warning.contains("19 item(s) still queued"),
         "warning should carry pending count: {warning}"
     );
+    assert!(
+        warning.contains("indexing lag"),
+        "queued warning should name indexing lag: {warning}"
+    );
+}
+
+/// #137: a branch with zero indexed files (queue empty) is incomplete because
+/// `file_metadata` is per-branch — content indexed on another branch is invisible
+/// here. The warning must say so instead of reporting "0 item(s) still queued".
+#[tokio::test]
+async fn index_status_branch_not_indexed_sets_distinct_warning() {
+    let mut resp = empty_response();
+    resp.index_status = Some(crate::proto::TextIndexStatus {
+        files_tracked: 0,
+        queue_pending: 0,
+        index_complete: false,
+    });
+    let input = GrepInput {
+        pattern: "run_narrative_pipeline".to_string(),
+        scope: "project".to_string(),
+        case_sensitive: true,
+        max_results: 1000,
+        project_id: Some("proj-abc".to_string()),
+        ..Default::default()
+    };
+    let r = grep_tool(input, &mut OkDaemon(resp), None, None, "").await;
+    let parsed = parse_response(&r);
+    assert!(parsed.success);
+    let status = parsed.index_status.expect("index_status present");
+    assert_eq!(status.files_tracked, 0);
+    assert!(!status.index_complete);
+    let warning = parsed.warning.expect("warning present");
+    assert!(
+        warning.contains("No files are indexed for this branch"),
+        "branch-not-indexed warning expected, got: {warning}"
+    );
+    assert!(
+        !warning.contains("still queued"),
+        "must not claim queued items when queue is empty: {warning}"
+    );
 }
 
 #[tokio::test]
