@@ -214,6 +214,19 @@ All thresholds live in `[queue_health]` (`config/queue_health.rs`), each with a
 ≥ 1 day; `debounce_window` ≥ 1 (any size — the plurality vote is well-defined for
 even windows); `disk_low_pct` in (0,1).
 
+**`baseline_ttl_secs` wiring.** At startup, `loop_core.rs` reads
+`QueueHealthConfig::baseline_ttl_secs` from the live `EwmaState` (if
+queue-health is enabled) and threads the value into
+`ControlBaselinePersistTask::with_ttl_secs` via `LoopState::new`. The persist task
+uses this TTL as its prune horizon: any `control_baseline` row whose `updated_at`
+is older than `now − baseline_ttl_secs` is deleted on each persist cycle, ensuring
+orphaned baselines from deleted or renamed metrics do not accumulate.
+
+When queue-health is **disabled** (no `EwmaState` is constructed), the prune still
+runs via the fallback: `loop_core.rs` calls `default_baseline_ttl_secs()` (30 days)
+directly and passes that value to `LoopState::new`. This prevents `control_baseline`
+from growing without bound even when the health verdict subsystem is turned off.
+
 Remediation strings are fixed literals with at most a numeric ratio interpolated —
 no absolute path, URL, secret, or `WQM_*` config-variable name (enforced by a
 prefix-scan test).

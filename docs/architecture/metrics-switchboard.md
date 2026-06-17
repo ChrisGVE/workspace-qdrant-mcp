@@ -366,9 +366,11 @@ On daemon restart:
 
 ### 4a. `control_baseline` table (schema version v46)
 
-Current max schema version is **v45** (`schema_version/mod.rs:179` —
-`pub const CURRENT_SCHEMA_VERSION: i32 = 45`; latest migration file `v45.rs`, the
-#133 `size_bytes` column). `control_baseline` is the next additive migration: **v46**.
+Current max schema version is **v47** (`schema_version/mod.rs` —
+`pub const CURRENT_SCHEMA_VERSION: i32 = 47`). Migration v46 (shipped) added
+`control_baseline`. Migration v47 (shipped) rebuilt `search_events` to relax the
+`actor` CHECK to admit `'benchmark'` (#135). `control_baseline` was introduced
+by **v46**.
 
 ```sql
 -- Migration v46: control_baseline — switchboard slow-lane persistence.
@@ -976,19 +978,18 @@ distinguishable from growth. `QueueDlqDepth` and `EmbedderBatch` are `persist: f
 
 Incremental, green at every step.
 
-**Phase 0 — Scaffolding (no behavior change).**
-1. Add the `switchboard/` module (all types; builder/seal; `SWITCHBOARD` OnceCell).
-2. Add `SwitchboardConfig` (§7c); wire `set_telemetry_enabled` from config in `main.rs`.
-3. Add `crossbeam-queue` to `daemon/core/Cargo.toml`.
-4. Add `schema_version/v46.rs`; bump `CURRENT_SCHEMA_VERSION` to 46; add
-   `V46Migration` to `build_registry()`; update the `assert_eq!(…, 45)→46` sentinel
-   (`migration_crash_recovery_tests.rs:291`). Verify
-   `test_build_registry_has_all_migrations` passes.
-5. Register `ControlBaselinePersistTask` in `loop_state.rs:63–75`.
+**Phase 0 — Scaffolding (SHIPPED).**
+1. Add the `switchboard/` module (all types; builder/seal; `SWITCHBOARD` OnceCell). ✓
+2. Add `SwitchboardConfig` (§7c); wire `set_telemetry_enabled` from config in `main.rs`. ✓
+3. Add `crossbeam-queue` to `daemon/core/Cargo.toml`. ✓
+4. Add `schema_version/v46.rs`; bump `CURRENT_SCHEMA_VERSION` to 46 (subsequently bumped
+   to 47 by the eval-harness migration — see §4a); add `V46Migration` to
+   `build_registry()`. ✓
+5. Register `ControlBaselinePersistTask` in `loop_state.rs:63–75`. ✓
 6. Build+seal `SWITCHBOARD` at init; call `reload_baselines(&db_handles.queue_pool)`
-   from `main.rs` after migration, before the processing loop.
-7. Tests: emit*; `ControlFanout::read_*`; BTreeMap canonicalization; v46 idempotency.
-8. Full suite green. Ship.
+   from `main.rs` after migration, before the processing loop. ✓
+7. Tests: emit*; `ControlFanout::read_*`; BTreeMap canonicalization; v46 idempotency. ✓
+8. Full suite green. Shipped. ✓
 
 **Phase 1 — Embedder lane (task 11).**
 
