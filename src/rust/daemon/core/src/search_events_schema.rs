@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS search_events (
 )
 "#;
 
+/// The canonical `actor` values the `search_events.actor` CHECK admits. The
+/// server-side `LogSearchEvent` allow-list validation reuses these so a bad
+/// value is rejected with a clear error instead of being silently dropped by the
+/// SQLite CHECK (#135). Kept in lock-step with the CHECK clause above — the
+/// `schema_check_lists_match_allowed_consts` test fails if they ever diverge.
+pub const ALLOWED_ACTORS: &[&str] = &["claude", "user", "daemon", "benchmark"];
+
+/// The canonical `tool` values the `search_events.tool` CHECK admits (#135).
+pub const ALLOWED_TOOLS: &[&str] = &["mcp_qdrant", "rg", "grep", "ctags", "lsp", "filesearch"];
+
+/// The canonical `op` values the `search_events.op` CHECK admits (#135).
+pub const ALLOWED_OPS: &[&str] = &["search", "expand", "open", "followup"];
+
 /// Indexes for the search_events table
 pub const CREATE_SEARCH_EVENTS_INDEXES_SQL: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_search_events_session ON search_events(session_id, ts)",
@@ -84,6 +97,26 @@ mod tests {
                 CREATE_SEARCH_EVENTS_SQL.contains(actor),
                 "actor CHECK must admit {actor}"
             );
+        }
+    }
+
+    #[test]
+    fn schema_check_lists_match_allowed_consts() {
+        // Single-source guard (#135): the allow-list constants reused by the
+        // gRPC LogSearchEvent validation must list exactly the same values the
+        // SQLite CHECK clauses do. If a CHECK gains/loses a value, the matching
+        // const must be updated in the same change or this fails.
+        for (values, column) in [
+            (ALLOWED_ACTORS, "actor"),
+            (ALLOWED_TOOLS, "tool"),
+            (ALLOWED_OPS, "op"),
+        ] {
+            for value in values {
+                assert!(
+                    CREATE_SEARCH_EVENTS_SQL.contains(&format!("'{value}'")),
+                    "{column} CHECK must list '{value}' (allow-list/const drift)"
+                );
+            }
         }
     }
 

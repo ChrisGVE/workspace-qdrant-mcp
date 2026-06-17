@@ -4,6 +4,7 @@
 //! Errors are logged but not propagated — instrumentation must never block.
 
 use tonic::{Request, Response, Status};
+use workspace_qdrant_core::search_events_schema::{ALLOWED_ACTORS, ALLOWED_OPS, ALLOWED_TOOLS};
 use workspace_qdrant_core::write_actor::{
     DeleteRuleMirrorData, DeleteScratchpadMirrorData, LogSearchEventData, UpdateSearchEventData,
     UpsertRuleMirrorData, UpsertScratchpadMirrorData, WriteActorHandle,
@@ -25,6 +26,26 @@ impl TrackingWriteServiceImpl {
     }
 }
 
+/// Reject a value the `search_events` CHECK would refuse, before it reaches the
+/// fire-and-forget write path.
+///
+/// `LogSearchEvent` hands `actor`/`tool`/`op` straight to an INSERT whose only
+/// guard is the SQLite CHECK; on the fire-and-forget path a CHECK violation is
+/// swallowed with a `warn!`, so the caller never learns its event was dropped.
+/// Validating against the canonical allow-list here turns that silent drop into
+/// an explicit `invalid_argument` the caller can see and fix (L6/#135). The
+/// allow-lists are the single source shared with the schema CHECK clauses
+/// (`search_events_schema`).
+fn check_allowed(field: &str, value: &str, allowed: &[&str]) -> Result<(), Status> {
+    if allowed.contains(&value) {
+        return Ok(());
+    }
+    Err(Status::invalid_argument(format!(
+        "unrecognized {field} '{value}'; expected one of [{}]",
+        allowed.join(", ")
+    )))
+}
+
 #[tonic::async_trait]
 impl TrackingWriteService for TrackingWriteServiceImpl {
     async fn log_search_event(
@@ -32,6 +53,14 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
         request: Request<LogSearchEventRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
+
+        // Validate up front so a bad actor/tool/op is reported to the caller
+        // rather than silently dropped by the SQLite CHECK on the fire-and-forget
+        // write path (L6/#135).
+        check_allowed("actor", &req.actor, ALLOWED_ACTORS)?;
+        check_allowed("tool", &req.tool, ALLOWED_TOOLS)?;
+        check_allowed("op", &req.op, ALLOWED_OPS)?;
+
         // Fire-and-forget: log errors but never fail the gRPC call
         if let Err(e) = self
             .write_actor
@@ -156,5 +185,38 @@ impl TrackingWriteService for TrackingWriteServiceImpl {
             tracing::warn!("delete_scratchpad_mirror failed (fire-and-forget): {}", e);
         }
         Ok(Response::new(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_allowed_accepts_canonical_values() {
+        check_allowed("actor", "benchmark", ALLOWED_ACTORS).unwrap();
+        check_allowed("tool", "grep", ALLOWED_TOOLS).unwrap();
+        check_allowed("op", "search", ALLOWED_OPS).unwrap();
+    }
+
+    #[test]
+    fn check_allowed_rejects_unknown_with_invalid_argument() {
+        let err = check_allowed("actor", "robot", ALLOWED_ACTORS).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("robot"));
+        assert!(err.message().contains("actor"));
+
+        assert_eq!(
+            check_allowed("tool", "nope", ALLOWED_TOOLS)
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
+        assert_eq!(
+            check_allowed("op", "delete", ALLOWED_OPS)
+                .unwrap_err()
+                .code(),
+            tonic::Code::InvalidArgument
+        );
     }
 }
