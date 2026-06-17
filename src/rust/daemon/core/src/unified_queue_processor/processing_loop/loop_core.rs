@@ -344,6 +344,10 @@ impl UnifiedQueueProcessor {
             .await
         {
             Ok(items) if items.is_empty() => {
+                // No backlog dequeued — nothing dispatched this poll. The next
+                // poll's health probe uses this to emit a zero throughput sample
+                // if a backlog nonetheless remains (#144).
+                state.last_poll_dispatched = false;
                 run_idle_work(
                     state,
                     config,

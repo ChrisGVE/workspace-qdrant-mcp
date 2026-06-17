@@ -44,6 +44,14 @@ pub(super) struct LoopState {
     /// Poll-local outcome ring for the B4 all-items-failing predicate (kept
     /// local, never shared, so B4 needs no shared `Mutex` — PERF-08).
     pub outcome_ring: VecDeque<PollOutcome>,
+    /// Whether the previous poll actually dispatched a non-empty batch. Read by
+    /// the next poll's `update_health_probes` (which runs pre-dequeue, so it
+    /// carries a one-poll lag): when the last poll dispatched nothing yet a
+    /// backlog remains, throughput is emitted as 0 so the slow lane decays
+    /// instead of freezing at a stale healthy rate during a circuit-breaker
+    /// stall (#144). Starts `true` so a fresh start emits no spurious zero before
+    /// the first poll has run.
+    pub last_poll_dispatched: bool,
 }
 
 impl LoopState {
@@ -112,6 +120,7 @@ impl LoopState {
             prev_dlq: None,
             dlq_samples_seen: 0,
             outcome_ring: VecDeque::new(),
+            last_poll_dispatched: true,
         }
     }
 }
