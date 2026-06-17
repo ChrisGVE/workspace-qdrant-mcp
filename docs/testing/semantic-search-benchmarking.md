@@ -90,6 +90,16 @@ is a query with the files a good search should surface:
 (`**/proto/*.proto`, `.../exact_search/*.rs`). A query is a hit when an expected
 file (or glob) matches a top-k result path.
 
+**Zero-match glob contract.** A glob in `expectedFiles` that matches *no* result
+path in the ranked list scores as a **MISS** — not a skip, not neutral. There is
+no special handling for unmatched globs: `path_match.rs` evaluates each
+`ExpectedMatcher` against the result paths and, if none return `true`, the
+expected file simply does not appear in the hit set. This means a stale gold glob
+that no longer matches any real path silently penalizes the score for that query.
+Verified against `path_match.rs`: `ExpectedMatcher::matches` is a pure predicate;
+the scoring layer in `metrics.rs` treats any expectation not satisfied by at least
+one result as unfulfilled.
+
 ### Categories
 
 Each query's category is its id prefix before the first `-`:
