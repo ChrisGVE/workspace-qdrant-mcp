@@ -92,8 +92,11 @@ impl ProjectServiceImpl {
         })
     }
 
-    /// Rename tenant_id in a single table within a transaction
-    async fn rename_table(
+    /// Rename tenant_id in a single table within a transaction.
+    ///
+    /// Shared by the `rename_tenant` RPC and the registration-triggered
+    /// reconciliation (`reconcile.rs`, #138/#139), so it is `pub(super)`.
+    pub(super) async fn rename_table(
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         table: &str,
         old_id: &str,

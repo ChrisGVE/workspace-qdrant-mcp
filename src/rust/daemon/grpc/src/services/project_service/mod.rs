@@ -14,6 +14,7 @@ mod deactivation;
 pub(crate) mod lsp_lifecycle;
 mod mutations;
 mod queries;
+mod reconcile;
 mod registration;
 mod worktree;
 
