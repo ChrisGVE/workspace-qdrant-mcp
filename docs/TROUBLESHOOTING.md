@@ -921,6 +921,38 @@ cd /path/to/project
 workspace-qdrant-mcp  # Restart in project context
 ```
 
+### Moved Project or Added/Removed Git Remote ("Project not found")
+
+**Problem:** After moving a registered project to a new directory, or after
+adding/removing its git remote, `list`/`search`/`grep` for the new state
+report "Project not found" — even though `store type:project` returned
+`success:true`.
+
+**Background:** A project's `tenant_id` depends on its tenancy *type* —
+`local_<hash(path)>` with no git remote, `<hash(remote)>` with one. Moving the
+directory or adding/removing the remote changes the inputs to the id.
+
+**Resolution (automatic, issues #138/#139):** `RegisterProject` reconciles by
+**path**, so simply re-registering the project at its current path fixes both
+cases:
+
+```bash
+# Re-register from the project's current directory; the daemon detects the
+# moved path or the tenancy-type flip and reconciles in place.
+cd /path/to/project/current/location
+wqm project register .        # or restart the MCP server in this directory
+```
+
+- **Moved path:** the stored path is updated in place (no duplicate row).
+- **Tenancy flip (remote added/removed):** the tenant is renamed across SQLite
+  and a Qdrant cascade-rename is enqueued for the `projects` and `rules`
+  collections.
+
+**Known boundary (#140):** the cascade does not yet migrate every tenant-keyed
+table/collection (e.g. `symbol_cooccurrence`, graph store, `keywords`, `tags`,
+`scratchpad`, `images`). Code-graph and scratchpad data keyed under the old id
+may remain stale until #140 lands a full reconcile command.
+
 ### Old Data Not Visible After Migration
 
 **Problem:** Pre-v0.4.0 data not appearing in searches

@@ -63,6 +63,49 @@ async fn create_test_watch_folder(pool: &SqlitePool, project_id: &str, path: &st
     .unwrap();
 }
 
+/// Helper to create a watch_folder entry with an explicit git remote URL.
+///
+/// Used by the reconciliation tests (#138/#139): a project with a remote is
+/// keyed by `<hash(remote)>`, so the stored `git_remote_url` must be present
+/// to exercise the remote -> local tenancy flip and the moved-path case.
+async fn create_test_watch_folder_with_remote(
+    pool: &SqlitePool,
+    project_id: &str,
+    path: &str,
+    git_remote_url: &str,
+) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let watch_id = format!("test-{project_id}");
+    sqlx::query(
+        r#"
+        INSERT INTO watch_folders (
+            watch_id, path, collection, tenant_id, git_remote_url, is_git_tracked,
+            is_active, follow_symlinks, enabled, cleanup_on_disable, created_at, updated_at
+        ) VALUES (?1, ?2, 'projects', ?3, ?4, 1, 0, 0, 1, 0, ?5, ?5)
+    "#,
+    )
+    .bind(&watch_id)
+    .bind(path)
+    .bind(project_id)
+    .bind(git_remote_url)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Fetch the stored (tenant_id, path) for the single project watch_folder row
+/// matching `path` OR `tenant_id`. Returns all matching rows so tests can
+/// assert there is no duplicate after a reconcile.
+async fn fetch_project_rows(pool: &SqlitePool) -> Vec<(String, String)> {
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT tenant_id, path FROM watch_folders WHERE collection = 'projects' ORDER BY path",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
 /// Alias for setup_test_db (includes all required tables)
 async fn setup_test_db_with_queue() -> (SqlitePool, tempfile::TempDir) {
     setup_test_db().await

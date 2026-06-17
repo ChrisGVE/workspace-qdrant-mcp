@@ -316,6 +316,29 @@ print(f"Priority: {response.priority}, Sessions: {response.active_sessions}")
 - When `active_sessions == 0`: Priority is NORMAL (queue position 5)
 - File changes for HIGH priority projects are processed immediately
 
+**Registration reconciliation (path-based, issues #138/#139):**
+
+`RegisterProject` reconciles by **path** before deciding a project is new,
+so an already-registered project is recognized even when its identity inputs
+changed since the last registration:
+
+- **Moved path** (#138): if a registered project re-registers at a new path
+  while its identity (git remote) is unchanged, the stored `path` is updated
+  in place — no duplicate `watch_folders` row, no orphaned data. The response
+  reports `created=false`.
+- **Tenancy-type flip** (#139): a project's `tenant_id` is `local_<hash(path)>`
+  when it has no git remote and `<hash(remote)>` when it does. If a registered
+  project gains or loses a remote between registrations, its recomputed id
+  changes. Registration detects this (same path, different recomputed id),
+  renames the tenant across SQLite (`watch_folders`, `unified_queue`,
+  `tracked_files`), and enqueues a Qdrant cascade-rename for the `projects`
+  and `rules` collections — instead of registering a second, duplicate project.
+
+  Coverage boundary: the cascade does **not** yet migrate other tenant-keyed
+  SQLite tables (`symbol_cooccurrence`, the graph store, `keywords`, `tags`,
+  `processing_timings`, priority/affinity tables) or other tenant-keyed Qdrant
+  collections (`scratchpad`, `images`). Full coverage is tracked by #140.
+
 #### DeprioritizeProject
 
 Decrement session count when MCP server stops.
