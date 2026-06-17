@@ -48,12 +48,7 @@ pub(super) async fn update_health_probes(
 
     if let Some(sw) = switchboard() {
         sw.emit(sw.handle(MetricId::QueueDlqDepth, "queue"), delta);
-        // An idle poll (no pending work) samples throughput as 0 so the lane
-        // decays toward zero instead of holding a stale rate (F5 DOM-06). A
-        // circuit-breaker stall WITH a backlog (pending_bytes > 0, no dispatch)
-        // is not covered here and is tracked in #144 — B1/B3 catch the common
-        // triggers meanwhile.
-        if pending_bytes == 0 {
+        if should_emit_idle_throughput(pending_bytes, state.last_poll_dispatched) {
             sw.emit(sw.handle(MetricId::QueueThroughput, "queue"), 0.0);
         }
     }
@@ -90,4 +85,55 @@ pub(super) async fn update_health_probes(
         })
         .collect();
     ewma.set_trend_cache(debounced);
+}
+
+/// Decide whether this poll should feed the throughput slow lane a zero sample.
+///
+/// A zero is emitted whenever no work is moving, so the lane decays toward zero
+/// instead of holding a stale healthy rate. Two situations qualify:
+///
+///   - **idle** — there is no backlog (`pending_bytes == 0`). The original F5
+///     DOM-06 case: the queue is genuinely drained.
+///   - **stalled** — a backlog remains (`pending_bytes > 0`) yet the previous
+///     poll dispatched no batch (`!last_poll_dispatched`). This is the
+///     circuit-breaker-open case (Qdrant down / SQLite busy / memory pressure, or
+///     a breaker tripping mid-batch): work cannot drain, so the rate must fall to
+///     zero. Without it the F5 drain probe divides the backlog by a frozen rate
+///     and reports a falsely-Green ETA while nothing happens (#144).
+///
+/// `last_poll_dispatched` carries a one-poll lag (this probe runs pre-dequeue),
+/// which the #133 design accepts. The healthy path — a backlog that IS draining,
+/// where `last_poll_dispatched` is true — emits no zero, so the live throughput
+/// samples and the B1/B3 hard-state probes are untouched.
+fn should_emit_idle_throughput(pending_bytes: u64, last_poll_dispatched: bool) -> bool {
+    pending_bytes == 0 || !last_poll_dispatched
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_emit_idle_throughput;
+
+    #[test]
+    fn idle_queue_emits_zero() {
+        // No backlog at all — the original F5 DOM-06 idle-zero, dispatch state
+        // irrelevant.
+        assert!(should_emit_idle_throughput(0, true));
+        assert!(should_emit_idle_throughput(0, false));
+    }
+
+    #[test]
+    fn draining_backlog_emits_no_zero() {
+        // Backlog present AND the last poll dispatched a batch: work is moving, so
+        // the live throughput samples must stand (B1/B3 preserved) — #144 must not
+        // zero a healthily-draining lane.
+        assert!(!should_emit_idle_throughput(4096, true));
+    }
+
+    #[test]
+    fn stalled_backlog_emits_zero() {
+        // The #144 bug: a backlog remains but the last poll dispatched nothing
+        // (circuit breaker open). The lane must be zeroed so the drain probe does
+        // not divide by a frozen rate and report a falsely-Green ETA.
+        assert!(should_emit_idle_throughput(4096, false));
+    }
 }

@@ -48,7 +48,10 @@ fn default_qdrant_probe_timeout_secs() -> u64 {
 fn default_drain_snapshot_max_age_secs() -> u64 {
     15
 }
-fn default_baseline_ttl_secs() -> u64 {
+/// Default persisted-baseline prune horizon: 30 days. Public so the queue
+/// processing loop can fall back to it when queue-health is disabled and no
+/// `EwmaState` carries a configured TTL (#143).
+pub fn default_baseline_ttl_secs() -> u64 {
     2_592_000 // 30 days
 }
 fn default_debounce_window() -> usize {

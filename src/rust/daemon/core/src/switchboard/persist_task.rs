@@ -22,20 +22,36 @@ use super::labels::canonicalize_labels;
 use super::{switchboard, MetricId, DESCRIPTORS};
 use crate::idle::{IdleState, MaintenanceContext, MaintenanceResult, MaintenanceTask};
 
-/// Orphaned-baseline TTL (secs). Mirrors `QueueHealthConfig::baseline_ttl_secs`'s
-/// 30-day default. Runtime-tuning this field needs `QueueHealthConfig` threaded
-/// into the maintenance scheduler (built from `UnifiedProcessorConfig`, which
-/// does not carry queue-health) — deferred, tracked in #143; the default is used
-/// here. The const is compile-time-fixed, so its interpolation into the prune SQL
-/// is injection-safe today; bind it as a parameter when #143 makes it runtime.
-const BASELINE_TTL_SECS: u64 = 2_592_000;
+/// Fallback orphaned-baseline TTL (secs) — the 30-day `QueueHealthConfig`
+/// default ([`default_baseline_ttl_secs`](crate::config::queue_health)). Used
+/// only by [`ControlBaselinePersistTask::new`], the test/back-compat
+/// constructor. Production builds the task with the runtime-configured TTL via
+/// [`ControlBaselinePersistTask::with_ttl_secs`] (#143).
+const DEFAULT_BASELINE_TTL_SECS: u64 = 2_592_000;
 
 /// Persists switchboard slow-lane control values during idle windows.
-pub struct ControlBaselinePersistTask;
+///
+/// Carries the orphaned-baseline TTL (`baseline_ttl_secs`) so the runtime-tuned
+/// `QueueHealthConfig::baseline_ttl_secs` is honored by the TTL prune (#143). The
+/// cutoff is computed in Rust and bound as a query parameter — never
+/// string-interpolated into SQL.
+pub struct ControlBaselinePersistTask {
+    /// Orphaned-baseline TTL in seconds; an orphaned `control_baseline` slow-lane
+    /// row whose `updated_at` is older than `now - baseline_ttl_secs` is pruned.
+    baseline_ttl_secs: u64,
+}
 
 impl ControlBaselinePersistTask {
+    /// Construct with the 30-day default TTL. Test/back-compat path; production
+    /// uses [`with_ttl_secs`](Self::with_ttl_secs) so the configured TTL applies.
     pub fn new() -> Self {
-        Self
+        Self::with_ttl_secs(DEFAULT_BASELINE_TTL_SECS)
+    }
+
+    /// Construct with an explicit orphaned-baseline TTL (secs), threaded from the
+    /// runtime `QueueHealthConfig::baseline_ttl_secs` (#143).
+    pub fn with_ttl_secs(baseline_ttl_secs: u64) -> Self {
+        Self { baseline_ttl_secs }
     }
 
     /// The prune allow-list: exactly the variant names of the `persist: true`
@@ -105,26 +121,47 @@ impl ControlBaselinePersistTask {
     /// Delete aged slow-lane rows whose `(metric_id, labels)` is no longer a live
     /// seeded baseline (DATA-09) — bounds growth across model-label changes
     /// without ever deleting an in-use baseline. `live` is the set just flushed
-    /// this cycle. Every value is bound (injection-safe).
-    async fn ttl_prune(pool: &SqlitePool, live: &[(String, String)]) -> Result<(), sqlx::Error> {
-        let cutoff = format!(
-            "updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-{BASELINE_TTL_SECS} seconds')"
-        );
+    /// this cycle; `ttl_secs` is the runtime-configured age threshold (#143).
+    ///
+    /// The cutoff timestamp (`now - ttl_secs`) is computed in Rust and bound as a
+    /// query PARAMETER — never interpolated into SQL — so the column comparison is
+    /// `updated_at < ?` with the same ISO-8601 millisecond format the table
+    /// stores. Every value is bound (injection-safe).
+    async fn ttl_prune(
+        pool: &SqlitePool,
+        live: &[(String, String)],
+        ttl_secs: u64,
+    ) -> Result<(), sqlx::Error> {
+        let cutoff = Self::cutoff_timestamp(ttl_secs);
         if live.is_empty() {
-            let sql = format!("DELETE FROM control_baseline WHERE lane = 'slow' AND {cutoff}");
-            sqlx::query(&sql).execute(pool).await?;
+            sqlx::query("DELETE FROM control_baseline WHERE lane = 'slow' AND updated_at < ?")
+                .bind(&cutoff)
+                .execute(pool)
+                .await?;
             return Ok(());
         }
         let keep = vec!["(metric_id = ? AND labels = ?)"; live.len()].join(" OR ");
         let sql = format!(
-            "DELETE FROM control_baseline WHERE lane = 'slow' AND {cutoff} AND NOT ({keep})"
+            "DELETE FROM control_baseline \
+             WHERE lane = 'slow' AND updated_at < ? AND NOT ({keep})"
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(&sql).bind(&cutoff);
         for (metric_id, labels) in live {
             q = q.bind(metric_id).bind(labels);
         }
         q.execute(pool).await?;
         Ok(())
+    }
+
+    /// The prune cutoff timestamp: `now - ttl_secs`, formatted to match the
+    /// `control_baseline.updated_at` column exactly. SQLite writes that column
+    /// with `strftime('%Y-%m-%dT%H:%M:%fZ')`, where `%f` is `SS.sss` (seconds with
+    /// three-digit milliseconds), so the chrono mirror is `%S%.3f`. Both are
+    /// fixed-width zero-padded UTC strings, so `updated_at < ?` is a correct
+    /// lexicographic comparison. Bound as a parameter by [`ttl_prune`].
+    fn cutoff_timestamp(ttl_secs: u64) -> String {
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(ttl_secs as i64);
+        cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
     /// Delete rows whose `metric_id` is no longer registered. Placeholders are
@@ -207,7 +244,7 @@ impl MaintenanceTask for ControlBaselinePersistTask {
         if let Err(e) = Self::prune_dead_rows(ctx.pool).await {
             warn!("control_baseline prune failed: {e}");
         }
-        if let Err(e) = Self::ttl_prune(ctx.pool, &live).await {
+        if let Err(e) = Self::ttl_prune(ctx.pool, &live, self.baseline_ttl_secs).await {
             warn!("control_baseline TTL prune failed: {e}");
         }
 
@@ -241,5 +278,123 @@ mod tests {
         let registered = ControlBaselinePersistTask::registered_ids();
         assert!(!registered.contains(&"QueueDlqDepth"));
         assert!(!registered.contains(&"EmbedderBatch"));
+    }
+
+    #[test]
+    fn test_new_uses_default_ttl() {
+        // The default constructor must carry the 30-day fallback so the
+        // back-compat path keeps the historical prune horizon.
+        let task = ControlBaselinePersistTask::new();
+        assert_eq!(task.baseline_ttl_secs, DEFAULT_BASELINE_TTL_SECS);
+        assert_eq!(task.baseline_ttl_secs, 2_592_000);
+    }
+
+    #[test]
+    fn test_with_ttl_secs_overrides_default() {
+        // #143: a runtime-configured TTL must be carried verbatim, not the const.
+        let task = ControlBaselinePersistTask::with_ttl_secs(86_400);
+        assert_eq!(task.baseline_ttl_secs, 86_400);
+    }
+
+    // ── ttl_prune honors the configured TTL (#143) ──────────────────────────
+
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    /// In-memory pool with the `control_baseline` table migrated in.
+    async fn migrated_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::schema_version::SchemaManager::new(pool.clone())
+            .run_migrations()
+            .await
+            .unwrap();
+        pool
+    }
+
+    /// Insert a slow-lane row whose `updated_at` is `age_secs` in the past, using
+    /// SQLite's own clock+format so the stored timestamp matches the column's
+    /// `strftime('%Y-%m-%dT%H:%M:%fZ')` shape exactly.
+    async fn insert_aged_row(pool: &SqlitePool, metric_id: &str, age_secs: i64) {
+        sqlx::query(
+            "INSERT INTO control_baseline \
+                 (metric_id, field, labels, lane, value, sample_count, updated_at) \
+             VALUES (?1, 'f', '{}', 'slow', 1.0, 1, \
+                 strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?2))",
+        )
+        .bind(metric_id)
+        .bind(format!("-{age_secs} seconds"))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn slow_row_count(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM control_baseline WHERE lane = 'slow'")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_ttl_prune_uses_configured_ttl() {
+        // Two orphaned rows: one 2 hours old, one 10 days old. With a 1-day TTL
+        // only the 10-day row is past the cutoff. This proves the runtime TTL —
+        // not the 30-day const — drives the prune (#143).
+        let pool = migrated_pool().await;
+        insert_aged_row(&pool, "Recent", 2 * 3_600).await;
+        insert_aged_row(&pool, "Ancient", 10 * 86_400).await;
+
+        let one_day = 86_400;
+        ControlBaselinePersistTask::ttl_prune(&pool, &[], one_day)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            slow_row_count(&pool).await,
+            1,
+            "only the row older than the 1-day TTL should be pruned"
+        );
+        let survivor: String =
+            sqlx::query_scalar("SELECT metric_id FROM control_baseline WHERE lane = 'slow'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(survivor, "Recent");
+    }
+
+    #[tokio::test]
+    async fn test_ttl_prune_default_ttl_keeps_recent_rows() {
+        // Under the 30-day default, a 10-day-old orphan survives — guards against
+        // a TTL that is silently far shorter than configured.
+        let pool = migrated_pool().await;
+        insert_aged_row(&pool, "Ancient", 10 * 86_400).await;
+
+        ControlBaselinePersistTask::ttl_prune(&pool, &[], DEFAULT_BASELINE_TTL_SECS)
+            .await
+            .unwrap();
+
+        assert_eq!(slow_row_count(&pool).await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_ttl_prune_never_deletes_live_baseline() {
+        // A live (just-flushed) key is protected from the TTL prune even when it
+        // is older than the cutoff — DATA-09 must survive the parameterized rewrite.
+        let pool = migrated_pool().await;
+        insert_aged_row(&pool, "Live", 10 * 86_400).await;
+        let live = vec![("Live".to_string(), "{}".to_string())];
+
+        ControlBaselinePersistTask::ttl_prune(&pool, &live, 86_400)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            slow_row_count(&pool).await,
+            1,
+            "a live baseline is never pruned regardless of age"
+        );
     }
 }
