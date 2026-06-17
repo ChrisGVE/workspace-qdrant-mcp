@@ -339,10 +339,7 @@ impl ProjectServiceImpl {
         // Rename tenant_id across every SQLite table the rename covers today.
         Self::rename_table(&mut tx, "watch_folders", old_tenant_id, new_tenant_id).await?;
         Self::rename_table(&mut tx, "unified_queue", old_tenant_id, new_tenant_id).await?;
-        match Self::rename_table(&mut tx, "tracked_files", old_tenant_id, new_tenant_id).await {
-            Ok(_) => {}
-            Err(_) => warn!("Failed to rename tracked_files during reconcile (non-fatal)"),
-        }
+        // tracked_files has no tenant_id column post-v37 — skip
 
         // Refresh the parent row's git metadata so the recomputed tenancy type
         // is reflected and the background monitor does not re-fire.

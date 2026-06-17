@@ -443,6 +443,10 @@ impl GrpcServer {
                             .clone()
                             .unwrap_or_else(|| Arc::clone(local_storage_client));
                         svc = svc.with_recover_deps(pool, storage);
+                    } else {
+                        tracing::warn!(
+                            "LibraryWriteService RecoverLibrary NOT wired: missing db_pool"
+                        );
                     }
                     svc
                 }),

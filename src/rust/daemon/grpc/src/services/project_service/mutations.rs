@@ -3,7 +3,7 @@
 //! Handles tenant renaming and project deletion.
 
 use tonic::Status;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::proto::{
     DeleteProjectRequest, DeleteProjectResponse, RenameTenantRequest, RenameTenantResponse,
@@ -59,20 +59,7 @@ impl ProjectServiceImpl {
         )
         .await?;
 
-        // tracked_files may not exist in all deployments
-        match Self::rename_table(
-            &mut tx,
-            "tracked_files",
-            &req.old_tenant_id,
-            &req.new_tenant_id,
-        )
-        .await
-        {
-            Ok(rows) => total_rows += rows,
-            Err(_) => {
-                warn!("Failed to update tracked_files (non-fatal)");
-            }
-        }
+        // tracked_files has no tenant_id column post-v37 — skip
 
         tx.commit().await.map_err(|e| {
             error!("Failed to commit rename transaction: {e}");
