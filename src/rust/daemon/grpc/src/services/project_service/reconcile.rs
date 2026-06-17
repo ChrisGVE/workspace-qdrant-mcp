@@ -28,17 +28,25 @@
 //! and either updates the stored path in place or renames the tenant across
 //! every tenant-keyed plane.
 //!
-//! # Cascade coverage boundary (tracked by #140)
+//! # Cascade coverage (automatic vs. manual)
 //!
-//! The tenancy-flip rename reuses the same coverage as the background
-//! `remote_monitor` and the admin `rename_tenant` RPC: SQLite rows are renamed
-//! in `watch_folders`, `unified_queue`, and `tracked_files`, and a Qdrant
-//! cascade-rename is enqueued for the `projects` and `rules` collections.
-//! Other tenant-keyed SQLite tables (`symbol_cooccurrence`, the graph store,
-//! `keywords`, `tags`, `processing_timings`, priority/affinity tables) and
-//! other tenant-keyed Qdrant collections (`scratchpad`, `images`, …) are NOT
-//! yet covered. Expanding that coverage is deferred to the follow-up reconcile
-//! command in #140; see `enqueue_tenant_cascade` below for the precise list.
+//! This *automatic, registration-time* path keeps a deliberately narrow
+//! cascade, matching the background `remote_monitor` and the admin
+//! `rename_tenant` RPC: SQLite rows are renamed in `watch_folders`,
+//! `unified_queue`, and `tracked_files` (the last is a no-op — `tracked_files`
+//! has no `tenant_id` post-v37), and a Qdrant cascade-rename is enqueued for the
+//! `projects` and `rules` collections. This is enough to keep `list`/`search`/
+//! `grep` correct on the common drift cases without doing heavy work inline.
+//!
+//! The *complete* cascade — every tenant-keyed SQLite table
+//! (`symbol_cooccurrence`, `keywords`, `tags`, `keyword_baskets`,
+//! `canonical_tags`, `tag_hierarchy_edges`, `rules_mirror`, `project_groups`,
+//! `project_embeddings`, `processing_timings`), the satellite search.db /
+//! graph.db, and the `projects`/`rules`/`scratchpad`/`images` Qdrant
+//! collections, plus the old→new file-path rewrite — lives in the manual
+//! recover command (#140): `workspace_qdrant_core::recover` +
+//! `project_service::recover`. Reach for `wqm project recover` (or the MCP
+//! `store type:"recover"`) when a full reconcile is wanted.
 
 use std::path::Path;
 

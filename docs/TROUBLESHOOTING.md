@@ -948,10 +948,32 @@ wqm project register .        # or restart the MCP server in this directory
   and a Qdrant cascade-rename is enqueued for the `projects` and `rules`
   collections.
 
-**Known boundary (#140):** the cascade does not yet migrate every tenant-keyed
-table/collection (e.g. `symbol_cooccurrence`, graph store, `keywords`, `tags`,
-`scratchpad`, `images`). Code-graph and scratchpad data keyed under the old id
-may remain stale until #140 lands a full reconcile command.
+**Manual recover with full cascade (#140):** when you want to re-point a project
+explicitly — or rewrite the stored file paths and migrate *every* tenant-keyed
+table and collection — use `wqm project recover`:
+
+```bash
+# Preview: report old->new id/path and the row/point counts, write nothing.
+wqm project recover myproject --new-path /new/location --dry-run
+
+# Re-point a moved project: updates the stored path and rewrites every stored
+# file path old->new in SQLite and Qdrant.
+wqm project recover --new-path /new/location
+
+# Reconcile a tenancy flip (local <-> remote) with full data migration.
+wqm project recover myproject --rescan-remote
+```
+
+Unlike the automatic registration-time reconcile, `recover` migrates the full
+tenant-keyed set: every state.db table (`watch_folders`, `unified_queue`,
+`keywords`, `tags`, `keyword_baskets`, `canonical_tags`, `tag_hierarchy_edges`,
+`rules_mirror`, `symbol_cooccurrence`, `project_groups`, `project_embeddings`,
+`processing_timings`), `file_metadata` in search.db, `graph_nodes`/`graph_edges`
+in graph.db, and the `projects`/`rules`/`scratchpad`/`images` Qdrant collections.
+A path move also rewrites the absolute path payload on every Qdrant point. The
+operation is idempotent (re-running on a consistent project is a no-op) and is
+also reachable from MCP agents via the `store` tool with `type:"recover"`.
+Libraries have the analogous `wqm library recover <tag> --new-path <dir>`.
 
 ### Old Data Not Visible After Migration
 

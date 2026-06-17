@@ -442,6 +442,44 @@ async def heartbeat_loop(project_id: str):
         await asyncio.sleep(30)  # Send every 30 seconds
 ```
 
+#### RecoverProject
+
+Reconcile a drifted project registration (#140): re-point a moved project and/or
+flip its tenancy (local ↔ remote), rewriting stored file paths and migrating all
+tenant_id-keyed data across SQLite and Qdrant.
+
+```protobuf
+rpc RecoverProject(RecoverProjectRequest) returns (RecoverProjectResponse);
+```
+
+**Request:**
+- `project_id`: stored tenant_id of the project to recover
+- `new_path` (optional): new absolute path the project moved to; unset keeps the stored path
+- `rescan_remote`: recompute tenancy from the current git remote (local ↔ remote)
+- `dry_run`: report the planned old→new id/path and row/point counts without writing
+
+**Response:**
+- `success`, `dry_run`, `changed` (false = already consistent, idempotent no-op)
+- `old_tenant_id` / `new_tenant_id`, `old_path` / `new_path`
+- `sqlite_rows_updated`, `qdrant_points_updated`
+- `message`: human-readable summary
+
+**Cascade coverage.** A tenancy flip re-keys every tenant_id-keyed table in
+state.db (`watch_folders`, `unified_queue`, `keywords`, `tags`, `keyword_baskets`,
+`canonical_tags`, `tag_hierarchy_edges`, `rules_mirror`, `symbol_cooccurrence`,
+`project_groups`, `project_embeddings`, `processing_timings`), plus `file_metadata`
+in search.db and `graph_nodes`/`graph_edges` in graph.db, and enqueues a Qdrant
+cascade-rename for the `projects`, `rules`, `scratchpad`, and `images` collections.
+A path move additionally rewrites the absolute path columns/payloads old→new prefix
+(`watch_folders.path`, `unified_queue.file_path`, `file_metadata.file_path`, and the
+Qdrant `file_path`/`absolute_path` payload keys). `tracked_files` and the graph
+store hold paths relative to the watch root and need no path rewrite.
+
+MCP agents reach the same operation through the `store` tool with `type:"recover"`
+(`projectId`, `path` = new path, `rescanRemote`, `dryRun`). The library equivalent
+is `LibraryWriteService.RecoverLibrary` (`wqm library recover`), a path-only
+re-point since a library's tenant_id is its tag.
+
 ---
 
 ## Common Types
