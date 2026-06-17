@@ -127,7 +127,12 @@ impl ControlBaselinePersistTask {
     /// query PARAMETER — never interpolated into SQL — so the column comparison is
     /// `updated_at < ?` with the same ISO-8601 millisecond format the table
     /// stores. Every value is bound (injection-safe).
-    async fn ttl_prune(
+    ///
+    /// Named for the predicate it enforces: prune rows that are BOTH aged past the
+    /// TTL AND absent from the live set (R2/#143). Distinct from
+    /// [`prune_rows_for_unregistered_metrics`](Self::prune_rows_for_unregistered_metrics),
+    /// which keys off the metric registry, not row age.
+    async fn prune_aged_rows_not_in_live_set(
         pool: &SqlitePool,
         live: &[(String, String)],
         ttl_secs: u64,
@@ -158,16 +163,27 @@ impl ControlBaselinePersistTask {
     /// with `strftime('%Y-%m-%dT%H:%M:%fZ')`, where `%f` is `SS.sss` (seconds with
     /// three-digit milliseconds), so the chrono mirror is `%S%.3f`. Both are
     /// fixed-width zero-padded UTC strings, so `updated_at < ?` is a correct
-    /// lexicographic comparison. Bound as a parameter by [`ttl_prune`].
+    /// lexicographic comparison. Bound as a parameter by
+    /// [`prune_aged_rows_not_in_live_set`](Self::prune_aged_rows_not_in_live_set).
     fn cutoff_timestamp(ttl_secs: u64) -> String {
-        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(ttl_secs as i64);
+        // Saturate rather than wrap: a `u64` past `i64::MAX` would cast to a
+        // negative duration, pushing the cutoff into the FUTURE and pruning every
+        // slow-lane row. `i64::MAX` seconds is far beyond any sane TTL, so the
+        // cutoff is effectively "never prune" (L5, #143).
+        let ttl = i64::try_from(ttl_secs).unwrap_or(i64::MAX);
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(ttl);
         cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
     /// Delete rows whose `metric_id` is no longer registered. Placeholders are
     /// generated from the fixed compile-time id count; every value is bound, so
     /// the statement is injection-safe (arch §4c).
-    async fn prune_dead_rows(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    ///
+    /// Named for the predicate it enforces: prune rows whose metric is absent from
+    /// the live registry (R2/#143). Distinct from
+    /// [`prune_aged_rows_not_in_live_set`](Self::prune_aged_rows_not_in_live_set),
+    /// which keys off row age, not the registry.
+    async fn prune_rows_for_unregistered_metrics(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let ids = Self::registered_ids();
         let placeholders = vec!["?"; ids.len()].join(", ");
         let sql = format!("DELETE FROM control_baseline WHERE metric_id NOT IN ({placeholders})");
@@ -241,10 +257,12 @@ impl MaintenanceTask for ControlBaselinePersistTask {
             }
         }
 
-        if let Err(e) = Self::prune_dead_rows(ctx.pool).await {
+        if let Err(e) = Self::prune_rows_for_unregistered_metrics(ctx.pool).await {
             warn!("control_baseline prune failed: {e}");
         }
-        if let Err(e) = Self::ttl_prune(ctx.pool, &live, self.baseline_ttl_secs).await {
+        if let Err(e) =
+            Self::prune_aged_rows_not_in_live_set(ctx.pool, &live, self.baseline_ttl_secs).await
+        {
             warn!("control_baseline TTL prune failed: {e}");
         }
 
@@ -296,7 +314,22 @@ mod tests {
         assert_eq!(task.baseline_ttl_secs, 86_400);
     }
 
-    // ── ttl_prune honors the configured TTL (#143) ──────────────────────────
+    #[test]
+    fn test_cutoff_timestamp_saturates_on_overflow() {
+        // L5/#143: a TTL past i64::MAX must NOT wrap to a negative (future) cutoff
+        // that prunes everything. A saturated cutoff sits far in the PAST, before
+        // any real row, so nothing is pruned.
+        let cutoff = ControlBaselinePersistTask::cutoff_timestamp(u64::MAX);
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        assert!(
+            cutoff < now,
+            "saturated cutoff {cutoff} must be in the past, not after now {now}"
+        );
+    }
+
+    // ── prune_aged_rows_not_in_live_set honors the configured TTL (#143) ─────
 
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -348,7 +381,7 @@ mod tests {
         insert_aged_row(&pool, "Ancient", 10 * 86_400).await;
 
         let one_day = 86_400;
-        ControlBaselinePersistTask::ttl_prune(&pool, &[], one_day)
+        ControlBaselinePersistTask::prune_aged_rows_not_in_live_set(&pool, &[], one_day)
             .await
             .unwrap();
 
@@ -372,9 +405,13 @@ mod tests {
         let pool = migrated_pool().await;
         insert_aged_row(&pool, "Ancient", 10 * 86_400).await;
 
-        ControlBaselinePersistTask::ttl_prune(&pool, &[], DEFAULT_BASELINE_TTL_SECS)
-            .await
-            .unwrap();
+        ControlBaselinePersistTask::prune_aged_rows_not_in_live_set(
+            &pool,
+            &[],
+            DEFAULT_BASELINE_TTL_SECS,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(slow_row_count(&pool).await, 1);
     }
@@ -387,7 +424,7 @@ mod tests {
         insert_aged_row(&pool, "Live", 10 * 86_400).await;
         let live = vec![("Live".to_string(), "{}".to_string())];
 
-        ControlBaselinePersistTask::ttl_prune(&pool, &live, 86_400)
+        ControlBaselinePersistTask::prune_aged_rows_not_in_live_set(&pool, &live, 86_400)
             .await
             .unwrap();
 
@@ -395,6 +432,29 @@ mod tests {
             slow_row_count(&pool).await,
             1,
             "a live baseline is never pruned regardless of age"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ttl_prune_zero_ttl_purges_all_orphans() {
+        // T6 (#143): a zero TTL means "prune everything aged at all". With no live
+        // keys to protect, every slow-lane orphan is removed. Boundary guard so a
+        // zero TTL never silently becomes "keep forever".
+        let pool = migrated_pool().await;
+        insert_aged_row(&pool, "A", 2 * 3_600).await;
+        insert_aged_row(&pool, "B", 10 * 86_400).await;
+        // A freshly-written row (age 0) — the < comparison must still drop it once
+        // a moment passes; give it a 1-second age so the cutoff (now-0) exceeds it.
+        insert_aged_row(&pool, "C", 1).await;
+
+        ControlBaselinePersistTask::prune_aged_rows_not_in_live_set(&pool, &[], 0)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            slow_row_count(&pool).await,
+            0,
+            "a zero TTL prunes every non-live slow-lane orphan"
         );
     }
 }
