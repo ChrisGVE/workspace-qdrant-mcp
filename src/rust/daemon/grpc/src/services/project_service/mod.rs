@@ -14,6 +14,8 @@ mod deactivation;
 pub(crate) mod lsp_lifecycle;
 mod mutations;
 mod queries;
+mod reconcile;
+mod recover;
 mod registration;
 mod worktree;
 
@@ -33,9 +35,9 @@ use crate::proto::{
     project_service_server::ProjectService, DeleteProjectRequest, DeleteProjectResponse,
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, GetProjectGroupsRequest,
     GetProjectGroupsResponse, GetProjectStatusRequest, GetProjectStatusResponse, HeartbeatRequest,
-    HeartbeatResponse, ListProjectsRequest, ListProjectsResponse, RegisterProjectRequest,
-    RegisterProjectResponse, RenameTenantRequest, RenameTenantResponse, ResolveSearchScopeRequest,
-    ResolveSearchScopeResponse,
+    HeartbeatResponse, ListProjectsRequest, ListProjectsResponse, RecoverProjectRequest,
+    RecoverProjectResponse, RegisterProjectRequest, RegisterProjectResponse, RenameTenantRequest,
+    RenameTenantResponse, ResolveSearchScopeRequest, ResolveSearchScopeResponse,
 };
 
 use workspace_qdrant_core::{
@@ -286,6 +288,15 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<DeleteProjectResponse>, Status> {
         let req = request.into_inner();
         self.handle_delete_project(req).await.map(Response::new)
+    }
+
+    #[tracing::instrument(skip_all, fields(method = "ProjectService.recover_project"))]
+    async fn recover_project(
+        &self,
+        request: Request<RecoverProjectRequest>,
+    ) -> Result<Response<RecoverProjectResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_recover_project(req).await.map(Response::new)
     }
 
     #[tracing::instrument(skip_all, fields(method = "ProjectService.get_project_groups"))]

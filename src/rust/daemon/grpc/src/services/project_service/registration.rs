@@ -37,8 +37,11 @@ use wqm_common::project_id::detect_git_remote;
 use super::worktree::WorktreeResult;
 use super::ProjectServiceImpl;
 
-/// Result of determining what action to take for a registration request
-enum RegistrationAction {
+/// Result of determining what action to take for a registration request.
+///
+/// `pub(super)` so the sibling `reconcile` module can return it from the
+/// reconciliation glue (`reconcile_then_classify`).
+pub(super) enum RegistrationAction {
     /// Project exists, session registered (high priority)
     ExistingActivated,
     /// Project exists, no activation change (normal priority)
@@ -168,7 +171,13 @@ impl ProjectServiceImpl {
         );
 
         let action = self
-            .determine_registration_action(&project_id, &req, is_high_priority, &effective_path)
+            .determine_registration_action(
+                &project_id,
+                &req,
+                is_high_priority,
+                &effective_path,
+                effective_git_remote.as_deref(),
+            )
             .await?;
 
         let watch_meta = self
@@ -358,7 +367,25 @@ impl ProjectServiceImpl {
         req: &RegisterProjectRequest,
         is_high_priority: bool,
         effective_path: &Path,
+        effective_git_remote: Option<&str>,
     ) -> Result<RegistrationAction, Status> {
+        // Reconcile by path before any id-only decision (#138/#139). This
+        // updates a moved project's stored path and renames the tenant when
+        // the tenancy type flipped (local <-> remote), so that neither shows
+        // up as a brand-new project below. After a successful reconcile the
+        // project is, by definition, an existing one.
+        if let Some(action) = self
+            .reconcile_then_classify(
+                project_id,
+                is_high_priority,
+                effective_path,
+                effective_git_remote,
+            )
+            .await?
+        {
+            return Ok(action);
+        }
+
         if self.project_exists(project_id).await? {
             if is_high_priority {
                 match self

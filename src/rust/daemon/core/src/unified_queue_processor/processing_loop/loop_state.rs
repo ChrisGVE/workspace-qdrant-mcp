@@ -44,11 +44,25 @@ pub(super) struct LoopState {
     /// Poll-local outcome ring for the B4 all-items-failing predicate (kept
     /// local, never shared, so B4 needs no shared `Mutex` — PERF-08).
     pub outcome_ring: VecDeque<PollOutcome>,
+    /// Whether the previous poll actually dispatched a non-empty batch. Read by
+    /// the next poll's `update_health_probes` (which runs pre-dequeue, so it
+    /// carries a one-poll lag): when the last poll dispatched nothing yet a
+    /// backlog remains, throughput is emitted as 0 so the slow lane decays
+    /// instead of freezing at a stale healthy rate during a circuit-breaker
+    /// stall (#144). Starts `true` so a fresh start emits no spurious zero before
+    /// the first poll has run.
+    pub last_poll_dispatched: bool,
 }
 
 impl LoopState {
     /// Initialise loop state from processor configuration.
-    pub(super) fn new(config: &UnifiedProcessorConfig) -> Self {
+    ///
+    /// `baseline_ttl_secs` is the runtime-configured `control_baseline` prune
+    /// horizon (`QueueHealthConfig::baseline_ttl_secs`), threaded in so the
+    /// persist task honors the tuned value rather than a hardcoded const (#143).
+    /// It is separate from `UnifiedProcessorConfig`, which does not carry
+    /// queue-health settings.
+    pub(super) fn new(config: &UnifiedProcessorConfig, baseline_ttl_secs: u64) -> Self {
         let uplift_config = crate::metadata_uplift::UpliftConfig::default();
 
         let last_resurrection = std::time::Instant::now()
@@ -84,7 +98,9 @@ impl LoopState {
             crate::idle::tasks::ElaboratesMaintenanceTask::new(),
         ));
         maintenance_scheduler.register(Box::new(
-            crate::switchboard::persist_task::ControlBaselinePersistTask::new(),
+            crate::switchboard::persist_task::ControlBaselinePersistTask::with_ttl_secs(
+                baseline_ttl_secs,
+            ),
         ));
 
         Self {
@@ -104,6 +120,7 @@ impl LoopState {
             prev_dlq: None,
             dlq_samples_seen: 0,
             outcome_ring: VecDeque::new(),
+            last_poll_dispatched: true,
         }
     }
 }

@@ -1,0 +1,252 @@
+# Gold dataset — workspace-qdrant semantic-search quality eval (#135)
+#
+# Located at: src/rust/cli/src/commands/benchmark/quality/benchmark-data/
+# Loaded by:  dataset.rs (compiled in via include_str!)
+#
+# Curated known-item questions that a good search over THIS repository should
+# answer. Every expectedFile is a current, on-disk Rust-tree path (or a glob over
+# such paths) verified to exist on 2026-06-17 — the dataset is a fresh re-curation
+# for the Rust codebase, NOT a port of the deleted TypeScript gold (whose paths
+# pointed at the removed src/typescript/ tree).
+#
+# Categories are derived from the query-id prefix (see dataset.rs::category_of):
+#   (no/unknown prefix) -> orig   general known-item lookups
+#   sym-                          identifier/symbol lookups (BM25/sparse leg)
+#   impl-                         implementation-seeking conceptual queries
+#   doc-                          documentation / ADR / spec lookups
+#   real-                         terse, keyword-shaped real-agent phrasing
+#   pt-                           Portuguese (EXPECTED-WEAK, see below)
+#
+# Portuguese (pt-) note: the embedding model is English-only, so PT queries
+# mostly miss. A small pt- set is included ONLY as a visible multilingual-gap
+# probe — its low hit rate is EXPECTED and is surfaced per-category so it never
+# silently drags the aggregate verdict (which grades the semantic mode over all
+# queries). Grow or drop it when a multilingual model lands.
+
+name: workspace-qdrant semantic search quality (Rust)
+description: >-
+  Known-item queries over the workspace-qdrant Rust tree. expectedFiles verified
+  on disk 2026-06-17. Categories by id prefix: orig/sym/impl/doc/real, plus a
+  small expected-weak pt- (Portuguese) multilingual-gap probe.
+defaults:
+  scope: project
+  collection: projects
+  includeLibraries: false
+  limit: 10
+
+queries:
+  # ── Original known-item set (orig) ───────────────────────────────────────
+  - id: project-id-resolution
+    query: How does the CLI resolve the project tenant id for a project-scoped search?
+    expectedFiles:
+      - src/rust/cli/src/commands/search/hybrid.rs
+      - src/rust/common/src/project_id/calculator.rs
+
+  - id: hybrid-rrf
+    query: Where are dense and sparse search results combined with reciprocal rank fusion?
+    expectedFiles:
+      - src/rust/client/src/search/flow.rs
+
+  - id: graph-context
+    query: Where does the search pipeline augment results with graph context and fusion?
+    expectedFiles:
+      - src/rust/client/src/search/graph_fusion.rs
+      - src/rust/client/src/search/flow.rs
+
+  - id: embedding-provider-health
+    query: How does the daemon report the health of the active embedding provider?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/provider/health_monitor.rs
+
+  - id: queue-metrics
+    query: Where is queue throughput measured in the unified queue processor?
+    expectedFiles:
+      - src/rust/daemon/core/src/unified_queue_processor/metrics.rs
+
+  - id: search-instrumentation
+    query: How are search events logged for pipeline instrumentation?
+    expectedFiles:
+      - src/rust/client/src/grpc/search_event_methods.rs
+      - src/rust/daemon/core/src/search_events_schema.rs
+
+  - id: schema-migrations
+    query: Where does the daemon register and run SQLite schema migrations?
+    expectedFiles:
+      - src/rust/daemon/core/src/schema_version/mod.rs
+
+  - id: exact-search-fts5
+    query: Where does the client run an FTS5 exact keyword search through the daemon?
+    expectedFiles:
+      - src/rust/client/src/search/exact.rs
+
+  # ── Identifier/symbol lookups (sym-) ─────────────────────────────────────
+  # The sparse/BM25 leg should carry these; misses usually mean tokenizer gaps.
+  - id: sym-recover-stale-leases
+    query: recover_stale_unified_leases startup lease recovery
+    expectedFiles:
+      - src/rust/daemon/core/src/queue_operations/dequeue.rs
+
+  - id: sym-resolve-stub-edges
+    query: resolve_stub_edges name-based graph edge resolution
+    expectedFiles:
+      - src/rust/daemon/core/src/graph/sqlite_store.rs
+
+  - id: sym-run-search-pipeline
+    query: run_search_pipeline hybrid semantic keyword flow
+    expectedFiles:
+      - src/rust/client/src/search/flow.rs
+
+  - id: sym-trigger-reembed
+    query: TriggerReembed drop and recreate collections admin handler
+    expectedFiles:
+      - src/rust/daemon/grpc/src/services/admin_write_service.rs
+      - src/rust/daemon/grpc/src/services/reembed/pipeline.rs
+
+  - id: sym-log-search-event
+    query: log_search_event fire-and-forget search instrumentation
+    expectedFiles:
+      - src/rust/client/src/grpc/search_event_methods.rs
+
+  - id: sym-idempotency-key
+    query: idempotency key hashing for queue items
+    expectedFiles:
+      - src/rust/common/src/hashing.rs
+
+  # ── Implementation-seeking conceptual queries (impl-) ────────────────────
+  # The expected file is the implementation, not docs/tests with the same words.
+  - id: impl-bm25-tokenizer
+    query: Where is the BM25 tokenizer that splits and filters terms for sparse vectors?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/bm25.rs
+
+  - id: impl-fastembed-dense
+    query: Where does the daemon generate dense embeddings with FastEmbed ONNX?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/provider/fastembed.rs
+
+  - id: impl-remote-embeddings
+    query: Where is the OpenAI-compatible remote embedding provider implemented?
+    expectedFiles:
+      - src/rust/daemon/core/src/embedding/provider/openai.rs
+
+  - id: impl-chunk-payload
+    query: Which code builds the Qdrant point payload with chunk symbol metadata?
+    expectedFiles:
+      - src/rust/daemon/core/src/strategies/processing/file/chunk_embed/payload.rs
+
+  - id: impl-branch-detection
+    query: Where does the daemon detect the current git branch?
+    expectedFiles:
+      - src/rust/daemon/core/src/git/branch_detector.rs
+
+  - id: impl-branch-switch
+    query: Where is a git branch switch handled to re-scope the index?
+    expectedFiles:
+      - src/rust/daemon/core/src/branch_switch/handlers.rs
+
+  - id: impl-chunking
+    query: Where is source code split into semantic chunks by function and class?
+    expectedFiles:
+      - src/rust/daemon/core/src/tree_sitter/chunker/mod.rs
+
+  - id: impl-qdrant-upsert
+    query: Where does the daemon upsert embedded points into Qdrant collections?
+    expectedFiles:
+      - src/rust/daemon/core/src/write_actor/actor.rs
+      - src/rust/daemon/core/src/strategies/processing/file/ingest.rs
+
+  - id: impl-queue-retry
+    query: Where does the queue apply retry and backoff for items that failed?
+    expectedFiles:
+      - src/rust/daemon/core/src/queue_operations/update.rs
+
+  - id: impl-fts5-exact
+    query: Where is the FTS5 query built for exact substring search?
+    # Any file of the exact_search module answers this — the live search returns
+    # sibling files (mod.rs / search.rs) at adjacent ranks, so the glob accepts
+    # the whole module rather than scoring a correct sibling hit as a miss.
+    expectedFiles:
+      - "src/rust/daemon/core/src/text_search/exact_search/*.rs"
+
+  - id: impl-grpc-proto
+    query: Where are the gRPC services for the daemon defined?
+    expectedFiles:
+      - "**/proto/workspace_daemon.proto"
+
+  - id: impl-cli-queue-stats
+    query: Which CLI command implementation shows queue statistics?
+    expectedFiles:
+      - src/rust/cli/src/commands/queue/stats.rs
+
+  # ── Documentation / spec lookups (doc-) ──────────────────────────────────
+  - id: doc-canonical-collections
+    query: Which ADR defines the canonical collection architecture?
+    expectedFiles:
+      - docs/adr/ADR-001-canonical-collection-architecture.md
+
+  - id: doc-daemon-writes
+    query: Which ADR establishes that only the daemon writes to Qdrant?
+    expectedFiles:
+      - docs/adr/ADR-002-daemon-only-write-policy.md
+
+  - id: doc-daemon-owns-sqlite
+    query: Which ADR makes the daemon the sole owner of the SQLite schema?
+    expectedFiles:
+      - docs/adr/ADR-003-daemon-owns-sqlite.md
+
+  - id: doc-write-path
+    query: Which spec describes the enqueue-only write path through the unified queue?
+    expectedFiles:
+      - docs/specs/04-write-path.md
+
+  - id: doc-search-instrumentation
+    query: Which spec documents the search instrumentation events?
+    expectedFiles:
+      - docs/specs/09-search-instrumentation.md
+
+  # ── Real agent queries (real-) ───────────────────────────────────────────
+  # Terse, keyword-shaped phrasing agents actually use (vs. the curated
+  # natural-language style above). Mining recipe — grow this category as
+  # organic history accumulates:
+  #   SELECT query_text, COUNT(*) FROM search_events
+  #   WHERE project_id = ? AND op = 'search' AND actor != 'benchmark'
+  #   GROUP BY query_text ORDER BY MAX(ts) DESC
+  # The harness tags its own traffic actor='benchmark' precisely so this query
+  # stays clean (migration v47 admits that actor).
+  - id: real-rrf-keywords
+    query: reciprocal rank fusion dense sparse
+    expectedFiles:
+      - src/rust/client/src/search/flow.rs
+
+  - id: real-queue-status
+    query: queue processing status enum
+    expectedFiles:
+      - src/rust/common/src/queue_types/status.rs
+
+  - id: real-text-search-service
+    query: text search service grpc
+    expectedFiles:
+      - src/rust/daemon/grpc/src/services/text_search_service.rs
+
+  - id: real-search-events-schema
+    query: search_events table schema actor
+    expectedFiles:
+      - src/rust/daemon/core/src/search_events_schema.rs
+
+  # ── Portuguese (pt-) — EXPECTED-WEAK multilingual-gap probe ───────────────
+  # English-only embedding model: these mostly miss. Low hit rate is EXPECTED
+  # and reported per-category; it must not be read as a regression.
+  - id: pt-deteccao-branch
+    query: Como o daemon detecta a mudança de branch do git?
+    expectedFiles:
+      - src/rust/daemon/core/src/git/branch_detector.rs
+
+  - id: pt-chunking-arvore
+    query: Onde o código é dividido em chunks semânticos por função e classe?
+    expectedFiles:
+      - src/rust/daemon/core/src/tree_sitter/chunker/mod.rs
+
+  - id: pt-idempotencia
+    query: Onde a chave de idempotência dos itens da fila é calculada?
+    expectedFiles:
+      - src/rust/common/src/hashing.rs

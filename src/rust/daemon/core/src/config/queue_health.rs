@@ -48,9 +48,16 @@ fn default_qdrant_probe_timeout_secs() -> u64 {
 fn default_drain_snapshot_max_age_secs() -> u64 {
     15
 }
-fn default_baseline_ttl_secs() -> u64 {
+/// Default persisted-baseline prune horizon: 30 days. Public so the queue
+/// processing loop can fall back to it when queue-health is disabled and no
+/// `EwmaState` carries a configured TTL (#143).
+pub fn default_baseline_ttl_secs() -> u64 {
     2_592_000 // 30 days
 }
+/// Upper bound on the persisted-baseline TTL: 10 years. A TTL beyond any sane
+/// horizon is almost always a misconfiguration (and risks the `cutoff_timestamp`
+/// arithmetic edge); reject it at load (L5/#143).
+const MAX_BASELINE_TTL_SECS: u64 = 10 * 365 * 86_400; // 10 years
 fn default_debounce_window() -> usize {
     5
 }
@@ -262,10 +269,17 @@ impl QueueHealthConfig {
             );
         }
         // 30-day default; never accept a TTL shorter than a day (would risk
-        // pruning an in-use baseline before the next idle flush).
+        // pruning an in-use baseline before the next idle flush), nor longer than
+        // 10 years (almost certainly a misconfiguration, L5/#143).
         if self.baseline_ttl_secs < 86_400 {
             return Err(format!(
                 "baseline_ttl_secs must be at least 86400 (1 day) (got {})",
+                self.baseline_ttl_secs
+            ));
+        }
+        if self.baseline_ttl_secs > MAX_BASELINE_TTL_SECS {
+            return Err(format!(
+                "baseline_ttl_secs must be at most {MAX_BASELINE_TTL_SECS} (10 years) (got {})",
                 self.baseline_ttl_secs
             ));
         }
@@ -463,6 +477,33 @@ mod tests {
             ..Default::default()
         };
         assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_baseline_ttl_above_ten_years() {
+        // L5/#143: an absurdly large TTL is a misconfiguration and must be
+        // rejected at load rather than silently accepted (and then saturated).
+        let c = QueueHealthConfig {
+            baseline_ttl_secs: MAX_BASELINE_TTL_SECS + 1,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+
+        // u64::MAX (the wrap-prone extreme) is likewise rejected.
+        let c = QueueHealthConfig {
+            baseline_ttl_secs: u64::MAX,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_baseline_ttl_at_ten_year_cap() {
+        let c = QueueHealthConfig {
+            baseline_ttl_secs: MAX_BASELINE_TTL_SECS,
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
     }
 
     #[test]

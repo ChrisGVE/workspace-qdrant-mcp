@@ -65,7 +65,15 @@ impl UnifiedQueueProcessor {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut resource_profile_rx = resource_profile_rx;
         let metrics_log_interval = ChronoDuration::minutes(1);
-        let mut state = LoopState::new(&config);
+        // The persisted-baseline prune horizon lives in `QueueHealthConfig`, which
+        // rides on the `EwmaState` rather than `UnifiedProcessorConfig`. Thread it
+        // into loop state so the persist task honors the configured TTL (#143);
+        // fall back to the config default when queue-health is disabled.
+        let baseline_ttl_secs = ewma_state
+            .as_ref()
+            .map(|s| s.config().baseline_ttl_secs)
+            .unwrap_or_else(crate::config::queue_health::default_baseline_ttl_secs);
+        let mut state = LoopState::new(&config, baseline_ttl_secs);
 
         info!(
             "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, \
@@ -336,6 +344,10 @@ impl UnifiedQueueProcessor {
             .await
         {
             Ok(items) if items.is_empty() => {
+                // No backlog dequeued — nothing dispatched this poll. The next
+                // poll's health probe uses this to emit a zero throughput sample
+                // if a backlog nonetheless remains (#144).
+                state.last_poll_dispatched = false;
                 run_idle_work(
                     state,
                     config,
@@ -386,6 +398,9 @@ impl UnifiedQueueProcessor {
                 .await
             }
             Err(e) => {
+                // Dequeue failed (e.g. SQLite busy) — no batch dispatched. Mark it
+                // so the next poll zeroes throughput if a backlog persists (#144).
+                state.last_poll_dispatched = false;
                 error!("Failed to dequeue unified batch: {}", e);
                 if let Some(ref h) = queue_health {
                     h.record_error();
@@ -433,6 +448,8 @@ impl UnifiedQueueProcessor {
             items.len()
         );
         if cancellation_token.is_cancelled() {
+            // Shutting down before any work moved — not a real dispatch (#144).
+            state.last_poll_dispatched = false;
             warn!("Shutdown requested, stopping unified batch processing");
             return false;
         }
@@ -466,8 +483,16 @@ impl UnifiedQueueProcessor {
         )
         .await
         {
-            Err(()) => false,
+            Err(()) => {
+                // The batch failed (e.g. a breaker tripped mid-flight): no work
+                // drained, so the next poll zeroes the throughput lane (#144).
+                state.last_poll_dispatched = false;
+                false
+            }
             Ok(tenants) => {
+                // A batch actually moved — the throughput lane is fed live, so the
+                // next poll must NOT inject a spurious zero (#144).
+                state.last_poll_dispatched = true;
                 update_tenant_activity(&tenants, queue_manager).await;
                 if state.recovery_ramp_remaining > 0 {
                     state.recovery_ramp_remaining -= 1;

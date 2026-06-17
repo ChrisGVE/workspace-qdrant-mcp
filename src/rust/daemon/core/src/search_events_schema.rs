@@ -2,6 +2,13 @@
 //!
 //! Logs all search operations across tools (MCP, grep, ripgrep, etc.)
 //! for pipeline instrumentation and behavior analysis.
+//!
+//! The `actor` column distinguishes who issued a search. The quality eval
+//! harness (`wqm benchmark search-quality`, #135) tags its own traffic with
+//! `actor = 'benchmark'` so organic-query mining can exclude it — see
+//! migration v47, which relaxed the `actor` CHECK to admit that value on
+//! databases created before #135. Fresh installs pick the relaxed CHECK up
+//! directly from this constant via migration v12.
 
 /// SQL to create the search_events table
 pub const CREATE_SEARCH_EVENTS_SQL: &str = r#"
@@ -10,7 +17,7 @@ CREATE TABLE IF NOT EXISTS search_events (
     ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     session_id TEXT,
     project_id TEXT,
-    actor TEXT NOT NULL CHECK (actor IN ('claude', 'user', 'daemon')),
+    actor TEXT NOT NULL CHECK (actor IN ('claude', 'user', 'daemon', 'benchmark')),
     tool TEXT NOT NULL CHECK (tool IN ('mcp_qdrant', 'rg', 'grep', 'ctags', 'lsp', 'filesearch')),
     op TEXT NOT NULL CHECK (op IN ('search', 'expand', 'open', 'followup')),
     query_text TEXT,
@@ -24,6 +31,19 @@ CREATE TABLE IF NOT EXISTS search_events (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 )
 "#;
+
+/// The canonical `actor` values the `search_events.actor` CHECK admits. The
+/// server-side `LogSearchEvent` allow-list validation reuses these so a bad
+/// value is rejected with a clear error instead of being silently dropped by the
+/// SQLite CHECK (#135). Kept in lock-step with the CHECK clause above — the
+/// `schema_check_lists_match_allowed_consts` test fails if they ever diverge.
+pub const ALLOWED_ACTORS: &[&str] = &["claude", "user", "daemon", "benchmark"];
+
+/// The canonical `tool` values the `search_events.tool` CHECK admits (#135).
+pub const ALLOWED_TOOLS: &[&str] = &["mcp_qdrant", "rg", "grep", "ctags", "lsp", "filesearch"];
+
+/// The canonical `op` values the `search_events.op` CHECK admits (#135).
+pub const ALLOWED_OPS: &[&str] = &["search", "expand", "open", "followup"];
 
 /// Indexes for the search_events table
 pub const CREATE_SEARCH_EVENTS_INDEXES_SQL: &[&str] = &[
@@ -64,6 +84,40 @@ mod tests {
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("actor TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("tool TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("op TEXT NOT NULL"));
+    }
+
+    #[test]
+    fn test_actor_check_admits_benchmark() {
+        // The eval harness (#135) tags its searches with actor='benchmark';
+        // the CHECK must list it alongside the organic actors. Migration v47
+        // relaxes the same constraint on pre-#135 databases.
+        assert!(CREATE_SEARCH_EVENTS_SQL.contains("'benchmark'"));
+        for actor in ["'claude'", "'user'", "'daemon'", "'benchmark'"] {
+            assert!(
+                CREATE_SEARCH_EVENTS_SQL.contains(actor),
+                "actor CHECK must admit {actor}"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_check_lists_match_allowed_consts() {
+        // Single-source guard (#135): the allow-list constants reused by the
+        // gRPC LogSearchEvent validation must list exactly the same values the
+        // SQLite CHECK clauses do. If a CHECK gains/loses a value, the matching
+        // const must be updated in the same change or this fails.
+        for (values, column) in [
+            (ALLOWED_ACTORS, "actor"),
+            (ALLOWED_TOOLS, "tool"),
+            (ALLOWED_OPS, "op"),
+        ] {
+            for value in values {
+                assert!(
+                    CREATE_SEARCH_EVENTS_SQL.contains(&format!("'{value}'")),
+                    "{column} CHECK must list '{value}' (allow-list/const drift)"
+                );
+            }
+        }
     }
 
     #[test]

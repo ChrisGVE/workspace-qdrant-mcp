@@ -258,6 +258,7 @@ Manage project registration and lifecycle within the daemon.
 | `activate [project]` | Activate a project |
 | `deactivate [project]` | Deactivate a project |
 | `check [project]` | Check ingestion status vs filesystem |
+| `recover [project]` | Reconcile a drifted project registration (#140) |
 | `watch <action>` | Watch folder management |
 | `branch <action>` | Branch management |
 
@@ -297,6 +298,35 @@ All `[project]` arguments accept a project ID or path. When omitted, the current
 |------|-------------|
 | `-v, --verbose` | Show per-file status |
 | `--json` | Output as JSON |
+
+**`wqm project recover`**
+
+Reconcile a drifted project registration — re-point a moved project and/or recompute its tenancy (local ↔ remote), rewriting stored file paths and migrating tenant_id-keyed data across SQLite and Qdrant. The daemon does the work via the `RecoverProject` gRPC RPC; this command resolves the target project, sends the request, and renders the result. Re-running on an already-consistent registration is a no-op (idempotent).
+
+| Flag | Description |
+|------|-------------|
+| `--new-path <DIR>` | New absolute filesystem path the project has moved to |
+| `--rescan-remote` | Recompute tenancy by re-reading the current git remote (local ↔ remote tenant_id flip) |
+| `--dry-run` | Report planned old→new id/path and row/point counts without writing anything |
+
+**Examples**
+
+```sh
+# Preview what would change for the project in the current directory (no writes)
+wqm project recover --dry-run
+
+# Re-point a project that has moved, previewing first
+wqm project recover --new-path /new/location/myproject --dry-run
+
+# Apply the re-point (rewrites stored paths in SQLite and Qdrant)
+wqm project recover --new-path /new/location/myproject
+
+# Recompute tenancy after the project gained a git remote
+wqm project recover --rescan-remote
+
+# Target a specific project by ID rather than cwd
+wqm project recover abc123tenant --new-path /new/location/myproject --dry-run
+```
 
 **`wqm project watch`**
 
@@ -388,11 +418,31 @@ Manage reference libraries — external documentation, PDFs, and other content i
 | `unwatch <tag>` | Stop watching a library |
 | `remove <tag>` | Remove a library and all its vectors |
 | `rescan <tag>` | Rescan and re-ingest a library |
+| `recover <tag>` | Re-point a library to a new source path (#140) |
 | `info [tag]` | Show library information |
 | `status` | Show watch status for all libraries |
 | `ingest <file>` | Ingest a single document into a library |
 | `config <tag>` | Configure library settings |
 | `set-incremental <files...>` | Set or clear the incremental flag on tracked files |
+
+**`wqm library recover`**
+
+Re-point a library to a new source path, rewriting stored absolute file paths old→new in state.db, search.db, and Qdrant. A library's tenant_id is its tag, so re-pointing never changes tenancy — only paths are rewritten. The daemon performs the work via the `RecoverLibrary` gRPC RPC. Re-running when the stored path already matches is a no-op (idempotent).
+
+| Flag | Description |
+|------|-------------|
+| `--new-path <DIR>` | New absolute filesystem path the library has moved to |
+| `--dry-run` | Report planned path change and row/point counts without writing anything |
+
+**Examples**
+
+```sh
+# Preview what would change for library "rust-docs" (no writes)
+wqm library recover rust-docs --new-path /new/location/rust-docs --dry-run
+
+# Apply the re-point (rewrites stored paths in SQLite and Qdrant)
+wqm library recover rust-docs --new-path /new/location/rust-docs
+```
 
 **`wqm library list`**
 
@@ -1149,14 +1199,32 @@ Diagnostic tools for troubleshooting.
 
 ### `wqm benchmark`
 
-Internal benchmarking tools for performance testing.
+Internal benchmarking tools for performance and search-quality testing.
 
 **Subcommands**
 
 | Subcommand | Description |
 |------------|-------------|
-| `sparse-vectors` | Benchmark sparse vector generation |
-| `search-engines` | Benchmark search engine performance |
+| `sparse` | Compare BM25 vs SPLADE++ sparse vector quality |
+| `search` | Compare FTS5 search-DB **latency** vs ripgrep |
+| `search-quality` | Measure search **quality** (hit-rate) against a curated gold set |
+
+`search` measures speed; `search-quality` measures whether the right files
+come back. The quality eval runs known-item queries through the live
+semantic/hybrid/exact pipeline and reports hit@k / recall@10 / MRR /
+duplicate-rate per mode, a per-category breakdown, and a quality verdict.
+
+```bash
+# Run the quality eval against the bundled gold set (from a registered project)
+wqm benchmark search-quality
+
+# Use a custom gold dataset and write the JSON report
+wqm benchmark search-quality --dataset my-gold.yaml --output report.json
+```
+
+See [docs/testing/semantic-search-benchmarking.md](../testing/semantic-search-benchmarking.md)
+for the gold-set format, categories, verdict thresholds, and the organic-query
+mining recipe.
 
 ---
 

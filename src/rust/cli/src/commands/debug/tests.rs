@@ -384,12 +384,18 @@ mod tests {
     fn test_read_log_files_filtered_with_rotated() {
         let dir = TempDir::new().unwrap();
 
-        // Write old entries to rotated file
+        // Write old entries to rotated file. The timestamp is relative to now
+        // (180 days ago) rather than a fixed date so the entry stays inside the
+        // `since = now - 365 days` window below regardless of the current date —
+        // a previously hardcoded 2025-06-15 became a time-bomb that fell out of
+        // the window once a year had passed.
         {
             let mut f = File::create(dir.path().join("test.jsonl.1")).unwrap();
+            let old = (Utc::now() - Duration::days(180)).to_rfc3339();
             writeln!(
                 f,
-                r#"{{"timestamp":"2025-06-15T08:00:00Z","level":"ERROR","msg":"old error"}}"#
+                r#"{{"timestamp":"{}","level":"ERROR","msg":"old error"}}"#,
+                old
             )
             .unwrap();
         }

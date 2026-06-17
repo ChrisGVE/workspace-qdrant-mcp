@@ -134,6 +134,29 @@ impl StoreDaemon for MockStoreDaemon {
         self.enqueue_result.clone()
     }
 
+    async fn recover_project(
+        &mut self,
+        project_id: &str,
+        new_path: Option<&str>,
+        rescan_remote: bool,
+        dry_run: bool,
+    ) -> Result<String, String> {
+        self.calls.lock().unwrap().push(Call {
+            method: "recover_project".to_string(),
+            args: vec![
+                project_id.to_string(),
+                new_path.unwrap_or("").to_string(),
+                rescan_remote.to_string(),
+                dry_run.to_string(),
+            ],
+        });
+        Ok(format!(
+            "Recovered project {project_id} (new_path={:?}, rescan_remote={rescan_remote}, \
+             dry_run={dry_run})",
+            new_path
+        ))
+    }
+
     async fn upsert_scratchpad_mirror(
         &mut self,
         scratchpad_id: String,
@@ -283,6 +306,73 @@ async fn project_success_existing_project() {
         .as_str()
         .unwrap()
         .contains("already registered"));
+}
+
+// --- store type=recover (#140) ----------------------------------------------
+
+#[tokio::test]
+async fn recover_missing_project_id_returns_error() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "recover", "path": "/new/proj" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(extract_text(&result).contains("projectId is required"));
+}
+
+#[tokio::test]
+async fn recover_daemon_not_connected_returns_error() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({ "type": "recover", "projectId": "t1", "path": "/new/proj" }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, false).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(extract_text(&result).contains("Daemon is not connected"));
+}
+
+#[tokio::test]
+async fn recover_forwards_args_to_daemon() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    let args = make_args(json!({
+        "type": "recover",
+        "projectId": "tenant-xyz",
+        "path": "/new/proj",
+        "rescanRemote": true,
+        "dryRun": true
+    }));
+    let input = StoreInput::from_args(&args, None);
+    let result = store_tool(input, &mut daemon, None, true).await;
+
+    assert!(result.is_error.is_none());
+    let j = extract_json(&result);
+    assert_eq!(j["success"], json!(true));
+
+    let calls = daemon.calls.lock().unwrap();
+    let call = calls
+        .iter()
+        .find(|c| c.method == "recover_project")
+        .unwrap();
+    assert_eq!(call.args[0], "tenant-xyz");
+    assert_eq!(call.args[1], "/new/proj");
+    assert_eq!(call.args[2], "true"); // rescan_remote
+    assert_eq!(call.args[3], "true"); // dry_run
+}
+
+#[tokio::test]
+async fn recover_uses_session_project_when_for_project() {
+    let mut daemon = MockStoreDaemon::ok("q1");
+    // forProject=true routes the session project into project_id.
+    let args = make_args(json!({ "type": "recover", "forProject": true }));
+    let input = StoreInput::from_args(&args, Some("session-proj-001"));
+    let result = store_tool(input, &mut daemon, Some("session-proj-001"), true).await;
+
+    assert!(result.is_error.is_none());
+    let calls = daemon.calls.lock().unwrap();
+    let call = calls
+        .iter()
+        .find(|c| c.method == "recover_project")
+        .unwrap();
+    assert_eq!(call.args[0], "session-proj-001");
 }
 
 #[tokio::test]

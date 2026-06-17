@@ -80,7 +80,10 @@ fn store_no_required_fields() {
 fn store_type_enum_values() {
     let s = schema_for("store");
     let enums = enum_vals(prop(&s, "type"));
-    assert_eq!(enums, vec!["library", "url", "scratchpad", "project"]);
+    assert_eq!(
+        enums,
+        vec!["library", "url", "scratchpad", "project", "recover"]
+    );
 }
 
 #[test]

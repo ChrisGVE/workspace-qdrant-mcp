@@ -17,8 +17,8 @@ use tonic::Status;
 
 use wqm_proto::workspace_daemon::{
     DeprioritizeProjectRequest, DeprioritizeProjectResponse, HeartbeatRequest, HeartbeatResponse,
-    RegisterProjectRequest, RegisterProjectResponse, ResolveSearchScopeRequest,
-    ResolveSearchScopeResponse,
+    RecoverProjectRequest, RecoverProjectResponse, RegisterProjectRequest, RegisterProjectResponse,
+    ResolveSearchScopeRequest, ResolveSearchScopeResponse,
 };
 
 use super::client::DaemonClient;
@@ -46,6 +46,30 @@ impl DaemonClient {
             let req = request.clone();
             async move {
                 c.register_project(tonic::Request::new(req))
+                    .await
+                    .map(|r| r.into_inner())
+            }
+        })
+        .await
+    }
+
+    /// Recover (reconcile / re-point) a project — wraps `RecoverProject` (#140).
+    ///
+    /// Surfaces the manual recover cascade so MCP agents can self-heal a drifted
+    /// registration. The request mirrors [`RecoverProjectRequest`].
+    ///
+    /// # Errors
+    /// Propagates any [`Status`] error from the daemon (or timeout).
+    pub async fn recover_project(
+        &mut self,
+        request: RecoverProjectRequest,
+    ) -> Result<RecoverProjectResponse, Status> {
+        let client = self.project.clone();
+        self.call("recoverProject", None, || {
+            let mut c = client.clone();
+            let req = request.clone();
+            async move {
+                c.recover_project(tonic::Request::new(req))
                     .await
                     .map(|r| r.into_inner())
             }

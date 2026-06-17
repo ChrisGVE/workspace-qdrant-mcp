@@ -433,9 +433,23 @@ impl GrpcServer {
                 auth_fn.clone(),
             ))
             .add_service(InterceptedService::new(
-                proto::library_write_service_server::LibraryWriteServiceServer::new(
-                    LibraryWriteServiceImpl::new(write_handle.clone()),
-                ),
+                proto::library_write_service_server::LibraryWriteServiceServer::new({
+                    let mut svc = LibraryWriteServiceImpl::new(write_handle.clone());
+                    // Wire the recover cascade deps (#140): state.db pool +
+                    // Qdrant client. Other library RPCs ignore them.
+                    if let Some(pool) = self.db_pool.clone() {
+                        let storage = self
+                            .storage_client
+                            .clone()
+                            .unwrap_or_else(|| Arc::clone(local_storage_client));
+                        svc = svc.with_recover_deps(pool, storage);
+                    } else {
+                        tracing::warn!(
+                            "LibraryWriteService RecoverLibrary NOT wired: missing db_pool"
+                        );
+                    }
+                    svc
+                }),
                 auth_fn.clone(),
             ))
             .add_service(InterceptedService::new(

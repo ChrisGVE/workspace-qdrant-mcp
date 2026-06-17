@@ -8,21 +8,49 @@ use workspace_qdrant_core::write_actor::{
     UnwatchLibraryData, WatchLibraryData, WriteActorHandle,
 };
 
+use std::sync::Arc;
+
+use sqlx::SqlitePool;
+use workspace_qdrant_core::StorageClient;
+
 use crate::proto::{
     library_write_service_server::LibraryWriteService, AddLibraryRequest, AddLibraryResponse,
-    ConfigureLibraryRequest, RemoveLibraryRequest, RemoveLibraryResponse, SetIncrementalRequest,
-    SetIncrementalResponse, UnwatchLibraryRequest, WatchLibraryRequest, WatchLibraryResponse,
-    WatchMutationResponse,
+    ConfigureLibraryRequest, RecoverLibraryRequest, RecoverLibraryResponse, RemoveLibraryRequest,
+    RemoveLibraryResponse, SetIncrementalRequest, SetIncrementalResponse, UnwatchLibraryRequest,
+    WatchLibraryRequest, WatchLibraryResponse, WatchMutationResponse,
 };
 use crate::validation::{extract_canonical_path, extract_relative_paths};
 
+mod recover_library;
+
 pub struct LibraryWriteServiceImpl {
     write_actor: WriteActorHandle,
+    /// state.db pool + Qdrant client, wired for the recover cascade (#140).
+    /// Optional so existing constructors (path-validation tests) stay simple;
+    /// when absent, RecoverLibrary returns an internal error rather than a stub.
+    db_pool: Option<SqlitePool>,
+    storage: Option<Arc<StorageClient>>,
 }
 
 impl LibraryWriteServiceImpl {
     pub fn new(write_actor: WriteActorHandle) -> Self {
-        Self { write_actor }
+        Self {
+            write_actor,
+            db_pool: None,
+            storage: None,
+        }
+    }
+
+    /// Attach the state.db pool and Qdrant client needed by RecoverLibrary
+    /// (#140). All other RPCs delegate to the WriteActor and ignore these.
+    pub fn with_recover_deps(
+        mut self,
+        db_pool: SqlitePool,
+        storage: Arc<StorageClient>,
+    ) -> Self {
+        self.db_pool = Some(db_pool);
+        self.storage = Some(storage);
+        self
     }
 }
 
@@ -140,6 +168,14 @@ impl LibraryWriteService for LibraryWriteServiceImpl {
             .map_err(to_status)?;
 
         Ok(Response::new(WatchMutationResponse { affected_count }))
+    }
+
+    async fn recover_library(
+        &self,
+        request: Request<RecoverLibraryRequest>,
+    ) -> Result<Response<RecoverLibraryResponse>, Status> {
+        let req = request.into_inner();
+        self.handle_recover_library(req).await.map(Response::new)
     }
 
     async fn set_incremental(

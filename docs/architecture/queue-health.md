@@ -64,7 +64,7 @@ exists only for unit tests that drive lanes directly.
 |---|---|---|---|
 | Embedder latency (ms) | `EmbedderLatency` | `chunk_embed` (emit_record) | per batch |
 | Per-byte cost (ms/KB) | `QueueMsPerKb` | `batch_processing::record_item_cost_ewma` | per item |
-| Throughput (bytes/s) | `QueueThroughput` | `batch_processing` + idle-zero in the poll loop | per item / per idle poll |
+| Throughput (bytes/s) | `QueueThroughput` | `batch_processing` + idle/stall-zero in the poll loop | per item / per non-dispatching poll |
 | DLQ delta-rate (counts/poll) | `QueueDlqDepth` | poll loop `update_health_probes` | per poll |
 
 The DLQ control sample is an `f64` **signed delta-rate**, not an absolute count:
@@ -125,6 +125,15 @@ cold-start, unseeded-throughput, and stale-snapshot (older than
 `drain_snapshot_max_age_secs`, 15 s) cases — insufficient data never alarms.
 Culprit `drain`.
 
+The throughput lane must reflect a stall, or the ETA divides a backlog by a
+frozen healthy rate and reports a falsely-Green drain while no work moves (#144).
+The poll loop emits a **zero** throughput sample on any poll where no batch was
+dispatched — both the idle case (no backlog) and the stalled case (a backlog
+remains but a circuit breaker is open, so nothing drains). The dispatch outcome
+is carried one poll forward (`last_poll_dispatched`); the lag is harmless because
+`update_health_probes` runs pre-dequeue. A healthily-draining backlog keeps its
+live samples, so the B1/B3 hard-state probes are untouched.
+
 ## Debounce
 
 The shipped `DebounceRings::observe` is a **plurality vote with a severity-biased
@@ -179,8 +188,12 @@ delta-rate, not a level baseline) and `EmbedderBatch` (telemetry-only). On idle,
 `control_baseline` (schema v46). The embedder row carries the **live provider
 model label** (recorded on the lane by the labeled control fn), not a hardcoded
 one; the queue-cost lanes use a fixed `queue` label. A TTL prune deletes rows
-older than `baseline_ttl_secs` (30 days) **only** when their `(metric_id, model)`
-is no longer a live seeded baseline, so an in-use baseline is never pruned. On
+older than the runtime-configured `baseline_ttl_secs` (default 30 days) **only**
+when their `(metric_id, model)` is no longer a live seeded baseline, so an in-use
+baseline is never pruned. The TTL is threaded from `QueueHealthConfig` into the
+persist task at construction (it rides on the `EwmaState`, not
+`UnifiedProcessorConfig`); the cutoff timestamp is bound as a query parameter,
+never interpolated into SQL (#143). On
 restart, `reload_baselines` seeds both lanes and sets `seeded = true` (via
 `EwmaLane::store`) so the first live sample advances the restored baseline instead
 of overwriting it; it filters to the known persist:true ids, ignoring any stray
@@ -200,6 +213,19 @@ All thresholds live in `[queue_health]` (`config/queue_health.rs`), each with a
 `qdrant_probe_timeout_secs`/`drain_snapshot_max_age_secs` ≥ 1; `baseline_ttl_secs`
 ≥ 1 day; `debounce_window` ≥ 1 (any size — the plurality vote is well-defined for
 even windows); `disk_low_pct` in (0,1).
+
+**`baseline_ttl_secs` wiring.** At startup, `loop_core.rs` reads
+`QueueHealthConfig::baseline_ttl_secs` from the live `EwmaState` (if
+queue-health is enabled) and threads the value into
+`ControlBaselinePersistTask::with_ttl_secs` via `LoopState::new`. The persist task
+uses this TTL as its prune horizon: any `control_baseline` row whose `updated_at`
+is older than `now − baseline_ttl_secs` is deleted on each persist cycle, ensuring
+orphaned baselines from deleted or renamed metrics do not accumulate.
+
+When queue-health is **disabled** (no `EwmaState` is constructed), the prune still
+runs via the fallback: `loop_core.rs` calls `default_baseline_ttl_secs()` (30 days)
+directly and passes that value to `LoopState::new`. This prevents `control_baseline`
+from growing without bound even when the health verdict subsystem is turned off.
 
 Remediation strings are fixed literals with at most a numeric ratio interpolated —
 no absolute path, URL, secret, or `WQM_*` config-variable name (enforced by a

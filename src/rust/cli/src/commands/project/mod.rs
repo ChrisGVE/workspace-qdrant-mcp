@@ -12,6 +12,7 @@ mod branches;
 mod delete;
 mod groups;
 mod list;
+mod recover;
 mod register;
 pub(crate) mod resolver;
 mod search;
@@ -116,6 +117,37 @@ enum ProjectCommand {
         /// Keep Qdrant vector data (only remove from SQLite)
         #[arg(long)]
         keep_data: bool,
+    },
+
+    /// Reconcile (recover) a drifted project registration
+    #[command(
+        long_about = "Reconcile a project whose registration has drifted from reality: a moved \
+            directory (--new-path) or a changed git remote (--rescan-remote). Re-points the \
+            stored location AND rewrites every stored file path old->new, in both SQLite and \
+            Qdrant. A tenancy flip (local <-> remote) migrates all tenant-keyed data so nothing \
+            is orphaned or duplicated.\n\n\
+            With no flags it auto-detects the current path and remote and reconciles any drift. \
+            Re-running on an already-correct registration is a no-op.",
+        after_long_help = "Examples:\n  \
+            wqm project recover --dry-run               Report what would change for current dir\n  \
+            wqm project recover /old/path --new-path /new/path   Re-point a moved project\n  \
+            wqm project recover myproj --rescan-remote  Reconcile a local<->remote tenancy flip"
+    )]
+    Recover {
+        /// Project name, ID, or path (auto-detected from CWD if omitted)
+        project: Option<String>,
+
+        /// New filesystem path the project moved to
+        #[arg(long)]
+        new_path: Option<PathBuf>,
+
+        /// Recompute tenancy from the current git remote (local <-> remote)
+        #[arg(long)]
+        rescan_remote: bool,
+
+        /// Report old->new and counts without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// List branches known to the index for this project
@@ -250,6 +282,12 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
             yes,
             keep_data,
         } => delete::delete_project(project.as_deref(), yes, !keep_data).await,
+        ProjectCommand::Recover {
+            project,
+            new_path,
+            rescan_remote,
+            dry_run,
+        } => recover::recover_project(project.as_deref(), new_path, rescan_remote, dry_run).await,
         ProjectCommand::Search {
             query,
             regex,

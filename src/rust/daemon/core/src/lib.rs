@@ -51,6 +51,7 @@ pub mod queue_config;
 pub mod queue_health;
 pub mod queue_operations;
 pub mod queue_types;
+pub mod recover;
 pub mod telemetry;
 pub mod tracing_gate;
 pub mod tracing_otel;

@@ -921,6 +921,60 @@ cd /path/to/project
 workspace-qdrant-mcp  # Restart in project context
 ```
 
+### Moved Project or Added/Removed Git Remote ("Project not found")
+
+**Problem:** After moving a registered project to a new directory, or after
+adding/removing its git remote, `list`/`search`/`grep` for the new state
+report "Project not found" — even though `store type:project` returned
+`success:true`.
+
+**Background:** A project's `tenant_id` depends on its tenancy *type* —
+`local_<hash(path)>` with no git remote, `<hash(remote)>` with one. Moving the
+directory or adding/removing the remote changes the inputs to the id.
+
+**Resolution (automatic, issues #138/#139):** `RegisterProject` reconciles by
+**path**, so simply re-registering the project at its current path fixes both
+cases:
+
+```bash
+# Re-register from the project's current directory; the daemon detects the
+# moved path or the tenancy-type flip and reconciles in place.
+cd /path/to/project/current/location
+wqm project register .        # or restart the MCP server in this directory
+```
+
+- **Moved path:** the stored path is updated in place (no duplicate row).
+- **Tenancy flip (remote added/removed):** the tenant is renamed across SQLite
+  and a Qdrant cascade-rename is enqueued for the `projects` and `rules`
+  collections.
+
+**Manual recover with full cascade (#140):** when you want to re-point a project
+explicitly — or rewrite the stored file paths and migrate *every* tenant-keyed
+table and collection — use `wqm project recover`:
+
+```bash
+# Preview: report old->new id/path and the row/point counts, write nothing.
+wqm project recover myproject --new-path /new/location --dry-run
+
+# Re-point a moved project: updates the stored path and rewrites every stored
+# file path old->new in SQLite and Qdrant.
+wqm project recover --new-path /new/location
+
+# Reconcile a tenancy flip (local <-> remote) with full data migration.
+wqm project recover myproject --rescan-remote
+```
+
+Unlike the automatic registration-time reconcile, `recover` migrates the full
+tenant-keyed set: every state.db table (`watch_folders`, `unified_queue`,
+`keywords`, `tags`, `keyword_baskets`, `canonical_tags`, `tag_hierarchy_edges`,
+`rules_mirror`, `symbol_cooccurrence`, `project_groups`, `project_embeddings`,
+`processing_timings`), `file_metadata` in search.db, `graph_nodes`/`graph_edges`
+in graph.db, and the `projects`/`rules`/`scratchpad`/`images` Qdrant collections.
+A path move also rewrites the absolute path payload on every Qdrant point. The
+operation is idempotent (re-running on a consistent project is a no-op) and is
+also reachable from MCP agents via the `store` tool with `type:"recover"`.
+Libraries have the analogous `wqm library recover <tag> --new-path <dir>`.
+
 ### Old Data Not Visible After Migration
 
 **Problem:** Pre-v0.4.0 data not appearing in searches

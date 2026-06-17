@@ -1,5 +1,6 @@
 //! Benchmark commands — sparse vector and search evaluation tools.
 
+mod quality;
 mod search;
 mod sparse;
 pub mod stats;
@@ -58,6 +59,26 @@ enum BenchmarkCommand {
         #[arg(long)]
         output: Option<String>,
     },
+
+    /// Evaluate search QUALITY (hit-rate) against a curated gold set
+    ///
+    /// Runs known-item queries through the live semantic/hybrid/exact pipeline
+    /// and reports hit@k / recall@10 / MRR / duplicate-rate per mode, a
+    /// per-category breakdown, and a quality verdict. Distinct from `search`,
+    /// which measures latency.
+    SearchQuality {
+        /// Gold dataset YAML to use (defaults to the bundled set)
+        #[arg(long)]
+        dataset: Option<String>,
+
+        /// Number of top ranked results scored per query (default: 10)
+        #[arg(long, default_value_t = 10)]
+        top_k: usize,
+
+        /// Output JSON report to file
+        #[arg(long)]
+        output: Option<String>,
+    },
 }
 
 /// Execute benchmark command
@@ -88,5 +109,11 @@ pub async fn execute(args: BenchmarkArgs) -> Result<()> {
                 .transpose()?;
             search::execute(tenant_id, warmup, iterations, output_file).await
         }
+
+        BenchmarkCommand::SearchQuality {
+            dataset,
+            top_k,
+            output: output_file,
+        } => quality::execute(dataset, top_k, output_file).await,
     }
 }

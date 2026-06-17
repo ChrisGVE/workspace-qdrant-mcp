@@ -46,7 +46,8 @@ async fn create_test_database() -> SqlitePool {
             file_path TEXT,
             qdrant_status TEXT DEFAULT 'pending' CHECK (qdrant_status IN ('pending', 'in_progress', 'done', 'failed')),
             search_status TEXT DEFAULT 'pending' CHECK (search_status IN ('pending', 'in_progress', 'done', 'failed')),
-            decision_json TEXT
+            decision_json TEXT,
+            size_bytes INTEGER
         )
         "#
     )
