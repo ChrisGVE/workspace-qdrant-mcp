@@ -166,12 +166,19 @@ impl ControlBaselinePersistTask {
     /// lexicographic comparison. Bound as a parameter by
     /// [`prune_aged_rows_not_in_live_set`](Self::prune_aged_rows_not_in_live_set).
     fn cutoff_timestamp(ttl_secs: u64) -> String {
-        // Saturate rather than wrap: a `u64` past `i64::MAX` would cast to a
-        // negative duration, pushing the cutoff into the FUTURE and pruning every
-        // slow-lane row. `i64::MAX` seconds is far beyond any sane TTL, so the
-        // cutoff is effectively "never prune" (L5, #143).
+        // Saturate rather than wrap (L5, #143): a `u64` past `i64::MAX` would cast
+        // to a NEGATIVE duration, pushing the cutoff into the FUTURE and pruning
+        // every slow-lane row. Two guards:
+        //   1. `i64::try_from` saturates an out-of-`i64` TTL to `i64::MAX`.
+        //   2. `chrono::Duration::try_seconds` returns `None` past chrono's bound
+        //      (`i64::MAX` *milliseconds*, i.e. ~`i64::MAX/1000` seconds), so we
+        //      never call the panicking `Duration::seconds`. On overflow we fall
+        //      back to a 100-year-past cutoff — older than any real row, so the
+        //      prune becomes an effective "never prune".
         let ttl = i64::try_from(ttl_secs).unwrap_or(i64::MAX);
-        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(ttl);
+        let span = chrono::Duration::try_seconds(ttl)
+            .unwrap_or_else(|| chrono::Duration::days(365 * 100));
+        let cutoff = chrono::Utc::now() - span;
         cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
