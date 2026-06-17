@@ -9,6 +9,7 @@
 mod lifecycle_tests;
 mod path_validation_tests;
 mod query_tests;
+mod recover_tests;
 mod registration_tests;
 
 use std::collections::HashMap;

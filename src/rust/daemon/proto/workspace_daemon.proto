@@ -198,6 +198,11 @@ service ProjectService {
     // Delete a project and optionally its Qdrant data
     rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
 
+    // Reconcile (recover) a project registration: re-point a moved project to a
+    // new path and/or flip its tenancy (local <-> remote), rewriting stored file
+    // paths and migrating tenant_id-keyed data across SQLite and Qdrant (#140).
+    rpc RecoverProject(RecoverProjectRequest) returns (RecoverProjectResponse);
+
     // Get all project groups a tenant belongs to (for cross-project search)
     rpc GetProjectGroups(GetProjectGroupsRequest) returns (GetProjectGroupsResponse);
 
@@ -564,6 +569,34 @@ message DeleteProjectResponse {
     int32 qdrant_points_deleted = 4;
     int32 queue_items_deleted = 5;
     string message = 6;
+}
+
+// RecoverProject Request/Response (#140)
+//
+// Reconciles a drifted project registration. With no flags the daemon
+// auto-detects the project's current path and git remote and reconciles any
+// drift. `new_path` re-points a moved project (rewrites stored absolute file
+// paths old->new prefix). `rescan_remote` recomputes tenancy (local <-> remote)
+// and migrates all tenant_id-keyed data. `dry_run` reports the old->new id/path
+// and the row/point counts that would change, without writing anything.
+message RecoverProjectRequest {
+    string project_id = 1;                        // Resolved tenant_id of the project to recover
+    optional string new_path = 2;                 // New absolute path (re-point); unset = keep stored path
+    bool rescan_remote = 3;                       // Recompute tenancy from current git remote
+    bool dry_run = 4;                             // Report planned changes without writing
+}
+
+message RecoverProjectResponse {
+    bool success = 1;
+    bool dry_run = 2;                             // Echoes the request flag
+    bool changed = 3;                             // False when already consistent (idempotent no-op)
+    string old_tenant_id = 4;
+    string new_tenant_id = 5;                     // == old_tenant_id when tenancy did not flip
+    string old_path = 6;
+    string new_path = 7;                          // == old_path when path did not move
+    int32 sqlite_rows_updated = 8;                // Total tenant_id/path rows updated (or planned)
+    int32 qdrant_points_updated = 9;              // Total Qdrant points repathed/renamed (or planned)
+    string message = 10;
 }
 
 // GetProjectGroups Request/Response
@@ -1107,6 +1140,11 @@ service LibraryWriteService {
 
     // Set or clear incremental flag on tracked files
     rpc SetIncremental(SetIncrementalRequest) returns (SetIncrementalResponse);
+
+    // Re-point a library to a new source path, rewriting stored file paths in
+    // SQLite and Qdrant (#140). A library's tenant_id is its tag, so re-pointing
+    // never changes tenancy; only paths are rewritten.
+    rpc RecoverLibrary(RecoverLibraryRequest) returns (RecoverLibraryResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -1356,6 +1394,25 @@ message RemoveLibraryResponse {
     uint32 tracked_files_deleted = 3;                 // Tracked files removed
     uint32 components_deleted = 4;                    // Project components removed
     string message = 5;                               // Human-readable result
+}
+
+// RecoverLibrary Request (#140)
+message RecoverLibraryRequest {
+    string tag = 1;                                   // Library tag (tenant_id)
+    optional string new_path = 2;                     // New absolute source path; unset = no-op detect
+    bool dry_run = 3;                                 // Report planned changes without writing
+}
+
+// RecoverLibrary Response
+message RecoverLibraryResponse {
+    bool success = 1;
+    bool dry_run = 2;
+    bool changed = 3;                                 // False when already consistent
+    string old_path = 4;
+    string new_path = 5;
+    int32 sqlite_rows_updated = 6;
+    int32 qdrant_points_updated = 7;
+    string message = 8;
 }
 
 // WatchLibrary Request
