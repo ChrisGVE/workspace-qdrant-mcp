@@ -2,6 +2,13 @@
 //!
 //! Logs all search operations across tools (MCP, grep, ripgrep, etc.)
 //! for pipeline instrumentation and behavior analysis.
+//!
+//! The `actor` column distinguishes who issued a search. The quality eval
+//! harness (`wqm benchmark search-quality`, #135) tags its own traffic with
+//! `actor = 'benchmark'` so organic-query mining can exclude it — see
+//! migration v47, which relaxed the `actor` CHECK to admit that value on
+//! databases created before #135. Fresh installs pick the relaxed CHECK up
+//! directly from this constant via migration v12.
 
 /// SQL to create the search_events table
 pub const CREATE_SEARCH_EVENTS_SQL: &str = r#"
@@ -10,7 +17,7 @@ CREATE TABLE IF NOT EXISTS search_events (
     ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     session_id TEXT,
     project_id TEXT,
-    actor TEXT NOT NULL CHECK (actor IN ('claude', 'user', 'daemon')),
+    actor TEXT NOT NULL CHECK (actor IN ('claude', 'user', 'daemon', 'benchmark')),
     tool TEXT NOT NULL CHECK (tool IN ('mcp_qdrant', 'rg', 'grep', 'ctags', 'lsp', 'filesearch')),
     op TEXT NOT NULL CHECK (op IN ('search', 'expand', 'open', 'followup')),
     query_text TEXT,
@@ -64,6 +71,20 @@ mod tests {
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("actor TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("tool TEXT NOT NULL"));
         assert!(CREATE_SEARCH_EVENTS_SQL.contains("op TEXT NOT NULL"));
+    }
+
+    #[test]
+    fn test_actor_check_admits_benchmark() {
+        // The eval harness (#135) tags its searches with actor='benchmark';
+        // the CHECK must list it alongside the organic actors. Migration v47
+        // relaxes the same constraint on pre-#135 databases.
+        assert!(CREATE_SEARCH_EVENTS_SQL.contains("'benchmark'"));
+        for actor in ["'claude'", "'user'", "'daemon'", "'benchmark'"] {
+            assert!(
+                CREATE_SEARCH_EVENTS_SQL.contains(actor),
+                "actor CHECK must admit {actor}"
+            );
+        }
     }
 
     #[test]

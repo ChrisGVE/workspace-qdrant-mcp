@@ -1149,14 +1149,32 @@ Diagnostic tools for troubleshooting.
 
 ### `wqm benchmark`
 
-Internal benchmarking tools for performance testing.
+Internal benchmarking tools for performance and search-quality testing.
 
 **Subcommands**
 
 | Subcommand | Description |
 |------------|-------------|
-| `sparse-vectors` | Benchmark sparse vector generation |
-| `search-engines` | Benchmark search engine performance |
+| `sparse` | Compare BM25 vs SPLADE++ sparse vector quality |
+| `search` | Compare FTS5 search-DB **latency** vs ripgrep |
+| `search-quality` | Measure search **quality** (hit-rate) against a curated gold set |
+
+`search` measures speed; `search-quality` measures whether the right files
+come back. The quality eval runs known-item queries through the live
+semantic/hybrid/exact pipeline and reports hit@k / recall@10 / MRR /
+duplicate-rate per mode, a per-category breakdown, and a quality verdict.
+
+```bash
+# Run the quality eval against the bundled gold set (from a registered project)
+wqm benchmark search-quality
+
+# Use a custom gold dataset and write the JSON report
+wqm benchmark search-quality --dataset my-gold.yaml --output report.json
+```
+
+See [docs/testing/semantic-search-benchmarking.md](../testing/semantic-search-benchmarking.md)
+for the gold-set format, categories, verdict thresholds, and the organic-query
+mining recipe.
 
 ---
 
