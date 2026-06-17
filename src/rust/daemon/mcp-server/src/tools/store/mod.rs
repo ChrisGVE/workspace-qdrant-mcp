@@ -85,6 +85,17 @@ pub trait StoreDaemon {
         metadata_json: Option<&str>,
     ) -> impl std::future::Future<Output = Result<String, String>> + Send;
 
+    /// Recover (re-point / reconcile) a project via gRPC (#140).
+    ///
+    /// Returns a human-readable summary line for the tool result.
+    fn recover_project(
+        &mut self,
+        project_id: &str,
+        new_path: Option<&str>,
+        rescan_remote: bool,
+        dry_run: bool,
+    ) -> impl std::future::Future<Output = Result<String, String>> + Send;
+
     /// Upsert scratchpad mirror entry — fire-and-forget.
     ///
     /// Mirrors `writeScratchpadMirror` in store-handlers.ts:124-140.
@@ -163,6 +174,26 @@ impl StoreDaemon for crate::grpc::DaemonClient {
         Ok(resp.queue_id)
     }
 
+    async fn recover_project(
+        &mut self,
+        project_id: &str,
+        new_path: Option<&str>,
+        rescan_remote: bool,
+        dry_run: bool,
+    ) -> Result<String, String> {
+        use crate::proto::RecoverProjectRequest;
+        let req = RecoverProjectRequest {
+            project_id: project_id.to_string(),
+            new_path: new_path.map(str::to_string),
+            rescan_remote,
+            dry_run,
+        };
+        let resp = crate::grpc::DaemonClient::recover_project(self, req)
+            .await
+            .map_err(|e| wqm_client::grpc::status_user_message(&e))?;
+        Ok(resp.message)
+    }
+
     async fn upsert_scratchpad_mirror(
         &mut self,
         scratchpad_id: String,
@@ -210,6 +241,10 @@ pub struct StoreInput {
     pub path: Option<String>,
     /// Only used for store type=project
     pub name: Option<String>,
+    /// Only used for store type=recover (#140): recompute tenancy from remote.
+    pub rescan_remote: bool,
+    /// Only used for store type=recover (#140): report without writing.
+    pub dry_run: bool,
 }
 
 impl StoreInput {
@@ -298,6 +333,16 @@ impl StoreInput {
             .and_then(|v| v.as_str())
             .map(str::to_string);
 
+        let rescan_remote = args
+            .get("rescanRemote")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let dry_run = args
+            .get("dryRun")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         Self {
             store_type,
             content,
@@ -312,6 +357,8 @@ impl StoreInput {
             tags,
             path,
             name,
+            rescan_remote,
+            dry_run,
         }
     }
 }
@@ -378,9 +425,69 @@ where
 {
     match input.store_type.as_str() {
         "project" => store_project(input, daemon, session_project_id, daemon_connected).await,
+        "recover" => store_recover(input, daemon, session_project_id, daemon_connected).await,
         "url" => url_scratchpad::store_url(input, daemon, session_project_id).await,
         "scratchpad" => url_scratchpad::store_scratchpad(input, daemon, session_project_id).await,
         _ => library::store_library(input, daemon).await,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// store_recover sub-handler (#140)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Result for store type=recover.
+#[derive(Debug, Serialize)]
+pub struct StoreRecoverResult {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Handle store type=recover — surface the project recover RPC so an MCP agent
+/// can self-heal a drifted registration (#140).
+///
+/// Inputs: `projectId` (the tenant to recover; falls back to the session
+/// project when `forProject=true`), `path` (the new filesystem path, optional),
+/// `rescanRemote` (recompute tenancy), and `dryRun` (report without writing).
+async fn store_recover<D>(
+    input: StoreInput,
+    daemon: &mut D,
+    session_project_id: Option<&str>,
+    daemon_connected: bool,
+) -> CallToolResult
+where
+    D: StoreDaemon,
+{
+    if !daemon_connected {
+        return error_text("Daemon is not connected — cannot recover project");
+    }
+
+    let project_id = match input
+        .project_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or(session_project_id)
+    {
+        Some(id) => id.to_string(),
+        None => {
+            return error_text(
+                "projectId is required for store type \"recover\" \
+                 (or set forProject=true in an active project session)",
+            )
+        }
+    };
+
+    let new_path = input.path.as_deref().filter(|p| !p.is_empty());
+
+    match daemon
+        .recover_project(&project_id, new_path, input.rescan_remote, input.dry_run)
+        .await
+    {
+        Err(e) => error_text(&e),
+        Ok(message) => ok_text(&StoreRecoverResult {
+            success: true,
+            message,
+        }),
     }
 }
 

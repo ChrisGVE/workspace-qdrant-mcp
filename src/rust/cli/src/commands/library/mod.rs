@@ -8,6 +8,7 @@ mod helpers;
 mod info;
 mod ingest;
 mod list;
+mod recover;
 mod remove;
 mod rescan;
 mod search;
@@ -96,6 +97,29 @@ enum LibraryCommand {
         /// Skip confirmation prompt
         #[arg(short, long)]
         yes: bool,
+    },
+
+    /// Re-point a library to a new source path
+    #[command(
+        long_about = "Re-point a library whose source folder moved on disk. Updates the stored \
+            source path and rewrites every stored file path old->new in both SQLite and Qdrant. \
+            A library's identity is its tag, so re-pointing never changes tenancy.\n\n\
+            Re-running with the library already at the given path is a no-op.",
+        after_long_help = "Examples:\n  \
+            wqm library recover docs --new-path /new/docs --dry-run   Preview the move\n  \
+            wqm library recover docs --new-path /new/docs             Apply the re-point"
+    )]
+    Recover {
+        /// Library tag to recover
+        tag: String,
+
+        /// New source path the library moved to
+        #[arg(long)]
+        new_path: Option<PathBuf>,
+
+        /// Report old->new and counts without writing
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Add a single file to a library
@@ -232,6 +256,11 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
             }
         }
         LibraryCommand::Delete { tag, yes } => remove::execute(&tag, yes).await,
+        LibraryCommand::Recover {
+            tag,
+            new_path,
+            dry_run,
+        } => recover::execute(&tag, new_path, dry_run).await,
         LibraryCommand::Add {
             file,
             library,
