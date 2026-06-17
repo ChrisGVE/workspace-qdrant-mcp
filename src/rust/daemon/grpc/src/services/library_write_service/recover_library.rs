@@ -17,10 +17,21 @@
 //! recover needs the state.db pool + Qdrant client directly; they are wired via
 //! `LibraryWriteServiceImpl::with_recover_deps`. When they are absent the RPC
 //! returns an internal error rather than silently doing nothing.
+//!
+//! # Atomicity
+//!
+//! state.db is the single transactional unit reconciled here: the watch-root
+//! swap and the queue-path splice both live in `recover::repoint_path_state_db`,
+//! which runs them in one transaction. search.db is a *separate* database file
+//! on its own pool, so it cannot share that transaction; like the project
+//! recover, the SQLite↔search.db↔Qdrant boundary is non-atomic and a failure
+//! past the state.db commit is logged and safe to re-run (the boundary-anchored
+//! prefix match makes a re-run a no-op).
 
 use std::path::Path;
+use std::time::Duration;
 
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use tonic::Status;
 use tracing::{info, warn};
@@ -112,7 +123,12 @@ impl LibraryWriteServiceImpl {
             let search_path = search_db_path_from_state(Path::new(&state_path));
             if search_path.exists() {
                 if let Ok(pool) = open_rw_pool(&search_path).await {
-                    sqlite_rows += count_search_db_paths(&pool, tag, old_path).await;
+                    sqlite_rows +=
+                        count_search_db_paths(&pool, tag, old_path)
+                            .await
+                            .map_err(|e| {
+                                Status::internal(format!("search.db dry-run count failed: {e}"))
+                            })?;
                     pool.close().await;
                 }
             }
@@ -136,15 +152,15 @@ impl LibraryWriteServiceImpl {
         Ok(RecoverLibraryResponse {
             success: true,
             dry_run: true,
-            changed: true,
+            changed: sqlite_rows > 0 || qdrant_points > 0,
             message: format!(
                 "DRY RUN: would update {sqlite_rows} SQLite row(s) and {qdrant_points} \
                  Qdrant point(s); path {old_path} -> {new_path}"
             ),
             old_path: old_path.to_string(),
             new_path: new_path.to_string(),
-            sqlite_rows_updated: sqlite_rows as i32,
-            qdrant_points_updated: qdrant_points as i32,
+            sqlite_rows_updated: clamp_i32(sqlite_rows),
+            qdrant_points_updated: clamp_i32(qdrant_points),
         })
     }
 
@@ -156,7 +172,7 @@ impl LibraryWriteServiceImpl {
     ) -> Result<RecoverLibraryResponse, Status> {
         let db_pool = self.db_pool.as_ref().expect("checked by caller");
 
-        // state.db: swap watch root + splice queue paths.
+        // state.db: swap watch root + splice queue paths (one transaction).
         let mut sqlite_rows = recover::repoint_path_state_db(db_pool, tag, old_path, new_path)
             .await
             .map_err(map_schema_err)?;
@@ -213,28 +229,30 @@ impl LibraryWriteServiceImpl {
             ),
             old_path: old_path.to_string(),
             new_path: new_path.to_string(),
-            sqlite_rows_updated: sqlite_rows as i32,
-            qdrant_points_updated: qdrant_points as i32,
+            sqlite_rows_updated: clamp_i32(sqlite_rows),
+            qdrant_points_updated: clamp_i32(qdrant_points),
         })
     }
 }
 
 /// Count `file_metadata` rows whose absolute path begins with `old_prefix`.
-/// Mirrors the LIKE used by the rewrite so dry-run and apply agree.
-async fn count_search_db_paths(pool: &SqlitePool, tenant_id: &str, old_prefix: &str) -> i64 {
-    // Use a literal LIKE; recover::escape_like is private to the core module,
-    // so a path containing LIKE wildcards is matched conservatively. Paths are
-    // filesystem paths and effectively never contain '%' or '_' as the leading
-    // prefix in practice; the apply path uses the escaped form for safety.
-    let pattern = format!("{old_prefix}%");
+/// Uses the same escaped, boundary-anchored `LIKE 'old_prefix/%'` as the
+/// rewrite (`recover::rewrite_paths_search_db`), so dry-run and apply agree, and
+/// propagates the DB error instead of swallowing it.
+async fn count_search_db_paths(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    old_prefix: &str,
+) -> Result<i64, sqlx::Error> {
+    let pattern = format!("{}/%", recover::escape_like(old_prefix));
     sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM file_metadata WHERE tenant_id = ?1 AND file_path LIKE ?2",
+        "SELECT COUNT(*) FROM file_metadata \
+         WHERE tenant_id = ?1 AND file_path LIKE ?2 ESCAPE '\\'",
     )
     .bind(tenant_id)
     .bind(pattern)
     .fetch_one(pool)
     .await
-    .unwrap_or(0)
 }
 
 /// The state.db file path, via `pragma_database_list`.
@@ -248,12 +266,26 @@ async fn state_db_path(pool: &SqlitePool) -> Option<String> {
 }
 
 /// Open a read-write SQLite pool on an existing satellite database file.
+///
+/// WAL + a 5s `busy_timeout` so a concurrent writer yields a retried
+/// `SQLITE_BUSY` instead of failing immediately. Built from
+/// [`SqliteConnectOptions`] rather than a `sqlite://` URL string so a path with
+/// special characters never needs URL-escaping.
 async fn open_rw_pool(path: &Path) -> Result<SqlitePool, sqlx::Error> {
-    let url = format!("sqlite://{}", path.display());
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5));
     SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&url)
+        .connect_with(options)
         .await
+}
+
+/// Clamp an `i64` count into the proto `int32` field, saturating rather than
+/// silently wrapping on the (practically unreachable) overflow.
+fn clamp_i32(n: i64) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
 }
 
 fn map_schema_err(e: workspace_qdrant_core::SchemaError) -> Status {
