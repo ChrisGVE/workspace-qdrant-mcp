@@ -392,11 +392,22 @@ impl TextSearchService for TextSearchServiceImpl {
 
         // Tenant+branch indexing state (#97, #137, #141): lets callers
         // distinguish "pattern absent" from "files not indexed yet" / "branch
-        // not indexed" on zero-match responses. Scoped to the branch the search
-        // filtered on so a per-branch gap is not masked by tenant-wide counts.
-        let index_status = self
-            .tenant_index_status(req.tenant_id.as_deref(), req.branch.as_deref())
-            .await;
+        // not indexed". Scoped to the branch the search filtered on so a
+        // per-branch gap is not masked by tenant-wide counts.
+        //
+        // Skip the lookup on the hot path when the search returned matches
+        // (#137): the "not yet indexed" warning is only meaningful on a
+        // zero-match response, and the status count runs a
+        // `COUNT(DISTINCT file_path)` over `file_metadata` whose index does not
+        // cover `file_path` — a full covering scan on EVERY grep. Computing it
+        // only when there is nothing to explain keeps the common (has-matches)
+        // case off that scan.
+        let index_status = if total_matches == 0 {
+            self.tenant_index_status(req.tenant_id.as_deref(), req.branch.as_deref())
+                .await
+        } else {
+            None
+        };
 
         let query_time_ms = start.elapsed().as_millis() as i64;
 
@@ -915,5 +926,111 @@ mod tests {
             .expect("status present");
         assert_eq!(all.files_tracked, 2, "* spans both branches");
         assert!(all.index_complete);
+    }
+
+    /// Build a `TextSearchRequest` for the given pattern, scoped to
+    /// `tenant-a`/`main` (the branch the test fixtures index into).
+    fn search_req(pattern: &str) -> TextSearchRequest {
+        TextSearchRequest {
+            pattern: pattern.to_string(),
+            regex: false,
+            case_sensitive: false,
+            tenant_id: Some("tenant-a".to_string()),
+            branch: Some("main".to_string()),
+            path_glob: None,
+            path_prefix: None,
+            context_lines: 0,
+            max_results: 0,
+        }
+    }
+
+    /// T7 (#137): a zero-files tenant/branch reports `index_complete == false`.
+    /// The branch has no indexed `file_metadata`, so the status must flag it as
+    /// not-yet-searchable rather than letting an empty result look like genuine
+    /// pattern absence.
+    #[tokio::test]
+    async fn index_status_zero_files_is_incomplete() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Index a file on `main` but query an empty branch: zero files there.
+        let svc = service_with_indexed(
+            &tmp,
+            "tenant-a",
+            "main",
+            1,
+            "src/lib.rs",
+            "fn only_on_main() {}",
+            empty_state_pool().await,
+        )
+        .await;
+
+        let status = svc
+            .tenant_index_status(Some("tenant-a"), Some("empty-branch"))
+            .await
+            .expect("status present for a tenant with no files on this branch");
+        assert_eq!(status.files_tracked, 0, "no files indexed on this branch");
+        assert!(
+            !status.index_complete,
+            "a zero-files branch must be reported incomplete"
+        );
+    }
+
+    /// T7 (#137): the `search` RPC skips the index-status lookup whenever the
+    /// query returned matches — the "not yet indexed" warning is only meaningful
+    /// on a zero-match response, and the status count is a covering scan we must
+    /// keep off the hot path. A matching query therefore returns
+    /// `index_status == None`.
+    #[tokio::test]
+    async fn search_skips_index_status_when_matches_exist() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let svc = service_with_indexed(
+            &tmp,
+            "tenant-a",
+            "main",
+            1,
+            "src/lib.rs",
+            "pub fn unique_marker_token() {}",
+            empty_state_pool().await,
+        )
+        .await;
+
+        let resp = svc
+            .search(Request::new(search_req("unique_marker_token")))
+            .await
+            .expect("search succeeds")
+            .into_inner();
+        assert!(resp.total_matches > 0, "the query must match the indexed line");
+        assert!(
+            resp.index_status.is_none(),
+            "index_status must be skipped when matches exist (#137 hot-path)"
+        );
+    }
+
+    /// T7 (#137): the zero-match path still computes the index status, so callers
+    /// can distinguish "pattern absent" from "branch not indexed".
+    #[tokio::test]
+    async fn search_computes_index_status_on_zero_matches() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let svc = service_with_indexed(
+            &tmp,
+            "tenant-a",
+            "main",
+            1,
+            "src/lib.rs",
+            "pub fn unique_marker_token() {}",
+            empty_state_pool().await,
+        )
+        .await;
+
+        let resp = svc
+            .search(Request::new(search_req("no_such_pattern_anywhere")))
+            .await
+            .expect("search succeeds")
+            .into_inner();
+        assert_eq!(resp.total_matches, 0, "the pattern must not match");
+        let status = resp
+            .index_status
+            .expect("index_status must be present on a zero-match response");
+        assert_eq!(status.files_tracked, 1, "main has one indexed file");
+        assert!(status.index_complete, "main is fully indexed");
     }
 }
