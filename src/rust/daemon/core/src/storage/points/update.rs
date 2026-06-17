@@ -165,15 +165,18 @@ impl StorageClient {
     /// Scrolls every point in `collection_name` whose `tenant_id` payload
     /// matches `tenant_id`, and for the absolute path keys `file_path` and
     /// `absolute_path`, replaces a leading `old_prefix` with `new_prefix`. The
-    /// `relative_path` payload is watch-root-relative and is left untouched, so
-    /// only the chunk's absolute location is corrected. A per-point set_payload
-    /// is issued only when at least one key actually changed, so re-running on
-    /// an already-correct tenant is a cheap no-op (idempotent).
+    /// prefix match is anchored at a path boundary: a stored path matches only
+    /// when it equals `old_prefix` exactly or continues with a `/` (so the
+    /// sibling directory `/old/projfoo/x.rs` is never rewritten by an
+    /// `/old/proj` move). The `relative_path` payload is watch-root-relative and
+    /// is left untouched, so only the chunk's absolute location is corrected. A
+    /// per-point set_payload is issued only when at least one key actually
+    /// changed, so re-running on an already-correct tenant is a cheap no-op
+    /// (idempotent).
     ///
     /// When `dry_run` is true, no writes are issued — the return value is the
-    /// number of points that *would* change.
-    ///
-    /// Returns the number of points updated (or that would be updated).
+    /// number of points that *would* change. When applying, the return value is
+    /// the number of points actually written (the two agree on success).
     pub async fn rewrite_path_payload_prefix_by_tenant(
         &self,
         collection_name: &str,
@@ -193,7 +196,12 @@ impl StorageClient {
         const PATH_KEYS: [&str; 2] = ["file_path", "absolute_path"];
         let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
 
+        // `changed` counts points that *would* change (the dry-run answer);
+        // `written` counts points actually persisted. They agree on a clean
+        // apply, but tracking them separately keeps the return value honest if a
+        // write is ever skipped (e.g. a non-UUID point id).
         let mut changed: u64 = 0;
+        let mut written: u64 = 0;
         let mut offset: Option<PointId> = None;
         let batch_size = 100u32;
 
@@ -227,12 +235,11 @@ impl StorageClient {
                     if let Some(Kind::StringValue(path)) =
                         point.payload.get(key).and_then(|v| v.kind.as_ref())
                     {
-                        if let Some(rest) = path.strip_prefix(old_prefix) {
-                            let new_path = format!("{}{}", new_prefix, rest);
-                            if &new_path != path {
-                                rewritten
-                                    .insert(key.to_string(), serde_json::Value::String(new_path));
-                            }
+                        if let Some(new_path) =
+                            rewrite_path_under_prefix(path, old_prefix, new_prefix)
+                        {
+                            rewritten
+                                .insert(key.to_string(), serde_json::Value::String(new_path));
                         }
                     }
                 }
@@ -249,6 +256,7 @@ impl StorageClient {
                     if let Some(id_str) = point_id_to_uuid(id) {
                         self.set_payload_on_point(collection_name, &id_str, rewritten)
                             .await?;
+                        written += 1;
                     }
                 }
             }
@@ -259,12 +267,28 @@ impl StorageClient {
             }
         }
 
+        let reported = if dry_run { changed } else { written };
         info!(
             "Repath {} point(s) in '{}' ({} -> {}, dry_run={})",
-            changed, collection_name, old_prefix, new_prefix, dry_run
+            reported, collection_name, old_prefix, new_prefix, dry_run
         );
-        Ok(changed)
+        Ok(reported)
     }
+}
+
+/// Rewrite `path` when it sits under `old_prefix`, returning the new path.
+///
+/// The match is anchored at a path boundary: `path` matches only when it equals
+/// `old_prefix` exactly or continues with a `/` separator, so the sibling
+/// directory `/old/projfoo/x.rs` is never rewritten by an `/old/proj` move.
+/// Returns `None` when `path` is outside the old root, or when the rewrite would
+/// be a no-op (old == new prefix) — the caller then issues no write.
+fn rewrite_path_under_prefix(path: &str, old_prefix: &str, new_prefix: &str) -> Option<String> {
+    let rest = path
+        .strip_prefix(old_prefix)
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))?;
+    let new_path = format!("{}{}", new_prefix, rest);
+    (new_path != path).then_some(new_path)
 }
 
 /// Extract a UUID string from a Qdrant point id (the only id form
@@ -275,5 +299,52 @@ fn point_id_to_uuid(id: &qdrant_client::qdrant::PointId) -> Option<String> {
     match id.point_id_options.as_ref()? {
         PointIdOptions::Uuid(uuid) => Some(uuid.clone()),
         PointIdOptions::Num(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_path_under_prefix;
+
+    #[test]
+    fn rewrites_a_child_path() {
+        assert_eq!(
+            rewrite_path_under_prefix("/old/proj/src/a.rs", "/old/proj", "/new/home"),
+            Some("/new/home/src/a.rs".to_string())
+        );
+    }
+
+    #[test]
+    fn rewrites_the_root_itself() {
+        assert_eq!(
+            rewrite_path_under_prefix("/old/proj", "/old/proj", "/new/home"),
+            Some("/new/home".to_string())
+        );
+    }
+
+    #[test]
+    fn leaves_a_sibling_directory_untouched() {
+        // `/old/proj` must not match `/old/projfoo/...` (the regression guard).
+        assert_eq!(
+            rewrite_path_under_prefix("/old/projfoo/x.rs", "/old/proj", "/new/home"),
+            None
+        );
+    }
+
+    #[test]
+    fn leaves_an_unrelated_path_untouched() {
+        assert_eq!(
+            rewrite_path_under_prefix("/elsewhere/x.rs", "/old/proj", "/new/home"),
+            None
+        );
+    }
+
+    #[test]
+    fn no_op_when_prefix_is_unchanged() {
+        // Already correct: re-running recover finds nothing to write (idempotent).
+        assert_eq!(
+            rewrite_path_under_prefix("/old/proj/src/a.rs", "/old/proj", "/old/proj"),
+            None
+        );
     }
 }

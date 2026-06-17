@@ -45,6 +45,11 @@ pub async fn rename_tenant_search_db(
 
 /// Prefix-rewrite the absolute `file_metadata.file_path` for a tenant on a path
 /// move (old_prefix -> new_prefix). `relative_path` is left untouched.
+///
+/// The match is anchored at a path boundary (`LIKE 'old_prefix/%'`) so a sibling
+/// directory is never rewritten, and the prefix is spliced with a `length()`-
+/// based `substr` (character count, not byte length) so non-ASCII prefixes
+/// splice correctly — matching the state.db rewrite in `mod.rs`.
 pub async fn rewrite_paths_search_db(
     pool: &SqlitePool,
     tenant_id: &str,
@@ -54,14 +59,14 @@ pub async fn rewrite_paths_search_db(
     if !table_exists(pool, "file_metadata").await? {
         return Ok(0);
     }
-    let like = format!("{}%", escape_like(old_prefix));
+    let like = format!("{}/%", escape_like(old_prefix));
     let r = sqlx::query(
         "UPDATE file_metadata \
-         SET file_path = ?1 || substr(file_path, ?2) \
+         SET file_path = ?1 || substr(file_path, length(?2) + 1) \
          WHERE tenant_id = ?3 AND file_path LIKE ?4 ESCAPE '\\'",
     )
     .bind(new_prefix)
-    .bind((old_prefix.len() + 1) as i64)
+    .bind(old_prefix)
     .bind(tenant_id)
     .bind(&like)
     .execute(pool)

@@ -320,3 +320,113 @@ async fn graph_db_rename_covers_nodes_and_edges() {
             .unwrap();
     assert_eq!(node_path, "src/main.rs", "relative graph path is untouched");
 }
+
+/// Seed one queue row under `tenant` with absolute `file_path`.
+async fn seed_queue(pool: &SqlitePool, tenant: &str, queue_id: &str, file_path: &str) {
+    sqlx::query(
+        "INSERT INTO unified_queue \
+         (queue_id, tenant_id, branch, collection, item_type, op, file_path, \
+          idempotency_key, retry_count, created_at, updated_at) \
+         VALUES (?1, ?2, 'main', 'projects', 'file', 'add', ?3, ?1, 0, \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+    )
+    .bind(queue_id)
+    .bind(tenant)
+    .bind(file_path)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn repoint_is_anchored_at_a_path_boundary() {
+    // `/old/proj` must NOT rewrite a sibling directory `/old/projfoo/...`, but
+    // MUST rewrite a child `/old/proj/...`. Regression guard for the unanchored
+    // `LIKE 'old%'` that matched `/old/projfoo/x.rs`.
+    let pool = state_db().await;
+    seed_tenant(&pool, "t", "/old/proj").await;
+    seed_queue(&pool, "t", "q-child", "/old/proj/x.rs").await;
+    seed_queue(&pool, "t", "q-sibling", "/old/projfoo/x.rs").await;
+
+    let planned = count_repoint_rows(&pool, "t", "/old/proj").await.unwrap();
+    let rows = repoint_path_state_db(&pool, "t", "/old/proj", "/new/home")
+        .await
+        .unwrap();
+    assert_eq!(planned, rows, "dry-run count must equal applied rows");
+    // watch_folders (1) + the single child queue row (1); the sibling is excluded.
+    assert_eq!(rows, 2);
+
+    let child: String =
+        sqlx::query_scalar("SELECT file_path FROM unified_queue WHERE queue_id = 'q-child'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(child, "/new/home/x.rs", "child path is rewritten");
+
+    let sibling: String =
+        sqlx::query_scalar("SELECT file_path FROM unified_queue WHERE queue_id = 'q-sibling'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        sibling, "/old/projfoo/x.rs",
+        "sibling dir must NOT be rewritten"
+    );
+}
+
+#[tokio::test]
+async fn repoint_splices_non_ascii_prefix_by_character() {
+    // SQLite `substr` indexes by CHARACTER; binding a byte offset would corrupt
+    // a multi-byte prefix like `/Users/café`. The `length()`-based splice must
+    // produce the correct path.
+    let pool = state_db().await;
+    seed_tenant(&pool, "t", "/Users/café/proj").await;
+    seed_queue(&pool, "t", "q-unicode", "/Users/café/proj/src/a.rs").await;
+
+    let rows = repoint_path_state_db(&pool, "t", "/Users/café/proj", "/Users/new/proj")
+        .await
+        .unwrap();
+    assert_eq!(rows, 2);
+
+    let spliced: String =
+        sqlx::query_scalar("SELECT file_path FROM unified_queue WHERE queue_id = 'q-unicode'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        spliced, "/Users/new/proj/src/a.rs",
+        "non-ASCII prefix must splice by character, not byte"
+    );
+}
+
+#[tokio::test]
+async fn search_db_repoint_is_boundary_anchored_and_unicode_safe() {
+    let pool = search_db().await;
+    sqlx::query(
+        "INSERT INTO file_metadata (file_id, tenant_id, file_path, relative_path) \
+         VALUES (1, 't', '/Users/café/proj/src/a.rs', 'src/a.rs'), \
+                (2, 't', '/Users/café/projfoo/x.rs', 'x.rs')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let n = rewrite_paths_search_db(&pool, "t", "/Users/café/proj", "/Users/new/proj")
+        .await
+        .unwrap();
+    assert_eq!(n, 1, "only the child path matches, not the sibling");
+
+    let child: String =
+        sqlx::query_scalar("SELECT file_path FROM file_metadata WHERE file_id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(child, "/Users/new/proj/src/a.rs");
+
+    let sibling: String =
+        sqlx::query_scalar("SELECT file_path FROM file_metadata WHERE file_id = 2")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(sibling, "/Users/café/projfoo/x.rs", "sibling untouched");
+}

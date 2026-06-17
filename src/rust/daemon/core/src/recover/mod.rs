@@ -63,6 +63,8 @@ mod tests;
 pub const TENANT_KEYED_TABLES: &[&str] = &[
     "watch_folders",
     "unified_queue",
+    "dead_letter_queue",
+    "scratchpad_mirror",
     "keywords",
     "tags",
     "keyword_baskets",
@@ -101,29 +103,29 @@ impl CascadeCounts {
 
 /// Count the tenant_id-keyed rows that a flip would rename, per table, WITHOUT
 /// writing. Used by `--dry-run`.
+///
+/// All per-table counts run inside one `BEGIN DEFERRED` read transaction so the
+/// dry-run reports a single consistent snapshot even under concurrent writers.
 pub async fn count_tenant_rows(
     pool: &SqlitePool,
     tenant_id: &str,
 ) -> Result<CascadeCounts, SchemaError> {
+    let mut tx = pool.begin().await?;
     let mut counts = CascadeCounts::default();
     for &table in TENANT_KEYED_TABLES {
-        let present: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-        )
-        .bind(table)
-        .fetch_one(pool)
-        .await?;
-        if !present {
+        if !table_exists_tx(&mut tx, table).await? {
             counts.record(table, 0);
             continue;
         }
         let sql = format!("SELECT COUNT(*) FROM {table} WHERE tenant_id = ?1");
         let rows: i64 = sqlx::query_scalar(&sql)
             .bind(tenant_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await?;
         counts.record(table, rows);
     }
+    // A read-only transaction; rolling back is the cheapest way to end it.
+    tx.rollback().await?;
     Ok(counts)
 }
 
@@ -144,7 +146,7 @@ pub async fn rename_tenant_state_db(
 }
 
 /// Tenancy-rename body shared by the standalone call and a larger transaction.
-async fn rename_tenant_in_tx(
+pub async fn rename_tenant_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     old_tenant_id: &str,
     new_tenant_id: &str,
@@ -190,10 +192,14 @@ async fn table_exists_tx(
 /// unaffected by a root move. Returns the total number of rows updated.
 ///
 /// `old_prefix` / `new_prefix` are the old and new absolute watch-root paths.
-/// `unified_queue.file_path` values are rewritten only where they begin with
-/// `old_prefix`; SQLite's `substr`/`replace` would over-match a bare `replace`,
-/// so the rewrite is anchored with a `LIKE 'old_prefix%'` guard and a
-/// length-based `substr` splice to replace only the leading prefix.
+/// `unified_queue.file_path` values are rewritten only where they sit *under*
+/// `old_prefix` as a directory — the match is anchored at a path boundary with
+/// `LIKE 'old_prefix/%'` so a sibling directory is never touched (`/old/proj`
+/// must not match `/old/projfoo/x.rs`). The leading prefix is then spliced out
+/// with a `length()`-based `substr`; the offset is computed from SQLite's own
+/// `length(file_path-prefix)` so non-ASCII prefixes are sliced by character,
+/// not byte. The remainder begins at the `/` boundary, so `new_prefix ||
+/// substr(...)` reconstructs `new_prefix/<rest>` exactly.
 pub async fn repoint_path_state_db(
     pool: &SqlitePool,
     tenant_id: &str,
@@ -206,7 +212,7 @@ pub async fn repoint_path_state_db(
     Ok(rows)
 }
 
-async fn repoint_path_in_tx(
+pub async fn repoint_path_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     tenant_id: &str,
     old_prefix: &str,
@@ -224,18 +230,21 @@ async fn repoint_path_in_tx(
     total += r.rows_affected() as i64;
 
     // unified_queue.file_path is per-row and absolute: splice the leading
-    // prefix only. `?1 || substr(file_path, len(old_prefix)+1)` keeps the
-    // remainder of each path intact.
-    let like = format!("{}%", escape_like(old_prefix));
+    // prefix only. The boundary-anchored `LIKE 'old_prefix/%'` ensures only
+    // paths *inside* the old root match; `length(?old_prefix)+1` points at the
+    // first character past the prefix (the `/`), so `new_prefix ||
+    // substr(file_path, that)` yields `new_prefix/<rest>`. `length()` counts
+    // characters, so non-ASCII prefixes splice correctly.
+    let like = format!("{}/%", escape_like(old_prefix));
     let r = sqlx::query(
         "UPDATE unified_queue \
-         SET file_path = ?1 || substr(file_path, ?2) \
+         SET file_path = ?1 || substr(file_path, length(?2) + 1) \
          WHERE tenant_id = ?3 \
            AND file_path IS NOT NULL \
            AND file_path LIKE ?4 ESCAPE '\\'",
     )
     .bind(new_prefix)
-    .bind((old_prefix.len() + 1) as i64)
+    .bind(old_prefix)
     .bind(tenant_id)
     .bind(&like)
     .execute(&mut **tx)
@@ -261,7 +270,8 @@ pub async fn count_repoint_rows(
             .await?;
     total += wf;
 
-    let like = format!("{}%", escape_like(old_prefix));
+    // Same boundary-anchored prefix as the rewrite, so dry-run and apply agree.
+    let like = format!("{}/%", escape_like(old_prefix));
     let uq: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM unified_queue \
          WHERE tenant_id = ?1 AND file_path IS NOT NULL AND file_path LIKE ?2 ESCAPE '\\'",
@@ -277,7 +287,11 @@ pub async fn count_repoint_rows(
 
 /// Escape SQLite `LIKE` wildcards (`%`, `_`) and the escape char itself so a
 /// path prefix is matched literally. Pairs with `ESCAPE '\'` in the query.
-pub(super) fn escape_like(s: &str) -> String {
+///
+/// `pub(crate)` so the gRPC layer's library-recover counting can reuse the same
+/// escaping the apply path uses (it lives in a separate crate, so `pub(crate)`
+/// is widened to `pub` at the module boundary by re-export).
+pub fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
