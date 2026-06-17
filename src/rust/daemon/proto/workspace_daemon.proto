@@ -637,13 +637,20 @@ message TextSearchResponse {
                                                   // request was tenant-scoped and state is known
 }
 
-// Indexing state for the tenant a text search was scoped to (#97).
+// Indexing state for the tenant+branch a text search was scoped to (#97, #137, #141).
 // Lets callers distinguish "pattern absent" from "files not indexed yet":
-// a zero-match response with queue_pending > 0 may be indexing lag.
+// a zero-match response with index_complete == false may be indexing lag or an
+// unindexed branch rather than genuine pattern absence.
+//
+// All counts are scoped to the BRANCH the search filtered on (when a branch
+// filter is in effect). file_metadata is per-branch: a file indexed on branch A
+// is invisible to a grep filtered on branch B (#137). Tenant-wide counts masked
+// that — reporting a healthy tenant while the queried branch returned nothing.
 message TextIndexStatus {
-    uint64 files_tracked = 1;                     // tracked_files rows for the tenant
-    uint64 queue_pending = 2;                     // pending/in_progress unified_queue items for the tenant
-    bool index_complete = 3;                      // queue_pending == 0
+    uint64 files_tracked = 1;                     // searchable file_metadata files for the queried branch
+    uint64 queue_pending = 2;                     // pending/in_progress unified_queue items for the tenant+branch
+    bool index_complete = 3;                      // true only when the queried branch is fully searchable:
+                                                  // queue_pending == 0 AND files_tracked > 0
 }
 
 // TextSearch CountMatches Response
