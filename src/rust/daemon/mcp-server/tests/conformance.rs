@@ -101,6 +101,16 @@ impl StoreDaemon for StoreDaemonUnconnected {
         Err("daemon not connected".to_string())
     }
 
+    async fn recover_project(
+        &mut self,
+        _project_id: &str,
+        _new_path: Option<&str>,
+        _rescan_remote: bool,
+        _dry_run: bool,
+    ) -> Result<String, String> {
+        Err("daemon not connected".to_string())
+    }
+
     async fn upsert_scratchpad_mirror(
         &mut self,
         _scratchpad_id: String,

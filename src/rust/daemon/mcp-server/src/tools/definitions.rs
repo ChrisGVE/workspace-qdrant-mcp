@@ -267,8 +267,8 @@ fn store_schema() -> Arc<JsonObject> {
     props.insert(
         "type".into(),
         str_enum_prop(
-            &["library", "url", "scratchpad", "project"],
-            "What to store: \"library\" for reference docs (default), \"url\" to fetch and ingest a web page, \"scratchpad\" for persistent notes, \"project\" to register a project directory",
+            &["library", "url", "scratchpad", "project", "recover"],
+            "What to store: \"library\" for reference docs (default), \"url\" to fetch and ingest a web page, \"scratchpad\" for persistent notes, \"project\" to register a project directory, \"recover\" to reconcile a drifted project registration (re-point a moved path and/or flip tenancy)",
         ),
     );
     props.insert(
