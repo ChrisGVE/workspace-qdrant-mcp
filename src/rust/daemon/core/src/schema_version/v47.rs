@@ -73,14 +73,21 @@ impl Migration for V47Migration {
 /// Does the live table SQL already carry the relaxed actor CHECK?
 ///
 /// The check is "already migrated" only when `'benchmark'` appears *inside the
-/// actor CHECK clause* — not anywhere in the DDL. A bare `live_sql.contains(
+/// `actor IN (...)` clause* — not anywhere in the DDL. A bare `live_sql.contains(
 /// "'benchmark'")` would false-positive if that literal ever showed up
 /// elsewhere (a column default, another CHECK, a comment), making the rebuild a
-/// silent no-op that leaves the old CHECK in place. Requiring BOTH the
-/// `actor IN (` clause opener AND the `'benchmark'` literal anchors the probe to
-/// the actor constraint (L3/#135).
+/// silent no-op that leaves the old CHECK in place. We therefore isolate the
+/// text from the `actor IN (` opener up to its closing `)` and look for
+/// `'benchmark'` only within that span (L3/#135).
 fn actor_check_admits_benchmark(live_sql: &str) -> bool {
-    live_sql.contains("actor IN (") && live_sql.contains("'benchmark'")
+    let Some(clause_start) = live_sql.find("actor IN (") else {
+        return false;
+    };
+    let after_open = &live_sql[clause_start..];
+    let Some(clause_end) = after_open.find(')') else {
+        return false;
+    };
+    after_open[..clause_end].contains("'benchmark'")
 }
 
 /// Rebuild `search_events` so its `actor` CHECK admits `'benchmark'`.
