@@ -228,3 +228,38 @@ async fn recover_unknown_project_is_not_found() {
         .expect_err("unknown project must error");
     assert_eq!(err.code(), tonic::Code::NotFound);
 }
+
+#[tokio::test]
+async fn recover_rejects_a_relative_new_path() {
+    // H4: a non-canonical new_path (relative, or containing `..`) is rejected
+    // before any plan is built, so it can never traverse outside an absolute
+    // root or compute a spurious tenant id.
+    let (pool, _tmp) = setup_test_db().await;
+    create_test_watch_folder(&pool, "local_reject00001", "/old/reject/proj").await;
+
+    let svc = build_test_service(pool.clone(), 60);
+    for bad in ["relative/path", "/old/reject/../escape"] {
+        let err = svc
+            .handle_recover_project(RecoverProjectRequest {
+                project_id: "local_reject00001".to_string(),
+                new_path: Some(bad.to_string()),
+                rescan_remote: false,
+                dry_run: false,
+            })
+            .await
+            .expect_err("a non-canonical new_path must be rejected");
+        assert_eq!(
+            err.code(),
+            tonic::Code::InvalidArgument,
+            "rejecting new_path {bad:?}"
+        );
+    }
+
+    // The stored path was never touched by the rejected requests.
+    let path: String =
+        sqlx::query_scalar("SELECT path FROM watch_folders WHERE tenant_id = 'local_reject00001'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(path, "/old/reject/proj");
+}
