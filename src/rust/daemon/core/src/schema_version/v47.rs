@@ -70,6 +70,19 @@ impl Migration for V47Migration {
     }
 }
 
+/// Does the live table SQL already carry the relaxed actor CHECK?
+///
+/// The check is "already migrated" only when `'benchmark'` appears *inside the
+/// actor CHECK clause* — not anywhere in the DDL. A bare `live_sql.contains(
+/// "'benchmark'")` would false-positive if that literal ever showed up
+/// elsewhere (a column default, another CHECK, a comment), making the rebuild a
+/// silent no-op that leaves the old CHECK in place. Requiring BOTH the
+/// `actor IN (` clause opener AND the `'benchmark'` literal anchors the probe to
+/// the actor constraint (L3/#135).
+fn actor_check_admits_benchmark(live_sql: &str) -> bool {
+    live_sql.contains("actor IN (") && live_sql.contains("'benchmark'")
+}
+
 /// Rebuild `search_events` so its `actor` CHECK admits `'benchmark'`.
 ///
 /// Cases handled (mirrors the idempotency/crash-recovery discipline of v40):
@@ -100,13 +113,13 @@ async fn rebuild_search_events(
         return Ok(());
     }
 
-    // Case 1: idempotency — the live CHECK already lists 'benchmark'.
+    // Case 1: idempotency — the live actor CHECK already lists 'benchmark'.
     let live_sql: String = sqlx::query_scalar(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='search_events'",
     )
     .fetch_one(&mut **conn)
     .await?;
-    if live_sql.contains("'benchmark'") {
+    if actor_check_admits_benchmark(&live_sql) {
         debug!("Migration v47: search_events.actor CHECK already admits 'benchmark'");
         if old_exists {
             conn.execute("DROP TABLE search_events_old").await?;
@@ -208,6 +221,25 @@ mod tests {
         .map(|_| ())
     }
 
+    #[test]
+    fn test_actor_check_probe_requires_the_actor_clause() {
+        // L3/#135: the probe must anchor 'benchmark' to the actor CHECK, not match
+        // it anywhere in the DDL.
+        assert!(actor_check_admits_benchmark(
+            "CREATE TABLE search_events (actor TEXT CHECK (actor IN ('claude', 'benchmark')))"
+        ));
+        // 'benchmark' present but NOT inside an actor IN (...) clause: a stray
+        // occurrence (e.g. a column default) must not be read as "already migrated".
+        assert!(!actor_check_admits_benchmark(
+            "CREATE TABLE search_events (note TEXT DEFAULT 'benchmark', \
+             actor TEXT CHECK (actor IN ('claude', 'user', 'daemon')))"
+        ));
+        // The old (pre-v47) CHECK without 'benchmark' is correctly NOT a match.
+        assert!(!actor_check_admits_benchmark(
+            "CREATE TABLE search_events (actor TEXT CHECK (actor IN ('claude', 'user', 'daemon')))"
+        ));
+    }
+
     #[tokio::test]
     async fn test_v47_check_admits_benchmark() {
         let pool = migrated_pool().await;
@@ -288,6 +320,73 @@ mod tests {
                 .unwrap();
         assert_eq!(count, 1, "idempotent re-run must not drop rows");
         assert!(table_sql(&pool).await.contains("'benchmark'"));
+    }
+
+    #[tokio::test]
+    async fn test_v47_crash_recovery_case2() {
+        // L4/#135: simulate a crash mid-rebuild — the old table was renamed aside
+        // but the new table never landed (and the version row was never written).
+        // Re-running v47 must take Case 2 (recreate from `search_events_old`,
+        // copy, drop), ending with the relaxed CHECK, the row preserved, and no
+        // `search_events_old` left behind.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let mgr = SchemaManager::new(pool.clone());
+        for v in 1..=46 {
+            mgr.run_migration(v).await.unwrap();
+        }
+        // Seed a row under the OLD (pre-v47) actor CHECK.
+        insert_actor(&pool, "survivor", "claude").await.unwrap();
+
+        // Hand-build the crash window: copy `search_events` to `search_events_old`
+        // and drop `search_events`, mirroring an interrupted rename/recreate.
+        sqlx::query("ALTER TABLE search_events RENAME TO search_events_old")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let table_present: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='search_events')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!table_present, "crash window: search_events must be absent");
+
+        // Re-run v47 — it must recover via Case 2.
+        mgr.run_migration(47).await.unwrap();
+
+        // The table is back with the relaxed CHECK.
+        assert!(
+            table_sql(&pool).await.contains("'benchmark'"),
+            "recovered search_events must carry the relaxed actor CHECK"
+        );
+        insert_actor(&pool, "post-recovery", "benchmark")
+            .await
+            .expect("relaxed CHECK admits 'benchmark' after recovery");
+
+        // The pre-crash row survived the recreate-and-copy.
+        let actor: String =
+            sqlx::query_scalar("SELECT actor FROM search_events WHERE id = 'survivor'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(actor, "claude", "the pre-crash row survives recovery");
+
+        // The scratch table is gone.
+        let old_present: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+             WHERE type='table' AND name='search_events_old')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !old_present,
+            "search_events_old must be dropped after recovery"
+        );
     }
 
     #[tokio::test]
