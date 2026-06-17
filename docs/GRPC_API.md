@@ -1,6 +1,6 @@
 # gRPC API Reference
 
-Complete reference documentation for the workspace-qdrant-mcp gRPC API. The daemon exposes 4 services with 20 RPCs for communication with MCP server and CLI.
+Complete reference documentation for the workspace-qdrant-mcp gRPC API. The daemon exposes 13 services with RPCs for communication with MCP server and CLI. This document covers the services most relevant to integration; see the proto file for the full catalog.
 
 ## Table of Contents
 
@@ -11,6 +11,7 @@ Complete reference documentation for the workspace-qdrant-mcp gRPC API. The daem
   - [CollectionService](#collectionservice)
   - [DocumentService](#documentservice)
   - [ProjectService](#projectservice)
+  - [LibraryWriteService](#librarywriteservice)
 - [Common Types](#common-types)
 - [Error Handling](#error-handling)
 - [Usage Examples](#usage-examples)
@@ -22,7 +23,8 @@ The unified daemon (`memexd`) provides gRPC services for:
 - **SystemService** (7 RPCs): Health monitoring, metrics, lifecycle management
 - **CollectionService** (5 RPCs): Collection CRUD, alias management
 - **DocumentService** (3 RPCs): Direct text ingestion, updates, deletion
-- **ProjectService** (5 RPCs): Multi-tenant project registration and session management
+- **ProjectService** (6 RPCs): Multi-tenant project registration, session management, and recovery
+- **LibraryWriteService** (7 RPCs): Library management mutations, including path recovery
 
 **Design Principles:**
 - **Single writer pattern**: Only daemon writes to Qdrant
@@ -479,6 +481,84 @@ MCP agents reach the same operation through the `store` tool with `type:"recover
 (`projectId`, `path` = new path, `rescanRemote`, `dryRun`). The library equivalent
 is `LibraryWriteService.RecoverLibrary` (`wqm library recover`), a path-only
 re-point since a library's tenant_id is its tag.
+
+---
+
+### LibraryWriteService
+
+Library management mutations. Daemon-exclusive writes to `watch_folders`,
+`tracked_files`, `project_components`, and `unified_queue`. Exposes 7 RPCs:
+`AddLibrary`, `RemoveLibrary`, `WatchLibrary`, `UnwatchLibrary`,
+`ConfigureLibrary`, `SetIncremental`, and `RecoverLibrary`.
+
+#### RecoverLibrary
+
+Re-point a library to a new source path, rewriting stored absolute file paths in
+state.db, search.db, and Qdrant (#140). A library's `tenant_id` is its tag, so
+re-pointing never changes tenancy — only paths are rewritten. The CLI surface is
+`wqm library recover`; see the [CLI reference](./reference/cli.md#wqm-library).
+
+```protobuf
+rpc RecoverLibrary(RecoverLibraryRequest) returns (RecoverLibraryResponse);
+```
+
+**Request fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tag` | string | Library tag (= tenant_id). Required; must identify a registered library. |
+| `new_path` | string (optional) | New absolute source path the library has moved to. Unset → no-op detect (returns `changed=false` if already consistent). |
+| `dry_run` | bool | Report planned path change and row/point counts without writing. Default: false. |
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | bool | False when the library tag is not found or an internal error occurs. |
+| `dry_run` | bool | Echoes the request flag. |
+| `changed` | bool | False when the stored path already matches `new_path` (idempotent no-op). |
+| `old_path` | string | The previously stored source path. |
+| `new_path` | string | The new source path (= `old_path` when `changed=false`). |
+| `sqlite_rows_updated` | int32 | Total rows updated (or that would be updated) in state.db + search.db. |
+| `qdrant_points_updated` | int32 | Total Qdrant points whose `file_path`/`absolute_path` payload was (or would be) rewritten. |
+| `message` | string | Human-readable summary. |
+
+**Semantics and idempotency:**
+
+- When `new_path == old_path`, the RPC returns immediately with `changed=false` and makes no writes. Re-running after a successful apply is therefore safe.
+- The path rewrite is a prefix substitution: every stored absolute path that begins with `old_path` is rewritten to begin with `new_path`. Relative paths (`tracked_files.relative_path`, the graph store, Qdrant `relative_path` payload) are watch-root-relative and are not touched.
+- `dry_run=true` counts the affected rows/points without writing. The dry-run count for Qdrant uses a synchronous no-write pass through the storage client, so the dry-run and apply counts should agree.
+- The satellite search.db is opened on demand from the state.db path. If it does not yet exist, it contributes zero rows and is not created.
+- `success=false` is returned (not a gRPC error status) only for invalid arguments (`tag` empty) or a missing library; internal database errors surface as gRPC `Status::internal`.
+
+**Example:**
+
+```python
+from workspace_daemon_pb2 import RecoverLibraryRequest
+from workspace_daemon_pb2_grpc import LibraryWriteServiceStub
+
+stub = LibraryWriteServiceStub(channel)
+
+# Dry run: check what would change
+req = RecoverLibraryRequest(
+    tag="rust-docs",
+    new_path="/new/location/rust-docs",
+    dry_run=True,
+)
+resp = stub.RecoverLibrary(req)
+print(f"Would update {resp.sqlite_rows_updated} SQLite rows and "
+      f"{resp.qdrant_points_updated} Qdrant points")
+
+# Apply the re-point
+req = RecoverLibraryRequest(
+    tag="rust-docs",
+    new_path="/new/location/rust-docs",
+    dry_run=False,
+)
+resp = stub.RecoverLibrary(req)
+assert resp.success and resp.changed
+print(resp.message)
+```
 
 ---
 

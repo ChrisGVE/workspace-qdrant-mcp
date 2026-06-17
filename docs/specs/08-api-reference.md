@@ -180,7 +180,7 @@ Store content or register a project. The `type` parameter determines the operati
 
 ```typescript
 store({
-    type?: "library" | "url" | "scratchpad" | "project", // What to store (default: "library")
+    type?: "library" | "url" | "scratchpad" | "project" | "recover", // What to store (default: "library")
     // Common parameters
     content?: string,                  // Text content (required for type "library")
     title?: string,                    // Content title (for type "library")
@@ -194,8 +194,12 @@ store({
     // Scratchpad-specific parameters
     tags?: string[],                   // Tags for scratchpad entries
     // Project-specific parameters
-    path?: string,                     // Absolute path to project directory (required for type "project")
+    path?: string,                     // Absolute path to project directory (required for type "project"); also used as new path for type "recover"
     name?: string,                     // Display name (defaults to directory name, for type "project")
+    // Recover-specific parameters (#140)
+    projectId?: string,                // Tenant ID of the project to recover (required for type "recover" unless forProject=true)
+    rescanRemote?: boolean,            // Recompute tenancy from current git remote (default: false)
+    dryRun?: boolean,                  // Report planned changes without writing (default: false)
 })
 ```
 
@@ -217,6 +221,22 @@ Stores content to the `scratchpad` collection. Supports both global and project-
 
 Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. The server can also activate and keep-active existing projects. Returns `{ success, project_id, created, is_active, message }`.
 
+**Type: `"recover"` — Reconcile a drifted project registration (#140):**
+
+Re-points a moved project and/or recomputes its tenancy (local ↔ remote), rewriting stored file paths and migrating all tenant_id-keyed data across SQLite and Qdrant. This is the MCP-facing surface of the `RecoverProject` gRPC RPC (see [gRPC API — RecoverProject](../GRPC_API.md#recoverproject)).
+
+Inputs:
+- `projectId` (string): the stored tenant_id of the project to recover. Required unless `forProject=true`, in which case the current session project is used.
+- `path` (string, optional): new absolute filesystem path the project moved to. Unset means keep the stored path and only recompute tenancy if `rescanRemote=true`.
+- `rescanRemote` (boolean, default `false`): recompute the tenant_id from the current git remote. Triggers a full tenant_id cascade across SQLite and Qdrant.
+- `dryRun` (boolean, default `false`): report the planned old→new id/path and row/point counts without writing anything. Idempotent with no side effects.
+
+Returns `{ success: boolean, message: string }`. The message is a human-readable summary of what was (or would be) changed.
+
+Re-running on an already-consistent registration is a no-op (`changed=false`). For the library equivalent, see [gRPC API — RecoverLibrary](../GRPC_API.md#recoverlibrary) or `wqm library recover` in the [CLI reference](../reference/cli.md).
+
+For troubleshooting registration drift, see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
+
 **Collection routing summary:**
 
 | Type | Destination | Condition |
@@ -226,6 +246,7 @@ Registers a new project with the daemon for file watching and ingestion. Uses `r
 | `url` | `scratchpad` | Default (ad-hoc reference) |
 | `scratchpad` | `scratchpad` | Always |
 | `project` | N/A | Registers project with daemon |
+| `recover` | N/A | Reconciles drifted project registration |
 
 **Note:** The server cannot store content to the `projects` collection — project content is ingested exclusively by the daemon via file watching. Behavioral rules use the dedicated `rules` tool. Libraries are collections of reference information (books, documentation, papers, websites) — NOT programming libraries (use context7 MCP for those).
 
