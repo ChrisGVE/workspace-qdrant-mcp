@@ -48,7 +48,13 @@ pub(super) struct LoopState {
 
 impl LoopState {
     /// Initialise loop state from processor configuration.
-    pub(super) fn new(config: &UnifiedProcessorConfig) -> Self {
+    ///
+    /// `baseline_ttl_secs` is the runtime-configured `control_baseline` prune
+    /// horizon (`QueueHealthConfig::baseline_ttl_secs`), threaded in so the
+    /// persist task honors the tuned value rather than a hardcoded const (#143).
+    /// It is separate from `UnifiedProcessorConfig`, which does not carry
+    /// queue-health settings.
+    pub(super) fn new(config: &UnifiedProcessorConfig, baseline_ttl_secs: u64) -> Self {
         let uplift_config = crate::metadata_uplift::UpliftConfig::default();
 
         let last_resurrection = std::time::Instant::now()
@@ -84,7 +90,9 @@ impl LoopState {
             crate::idle::tasks::ElaboratesMaintenanceTask::new(),
         ));
         maintenance_scheduler.register(Box::new(
-            crate::switchboard::persist_task::ControlBaselinePersistTask::new(),
+            crate::switchboard::persist_task::ControlBaselinePersistTask::with_ttl_secs(
+                baseline_ttl_secs,
+            ),
         ));
 
         Self {
