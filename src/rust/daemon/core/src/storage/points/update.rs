@@ -158,4 +158,122 @@ impl StorageClient {
 
         Ok(())
     }
+
+    /// Rewrite the absolute path payload keys of a tenant's points by prefix,
+    /// for the recover/re-point command (#140).
+    ///
+    /// Scrolls every point in `collection_name` whose `tenant_id` payload
+    /// matches `tenant_id`, and for the absolute path keys `file_path` and
+    /// `absolute_path`, replaces a leading `old_prefix` with `new_prefix`. The
+    /// `relative_path` payload is watch-root-relative and is left untouched, so
+    /// only the chunk's absolute location is corrected. A per-point set_payload
+    /// is issued only when at least one key actually changed, so re-running on
+    /// an already-correct tenant is a cheap no-op (idempotent).
+    ///
+    /// When `dry_run` is true, no writes are issued — the return value is the
+    /// number of points that *would* change.
+    ///
+    /// Returns the number of points updated (or that would be updated).
+    pub async fn rewrite_path_payload_prefix_by_tenant(
+        &self,
+        collection_name: &str,
+        tenant_id: &str,
+        old_prefix: &str,
+        new_prefix: &str,
+        dry_run: bool,
+    ) -> Result<u64, StorageError> {
+        use qdrant_client::qdrant::{value::Kind, Condition, Filter, PointId, ScrollPointsBuilder};
+
+        if !self.collection_exists(collection_name).await? {
+            // A tenant may have no media/scratchpad collection — treat as
+            // nothing to do rather than an error.
+            return Ok(0);
+        }
+
+        const PATH_KEYS: [&str; 2] = ["file_path", "absolute_path"];
+        let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
+
+        let mut changed: u64 = 0;
+        let mut offset: Option<PointId> = None;
+        let batch_size = 100u32;
+
+        loop {
+            let f = filter.clone();
+            let o = offset.clone();
+            let response = self
+                .retry_operation(|| {
+                    let f = f.clone();
+                    let o = o.clone();
+                    async move {
+                        let mut builder = ScrollPointsBuilder::new(collection_name)
+                            .filter(f)
+                            .limit(batch_size)
+                            .with_payload(true)
+                            .with_vectors(false);
+                        if let Some(id) = o {
+                            builder = builder.offset(id);
+                        }
+                        self.client.scroll(builder).await.map_err(|e| {
+                            StorageError::Search(format!("Scroll for repath failed: {}", e))
+                        })
+                    }
+                })
+                .await?;
+
+            for point in &response.result {
+                let mut rewritten: std::collections::HashMap<String, serde_json::Value> =
+                    std::collections::HashMap::new();
+                for key in PATH_KEYS {
+                    if let Some(Kind::StringValue(path)) =
+                        point.payload.get(key).and_then(|v| v.kind.as_ref())
+                    {
+                        if let Some(rest) = path.strip_prefix(old_prefix) {
+                            let new_path = format!("{}{}", new_prefix, rest);
+                            if &new_path != path {
+                                rewritten
+                                    .insert(key.to_string(), serde_json::Value::String(new_path));
+                            }
+                        }
+                    }
+                }
+
+                if rewritten.is_empty() {
+                    continue;
+                }
+                changed += 1;
+
+                if dry_run {
+                    continue;
+                }
+                if let Some(id) = point.id.as_ref() {
+                    if let Some(id_str) = point_id_to_uuid(id) {
+                        self.set_payload_on_point(collection_name, &id_str, rewritten)
+                            .await?;
+                    }
+                }
+            }
+
+            match response.next_page_offset {
+                Some(next) => offset = Some(next),
+                None => break,
+            }
+        }
+
+        info!(
+            "Repath {} point(s) in '{}' ({} -> {}, dry_run={})",
+            changed, collection_name, old_prefix, new_prefix, dry_run
+        );
+        Ok(changed)
+    }
+}
+
+/// Extract a UUID string from a Qdrant point id (the only id form
+/// `set_payload_on_point` accepts). Numeric ids are not used by this codebase
+/// for content points and are skipped.
+fn point_id_to_uuid(id: &qdrant_client::qdrant::PointId) -> Option<String> {
+    use qdrant_client::qdrant::point_id::PointIdOptions;
+    match id.point_id_options.as_ref()? {
+        PointIdOptions::Uuid(uuid) => Some(uuid.clone()),
+        PointIdOptions::Num(_) => None,
+    }
 }
