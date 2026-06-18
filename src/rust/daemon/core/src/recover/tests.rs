@@ -416,11 +416,10 @@ async fn search_db_repoint_is_boundary_anchored_and_unicode_safe() {
         .unwrap();
     assert_eq!(n, 1, "only the child path matches, not the sibling");
 
-    let child: String =
-        sqlx::query_scalar("SELECT file_path FROM file_metadata WHERE file_id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let child: String = sqlx::query_scalar("SELECT file_path FROM file_metadata WHERE file_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(child, "/Users/new/proj/src/a.rs");
 
     let sibling: String =

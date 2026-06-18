@@ -176,8 +176,8 @@ impl ControlBaselinePersistTask {
         //      back to a 100-year-past cutoff — older than any real row, so the
         //      prune becomes an effective "never prune".
         let ttl = i64::try_from(ttl_secs).unwrap_or(i64::MAX);
-        let span = chrono::Duration::try_seconds(ttl)
-            .unwrap_or_else(|| chrono::Duration::days(365 * 100));
+        let span =
+            chrono::Duration::try_seconds(ttl).unwrap_or_else(|| chrono::Duration::days(365 * 100));
         let cutoff = chrono::Utc::now() - span;
         cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }

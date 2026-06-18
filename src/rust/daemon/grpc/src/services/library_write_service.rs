@@ -43,11 +43,7 @@ impl LibraryWriteServiceImpl {
 
     /// Attach the state.db pool and Qdrant client needed by RecoverLibrary
     /// (#140). All other RPCs delegate to the WriteActor and ignore these.
-    pub fn with_recover_deps(
-        mut self,
-        db_pool: SqlitePool,
-        storage: Arc<StorageClient>,
-    ) -> Self {
+    pub fn with_recover_deps(mut self, db_pool: SqlitePool, storage: Arc<StorageClient>) -> Self {
         self.db_pool = Some(db_pool);
         self.storage = Some(storage);
         self
