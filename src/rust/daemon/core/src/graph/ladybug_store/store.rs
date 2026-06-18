@@ -4,19 +4,20 @@
 //! queries. All user-supplied values pass through parameterized queries
 //! (`$param` + `PreparedStatement`) to prevent injection.
 
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 
 use async_trait::async_trait;
 use lbug::{Connection, Database, SystemConfig, Value};
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::graph::{
     compute_edge_id,
     cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
     schema::{GraphDbError, GraphDbResult},
     AdjacencyExport, EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
-    ImpactReport, SymbolRow, TraversalNode,
+    ImpactReport, NodeMetadata, SymbolRow, TraversalNode,
 };
 
 use super::config::LadybugConfig;
@@ -135,16 +136,28 @@ impl LadybugGraphStore {
     }
 
     /// Create a connection to the database.
+    ///
+    /// The `Connection::new` call crosses into the lbug C++ layer; it is
+    /// wrapped with [`lbug_call`] so a Rust panic in the binding is caught and
+    /// converted to [`GraphDbError::InternalError`] rather than unwinding the
+    /// tokio runtime (SEC-03).
     fn connect(&self) -> GraphDbResult<Connection<'_>> {
-        Connection::new(&self.db)
-            .map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))
+        // lbug FFI boundary: Connection::new calls into C++ kuzu internals.
+        lbug_call(|| Connection::new(&self.db)).and_then(|result| {
+            result.map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))
+        })
     }
 
     /// Execute a DDL/mutation query (no parameters), mapping lbug errors.
+    ///
+    /// The `conn.query` call crosses into the lbug C++ layer; wrapped with
+    /// [`lbug_call`] for panic containment (SEC-03).
     fn exec(&self, conn: &Connection<'_>, cypher: &str) -> GraphDbResult<()> {
-        conn.query(cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
-        Ok(())
+        // lbug FFI boundary: conn.query calls into C++ kuzu query execution.
+        lbug_call(|| conn.query(cypher)).and_then(|result| {
+            result.map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Initialize the graph schema (node tables, rel tables).
@@ -243,9 +256,13 @@ impl LadybugGraphStore {
     /// MERGE matches on `node_id` (primary key); SET updates all properties.
     /// Per T34 findings, no ON CREATE/ON MATCH needed -- bare SET after MERGE
     /// handles both cases.
+    ///
+    /// Both `conn.prepare` and `conn.execute` cross into the lbug C++ layer
+    /// and are wrapped with [`lbug_call`] for Rust-panic containment (SEC-03).
     fn upsert_node_with_conn(&self, conn: &Connection<'_>, node: &GraphNode) -> GraphDbResult<()> {
-        let mut stmt = conn
-            .prepare(
+        // lbug FFI boundary: conn.prepare calls into C++ kuzu statement compilation.
+        let mut stmt = lbug_call(|| {
+            conn.prepare(
                 "MERGE (n:GraphNode {node_id: $node_id}) \
                  SET n.tenant_id = $tenant_id, \
                      n.symbol_name = $symbol_name, \
@@ -256,37 +273,44 @@ impl LadybugGraphStore {
                      n.signature = $signature, \
                      n.language = $language",
             )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare upsert_node failed: {e}")))?;
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Prepare upsert_node failed: {e}")))
+        })?;
 
-        conn.execute(
-            &mut stmt,
-            vec![
-                ("node_id", Value::String(node.node_id.clone())),
-                ("tenant_id", Value::String(node.tenant_id.clone())),
-                ("symbol_name", Value::String(node.symbol_name.clone())),
-                (
-                    "symbol_type",
-                    Value::String(node.symbol_type.as_str().to_string()),
-                ),
-                ("file_path", Value::String(node.file_path.clone())),
-                (
-                    "start_line",
-                    Value::Int64(node.start_line.unwrap_or(0) as i64),
-                ),
-                ("end_line", Value::Int64(node.end_line.unwrap_or(0) as i64)),
-                (
-                    "signature",
-                    Value::String(node.signature.clone().unwrap_or_default()),
-                ),
-                (
-                    "language",
-                    Value::String(node.language.clone().unwrap_or_default()),
-                ),
-            ],
-        )
-        .map_err(|e| GraphDbError::InvalidInput(format!("Execute upsert_node failed: {e}")))?;
-
-        Ok(())
+        // lbug FFI boundary: conn.execute calls into C++ kuzu query execution.
+        lbug_call(|| {
+            conn.execute(
+                &mut stmt,
+                vec![
+                    ("node_id", Value::String(node.node_id.clone())),
+                    ("tenant_id", Value::String(node.tenant_id.clone())),
+                    ("symbol_name", Value::String(node.symbol_name.clone())),
+                    (
+                        "symbol_type",
+                        Value::String(node.symbol_type.as_str().to_string()),
+                    ),
+                    ("file_path", Value::String(node.file_path.clone())),
+                    (
+                        "start_line",
+                        Value::Int64(node.start_line.unwrap_or(0) as i64),
+                    ),
+                    ("end_line", Value::Int64(node.end_line.unwrap_or(0) as i64)),
+                    (
+                        "signature",
+                        Value::String(node.signature.clone().unwrap_or_default()),
+                    ),
+                    (
+                        "language",
+                        Value::String(node.language.clone().unwrap_or_default()),
+                    ),
+                ],
+            )
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Execute upsert_node failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Insert a single edge using parameterized MATCH+CREATE with typed
@@ -295,6 +319,9 @@ impl LadybugGraphStore {
     /// Since Cypher does not allow parameterized rel types, we use a separate
     /// prepared statement per `EdgeType`. The rel type name is a compile-time
     /// constant, not user input, so this is safe.
+    ///
+    /// Both `conn.prepare` and `conn.execute` cross into the lbug C++ layer
+    /// and are wrapped with [`lbug_call`] for Rust-panic containment (SEC-03).
     fn insert_edge_with_conn(&self, conn: &Connection<'_>, edge: &GraphEdge) -> GraphDbResult<()> {
         let rel_type = edge.edge_type.as_str();
         // Build the Cypher string with the rel type literal (safe: comes from
@@ -305,28 +332,33 @@ impl LadybugGraphStore {
              edge_id: $edge_id, tenant_id: $tenant_id, metadata_json: $metadata_json}}]->(b)"
         );
 
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare insert_edge failed: {e}")))?;
+        // lbug FFI boundary: conn.prepare calls into C++ kuzu statement compilation.
+        let mut stmt = lbug_call(|| conn.prepare(&cypher)).and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Prepare insert_edge failed: {e}")))
+        })?;
 
-        conn.execute(
-            &mut stmt,
-            vec![
-                ("src_id", Value::String(edge.source_node_id.clone())),
-                ("dst_id", Value::String(edge.target_node_id.clone())),
-                ("weight", Value::Double(edge.weight)),
-                ("source_file", Value::String(edge.source_file.clone())),
-                ("edge_id", Value::String(edge.edge_id.clone())),
-                ("tenant_id", Value::String(edge.tenant_id.clone())),
-                (
-                    "metadata_json",
-                    Value::String(edge.metadata_json.clone().unwrap_or_default()),
-                ),
-            ],
-        )
-        .map_err(|e| GraphDbError::InvalidInput(format!("Execute insert_edge failed: {e}")))?;
-
-        Ok(())
+        // lbug FFI boundary: conn.execute calls into C++ kuzu query execution.
+        lbug_call(|| {
+            conn.execute(
+                &mut stmt,
+                vec![
+                    ("src_id", Value::String(edge.source_node_id.clone())),
+                    ("dst_id", Value::String(edge.target_node_id.clone())),
+                    ("weight", Value::Double(edge.weight)),
+                    ("source_file", Value::String(edge.source_file.clone())),
+                    ("edge_id", Value::String(edge.edge_id.clone())),
+                    ("tenant_id", Value::String(edge.tenant_id.clone())),
+                    (
+                        "metadata_json",
+                        Value::String(edge.metadata_json.clone().unwrap_or_default()),
+                    ),
+                ],
+            )
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Execute insert_edge failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Fetch the direct (1-hop) neighbours of `current_id` in BOTH directions
@@ -577,6 +609,62 @@ pub(super) fn value_to_f64(val: &Value) -> f64 {
 #[cfg(test)]
 pub(super) fn escape_cypher(s: &str) -> String {
     s.replace('\'', "\\'")
+}
+
+// ---- Panic guard for the lbug FFI boundary -----------------------------------
+
+/// Invoke a synchronous lbug binding call `f`, catching any Rust panics that
+/// originate in the C++/lbug layer and converting them to `GraphDbError`.
+///
+/// # SEC-03 — scope and limitations
+///
+/// This guard catches **Rust panics** that unwind through the FFI binding code.
+/// It CANNOT catch:
+/// - C++ exceptions thrown inside `lbug` (UB if they cross the FFI boundary)
+/// - `abort()`, `std::terminate()`, or C++ `std::unexpected()`
+/// - Out-of-memory (OOM) situations that call `abort()`
+/// - OS signals: SIGSEGV, SIGABRT, SIGBUS, SIGILL, etc.
+///
+/// True fault isolation against C++-level failures requires process isolation
+/// (see DEF-7 in the architecture document). This function is **best-effort
+/// containment** only — it prevents a Rust `panic!` in the binding glue layer
+/// from unwinding through the async tokio runtime and crashing the daemon.
+///
+/// # Usage
+///
+/// Wrap the direct synchronous call into an lbug type (e.g., `Connection::new`,
+/// `conn.prepare`, `conn.execute`, `conn.query`) — NOT the whole async fn:
+///
+/// ```ignore
+/// let conn = lbug_call(|| Connection::new(&self.db))
+///     .map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))?;
+/// ```
+fn lbug_call<F, R>(f: F) -> Result<R, GraphDbError>
+where
+    F: FnOnce() -> R,
+{
+    // AssertUnwindSafe is required because lbug types do not implement
+    // UnwindSafe (the C++ internals are opaque). We accept the theoretical
+    // risk of leaving lbug state in an inconsistent condition after a panic —
+    // the caller discards the connection/statement after any error, so the
+    // inconsistent object is dropped rather than reused.
+    match std::panic::catch_unwind(AssertUnwindSafe(f)) {
+        Ok(value) => Ok(value),
+        Err(payload) => {
+            // Extract a human-readable panic message from the Any payload.
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            warn!("ladybug_panic_trapped: {}", msg);
+            Err(GraphDbError::InternalError(
+                "Rust panic in lbug binding".to_string(),
+            ))
+        }
+    }
 }
 
 // ---- GraphStore trait implementation -----------------------------------------
@@ -1344,6 +1432,38 @@ impl GraphStore for LadybugGraphStore {
         Ok(rows)
     }
 
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let conn = self.connect()?;
+        let cypher = "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
+                      RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+        let mut stmt = conn
+            .prepare(cypher)
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare fetch_node_metadata: {e}")))?;
+        let result = conn
+            .execute(
+                &mut stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute fetch_node_metadata: {e}")))?;
+        let mut map = std::collections::HashMap::new();
+        for row in result {
+            if row.len() >= 4 {
+                map.insert(
+                    value_to_string(&row[0]),
+                    NodeMetadata {
+                        symbol_name: value_to_string(&row[1]),
+                        symbol_type: value_to_string(&row[2]),
+                        file_path: value_to_string(&row[3]),
+                    },
+                );
+            }
+        }
+        Ok(map)
+    }
+
     async fn delete_narrative_nodes_by_file(
         &self,
         tenant_id: &str,
@@ -1598,5 +1718,115 @@ impl GraphStore for LadybugGraphStore {
         }
 
         Ok(AdjacencyExport { node_ids, edges })
+    }
+}
+
+// ---- Unit tests for the lbug panic guard (A0.3) ------------------------------
+//
+// These tests verify `lbug_call` behaviour in isolation, without a real lbug
+// database. They use a fault-injecting closure to trigger a Rust panic and
+// assert that:
+//   1. `lbug_call` returns `Err(GraphDbError::InternalError(...))`.
+//   2. The error message is "Rust panic in lbug binding".
+//   3. A warning log line containing "ladybug_panic_trapped" is emitted.
+//   4. The current thread (standing in for the tokio runtime) does NOT crash.
+//
+// The tests do NOT require a real lbug::Database — the closure is a plain Rust
+// closure that panics, exercising catch_unwind directly.
+
+#[cfg(test)]
+mod panic_guard_tests {
+    use tracing_test::traced_test;
+
+    use super::{lbug_call, GraphDbError};
+
+    /// A successful closure must pass its return value through unchanged.
+    #[test]
+    fn lbug_call_ok_passes_value_through() {
+        let result = lbug_call(|| 42u32);
+        assert_eq!(result.unwrap(), 42u32);
+    }
+
+    /// A closure that panics with a string message must:
+    ///   - be caught (thread does not crash),
+    ///   - return `Err(GraphDbError::InternalError("Rust panic in lbug binding"))`,
+    ///   - emit a `warn!` log containing "ladybug_panic_trapped" and the message.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_str_panic_and_logs() {
+        // Fault-injecting fake: simulates a Rust panic in the lbug binding layer.
+        let result = lbug_call(|| -> u32 { panic!("simulated lbug binding panic") });
+
+        // The thread (runtime) must not have crashed — we reach this assertion.
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        // Verify the warning log was emitted with the expected prefix and message.
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("simulated lbug binding panic"),
+            "expected panic message in logs"
+        );
+    }
+
+    /// A closure that panics with an owned String payload must also be caught.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_string_panic_and_logs() {
+        let result =
+            lbug_call(|| -> u32 { panic!("{}", "owned string panic from lbug".to_string()) });
+
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("owned string panic from lbug"),
+            "expected panic message in logs"
+        );
+    }
+
+    /// A closure that panics with a non-string payload (box of u32) must still
+    /// be caught and emit the generic "<non-string panic payload>" message.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_non_string_panic_and_logs() {
+        use std::panic;
+
+        // Suppress the default "panicked at …" stderr output for this test.
+        let prev = panic::take_hook();
+        panic::set_hook(Box::new(|_| {}));
+        let result = lbug_call(|| -> u32 { panic::resume_unwind(Box::new(99u32)) });
+        panic::set_hook(prev);
+
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("<non-string panic payload>"),
+            "expected generic payload description in logs"
+        );
     }
 }

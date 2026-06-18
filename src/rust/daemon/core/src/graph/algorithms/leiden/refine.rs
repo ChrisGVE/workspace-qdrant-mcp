@@ -48,7 +48,7 @@ pub(crate) fn refine_partition(
     let mut refined: BTreeMap<usize, usize> = (0..n).map(|i| (i, i)).collect();
 
     // For each phase-1 community, attempt to merge nodes/sub-communities.
-    for (_comm_id, members) in &communities {
+    for members in communities.values() {
         let comm_size = members.len();
         if comm_size <= 1 {
             continue; // singleton or empty — nothing to merge

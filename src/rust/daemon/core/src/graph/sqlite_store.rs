@@ -8,7 +8,8 @@ use wqm_common::timestamps::now_utc;
 
 use super::{
     compute_edge_id, is_cross_branch, AdjacencyExport, EdgeType, GraphDbResult, GraphEdge,
-    GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow, TraversalNode,
+    GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, NodeMetadata, SymbolRow,
+    TraversalNode,
 };
 
 use super::cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS};
@@ -657,6 +658,33 @@ impl GraphStore for SqliteGraphStore {
                 symbol_name,
                 node_id,
                 file_path,
+            })
+            .collect())
+    }
+
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT node_id, symbol_name, symbol_type, file_path
+             FROM graph_nodes
+             WHERE tenant_id = ?1",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(node_id, symbol_name, symbol_type, file_path)| {
+                (
+                    node_id,
+                    NodeMetadata {
+                        symbol_name,
+                        symbol_type,
+                        file_path,
+                    },
+                )
             })
             .collect())
     }

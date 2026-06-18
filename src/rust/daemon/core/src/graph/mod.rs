@@ -478,6 +478,20 @@ pub struct AdjacencyExport {
     pub edges: Vec<(usize, usize, f64)>,
 }
 
+/// Display metadata for a single graph node, returned by
+/// [`GraphStore::fetch_node_metadata`] keyed on `node_id`.
+///
+/// Analytics algorithms (PageRank, community detection, betweenness) run over
+/// the topology-only [`AdjacencyExport`] and leave these display fields empty.
+/// Handlers enrich the results by node_id from this metadata, which keeps the
+/// algorithm layer backend-agnostic and free of any database coupling.
+#[derive(Debug, Clone, Default)]
+pub struct NodeMetadata {
+    pub symbol_name: String,
+    pub symbol_type: String,
+    pub file_path: String,
+}
+
 /// Graph statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GraphStats {
@@ -630,6 +644,22 @@ pub trait GraphStore: Send + Sync {
     async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
         let _ = tenant_id;
         Ok(Vec::new())
+    }
+
+    /// Fetch display metadata (`symbol_name`, `symbol_type`, `file_path`) for
+    /// every node of a tenant, keyed by `node_id`.
+    ///
+    /// Used to enrich analytics results (PageRank / community / betweenness)
+    /// after the topology-only [`AdjacencyExport`] has been processed — see the
+    /// graph-service analytics handlers. All node types are returned (code,
+    /// narrative, concept) so any node that can appear in the adjacency export
+    /// resolves. Backends that cannot support this return an empty map.
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let _ = tenant_id;
+        Ok(std::collections::HashMap::new())
     }
 
     /// Delete file-owned narrative nodes (document_section / library_section /

@@ -4,6 +4,13 @@
 //! releases the read lock (LOCK-SCOPE contract), checks the materialized size,
 //! and then runs the algorithm on the owned [`AdjacencyExport`] — no
 //! `SqlitePool` reference is held during algorithm execution.
+//!
+//! Algorithms return topology-only results (empty display fields); each handler
+//! then enriches them with `symbol_name` / `symbol_type` / `file_path` via the
+//! backend-agnostic `SharedGraphStore::fetch_node_metadata`, keeping the
+//! algorithm layer free of any database coupling.
+
+use std::collections::HashMap;
 
 use tonic::{Response, Status};
 use tracing::{error, warn};
@@ -11,7 +18,7 @@ use workspace_qdrant_core::graph::algorithms::{
     compute_betweenness_centrality, compute_pagerank, detect_communities, CommunityConfig,
     PageRankConfig,
 };
-use workspace_qdrant_core::graph::{AdjacencyExport, EdgeType};
+use workspace_qdrant_core::graph::{AdjacencyExport, EdgeType, NodeMetadata};
 
 use crate::proto::{
     BetweennessNodeProto, BetweennessRequest, BetweennessResponse, CommunityMemberProto,
@@ -57,7 +64,7 @@ impl GraphServiceImpl {
         let start = std::time::Instant::now();
 
         // Acquire export (lock released on return from export_adjacency).
-        let adj = export_adjacency(&self, &req.tenant_id, edge_types.as_deref()).await?;
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
         check_export_size(&adj, DEFAULT_MAX_NODES, "PageRank")?;
 
@@ -79,14 +86,19 @@ impl GraphServiceImpl {
 
         let query_time_ms = start.elapsed().as_millis() as i64;
 
+        // Enrich topology-only results with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
         let proto_entries: Vec<PageRankNodeProto> = entries
             .into_iter()
-            .map(|e| PageRankNodeProto {
-                node_id: e.node_id,
-                symbol_name: e.symbol_name,
-                symbol_type: e.symbol_type,
-                file_path: e.file_path,
-                score: e.score,
+            .map(|e| {
+                let (symbol_name, symbol_type, file_path) = split_meta(&meta, &e.node_id);
+                PageRankNodeProto {
+                    node_id: e.node_id,
+                    symbol_name,
+                    symbol_type,
+                    file_path,
+                    score: e.score,
+                }
             })
             .collect();
 
@@ -125,7 +137,7 @@ impl GraphServiceImpl {
         let start = std::time::Instant::now();
 
         // Acquire export (lock released on return from export_adjacency).
-        let adj = export_adjacency(&self, &req.tenant_id, edge_types.as_deref()).await?;
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
         check_export_size(&adj, DEFAULT_MAX_NODES, "community detection")?;
 
@@ -140,6 +152,8 @@ impl GraphServiceImpl {
         let total_communities = communities.len() as u32;
         let query_time_ms = start.elapsed().as_millis() as i64;
 
+        // Enrich topology-only members with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
         let proto_communities: Vec<CommunityProto> = communities
             .into_iter()
             .map(|c| CommunityProto {
@@ -147,11 +161,14 @@ impl GraphServiceImpl {
                 members: c
                     .members
                     .into_iter()
-                    .map(|m| CommunityMemberProto {
-                        node_id: m.node_id,
-                        symbol_name: m.symbol_name,
-                        symbol_type: m.symbol_type,
-                        file_path: m.file_path,
+                    .map(|m| {
+                        let (symbol_name, symbol_type, file_path) = split_meta(&meta, &m.node_id);
+                        CommunityMemberProto {
+                            node_id: m.node_id,
+                            symbol_name,
+                            symbol_type,
+                            file_path,
+                        }
                     })
                     .collect(),
             })
@@ -184,7 +201,7 @@ impl GraphServiceImpl {
         let start = std::time::Instant::now();
 
         // Acquire export (lock released on return from export_adjacency).
-        let adj = export_adjacency(&self, &req.tenant_id, edge_types.as_deref()).await?;
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
         check_export_size(&adj, DEFAULT_MAX_NODES, "betweenness")?;
 
@@ -206,14 +223,19 @@ impl GraphServiceImpl {
 
         let query_time_ms = start.elapsed().as_millis() as i64;
 
+        // Enrich topology-only results with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
         let proto_entries: Vec<BetweennessNodeProto> = entries
             .into_iter()
-            .map(|e| BetweennessNodeProto {
-                node_id: e.node_id,
-                symbol_name: e.symbol_name,
-                symbol_type: e.symbol_type,
-                file_path: e.file_path,
-                score: e.score,
+            .map(|e| {
+                let (symbol_name, symbol_type, file_path) = split_meta(&meta, &e.node_id);
+                BetweennessNodeProto {
+                    node_id: e.node_id,
+                    symbol_name,
+                    symbol_type,
+                    file_path,
+                    score: e.score,
+                }
             })
             .collect();
 
@@ -254,6 +276,37 @@ async fn export_adjacency(
             error!("export_adjacency failed: {}", e);
             Status::internal(format!("export_adjacency failed: {}", e))
         })
+}
+
+/// Fetch per-node display metadata for a tenant, keyed by `node_id`.
+///
+/// Acquires and releases its own read lock (after the algorithm has run); used
+/// to enrich topology-only analytics results before building proto responses.
+async fn fetch_metadata(
+    svc: &GraphServiceImpl,
+    tenant_id: &str,
+) -> Result<HashMap<String, NodeMetadata>, Status> {
+    svc.graph_store
+        .fetch_node_metadata(tenant_id)
+        .await
+        .map_err(|e| {
+            error!("fetch_node_metadata failed: {}", e);
+            Status::internal(format!("fetch_node_metadata failed: {}", e))
+        })
+}
+
+/// Look up display fields for a node, returning empty strings when the node has
+/// no metadata (e.g. removed between export and enrichment).
+fn split_meta(meta: &HashMap<String, NodeMetadata>, node_id: &str) -> (String, String, String) {
+    meta.get(node_id)
+        .map(|m| {
+            (
+                m.symbol_name.clone(),
+                m.symbol_type.clone(),
+                m.file_path.clone(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Check that the materialized export does not exceed the node limit.

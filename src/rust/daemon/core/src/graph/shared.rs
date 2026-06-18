@@ -18,7 +18,7 @@ use tracing::warn;
 
 use super::{
     AdjacencyExport, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
-    ImpactReport, SymbolRow, TraversalNode,
+    ImpactReport, NodeMetadata, SymbolRow, TraversalNode,
 };
 
 /// Threshold after which a lock acquisition emits a `warn!` log.
@@ -309,6 +309,19 @@ impl<S: GraphStore> SharedGraphStore<S> {
         let guard = self.acquire_read("export_adjacency").await?;
         guard.export_adjacency(tenant_id, edge_types).await
     }
+
+    /// Fetch display metadata for all nodes of a tenant (shared read lock).
+    ///
+    /// The read guard is released before the owned map is returned, mirroring
+    /// `export_adjacency` (LOCK-SCOPE contract). Used to enrich analytics
+    /// results after the topology-only export has been processed.
+    pub async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let guard = self.acquire_read("fetch_node_metadata").await?;
+        guard.fetch_node_metadata(tenant_id).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -441,6 +454,13 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
         edge_types: Option<&[EdgeType]>,
     ) -> GraphDbResult<AdjacencyExport> {
         self.export_adjacency(tenant_id, edge_types).await
+    }
+
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        self.fetch_node_metadata(tenant_id).await
     }
 
     /// List tenants with graph data (shared read lock).
