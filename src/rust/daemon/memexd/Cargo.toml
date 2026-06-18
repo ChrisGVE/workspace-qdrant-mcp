@@ -61,12 +61,18 @@ serde_yaml_ng = { workspace = true }
 # Serialize tests that mutate process-global env vars (control_port).
 serial_test = { workspace = true }
 
+# A0.7: ladybug is the default graph backend for the daemon. Build with
+# `--no-default-features --features sqlite` for a light, C++-toolchain-free build
+# (the per-PR CI lane uses this so it never pays the ~86-min Kuzu build cost).
 [features]
-default = []
+default = ["ladybug"]
 # Enable OCR support (requires Tesseract system library)
 ocr = ["workspace-qdrant-core/ocr"]
 # Enable the LadybugDB (Kuzu) graph backend (requires a C++ toolchain)
 ladybug = ["workspace-qdrant-core/ladybug"]
+# Select the SQLite backend explicitly (marker; SQLite is always compiled).
+# Pair with --no-default-features to opt out of the Kuzu C++ build.
+sqlite = ["workspace-qdrant-core/sqlite"]
 
 [lints]
 workspace = true

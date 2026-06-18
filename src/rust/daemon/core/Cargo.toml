@@ -188,6 +188,11 @@ telemetry-l4 = ["telemetry-l3"]
 
 ocr = ["leptess"]
 ladybug = ["lbug"]
+# Marker feature for an explicit SQLite-only build. SQLite (SqliteGraphStore) is
+# always compiled, so this enables nothing on its own; it exists so the daemon
+# and CI can request `--no-default-features --features sqlite` to opt out of the
+# Kuzu C++ build that the default `ladybug` feature (on memexd) pulls in (A0.7).
+sqlite = []
 
 [[bench]]
 name = "cross_platform_benchmarks"
