@@ -674,16 +674,33 @@ ViewResolver**, expanding `branch = ?` to `branch IN (chain)` minus tombstoned
 paths. Grep does not read Qdrant, so the resolver returns the chain + tombstone
 set and grep applies it as a SQL `IN (…)` + `NOT IN (tombstoned paths)`.
 
-**Write orderings:**
+**Write orderings — governing principle: *order by recoverability — update fast,
+delete last*.** The state.db central index (`tracked_files` / `branch_lineage`) is
+the single source of truth and crash-recovery anchor; the data products (Qdrant
+points, `search.db` grep index, and any downstream knowledge graph) hang off it.
+Every multi-store operation is sequenced so a crash at any point always leaves the
+recovery anchor intact, by ordering steps from smallest blast radius / most
+recoverable to largest / least recoverable. Concretely:
 
-- **Additive writes (add/change):** SQLite tracker row first, then Qdrant point,
-  then `search.db` `file_metadata`. A crash leaves a tracker row flagged
+- **Additive writes (add/change):** central index **first** (SQLite tracker row),
+  then the data products (Qdrant point, then `search.db` `file_metadata`), then
+  enrich the index if needed. A crash leaves a tracker row flagged
   `needs_reconcile` pointing at content Qdrant/search.db may lack — reconcile
   re-drives it. The reverse order could orphan a vector with no tracker.
-- **Deletes (per-file delete, branch delete):** Qdrant point/tombstone first,
-  then SQLite tracker, then `search.db` (mirroring the existing cleanup ordering
-  and its #127 rationale, `branch_cleanup/mod.rs:323-339`): a failed Qdrant
-  delete keeps the local rows so the next pass retries.
+- **Logical tombstone (per-file/branch delete — `state='deleted'`, the row
+  *survives* as the durable deleted-marker):** "update fast" — the central-index
+  **state.db UPDATE is written first** (it is the reconcile anchor; §7.2), then the
+  Qdrant tombstone, then the `search.db` mirror. A crash after the state.db UPDATE
+  leaves the durable `state='deleted'` truth, and reconcile re-drives the lagging
+  data products. Writing a data-product tombstone first would let a crash strand a
+  tombstone the anchor (still `present`) silently undoes.
+- **Physical GC (a real point's reference count reaches 0 — the row is *removed*):**
+  "delete last" — delete the **data products first** (Qdrant point/vector, then
+  `search.db`), each individually resumable while the central index still
+  references it, then remove the central-index entry **last** (mirroring the
+  existing cleanup ordering / #127 rationale, `branch_cleanup/mod.rs:323-339`): a
+  crash mid-GC keeps the index so the next pass retries; the reverse risks an
+  unrecoverable orphan.
 - **Lineage edits** (`branch_lineage`): a single SQLite transaction, no Qdrant
   fan-out — `branch_lineage` is the **authority** for chain shape; Qdrant carries
   only per-point `branch`.
