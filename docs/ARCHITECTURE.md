@@ -78,7 +78,7 @@ graph TB
         D_Queue[Unified Queue<br/>SQLite-backed]
         D_Proc[Processors<br/>tree-sitter chunking,<br/>LSP enrichment,<br/>language registry]
         D_Embed[Embedding<br/>dense provider + BM25 sparse]
-        D_Graph[Code Graph<br/>SQLite CTEs]
+        D_Graph[Code Graph<br/>LadybugDB default · SQLite CTE fallback]
 
         D_gRPC --> D_Queue
         D_Watch --> D_Queue
