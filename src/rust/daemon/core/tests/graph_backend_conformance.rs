@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 
 use tempfile::tempdir;
 use workspace_qdrant_core::graph::{
-    create_sqlite_graph_store, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType, TraversalNode,
+    create_sqlite_graph_store, DepthLevel, EdgeType, GraphEdge, GraphNode, GraphStore, NodeType,
+    TraversalNode,
 };
 
 const T: &str = "conformance-tenant";
@@ -40,10 +41,17 @@ const LIB: &str = "conformance-library";
 /// This lets a cross-boundary query starting at `entry` reach the library
 /// document `libdoc` through the shared concept node.
 fn fixture() -> (Vec<GraphNode>, Vec<GraphEdge>) {
-    let entry = GraphNode::new(T, "src/entry.rs", "entry", NodeType::Function);
+    // `entry` stands in for a chunk-derived node linked to a Qdrant point
+    // (task-13): the field-level migration diff exercises LadybugDB's
+    // empty-string sentinel restoration for `qdrant_point_id`/`point_id_state`.
+    let entry = GraphNode::new(T, "src/entry.rs", "entry", NodeType::Function)
+        .with_qdrant_point_id("00000000-0000-0000-0000-0000000000e1".to_string());
     let mid = GraphNode::new(T, "src/mid.rs", "mid", NodeType::Function);
     let leaf = GraphNode::new(T, "src/leaf.rs", "leaf", NodeType::Function);
     let helper = GraphNode::new(T, "src/helper.rs", "Helper", NodeType::Struct);
+    // A nested function reached via a CONTAINS edge carrying DepthLevel metadata
+    // (the only edge with a non-empty `metadata_json`, exercising its round-trip).
+    let nested_fn = GraphNode::new(T, "src/entry.rs", "nested_fn", NodeType::Function);
 
     // Concept node lives under the global tenant.
     let concept = GraphNode::new(GLOBAL, "", "auth", NodeType::ConceptNode);
@@ -91,9 +99,17 @@ fn fixture() -> (Vec<GraphNode>, Vec<GraphEdge>) {
             EdgeType::CoversTopic,
             "docs/auth.md",
         ),
+        GraphEdge::new(
+            T,
+            &entry.node_id,
+            &nested_fn.node_id,
+            EdgeType::Contains,
+            "src/entry.rs",
+        )
+        .with_depth(DepthLevel::Intermediate),
     ];
 
-    let nodes = vec![entry, mid, leaf, helper, concept, libdoc];
+    let nodes = vec![entry, mid, leaf, helper, nested_fn, concept, libdoc];
     (nodes, edges)
 }
 
@@ -199,6 +215,27 @@ async fn sqlite_cross_boundary_reaches_library_via_concept() {
     assert!(
         ids.contains_key(&libdoc),
         "should reach the library doc through the concept"
+    );
+}
+
+/// `diff_graph_contents` (DATA-05) reports no divergences between two SQLite
+/// stores populated from the same fixture. This pins the verifier's success
+/// condition on a single backend before the cross-backend variant exercises
+/// LadybugDB's sentinel restoration under the `ladybug` feature.
+#[tokio::test]
+async fn sqlite_self_diff_is_empty() {
+    use workspace_qdrant_core::graph::migrator::diff_graph_contents;
+    let src = sqlite_store().await;
+    let dst = sqlite_store().await;
+    populate(&src).await;
+    populate(&dst).await;
+
+    let divergences = diff_graph_contents(&src, &dst, T)
+        .await
+        .expect("diff_graph_contents(sqlite, sqlite)");
+    assert!(
+        divergences.is_empty(),
+        "identical SQLite stores must produce no divergences, got: {divergences:?}"
     );
 }
 
@@ -440,5 +477,28 @@ mod ladybug_equivalence {
             .unwrap_or(0);
         assert_eq!(concept_present, 1, "concept node lost in round trip");
         assert!(!concept.is_empty());
+    }
+
+    /// Field-by-field migration verification (task-9 seam, DATA-05).
+    ///
+    /// The count-based `migration_round_trip_lossless` above proves cardinality
+    /// is preserved; this test proves *contents* are. A SQLite → LadybugDB
+    /// dual-populate of the same fixture must yield an empty
+    /// [`migrator::diff_graph_contents`], confirming LadybugDB round-trips every
+    /// node and edge field losslessly — including `qdrant_point_id`/
+    /// `point_id_state` (the empty-string sentinel on `entry`) and `metadata_json`
+    /// (the DepthLevel-bearing CONTAINS edge) — against the reference SQLite
+    /// backend.
+    #[tokio::test]
+    async fn migrate_round_trip_diff_is_empty() {
+        let (sqlite, ladybug, _tmp) = both_stores().await;
+
+        let divergences = migrator::diff_graph_contents(&sqlite, &ladybug, T)
+            .await
+            .expect("diff_graph_contents(sqlite, ladybug)");
+        assert!(
+            divergences.is_empty(),
+            "SQLite→LadybugDB round-trip must be lossless, got: {divergences:?}"
+        );
     }
 }
