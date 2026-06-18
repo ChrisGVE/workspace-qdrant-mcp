@@ -244,6 +244,10 @@ async fn sqlite_self_diff_is_empty() {
 #[cfg(feature = "ladybug")]
 mod ladybug_equivalence {
     use super::*;
+    // Each LadybugDB `Database` reserves a multi-TiB sparse mmap; `#[serial]`
+    // keeps concurrent live instances to one so parallel runs never exhaust the
+    // process virtual-address space.
+    use serial_test::serial;
     use workspace_qdrant_core::graph::{migrator, LadybugConfig, LadybugGraphStore};
 
     fn ladybug_store(name: &str) -> (LadybugGraphStore, tempfile::TempDir) {
@@ -265,6 +269,7 @@ mod ladybug_equivalence {
     }
 
     #[tokio::test]
+    #[serial]
     async fn query_related_equivalent_at_each_hop() {
         let (sqlite, ladybug, _tmp) = both_stores().await;
         let entry = node_id("entry", NodeType::Function);
@@ -292,6 +297,7 @@ mod ladybug_equivalence {
     }
 
     #[tokio::test]
+    #[serial]
     async fn find_path_equivalent() {
         let (sqlite, ladybug, _tmp) = both_stores().await;
         let entry = node_id("entry", NodeType::Function);
@@ -324,6 +330,7 @@ mod ladybug_equivalence {
     }
 
     #[tokio::test]
+    #[serial]
     async fn cross_boundary_equivalent() {
         let (sqlite, ladybug, _tmp) = both_stores().await;
         let entry = node_id("entry", NodeType::Function);
@@ -351,6 +358,7 @@ mod ladybug_equivalence {
     }
 
     #[tokio::test]
+    #[serial]
     async fn cross_boundary_bidirectional() {
         // Starting from the library doc, the concept and the code entry must be
         // reachable in BOTH backends (traversal must follow edges in reverse).
@@ -379,6 +387,7 @@ mod ladybug_equivalence {
     }
 
     #[tokio::test]
+    #[serial]
     async fn stats_equivalent() {
         let (sqlite, ladybug, _tmp) = both_stores().await;
 
@@ -405,6 +414,7 @@ mod ladybug_equivalence {
     /// Round-trip migration: SQLite -> Ladybug -> SQLite preserves all node and
     /// edge counts, node/edge type distributions, and concept/narrative nodes.
     #[tokio::test]
+    #[serial]
     async fn migration_round_trip_lossless() {
         // Source SQLite store.
         let src = sqlite_store().await;
@@ -490,6 +500,7 @@ mod ladybug_equivalence {
     /// (the DepthLevel-bearing CONTAINS edge) — against the reference SQLite
     /// backend.
     #[tokio::test]
+    #[serial]
     async fn migrate_round_trip_diff_is_empty() {
         let (sqlite, ladybug, _tmp) = both_stores().await;
 

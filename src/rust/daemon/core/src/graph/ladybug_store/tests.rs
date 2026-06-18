@@ -1,9 +1,15 @@
 //! Tests for the LadybugDB graph store.
 //!
-//! All tests create isolated tempdir databases so they run independently.
-//! Buffer pool is set to 4MB (small footprint for parallel test execution).
+//! All tests create isolated tempdir databases. Each LadybugDB `Database`
+//! reserves a large (multi-TiB) sparse virtual mmap for its max data-file size,
+//! independent of `buffer_pool_size`, so running many in parallel exhausts the
+//! process virtual-address space ("Mmap for size … failed"). Every kuzu-backed
+//! test is therefore `#[serial]` so at most one live `Database` exists at a
+//! time — the conformance suite (few stores) and the SQLite tests stay parallel.
 
 use std::path::PathBuf;
+
+use serial_test::serial;
 
 use crate::graph::{EdgeType, GraphEdge, GraphNode, GraphStore, NodeType};
 
@@ -61,12 +67,14 @@ fn test_custom_config() {
 // ---- Store lifecycle ---------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_store_create() {
     let (_, _tmp) = fresh_store("graph_create");
     // If we got here, the store was created successfully
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_store_reopen() {
     // Verify schema is idempotent across reopens
     let tmp = tempfile::tempdir().unwrap();
@@ -94,6 +102,7 @@ async fn test_ladybug_store_reopen() {
 // ---- Node operations ---------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_upsert_and_stats() {
     let (store, _tmp) = fresh_store("graph_upsert");
 
@@ -106,6 +115,7 @@ async fn test_ladybug_upsert_and_stats() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_upsert_idempotent() {
     let (store, _tmp) = fresh_store("graph_idempotent");
 
@@ -122,6 +132,7 @@ async fn test_ladybug_upsert_idempotent() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_batch_upsert() {
     let (store, _tmp) = fresh_store("graph_batch");
 
@@ -140,6 +151,7 @@ async fn test_ladybug_batch_upsert() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_upsert_empty() {
     let (store, _tmp) = fresh_store("graph_empty_upsert");
     store.upsert_nodes(&[]).await.unwrap();
@@ -150,6 +162,7 @@ async fn test_ladybug_upsert_empty() {
 // ---- Edge operations ---------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_insert_edge() {
     let (store, _tmp) = fresh_store("graph_edge");
 
@@ -169,6 +182,7 @@ async fn test_ladybug_insert_edge() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_insert_edges_batch() {
     let (store, _tmp) = fresh_store("graph_edges_batch");
 
@@ -195,6 +209,7 @@ async fn test_ladybug_insert_edges_batch() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_insert_edges_empty() {
     let (store, _tmp) = fresh_store("graph_empty_edges");
     store.insert_edges(&[]).await.unwrap();
@@ -203,6 +218,7 @@ async fn test_ladybug_insert_edges_empty() {
 // ---- Delete operations -------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_delete_edges_by_file() {
     let (store, _tmp) = fresh_store("graph_del_edges");
 
@@ -234,6 +250,7 @@ async fn test_ladybug_delete_edges_by_file() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_delete_tenant() {
     let (store, _tmp) = fresh_store("graph_del_tenant");
 
@@ -260,6 +277,7 @@ async fn test_ladybug_delete_tenant() {
 // ---- Query operations --------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_query_related() {
     let (store, _tmp) = fresh_store("graph_query");
 
@@ -297,6 +315,7 @@ async fn test_ladybug_query_related() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_query_related_edge_filter() {
     let (store, _tmp) = fresh_store("graph_query_filter");
 
@@ -332,6 +351,7 @@ async fn test_ladybug_query_related_edge_filter() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_impact_analysis() {
     let (store, _tmp) = fresh_store("graph_impact");
 
@@ -364,6 +384,7 @@ async fn test_ladybug_impact_analysis() {
 // ---- Reingest pattern (T44) --------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_reingest_file() {
     let (store, _tmp) = fresh_store("graph_reingest");
 
@@ -404,6 +425,7 @@ async fn test_ladybug_reingest_file() {
 // ---- Stats completeness ------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_stats_global() {
     let (store, _tmp) = fresh_store("graph_stats_global");
 
@@ -420,6 +442,7 @@ async fn test_ladybug_stats_global() {
 // ---- Cypher passthrough ------------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_execute_cypher() {
     let (store, _tmp) = fresh_store("graph_cypher");
     let rows = store.execute_cypher("RETURN 1 + 2 AS result").unwrap();
@@ -532,6 +555,7 @@ fn assert_path_node_sentinels(n: &crate::graph::TraversalNode, expected_depth: u
 
 /// (a) 2-hop path A→B→C: find_path(A,C) returns [A,B,C] at depths [0,1,2].
 #[tokio::test]
+#[serial]
 async fn test_find_path_2hop() {
     let (store, _tmp, a, _b, c) = build_chain_3("fp_2hop").await;
     let path = store
@@ -553,6 +577,7 @@ async fn test_find_path_2hop() {
 
 /// (b) 3-hop path A→B→C→D: find_path(A,D) returns [A,B,C,D] at depths [0,1,2,3].
 #[tokio::test]
+#[serial]
 async fn test_find_path_3hop() {
     let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_3hop").await;
     let path = store
@@ -570,6 +595,7 @@ async fn test_find_path_3hop() {
 
 /// (c) Disconnected nodes: find_path returns None.
 #[tokio::test]
+#[serial]
 async fn test_find_path_no_path() {
     use crate::graph::NodeType;
     let (store, _tmp) = fresh_store("fp_nopath");
@@ -587,6 +613,7 @@ async fn test_find_path_no_path() {
 
 /// (d) Self-path: find_path(A, A) returns Some([A]) at depth 0.
 #[tokio::test]
+#[serial]
 async fn test_find_path_self() {
     let (store, _tmp, a, _b) = build_chain_2("fp_self").await;
     let path = store
@@ -603,6 +630,7 @@ async fn test_find_path_self() {
 /// (e) Edge-type filter excludes the only available path.
 /// Graph: A→B via USES_TYPE, but we ask for CALLS only → no path.
 #[tokio::test]
+#[serial]
 async fn test_find_path_edge_type_filter_excludes() {
     use crate::graph::NodeType;
     let (store, _tmp) = fresh_store("fp_filter_excl");
@@ -633,6 +661,7 @@ async fn test_find_path_edge_type_filter_excludes() {
 
 /// (e continued) Edge-type filter allows the path when the type matches.
 #[tokio::test]
+#[serial]
 async fn test_find_path_edge_type_filter_allows() {
     let (store, _tmp, a, _b, c) = build_chain_3("fp_filter_allow").await;
     // Chain uses CALLS edges; filter to CALLS — path must be found
@@ -646,6 +675,7 @@ async fn test_find_path_edge_type_filter_allows() {
 
 /// (f) max_depth bound: path is 3 hops but max_depth=2 → None.
 #[tokio::test]
+#[serial]
 async fn test_find_path_max_depth_too_small() {
     let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_maxdepth").await;
     // Path A→D is 3 hops; max_depth=2 must return None
@@ -661,6 +691,7 @@ async fn test_find_path_max_depth_too_small() {
 
 /// (f continued) max_depth exactly equal to path length works.
 #[tokio::test]
+#[serial]
 async fn test_find_path_max_depth_exact() {
     let (store, _tmp, a, _b, _c, d) = build_chain_4("fp_maxdepth_exact").await;
     // Path A→D is 3 hops; max_depth=3 must succeed
@@ -678,6 +709,7 @@ async fn test_find_path_max_depth_exact() {
 // ---- Parameterized query injection safety ------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_injection_safe() {
     let (store, _tmp) = fresh_store("graph_injection");
 
@@ -693,6 +725,7 @@ async fn test_ladybug_injection_safe() {
 // ---- Stub-edge resolution ----------------------------------------------------
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_resolve_stub_edges_by_name() {
     let (store, _tmp) = fresh_store("graph_stub_resolve");
 
@@ -734,6 +767,7 @@ async fn test_ladybug_resolve_stub_edges_by_name() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_resolve_stub_edges_skips_ambiguous() {
     let (store, _tmp) = fresh_store("graph_stub_ambiguous");
 
@@ -757,6 +791,7 @@ async fn test_ladybug_resolve_stub_edges_skips_ambiguous() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_graph_tenants() {
     let (store, _tmp) = fresh_store("graph_tenants");
     store
@@ -775,6 +810,7 @@ async fn test_ladybug_graph_tenants() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_ladybug_resolve_stub_edges_same_file_tiebreaker() {
     let (store, _tmp) = fresh_store("graph_stub_samefile");
 
@@ -816,6 +852,7 @@ async fn test_ladybug_resolve_stub_edges_same_file_tiebreaker() {
 
 /// (a) Empty tenant: both node_ids and edges are empty.
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_empty_tenant() {
     let (store, _tmp) = fresh_store("ea_empty");
     let result = store
@@ -828,6 +865,7 @@ async fn test_lbug_export_adjacency_empty_tenant() {
 
 /// (b) Single isolated node: node_ids has one entry, edges is empty.
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_single_isolated_node() {
     let (store, _tmp) = fresh_store("ea_isolated");
     let node = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
@@ -840,6 +878,7 @@ async fn test_lbug_export_adjacency_single_isolated_node() {
 
 /// (c) Two connected nodes A→B: correct (src_idx, tgt_idx, weight) returned.
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_two_connected_nodes() {
     let (store, _tmp) = fresh_store("ea_two");
     let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
@@ -873,6 +912,7 @@ async fn test_lbug_export_adjacency_two_connected_nodes() {
 
 /// (d) edge_types=Some([Calls]) returns only CALLS edges; None returns all.
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_edge_type_filter() {
     let (store, _tmp) = fresh_store("ea_filter");
     let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
@@ -906,6 +946,7 @@ async fn test_lbug_export_adjacency_edge_type_filter() {
 /// absent. This test therefore validates the no-edge case; the skip logic
 /// in the Rust post-processing layer is covered by the SQLite orphan test.
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_orphan_edge_skipped() {
     let (store, _tmp) = fresh_store("ea_orphan");
     let a = GraphNode::new(T, "a.rs", "alpha", NodeType::Function);
@@ -940,6 +981,7 @@ async fn test_lbug_export_adjacency_orphan_edge_skipped() {
 
 /// (f) node_ids are sorted deterministically (DOM-01).
 #[tokio::test]
+#[serial]
 async fn test_lbug_export_adjacency_node_ids_sorted() {
     let (store, _tmp) = fresh_store("ea_sorted");
     // Insert nodes — LadybugDB stores them in insertion order internally;
