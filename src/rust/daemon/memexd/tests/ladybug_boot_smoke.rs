@@ -31,7 +31,7 @@ mod ladybug_op {
     use serial_test::serial;
     use workspace_qdrant_core::config::GraphRagConfig;
     use workspace_qdrant_core::graph::{
-        factory, EdgeType, GraphBackend, GraphConfig, GraphEdge, GraphNode, GraphStore, NodeType,
+        factory, EdgeType, GraphBackend, GraphConfig, GraphEdge, GraphNode, NodeType,
     };
 
     /// With the daemon's default `ladybug` feature, the backend the daemon would
