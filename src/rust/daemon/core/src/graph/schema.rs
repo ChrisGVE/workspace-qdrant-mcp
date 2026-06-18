@@ -42,6 +42,16 @@ pub enum GraphDbError {
 
     #[error("Lock timeout on \"{op}\" after {waited:?}")]
     LockTimeout { op: String, waited: Duration },
+
+    /// A Rust panic was caught at the synchronous lbug binding layer.
+    ///
+    /// SEC-03 scope: this guard traps Rust panics originating in the
+    /// C++/lbug binding layer only. It CANNOT catch C++ exceptions,
+    /// `abort()`, `std::terminate()`, OOM, or OS signals (SIGSEGV/SIGABRT).
+    /// True C++-fault isolation requires process isolation (DEF-7).
+    /// This is best-effort containment, not a complete fault barrier.
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Result type for graph database operations.
