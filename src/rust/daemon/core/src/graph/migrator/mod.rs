@@ -4,9 +4,11 @@
 /// then validates counts match. Designed for `wqm graph migrate` CLI command.
 mod export;
 mod import;
+mod verify;
 
 pub use export::*;
 pub use import::*;
+pub use verify::*;
 
 use serde::{Deserialize, Serialize};
 

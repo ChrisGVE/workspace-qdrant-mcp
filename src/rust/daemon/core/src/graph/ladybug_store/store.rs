@@ -167,7 +167,11 @@ impl LadybugGraphStore {
         let conn = self.connect()?;
 
         let ddl_statements = [
-            // Node table with all properties from GraphNode
+            // Node table with all properties from GraphNode.
+            // `qdrant_point_id` links chunk-derived nodes to their Qdrant embedding
+            // vector; empty string is the sentinel for "no link" (Kuzu does not
+            // support NULL for STRING properties cleanly). `point_id_state` tracks
+            // whether the link is established ("linked") or absent ("none").
             r#"CREATE NODE TABLE IF NOT EXISTS GraphNode(
                 node_id STRING,
                 tenant_id STRING,
@@ -178,6 +182,8 @@ impl LadybugGraphStore {
                 end_line INT64,
                 signature STRING,
                 language STRING,
+                qdrant_point_id STRING,
+                point_id_state STRING,
                 PRIMARY KEY (node_id)
             )"#,
             // One rel table per EdgeType, each carrying edge metadata
@@ -260,6 +266,14 @@ impl LadybugGraphStore {
     /// Both `conn.prepare` and `conn.execute` cross into the lbug C++ layer
     /// and are wrapped with [`lbug_call`] for Rust-panic containment (SEC-03).
     fn upsert_node_with_conn(&self, conn: &Connection<'_>, node: &GraphNode) -> GraphDbResult<()> {
+        // Kuzu STRING properties do not support NULL; use an empty string as the
+        // sentinel for "no Qdrant link" and restore `None` on read (round-trip
+        // lossless: empty → None, non-empty → Some(value)). The MERGE+SET query
+        // applies COALESCE-equivalent semantics via a CASE expression so a
+        // re-upsert with an empty point_id never clobbers an existing link;
+        // `point_id_state` always takes the caller-authoritative new value.
+        let point_id_str = node.qdrant_point_id.clone().unwrap_or_default();
+
         // lbug FFI boundary: conn.prepare calls into C++ kuzu statement compilation.
         let mut stmt = lbug_call(|| {
             conn.prepare(
@@ -271,7 +285,13 @@ impl LadybugGraphStore {
                      n.start_line = $start_line, \
                      n.end_line = $end_line, \
                      n.signature = $signature, \
-                     n.language = $language",
+                     n.language = $language, \
+                     n.qdrant_point_id = \
+                         CASE WHEN $qdrant_point_id <> '' THEN $qdrant_point_id \
+                              WHEN n.qdrant_point_id IS NOT NULL AND n.qdrant_point_id <> '' \
+                                  THEN n.qdrant_point_id \
+                              ELSE $qdrant_point_id END, \
+                     n.point_id_state = $point_id_state",
             )
         })
         .and_then(|r| {
@@ -304,6 +324,8 @@ impl LadybugGraphStore {
                         "language",
                         Value::String(node.language.clone().unwrap_or_default()),
                     ),
+                    ("qdrant_point_id", Value::String(point_id_str)),
+                    ("point_id_state", Value::String(node.point_id_state.clone())),
                 ],
             )
         })
@@ -1718,6 +1740,21 @@ impl GraphStore for LadybugGraphStore {
         }
 
         Ok(AdjacencyExport { node_ids, edges })
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id (DATA-05 content diff).
+    ///
+    /// Delegates to the migrator's Cypher-based exporter so that
+    /// [`crate::graph::migrator::diff_graph_contents`] can compare this backend
+    /// against SQLite through the trait. The export restores the empty-string
+    /// point-id sentinel back to `None` for lossless round-tripping.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        crate::graph::migrator::export_nodes_ladybug(self, Some(tenant_id))
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (DATA-05 content diff).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        crate::graph::migrator::export_edges_ladybug(self, Some(tenant_id))
     }
 }
 

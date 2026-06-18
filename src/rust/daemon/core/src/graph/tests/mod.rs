@@ -43,6 +43,8 @@ async fn test_store() -> SqliteGraphStore {
             signature TEXT,
             language TEXT,
             branches TEXT NOT NULL DEFAULT '[\"main\"]',
+            qdrant_point_id TEXT,
+            point_id_state TEXT NOT NULL DEFAULT 'none',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         )",

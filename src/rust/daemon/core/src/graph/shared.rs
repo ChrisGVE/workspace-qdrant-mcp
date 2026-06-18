@@ -463,6 +463,22 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
         self.fetch_node_metadata(tenant_id).await
     }
 
+    /// Export all nodes for a tenant, ordered by node_id (shared read lock).
+    ///
+    /// Delegates to the inner store so [`crate::graph::migrator::diff_graph_contents`]
+    /// sees the real data through the `SharedGraphStore` wrapper rather than the
+    /// trait's empty default.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        let guard = self.acquire_read("export_nodes_for_tenant").await?;
+        guard.export_nodes_for_tenant(tenant_id).await
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (shared read lock).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        let guard = self.acquire_read("export_edges_for_tenant").await?;
+        guard.export_edges_for_tenant(tenant_id).await
+    }
+
     /// List tenants with graph data (shared read lock).
     async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
         let guard = self.acquire_read("graph_tenants").await?;
@@ -530,6 +546,8 @@ mod tests {
                 signature TEXT,
                 language TEXT,
                 branches TEXT NOT NULL DEFAULT '[\"main\"]',
+                qdrant_point_id TEXT,
+                point_id_state TEXT NOT NULL DEFAULT 'none',
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             )",

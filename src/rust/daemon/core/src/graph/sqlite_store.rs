@@ -66,8 +66,8 @@ impl GraphStore for SqliteGraphStore {
         sqlx::query(
             "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                 file_path, start_line, end_line, signature, language,
-                branches, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                branches, qdrant_point_id, point_id_state, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
             ON CONFLICT(node_id) DO UPDATE SET
                 symbol_name = excluded.symbol_name,
                 symbol_type = excluded.symbol_type,
@@ -78,7 +78,9 @@ impl GraphStore for SqliteGraphStore {
                 signature = COALESCE(excluded.signature, graph_nodes.signature),
                 language = COALESCE(excluded.language, graph_nodes.language),
                 branches = excluded.branches,
-                updated_at = ?11",
+                qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                point_id_state = excluded.point_id_state,
+                updated_at = ?13",
         )
         .bind(&node.node_id)
         .bind(&node.tenant_id)
@@ -90,6 +92,8 @@ impl GraphStore for SqliteGraphStore {
         .bind(&node.signature)
         .bind(&node.language)
         .bind(&node.branches)
+        .bind(&node.qdrant_point_id)
+        .bind(&node.point_id_state)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -106,8 +110,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    branches, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                    branches, qdrant_point_id, point_id_state, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
@@ -118,7 +122,9 @@ impl GraphStore for SqliteGraphStore {
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
                     branches = excluded.branches,
-                    updated_at = ?11",
+                    qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                    point_id_state = excluded.point_id_state,
+                    updated_at = ?13",
             )
             .bind(&node.node_id)
             .bind(&node.tenant_id)
@@ -130,6 +136,8 @@ impl GraphStore for SqliteGraphStore {
             .bind(&node.signature)
             .bind(&node.language)
             .bind(&node.branches)
+            .bind(&node.qdrant_point_id)
+            .bind(&node.point_id_state)
             .bind(&now)
             .execute(&mut *tx)
             .await?;
@@ -588,23 +596,27 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    branches, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                    branches, qdrant_point_id, point_id_state, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
-                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path ELSE excluded.file_path END,
+                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path
+                                     ELSE excluded.file_path END,
                     start_line = COALESCE(excluded.start_line, graph_nodes.start_line),
                     end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
                     branches = excluded.branches,
-                    updated_at = ?11",
+                    qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                    point_id_state = excluded.point_id_state,
+                    updated_at = ?13",
             )
             .bind(&node.node_id).bind(&node.tenant_id).bind(&node.symbol_name)
             .bind(node.symbol_type.as_str()).bind(&node.file_path)
             .bind(node.start_line.map(|v| v as i64)).bind(node.end_line.map(|v| v as i64))
-            .bind(&node.signature).bind(&node.language).bind(&node.branches).bind(&now)
+            .bind(&node.signature).bind(&node.language).bind(&node.branches)
+            .bind(&node.qdrant_point_id).bind(&node.point_id_state).bind(&now)
             .execute(&mut *tx).await?;
         }
         for edge in edges {
@@ -1136,6 +1148,20 @@ impl GraphStore for SqliteGraphStore {
         }
 
         Ok(AdjacencyExport { node_ids, edges })
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id (DATA-05 content diff).
+    ///
+    /// Delegates to the migrator's pool-based exporter so that
+    /// [`crate::graph::migrator::diff_graph_contents`] can compare backends
+    /// through the trait without reaching into the concrete pool.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        crate::graph::migrator::export_nodes_sqlite(&self.pool, Some(tenant_id)).await
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (DATA-05 content diff).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        crate::graph::migrator::export_edges_sqlite(&self.pool, Some(tenant_id)).await
     }
 }
 
