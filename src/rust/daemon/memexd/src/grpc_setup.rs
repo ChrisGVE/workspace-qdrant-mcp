@@ -17,7 +17,7 @@ use workspace_qdrant_core::{
 };
 use workspace_qdrant_grpc::{GrpcServer, ServerConfig as GrpcServerConfig};
 
-use crate::database::GraphServiceStore;
+use crate::database::{ConcreteGraphStore, GraphServiceStore};
 use crate::DaemonArgs;
 
 /// Initialize the LSP lifecycle manager (Task 1.1).
@@ -59,7 +59,8 @@ pub fn spawn_grpc_server(
     ewma_state: Arc<EwmaState>,
     adaptive_state: Arc<AdaptiveResourceState>,
     search_db: Arc<SearchDbManager>,
-    graph_store: Option<GraphServiceStore>,
+    graph_store: Option<ConcreteGraphStore>,
+    graph_sqlite: Option<GraphServiceStore>,
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     hierarchy_builder: Arc<HierarchyBuilder>,
     lexicon_pool: SqlitePool,
@@ -111,7 +112,7 @@ pub fn spawn_grpc_server(
         }
 
         if let Some(gs) = graph_store {
-            grpc_server = grpc_server.with_graph_store(gs);
+            grpc_server = grpc_server.with_graph_store(gs, graph_sqlite);
         }
 
         if let Err(e) = grpc_server.start().await {

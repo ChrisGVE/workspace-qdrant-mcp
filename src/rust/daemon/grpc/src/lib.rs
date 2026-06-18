@@ -306,8 +306,13 @@ pub struct GrpcServer {
     pub(crate) adaptive_state: Option<Arc<AdaptiveResourceState>>,
     /// Search database manager for TextSearchService
     pub(crate) search_db: Option<Arc<SearchDbManager>>,
-    /// Graph store for GraphService (code relationship queries)
-    pub(crate) graph_store: Option<
+    /// Active graph store (backend-agnostic) for GraphService. Drives whether
+    /// GraphService is registered, and serves all trait-based RPCs.
+    pub(crate) graph_store: Option<std::sync::Arc<dyn workspace_qdrant_core::graph::GraphStore>>,
+    /// Concrete SQLite handle for the two raw-SQL RPCs (NarrativeQuery,
+    /// MigrateGraph). `None` on non-SQLite backends, where those RPCs return
+    /// `unimplemented`.
+    pub(crate) graph_sqlite: Option<
         workspace_qdrant_core::graph::SharedGraphStore<
             workspace_qdrant_core::graph::SqliteGraphStore,
         >,
@@ -359,6 +364,7 @@ impl GrpcServer {
             adaptive_state: None,
             search_db: None,
             graph_store: None,
+            graph_sqlite: None,
             hierarchy_builder: None,
             lexicon_manager: None,
             storage_client: None,

@@ -100,15 +100,21 @@ impl GrpcServer {
 
     /// Set the graph store for GraphService.
     ///
-    /// If provided, GraphService will be registered with the gRPC server,
-    /// enabling code relationship queries via gRPC.
+    /// `graph_store` is the active backend (any `GraphStore`); when provided,
+    /// GraphService is registered. `graph_sqlite` is the concrete SQLite handle
+    /// for the raw-SQL RPCs (NarrativeQuery, MigrateGraph) — `None` on
+    /// non-SQLite backends, where those RPCs return `unimplemented`.
     pub fn with_graph_store(
         mut self,
-        graph_store: workspace_qdrant_core::graph::SharedGraphStore<
-            workspace_qdrant_core::graph::SqliteGraphStore,
+        graph_store: std::sync::Arc<dyn workspace_qdrant_core::graph::GraphStore>,
+        graph_sqlite: Option<
+            workspace_qdrant_core::graph::SharedGraphStore<
+                workspace_qdrant_core::graph::SqliteGraphStore,
+            >,
         >,
     ) -> Self {
         self.graph_store = Some(graph_store);
+        self.graph_sqlite = graph_sqlite;
         self
     }
 

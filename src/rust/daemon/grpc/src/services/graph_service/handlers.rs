@@ -292,7 +292,10 @@ impl GraphService for GraphServiceImpl {
         );
 
         let store_clone = {
-            let guard = self.graph_store.read().await.map_err(|e| {
+            let sqlite = self.sqlite_store.as_ref().ok_or_else(|| {
+                Status::unimplemented("MigrateGraph is only supported on the SQLite backend")
+            })?;
+            let guard = sqlite.read().await.map_err(|e| {
                 error!("Failed to acquire graph read lock: {}", e);
                 Status::unavailable(format!("Graph store busy: {}", e))
             })?;
@@ -476,7 +479,10 @@ impl GraphService for GraphServiceImpl {
         let start = std::time::Instant::now();
 
         let pool = {
-            let guard = self.graph_store.read().await.map_err(|e| {
+            let sqlite = self.sqlite_store.as_ref().ok_or_else(|| {
+                Status::unimplemented("NarrativeQuery is not supported on non-SQLite backends")
+            })?;
+            let guard = sqlite.read().await.map_err(|e| {
                 error!("Failed to acquire graph read lock: {}", e);
                 Status::unavailable(format!("Graph store busy: {}", e))
             })?;

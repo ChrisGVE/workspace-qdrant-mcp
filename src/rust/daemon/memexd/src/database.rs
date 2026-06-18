@@ -21,13 +21,14 @@ use workspace_qdrant_core::{
 /// or LadybugDB) is selected at runtime from `config.graph.backend`.
 pub type ConcreteGraphStore = Arc<dyn workspace_qdrant_core::graph::GraphStore>;
 
-/// SQLite-only graph handle for the gRPC `GraphService`.
+/// Concrete SQLite graph handle for the two raw-SQL `GraphService` RPCs.
 ///
-/// The graph analytics handlers (PageRank, community detection, betweenness)
-/// and `migrate` operate directly on a `SqlitePool` (`store.pool()`), so they
-/// are inherently SQLite-bound. When the LadybugDB backend is selected this is
-/// `None` and `GraphService` is not registered — analytics and migration are a
-/// SQLite-only feature by design.
+/// `GraphService` now registers on every backend (analytics, traversal, impact
+/// analysis, stats run through `GraphStore` trait methods via the type-erased
+/// `processing` handle). Only `NarrativeQuery` (raw recursive SQL) and
+/// `MigrateGraph` (SQLite export/import) still need a concrete `SqlitePool`
+/// (`store.pool()`). This handle is `None` on non-SQLite backends, where those
+/// two RPCs return `unimplemented`.
 pub type GraphServiceStore =
     workspace_qdrant_core::graph::SharedGraphStore<workspace_qdrant_core::graph::SqliteGraphStore>;
 
@@ -108,10 +109,11 @@ pub async fn init_search_db(
 
 /// Result of graph backend initialization.
 ///
-/// `processing` is the type-erased handle used by the queue processor and is
-/// populated for every successfully-initialized backend. `service` is the
-/// SQLite-typed handle for `GraphService`; it is only `Some` when the SQLite
-/// backend is active.
+/// `processing` is the type-erased handle (`Arc<dyn GraphStore>`) used by the
+/// queue processor AND as the backend-agnostic `GraphService.graph_store`; it
+/// is populated for every successfully-initialized backend. `service` is the
+/// concrete SQLite handle that gates the two raw-SQL RPCs (NarrativeQuery,
+/// MigrateGraph); it is only `Some` when the SQLite backend is active.
 #[derive(Default)]
 pub struct GraphStores {
     pub processing: Option<ConcreteGraphStore>,
@@ -121,9 +123,11 @@ pub struct GraphStores {
 /// Initialize the graph database for code relationship tracking (graph-rag).
 ///
 /// The backend is selected at runtime from `config.graph.backend`:
-/// - `sqlite` (default): recursive-CTE store; also drives `GraphService`.
+/// - `sqlite` (default): recursive-CTE store; drives `GraphService` including
+///   the raw-SQL RPCs (NarrativeQuery, MigrateGraph).
 /// - `ladybug`: LadybugDB (Kuzu) store, only available when compiled with the
-///   `ladybug` feature. Analytics/migration (`GraphService`) are unavailable.
+///   `ladybug` feature. `GraphService` still registers (analytics, traversal,
+///   impact, stats); only the two raw-SQL RPCs return `unimplemented`.
 ///
 /// Returns empty handles (graph features disabled) on initialization failure.
 pub async fn init_graph_db(config: &Config, queue_pool: &SqlitePool) -> GraphStores {
@@ -187,7 +191,7 @@ async fn init_ladybug_graph_db(
     .await
     {
         Ok(store) => {
-            info!("Graph database initialized (LadybugDB backend); GraphService analytics/migration are SQLite-only and disabled");
+            info!("Graph database initialized (LadybugDB backend); GraphService registered (analytics/traversal/impact/stats), raw-SQL RPCs NarrativeQuery+MigrateGraph return unimplemented");
             GraphStores {
                 processing: Some(Arc::new(store)),
                 service: None,

@@ -52,7 +52,10 @@ mod path_validation {
     async fn test_graph_service() -> (GraphServiceImpl, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
-        (GraphServiceImpl::new(store), tmp)
+        (
+            GraphServiceImpl::new(std::sync::Arc::new(store.clone()), Some(store)),
+            tmp,
+        )
     }
 
     #[tokio::test]
@@ -142,7 +145,10 @@ mod param_validation {
     async fn test_graph_service() -> (GraphServiceImpl, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
-        (GraphServiceImpl::new(store), tmp)
+        (
+            GraphServiceImpl::new(std::sync::Arc::new(store.clone()), Some(store)),
+            tmp,
+        )
     }
 
     // ── PageRank handler validation ─────────────────────────────────
@@ -495,7 +501,10 @@ mod narrative_query {
     async fn test_graph_service() -> (GraphServiceImpl, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
-        (GraphServiceImpl::new(store), tmp)
+        (
+            GraphServiceImpl::new(std::sync::Arc::new(store.clone()), Some(store)),
+            tmp,
+        )
     }
 
     fn make_request(
@@ -653,7 +662,7 @@ mod narrative_query {
         let (service, _tmp) = test_graph_service().await;
 
         // Seed graph: function -> EXPLAINS -> docstring
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         let func_node = GraphNode::new("t1", "src/lib.rs", "my_func", NodeType::Function);
         let doc_node = GraphNode::new("t1", "src/lib.rs", "my_func docs", NodeType::Docstring);
         guard
@@ -699,7 +708,7 @@ mod narrative_query {
             "Error Handling Guide",
             NodeType::DocumentSection,
         );
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[concept.clone(), doc.clone()])
             .await
@@ -741,7 +750,7 @@ mod narrative_query {
             "Error Handling Guide",
             NodeType::DocumentSection,
         );
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[concept.clone(), doc.clone()])
             .await
@@ -781,7 +790,7 @@ mod narrative_query {
         let b = GraphNode::new("t1", "docs/b.md", "section_b", NodeType::DocumentSection);
         let c = GraphNode::new("t1", "docs/c.md", "section_c", NodeType::DocumentSection);
 
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
             .await
@@ -844,7 +853,7 @@ mod narrative_query {
             NodeType::CodeComment,
         );
 
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[func_node.clone(), doc.clone(), comment.clone()])
             .await
@@ -891,7 +900,7 @@ mod narrative_query {
         let doc2 = GraphNode::new("t1", "src/lib.rs", "doc_b", NodeType::Docstring);
         let doc3 = GraphNode::new("t1", "src/lib.rs", "doc_c", NodeType::Docstring);
 
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[func_node.clone(), doc1.clone(), doc2.clone(), doc3.clone()])
             .await
@@ -930,7 +939,7 @@ mod narrative_query {
         let func2 = GraphNode::new("t1", "src/lib.rs", "callee", NodeType::Function);
         let doc = GraphNode::new("t1", "src/lib.rs", "caller docs", NodeType::Docstring);
 
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[func1.clone(), func2.clone(), doc.clone()])
             .await
@@ -981,7 +990,7 @@ mod narrative_query {
         let func2 = GraphNode::new("t1", "src/lib.rs", "hop_middle", NodeType::Function);
         let doc = GraphNode::new("t1", "src/lib.rs", "hop_end_doc", NodeType::Docstring);
 
-        let guard = service.graph_store.read().await.unwrap();
+        let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
         guard
             .upsert_nodes(&[func1.clone(), func2.clone(), doc.clone()])
             .await
@@ -1046,14 +1055,14 @@ mod narrative_query {
         // Seed a real code symbol so EXPLAINS resolves to a genuine node id.
         let func = GraphNode::new(tenant, "src/lib.rs", "process", NodeType::Function);
         {
-            let guard = service.graph_store.read().await.unwrap();
+            let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
             guard.upsert_nodes(&[func.clone()]).await.unwrap();
         }
 
         // Build the automaton from the persisted symbols and run the section +
         // explains pipeline over a doc that references `process` (≥2 mentions).
         let symbols: Vec<SymbolRow> = {
-            let guard = service.graph_store.read().await.unwrap();
+            let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
             guard.query_code_symbols(tenant).await.unwrap()
         };
         let automaton = SymbolAutomaton::build(&symbols, 4);
@@ -1080,7 +1089,7 @@ mod narrative_query {
         );
 
         {
-            let guard = service.graph_store.read().await.unwrap();
+            let guard = service.sqlite_store.as_ref().unwrap().read().await.unwrap();
             guard
                 .reingest_file(tenant, rel, &result.nodes, &result.edges)
                 .await
@@ -1125,7 +1134,10 @@ mod cross_boundary {
     async fn test_graph_service() -> (GraphServiceImpl, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
         let store = create_sqlite_graph_store(tmp.path()).await.unwrap();
-        (GraphServiceImpl::new(store), tmp)
+        (
+            GraphServiceImpl::new(std::sync::Arc::new(store.clone()), Some(store)),
+            tmp,
+        )
     }
 
     fn req(tenant: &str, node: &str, hops: u32) -> QueryCrossBoundaryRequest {

@@ -320,7 +320,7 @@ impl GrpcServer {
             tracing::info!("Registering GraphService gRPC endpoint");
             router = router.add_service(InterceptedService::new(
                 proto::graph_service_server::GraphServiceServer::new(
-                    crate::services::GraphServiceImpl::new(graph_store),
+                    crate::services::GraphServiceImpl::new(graph_store, self.graph_sqlite.take()),
                 ),
                 auth_fn.clone(),
             ));
