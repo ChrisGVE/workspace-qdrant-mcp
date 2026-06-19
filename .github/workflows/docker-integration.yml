@@ -140,6 +140,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
