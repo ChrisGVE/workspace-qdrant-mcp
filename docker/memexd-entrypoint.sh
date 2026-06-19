@@ -181,10 +181,18 @@ PY
 layer1_hash_check() {
 	log_info "layer 1: verifying override hash against live config"
 
+	# An absent override means the deployment is not using the
+	# generate-compose flow — it hand-wires its volumes directly (the
+	# reference compose binds identical host/container paths itself). There
+	# is no generated override to go stale, so there is nothing for layer 1
+	# to verify: skip it. The hash check exists solely to catch a *stale*
+	# override (config edited, generate-compose not re-run), which can only
+	# happen when an override is actually mounted. Layer 2 still validates
+	# that every config-declared mount is present, so hand-wired deployments
+	# remain covered.
 	if [ ! -f "${WQM_OVERRIDE_PATH}" ]; then
-		log_error "override file not found: ${WQM_OVERRIDE_PATH}"
-		log_error "  generate it on the host with: wqm docker generate-compose"
-		return ${EXIT_HASH_MISMATCH}
+		log_info "layer 1: skipped (no override mounted at ${WQM_OVERRIDE_PATH})"
+		return ${EXIT_OK}
 	fi
 	if [ ! -f "${WQM_CONFIG_PATH}" ]; then
 		log_error "config file not found: ${WQM_CONFIG_PATH}"
@@ -336,35 +344,35 @@ parse_mountinfo() {
 # Exit:   0 always (best-effort; missing inputs → empty output).
 # ────────────────────────────────────────────────────────────────────────
 detect_spurious_mounts() {
-    local pairs
-    if [ ! -r "${WQM_MOUNTINFO_PATH}" ]; then
-        return 0
-    fi
-    if ! pairs="$(config_mount_pairs "${WQM_CONFIG_PATH}" 2>/dev/null)"; then
-        pairs=""
-    fi
+	local pairs
+	if [ ! -r "${WQM_MOUNTINFO_PATH}" ]; then
+		return 0
+	fi
+	if ! pairs="$(config_mount_pairs "${WQM_CONFIG_PATH}" 2>/dev/null)"; then
+		pairs=""
+	fi
 
-    # Build the list of expected container mount points: declared containers
-    # plus the spec §9.2 runtime bind targets plus the override file path.
-    local expected
-    expected=$(
-        if [ -n "${pairs}" ]; then
-            printf '%s\n' "${pairs}" | awk -F'\t' 'NF==2 {print $2}'
-        fi
-        printf '%s\n' \
-            "/etc/wqm" \
-            "/etc/wqm/config.yaml" \
-            "/var/lib/wqm" \
-            "/qdrant/storage" \
-            "${WQM_OVERRIDE_PATH}"
-    )
+	# Build the list of expected container mount points: declared containers
+	# plus the spec §9.2 runtime bind targets plus the override file path.
+	local expected
+	expected=$(
+		if [ -n "${pairs}" ]; then
+			printf '%s\n' "${pairs}" | awk -F'\t' 'NF==2 {print $2}'
+		fi
+		printf '%s\n' \
+			"/etc/wqm" \
+			"/etc/wqm/config.yaml" \
+			"/var/lib/wqm" \
+			"/qdrant/storage" \
+			"${WQM_OVERRIDE_PATH}"
+	)
 
-    # Python filter: open mountinfo, parse field 5 with octal unescaping,
-    # drop anything in `expected` or under a denied system pseudofs prefix.
-    # Mountinfo path goes via argv[1], expected list (newline-delimited)
-    # via WQM_EXPECTED env so we sidestep the python3 `-` stdin-vs-heredoc
-    # conflict.
-    WQM_EXPECTED="${expected}" python3 - "${WQM_MOUNTINFO_PATH}" <<'PY'
+	# Python filter: open mountinfo, parse field 5 with octal unescaping,
+	# drop anything in `expected` or under a denied system pseudofs prefix.
+	# Mountinfo path goes via argv[1], expected list (newline-delimited)
+	# via WQM_EXPECTED env so we sidestep the python3 `-` stdin-vs-heredoc
+	# conflict.
+	WQM_EXPECTED="${expected}" python3 - "${WQM_MOUNTINFO_PATH}" <<'PY'
 import os, re, sys
 mountinfo_path = sys.argv[1]
 expected = set(
