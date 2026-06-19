@@ -13,12 +13,12 @@ use wqm_common::yaml_defaults::YamlConfig;
 use super::processing::default_retry_delays_seconds;
 use super::types::{DaemonConfig, DaemonEndpointConfig};
 use super::{
-    AutoIngestionConfig, ConceptConfig, EmbeddingSettings, GitConfig, GrammarConfig,
-    GraphRagConfig, IngestionLimitsConfig, KeywordEmbedderConfig, LoggingConfig, LspSettings,
-    MetricsConfig, MonitoringConfig, NarrativeConfig, ObservabilityConfig, OtlpExportConfig,
-    OtlpProtocol, PrometheusExportConfig, QueueHealthConfig, QueueProcessorSettings,
-    ResourceLimitsConfig, StartupConfig, SwitchboardConfig, TelemetryConfig, TracingConfig,
-    UpdateChannel, UpdatesConfig, UrlIngestionConfig,
+    AutoIngestionConfig, BranchLineageConfig, ConceptConfig, EmbeddingSettings, GitConfig,
+    GrammarConfig, GraphRagConfig, IngestionLimitsConfig, KeywordEmbedderConfig, LoggingConfig,
+    LspSettings, MetricsConfig, MonitoringConfig, NarrativeConfig, ObservabilityConfig,
+    OtlpExportConfig, OtlpProtocol, PrometheusExportConfig, QueueHealthConfig,
+    QueueProcessorSettings, ResourceLimitsConfig, StartupConfig, SwitchboardConfig,
+    TelemetryConfig, TracingConfig, UpdateChannel, UpdatesConfig, UrlIngestionConfig,
 };
 use crate::storage::StorageConfig;
 
@@ -40,6 +40,10 @@ impl From<&YamlConfig> for DaemonConfig {
             git: build_git_config(yaml),
             observability: build_observability_config(yaml),
             queue_health: QueueHealthConfig::default(),
+            // No YAML section maps to `[branch_lineage]` yet, so it takes the
+            // compiled-in defaults; the serde `#[serde(default)]` path covers a
+            // direct DaemonConfig deserialize that includes the section.
+            branch_lineage: BranchLineageConfig::default(),
             embedding: build_embedding_settings(yaml),
             lsp: build_lsp_settings(yaml),
             grammars: build_grammar_config(yaml),

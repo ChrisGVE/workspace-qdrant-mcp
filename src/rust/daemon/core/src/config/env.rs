@@ -12,6 +12,9 @@ use std::path::PathBuf;
 
 use wqm_common::config::{apply_env_overrides as apply_shared, EnvGetter, EnvOverride};
 
+use crate::config::branch_lineage::{
+    AddLockGranularity, OverMaxExcludedStrategy, WildcardAllPolicy,
+};
 use crate::config::DaemonConfig;
 use crate::storage::TransportMode;
 
@@ -107,6 +110,73 @@ fn build_specs() -> Vec<EnvOverride<DaemonConfig>> {
                 if let Ok(n) = val.parse() {
                     c.queue_health.debounce_window = n;
                 }
+            },
+        ),
+        // ── Branch lineage (F15) ────────────────────────────────────────────
+        // The operationally hot tunables, mirroring queue_health's selective
+        // set; the remaining fields are reachable via the file config + serde
+        // `#[serde(default)]` path. Enum/Option fields demonstrate the parse
+        // pattern; an unrecognised value is ignored (keeps the file/default).
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__REKEY_BATCH_SIZE"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.branch_lineage.rekey_batch_size = n;
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__REKEY_PAUSE_INGEST"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(b) = val.parse() {
+                    c.branch_lineage.rekey_pause_ingest = b;
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__REKEY_READGATE_BUDGET_S"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.branch_lineage.rekey_readgate_budget_s = Some(n);
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__MAX_EXCLUDED"),
+            |c: &mut DaemonConfig, val| {
+                if let Ok(n) = val.parse() {
+                    c.branch_lineage.max_excluded = n;
+                }
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__OVER_MAX_EXCLUDED_STRATEGY"),
+            |c: &mut DaemonConfig, val| match val.to_ascii_lowercase().as_str() {
+                "scroll" => {
+                    c.branch_lineage.over_max_excluded_strategy = OverMaxExcludedStrategy::Scroll;
+                }
+                "reject" => {
+                    c.branch_lineage.over_max_excluded_strategy = OverMaxExcludedStrategy::Reject;
+                }
+                _ => {}
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__WILDCARD_ALL_POLICY"),
+            |c: &mut DaemonConfig, val| match val.to_ascii_lowercase().as_str() {
+                "confirm" => c.branch_lineage.wildcard_all_policy = WildcardAllPolicy::Confirm,
+                "reject" => c.branch_lineage.wildcard_all_policy = WildcardAllPolicy::Reject,
+                _ => {}
+            },
+        ),
+        EnvOverride::single(
+            var("BRANCH_LINEAGE__ADD_LOCK_GRANULARITY"),
+            |c: &mut DaemonConfig, val| match val.to_ascii_lowercase().as_str() {
+                "content_key" => {
+                    c.branch_lineage.add_lock_granularity = AddLockGranularity::ContentKey;
+                }
+                "tenant" => c.branch_lineage.add_lock_granularity = AddLockGranularity::Tenant,
+                _ => {}
             },
         ),
         // ── Qdrant ──────────────────────────────────────────────────────────
@@ -206,6 +276,9 @@ fn build_specs() -> Vec<EnvOverride<DaemonConfig>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::branch_lineage::{
+        AddLockGranularity, OverMaxExcludedStrategy, WildcardAllPolicy,
+    };
     use std::collections::HashMap;
 
     /// Build an injected env getter from `(key, value)` pairs — avoids mutating
@@ -245,6 +318,80 @@ mod tests {
     fn queue_health_regression_ratio_override() {
         let cfg = apply(&[("WORKSPACE_QDRANT_QUEUE_HEALTH__REGRESSION_RATIO", "3.5")]);
         assert_eq!(cfg.queue_health.regression_ratio, 3.5);
+    }
+
+    #[test]
+    fn branch_lineage_numeric_and_bool_overrides() {
+        let cfg = apply(&[
+            ("WORKSPACE_QDRANT_BRANCH_LINEAGE__REKEY_BATCH_SIZE", "250"),
+            (
+                "WORKSPACE_QDRANT_BRANCH_LINEAGE__REKEY_PAUSE_INGEST",
+                "false",
+            ),
+            ("WORKSPACE_QDRANT_BRANCH_LINEAGE__MAX_EXCLUDED", "2048"),
+        ]);
+        assert_eq!(cfg.branch_lineage.rekey_batch_size, 250);
+        assert!(!cfg.branch_lineage.rekey_pause_ingest);
+        assert_eq!(cfg.branch_lineage.max_excluded, 2048);
+    }
+
+    #[test]
+    fn branch_lineage_readgate_budget_override_sets_some() {
+        // The field has no default (None); an env value sets it to Some.
+        assert_eq!(
+            DaemonConfig::default()
+                .branch_lineage
+                .rekey_readgate_budget_s,
+            None
+        );
+        let cfg = apply(&[(
+            "WORKSPACE_QDRANT_BRANCH_LINEAGE__REKEY_READGATE_BUDGET_S",
+            "120",
+        )]);
+        assert_eq!(cfg.branch_lineage.rekey_readgate_budget_s, Some(120));
+    }
+
+    #[test]
+    fn branch_lineage_enum_overrides_parse_snake_case() {
+        let cfg = apply(&[
+            (
+                "WORKSPACE_QDRANT_BRANCH_LINEAGE__OVER_MAX_EXCLUDED_STRATEGY",
+                "reject",
+            ),
+            (
+                "WORKSPACE_QDRANT_BRANCH_LINEAGE__WILDCARD_ALL_POLICY",
+                "reject",
+            ),
+            (
+                "WORKSPACE_QDRANT_BRANCH_LINEAGE__ADD_LOCK_GRANULARITY",
+                "tenant",
+            ),
+        ]);
+        assert_eq!(
+            cfg.branch_lineage.over_max_excluded_strategy,
+            OverMaxExcludedStrategy::Reject
+        );
+        assert_eq!(
+            cfg.branch_lineage.wildcard_all_policy,
+            WildcardAllPolicy::Reject
+        );
+        assert_eq!(
+            cfg.branch_lineage.add_lock_granularity,
+            AddLockGranularity::Tenant
+        );
+    }
+
+    #[test]
+    fn branch_lineage_unknown_enum_value_keeps_default() {
+        let cfg = apply(&[(
+            "WORKSPACE_QDRANT_BRANCH_LINEAGE__WILDCARD_ALL_POLICY",
+            "nonsense",
+        )]);
+        // Unrecognised enum value is ignored — default (Confirm) is preserved.
+        assert_eq!(
+            cfg.branch_lineage.wildcard_all_policy,
+            WildcardAllPolicy::Confirm
+        );
     }
 
     #[test]

@@ -41,6 +41,9 @@ impl DaemonConfig {
         self.queue_health
             .validate()
             .map_err(|e| format!("queue_health: {e}"))?;
+        self.branch_lineage
+            .validate()
+            .map_err(|e| format!("branch_lineage: {e}"))?;
         self.embedding
             .validate()
             .map_err(|e| format!("embedding: {e}"))?;
@@ -187,6 +190,22 @@ mod tests {
         assert!(
             err.contains("queue_health"),
             "error should be attributed to queue_health: {err}"
+        );
+    }
+
+    #[test]
+    fn degenerate_branch_lineage_fails_validate_with_prefix() {
+        // A degenerate [branch_lineage] is rejected by the validation chain and
+        // the error is attributed to the section, mirroring queue_health.
+        let mut cfg = DaemonConfig::default();
+        assert!(cfg.validate().is_ok(), "default config validates");
+        cfg.branch_lineage.rekey_batch_size = 0; // zero batch size is rejected
+        let err = cfg
+            .validate()
+            .expect_err("zero rekey_batch_size must fail load");
+        assert!(
+            err.contains("branch_lineage"),
+            "error should be attributed to branch_lineage: {err}"
         );
     }
 

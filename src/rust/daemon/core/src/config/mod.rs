@@ -3,6 +3,7 @@
 //! This module contains configuration management for the priority processing engine.
 //! Domain-specific configs are organized into submodules and re-exported here.
 
+pub mod branch_lineage;
 mod code_intelligence;
 mod concept;
 mod embedding;
@@ -27,6 +28,9 @@ mod types;
 mod validate;
 
 // Re-export all public types for backward compatibility
+pub use branch_lineage::{
+    AddLockGranularity, BranchLineageConfig, OverMaxExcludedStrategy, WildcardAllPolicy,
+};
 pub use code_intelligence::{GrammarConfig, LspSettings};
 pub use concept::ConceptConfig;
 pub use embedding::{EmbeddingSettings, KeywordEmbedderConfig};

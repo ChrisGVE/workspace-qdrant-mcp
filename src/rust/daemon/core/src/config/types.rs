@@ -12,10 +12,10 @@ use crate::storage::StorageConfig;
 use wqm_common::yaml_defaults::{self, YamlMountEntry};
 
 use super::{
-    AutoIngestionConfig, ConceptConfig, EmbeddingSettings, GitConfig, GrammarConfig,
-    GraphRagConfig, IngestionLimitsConfig, LoggingConfig, LspSettings, MonitoringConfig,
-    NarrativeConfig, ObservabilityConfig, QueueHealthConfig, QueueProcessorSettings,
-    ResourceLimitsConfig, StartupConfig, UpdatesConfig, UrlIngestionConfig,
+    AutoIngestionConfig, BranchLineageConfig, ConceptConfig, EmbeddingSettings, GitConfig,
+    GrammarConfig, GraphRagConfig, IngestionLimitsConfig, LoggingConfig, LspSettings,
+    MonitoringConfig, NarrativeConfig, ObservabilityConfig, QueueHealthConfig,
+    QueueProcessorSettings, ResourceLimitsConfig, StartupConfig, UpdatesConfig, UrlIngestionConfig,
 };
 
 /// Daemon endpoint configuration for service discovery.
@@ -123,6 +123,9 @@ pub struct DaemonConfig {
     /// Queue-health monitoring thresholds (#133 `[queue_health]`)
     #[serde(default)]
     pub queue_health: QueueHealthConfig,
+    /// Branch-lineage indexing tolerances (`[branch_lineage]`)
+    #[serde(default)]
+    pub branch_lineage: BranchLineageConfig,
     /// Embedding generation configuration
     #[serde(default)]
     pub embedding: EmbeddingSettings,
@@ -218,6 +221,8 @@ pub struct Config {
     pub resource_limits: ResourceLimitsConfig,
     /// Queue-health monitoring thresholds (#133 `[queue_health]`).
     pub queue_health: QueueHealthConfig,
+    /// Branch-lineage indexing tolerances (`[branch_lineage]`).
+    pub branch_lineage: BranchLineageConfig,
     /// Code-relationship graph backend selection (`graph.*`).
     pub graph: crate::graph::GraphConfig,
     /// Cross-boundary graph-RAG traversal fan-out caps (`search.graph_rag.*`).
@@ -242,6 +247,7 @@ impl From<DaemonConfig> for Config {
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
             resource_limits: daemon_config.resource_limits,
             queue_health: daemon_config.queue_health,
+            branch_lineage: daemon_config.branch_lineage,
             graph: daemon_config.graph,
             graph_rag: daemon_config.graph_rag,
         }
@@ -267,6 +273,7 @@ impl Config {
             queue_backpressure_threshold: Some(1000),
             resource_limits: ResourceLimitsConfig::default(),
             queue_health: QueueHealthConfig::default(),
+            branch_lineage: BranchLineageConfig::default(),
             graph: crate::graph::GraphConfig::default(),
             graph_rag: GraphRagConfig::default(),
         }
