@@ -265,7 +265,7 @@ Databases (under the platform data dir, e.g. `~/.local/share/workspace-qdrant/`)
 | Database | Contents |
 |----------|----------|
 | `state.db` | watch folders, tracked files, unified queue, rules mirror, tenants |
-| `search.db` | FTS5 indexes, file metadata, indexed-content cache |
+| `search.db` | FTS5 indexes, file metadata (incl. `file_metadata.state`, search.db v8 — lets `grep` hide tombstoned files; branch-lineage P9), indexed-content cache |
 | `graph.db` | code-relationship graph (nodes, edges, CTE queries) |
 | `daemon_state.db` | daemon runtime bookkeeping |
 
@@ -288,6 +288,8 @@ Each probe verdict is debounced by a sliding window (plurality/severity tie-brea
 Slow-lane baselines for the three persist-true metrics (`EmbedderLatency`, `QueueMsPerKb`, `QueueThroughput`) are flushed to `state.db::control_baseline` (schema v46) by `ControlBaselinePersistTask` during idle windows and restored on restart via `ControlLane::restore_baseline`, so cold-start learning converges faster after a normal shutdown.
 
 The current schema version is **v47**. Migration v47 rebuilds the `search_events` table to relax its `actor` CHECK constraint, adding `'benchmark'` to the accepted set (`'claude'`, `'user'`, `'daemon'`, `'benchmark'`). This allows the quality-eval harness (`wqm benchmark search-quality`, #135) to tag its own search traffic so organic-query mining can exclude it.
+
+The current schema version is **v48**. Migration v48 supports the branch-lineage indexing model (feature F2). It rebuilds `tracked_files` so every (branch, path) pair gets its own row, keyed on the new `tenant_id`, `branch`, `file_identity_id`, `content_key`, `is_virtual`, and `state` columns; the v40 `(watch_folder_id, relative_path, file_hash)` UNIQUE collides with this per-(branch, path) virtual model, so the table is dropped and recreated (D1 = Replace, pre-release convention — the indexing walk repopulates it). A partial unique index (`idx_tracked_files_live_view`) enforces one live row per `(tenant_id, content_key, branch)` while exempting `state = 'deleted'` tombstones, so logical deletes are recoverable. The migration also adds the `branch_lineage` table (per-tenant parent/child branch edges with an `origin` of `'event'`, `'inferred'`, or `'root'`) and a nullable JSON `db_maintenance.maintenance_meta` column — a general-purpose multi-use store (e.g. migration bookkeeping) added idempotently via a `pragma_table_info` probe. The migration is DDL-only: it does not touch Qdrant, transform rows, or mint `file_identity_id`.
 
 This replaces the earlier `error_count > 100` threshold check and the interim `is_running` / `> 60 s` stall heuristic. Full design: [`docs/architecture/queue-health.md`](./architecture/queue-health.md). Switchboard wiring: [`docs/architecture/metrics-switchboard.md`](./architecture/metrics-switchboard.md).
 
