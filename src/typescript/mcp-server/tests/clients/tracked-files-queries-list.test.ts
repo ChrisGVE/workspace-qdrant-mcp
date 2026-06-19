@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     file_id INTEGER PRIMARY KEY AUTOINCREMENT,
     watch_folder_id TEXT NOT NULL,
     file_path TEXT NOT NULL,
-    branch TEXT,
+    branches TEXT NOT NULL DEFAULT '[]',
     file_type TEXT,
     language TEXT,
     file_mtime TEXT NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     base_point TEXT,
     relative_path TEXT,
     FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
-    UNIQUE(watch_folder_id, file_path, branch)
+    UNIQUE(watch_folder_id, relative_path, file_hash)
 );
 `;
 
@@ -82,7 +82,7 @@ function seedFile(
   const ext = opts.extension ?? relativePath.split('.').pop() ?? null;
   db.prepare(
     `INSERT INTO tracked_files
-     (watch_folder_id, file_path, relative_path, file_type, language, extension, is_test, branch, file_mtime, file_hash, created_at, updated_at)
+     (watch_folder_id, file_path, relative_path, file_type, language, extension, is_test, branches, file_mtime, file_hash, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     WATCH_ID,
@@ -92,9 +92,9 @@ function seedFile(
     opts.language ?? null,
     ext,
     opts.isTest ? 1 : 0,
-    opts.branch ?? 'main',
+    JSON.stringify([opts.branch ?? 'main']),
     NOW,
-    'hash-' + relativePath,
+    'hash-' + relativePath + '-' + (opts.branch ?? 'main'),
     NOW,
     NOW,
   );

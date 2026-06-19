@@ -71,7 +71,7 @@ function buildFilterClause(options: Omit<ListTrackedFilesOptions, 'limit'>): Fil
     conditions.push('is_test = 0');
   }
   if (branch) {
-    conditions.push('branch = ?');
+    conditions.push('EXISTS (SELECT 1 FROM json_each(branches) WHERE value = ?)');
     params.push(branch);
   }
   if (glob) {
