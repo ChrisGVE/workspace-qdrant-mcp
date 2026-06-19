@@ -407,3 +407,66 @@ fn extract_next_cursor(next_page_offset: Option<qdrant_client::qdrant::PointId>)
         None => None,
     })
 }
+
+impl StorageClient {
+    /// Retrieve the original dense vector of a single point by id.
+    ///
+    /// Branch-lineage F5(b): the Case-2 copy-vector path (arch §5.1) needs to
+    /// read an existing byte-identical real point's vector and copy it into a
+    /// new file-identity's own real point instead of re-embedding. The F6 tagger
+    /// lives in `daemon/core`, which does not depend on `wqm-client`, so it
+    /// cannot use `QdrantReadClient::retrieve` (which returns no vectors anyway);
+    /// this is the in-crate `StorageClient` method that closes that gap.
+    ///
+    /// Modeled on [`StorageClient::scroll_dense_vectors_by_tenant`]: issues a
+    /// `get_points(...).with_vectors(true)` for the single id and extracts the
+    /// named `"dense"` vector via the shared `extract_dense_vector` helper.
+    /// Returns `Ok(None)` when the point is absent (or carries no dense vector).
+    ///
+    /// ## Quantization — the ORIGINAL (un-quantized) vector (F5 AC, S3)
+    ///
+    /// The copy MUST use the original stored vector, not a quantized
+    /// approximation. Qdrant has no per-call "give me the raw vector" flag —
+    /// whether a read returns the original is governed by the COLLECTION CONFIG
+    /// (quantization keeps the original full-precision vector on disk and uses
+    /// the quantized form only as a search-time approximation; a point READ
+    /// returns the original). Verified for this project: neither collection
+    /// creation path sets `quantization_config`
+    /// (`storage/collections/basic.rs` and `storage/collections/multi_tenant.rs`
+    /// both leave it `None`), so all collections here store and return the
+    /// original vector — this method returns the un-quantized vector as required.
+    /// Any future collection that enables quantization must be verified to still
+    /// return the original on a `get_points` read before relying on this copy.
+    pub async fn retrieve_point_with_vector(
+        &self,
+        collection: &str,
+        point_id: &str,
+    ) -> Result<Option<Vec<f32>>, StorageError> {
+        use qdrant_client::qdrant::{GetPointsBuilder, PointId};
+
+        let ids = vec![PointId::from(point_id)];
+        let dense_selector = VectorsSelector {
+            names: vec!["dense".to_string()],
+        };
+
+        let response = self
+            .retry_operation(|| {
+                let ids = ids.clone();
+                let selector = dense_selector.clone();
+                async move {
+                    let builder = GetPointsBuilder::new(collection, ids)
+                        .with_payload(false)
+                        .with_vectors(selector);
+                    self.client.get_points(builder).await.map_err(|e| {
+                        StorageError::Point(format!("retrieve_point_with_vector failed: {}", e))
+                    })
+                }
+            })
+            .await?;
+
+        Ok(response
+            .result
+            .first()
+            .and_then(extract_dense_vector))
+    }
+}

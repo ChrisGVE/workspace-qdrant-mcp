@@ -292,3 +292,97 @@ async fn test_batch_operations() {
     // Cleanup
     let _ = client.delete_collection(&collection_name).await;
 }
+
+/// T-F5-vector-roundtrip (branch-lineage F5): a known dense vector stored via
+/// the storage path round-trips unchanged through
+/// `StorageClient::retrieve_point_with_vector` — the original (un-quantized)
+/// values are returned, which the Case-2 copy-vector path depends on.
+///
+/// Live-Qdrant test, following the crate convention: skips gracefully when no
+/// Qdrant is reachable at `TEST_QDRANT_URL`.
+#[tokio::test]
+#[serial_test::serial]
+#[tracing_test::traced_test]
+async fn t_f5_vector_roundtrip() {
+    let config = create_test_storage_config();
+    let client = StorageClient::with_config(config);
+
+    if !client.test_connection().await.unwrap_or(false) {
+        tracing::warn!("Qdrant not available, skipping T-F5-vector-roundtrip");
+        return;
+    }
+
+    let collection_name = format!("test_f5_{}", Uuid::new_v4().to_string().replace('-', "_"));
+    client
+        .create_collection(&collection_name, Some(384), None)
+        .await
+        .expect("collection creation should succeed");
+
+    // A deterministic, distinctive vector so an exact round-trip is meaningful.
+    let known: Vec<f32> = (0..384).map(|i| (i as f32) * 0.001_25).collect();
+    let point_id = Uuid::new_v4().to_string();
+    let mut payload = HashMap::new();
+    payload.insert(
+        "content".to_string(),
+        serde_json::Value::String("f5 roundtrip".to_string()),
+    );
+    let doc = DocumentPoint {
+        id: point_id.clone(),
+        dense_vector: known.clone(),
+        sparse_vector: None,
+        payload,
+    };
+    client
+        .insert_point(&collection_name, doc)
+        .await
+        .expect("insert should succeed");
+    sleep(Duration::from_millis(500)).await;
+
+    let fetched = client
+        .retrieve_point_with_vector(&collection_name, &point_id)
+        .await
+        .expect("retrieve should succeed")
+        .expect("the stored point must be found");
+
+    assert_eq!(
+        fetched.len(),
+        known.len(),
+        "retrieved vector dimensionality must match"
+    );
+    assert_eq!(
+        fetched, known,
+        "the original (un-quantized) vector must round-trip unchanged"
+    );
+
+    let _ = client.delete_collection(&collection_name).await;
+}
+
+/// T-F5-retrieve-none-on-missing (branch-lineage F5): `retrieve_point_with_vector`
+/// returns `Ok(None)` for a point id that does not exist in the collection.
+#[tokio::test]
+#[serial_test::serial]
+#[tracing_test::traced_test]
+async fn t_f5_retrieve_none_on_missing() {
+    let config = create_test_storage_config();
+    let client = StorageClient::with_config(config);
+
+    if !client.test_connection().await.unwrap_or(false) {
+        tracing::warn!("Qdrant not available, skipping T-F5-retrieve-none-on-missing");
+        return;
+    }
+
+    let collection_name = format!("test_f5_{}", Uuid::new_v4().to_string().replace('-', "_"));
+    client
+        .create_collection(&collection_name, Some(384), None)
+        .await
+        .expect("collection creation should succeed");
+
+    let absent = Uuid::new_v4().to_string();
+    let result = client
+        .retrieve_point_with_vector(&collection_name, &absent)
+        .await
+        .expect("retrieve must not error on a missing point");
+    assert!(result.is_none(), "an absent point id must return Ok(None)");
+
+    let _ = client.delete_collection(&collection_name).await;
+}

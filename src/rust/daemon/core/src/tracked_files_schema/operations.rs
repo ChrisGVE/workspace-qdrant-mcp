@@ -628,3 +628,272 @@ pub fn compute_relative_path(abs_path: &str, base_path: &str) -> Option<String> 
         .ok()
         .map(|p| p.to_string_lossy().to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Branch-lineage F5: tenant-wide byte-identical locator (v48).
+//
+// New, self-contained, v48-correct. Distinct from the superseded
+// `lookup_tracked_file_by_hash` above (which is watch-folder-AND-path scoped on
+// the v40 columns). This locator is the Case-2 "copy-vector" probe of arch §5.1:
+// a tenant-wide hash lookup spanning projects+libraries, used by the F6 tagger
+// to dedup compute across distinct file-identities / collections by copying the
+// vector of an existing byte-identical real point instead of re-embedding.
+// ---------------------------------------------------------------------------
+
+/// A byte-identical existing view row located tenant-wide by `file_hash`.
+///
+/// Purpose-built for the Case-2 copy-vector path (arch §5.1): the caller (the F6
+/// tagger) needs to find the REAL Qdrant point holding the byte-identical
+/// content's vector and copy it. The point to copy from is derivable from
+/// `content_key` alone via [`real_point_id_for`] (see its doc), so no Qdrant
+/// read is needed in the LOCATE step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ByteIdenticalHit {
+    /// The located row's content identity. `point_id(content_key, chunk_index)`
+    /// addresses the real point's chunks regardless of whether the row is real
+    /// or virtual (a virtual row shares its real point's `content_key`).
+    pub content_key: String,
+    /// The Qdrant collection the real point lives in (the row's `collection`).
+    pub collection: String,
+    /// Whether the located row is itself a virtual/view row.
+    pub is_virtual: bool,
+    /// The located row's `file_id` (for diagnostics / follow-up tracker reads).
+    pub file_id: i64,
+}
+
+/// Locate a tenant-wide byte-identical existing row by `file_hash`, spanning
+/// projects and libraries (arch §5.1 Case-2 locator, F5).
+///
+/// Runs `WHERE tenant_id = ?1 AND file_hash = ?2 ORDER BY created_at ASC LIMIT 1`
+/// over the `idx_tracked_files_file_hash` index — a state.db indexed probe, NOT
+/// a Qdrant scan. The index is NOT unique (multiple identities/collections can
+/// hold identical bytes under one tenant), so `ORDER BY created_at ASC LIMIT 1`
+/// (oldest wins) makes the selection deterministic; correctness does not depend
+/// on which row is chosen, since all share the bytes.
+///
+/// Returns `Ok(None)` when no row under the tenant has those bytes.
+///
+/// To get the real point id to copy the vector from, the caller derives it from
+/// the located `content_key` with [`real_point_id_for`] — this holds whether the
+/// located row is real or virtual, because a virtual row shares the real point's
+/// `content_key` and `point_id` is a pure function of `(content_key, chunk_index)`.
+pub async fn locate_byte_identical(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    file_hash: &str,
+) -> Result<Option<ByteIdenticalHit>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT file_id, content_key, collection, is_virtual \
+         FROM tracked_files \
+         WHERE tenant_id = ?1 AND file_hash = ?2 \
+         ORDER BY created_at ASC \
+         LIMIT 1",
+    )
+    .bind(tenant_id)
+    .bind(file_hash)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| ByteIdenticalHit {
+        content_key: r.get("content_key"),
+        collection: r.get("collection"),
+        is_virtual: r.get::<i64, _>("is_virtual") != 0,
+        file_id: r.get("file_id"),
+    }))
+}
+
+/// The real point id for chunk `chunk_index` of `content_key`.
+///
+/// Settled per arch §5.1 / §4.3: `point_id = point_id(content_key, chunk_index)`
+/// is a pure function of `content_key` alone, and a virtual point shares the
+/// `content_key` of the real point it shadows. So the real point id is
+/// derivable from a located row's `content_key` whether that row is real or
+/// virtual — the LOCATE step stays state.db-only (no Qdrant read to "follow"
+/// a `real_point_id` link). The arch's Qdrant-payload `real_point_id` link is an
+/// equivalent alternative the tagger MAY use, but is not required here.
+pub fn real_point_id_for(content_key: &str, chunk_index: u32) -> uuid::Uuid {
+    wqm_common::hashing::point_id(content_key, chunk_index)
+}
+
+#[cfg(test)]
+mod f5_locator_tests {
+    use super::*;
+    use crate::schema_version::SchemaManager;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    const TENANT: &str = "tenant1";
+
+    /// In-memory state.db migrated to v48 (SchemaManager runs all migrations).
+    async fn v48_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        SchemaManager::new(pool.clone())
+            .run_migrations()
+            .await
+            .unwrap();
+        // Two watch folders, in two collections, to prove the locator spans both.
+        insert_watch_folder(&pool, "wf_proj", "projects").await;
+        insert_watch_folder(&pool, "wf_lib", "libraries").await;
+        pool
+    }
+
+    async fn insert_watch_folder(pool: &SqlitePool, watch_id: &str, collection: &str) {
+        sqlx::query(
+            "INSERT OR IGNORE INTO watch_folders \
+             (watch_id, path, collection, tenant_id, created_at, updated_at) \
+             VALUES (?1, '/tmp/' || ?1, ?2, ?3, '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z')",
+        )
+        .bind(watch_id)
+        .bind(collection)
+        .bind(TENANT)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_row(
+        pool: &SqlitePool,
+        watch_id: &str,
+        collection: &str,
+        content_key: &str,
+        file_hash: &str,
+        is_virtual: bool,
+        relative_path: &str,
+        created_at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO tracked_files \
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+              is_virtual, state, file_mtime, file_hash, relative_path, collection, \
+              created_at, updated_at) \
+             VALUES (?1, ?2, 'main', ?3, ?4, ?5, 'present', ?6, ?7, ?8, ?9, ?6, ?6)",
+        )
+        .bind(watch_id)
+        .bind(TENANT)
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(content_key)
+        .bind(if is_virtual { 1i64 } else { 0i64 })
+        .bind(created_at)
+        .bind(file_hash)
+        .bind(relative_path)
+        .bind(collection)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// T-F5-locator-oldest-deterministic: several rows share one
+    /// `(tenant_id, file_hash)` at differing `created_at` (and across the
+    /// projects + libraries collections); the locator returns the OLDEST.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_f5_locator_oldest_deterministic() {
+        let pool = v48_pool().await;
+        let hash = "samebytes";
+
+        // Oldest: a real point in projects.
+        insert_row(
+            &pool,
+            "wf_proj",
+            "projects",
+            "ck_oldest",
+            hash,
+            false,
+            "src/a.rs",
+            "2025-01-01T00:00:00.000Z",
+        )
+        .await;
+        // Newer: a real point in libraries (different identity / collection).
+        insert_row(
+            &pool,
+            "wf_lib",
+            "libraries",
+            "ck_newer",
+            hash,
+            false,
+            "doc/b.md",
+            "2025-02-01T00:00:00.000Z",
+        )
+        .await;
+        // Newest: a virtual view row.
+        insert_row(
+            &pool,
+            "wf_proj",
+            "projects",
+            "ck_newest",
+            hash,
+            true,
+            "src/c.rs",
+            "2025-03-01T00:00:00.000Z",
+        )
+        .await;
+
+        let hit = locate_byte_identical(&pool, TENANT, hash)
+            .await
+            .unwrap()
+            .expect("a byte-identical row must be located");
+
+        assert_eq!(
+            hit.content_key, "ck_oldest",
+            "the oldest row (by created_at ASC) must win"
+        );
+        assert_eq!(hit.collection, "projects");
+        assert!(!hit.is_virtual);
+    }
+
+    /// The locator spans collections: a libraries-only byte-identical row is
+    /// found even when no projects row matches (arch §5.1 axis C).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_f5_locator_spans_collections() {
+        let pool = v48_pool().await;
+        let hash = "libonly";
+        insert_row(
+            &pool,
+            "wf_lib",
+            "libraries",
+            "ck_lib",
+            hash,
+            false,
+            "doc/x.md",
+            "2025-01-01T00:00:00.000Z",
+        )
+        .await;
+
+        let hit = locate_byte_identical(&pool, TENANT, hash)
+            .await
+            .unwrap()
+            .expect("a libraries row must be located tenant-wide");
+        assert_eq!(hit.collection, "libraries");
+        assert_eq!(hit.content_key, "ck_lib");
+    }
+
+    /// No row under the tenant has those bytes → `Ok(None)`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_f5_locator_none_on_miss() {
+        let pool = v48_pool().await;
+        let hit = locate_byte_identical(&pool, TENANT, "absent")
+            .await
+            .unwrap();
+        assert!(hit.is_none(), "an absent hash must locate nothing");
+    }
+
+    /// `real_point_id_for` derives the same id `point_id(content_key, n)` would,
+    /// for both real and virtual located rows (they share `content_key`).
+    #[test]
+    fn t_f5_real_point_id_derivation() {
+        let ck = "ck_oldest";
+        assert_eq!(
+            real_point_id_for(ck, 0),
+            wqm_common::hashing::point_id(ck, 0),
+            "derivation must equal the canonical point_id helper"
+        );
+        assert_ne!(
+            real_point_id_for(ck, 0),
+            real_point_id_for(ck, 1),
+            "different chunk indices must derive different point ids"
+        );
+    }
+}

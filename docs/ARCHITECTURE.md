@@ -224,6 +224,14 @@ point is tombstoned). Non-file content (rules, scratchpad, memory, URL, library)
 `content_key`/`point_id` flow with an empty content-hash slot, so re-ingesting changed
 content keeps the ID stable and the update lands in place.
 
+Byte-identical content under a distinct file-identity or collection is deduped by
+**copying the vector**, never by sharing a point (the no-share invariant): a tenant-wide
+`(tenant_id, file_hash)` probe (`tracked_files_schema::locate_byte_identical`) finds an
+existing real point and `StorageClient::retrieve_point_with_vector` reads its vector to
+copy. That read must return the **original, un-quantized** vector; this project sets no
+quantization on any collection, so a point read returns the original (see the method
+doc-comment in `storage/scroll.rs`).
+
 ## Hybrid Search Flow
 
 ```mermaid
