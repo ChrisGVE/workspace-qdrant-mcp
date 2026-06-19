@@ -1,4 +1,4 @@
-//! Schema migration implementations for search.db (v1 through v6).
+//! Schema migration implementations for search.db (v1 through v8).
 
 use sqlx::SqlitePool;
 use tracing::info;
@@ -154,6 +154,41 @@ pub(super) async fn migrate_v7(pool: &SqlitePool) -> SearchDbResult<()> {
     Ok(())
 }
 
+/// search.db v8: add the lifecycle `state` column to `file_metadata`.
+///
+/// `state='present'` means the file currently exists in its branch; a
+/// `state='deleted'` row is a tombstone the grep/search path filters out so
+/// deleted files stop surfacing (branch-lineage F3, principle P9). The column
+/// is a single atomic `ADD COLUMN` DDL — it auto-commits, needs no wrapping
+/// transaction, and gives every pre-existing row the DEFAULT `'present'`. The
+/// `SEARCH_DB_` prefix keeps this distinct from state.db's unrelated
+/// `MIGRATE_V8_ADD_COLUMNS_SQL` (IMPL-03 / DATA-NIT-01).
+const SEARCH_DB_ALTER_FILE_METADATA_V8_SQL: &str = "ALTER TABLE file_metadata \
+     ADD COLUMN state TEXT NOT NULL DEFAULT 'present' \
+     CHECK (state IN ('present','deleted'))";
+
+/// Migration v8: Add the `state` lifecycle column to file_metadata.
+///
+/// Idempotent: skips the ALTER if `state` already exists, mirroring the
+/// `pragma_table_info` guard migrate_v6 uses, so a re-run never errors.
+pub(super) async fn migrate_v8(pool: &SqlitePool) -> SearchDbResult<()> {
+    info!("Search DB migration v8: adding state column to file_metadata");
+
+    let has_column: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('file_metadata') WHERE name = 'state'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !has_column {
+        sqlx::query(SEARCH_DB_ALTER_FILE_METADATA_V8_SQL)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
 /// Dispatch a single migration by version number.
 pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbResult<()> {
     match version {
@@ -164,6 +199,7 @@ pub(super) async fn run_migration(pool: &SqlitePool, version: i32) -> SearchDbRe
         5 => migrate_v5(pool).await,
         6 => migrate_v6(pool).await,
         7 => migrate_v7(pool).await,
+        8 => migrate_v8(pool).await,
         _ => Err(SearchDbError::Migration(format!(
             "Unknown search DB migration version: {}",
             version

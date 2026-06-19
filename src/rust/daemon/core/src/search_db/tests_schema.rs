@@ -163,3 +163,136 @@ async fn test_schema_version_is_current() {
 
     manager.close().await;
 }
+
+// ============================================================================
+// Branch-lineage F3: search.db v8 file_metadata.state column
+// ============================================================================
+
+/// Build a search.db pinned at schema version 7 by running migrations 1..=7
+/// directly, then return the manager so a test can drive v8 in isolation.
+///
+/// `SearchDbManager::new` always migrates all the way up to
+/// `SEARCH_SCHEMA_VERSION`, so it cannot stop at v7. Driving the migration
+/// dispatcher by hand is the only way to observe the v7 -> v8 step.
+async fn build_v7_search_db(db_path: &std::path::Path) -> SearchDbManager {
+    let manager = SearchDbManager::with_pool(
+        sqlx::SqlitePool::connect(&format!("sqlite://{}?mode=rwc", db_path.display()))
+            .await
+            .unwrap(),
+        db_path.to_path_buf(),
+    );
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS search_schema_version (\
+            version INTEGER PRIMARY KEY, \
+            applied_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    for version in 1..=7 {
+        super::migrations::run_migration(manager.pool(), version)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO search_schema_version (version) VALUES (?1)")
+            .bind(version)
+            .execute(manager.pool())
+            .await
+            .unwrap();
+    }
+
+    manager
+}
+
+/// Whether `file_metadata` carries a column of the given name.
+async fn file_metadata_has_column(pool: &sqlx::SqlitePool, column: &str) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('file_metadata') WHERE name = ?1",
+    )
+    .bind(column)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// T-F3-migrate-v7-v8: migrating a v7 search.db to v8 adds the `state` column,
+/// and every pre-existing row reads back the DEFAULT `state='present'`.
+#[tokio::test]
+async fn test_f3_migrate_v7_to_v8() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("search.db");
+
+    let manager = build_v7_search_db(&db_path).await;
+
+    assert_eq!(
+        manager.get_schema_version().await.unwrap(),
+        Some(7),
+        "fixture should be pinned at v7 before the migration"
+    );
+    assert!(
+        !file_metadata_has_column(manager.pool(), "state").await,
+        "v7 file_metadata must not yet have a state column"
+    );
+
+    // A pre-existing row that must inherit the DEFAULT after the migration.
+    sqlx::query(
+        "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path) \
+         VALUES (1, 'tenant-a', 'main', '/src/lib.rs')",
+    )
+    .execute(manager.pool())
+    .await
+    .unwrap();
+
+    // Drive only the v7 -> v8 step.
+    super::migrations::run_migration(manager.pool(), 8)
+        .await
+        .expect("v8 migration should succeed on a v7 database");
+
+    assert!(
+        file_metadata_has_column(manager.pool(), "state").await,
+        "v8 must add the state column to file_metadata"
+    );
+
+    let state: String = sqlx::query_scalar("SELECT state FROM file_metadata WHERE file_id = 1")
+        .fetch_one(manager.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        state, "present",
+        "pre-existing rows must inherit the DEFAULT state='present'"
+    );
+
+    manager.close().await;
+}
+
+/// T-F3-dispatch-arm-reachable: opening a search.db with the current code
+/// migrates cleanly to v8 without hitting the `_ =>` unknown-version error arm.
+///
+/// This guards the "8 => migrate_v8 arm exists" invariant: if
+/// `SEARCH_SCHEMA_VERSION` were bumped to 8 but the dispatch arm were missing,
+/// `run_migration(pool, 8)` would return the unknown-version error and the open
+/// path below would fail.
+#[tokio::test]
+async fn test_f3_dispatch_arm_reachable() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("search.db");
+
+    // Full open path: must succeed (Ok) for the target version, which is 8.
+    let manager = SearchDbManager::new(&db_path)
+        .await
+        .expect("opening a fresh search.db must migrate to v8 without an unknown-version error");
+
+    assert_eq!(
+        manager.get_schema_version().await.unwrap(),
+        Some(8),
+        "open path must land on v8"
+    );
+
+    // Dispatching version 8 directly must resolve to migrate_v8, never `_ =>`.
+    super::migrations::run_migration(manager.pool(), 8)
+        .await
+        .expect("version 8 must dispatch to migrate_v8, not the error arm");
+
+    manager.close().await;
+}

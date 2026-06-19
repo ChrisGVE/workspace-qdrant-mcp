@@ -656,7 +656,7 @@ This subsystem coordinates **three** stores, all written only by the daemon
 3. **SQLite `search.db`** — `file_metadata` (`UNIQUE(file_id, branch)`,
    `code_lines_schema.rs:228`) + `code_lines` + FTS5, the **grep backend**
    (`grep_search/query.rs:15`). A separate database file with its **own** schema
-   version (`SEARCH_SCHEMA_VERSION = 7`, `search_db/types.rs:7`; migration loop
+   version (`SEARCH_SCHEMA_VERSION = 8` as of F3, `search_db/types.rs:7`; migration loop
    `search_db/mod.rs:203`; DDL constants in `code_lines_schema.rs`) — independent
    of state.db's v47/v48 counter (the project's search.db-separate-DB law). The
    new `file_metadata.state` column lands via a **search.db v8** step (§5.4), not
