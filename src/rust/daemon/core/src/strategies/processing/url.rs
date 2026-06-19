@@ -120,12 +120,12 @@ impl UrlStrategy {
             );
 
             points.push(DocumentPoint {
-                id: crate::generate_point_id(
+                id: wqm_common::hashing::content_point_id(
                     &item.tenant_id,
-                    &item.branch,
                     &payload.url,
-                    chunk.chunk_index,
-                ),
+                    chunk.chunk_index as u32,
+                )
+                .to_string(),
                 dense_vector: embed_result.dense_vector,
                 sparse_vector: embed_result.sparse_vector,
                 payload: point_payload,

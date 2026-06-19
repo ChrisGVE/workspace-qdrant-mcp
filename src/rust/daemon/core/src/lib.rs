@@ -128,9 +128,7 @@ pub use crate::core_types::{
     ChunkingConfig, DocumentContent, DocumentResult, DocumentType, ProcessingError,
     ProcessingStats, TextChunk,
 };
-pub use crate::document_id::{
-    generate_content_document_id, generate_document_id, generate_point_id,
-};
+pub use crate::document_id::{generate_content_document_id, generate_document_id};
 pub use crate::ingestion::IngestionEngine;
 
 // ── Re-exports: subsystem types ─────────────────────────────────────────

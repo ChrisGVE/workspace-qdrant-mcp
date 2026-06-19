@@ -103,7 +103,8 @@ impl TextStrategy {
         let point_payload = build_rules_payload(item, &payload, &content_doc_id, action);
 
         let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
+            id: wqm_common::hashing::content_point_id(&item.tenant_id, &content_doc_id, 0)
+                .to_string(),
             dense_vector: embed_result.dense_vector,
             sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
@@ -236,7 +237,8 @@ impl TextStrategy {
         }
 
         let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
+            id: wqm_common::hashing::content_point_id(&item.tenant_id, &content_doc_id, 0)
+                .to_string(),
             dense_vector: embed_result.dense_vector,
             sparse_vector: embed_result.sparse_vector,
             payload: point_payload,
@@ -351,7 +353,8 @@ impl TextStrategy {
         }
 
         let point = DocumentPoint {
-            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
+            id: wqm_common::hashing::content_point_id(&item.tenant_id, &content_doc_id, 0)
+                .to_string(),
             dense_vector: embed_result.dense_vector,
             sparse_vector: embed_result.sparse_vector,
             payload: point_payload,

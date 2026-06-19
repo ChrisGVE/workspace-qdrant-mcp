@@ -6,10 +6,83 @@
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::Path;
+use uuid::Uuid;
 
 use crate::queue_types::{ItemType, QueueOperation};
 
 const MAX_HASH_READ_BYTES: u64 = 100 * 1024 * 1024;
+
+/// UUIDv5 namespace for ALL Qdrant point IDs (branch-lineage F1).
+///
+/// Fixed once, here, so every producer (the branch tagger F6, the re-key pass F16,
+/// the v48 conversion, and non-file content ingestion) derives identical IDs for
+/// identical inputs. Never change this value — it is baked into every stored point.
+pub const POINT_NS: Uuid = Uuid::from_u128(0x6b1f9a2c_3d4e_4f60_8a71_5c2e9d0b7e34);
+
+/// Length-prefix framing: `lp(x) = u32_be(x.len()) ‖ x`.
+///
+/// The single source-of-truth framing helper for all composite hash inputs.
+/// Prefixing each field with its byte length makes the concatenation injective —
+/// `lp(a)‖lp(b)` can never collide with `lp(a')‖lp(b')` for different `(a, b)` —
+/// which a bare separator byte (e.g. `a|b`) cannot guarantee when the data may
+/// itself contain the separator.
+pub fn lp(x: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + x.len());
+    out.extend_from_slice(&(x.len() as u32).to_be_bytes());
+    out.extend_from_slice(x);
+    out
+}
+
+/// Derive the path-independent `content_key`: the key everything else hangs off.
+///
+/// `content_key = hex(SHA256(lp(tenant) ‖ lp(identity) ‖ lp(content_hash_hex)))`,
+/// keeping the FULL 32-byte digest (64 lowercase-hex chars) — birthday bound ~2^64.
+///
+/// Field contract (DOM-02, N7): the third field is the content hash rendered as a
+/// **64-char lowercase-hex ASCII string**, never the raw 32 bytes. For files the
+/// arguments are `(tenant_id, file_identity_id, file_hash_hex)`; for non-file
+/// content (rules/scratchpad/memory/url/library) the `identity` slot carries the
+/// stable document identity and `content_hash_hex` the content digest. This is the
+/// ONLY producer of a content_key — the file tagger (F6) and the re-key pass (F16)
+/// both call it, structurally guaranteeing "converted equals freshly-computed".
+pub fn content_key(tenant_id: &str, identity: &str, content_hash_hex: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(lp(tenant_id.as_bytes()));
+    hasher.update(lp(identity.as_bytes()));
+    hasher.update(lp(content_hash_hex.as_bytes()));
+    format!("{:x}", hasher.finalize())
+}
+
+/// Derive a Qdrant `point_id` from a `content_key` and chunk index.
+///
+/// `point_id = UUIDv5(POINT_NS, lp(content_key) ‖ lp(u32_be(chunk_index)))`.
+///
+/// This is the SINGLE point-id derivation flow: file chunks and non-file content
+/// points both route through it (see [`content_point_id`]), so the two paths can
+/// never drift apart. Returns a UUIDv5 (RFC 9562 §5.5, SHA-1 based with 6 bits
+/// fixed for version+variant → ~2^61 effective collision space; a collision
+/// silently overwrites a chunk on upsert, so corpus-size guidance quotes ~2^61
+/// for `point_id` vs ~2^64 for `content_key`).
+pub fn point_id(content_key: &str, chunk_index: u32) -> Uuid {
+    let mut name = lp(content_key.as_bytes());
+    name.extend_from_slice(&lp(&chunk_index.to_be_bytes()));
+    Uuid::new_v5(&POINT_NS, &name)
+}
+
+/// Convenience: the point ID for a non-file, *identity-addressed* content point
+/// (rules / scratchpad / memory / url / library).
+///
+/// NOT a second derivation — it is exactly `point_id(content_key(...))`, so these
+/// points share the one canonical flow with file chunks rather than maintaining a
+/// parallel formula that could diverge. The content-hash slot is left empty because
+/// these points are keyed by a STABLE document identity (e.g. a URL), not by their
+/// content: re-ingesting changed content must keep the same ID so the update lands
+/// in place. (Files are content-addressed instead — they call [`content_key`] +
+/// [`point_id`] directly with their `file_identity_id` / `file_hash_hex`, so a
+/// content change yields a new point and the old one is tombstoned.)
+pub fn content_point_id(tenant_id: &str, identity: &str, chunk_index: u32) -> Uuid {
+    point_id(&content_key(tenant_id, identity, ""), chunk_index)
+}
 
 /// Generate a comprehensive idempotency key for unified queue deduplication
 ///
@@ -417,5 +490,122 @@ mod tests {
         let fp = dir.path().join("test.txt");
         std::fs::write(&fp, b"hello").unwrap();
         assert!(compute_file_hash(&fp).is_ok());
+    }
+
+    // ---- F1: lp / content_key / point_id (branch-lineage) ----
+
+    #[test]
+    fn test_lp_frames_with_big_endian_length() {
+        assert_eq!(lp(b""), vec![0, 0, 0, 0]);
+        assert_eq!(lp(b"ab"), vec![0, 0, 0, 2, b'a', b'b']);
+        // 256-byte payload → length 0x00000100 prefix.
+        let big = vec![0x5au8; 256];
+        let framed = lp(&big);
+        assert_eq!(&framed[..4], &[0, 0, 1, 0]);
+        assert_eq!(&framed[4..], &big[..]);
+    }
+
+    proptest::proptest! {
+        /// T-F1-lp-injective (DOM-01): the framed concatenation `lp(a)‖lp(b)` is
+        /// injective in `(a, b)` — distinct field pairs never produce the same bytes.
+        /// This is the property a bare separator (`a|b`) cannot offer, since data may
+        /// contain the separator. We assert the contrapositive: differing pairs differ.
+        #[test]
+        fn t_f1_lp_injective(
+            a in proptest::collection::vec(proptest::num::u8::ANY, 0..40),
+            b in proptest::collection::vec(proptest::num::u8::ANY, 0..40),
+            c in proptest::collection::vec(proptest::num::u8::ANY, 0..40),
+            d in proptest::collection::vec(proptest::num::u8::ANY, 0..40),
+        ) {
+            let mut left = lp(&a);
+            left.extend_from_slice(&lp(&b));
+            let mut right = lp(&c);
+            right.extend_from_slice(&lp(&d));
+            if (a, b) == (c, d) {
+                proptest::prop_assert_eq!(left, right);
+            } else {
+                proptest::prop_assert_ne!(left, right);
+            }
+        }
+    }
+
+    #[test]
+    fn t_f1_lp_defeats_separator_ambiguity() {
+        // The bare-separator hazard: "a|bc" == "ab|c" collides; lp framing must not.
+        let mut x = lp(b"a");
+        x.extend_from_slice(&lp(b"bc"));
+        let mut y = lp(b"ab");
+        y.extend_from_slice(&lp(b"c"));
+        assert_ne!(x, y);
+    }
+
+    #[test]
+    fn t_f1_content_key_is_full_32_bytes_and_lp_framed() {
+        let ck = content_key("tenant_abc", "fid-1", &"de".repeat(32));
+        assert_eq!(
+            ck.len(),
+            64,
+            "content_key keeps full 32-byte digest (64 hex)"
+        );
+        assert!(ck.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Independently recompute via the documented formula to pin the encoding.
+        let mut h = Sha256::new();
+        h.update(lp(b"tenant_abc"));
+        h.update(lp(b"fid-1"));
+        h.update(lp("de".repeat(32).as_bytes()));
+        let expected = format!("{:x}", h.finalize());
+        assert_eq!(ck, expected);
+    }
+
+    #[test]
+    fn t_f1_content_key_field_boundaries_matter() {
+        // Moving a character across the identity/hash boundary must change the key.
+        let a = content_key("t", "ab", "c");
+        let b = content_key("t", "a", "bc");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn t_f1_encoding_agreement() {
+        // N7: the SAME (tenant, file_identity_id, file_hash_hex) yields the SAME
+        // content_key regardless of which caller computes it — there is one producer.
+        let tenant = "tenant_xyz";
+        let fid = "file-identity-7";
+        let file_hash_hex = "abc123".repeat(10) + "abcd"; // 64-char hex string
+        let tagger_side = content_key(tenant, fid, &file_hash_hex);
+        let rekey_side = content_key(tenant, fid, &file_hash_hex);
+        assert_eq!(tagger_side, rekey_side);
+        // The hex STRING (not raw bytes) is the input: a different rendering differs.
+        let raw_bytes_rendering = content_key(tenant, fid, "abc123");
+        assert_ne!(tagger_side, raw_bytes_rendering);
+    }
+
+    #[test]
+    fn t_f1_pointid_stability() {
+        let ck = content_key("tenant", "fid", &"00".repeat(32));
+        let p1 = point_id(&ck, 0);
+        let p2 = point_id(&ck, 0);
+        assert_eq!(p1, p2, "same content_key + chunk → same point_id");
+        assert_eq!(p1.get_version_num(), 5, "point_id is a UUIDv5");
+        assert_ne!(
+            point_id(&ck, 0),
+            point_id(&ck, 1),
+            "chunk index is distinguishing"
+        );
+        // content_point_id is exactly point_id(content_key(tenant, identity, "")) —
+        // one flow, identity-addressed (empty content-hash slot).
+        let composed = content_point_id("tenant", "doc-7", 3);
+        assert_eq!(composed, point_id(&content_key("tenant", "doc-7", ""), 3));
+    }
+
+    #[test]
+    fn t_f1_pointid_chunk_index_lp_framed() {
+        // chunk_index is framed as lp(u32_be), so it cannot bleed into content_key.
+        // Distinct content_keys with distinct chunk indices stay distinct.
+        let ck_a = content_key("t", "a", &"11".repeat(32));
+        let ck_b = content_key("t", "b", &"11".repeat(32));
+        assert_ne!(point_id(&ck_a, 1), point_id(&ck_b, 1));
+        assert_ne!(point_id(&ck_a, 1), point_id(&ck_a, 2));
     }
 }

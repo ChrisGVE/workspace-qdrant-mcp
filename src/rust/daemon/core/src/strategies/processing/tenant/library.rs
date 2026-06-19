@@ -165,7 +165,8 @@ async fn write_library_content_point(
 
     let point_payload = build_library_content_payload(item, payload);
     let point = DocumentPoint {
-        id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.document_id, 0),
+        id: wqm_common::hashing::content_point_id(&item.tenant_id, &payload.document_id, 0)
+            .to_string(),
         dense_vector: embed_result.dense_vector,
         sparse_vector: embed_result.sparse_vector,
         payload: point_payload,

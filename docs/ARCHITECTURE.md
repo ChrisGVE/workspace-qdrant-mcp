@@ -200,6 +200,30 @@ Properties:
 - **Fairness**: queue ordering blends priority (active sessions first), age promotion, and tenant line-jumping for interactive operations.
 - **Crash safety**: the queue is SQLite-backed; work survives daemon restarts and is recovered at startup.
 
+### Point identity (`content_key` / `point_id`)
+
+Every Qdrant point ID is derived through one path-independent scheme, defined once in
+`wqm-common::hashing` so the tagger, the re-key pass, and the v48 conversion all agree:
+
+- **`lp(x) = u32_be(len) ‖ x`** — length-prefix framing. Prefixing each field with its
+  byte length makes a multi-field concatenation injective, which a bare separator
+  (`a|b`) cannot guarantee when the data may contain the separator.
+- **`content_key = hex(SHA256(lp(tenant) ‖ lp(identity) ‖ lp(content_hash_hex)))`** —
+  the full 32-byte digest (64 hex chars), birthday bound **~2⁶⁴**. The third field is
+  the content hash rendered as a 64-char lowercase-hex ASCII string, never raw bytes,
+  so the value converted during migration equals the freshly-computed one. For files
+  the fields are `(tenant_id, file_identity_id, file_hash_hex)`.
+- **`point_id = UUIDv5(POINT_NS, lp(content_key) ‖ lp(u32_be(chunk_index)))`** — a
+  UUIDv5 (RFC 9562 §5.5), birthday bound **~2⁶¹** (6 bits fixed for version+variant).
+  A `point_id` collision silently overwrites a chunk on upsert, so corpus-size
+  guidance quotes ~2⁶¹ for `point_id` and ~2⁶⁴ for `content_key` — different bounds.
+
+Files are **content-addressed** (a content change yields a new `point_id`; the old
+point is tombstoned). Non-file content (rules, scratchpad, memory, URL, library) is
+**identity-addressed** via `content_point_id(tenant, identity, chunk)` — the same
+`content_key`/`point_id` flow with an empty content-hash slot, so re-ingesting changed
+content keeps the ID stable and the update lands in place.
+
 ## Hybrid Search Flow
 
 ```mermaid
