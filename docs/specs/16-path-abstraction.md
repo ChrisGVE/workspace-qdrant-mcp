@@ -884,7 +884,12 @@ entrypoint defends against this with three layers:
    from `/etc/docker-compose-wqm.override.yaml` (mounted read-only via
    compose) and compares to the hash computed from the live
    `/etc/wqm/config.yaml` mount section. Mismatch aborts startup with
-   a clear error pointing to `wqm docker generate-compose`.
+   a clear error pointing to `wqm docker generate-compose`. If no
+   override is mounted at all — the deployment hand-wires its volumes
+   directly, as the reference/minimal/standalone composes do — there is
+   no generated override to go stale, so layer 1 is skipped and layers
+   2–3 still run. (Layer 1 only guards against a *stale* mounted
+   override; it is not a requirement to use the generate-compose flow.)
 2. **Mount-present validation.** For each mount entry in `config.yaml`,
    the entrypoint stats the container path. If any entry's container
    path is not a directory (i.e., the corresponding `volumes:` line is
