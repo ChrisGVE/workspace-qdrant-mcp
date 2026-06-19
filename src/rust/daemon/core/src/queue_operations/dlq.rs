@@ -187,10 +187,15 @@ impl QueueManager {
         let cutoff = Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = format_utc(&cutoff);
 
+        // `<=` not `<`: the cutoff is computed after the entry was moved, so an
+        // entry's timestamp can equal the cutoff to the formatted millisecond
+        // (notably retention_days=0, where cutoff=now). A strict `<` would leave
+        // such a just-added entry behind, making retention-0 "purge all" a clock
+        // race. ISO8601 UTC is fixed-width, so lexicographic order == chronological.
         let result = sqlx::query(
             "DELETE FROM dead_letter_queue WHERE rowid IN \
              (SELECT rowid FROM dead_letter_queue \
-              WHERE moved_to_dlq_at < ?1 \
+              WHERE moved_to_dlq_at <= ?1 \
               ORDER BY moved_to_dlq_at ASC LIMIT ?2)",
         )
         .bind(&cutoff_str)
