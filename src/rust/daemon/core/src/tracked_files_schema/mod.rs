@@ -9,6 +9,7 @@
 //! - `qdrant_chunks` is daemon-only (write and read)
 //! - `qdrant_chunks` is a child of `tracked_files` with CASCADE delete
 
+pub mod identity;
 mod operations;
 mod reconcile;
 pub mod schema;
@@ -48,6 +49,9 @@ pub use reconcile::{
     clear_reconcile_flag_tx, get_files_needing_reconcile, get_files_needing_upgrade,
     mark_needs_reconcile, UpgradeReason,
 };
+
+// Re-export the v48 file-identity allocation (branch-lineage F4)
+pub use identity::{allocate_file_identity, FileIdentity};
 
 #[cfg(test)]
 mod tests;
