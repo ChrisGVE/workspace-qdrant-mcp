@@ -35,7 +35,14 @@ export TEST_SCRATCH
 export WQM_DEV_ROOT="${WQM_DEV_ROOT:-${TEST_SCRATCH}/dev-root}"
 mkdir -p "${WQM_DEV_ROOT}"
 export WQM_STATE_DIR="${WQM_STATE_DIR:-${TEST_SCRATCH}/state}"
-mkdir -p "${WQM_STATE_DIR}"
+# reference.yml bind-mounts ${WQM_STATE_DIR}/memexd onto the daemon's XDG data
+# home. Create that subdir here: if Docker auto-creates a missing bind source it
+# does so as root, and the container's unprivileged memexd user (uid 1000) then
+# can't open state.db → SQLITE_CANTOPEN. The host uid in CI (runner) also differs
+# from 1000, so make the ephemeral scratch tree world-writable to bridge the
+# bind-mount uid gap. Scratch is per-run and discarded, so 0777 is safe here.
+mkdir -p "${WQM_STATE_DIR}/memexd"
+chmod -R 0777 "${WQM_STATE_DIR}"
 
 # Bearer token generated per-run so two runs in parallel don't collide.
 export MCP_HTTP_TOKEN="${MCP_HTTP_TOKEN:-$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
