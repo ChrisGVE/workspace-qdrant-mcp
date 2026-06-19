@@ -64,8 +64,10 @@ ARG ONNX_VERSION
 # git is required by daemon/memexd/build.rs (git rev-list --count HEAD → BUILD_NUMBER).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        cmake \
         curl \
         git \
+        libclang-dev \
         libprotobuf-dev \
         libssl-dev \
         pkg-config \
