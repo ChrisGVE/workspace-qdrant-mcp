@@ -2,10 +2,9 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::load_adjacency_graph;
+use crate::graph::AdjacencyExport;
 
 /// A detected community (cluster) of nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,84 +40,65 @@ impl Default for CommunityConfig {
     }
 }
 
-/// Detect communities using label propagation algorithm.
+/// Detect communities using label propagation algorithm over an [`AdjacencyExport`].
 ///
-/// Each node starts with a unique label. In each iteration, each node
-/// adopts the most frequent label among its neighbors. Converges when
-/// no labels change.
+/// Each node starts with a unique label.  In each iteration, each node adopts
+/// the most frequent label among its undirected neighbours.  Converges when no
+/// labels change.
 ///
-/// Treats edges as undirected for community detection.
-pub async fn detect_communities(
-    pool: &SqlitePool,
-    tenant_id: &str,
-    config: &CommunityConfig,
-    edge_types: Option<&[&str]>,
-) -> Result<Vec<Community>, sqlx::Error> {
-    let graph = load_adjacency_graph(pool, tenant_id, edge_types).await?;
-
-    if graph.nodes.is_empty() {
-        return Ok(Vec::new());
+/// Operates entirely in memory — no database I/O.  The caller is responsible
+/// for acquiring the export (via `GraphStore::export_adjacency`) and releasing
+/// any read lock before invoking this function (LOCK-SCOPE contract).
+///
+/// `symbol_name`, `symbol_type`, and `file_path` fields in the returned members
+/// are left empty; callers that need display metadata should enrich the results
+/// separately after this function returns.
+pub fn detect_communities(adj: &AdjacencyExport, config: &CommunityConfig) -> Vec<Community> {
+    let n = adj.node_ids.len();
+    if n == 0 {
+        return Vec::new();
     }
 
-    let node_ids: Vec<String> = graph.nodes.keys().cloned().collect();
-    let neighbors = build_undirected_neighbors(&graph.outgoing, &node_ids);
-    let labels = run_label_propagation(&node_ids, &neighbors, config, tenant_id);
-    let communities = assemble_communities(&labels, &graph.nodes, config.min_community_size);
+    let neighbors = build_undirected_neighbors(n, &adj.edges);
+    let labels = run_label_propagation(n, &neighbors, config);
+    let communities = assemble_communities(&labels, &adj.node_ids, config.min_community_size);
 
     info!(
-        tenant_id,
         communities = communities.len(),
         "Community detection complete"
     );
 
-    Ok(communities)
+    communities
 }
 
-/// Build an undirected neighbor map from a directed adjacency list.
-fn build_undirected_neighbors<'a>(
-    outgoing: &'a HashMap<String, Vec<String>>,
-    node_ids: &'a [String],
-) -> HashMap<&'a str, HashSet<&'a str>> {
-    let _ = node_ids; // node_ids used for ordering elsewhere
-    let mut neighbors: HashMap<&str, HashSet<&str>> = HashMap::new();
-    for (src, targets) in outgoing {
-        for tgt in targets {
-            neighbors
-                .entry(src.as_str())
-                .or_default()
-                .insert(tgt.as_str());
-            neighbors
-                .entry(tgt.as_str())
-                .or_default()
-                .insert(src.as_str());
+/// Build an undirected neighbour map (index → set of neighbour indices).
+fn build_undirected_neighbors(n: usize, edges: &[(usize, usize, f64)]) -> Vec<HashSet<usize>> {
+    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for &(src, tgt, _w) in edges {
+        if src != tgt {
+            neighbors[src].insert(tgt);
+            neighbors[tgt].insert(src);
         }
     }
     neighbors
 }
 
-/// Run label-propagation until convergence or max_iterations.
-fn run_label_propagation<'a>(
-    node_ids: &'a [String],
-    neighbors: &HashMap<&'a str, HashSet<&'a str>>,
+/// Run label-propagation until convergence or `max_iterations`.
+fn run_label_propagation(
+    n: usize,
+    neighbors: &[HashSet<usize>],
     config: &CommunityConfig,
-    tenant_id: &str,
-) -> HashMap<&'a str, u32> {
-    let mut labels: HashMap<&str, u32> = node_ids
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (id.as_str(), i as u32))
-        .collect();
+) -> Vec<u32> {
+    let mut labels: Vec<u32> = (0..n as u32).collect();
 
     for iteration in 0..config.max_iterations {
         let mut changed = false;
-        for id in node_ids {
-            let id_str = id.as_str();
-            let nbrs = match neighbors.get(id_str) {
-                Some(n) if !n.is_empty() => n,
-                _ => continue,
-            };
+        for i in 0..n {
+            if neighbors[i].is_empty() {
+                continue;
+            }
             let mut label_counts: HashMap<u32, usize> = HashMap::new();
-            for &nbr in nbrs {
+            for &nbr in &neighbors[i] {
                 *label_counts.entry(labels[nbr]).or_default() += 1;
             }
             let best = label_counts
@@ -126,39 +106,29 @@ fn run_label_propagation<'a>(
                 .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
                 .map(|(label, _)| label)
                 .unwrap();
-            if labels[id_str] != best {
-                labels.insert(id_str, best);
+            if labels[i] != best {
+                labels[i] = best;
                 changed = true;
             }
         }
         if !changed {
-            debug!(
-                tenant_id,
-                iterations = iteration + 1,
-                "Label propagation converged"
-            );
+            debug!(iterations = iteration + 1, "Label propagation converged");
             break;
         }
     }
     labels
 }
 
-/// Group labeled nodes into Community values and sort by size descending.
-fn assemble_communities(
-    labels: &HashMap<&str, u32>,
-    nodes: &HashMap<String, super::NodeInfo>,
-    min_size: usize,
-) -> Vec<Community> {
+/// Group labeled nodes into `Community` values and sort by size descending.
+fn assemble_communities(labels: &[u32], node_ids: &[String], min_size: usize) -> Vec<Community> {
     let mut groups: HashMap<u32, Vec<CommunityMember>> = HashMap::new();
-    for (id, &label) in labels {
-        if let Some(info) = nodes.get(*id) {
-            groups.entry(label).or_default().push(CommunityMember {
-                node_id: id.to_string(),
-                symbol_name: info.symbol_name.clone(),
-                symbol_type: info.symbol_type.clone(),
-                file_path: info.file_path.clone(),
-            });
-        }
+    for (i, &label) in labels.iter().enumerate() {
+        groups.entry(label).or_default().push(CommunityMember {
+            node_id: node_ids[i].clone(),
+            symbol_name: String::new(),
+            symbol_type: String::new(),
+            file_path: String::new(),
+        });
     }
 
     let mut communities: Vec<Community> = groups
@@ -166,7 +136,7 @@ fn assemble_communities(
         .filter(|m| m.len() >= min_size)
         .enumerate()
         .map(|(i, mut m)| {
-            m.sort_by(|a, b| a.symbol_name.cmp(&b.symbol_name));
+            m.sort_by(|a, b| a.node_id.cmp(&b.node_id));
             Community {
                 community_id: i as u32,
                 members: m,
@@ -179,4 +149,126 @@ fn assemble_communities(
         c.community_id = i as u32;
     }
     communities
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::AdjacencyExport;
+
+    fn make_export(n: usize, edges: Vec<(usize, usize)>) -> AdjacencyExport {
+        let node_ids: Vec<String> = (0..n).map(|i| format!("n{}", i)).collect();
+        let edges: Vec<(usize, usize, f64)> = edges.into_iter().map(|(s, t)| (s, t, 1.0)).collect();
+        AdjacencyExport { node_ids, edges }
+    }
+
+    #[test]
+    fn test_communities_empty() {
+        let adj = make_export(0, vec![]);
+        let result = detect_communities(&adj, &CommunityConfig::default());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_communities_two_disconnected_clusters() {
+        // {0,1,2} triangle, {3,4,5} triangle, no inter-cluster edges.
+        let adj = make_export(
+            6,
+            vec![
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 1),
+                (2, 0),
+                (0, 2),
+                (3, 4),
+                (4, 3),
+                (4, 5),
+                (5, 4),
+                (5, 3),
+                (3, 5),
+            ],
+        );
+        let config = CommunityConfig {
+            max_iterations: 100,
+            min_community_size: 2,
+        };
+        let communities = detect_communities(&adj, &config);
+        assert_eq!(
+            communities.len(),
+            2,
+            "Expected 2 disconnected communities, got {}",
+            communities.len()
+        );
+        assert_eq!(communities[0].members.len(), 3);
+        assert_eq!(communities[1].members.len(), 3);
+    }
+
+    #[test]
+    fn test_communities_min_size_filter() {
+        // n0-n1 connected; n2 isolated.
+        let adj = make_export(3, vec![(0, 1)]);
+        let config = CommunityConfig {
+            min_community_size: 2,
+            ..Default::default()
+        };
+        let communities = detect_communities(&adj, &config);
+        // Only the {n0,n1} community passes the filter.
+        assert_eq!(communities.len(), 1);
+        assert_eq!(communities[0].members.len(), 2);
+    }
+
+    #[test]
+    fn test_communities_sorted_by_size_descending() {
+        // Cluster of 4 (0-3) and cluster of 2 (4-5).
+        let adj = make_export(
+            6,
+            vec![
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 1),
+                (2, 3),
+                (3, 2),
+                (3, 0),
+                (0, 3),
+                (4, 5),
+                (5, 4),
+            ],
+        );
+        let communities = detect_communities(&adj, &CommunityConfig::default());
+        if communities.len() >= 2 {
+            assert!(
+                communities[0].members.len() >= communities[1].members.len(),
+                "Communities must be sorted by size descending"
+            );
+        }
+    }
+
+    #[test]
+    fn test_communities_identical_output_on_identical_input() {
+        let adj = make_export(
+            6,
+            vec![
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 1),
+                (2, 0),
+                (0, 2),
+                (3, 4),
+                (4, 3),
+                (4, 5),
+                (5, 4),
+            ],
+        );
+        let config = CommunityConfig::default();
+        let r1 = detect_communities(&adj, &config);
+        let r2 = detect_communities(&adj, &config);
+        assert_eq!(r1.len(), r2.len(), "community count must be deterministic");
+        for (c1, c2) in r1.iter().zip(r2.iter()) {
+            assert_eq!(c1.community_id, c2.community_id);
+            assert_eq!(c1.members.len(), c2.members.len());
+        }
+    }
 }

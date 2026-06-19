@@ -221,6 +221,12 @@ pub struct GraphNode {
     pub language: Option<String>,
     /// JSON array of branch names this node belongs to, e.g. `["main"]`.
     pub branches: String,
+    /// Qdrant point UUID for chunk-derived nodes. `None` for structural nodes
+    /// (file, concept, stub) that have no corresponding Qdrant embedding.
+    pub qdrant_point_id: Option<String>,
+    /// Tracks whether the Qdrant link has been established.
+    /// `"linked"` = `qdrant_point_id` is populated; `"none"` = no link yet.
+    pub point_id_state: String,
 }
 
 impl GraphNode {
@@ -246,6 +252,8 @@ impl GraphNode {
             signature: None,
             language: None,
             branches: DEFAULT_BRANCHES_JSON.to_string(),
+            qdrant_point_id: None,
+            point_id_state: "none".to_string(),
         }
     }
 
@@ -270,12 +278,25 @@ impl GraphNode {
             signature: None,
             language: None,
             branches: DEFAULT_BRANCHES_JSON.to_string(),
+            qdrant_point_id: None,
+            point_id_state: "none".to_string(),
         }
     }
 
     /// Set the branches JSON from a branch name (wraps in a single-element array).
     pub fn with_branch(mut self, branch: &str) -> Self {
         self.branches = format!(r#"["{}"]"#, branch);
+        self
+    }
+
+    /// Link this node to a Qdrant embedding point.
+    ///
+    /// Sets `qdrant_point_id` and advances `point_id_state` to `"linked"`.
+    /// Used during ingest to record which embedding vector this node corresponds
+    /// to, enabling the graph layer to bridge to vector search results.
+    pub fn with_qdrant_point_id(mut self, id: String) -> Self {
+        self.qdrant_point_id = Some(id);
+        self.point_id_state = "linked".to_string();
         self
     }
 }
@@ -458,6 +479,40 @@ pub struct ImpactNode {
     pub distance: u32,
 }
 
+/// Canonical adjacency export for graph algorithms (IMPL-04-R2, CONS-03).
+///
+/// `edges` are `(source_index, target_index, weight)` where the indices address
+/// into `node_ids`.  Returned data is fully owned — no lock or borrow is held
+/// once this value is returned to the caller (LOCK-SCOPE contract: any read
+/// guard acquired during the query is released before the owned result is
+/// returned).
+///
+/// `node_ids` are sorted deterministically (ORDER BY node_id) so that algorithm
+/// consumers receive a stable index mapping across repeated calls on the same
+/// graph state.
+#[derive(Debug, Clone, Default)]
+pub struct AdjacencyExport {
+    /// All node IDs for the tenant, sorted deterministically.
+    pub node_ids: Vec<String>,
+    /// Directed edges as (source_index, target_index, weight), indexing into
+    /// `node_ids`.
+    pub edges: Vec<(usize, usize, f64)>,
+}
+
+/// Display metadata for a single graph node, returned by
+/// [`GraphStore::fetch_node_metadata`] keyed on `node_id`.
+///
+/// Analytics algorithms (PageRank, community detection, betweenness) run over
+/// the topology-only [`AdjacencyExport`] and leave these display fields empty.
+/// Handlers enrich the results by node_id from this metadata, which keeps the
+/// algorithm layer backend-agnostic and free of any database coupling.
+#[derive(Debug, Clone, Default)]
+pub struct NodeMetadata {
+    pub symbol_name: String,
+    pub symbol_type: String,
+    pub file_path: String,
+}
+
 /// Graph statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GraphStats {
@@ -553,6 +608,27 @@ pub trait GraphStore: Send + Sync {
         branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>>;
 
+    /// Export the full adjacency structure for a tenant as an owned, indexed
+    /// representation suitable for graph algorithms.
+    ///
+    /// Returns an [`AdjacencyExport`] where:
+    /// - `node_ids` lists every node in the tenant, sorted deterministically
+    ///   (`ORDER BY node_id`), satisfying DOM-01.
+    /// - `edges` are `(src_idx, tgt_idx, weight)` with indices into `node_ids`.
+    ///   Edges whose source or target node is absent from the node list (orphan
+    ///   edges) are silently skipped.
+    ///
+    /// `edge_types`: when `Some`, only edges of those types are returned;
+    /// `None` returns all edge types.
+    ///
+    /// LOCK-SCOPE: any read lock acquired during the query is released before
+    /// the owned `AdjacencyExport` is returned — no borrow escapes.
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport>;
+
     /// Traverse graph crossing tenant boundaries via concept/narrative edges.
     ///
     /// Starts from `source_node_id` in `source_tenant`, then follows edges
@@ -589,6 +665,22 @@ pub trait GraphStore: Send + Sync {
     async fn query_code_symbols(&self, tenant_id: &str) -> GraphDbResult<Vec<SymbolRow>> {
         let _ = tenant_id;
         Ok(Vec::new())
+    }
+
+    /// Fetch display metadata (`symbol_name`, `symbol_type`, `file_path`) for
+    /// every node of a tenant, keyed by `node_id`.
+    ///
+    /// Used to enrich analytics results (PageRank / community / betweenness)
+    /// after the topology-only [`AdjacencyExport`] has been processed — see the
+    /// graph-service analytics handlers. All node types are returned (code,
+    /// narrative, concept) so any node that can appear in the adjacency export
+    /// resolves. Backends that cannot support this return an empty map.
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let _ = tenant_id;
+        Ok(std::collections::HashMap::new())
     }
 
     /// Delete file-owned narrative nodes (document_section / library_section /
@@ -675,6 +767,24 @@ pub trait GraphStore: Send + Sync {
     /// across the whole sweep (see `SharedGraphStore`).
     async fn resolve_all_stub_edges(&self) -> GraphDbResult<u64> {
         Ok(0)
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id.
+    ///
+    /// Used by [`crate::graph::migrator::verify::diff_graph_contents`] to
+    /// perform field-level migration verification without requiring direct
+    /// pool access. Backends that do not implement this return an empty vec
+    /// by default.
+    async fn export_nodes_for_tenant(&self, _tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        Ok(Vec::new())
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id.
+    ///
+    /// Companion to [`Self::export_nodes_for_tenant`] for migration verification.
+    /// Backends that do not implement this return an empty vec by default.
+    async fn export_edges_for_tenant(&self, _tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        Ok(Vec::new())
     }
 }
 

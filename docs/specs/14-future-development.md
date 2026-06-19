@@ -4,6 +4,15 @@ This section documents research findings and architectural ideas that may be pur
 
 ### Graph RAG (Knowledge Graph-Enhanced Retrieval)
 
+> **Status (A0.7, shipped):** the graph store now defaults to the **LadybugDB**
+> (Kuzu fork) backend. SQLite recursive CTEs remain a fully-supported fallback,
+> selectable via `graph.backend: sqlite` and a `--no-default-features --features
+> sqlite` build (which also skips the C++ toolchain requirement). The `ladybug`
+> cargo feature is on by default for the `memexd` daemon; both backends are held
+> behaviourally equivalent by the backend conformance suite
+> (`core/tests/graph_backend_conformance.rs`). The evaluation notes below are
+> retained as the original decision record.
+
 **What it is:** Graph RAG augments traditional vector search with knowledge graph traversal, enabling relationship-aware retrieval that understands structural connections between code entities (function calls, imports, type hierarchies, module dependencies).
 
 **Measured benefits (external benchmarks):**

@@ -1,13 +1,24 @@
 //! Graph analytics handler implementations (PageRank, communities, betweenness).
 //!
-//! Extracted from handlers.rs to keep file sizes within project limits.
+//! Each handler calls `SharedGraphStore::export_adjacency` exactly once,
+//! releases the read lock (LOCK-SCOPE contract), checks the materialized size,
+//! and then runs the algorithm on the owned [`AdjacencyExport`] — no
+//! `SqlitePool` reference is held during algorithm execution.
+//!
+//! Algorithms return topology-only results (empty display fields); each handler
+//! then enriches them with `symbol_name` / `symbol_type` / `file_path` via the
+//! backend-agnostic `SharedGraphStore::fetch_node_metadata`, keeping the
+//! algorithm layer free of any database coupling.
+
+use std::collections::HashMap;
 
 use tonic::{Response, Status};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 use workspace_qdrant_core::graph::algorithms::{
     compute_betweenness_centrality, compute_pagerank, detect_communities, CommunityConfig,
     PageRankConfig,
 };
+use workspace_qdrant_core::graph::{AdjacencyExport, EdgeType, NodeMetadata};
 
 use crate::proto::{
     BetweennessNodeProto, BetweennessRequest, BetweennessResponse, CommunityMemberProto,
@@ -40,67 +51,62 @@ impl GraphServiceImpl {
             tolerance,
         };
 
-        let edge_filter = parse_edge_type_filter(&req.edge_types)?;
-        let edge_refs: Option<Vec<&str>> = edge_filter
-            .as_ref()
-            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let edge_types = parse_edge_types(&req.edge_types)?;
 
-        debug!(
+        tracing::debug!(
             "GraphService.ComputePageRank: tenant={} damping={} max_iter={} tolerance={}",
-            req.tenant_id, config.damping, config.max_iterations, config.tolerance
+            req.tenant_id,
+            config.damping,
+            config.max_iterations,
+            config.tolerance
         );
 
         let start = std::time::Instant::now();
 
-        let pool = {
-            let guard = self.graph_store.read().await.map_err(|e| {
-                error!("Failed to acquire graph read lock: {}", e);
-                Status::unavailable(format!("Graph store busy: {}", e))
-            })?;
-            guard.pool().clone()
-        };
+        // Acquire export (lock released on return from export_adjacency).
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
-        check_graph_size(&pool, &req.tenant_id, "PageRank").await?;
+        check_export_size(&adj, DEFAULT_MAX_NODES, "PageRank")?;
 
-        match compute_pagerank(&pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
-            Ok(mut entries) => {
-                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
-                    "pagerank",
-                    &req.tenant_id,
-                    start.elapsed().as_secs_f64(),
-                );
-                let total = entries.len() as u32;
+        let mut entries = compute_pagerank(&adj, &config);
 
-                if let Some(k) = req.top_k {
-                    if k > 0 && (k as usize) < entries.len() {
-                        entries.truncate(k as usize);
-                    }
-                }
+        workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+            "pagerank",
+            &req.tenant_id,
+            start.elapsed().as_secs_f64(),
+        );
 
-                let query_time_ms = start.elapsed().as_millis() as i64;
+        let total = entries.len() as u32;
 
-                let proto_entries: Vec<PageRankNodeProto> = entries
-                    .into_iter()
-                    .map(|e| PageRankNodeProto {
-                        node_id: e.node_id,
-                        symbol_name: e.symbol_name,
-                        symbol_type: e.symbol_type,
-                        file_path: e.file_path,
-                        score: e.score,
-                    })
-                    .collect();
-
-                Ok(Response::new(PageRankResponse {
-                    entries: proto_entries,
-                    total,
-                    query_time_ms,
-                }))
-            }
-            Err(e) => {
-                error!("GraphService.ComputePageRank failed: {}", e);
-                Err(Status::internal(format!("PageRank failed: {}", e)))
+        if let Some(k) = req.top_k {
+            if k > 0 && (k as usize) < entries.len() {
+                entries.truncate(k as usize);
             }
         }
+
+        let query_time_ms = start.elapsed().as_millis() as i64;
+
+        // Enrich topology-only results with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
+        let proto_entries: Vec<PageRankNodeProto> = entries
+            .into_iter()
+            .map(|e| {
+                let (symbol_name, symbol_type, file_path) = split_meta(&meta, &e.node_id);
+                PageRankNodeProto {
+                    node_id: e.node_id,
+                    symbol_name,
+                    symbol_type,
+                    file_path,
+                    score: e.score,
+                }
+            })
+            .collect();
+
+        Ok(Response::new(PageRankResponse {
+            entries: proto_entries,
+            total,
+            query_time_ms,
+        }))
     }
 
     pub(super) async fn handle_detect_communities(
@@ -119,69 +125,60 @@ impl GraphServiceImpl {
             min_community_size,
         };
 
-        let edge_filter = parse_edge_type_filter(&req.edge_types)?;
-        let edge_refs: Option<Vec<&str>> = edge_filter
-            .as_ref()
-            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let edge_types = parse_edge_types(&req.edge_types)?;
 
-        debug!(
+        tracing::debug!(
             "GraphService.DetectCommunities: tenant={} max_iter={} min_size={}",
-            req.tenant_id, config.max_iterations, config.min_community_size
+            req.tenant_id,
+            config.max_iterations,
+            config.min_community_size
         );
 
         let start = std::time::Instant::now();
 
-        let pool = {
-            let guard = self.graph_store.read().await.map_err(|e| {
-                error!("Failed to acquire graph read lock: {}", e);
-                Status::unavailable(format!("Graph store busy: {}", e))
-            })?;
-            guard.pool().clone()
-        };
+        // Acquire export (lock released on return from export_adjacency).
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
-        check_graph_size(&pool, &req.tenant_id, "community detection").await?;
+        check_export_size(&adj, DEFAULT_MAX_NODES, "community detection")?;
 
-        match detect_communities(&pool, &req.tenant_id, &config, edge_refs.as_deref()).await {
-            Ok(communities) => {
-                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
-                    "community",
-                    &req.tenant_id,
-                    start.elapsed().as_secs_f64(),
-                );
-                let total_communities = communities.len() as u32;
-                let query_time_ms = start.elapsed().as_millis() as i64;
+        let communities = detect_communities(&adj, &config);
 
-                let proto_communities: Vec<CommunityProto> = communities
+        workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+            "community",
+            &req.tenant_id,
+            start.elapsed().as_secs_f64(),
+        );
+
+        let total_communities = communities.len() as u32;
+        let query_time_ms = start.elapsed().as_millis() as i64;
+
+        // Enrich topology-only members with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
+        let proto_communities: Vec<CommunityProto> = communities
+            .into_iter()
+            .map(|c| CommunityProto {
+                community_id: c.community_id,
+                members: c
+                    .members
                     .into_iter()
-                    .map(|c| CommunityProto {
-                        community_id: c.community_id,
-                        members: c
-                            .members
-                            .into_iter()
-                            .map(|m| CommunityMemberProto {
-                                node_id: m.node_id,
-                                symbol_name: m.symbol_name,
-                                symbol_type: m.symbol_type,
-                                file_path: m.file_path,
-                            })
-                            .collect(),
+                    .map(|m| {
+                        let (symbol_name, symbol_type, file_path) = split_meta(&meta, &m.node_id);
+                        CommunityMemberProto {
+                            node_id: m.node_id,
+                            symbol_name,
+                            symbol_type,
+                            file_path,
+                        }
                     })
-                    .collect();
+                    .collect(),
+            })
+            .collect();
 
-                Ok(Response::new(CommunityResponse {
-                    communities: proto_communities,
-                    total_communities,
-                    query_time_ms,
-                }))
-            }
-            Err(e) => {
-                error!("GraphService.DetectCommunities failed: {}", e);
-                Err(Status::internal(format!(
-                    "Community detection failed: {}",
-                    e
-                )))
-            }
-        }
+        Ok(Response::new(CommunityResponse {
+            communities: proto_communities,
+            total_communities,
+            query_time_ms,
+        }))
     }
 
     pub(super) async fn handle_compute_betweenness(
@@ -192,125 +189,148 @@ impl GraphServiceImpl {
             return Err(Status::invalid_argument("tenant_id is required"));
         }
 
-        let edge_filter = parse_edge_type_filter(&req.edge_types)?;
-        let edge_refs: Option<Vec<&str>> = edge_filter
-            .as_ref()
-            .map(|v| v.iter().map(|s| s.as_str()).collect());
-
+        let edge_types = parse_edge_types(&req.edge_types)?;
         let max_samples = validate_betweenness_params(req.max_samples)?;
 
-        debug!(
+        tracing::debug!(
             "GraphService.ComputeBetweenness: tenant={} max_samples={:?}",
-            req.tenant_id, max_samples
+            req.tenant_id,
+            max_samples
         );
 
         let start = std::time::Instant::now();
 
-        let pool = {
-            let guard = self.graph_store.read().await.map_err(|e| {
-                error!("Failed to acquire graph read lock: {}", e);
-                Status::unavailable(format!("Graph store busy: {}", e))
-            })?;
-            guard.pool().clone()
-        };
+        // Acquire export (lock released on return from export_adjacency).
+        let adj = export_adjacency(self, &req.tenant_id, edge_types.as_deref()).await?;
 
-        check_graph_size(&pool, &req.tenant_id, "betweenness").await?;
+        check_export_size(&adj, DEFAULT_MAX_NODES, "betweenness")?;
 
-        match compute_betweenness_centrality(
-            &pool,
+        let mut entries = compute_betweenness_centrality(&adj, max_samples);
+
+        workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
+            "betweenness",
             &req.tenant_id,
-            edge_refs.as_deref(),
-            max_samples,
-        )
-        .await
-        {
-            Ok(mut entries) => {
-                workspace_qdrant_core::graph::metrics::record_graph_algorithm_run(
-                    "betweenness",
-                    &req.tenant_id,
-                    start.elapsed().as_secs_f64(),
-                );
-                let total = entries.len() as u32;
+            start.elapsed().as_secs_f64(),
+        );
 
-                if let Some(k) = req.top_k {
-                    if k > 0 && (k as usize) < entries.len() {
-                        entries.truncate(k as usize);
-                    }
-                }
+        let total = entries.len() as u32;
 
-                let query_time_ms = start.elapsed().as_millis() as i64;
-
-                let proto_entries: Vec<BetweennessNodeProto> = entries
-                    .into_iter()
-                    .map(|e| BetweennessNodeProto {
-                        node_id: e.node_id,
-                        symbol_name: e.symbol_name,
-                        symbol_type: e.symbol_type,
-                        file_path: e.file_path,
-                        score: e.score,
-                    })
-                    .collect();
-
-                Ok(Response::new(BetweennessResponse {
-                    entries: proto_entries,
-                    total,
-                    query_time_ms,
-                }))
-            }
-            Err(e) => {
-                error!("GraphService.ComputeBetweenness failed: {}", e);
-                Err(Status::internal(format!(
-                    "Betweenness centrality failed: {}",
-                    e
-                )))
+        if let Some(k) = req.top_k {
+            if k > 0 && (k as usize) < entries.len() {
+                entries.truncate(k as usize);
             }
         }
+
+        let query_time_ms = start.elapsed().as_millis() as i64;
+
+        // Enrich topology-only results with display metadata (backend-agnostic).
+        let meta = fetch_metadata(self, &req.tenant_id).await?;
+        let proto_entries: Vec<BetweennessNodeProto> = entries
+            .into_iter()
+            .map(|e| {
+                let (symbol_name, symbol_type, file_path) = split_meta(&meta, &e.node_id);
+                BetweennessNodeProto {
+                    node_id: e.node_id,
+                    symbol_name,
+                    symbol_type,
+                    file_path,
+                    score: e.score,
+                }
+            })
+            .collect();
+
+        Ok(Response::new(BetweennessResponse {
+            entries: proto_entries,
+            total,
+            query_time_ms,
+        }))
     }
 }
 
-/// Check graph size and return an error if it exceeds the materialization limit.
-async fn check_graph_size(
-    pool: &sqlx::SqlitePool,
+// ─── Private helpers ──────────────────────────────────────────────────────────
+
+/// Parse proto edge-type strings into typed `EdgeType` values, forwarding
+/// validation errors as `Status::invalid_argument`.
+///
+/// Returns `None` when the list is empty (= all edge types).
+fn parse_edge_types(types: &[String]) -> Result<Option<Vec<EdgeType>>, Status> {
+    let strs = parse_edge_type_filter(types)?;
+    Ok(strs.map(|v| {
+        v.iter()
+            .filter_map(|s| EdgeType::from_str(s))
+            .collect::<Vec<_>>()
+    }))
+}
+
+/// Call `SharedGraphStore::export_adjacency` and convert `GraphDbError` to
+/// `Status`.  The read lock is acquired and released inside this call.
+async fn export_adjacency(
+    svc: &GraphServiceImpl,
     tenant_id: &str,
-    algorithm: &str,
-) -> Result<(), Status> {
-    let node_count = count_tenant_nodes(pool, tenant_id).await?;
-    if node_count > DEFAULT_MAX_NODES as u64 {
+    edge_types: Option<&[EdgeType]>,
+) -> Result<AdjacencyExport, Status> {
+    svc.graph_store
+        .export_adjacency(tenant_id, edge_types)
+        .await
+        .map_err(|e| {
+            error!("export_adjacency failed: {}", e);
+            Status::internal(format!("export_adjacency failed: {}", e))
+        })
+}
+
+/// Fetch per-node display metadata for a tenant, keyed by `node_id`.
+///
+/// Acquires and releases its own read lock (after the algorithm has run); used
+/// to enrich topology-only analytics results before building proto responses.
+async fn fetch_metadata(
+    svc: &GraphServiceImpl,
+    tenant_id: &str,
+) -> Result<HashMap<String, NodeMetadata>, Status> {
+    svc.graph_store
+        .fetch_node_metadata(tenant_id)
+        .await
+        .map_err(|e| {
+            error!("fetch_node_metadata failed: {}", e);
+            Status::internal(format!("fetch_node_metadata failed: {}", e))
+        })
+}
+
+/// Look up display fields for a node, returning empty strings when the node has
+/// no metadata (e.g. removed between export and enrichment).
+fn split_meta(meta: &HashMap<String, NodeMetadata>, node_id: &str) -> (String, String, String) {
+    meta.get(node_id)
+        .map(|m| {
+            (
+                m.symbol_name.clone(),
+                m.symbol_type.clone(),
+                m.file_path.clone(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// Check that the materialized export does not exceed the node limit.
+///
+/// Emits a warning when the count exceeds 80 % of the limit.
+fn check_export_size(adj: &AdjacencyExport, limit: u32, algorithm: &str) -> Result<(), Status> {
+    let node_count = adj.node_ids.len();
+    let limit_usize = limit as usize;
+    if node_count > limit_usize {
         warn!(
-            tenant_id = %tenant_id,
             node_count,
-            limit = DEFAULT_MAX_NODES,
-            "Graph exceeds materialization limit for {}", algorithm
+            limit, "Graph exceeds materialization limit for {}", algorithm
         );
         return Err(Status::failed_precondition(format!(
             "Graph has {} nodes, exceeding materialization limit of {}. \
              Use edge_types filter to reduce scope.",
-            node_count, DEFAULT_MAX_NODES
+            node_count, limit
         )));
     }
-    if node_count as f64 > DEFAULT_MAX_NODES as f64 * 0.8 {
+    if node_count as f64 > limit_usize as f64 * 0.8 {
         warn!(
-            tenant_id = %tenant_id,
             node_count,
-            limit = DEFAULT_MAX_NODES,
-            "Graph size approaching materialization limit"
+            limit, "Graph size approaching materialization limit"
         );
     }
     Ok(())
-}
-
-/// Count total nodes for a tenant to enforce materialization limits.
-pub(super) async fn count_tenant_nodes(
-    pool: &sqlx::SqlitePool,
-    tenant_id: &str,
-) -> Result<u64, Status> {
-    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM graph_nodes WHERE tenant_id = ?1")
-        .bind(tenant_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| {
-            error!("Failed to count graph nodes: {}", e);
-            Status::internal(format!("Failed to count graph nodes: {}", e))
-        })?;
-    Ok(row.0 as u64)
 }

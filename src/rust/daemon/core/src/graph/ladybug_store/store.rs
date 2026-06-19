@@ -4,19 +4,20 @@
 //! queries. All user-supplied values pass through parameterized queries
 //! (`$param` + `PreparedStatement`) to prevent injection.
 
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 
 use async_trait::async_trait;
 use lbug::{Connection, Database, SystemConfig, Value};
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::graph::{
     compute_edge_id,
     cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
     schema::{GraphDbError, GraphDbResult},
-    EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, SymbolRow,
-    TraversalNode,
+    AdjacencyExport, EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
+    ImpactReport, NodeMetadata, SymbolRow, TraversalNode,
 };
 
 use super::config::LadybugConfig;
@@ -135,16 +136,28 @@ impl LadybugGraphStore {
     }
 
     /// Create a connection to the database.
+    ///
+    /// The `Connection::new` call crosses into the lbug C++ layer; it is
+    /// wrapped with [`lbug_call`] so a Rust panic in the binding is caught and
+    /// converted to [`GraphDbError::InternalError`] rather than unwinding the
+    /// tokio runtime (SEC-03).
     fn connect(&self) -> GraphDbResult<Connection<'_>> {
-        Connection::new(&self.db)
-            .map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))
+        // lbug FFI boundary: Connection::new calls into C++ kuzu internals.
+        lbug_call(|| Connection::new(&self.db)).and_then(|result| {
+            result.map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))
+        })
     }
 
     /// Execute a DDL/mutation query (no parameters), mapping lbug errors.
+    ///
+    /// The `conn.query` call crosses into the lbug C++ layer; wrapped with
+    /// [`lbug_call`] for panic containment (SEC-03).
     fn exec(&self, conn: &Connection<'_>, cypher: &str) -> GraphDbResult<()> {
-        conn.query(cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
-        Ok(())
+        // lbug FFI boundary: conn.query calls into C++ kuzu query execution.
+        lbug_call(|| conn.query(cypher)).and_then(|result| {
+            result.map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Initialize the graph schema (node tables, rel tables).
@@ -154,7 +167,11 @@ impl LadybugGraphStore {
         let conn = self.connect()?;
 
         let ddl_statements = [
-            // Node table with all properties from GraphNode
+            // Node table with all properties from GraphNode.
+            // `qdrant_point_id` links chunk-derived nodes to their Qdrant embedding
+            // vector; empty string is the sentinel for "no link" (Kuzu does not
+            // support NULL for STRING properties cleanly). `point_id_state` tracks
+            // whether the link is established ("linked") or absent ("none").
             r#"CREATE NODE TABLE IF NOT EXISTS GraphNode(
                 node_id STRING,
                 tenant_id STRING,
@@ -165,6 +182,8 @@ impl LadybugGraphStore {
                 end_line INT64,
                 signature STRING,
                 language STRING,
+                qdrant_point_id STRING,
+                point_id_state STRING,
                 PRIMARY KEY (node_id)
             )"#,
             // One rel table per EdgeType, each carrying edge metadata
@@ -243,9 +262,21 @@ impl LadybugGraphStore {
     /// MERGE matches on `node_id` (primary key); SET updates all properties.
     /// Per T34 findings, no ON CREATE/ON MATCH needed -- bare SET after MERGE
     /// handles both cases.
+    ///
+    /// Both `conn.prepare` and `conn.execute` cross into the lbug C++ layer
+    /// and are wrapped with [`lbug_call`] for Rust-panic containment (SEC-03).
     fn upsert_node_with_conn(&self, conn: &Connection<'_>, node: &GraphNode) -> GraphDbResult<()> {
-        let mut stmt = conn
-            .prepare(
+        // Kuzu STRING properties do not support NULL; use an empty string as the
+        // sentinel for "no Qdrant link" and restore `None` on read (round-trip
+        // lossless: empty → None, non-empty → Some(value)). The MERGE+SET query
+        // applies COALESCE-equivalent semantics via a CASE expression so a
+        // re-upsert with an empty point_id never clobbers an existing link;
+        // `point_id_state` always takes the caller-authoritative new value.
+        let point_id_str = node.qdrant_point_id.clone().unwrap_or_default();
+
+        // lbug FFI boundary: conn.prepare calls into C++ kuzu statement compilation.
+        let mut stmt = lbug_call(|| {
+            conn.prepare(
                 "MERGE (n:GraphNode {node_id: $node_id}) \
                  SET n.tenant_id = $tenant_id, \
                      n.symbol_name = $symbol_name, \
@@ -254,39 +285,54 @@ impl LadybugGraphStore {
                      n.start_line = $start_line, \
                      n.end_line = $end_line, \
                      n.signature = $signature, \
-                     n.language = $language",
+                     n.language = $language, \
+                     n.qdrant_point_id = \
+                         CASE WHEN $qdrant_point_id <> '' THEN $qdrant_point_id \
+                              WHEN n.qdrant_point_id IS NOT NULL AND n.qdrant_point_id <> '' \
+                                  THEN n.qdrant_point_id \
+                              ELSE $qdrant_point_id END, \
+                     n.point_id_state = $point_id_state",
             )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare upsert_node failed: {e}")))?;
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Prepare upsert_node failed: {e}")))
+        })?;
 
-        conn.execute(
-            &mut stmt,
-            vec![
-                ("node_id", Value::String(node.node_id.clone())),
-                ("tenant_id", Value::String(node.tenant_id.clone())),
-                ("symbol_name", Value::String(node.symbol_name.clone())),
-                (
-                    "symbol_type",
-                    Value::String(node.symbol_type.as_str().to_string()),
-                ),
-                ("file_path", Value::String(node.file_path.clone())),
-                (
-                    "start_line",
-                    Value::Int64(node.start_line.unwrap_or(0) as i64),
-                ),
-                ("end_line", Value::Int64(node.end_line.unwrap_or(0) as i64)),
-                (
-                    "signature",
-                    Value::String(node.signature.clone().unwrap_or_default()),
-                ),
-                (
-                    "language",
-                    Value::String(node.language.clone().unwrap_or_default()),
-                ),
-            ],
-        )
-        .map_err(|e| GraphDbError::InvalidInput(format!("Execute upsert_node failed: {e}")))?;
-
-        Ok(())
+        // lbug FFI boundary: conn.execute calls into C++ kuzu query execution.
+        lbug_call(|| {
+            conn.execute(
+                &mut stmt,
+                vec![
+                    ("node_id", Value::String(node.node_id.clone())),
+                    ("tenant_id", Value::String(node.tenant_id.clone())),
+                    ("symbol_name", Value::String(node.symbol_name.clone())),
+                    (
+                        "symbol_type",
+                        Value::String(node.symbol_type.as_str().to_string()),
+                    ),
+                    ("file_path", Value::String(node.file_path.clone())),
+                    (
+                        "start_line",
+                        Value::Int64(node.start_line.unwrap_or(0) as i64),
+                    ),
+                    ("end_line", Value::Int64(node.end_line.unwrap_or(0) as i64)),
+                    (
+                        "signature",
+                        Value::String(node.signature.clone().unwrap_or_default()),
+                    ),
+                    (
+                        "language",
+                        Value::String(node.language.clone().unwrap_or_default()),
+                    ),
+                    ("qdrant_point_id", Value::String(point_id_str)),
+                    ("point_id_state", Value::String(node.point_id_state.clone())),
+                ],
+            )
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Execute upsert_node failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Insert a single edge using parameterized MATCH+CREATE with typed
@@ -295,6 +341,9 @@ impl LadybugGraphStore {
     /// Since Cypher does not allow parameterized rel types, we use a separate
     /// prepared statement per `EdgeType`. The rel type name is a compile-time
     /// constant, not user input, so this is safe.
+    ///
+    /// Both `conn.prepare` and `conn.execute` cross into the lbug C++ layer
+    /// and are wrapped with [`lbug_call`] for Rust-panic containment (SEC-03).
     fn insert_edge_with_conn(&self, conn: &Connection<'_>, edge: &GraphEdge) -> GraphDbResult<()> {
         let rel_type = edge.edge_type.as_str();
         // Build the Cypher string with the rel type literal (safe: comes from
@@ -305,28 +354,33 @@ impl LadybugGraphStore {
              edge_id: $edge_id, tenant_id: $tenant_id, metadata_json: $metadata_json}}]->(b)"
         );
 
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare insert_edge failed: {e}")))?;
+        // lbug FFI boundary: conn.prepare calls into C++ kuzu statement compilation.
+        let mut stmt = lbug_call(|| conn.prepare(&cypher)).and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Prepare insert_edge failed: {e}")))
+        })?;
 
-        conn.execute(
-            &mut stmt,
-            vec![
-                ("src_id", Value::String(edge.source_node_id.clone())),
-                ("dst_id", Value::String(edge.target_node_id.clone())),
-                ("weight", Value::Double(edge.weight)),
-                ("source_file", Value::String(edge.source_file.clone())),
-                ("edge_id", Value::String(edge.edge_id.clone())),
-                ("tenant_id", Value::String(edge.tenant_id.clone())),
-                (
-                    "metadata_json",
-                    Value::String(edge.metadata_json.clone().unwrap_or_default()),
-                ),
-            ],
-        )
-        .map_err(|e| GraphDbError::InvalidInput(format!("Execute insert_edge failed: {e}")))?;
-
-        Ok(())
+        // lbug FFI boundary: conn.execute calls into C++ kuzu query execution.
+        lbug_call(|| {
+            conn.execute(
+                &mut stmt,
+                vec![
+                    ("src_id", Value::String(edge.source_node_id.clone())),
+                    ("dst_id", Value::String(edge.target_node_id.clone())),
+                    ("weight", Value::Double(edge.weight)),
+                    ("source_file", Value::String(edge.source_file.clone())),
+                    ("edge_id", Value::String(edge.edge_id.clone())),
+                    ("tenant_id", Value::String(edge.tenant_id.clone())),
+                    (
+                        "metadata_json",
+                        Value::String(edge.metadata_json.clone().unwrap_or_default()),
+                    ),
+                ],
+            )
+        })
+        .and_then(|r| {
+            r.map_err(|e| GraphDbError::InvalidInput(format!("Execute insert_edge failed: {e}")))?;
+            Ok(())
+        })
     }
 
     /// Fetch the direct (1-hop) neighbours of `current_id` in BOTH directions
@@ -392,6 +446,119 @@ impl LadybugGraphStore {
         }
 
         Ok(out)
+    }
+
+    // ---- find_path helpers ---------------------------------------------------
+
+    /// Return `Ok(Some([source_node]))` for the self-path case, or `Ok(None)`
+    /// when the source node does not exist in the tenant (matching SQLite: the
+    /// recursive CTE base case joins `graph_nodes`, so a missing node yields
+    /// no rows → None).
+    fn find_path_self(
+        &self,
+        tenant_id: &str,
+        node_id: &str,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let conn = self.connect()?;
+        let cypher = "MATCH (n:GraphNode {node_id: $id}) \
+                      WHERE n.tenant_id = $tid \
+                      RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+        let mut stmt = conn
+            .prepare(cypher)
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare find_path_self: {e}")))?;
+        let result = conn
+            .execute(
+                &mut stmt,
+                vec![
+                    ("id", Value::String(node_id.to_string())),
+                    ("tid", Value::String(tenant_id.to_string())),
+                ],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute find_path_self: {e}")))?;
+
+        for row in result {
+            if row.len() < 4 {
+                continue;
+            }
+            return Ok(Some(vec![TraversalNode {
+                node_id: value_to_string(&row[0]),
+                symbol_name: value_to_string(&row[1]),
+                symbol_type: value_to_string(&row[2]),
+                file_path: value_to_string(&row[3]),
+                edge_type: String::new(),
+                depth: 0,
+                path: String::new(),
+                tenant_id: tenant_id.to_string(),
+                edge_confidence: 1.0,
+            }]));
+        }
+        Ok(None)
+    }
+
+    /// Fetch each node in `path` (ordered vec of node_ids) from the graph and
+    /// return them as `TraversalNode`s with `depth` = index in the path.
+    ///
+    /// Called once the BFS has confirmed the full path exists. Re-queries each
+    /// node to populate all `TraversalNode` fields consistently with the rest of
+    /// the LadybugDB backend.
+    fn reconstruct_path(
+        &self,
+        tenant_id: &str,
+        path: &[String],
+        conn: &Connection<'_>,
+    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        let mut nodes = Vec::with_capacity(path.len());
+        for (depth, nid) in path.iter().enumerate() {
+            let cypher = "MATCH (n:GraphNode {node_id: $id}) \
+                          WHERE n.tenant_id = $tid \
+                          RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+            let mut stmt = conn.prepare(cypher).map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare reconstruct_path: {e}"))
+            })?;
+            let result = conn
+                .execute(
+                    &mut stmt,
+                    vec![
+                        ("id", Value::String(nid.clone())),
+                        ("tid", Value::String(tenant_id.to_string())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Execute reconstruct_path: {e}"))
+                })?;
+
+            let mut found = false;
+            for row in result {
+                if row.len() < 4 {
+                    continue;
+                }
+                nodes.push(TraversalNode {
+                    node_id: value_to_string(&row[0]),
+                    symbol_name: value_to_string(&row[1]),
+                    symbol_type: value_to_string(&row[2]),
+                    file_path: value_to_string(&row[3]),
+                    edge_type: String::new(),
+                    depth: depth as u32,
+                    path: String::new(),
+                    tenant_id: tenant_id.to_string(),
+                    edge_confidence: 1.0,
+                });
+                found = true;
+                break;
+            }
+            if !found {
+                // A node in a valid path disappeared from the graph (concurrent
+                // delete race). Treat as no path rather than returning a partial
+                // result — matches SQLite's JOIN behaviour where a missing node
+                // simply drops the row.
+                debug!(
+                    "find_path reconstruct: node {} vanished mid-path for tenant {}",
+                    nid, tenant_id
+                );
+                return Ok(None);
+            }
+        }
+        Ok(Some(nodes))
     }
 }
 
@@ -464,6 +631,62 @@ pub(super) fn value_to_f64(val: &Value) -> f64 {
 #[cfg(test)]
 pub(super) fn escape_cypher(s: &str) -> String {
     s.replace('\'', "\\'")
+}
+
+// ---- Panic guard for the lbug FFI boundary -----------------------------------
+
+/// Invoke a synchronous lbug binding call `f`, catching any Rust panics that
+/// originate in the C++/lbug layer and converting them to `GraphDbError`.
+///
+/// # SEC-03 — scope and limitations
+///
+/// This guard catches **Rust panics** that unwind through the FFI binding code.
+/// It CANNOT catch:
+/// - C++ exceptions thrown inside `lbug` (UB if they cross the FFI boundary)
+/// - `abort()`, `std::terminate()`, or C++ `std::unexpected()`
+/// - Out-of-memory (OOM) situations that call `abort()`
+/// - OS signals: SIGSEGV, SIGABRT, SIGBUS, SIGILL, etc.
+///
+/// True fault isolation against C++-level failures requires process isolation
+/// (see DEF-7 in the architecture document). This function is **best-effort
+/// containment** only — it prevents a Rust `panic!` in the binding glue layer
+/// from unwinding through the async tokio runtime and crashing the daemon.
+///
+/// # Usage
+///
+/// Wrap the direct synchronous call into an lbug type (e.g., `Connection::new`,
+/// `conn.prepare`, `conn.execute`, `conn.query`) — NOT the whole async fn:
+///
+/// ```ignore
+/// let conn = lbug_call(|| Connection::new(&self.db))
+///     .map_err(|e| GraphDbError::Migration(format!("Connection failed: {e}")))?;
+/// ```
+fn lbug_call<F, R>(f: F) -> Result<R, GraphDbError>
+where
+    F: FnOnce() -> R,
+{
+    // AssertUnwindSafe is required because lbug types do not implement
+    // UnwindSafe (the C++ internals are opaque). We accept the theoretical
+    // risk of leaving lbug state in an inconsistent condition after a panic —
+    // the caller discards the connection/statement after any error, so the
+    // inconsistent object is dropped rather than reused.
+    match std::panic::catch_unwind(AssertUnwindSafe(f)) {
+        Ok(value) => Ok(value),
+        Err(payload) => {
+            // Extract a human-readable panic message from the Any payload.
+            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            warn!("ladybug_panic_trapped: {}", msg);
+            Err(GraphDbError::InternalError(
+                "Rust panic in lbug binding".to_string(),
+            ))
+        }
+    }
 }
 
 // ---- GraphStore trait implementation -----------------------------------------
@@ -737,15 +960,110 @@ impl GraphStore for LadybugGraphStore {
 
     async fn find_path(
         &self,
-        _tenant_id: &str,
-        _source_id: &str,
-        _target_id: &str,
-        _max_depth: u32,
-        _edge_types: Option<&[EdgeType]>,
+        tenant_id: &str,
+        source_id: &str,
+        target_id: &str,
+        max_depth: u32,
+        edge_types: Option<&[EdgeType]>,
         _branch: Option<&str>,
+        // NOTE: branch scoping is intentionally ignored at the LadybugDB layer,
+        // matching the convention established in `query_related` (_branch param).
+        // SQLite uses branch-aware edge filters; the cross-backend branch-parity
+        // gap is formally asserted in the conformance suite (task 8).
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
-        // LadybugDB path-finding will use Cypher SHORTEST PATH in a future iteration.
-        // For now, return None (no path found) — callers handle this gracefully.
+        // Self-path: source == target — return the source node at depth 0,
+        // matching SQLite's BFS base-case behaviour.
+        if source_id == target_id {
+            return self.find_path_self(tenant_id, source_id);
+        }
+
+        // Rel-type pattern for the single-hop neighbour query.
+        // Rel type names come from EdgeType::as_str() (compile-time literals),
+        // so string interpolation is injection-safe.
+        let rel_pattern = match edge_types {
+            Some(types) if !types.is_empty() => types
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join("|"),
+            _ => ALL_REL_TYPES.join("|"),
+        };
+
+        // Rust-side BFS replicating SQLite's `WITH RECURSIVE bfs` logic:
+        //   - Each candidate is a full path (Vec<String> of node_ids) rather
+        //     than just a frontier node, so the no-revisit check is O(path len)
+        //     and the reconstruction step is trivial.
+        //   - We process complete hop levels in ascending order, so the first
+        //     time target_id is reached it is guaranteed to be a minimum-hop path.
+        //   - Tie-breaking among equal-depth paths is implementation-defined
+        //     (matches SQLite, which also gives no tie-break guarantee via LIMIT 1
+        //     on the CTE result); tests use unique-shortest-path fixtures only.
+
+        // frontier: list of in-progress paths, each ending at the current node.
+        let mut frontier: Vec<Vec<String>> = vec![vec![source_id.to_string()]];
+
+        let conn = self.connect()?;
+
+        for _hop in 0..max_depth {
+            if frontier.is_empty() {
+                break;
+            }
+            let mut next_frontier: Vec<Vec<String>> = Vec::new();
+
+            for path in &frontier {
+                let current_id = path.last().expect("path is non-empty");
+
+                // Single-hop outgoing neighbour query for this node.
+                let cypher = format!(
+                    "MATCH (a:GraphNode {{node_id: $id}})\
+                     -[:{rel_pattern}*1..1]->(b:GraphNode) \
+                     WHERE b.tenant_id = $tid \
+                     RETURN b.node_id, b.symbol_name, b.symbol_type, b.file_path"
+                );
+                let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                    GraphDbError::InvalidInput(format!("Prepare find_path neighbour: {e}"))
+                })?;
+                let result = conn
+                    .execute(
+                        &mut stmt,
+                        vec![
+                            ("id", Value::String(current_id.clone())),
+                            ("tid", Value::String(tenant_id.to_string())),
+                        ],
+                    )
+                    .map_err(|e| {
+                        GraphDbError::InvalidInput(format!("Execute find_path neighbour: {e}"))
+                    })?;
+
+                for row in result {
+                    if row.len() < 4 {
+                        continue;
+                    }
+                    let neighbour_id = value_to_string(&row[0]);
+
+                    // No-revisit within this path (mirrors SQLite's INSTR check).
+                    if path.contains(&neighbour_id) {
+                        continue;
+                    }
+
+                    let mut new_path = path.clone();
+                    new_path.push(neighbour_id.clone());
+
+                    if neighbour_id == target_id {
+                        // Found the target — reconstruct TraversalNode vec and return.
+                        // The final node's fields are already in `row`; all prior
+                        // nodes in the path must be fetched from the graph.
+                        return self.reconstruct_path(tenant_id, &new_path, &conn);
+                    }
+
+                    next_frontier.push(new_path);
+                }
+            }
+
+            frontier = next_frontier;
+        }
+
+        // Exhausted all paths within max_depth without reaching target.
         Ok(None)
     }
 
@@ -1136,6 +1454,38 @@ impl GraphStore for LadybugGraphStore {
         Ok(rows)
     }
 
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let conn = self.connect()?;
+        let cypher = "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
+                      RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+        let mut stmt = conn
+            .prepare(cypher)
+            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare fetch_node_metadata: {e}")))?;
+        let result = conn
+            .execute(
+                &mut stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| GraphDbError::InvalidInput(format!("Execute fetch_node_metadata: {e}")))?;
+        let mut map = std::collections::HashMap::new();
+        for row in result {
+            if row.len() >= 4 {
+                map.insert(
+                    value_to_string(&row[0]),
+                    NodeMetadata {
+                        symbol_name: value_to_string(&row[1]),
+                        symbol_type: value_to_string(&row[2]),
+                        file_path: value_to_string(&row[3]),
+                    },
+                );
+            }
+        }
+        Ok(map)
+    }
+
     async fn delete_narrative_nodes_by_file(
         &self,
         tenant_id: &str,
@@ -1290,5 +1640,230 @@ impl GraphStore for LadybugGraphStore {
 
         let results: Vec<TraversalNode> = reached.into_values().collect();
         Ok(apply_fan_out_caps(results, &self.graph_rag))
+    }
+
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        use std::collections::HashMap;
+
+        let conn = self.connect()?;
+
+        // 1. Load all nodes for the tenant, sorted deterministically (DOM-01).
+        let mut node_stmt = conn
+            .prepare(
+                "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
+                 RETURN n.node_id ORDER BY n.node_id",
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Prepare export_adjacency nodes: {e}"))
+            })?;
+
+        let node_result = conn
+            .execute(
+                &mut node_stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute export_adjacency nodes: {e}"))
+            })?;
+
+        let node_ids: Vec<String> = node_result
+            .into_iter()
+            .filter_map(|row| row.into_iter().next().map(|v| value_to_string(&v)))
+            .collect();
+
+        // Build a node_id→index map for O(1) edge lookups.
+        let index_map: HashMap<String, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
+
+        // 2. Build the rel-type pattern.
+        //
+        //    Rel type names come from EdgeType::as_str() (compile-time constants),
+        //    so string interpolation into the rel-pattern position is injection-safe
+        //    (same convention as query_related, find_path, etc. in this backend).
+        //
+        //    NOTE: LadybugDB rel tables carry a `weight DOUBLE` property (confirmed
+        //    in init_schema DDL). Weight is returned and stored directly; no default
+        //    substitution is needed. This ensures cross-backend weight equivalence
+        //    with the SQLite backend (relevant for the conformance suite, task 8).
+        let rel_pattern = match edge_types {
+            Some(types) if !types.is_empty() => types
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join("|"),
+            _ => ALL_REL_TYPES.join("|"),
+        };
+
+        // 3. Query edges: source node_id, target node_id, weight.
+        let edge_cypher = format!(
+            "MATCH (a:GraphNode)-[r:{rel_pattern}]->(b:GraphNode) \
+             WHERE a.tenant_id = $tid \
+             RETURN a.node_id, b.node_id, r.weight \
+             ORDER BY a.node_id, b.node_id"
+        );
+
+        let mut edge_stmt = conn.prepare(&edge_cypher).map_err(|e| {
+            GraphDbError::InvalidInput(format!("Prepare export_adjacency edges: {e}"))
+        })?;
+
+        let edge_result = conn
+            .execute(
+                &mut edge_stmt,
+                vec![("tid", Value::String(tenant_id.to_string()))],
+            )
+            .map_err(|e| {
+                GraphDbError::InvalidInput(format!("Execute export_adjacency edges: {e}"))
+            })?;
+
+        // 4. Convert to indexed edges; skip orphan endpoints.
+        let mut edges: Vec<(usize, usize, f64)> = Vec::new();
+        for row in edge_result {
+            if row.len() < 3 {
+                continue;
+            }
+            let src = value_to_string(&row[0]);
+            let tgt = value_to_string(&row[1]);
+            let weight = value_to_f64(&row[2]);
+
+            let (Some(&si), Some(&ti)) = (index_map.get(&src), index_map.get(&tgt)) else {
+                // Orphan edge: at least one endpoint absent from the node list.
+                continue;
+            };
+            edges.push((si, ti, weight));
+        }
+
+        Ok(AdjacencyExport { node_ids, edges })
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id (DATA-05 content diff).
+    ///
+    /// Delegates to the migrator's Cypher-based exporter so that
+    /// [`crate::graph::migrator::diff_graph_contents`] can compare this backend
+    /// against SQLite through the trait. The export restores the empty-string
+    /// point-id sentinel back to `None` for lossless round-tripping.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        crate::graph::migrator::export_nodes_ladybug(self, Some(tenant_id))
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (DATA-05 content diff).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        crate::graph::migrator::export_edges_ladybug(self, Some(tenant_id))
+    }
+}
+
+// ---- Unit tests for the lbug panic guard (A0.3) ------------------------------
+//
+// These tests verify `lbug_call` behaviour in isolation, without a real lbug
+// database. They use a fault-injecting closure to trigger a Rust panic and
+// assert that:
+//   1. `lbug_call` returns `Err(GraphDbError::InternalError(...))`.
+//   2. The error message is "Rust panic in lbug binding".
+//   3. A warning log line containing "ladybug_panic_trapped" is emitted.
+//   4. The current thread (standing in for the tokio runtime) does NOT crash.
+//
+// The tests do NOT require a real lbug::Database — the closure is a plain Rust
+// closure that panics, exercising catch_unwind directly.
+
+#[cfg(test)]
+mod panic_guard_tests {
+    use tracing_test::traced_test;
+
+    use super::{lbug_call, GraphDbError};
+
+    /// A successful closure must pass its return value through unchanged.
+    #[test]
+    fn lbug_call_ok_passes_value_through() {
+        let result = lbug_call(|| 42u32);
+        assert_eq!(result.unwrap(), 42u32);
+    }
+
+    /// A closure that panics with a string message must:
+    ///   - be caught (thread does not crash),
+    ///   - return `Err(GraphDbError::InternalError("Rust panic in lbug binding"))`,
+    ///   - emit a `warn!` log containing "ladybug_panic_trapped" and the message.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_str_panic_and_logs() {
+        // Fault-injecting fake: simulates a Rust panic in the lbug binding layer.
+        let result = lbug_call(|| -> u32 { panic!("simulated lbug binding panic") });
+
+        // The thread (runtime) must not have crashed — we reach this assertion.
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        // Verify the warning log was emitted with the expected prefix and message.
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("simulated lbug binding panic"),
+            "expected panic message in logs"
+        );
+    }
+
+    /// A closure that panics with an owned String payload must also be caught.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_string_panic_and_logs() {
+        let result =
+            lbug_call(|| -> u32 { panic!("{}", "owned string panic from lbug".to_string()) });
+
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("owned string panic from lbug"),
+            "expected panic message in logs"
+        );
+    }
+
+    /// A closure that panics with a non-string payload (box of u32) must still
+    /// be caught and emit the generic "<non-string panic payload>" message.
+    #[test]
+    #[traced_test]
+    fn lbug_call_traps_non_string_panic_and_logs() {
+        use std::panic;
+
+        // Suppress the default "panicked at …" stderr output for this test.
+        let prev = panic::take_hook();
+        panic::set_hook(Box::new(|_| {}));
+        let result = lbug_call(|| -> u32 { panic::resume_unwind(Box::new(99u32)) });
+        panic::set_hook(prev);
+
+        match result {
+            Err(GraphDbError::InternalError(msg)) => {
+                assert_eq!(msg, "Rust panic in lbug binding");
+            }
+            other => panic!("expected InternalError, got {other:?}"),
+        }
+
+        assert!(
+            logs_contain("ladybug_panic_trapped"),
+            "expected 'ladybug_panic_trapped' in logs"
+        );
+        assert!(
+            logs_contain("<non-string panic payload>"),
+            "expected generic payload description in logs"
+        );
     }
 }

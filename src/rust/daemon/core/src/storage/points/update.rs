@@ -238,8 +238,7 @@ impl StorageClient {
                         if let Some(new_path) =
                             rewrite_path_under_prefix(path, old_prefix, new_prefix)
                         {
-                            rewritten
-                                .insert(key.to_string(), serde_json::Value::String(new_path));
+                            rewritten.insert(key.to_string(), serde_json::Value::String(new_path));
                         }
                     }
                 }

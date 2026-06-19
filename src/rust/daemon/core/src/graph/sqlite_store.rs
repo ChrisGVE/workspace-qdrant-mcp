@@ -7,8 +7,9 @@ use tracing::debug;
 use wqm_common::timestamps::now_utc;
 
 use super::{
-    compute_edge_id, is_cross_branch, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats,
-    GraphStore, ImpactNode, ImpactReport, SymbolRow, TraversalNode,
+    compute_edge_id, is_cross_branch, AdjacencyExport, EdgeType, GraphDbResult, GraphEdge,
+    GraphNode, GraphStats, GraphStore, ImpactNode, ImpactReport, NodeMetadata, SymbolRow,
+    TraversalNode,
 };
 
 use super::cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS};
@@ -65,8 +66,8 @@ impl GraphStore for SqliteGraphStore {
         sqlx::query(
             "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                 file_path, start_line, end_line, signature, language,
-                branches, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                branches, qdrant_point_id, point_id_state, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
             ON CONFLICT(node_id) DO UPDATE SET
                 symbol_name = excluded.symbol_name,
                 symbol_type = excluded.symbol_type,
@@ -77,7 +78,9 @@ impl GraphStore for SqliteGraphStore {
                 signature = COALESCE(excluded.signature, graph_nodes.signature),
                 language = COALESCE(excluded.language, graph_nodes.language),
                 branches = excluded.branches,
-                updated_at = ?11",
+                qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                point_id_state = excluded.point_id_state,
+                updated_at = ?13",
         )
         .bind(&node.node_id)
         .bind(&node.tenant_id)
@@ -89,6 +92,8 @@ impl GraphStore for SqliteGraphStore {
         .bind(&node.signature)
         .bind(&node.language)
         .bind(&node.branches)
+        .bind(&node.qdrant_point_id)
+        .bind(&node.point_id_state)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -105,8 +110,8 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    branches, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                    branches, qdrant_point_id, point_id_state, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
@@ -117,7 +122,9 @@ impl GraphStore for SqliteGraphStore {
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
                     branches = excluded.branches,
-                    updated_at = ?11",
+                    qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                    point_id_state = excluded.point_id_state,
+                    updated_at = ?13",
             )
             .bind(&node.node_id)
             .bind(&node.tenant_id)
@@ -129,6 +136,8 @@ impl GraphStore for SqliteGraphStore {
             .bind(&node.signature)
             .bind(&node.language)
             .bind(&node.branches)
+            .bind(&node.qdrant_point_id)
+            .bind(&node.point_id_state)
             .bind(&now)
             .execute(&mut *tx)
             .await?;
@@ -587,23 +596,27 @@ impl GraphStore for SqliteGraphStore {
             sqlx::query(
                 "INSERT INTO graph_nodes (node_id, tenant_id, symbol_name, symbol_type,
                     file_path, start_line, end_line, signature, language,
-                    branches, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                    branches, qdrant_point_id, point_id_state, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                 ON CONFLICT(node_id) DO UPDATE SET
                     symbol_name = excluded.symbol_name,
                     symbol_type = excluded.symbol_type,
-                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path ELSE excluded.file_path END,
+                    file_path = CASE WHEN excluded.file_path = '' THEN graph_nodes.file_path
+                                     ELSE excluded.file_path END,
                     start_line = COALESCE(excluded.start_line, graph_nodes.start_line),
                     end_line = COALESCE(excluded.end_line, graph_nodes.end_line),
                     signature = COALESCE(excluded.signature, graph_nodes.signature),
                     language = COALESCE(excluded.language, graph_nodes.language),
                     branches = excluded.branches,
-                    updated_at = ?11",
+                    qdrant_point_id = COALESCE(excluded.qdrant_point_id, graph_nodes.qdrant_point_id),
+                    point_id_state = excluded.point_id_state,
+                    updated_at = ?13",
             )
             .bind(&node.node_id).bind(&node.tenant_id).bind(&node.symbol_name)
             .bind(node.symbol_type.as_str()).bind(&node.file_path)
             .bind(node.start_line.map(|v| v as i64)).bind(node.end_line.map(|v| v as i64))
-            .bind(&node.signature).bind(&node.language).bind(&node.branches).bind(&now)
+            .bind(&node.signature).bind(&node.language).bind(&node.branches)
+            .bind(&node.qdrant_point_id).bind(&node.point_id_state).bind(&now)
             .execute(&mut *tx).await?;
         }
         for edge in edges {
@@ -657,6 +670,33 @@ impl GraphStore for SqliteGraphStore {
                 symbol_name,
                 node_id,
                 file_path,
+            })
+            .collect())
+    }
+
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT node_id, symbol_name, symbol_type, file_path
+             FROM graph_nodes
+             WHERE tenant_id = ?1",
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(node_id, symbol_name, symbol_type, file_path)| {
+                (
+                    node_id,
+                    NodeMetadata {
+                        symbol_name,
+                        symbol_type,
+                        file_path,
+                    },
+                )
             })
             .collect())
     }
@@ -1037,6 +1077,91 @@ impl GraphStore for SqliteGraphStore {
             total += self.resolve_stub_edges(&tenant).await?;
         }
         Ok(total)
+    }
+
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        use std::collections::HashMap;
+
+        // 1. Load all nodes for the tenant, sorted deterministically (DOM-01).
+        let node_rows =
+            sqlx::query("SELECT node_id FROM graph_nodes WHERE tenant_id = ?1 ORDER BY node_id")
+                .bind(tenant_id)
+                .fetch_all(&self.pool)
+                .await?;
+
+        let node_ids: Vec<String> = node_rows.iter().map(|r| r.get::<String, _>(0)).collect();
+
+        // Build a name→index map so edge lookups are O(1).
+        let index_map: HashMap<&str, usize> = node_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
+
+        // 2. Load edges with an optional type filter.
+        //    Bind types as individual parameters (no string interpolation of
+        //    values, unlike the old load_adjacency_graph which used format!).
+        let num_et = edge_types.map_or(0, |t| t.len());
+        let edge_rows = if num_et > 0 {
+            // Build a query with bound placeholders for each edge type value.
+            let placeholders: Vec<String> = (0..num_et).map(|i| format!("?{}", i + 2)).collect();
+            let sql = format!(
+                "SELECT source_node_id, target_node_id, weight \
+                 FROM graph_edges \
+                 WHERE tenant_id = ?1 AND edge_type IN ({}) \
+                 ORDER BY source_node_id, target_node_id",
+                placeholders.join(", ")
+            );
+            let mut q = sqlx::query(&sql).bind(tenant_id);
+            for et in edge_types.unwrap_or(&[]) {
+                q = q.bind(et.as_str());
+            }
+            q.fetch_all(&self.pool).await?
+        } else {
+            sqlx::query(
+                "SELECT source_node_id, target_node_id, weight \
+                 FROM graph_edges \
+                 WHERE tenant_id = ?1 \
+                 ORDER BY source_node_id, target_node_id",
+            )
+            .bind(tenant_id)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        // 3. Convert to indexed edges; skip orphan endpoints.
+        let mut edges: Vec<(usize, usize, f64)> = Vec::with_capacity(edge_rows.len());
+        for row in &edge_rows {
+            let src: String = row.get(0);
+            let tgt: String = row.get(1);
+            let weight: f64 = row.get(2);
+            let (Some(&si), Some(&ti)) = (index_map.get(src.as_str()), index_map.get(tgt.as_str()))
+            else {
+                // Orphan edge: at least one endpoint is absent from the node list.
+                continue;
+            };
+            edges.push((si, ti, weight));
+        }
+
+        Ok(AdjacencyExport { node_ids, edges })
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id (DATA-05 content diff).
+    ///
+    /// Delegates to the migrator's pool-based exporter so that
+    /// [`crate::graph::migrator::diff_graph_contents`] can compare backends
+    /// through the trait without reaching into the concrete pool.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        crate::graph::migrator::export_nodes_sqlite(&self.pool, Some(tenant_id)).await
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (DATA-05 content diff).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        crate::graph::migrator::export_edges_sqlite(&self.pool, Some(tenant_id)).await
     }
 }
 

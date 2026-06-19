@@ -29,6 +29,12 @@ on:
         description: 'Version tag (e.g., v0.3.0)'
         required: false
         default: 'test'
+  # A0.6: weekly scheduled run of the LadybugDB (--features ladybug) build +
+  # conformance lane. Kept OFF the per-PR path because the Kuzu C++ build is
+  # ~86 min. On `schedule` only the `ladybug-conformance` job runs; the release
+  # `build`/`release` jobs are gated off the schedule event below.
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,6 +54,9 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
+    # Do not run the release build matrix on the weekly schedule — that event
+    # only drives the ladybug-conformance lane below (A0.6).
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -503,3 +512,62 @@ jobs:
               "linux_x64_sha256": "${{ steps.checksums.outputs.linux_x64 }}",
               "linux_arm64_sha256": "${{ steps.checksums.outputs.linux_arm64 }}"
             }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # A0.6: LadybugDB (--features ladybug) build + conformance lane.
+  #
+  # Runs ONLY on the weekly schedule or manual dispatch — NEVER per-PR — because
+  # the Kuzu C++ build is ~86 min. Requires a C++ toolchain (Clang/LLVM). On the
+  # Linux x64 runner the `ort` crate auto-downloads static ONNX Runtime, so no
+  # manual ORT_LIB_LOCATION is needed. Kuzu-backed tests run with
+  # `--test-threads=1` to bound each Database's multi-TiB virtual mmap on CI.
+  ladybug-conformance:
+    name: LadybugDB build + conformance (A0.6)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install C++ toolchain and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm cmake protobuf-compiler libprotobuf-dev liblzma-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-latest-cargo-ladybug-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-latest-cargo-
+
+      - name: Build daemon with LadybugDB backend
+        working-directory: src/rust
+        # memexd carries the `ladybug` feature (Kuzu C++ backend) and defaults to
+        # it (A0.7); wqm and the MCP server are backend-agnostic and build plainly.
+        run: |
+          cargo build --release --package memexd --features ladybug
+          cargo build --release --package wqm-cli --package mcp-server
+
+      - name: Clippy (--features ladybug, all targets, -D warnings)
+        working-directory: src/rust
+        run: cargo clippy --release --package workspace-qdrant-core --features ladybug --all-targets -- -D warnings
+
+      - name: Conformance + graph tests (--features ladybug, serial)
+        working-directory: src/rust
+        run: |
+          cargo test --release --package workspace-qdrant-core --features ladybug \
+            --test graph_backend_conformance -- --test-threads=1
+          cargo test --release --package workspace-qdrant-core --features ladybug \
+            --lib graph:: -- --test-threads=1
+
+      - name: Boot smoke test (default ladybug backend)
+        working-directory: src/rust
+        run: cargo test --release --package memexd --features ladybug --test ladybug_boot_smoke -- --test-threads=1

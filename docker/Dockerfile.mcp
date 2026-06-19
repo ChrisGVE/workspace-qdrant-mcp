@@ -92,7 +92,7 @@ RUN set -eux; \
     for bench in cross_platform_benchmarks queue_processor_bench \
                  stress_benchmarks example_benchmark qdrant_ingestion_bench \
                  fts5_search_bench graph_bench perf_extract_benchmarks \
-                 perf_extract_comparison; do \
+                 perf_extract_comparison switchboard_bench; do \
         printf 'fn main() {}\n' > daemon/core/benches/${bench}.rs; \
     done; \
     mkdir -p daemon/mcp-server/benches; \

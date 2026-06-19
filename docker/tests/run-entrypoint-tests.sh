@@ -247,10 +247,13 @@ run_test "happy path passes all three layers" 0 \
 	"WQM_CONFIG_PATH=${WORK}/spurious/config.yaml" \
 	"WQM_MOUNTINFO_PATH=${WORK}/spurious/mountinfo-clean"
 
-# Missing override file → layer 1 aborts with EXIT_HASH_MISMATCH.
-run_test "missing override file aborts layer 1" "${EXIT_HASH_MISMATCH}" \
+# Absent override → layer 1 is skipped (the deployment hand-wires its own
+# volumes; there is no generated override to go stale). Layers 2/3 still run:
+# the spurious config declares c1/c2, both present, and mountinfo is clean, so
+# the run exits 0. The hash check only guards a *mounted* override.
+run_test "absent override skips layer 1 and continues" 0 \
+	"layer 1: skipped (no override mounted" \
 	"override file not found" \
-	"" \
 	"WQM_OVERRIDE_PATH=${WORK}/spurious/no-such-override.yaml" \
 	"WQM_CONFIG_PATH=${WORK}/spurious/config.yaml" \
 	"WQM_MOUNTINFO_PATH=${WORK}/spurious/mountinfo-clean"

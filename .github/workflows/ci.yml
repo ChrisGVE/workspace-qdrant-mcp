@@ -153,18 +153,35 @@ jobs:
       # ort crate auto-downloads static ONNX Runtime for ARM Mac and Linux x64
       # No manual ORT_LIB_LOCATION needed for these platforms
 
+      # A0.6/A0.7 INVARIANT: the per-PR lane is SQLite-only so it never pays the
+      # ~86-min Kuzu C++ build that the default `ladybug` feature (on memexd)
+      # pulls in. memexd is excluded from the workspace commands (so no member
+      # pulls ladybug via feature unification) and built/tested separately with
+      # `--no-default-features --features sqlite`. Other members keep their own
+      # default features (e.g. wqm-cli's `tui`), so a blanket workspace-wide
+      # --no-default-features is deliberately NOT used. The full --features
+      # ladybug build runs only on the scheduled lane in release.yml.
       - name: Clippy
         working-directory: src/rust
-        run: cargo clippy --lib --bins --tests -- -D warnings
+        run: cargo clippy --workspace --exclude memexd --lib --bins --tests -- -D warnings
+
+      - name: Clippy (memexd, SQLite-only)
+        working-directory: src/rust
+        run: cargo clippy --package memexd --no-default-features --features sqlite --lib --bins --tests -- -D warnings
 
       - name: Build
         working-directory: src/rust
-        run: cargo build --release
+        run: |
+          cargo build --release --workspace --exclude memexd
+          cargo build --release --package memexd --no-default-features --features sqlite
 
       - name: Test
         working-directory: src/rust
-        # Exclude workspace-qdrant-grpc integration tests (require running Qdrant)
-        run: cargo test --release --workspace --exclude workspace-qdrant-grpc
+        # Exclude workspace-qdrant-grpc integration tests (require running Qdrant).
+        # memexd is tested SQLite-only (see invariant above).
+        run: |
+          cargo test --release --workspace --exclude workspace-qdrant-grpc --exclude memexd
+          cargo test --release --package memexd --no-default-features --features sqlite
 
   # memexd control-port discipline (spec 16 §10.1).
   # Verifies the cross-process single-instance lock primitive in
@@ -197,18 +214,21 @@ jobs:
           restore-keys: |
             ubuntu-latest-cargo-
 
+      # SQLite-only (--no-default-features --features sqlite): the control-port
+      # primitive is backend-agnostic, so this lane skips the Kuzu C++ build that
+      # memexd's default `ladybug` feature would otherwise pull in (A0.6/A0.7).
       - name: Build example holder
         working-directory: src/rust
-        run: cargo build --package memexd --examples
+        run: cargo build --package memexd --no-default-features --features sqlite --examples
 
       - name: Clippy (memexd, all targets, -D warnings)
         working-directory: src/rust
-        run: cargo clippy --package memexd --all-targets -- -D warnings
+        run: cargo clippy --package memexd --no-default-features --features sqlite --all-targets -- -D warnings
 
       - name: Unit tests (control_port module)
         working-directory: src/rust
-        run: cargo test --package memexd --lib control_port -- --test-threads=1
+        run: cargo test --package memexd --no-default-features --features sqlite --lib control_port -- --test-threads=1
 
       - name: Integration tests (cross-process double-bind, identity stamp)
         working-directory: src/rust
-        run: cargo test --package memexd --test control_port_cross_process -- --test-threads=1
+        run: cargo test --package memexd --no-default-features --features sqlite --test control_port_cross_process -- --test-threads=1

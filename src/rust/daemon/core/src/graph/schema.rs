@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 /// Current schema version for graph.db.
-pub const GRAPH_SCHEMA_VERSION: i32 = 4;
+pub const GRAPH_SCHEMA_VERSION: i32 = 5;
 
 /// Default graph database filename.
 pub const GRAPH_DB_FILENAME: &str = "graph.db";
@@ -42,6 +42,16 @@ pub enum GraphDbError {
 
     #[error("Lock timeout on \"{op}\" after {waited:?}")]
     LockTimeout { op: String, waited: Duration },
+
+    /// A Rust panic was caught at the synchronous lbug binding layer.
+    ///
+    /// SEC-03 scope: this guard traps Rust panics originating in the
+    /// C++/lbug binding layer only. It CANNOT catch C++ exceptions,
+    /// `abort()`, `std::terminate()`, OOM, or OS signals (SIGSEGV/SIGABRT).
+    /// True C++-fault isolation requires process isolation (DEF-7).
+    /// This is best-effort containment, not a complete fault barrier.
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 /// Result type for graph database operations.
@@ -171,6 +181,7 @@ impl GraphDbManager {
             2 => self.migrate_v2().await,
             3 => self.migrate_v3().await,
             4 => self.migrate_v4().await,
+            5 => self.migrate_v5().await,
             _ => Err(GraphDbError::Migration(format!(
                 "Unknown graph migration version: {}",
                 version
@@ -335,6 +346,42 @@ impl GraphDbManager {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_edges_target_type              ON graph_edges(target_node_id, edge_type)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Migration v5: add Qdrant point-id link columns to `graph_nodes`.
+    ///
+    /// `qdrant_point_id` stores the Qdrant point UUID for chunk-derived nodes so
+    /// that the graph layer can locate the corresponding embedding vector without
+    /// re-computing the point ID from scratch. `point_id_state` tracks whether
+    /// the link has been established ("linked") or is still absent ("none").
+    ///
+    /// A partial index on `qdrant_point_id` (WHERE NOT NULL) makes lookups by
+    /// point ID fast without bloating the index for the majority of nodes that
+    /// have no Qdrant link (concept nodes, stubs, file nodes).
+    async fn migrate_v5(&self) -> GraphDbResult<()> {
+        info!("Graph migration v5: adding qdrant_point_id link columns");
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("ALTER TABLE graph_nodes ADD COLUMN qdrant_point_id TEXT")
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query(
+            "ALTER TABLE graph_nodes ADD COLUMN point_id_state TEXT NOT NULL DEFAULT 'none'",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_point_id \
+             ON graph_nodes(qdrant_point_id) WHERE qdrant_point_id IS NOT NULL",
         )
         .execute(&mut *tx)
         .await?;

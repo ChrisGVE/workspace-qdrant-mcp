@@ -1033,9 +1033,12 @@ observability:
 # impact analysis, and symbol traversal queries.
 graph:
   # backend: Which graph store implementation to use.
-  # "sqlite" — SQLite with recursive CTEs (default, no extra dependencies)
-  # "ladybug" — LadybugDB (Kuzu fork), requires 'ladybug' compile-time feature
-  backend: sqlite
+  # "ladybug" — LadybugDB (Kuzu fork), the default backend (A0.7). Requires the
+  #             'ladybug' compile-time feature, which is on by default for the
+  #             daemon binary (memexd). The C++ toolchain is needed to build it.
+  # "sqlite"  — SQLite with recursive CTEs. The fallback backend, no extra
+  #             dependencies; build with --no-default-features for a light build.
+  backend: ladybug
 
   # buffer_pool_size: LadybugDB buffer pool size in bytes (ignored for sqlite).
   # Default: 256MB

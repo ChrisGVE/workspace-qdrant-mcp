@@ -125,7 +125,7 @@ pub(super) fn build_remediation_message(v: &HealthVerdict) -> String {
         return "Running normally".to_string();
     }
     // Most-severe-first (stable within a severity to keep probe order).
-    lines.sort_by(|a, b| b.0.cmp(&a.0));
+    lines.sort_by_key(|line| std::cmp::Reverse(line.0));
 
     const MAX_LINES: usize = 10;
     const MAX_BYTES: usize = 2048;

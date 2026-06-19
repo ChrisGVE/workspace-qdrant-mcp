@@ -1,11 +1,8 @@
 /// PageRank algorithm for code relationship graphs.
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::{debug, info};
 
-use super::{load_adjacency_graph, AdjacencyGraph};
+use crate::graph::AdjacencyExport;
 
 /// PageRank score for a graph node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,106 +36,40 @@ impl Default for PageRankConfig {
     }
 }
 
-/// Compute PageRank scores for all nodes in a tenant's graph.
+/// Compute PageRank scores for all nodes represented in an [`AdjacencyExport`].
 ///
-/// Uses the iterative power method on the adjacency graph.
-pub async fn compute_pagerank(
-    pool: &SqlitePool,
-    tenant_id: &str,
-    config: &PageRankConfig,
-    edge_types: Option<&[&str]>,
-) -> Result<Vec<PageRankEntry>, sqlx::Error> {
-    let graph = load_adjacency_graph(pool, tenant_id, edge_types).await?;
-
-    if graph.nodes.is_empty() {
-        return Ok(Vec::new());
+/// Operates entirely on the in-memory export — no database I/O.  The caller is
+/// responsible for acquiring the export (via `GraphStore::export_adjacency`)
+/// and releasing any read lock before invoking this function (LOCK-SCOPE contract).
+///
+/// `symbol_name`, `symbol_type`, and `file_path` fields in the returned entries
+/// are left empty; callers that need display metadata should enrich the results
+/// separately after this function returns.
+pub fn compute_pagerank(adj: &AdjacencyExport, config: &PageRankConfig) -> Vec<PageRankEntry> {
+    let n = adj.node_ids.len();
+    if n == 0 {
+        return Vec::new();
     }
 
-    let node_ids: Vec<&String> = graph.nodes.keys().collect();
-    let scores = run_pagerank_iterations(&graph, &node_ids, config, tenant_id);
-    let results = build_pagerank_results(scores, &graph, tenant_id);
-    Ok(results)
-}
-
-fn run_pagerank_iterations(
-    graph: &AdjacencyGraph,
-    node_ids: &[&String],
-    config: &PageRankConfig,
-    tenant_id: &str,
-) -> HashMap<String, f64> {
-    let n = node_ids.len();
-    let initial = 1.0 / n as f64;
-    let teleport = (1.0 - config.damping) / n as f64;
-
-    let mut scores: HashMap<&str, f64> = node_ids.iter().map(|id| (id.as_str(), initial)).collect();
-
-    for iteration in 0..config.max_iterations {
-        let dangling_sum: f64 = node_ids
-            .iter()
-            .filter(|id| {
-                graph
-                    .outgoing
-                    .get(id.as_str())
-                    .map_or(true, |v| v.is_empty())
-            })
-            .map(|id| scores[id.as_str()])
-            .sum();
-        let dangling_contrib = config.damping * dangling_sum / n as f64;
-
-        let mut new_scores: HashMap<&str, f64> = HashMap::with_capacity(n);
-        for id in node_ids {
-            let incoming_sum: f64 = graph.incoming.get(id.as_str()).map_or(0.0, |preds| {
-                preds
-                    .iter()
-                    .map(|pred| {
-                        let out_degree = graph
-                            .outgoing
-                            .get(pred.as_str())
-                            .map(|v| v.len())
-                            .unwrap_or(1);
-                        scores.get(pred.as_str()).unwrap_or(&0.0) / out_degree as f64
-                    })
-                    .sum()
-            });
-            new_scores.insert(
-                id.as_str(),
-                teleport + config.damping * incoming_sum + dangling_contrib,
-            );
-        }
-
-        let max_diff = node_ids
-            .iter()
-            .map(|id| (new_scores[id.as_str()] - scores[id.as_str()]).abs())
-            .fold(0.0f64, f64::max);
-
-        scores = new_scores;
-        if max_diff < config.tolerance {
-            debug!(tenant_id, iterations = iteration + 1, "PageRank converged");
-            break;
-        }
+    // Build outgoing and incoming adjacency lists indexed by node position.
+    let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut incoming: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for &(src, tgt, _w) in &adj.edges {
+        outgoing[src].push(tgt);
+        incoming[tgt].push(src);
     }
 
-    scores
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect()
-}
+    let scores = run_pagerank_iterations(n, &outgoing, &incoming, config);
 
-fn build_pagerank_results(
-    scores: HashMap<String, f64>,
-    graph: &AdjacencyGraph,
-    tenant_id: &str,
-) -> Vec<PageRankEntry> {
     let mut results: Vec<PageRankEntry> = scores
         .into_iter()
-        .filter_map(|(id, score)| {
-            graph.nodes.get(id.as_str()).map(|info| PageRankEntry {
-                node_id: id,
-                symbol_name: info.symbol_name.clone(),
-                symbol_type: info.symbol_type.clone(),
-                file_path: info.file_path.clone(),
-                score,
-            })
+        .enumerate()
+        .map(|(i, score)| PageRankEntry {
+            node_id: adj.node_ids[i].clone(),
+            symbol_name: String::new(),
+            symbol_type: String::new(),
+            file_path: String::new(),
+            score,
         })
         .collect();
 
@@ -147,10 +78,129 @@ fn build_pagerank_results(
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    info!(
-        tenant_id,
-        nodes = results.len(),
-        "PageRank computation complete"
-    );
+
+    info!(nodes = results.len(), "PageRank computation complete");
     results
+}
+
+fn run_pagerank_iterations(
+    n: usize,
+    outgoing: &[Vec<usize>],
+    incoming: &[Vec<usize>],
+    config: &PageRankConfig,
+) -> Vec<f64> {
+    let initial = 1.0 / n as f64;
+    let teleport = (1.0 - config.damping) / n as f64;
+
+    let mut scores: Vec<f64> = vec![initial; n];
+
+    for iteration in 0..config.max_iterations {
+        // Dangling contribution: nodes with no outgoing edges leak rank to all.
+        let dangling_sum: f64 = (0..n)
+            .filter(|&i| outgoing[i].is_empty())
+            .map(|i| scores[i])
+            .sum();
+        let dangling_contrib = config.damping * dangling_sum / n as f64;
+
+        let mut new_scores: Vec<f64> = vec![0.0; n];
+        for i in 0..n {
+            let incoming_sum: f64 = incoming[i]
+                .iter()
+                .map(|&pred| {
+                    let out_degree = outgoing[pred].len().max(1);
+                    scores[pred] / out_degree as f64
+                })
+                .sum();
+            new_scores[i] = teleport + config.damping * incoming_sum + dangling_contrib;
+        }
+
+        let max_diff = (0..n)
+            .map(|i| (new_scores[i] - scores[i]).abs())
+            .fold(0.0f64, f64::max);
+
+        scores = new_scores;
+        if max_diff < config.tolerance {
+            debug!(iterations = iteration + 1, "PageRank converged");
+            break;
+        }
+    }
+
+    scores
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::AdjacencyExport;
+
+    fn make_export(n: usize, edges: Vec<(usize, usize)>) -> AdjacencyExport {
+        let node_ids: Vec<String> = (0..n).map(|i| format!("n{}", i)).collect();
+        let edges: Vec<(usize, usize, f64)> = edges.into_iter().map(|(s, t)| (s, t, 1.0)).collect();
+        AdjacencyExport { node_ids, edges }
+    }
+
+    #[test]
+    fn test_pagerank_empty() {
+        let adj = make_export(0, vec![]);
+        let results = compute_pagerank(&adj, &PageRankConfig::default());
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_pagerank_single_node() {
+        let adj = make_export(1, vec![]);
+        let results = compute_pagerank(&adj, &PageRankConfig::default());
+        assert_eq!(results.len(), 1);
+        // Single node with no edges: teleport only, score sums to 1.
+        assert!(
+            (results[0].score - 1.0).abs() < 0.01,
+            "got {}",
+            results[0].score
+        );
+    }
+
+    #[test]
+    fn test_pagerank_diamond() {
+        // Diamond: 0->1, 0->2, 1->3, 2->3  (a->b, a->c, b->d, c->d)
+        let adj = make_export(4, vec![(0, 1), (0, 2), (1, 3), (2, 3)]);
+        let results = compute_pagerank(&adj, &PageRankConfig::default());
+        assert_eq!(results.len(), 4);
+
+        let d = results.iter().find(|r| r.node_id == "n3").unwrap().score;
+        let a = results.iter().find(|r| r.node_id == "n0").unwrap().score;
+        assert!(
+            d > a,
+            "sink n3 should rank higher than source n0: d={d}, a={a}"
+        );
+    }
+
+    #[test]
+    fn test_pagerank_scores_sum_to_one() {
+        // Chain: 0->1->2->3->4
+        let adj = make_export(5, vec![(0, 1), (1, 2), (2, 3), (3, 4)]);
+        let results = compute_pagerank(&adj, &PageRankConfig::default());
+        let total: f64 = results.iter().map(|r| r.score).sum();
+        assert!(
+            (total - 1.0).abs() < 0.01,
+            "scores should sum to ~1.0, got {total}"
+        );
+    }
+
+    #[test]
+    fn test_pagerank_identical_output_on_identical_input() {
+        // Assert determinism: two calls on identical export yield byte-identical scores.
+        let adj = make_export(4, vec![(0, 1), (0, 2), (1, 3), (2, 3)]);
+        let config = PageRankConfig::default();
+        let r1 = compute_pagerank(&adj, &config);
+        let r2 = compute_pagerank(&adj, &config);
+        assert_eq!(r1.len(), r2.len());
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.node_id, b.node_id);
+            assert_eq!(
+                a.score.to_bits(),
+                b.score.to_bits(),
+                "scores must be bit-identical"
+            );
+        }
+    }
 }

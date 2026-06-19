@@ -998,7 +998,10 @@ mod tests {
             .await
             .expect("search succeeds")
             .into_inner();
-        assert!(resp.total_matches > 0, "the query must match the indexed line");
+        assert!(
+            resp.total_matches > 0,
+            "the query must match the indexed line"
+        );
         assert!(
             resp.index_status.is_none(),
             "index_status must be skipped when matches exist (#137 hot-path)"

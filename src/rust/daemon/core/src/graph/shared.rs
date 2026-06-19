@@ -17,8 +17,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use super::{
-    EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactReport, SymbolRow,
-    TraversalNode,
+    AdjacencyExport, EdgeType, GraphDbResult, GraphEdge, GraphNode, GraphStats, GraphStore,
+    ImpactReport, NodeMetadata, SymbolRow, TraversalNode,
 };
 
 /// Threshold after which a lock acquisition emits a `warn!` log.
@@ -295,6 +295,33 @@ impl<S: GraphStore> SharedGraphStore<S> {
         let guard = self.acquire_read("query_edges_by_type").await?;
         guard.query_edges_by_type(edge_type).await
     }
+
+    /// Export the full adjacency structure for a tenant (shared read lock).
+    ///
+    /// The read guard is acquired, the inner store's `export_adjacency` runs to
+    /// completion, and the owned `AdjacencyExport` is returned. The guard drops
+    /// when this function returns — no borrow escapes (LOCK-SCOPE contract).
+    pub async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        let guard = self.acquire_read("export_adjacency").await?;
+        guard.export_adjacency(tenant_id, edge_types).await
+    }
+
+    /// Fetch display metadata for all nodes of a tenant (shared read lock).
+    ///
+    /// The read guard is released before the owned map is returned, mirroring
+    /// `export_adjacency` (LOCK-SCOPE contract). Used to enrich analytics
+    /// results after the topology-only export has been processed.
+    pub async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        let guard = self.acquire_read("fetch_node_metadata").await?;
+        guard.fetch_node_metadata(tenant_id).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -421,6 +448,37 @@ impl<S: GraphStore + 'static> GraphStore for SharedGraphStore<S> {
         self.query_edges_by_type(edge_type).await
     }
 
+    async fn export_adjacency(
+        &self,
+        tenant_id: &str,
+        edge_types: Option<&[EdgeType]>,
+    ) -> GraphDbResult<AdjacencyExport> {
+        self.export_adjacency(tenant_id, edge_types).await
+    }
+
+    async fn fetch_node_metadata(
+        &self,
+        tenant_id: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, NodeMetadata>> {
+        self.fetch_node_metadata(tenant_id).await
+    }
+
+    /// Export all nodes for a tenant, ordered by node_id (shared read lock).
+    ///
+    /// Delegates to the inner store so [`crate::graph::migrator::diff_graph_contents`]
+    /// sees the real data through the `SharedGraphStore` wrapper rather than the
+    /// trait's empty default.
+    async fn export_nodes_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphNode>> {
+        let guard = self.acquire_read("export_nodes_for_tenant").await?;
+        guard.export_nodes_for_tenant(tenant_id).await
+    }
+
+    /// Export all edges for a tenant, ordered by edge_id (shared read lock).
+    async fn export_edges_for_tenant(&self, tenant_id: &str) -> GraphDbResult<Vec<GraphEdge>> {
+        let guard = self.acquire_read("export_edges_for_tenant").await?;
+        guard.export_edges_for_tenant(tenant_id).await
+    }
+
     /// List tenants with graph data (shared read lock).
     async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
         let guard = self.acquire_read("graph_tenants").await?;
@@ -488,6 +546,8 @@ mod tests {
                 signature TEXT,
                 language TEXT,
                 branches TEXT NOT NULL DEFAULT '[\"main\"]',
+                qdrant_point_id TEXT,
+                point_id_state TEXT NOT NULL DEFAULT 'none',
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             )",

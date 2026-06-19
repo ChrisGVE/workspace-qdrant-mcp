@@ -237,7 +237,7 @@ fn bench_input_parsing(c: &mut Criterion) {
         |b, a| {
             b.iter(|| {
                 let input = RetrieveInput::from_args(std::hint::black_box(a));
-                std::hint::black_box(input);
+                let _ = std::hint::black_box(input);
             });
         },
     );

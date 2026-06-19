@@ -427,3 +427,150 @@ async fn test_impact_analysis_branch_filter() {
     assert_eq!(main.total_impacted, 1);
     assert_eq!(main.impacted_nodes[0].symbol_name, "caller");
 }
+
+// ── export_adjacency (SQLite) ──────────────────────────────────────────────────
+
+/// (a) Empty tenant: both node_ids and edges are empty.
+#[tokio::test]
+async fn test_export_adjacency_empty_tenant() {
+    let store = test_store().await;
+    let result = store
+        .export_adjacency("no-such-tenant", None)
+        .await
+        .unwrap();
+    assert!(result.node_ids.is_empty(), "empty tenant yields no nodes");
+    assert!(result.edges.is_empty(), "empty tenant yields no edges");
+}
+
+/// (b) Single isolated node: node_ids has one entry, edges is empty.
+#[tokio::test]
+async fn test_export_adjacency_single_isolated_node() {
+    let store = test_store().await;
+    let node = GraphNode::new(TENANT, "a.rs", "alpha", NodeType::Function);
+    store.upsert_nodes(&[node]).await.unwrap();
+
+    let result = store.export_adjacency(TENANT, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 1, "one node expected");
+    assert!(result.edges.is_empty(), "isolated node has no edges");
+}
+
+/// (c) Two connected nodes A→B: correct (0, 1, weight) returned.
+#[tokio::test]
+async fn test_export_adjacency_two_connected_nodes() {
+    let store = test_store().await;
+    let a = GraphNode::new(TENANT, "a.rs", "alpha", NodeType::Function);
+    let b = GraphNode::new(TENANT, "b.rs", "beta", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    let edge = GraphEdge::new(TENANT, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[edge]).await.unwrap();
+
+    let result = store.export_adjacency(TENANT, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 2);
+
+    // node_ids are sorted by node_id string, so find indices by value.
+    let idx_a = result
+        .node_ids
+        .iter()
+        .position(|id| id == &a.node_id)
+        .unwrap();
+    let idx_b = result
+        .node_ids
+        .iter()
+        .position(|id| id == &b.node_id)
+        .unwrap();
+
+    assert_eq!(result.edges.len(), 1, "exactly one edge");
+    let (si, ti, w) = result.edges[0];
+    assert_eq!(si, idx_a, "source index must be A");
+    assert_eq!(ti, idx_b, "target index must be B");
+    assert!((w - 1.0).abs() < f64::EPSILON, "default weight is 1.0");
+}
+
+/// (d) edge_types=Some([Calls]) returns only CALLS edges; None returns all.
+#[tokio::test]
+async fn test_export_adjacency_edge_type_filter() {
+    let store = test_store().await;
+    let a = GraphNode::new(TENANT, "a.rs", "alpha", NodeType::Function);
+    let b = GraphNode::new(TENANT, "b.rs", "beta", NodeType::Function);
+    let c = GraphNode::new(TENANT, "c.rs", "gamma", NodeType::Struct);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+    let calls_edge = GraphEdge::new(TENANT, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
+    let uses_edge = GraphEdge::new(TENANT, &a.node_id, &c.node_id, EdgeType::UsesType, "a.rs");
+    store.insert_edges(&[calls_edge, uses_edge]).await.unwrap();
+
+    // Filter to CALLS only: one edge.
+    let calls_only = store
+        .export_adjacency(TENANT, Some(&[EdgeType::Calls]))
+        .await
+        .unwrap();
+    assert_eq!(calls_only.node_ids.len(), 3, "all nodes always returned");
+    assert_eq!(calls_only.edges.len(), 1, "CALLS filter yields one edge");
+
+    // No filter: both edges.
+    let all = store.export_adjacency(TENANT, None).await.unwrap();
+    assert_eq!(all.edges.len(), 2, "None filter yields both edges");
+}
+
+/// (e) Orphan edge (endpoint absent from nodes) is silently skipped.
+///
+/// We insert a node pair + edge, then delete one of the nodes directly to
+/// create a dangling foreign-key condition (SQLite FK enforcement off for
+/// legacy compatibility). The orphan edge must not appear in the export.
+#[tokio::test]
+async fn test_export_adjacency_orphan_edge_skipped() {
+    let store = test_store().await;
+    let a = GraphNode::new(TENANT, "a.rs", "alpha", NodeType::Function);
+    let b = GraphNode::new(TENANT, "b.rs", "beta", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    let edge = GraphEdge::new(TENANT, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs");
+    store.insert_edges(&[edge]).await.unwrap();
+
+    // Delete node B directly, leaving the edge dangling. The graph_edges→
+    // graph_nodes FK is RESTRICT, so a node with a referencing edge cannot be
+    // deleted while FK enforcement is on. Disable FKs on a single dedicated
+    // connection to synthesise the orphan state the export must defend against.
+    let mut conn = store.pool().acquire().await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM graph_nodes WHERE node_id = ?1")
+        .bind(&b.node_id)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    drop(conn);
+
+    let result = store.export_adjacency(TENANT, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 1, "only A remains");
+    assert!(
+        result.edges.is_empty(),
+        "orphan edge (B missing) must be skipped"
+    );
+}
+
+/// (f) node_ids are sorted deterministically (DOM-01).
+#[tokio::test]
+async fn test_export_adjacency_node_ids_sorted() {
+    let store = test_store().await;
+    // Insert nodes in reverse alphabetical order to confirm sorting.
+    let nodes = vec![
+        GraphNode::new(TENANT, "c.rs", "gamma", NodeType::Function),
+        GraphNode::new(TENANT, "a.rs", "alpha", NodeType::Function),
+        GraphNode::new(TENANT, "b.rs", "beta", NodeType::Function),
+    ];
+    store.upsert_nodes(&nodes).await.unwrap();
+
+    let result = store.export_adjacency(TENANT, None).await.unwrap();
+    assert_eq!(result.node_ids.len(), 3);
+    // node_ids must be in ascending lexicographic order.
+    let mut sorted = result.node_ids.clone();
+    sorted.sort();
+    assert_eq!(
+        result.node_ids, sorted,
+        "node_ids must be sorted by node_id"
+    );
+}

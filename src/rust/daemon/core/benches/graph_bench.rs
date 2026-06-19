@@ -352,16 +352,12 @@ fn bench_pagerank(c: &mut Criterion) {
             let tenant = "bench_tenant";
             rt.block_on(populate_graph(&store, tenant, file_count, funcs));
             let config = PageRankConfig::default();
-            let pool = store.pool();
+            // Materialize the adjacency once; the benchmark measures the
+            // in-memory algorithm, not the export (LOCK-SCOPE / A0.2a).
+            let adj = rt.block_on(store.export_adjacency(tenant, None)).unwrap();
 
             b.iter(|| {
-                rt.block_on(compute_pagerank(
-                    black_box(pool),
-                    black_box(tenant),
-                    black_box(&config),
-                    None,
-                ))
-                .unwrap();
+                black_box(compute_pagerank(black_box(&adj), black_box(&config)));
             });
         });
     }
@@ -383,16 +379,10 @@ fn bench_communities(c: &mut Criterion) {
             let tenant = "bench_tenant";
             rt.block_on(populate_graph(&store, tenant, file_count, funcs));
             let config = CommunityConfig::default();
-            let pool = store.pool();
+            let adj = rt.block_on(store.export_adjacency(tenant, None)).unwrap();
 
             b.iter(|| {
-                rt.block_on(detect_communities(
-                    black_box(pool),
-                    black_box(tenant),
-                    black_box(&config),
-                    None,
-                ))
-                .unwrap();
+                black_box(detect_communities(black_box(&adj), black_box(&config)));
             });
         });
     }
@@ -413,16 +403,14 @@ fn bench_betweenness(c: &mut Criterion) {
             let store = rt.block_on(setup_store(&dir));
             let tenant = "bench_tenant";
             rt.block_on(populate_graph(&store, tenant, file_count, funcs));
-            let pool = store.pool();
+            // Sample 50 sources for realistic perf; export once (A0.2a).
+            let adj = rt.block_on(store.export_adjacency(tenant, None)).unwrap();
 
             b.iter(|| {
-                rt.block_on(compute_betweenness_centrality(
-                    black_box(pool),
-                    black_box(tenant),
-                    None,
-                    Some(50), // sample 50 sources for realistic perf
-                ))
-                .unwrap();
+                black_box(compute_betweenness_centrality(
+                    black_box(&adj),
+                    black_box(Some(50)),
+                ));
             });
         });
     }
