@@ -164,6 +164,13 @@ pub fn export_nodes_ladybug(
 
     for row in &rows {
         if row.len() < 5 {
+            // A node row missing its required columns (node_id..file_path) is
+            // unusable; skip it rather than panic. Log it so a schema/projection
+            // mismatch is visible, mirroring the skipped-edge warning above.
+            warn!(
+                "Skipping malformed node row during ladybug export: {:?}",
+                row
+            );
             continue;
         }
         let symbol_type = match NodeType::from_str(&row[3]) {
@@ -197,6 +204,12 @@ pub fn export_nodes_ladybug(
                 .filter(|&v| v != 0),
             signature: row.get(7).cloned().filter(|s| !s.is_empty()),
             language: row.get(8).cloned().filter(|s| !s.is_empty()),
+            // NOTE: LadybugDB schema has no per-node branches column; branch
+            // lists are not preserved across migration (collapsed to ["main"]).
+            // Tracked as a known gap — see CR-024 / CR-009. A node carrying a
+            // multi-branch list in SQLite round-trips back as ["main"]; the
+            // `test_export_nodes_ladybug_collapses_branches_to_main` test asserts
+            // this loss is visible rather than silent.
             branches: r#"["main"]"#.to_string(),
             qdrant_point_id,
             point_id_state,
@@ -288,4 +301,70 @@ pub fn export_ladybug(
     let nodes = export_nodes_ladybug(store, tenant_id)?;
     let edges = export_edges_ladybug(store, tenant_id)?;
     Ok(GraphSnapshot { nodes, edges })
+}
+
+#[cfg(all(test, feature = "ladybug"))]
+mod tests {
+    use super::*;
+    use crate::graph::{GraphStore, LadybugConfig, LadybugGraphStore};
+    use serial_test::serial;
+
+    /// Small buffer pool: every live LadybugDB `Database` mmaps its buffer pool
+    /// regardless of contents, so tests keep it tiny (and run `#[serial]`) to
+    /// avoid exhausting the address space when several stores exist at once.
+    const TEST_BUFFER_POOL: u64 = 64 * 1024 * 1024;
+
+    /// Build a ladybug store in a fresh temp dir, returning the `TempDir`
+    /// alongside it so the caller keeps the database directory alive for the
+    /// store's lifetime.
+    fn ladybug_store() -> (tempfile::TempDir, LadybugGraphStore) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let config = LadybugConfig {
+            db_path: dir.path().join("graph.kuzu"),
+            buffer_pool_size: TEST_BUFFER_POOL,
+            max_num_threads: 2,
+        };
+        let store = LadybugGraphStore::new(config).expect("create ladybug store");
+        (dir, store)
+    }
+
+    fn node_with_branches(node_id: &str, tenant_id: &str, branches: &str) -> GraphNode {
+        GraphNode {
+            node_id: node_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            symbol_name: "fn_foo".to_string(),
+            symbol_type: NodeType::Function,
+            file_path: "src/lib.rs".to_string(),
+            start_line: Some(10),
+            end_line: Some(20),
+            signature: Some("fn foo()".to_string()),
+            language: Some("rust".to_string()),
+            branches: branches.to_string(),
+            qdrant_point_id: None,
+            point_id_state: "none".to_string(),
+        }
+    }
+
+    /// CR-024: LadybugDB has no per-node branches column, so a multi-branch list
+    /// stored in SQLite cannot survive a SQLite -> LadybugDB -> SQLite round-trip.
+    /// This test pins the *known, documented* loss: a node seeded with
+    /// ["main","feature/foo"] comes back from the ladybug export as ["main"], so
+    /// the gap is asserted and visible rather than silently masked.
+    #[tokio::test]
+    #[serial]
+    async fn test_export_nodes_ladybug_collapses_branches_to_main() {
+        let (_dir, store) = ladybug_store();
+        let tenant = "tenant-cr024";
+        let node = node_with_branches("n1", tenant, r#"["main","feature/foo"]"#);
+        store.upsert_node(&node).await.expect("upsert node");
+
+        let exported = export_nodes_ladybug(&store, Some(tenant)).expect("export nodes");
+
+        assert_eq!(exported.len(), 1, "exactly one node should round-trip");
+        assert_eq!(
+            exported[0].branches, r#"["main"]"#,
+            "branch list is not preserved across LadybugDB migration (known gap, CR-024): \
+             a multi-branch list collapses to [\"main\"]"
+        );
+    }
 }
