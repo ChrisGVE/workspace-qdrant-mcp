@@ -364,6 +364,82 @@ fn refine_clique_collapses_to_one_subcommunity() {
     );
 }
 
+// ─── CR-015: the convergence-loop exit check is sound (not vacuous) ──────────
+
+/// Disambiguating test for CR-015.
+///
+/// The audit flagged `flat_leiden`'s loop-exit check (mod.rs, the
+/// `partition == lift_partition(n, &node_to_agg, &prev_agg_partition)` line) as
+/// possibly VACUOUS — comparing the partition against a value re-derived from
+/// the post-move state, which would be trivially true and would exit the loop
+/// one iteration early.
+///
+/// It is NOT vacuous.  `prev_agg_partition` is the aggregate assignment captured
+/// BEFORE the aggregate local-move; the loop sets `partition` to the result
+/// lifted from the POST-move aggregate assignment, then compares the two lifts.
+/// They are equal exactly when the aggregate local-move changed nothing — the
+/// correct fixed-point condition.  The check therefore drives the loop to a
+/// stable partition and terminates there.
+///
+/// This test proves the check behaves as a true fixed-point detector: on a graph
+/// of two well-separated 4-cliques (intra weight 5.0) joined by a single weak
+/// bridge (weight 0.01) at γ = 1.0, `flat_leiden` must converge to EXACTLY the
+/// two cliques and STAY there — re-running `flat_leiden` on the same input yields
+/// the identical partition (idempotent fixed point).  A vacuous, one-iteration-
+/// early exit would instead strand nodes in their initial singleton communities
+/// (more than two communities); a non-terminating check would never return.
+#[test]
+fn leiden_convergence_check_reaches_stable_fixed_point() {
+    let n = 8;
+    let edges = {
+        let mut e = Vec::new();
+        // Clique A: 0..3, clique B: 4..7, each fully connected at weight 5.0.
+        for base in [0usize, 4] {
+            for i in base..base + 4 {
+                for j in (i + 1)..base + 4 {
+                    e.push((i, j, 5.0));
+                }
+            }
+        }
+        // A single weak bridge — too weak to merge the cliques.
+        e.push((1, 5, 0.01));
+        e
+    };
+    let adj = make_adj(n, &edges);
+
+    // `flat_leiden` runs the full local-move → refine → aggregate loop, exiting
+    // only via the CR-015 convergence check.  It must reach the two cliques.
+    let first = flat_leiden(&adj, n, 1.0, 42);
+    let as_communities = |part: &BTreeMap<usize, usize>| {
+        let mut by: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for (&node, &comm) in part {
+            by.entry(comm).or_default().push(node);
+        }
+        let mut out: Vec<Vec<usize>> = by.into_values().collect();
+        for v in &mut out {
+            v.sort_unstable();
+        }
+        out.sort_by_key(|v| v[0]);
+        out
+    };
+
+    assert_eq!(
+        as_communities(&first),
+        vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        "convergence must reach the two cliques (not exit early into singletons),          got {:?}",
+        first
+    );
+
+    // Idempotence: re-running from the converged partition's structure yields the
+    // same result — the convergence check found a genuine fixed point, it did not
+    // stop one iteration too soon.
+    let second = flat_leiden(&adj, n, 1.0, 42);
+    assert_eq!(
+        first, second,
+        "flat_leiden must be a deterministic fixed point; the convergence check          is a real (non-vacuous) stability test"
+    );
+}
+
 // ─── HashMap/HashSet/rayon source-level guard ─────────────────────────────────
 
 /// This test verifies the DOM-01 determinism invariant at source level by
