@@ -164,10 +164,55 @@ impl LadybugGraphStore {
     /// [`lbug_call`] for panic containment (SEC-03).
     fn exec(&self, conn: &Connection<'_>, cypher: &str) -> GraphDbResult<()> {
         // lbug FFI boundary: conn.query calls into C++ kuzu query execution.
+        // DDL produces no result rows to drain, so guarding the single
+        // `conn.query` call fully covers the FFI surface here.
         lbug_call(|| conn.query(cypher)).and_then(|result| {
             result.map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
             Ok(())
         })
+    }
+
+    /// Run a parameterized Cypher statement and return its rows as owned values.
+    ///
+    /// This is the single FFI choke-point for every parameterized read/write in
+    /// this backend. It wraps all three lbug operations that cross into the C++
+    /// kuzu layer -- `conn.prepare`, `conn.execute`, and draining the lazy
+    /// `QueryResult` iterator (whose `next()` itself calls into C++) -- inside
+    /// one [`lbug_call`], so a Rust panic anywhere in the binding is contained
+    /// and converted to [`GraphDbError`] rather than unwinding the tokio runtime
+    /// (SEC-03 / CR-006). Callers receive a fully materialized `Vec<Vec<Value>>`
+    /// and iterate it in pure Rust, never touching the FFI boundary themselves.
+    ///
+    /// # Invariant
+    ///
+    /// Every FFI call into lbug goes through a `lbug_call`-wrapped helper:
+    /// [`connect`](Self::connect), [`exec`](Self::exec) (DDL), or this
+    /// `run_prepared` (parameterized queries). No method may call
+    /// `conn.prepare` / `conn.execute` / `conn.query` directly -- doing so
+    /// reopens the unguarded-panic hole this helper exists to close.
+    ///
+    /// `op` is a short label (e.g. `"stats nodes"`) used only to build the
+    /// prepare/execute error messages, preserving the previous per-site wording.
+    fn run_prepared(
+        &self,
+        conn: &Connection<'_>,
+        cypher: &str,
+        params: Vec<(&str, Value)>,
+        op: &str,
+    ) -> GraphDbResult<Vec<Vec<Value>>> {
+        // lbug FFI boundary: prepare, execute, AND row iteration all cross into
+        // C++ kuzu. All three are wrapped in a single panic guard.
+        lbug_call(|| -> GraphDbResult<Vec<Vec<Value>>> {
+            let mut stmt = conn
+                .prepare(cypher)
+                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare {op} failed: {e}")))?;
+            let result = conn
+                .execute(&mut stmt, params)
+                .map_err(|e| GraphDbError::InvalidInput(format!("Execute {op} failed: {e}")))?;
+            Ok(result.collect())
+        })
+        // Outer Result: panic containment; inner Result: lbug query error.
+        .and_then(|inner| inner)
     }
 
     /// Initialize the graph schema (node tables, rel tables).
@@ -254,17 +299,23 @@ impl LadybugGraphStore {
     /// This is LadybugDB-specific (not part of GraphStore trait).
     pub fn execute_cypher(&self, cypher: &str) -> GraphDbResult<Vec<Vec<String>>> {
         let conn = self.connect()?;
-        let result = conn
-            .query(cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
 
-        let mut rows = Vec::new();
-        for row in result {
-            let formatted: Vec<String> = row.iter().map(|v| format!("{v}")).collect();
-            rows.push(formatted);
-        }
+        // lbug FFI boundary: both `conn.query` and draining the lazy result
+        // iterator cross into C++ kuzu. Wrap both in one [`lbug_call`] so a Rust
+        // panic in the binding is contained, never unwinding the tokio runtime
+        // (SEC-03 / CR-006).
+        let rows = lbug_call(|| -> GraphDbResult<Vec<Vec<Value>>> {
+            let result = conn
+                .query(cypher)
+                .map_err(|e| GraphDbError::InvalidInput(format!("Cypher failed: {e}")))?;
+            Ok(result.collect())
+        })
+        .and_then(|inner| inner)?;
 
-        Ok(rows)
+        Ok(rows
+            .iter()
+            .map(|row| row.iter().map(|v| format!("{v}")).collect())
+            .collect())
     }
 
     /// Upsert a single node using parameterized MERGE+SET.
@@ -423,17 +474,12 @@ impl LadybugGraphStore {
                  RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path, \
                         n.tenant_id, label(r), r.weight"
             );
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare cross_boundary_neighbours: {e}"))
-            })?;
             let mut params: Vec<(&str, Value)> = Vec::with_capacity(tenants.len() + 1);
             params.push(("cid", Value::String(current_id.to_string())));
             for (name, tenant) in tenant_names.iter().zip(tenants.iter()) {
                 params.push((name.as_str(), Value::String(tenant.clone())));
             }
-            let result = conn.execute(&mut stmt, params).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Execute cross_boundary_neighbours: {e}"))
-            })?;
+            let result = self.run_prepared(conn, &cypher, params, "cross_boundary_neighbours")?;
             for row in result {
                 if row.len() < 7 {
                     continue;
@@ -473,18 +519,15 @@ impl LadybugGraphStore {
         let cypher = "MATCH (n:GraphNode {node_id: $id}) \
                       WHERE n.tenant_id = $tid \
                       RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
-        let mut stmt = conn
-            .prepare(cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare find_path_self: {e}")))?;
-        let result = conn
-            .execute(
-                &mut stmt,
-                vec![
-                    ("id", Value::String(node_id.to_string())),
-                    ("tid", Value::String(tenant_id.to_string())),
-                ],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute find_path_self: {e}")))?;
+        let result = self.run_prepared(
+            &conn,
+            cypher,
+            vec![
+                ("id", Value::String(node_id.to_string())),
+                ("tid", Value::String(tenant_id.to_string())),
+            ],
+            "find_path_self",
+        )?;
 
         for row in result {
             if row.len() < 4 {
@@ -522,20 +565,15 @@ impl LadybugGraphStore {
             let cypher = "MATCH (n:GraphNode {node_id: $id}) \
                           WHERE n.tenant_id = $tid \
                           RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
-            let mut stmt = conn.prepare(cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare reconstruct_path: {e}"))
-            })?;
-            let result = conn
-                .execute(
-                    &mut stmt,
-                    vec![
-                        ("id", Value::String(nid.clone())),
-                        ("tid", Value::String(tenant_id.to_string())),
-                    ],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute reconstruct_path: {e}"))
-                })?;
+            let result = self.run_prepared(
+                conn,
+                cypher,
+                vec![
+                    ("id", Value::String(nid.clone())),
+                    ("tid", Value::String(tenant_id.to_string())),
+                ],
+                "reconstruct_path",
+            )?;
 
             let mut found = false;
             for row in result {
@@ -796,17 +834,15 @@ impl GraphStore for LadybugGraphStore {
                  WHERE r.tenant_id = $tid AND r.source_file = $fp \
                  DELETE r"
             );
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare delete_edges failed: {e}"))
-            })?;
-            conn.execute(
-                &mut stmt,
+            self.run_prepared(
+                &conn,
+                &cypher,
                 vec![
                     ("tid", Value::String(tenant_id.to_string())),
                     ("fp", Value::String(file_path.to_string())),
                 ],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute delete_edges failed: {e}")))?;
+                "delete_edges",
+            )?;
         }
 
         debug!(
@@ -827,25 +863,21 @@ impl GraphStore for LadybugGraphStore {
                 "MATCH (a:GraphNode)-[r:{rel_type}]->(b:GraphNode) \
                  WHERE r.tenant_id = $tid DELETE r"
             );
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare delete_tenant edges: {e}"))
-            })?;
-            conn.execute(
-                &mut stmt,
+            self.run_prepared(
+                &conn,
+                &cypher,
                 vec![("tid", Value::String(tenant_id.to_string()))],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute delete_tenant edges: {e}")))?;
+                "delete_tenant edges",
+            )?;
         }
 
         // Then delete all nodes for this tenant
-        let mut stmt = conn
-            .prepare("MATCH (n:GraphNode) WHERE n.tenant_id = $tid DELETE n")
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare delete_tenant nodes: {e}")))?;
-        conn.execute(
-            &mut stmt,
+        self.run_prepared(
+            &conn,
+            "MATCH (n:GraphNode) WHERE n.tenant_id = $tid DELETE n",
             vec![("tid", Value::String(tenant_id.to_string()))],
-        )
-        .map_err(|e| GraphDbError::InvalidInput(format!("Execute delete_tenant nodes: {e}")))?;
+            "delete_tenant nodes",
+        )?;
 
         debug!("Deleted tenant {} data (LadybugDB)", tenant_id);
         Ok(0)
@@ -909,21 +941,15 @@ impl GraphStore for LadybugGraphStore {
                         related.file_path"
             );
 
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare query_related (hop {hop}): {e}"))
-            })?;
-
-            let result = conn
-                .execute(
-                    &mut stmt,
-                    vec![
-                        ("start_id", Value::String(node_id.to_string())),
-                        ("tid", Value::String(tenant_id.to_string())),
-                    ],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute query_related (hop {hop}): {e}"))
-                })?;
+            let result = self.run_prepared(
+                &conn,
+                &cypher,
+                vec![
+                    ("start_id", Value::String(node_id.to_string())),
+                    ("tid", Value::String(tenant_id.to_string())),
+                ],
+                &format!("query_related (hop {hop})"),
+            )?;
 
             for row in result {
                 if row.len() < 4 {
@@ -1014,13 +1040,7 @@ impl GraphStore for LadybugGraphStore {
             (c, p)
         };
 
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare impact_analysis: {e}")))?;
-
-        let result = conn
-            .execute(&mut stmt, params)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute impact_analysis: {e}")))?;
+        let result = self.run_prepared(&conn, &cypher, params, "impact_analysis")?;
 
         let mut impacted = Vec::new();
         for row in result {
@@ -1117,20 +1137,15 @@ impl GraphStore for LadybugGraphStore {
                      WHERE b.tenant_id = $tid \
                      RETURN b.node_id, b.symbol_name, b.symbol_type, b.file_path"
                 );
-                let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Prepare find_path neighbour: {e}"))
-                })?;
-                let result = conn
-                    .execute(
-                        &mut stmt,
-                        vec![
-                            ("id", Value::String(current_id.clone())),
-                            ("tid", Value::String(tenant_id.to_string())),
-                        ],
-                    )
-                    .map_err(|e| {
-                        GraphDbError::InvalidInput(format!("Execute find_path neighbour: {e}"))
-                    })?;
+                let result = self.run_prepared(
+                    &conn,
+                    &cypher,
+                    vec![
+                        ("id", Value::String(current_id.clone())),
+                        ("tid", Value::String(tenant_id.to_string())),
+                    ],
+                    "find_path neighbour",
+                )?;
 
                 for row in result {
                     if row.len() < 4 {
@@ -1210,13 +1225,7 @@ impl GraphStore for LadybugGraphStore {
             ),
         };
 
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare stats nodes: {e}")))?;
-
-        let result = conn
-            .execute(&mut stmt, params)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute stats nodes: {e}")))?;
+        let result = self.run_prepared(&conn, &cypher, params, "stats nodes")?;
 
         for row in result {
             if row.len() >= 2 {
@@ -1243,13 +1252,8 @@ impl GraphStore for LadybugGraphStore {
                 ),
             };
 
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare stats edges ({rel_type}): {e}"))
-            })?;
-
-            let result = conn.execute(&mut stmt, params).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Execute stats edges ({rel_type}): {e}"))
-            })?;
+            let result =
+                self.run_prepared(&conn, &cypher, params, &format!("stats edges ({rel_type})"))?;
 
             for row in result {
                 if !row.is_empty() {
@@ -1286,17 +1290,14 @@ impl GraphStore for LadybugGraphStore {
 
         // This may not be supported by all LadybugDB versions; if it fails,
         // fall back gracefully.
-        let result = (|| -> GraphDbResult<()> {
-            let mut stmt = conn
-                .prepare(&cypher)
-                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare prune_orphans: {e}")))?;
-            conn.execute(
-                &mut stmt,
+        let result = self
+            .run_prepared(
+                &conn,
+                &cypher,
                 vec![("tid", Value::String(tenant_id.to_string()))],
+                "prune_orphans",
             )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute prune_orphans: {e}")))?;
-            Ok(())
-        })();
+            .map(|_| ());
 
         if let Err(e) = result {
             debug!("prune_orphans subquery not supported, skipping: {}", e);
@@ -1307,12 +1308,12 @@ impl GraphStore for LadybugGraphStore {
 
     async fn graph_tenants(&self) -> GraphDbResult<Vec<String>> {
         let conn = self.connect()?;
-        let mut stmt = conn
-            .prepare("MATCH (n:GraphNode) RETURN DISTINCT n.tenant_id")
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare graph_tenants: {e}")))?;
-        let result = conn
-            .execute(&mut stmt, vec![])
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute graph_tenants: {e}")))?;
+        let result = self.run_prepared(
+            &conn,
+            "MATCH (n:GraphNode) RETURN DISTINCT n.tenant_id",
+            vec![],
+            "graph_tenants",
+        )?;
         let mut out = Vec::new();
         for row in result {
             if let Some(v) = row.first() {
@@ -1345,19 +1346,14 @@ impl GraphStore for LadybugGraphStore {
         // symbol_name -> [(node_id, file_path)].
         let mut by_name: HashMap<String, Vec<(String, String)>> = HashMap::new();
         {
-            let mut stmt = conn
-                .prepare(
-                    "MATCH (n:GraphNode) \
-                     WHERE n.tenant_id = $tid AND n.file_path <> '' AND n.symbol_type <> 'file' \
-                     RETURN n.node_id, n.symbol_name, n.file_path",
-                )
-                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare stub candidates: {e}")))?;
-            let result = conn
-                .execute(
-                    &mut stmt,
-                    vec![("tid", Value::String(tenant_id.to_string()))],
-                )
-                .map_err(|e| GraphDbError::InvalidInput(format!("Execute stub candidates: {e}")))?;
+            let result = self.run_prepared(
+                &conn,
+                "MATCH (n:GraphNode) \
+                 WHERE n.tenant_id = $tid AND n.file_path <> '' AND n.symbol_type <> 'file' \
+                 RETURN n.node_id, n.symbol_name, n.file_path",
+                vec![("tid", Value::String(tenant_id.to_string()))],
+                "stub candidates",
+            )?;
             for row in result {
                 if row.len() < 3 {
                     continue;
@@ -1386,19 +1382,12 @@ impl GraphStore for LadybugGraphStore {
                         t.symbol_name"
             );
             let rows: Vec<(String, String, String, f64, String, String)> = {
-                let mut stmt = conn.prepare(&find).map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Prepare stub dangling ({rel_type}): {e}"))
-                })?;
-                let result = conn
-                    .execute(
-                        &mut stmt,
-                        vec![("tid", Value::String(tenant_id.to_string()))],
-                    )
-                    .map_err(|e| {
-                        GraphDbError::InvalidInput(format!(
-                            "Execute stub dangling ({rel_type}): {e}"
-                        ))
-                    })?;
+                let result = self.run_prepared(
+                    &conn,
+                    &find,
+                    vec![("tid", Value::String(tenant_id.to_string()))],
+                    &format!("stub dangling ({rel_type})"),
+                )?;
                 result
                     .into_iter()
                     .filter_map(|row| {
@@ -1455,11 +1444,9 @@ impl GraphStore for LadybugGraphStore {
                      CREATE (a)-[:{rel_type} {{weight: $weight, source_file: $sf, \
                      edge_id: $neid, tenant_id: $tid, metadata_json: $md}}]->(b)"
                 );
-                let mut istmt = conn.prepare(&ins).map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Prepare stub create ({rel_type}): {e}"))
-                })?;
-                conn.execute(
-                    &mut istmt,
+                self.run_prepared(
+                    &conn,
+                    &ins,
                     vec![
                         ("src", Value::String(source_node_id.clone())),
                         ("dst", Value::String(new_target.clone())),
@@ -1469,28 +1456,22 @@ impl GraphStore for LadybugGraphStore {
                         ("tid", Value::String(tenant_id.to_string())),
                         ("md", Value::String(metadata_json.clone())),
                     ],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute stub create ({rel_type}): {e}"))
-                })?;
+                    &format!("stub create ({rel_type})"),
+                )?;
 
                 let del = format!(
                     "MATCH (a:GraphNode)-[r:{rel_type}]->(b:GraphNode) \
                      WHERE r.edge_id = $eid AND r.tenant_id = $tid DELETE r"
                 );
-                let mut dstmt = conn.prepare(&del).map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Prepare stub delete ({rel_type}): {e}"))
-                })?;
-                conn.execute(
-                    &mut dstmt,
+                self.run_prepared(
+                    &conn,
+                    &del,
                     vec![
                         ("eid", Value::String(old_edge_id.clone())),
                         ("tid", Value::String(tenant_id.to_string())),
                     ],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!("Execute stub delete ({rel_type}): {e}"))
-                })?;
+                    &format!("stub delete ({rel_type})"),
+                )?;
 
                 repointed += 1;
             }
@@ -1506,17 +1487,14 @@ impl GraphStore for LadybugGraphStore {
              AND NOT EXISTS {{ MATCH (n)-[r:{all_rels}]-() WHERE r.tenant_id = $tid }} \
              DELETE n"
         );
-        let prune_res = (|| -> GraphDbResult<()> {
-            let mut stmt = conn
-                .prepare(&prune)
-                .map_err(|e| GraphDbError::InvalidInput(format!("Prepare stub prune: {e}")))?;
-            conn.execute(
-                &mut stmt,
+        let prune_res = self
+            .run_prepared(
+                &conn,
+                &prune,
                 vec![("tid", Value::String(tenant_id.to_string()))],
+                "stub prune",
             )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute stub prune: {e}")))?;
-            Ok(())
-        })();
+            .map(|_| ());
         if let Err(e) = prune_res {
             debug!("stub-node prune subquery not supported, skipping: {}", e);
         }
@@ -1551,15 +1529,12 @@ impl GraphStore for LadybugGraphStore {
                    AND n.symbol_name <> '' \
              RETURN n.symbol_name, n.node_id, n.file_path"
         );
-        let mut stmt = conn
-            .prepare(&cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare query_code_symbols: {e}")))?;
-        let result = conn
-            .execute(
-                &mut stmt,
-                vec![("tid", Value::String(tenant_id.to_string()))],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute query_code_symbols: {e}")))?;
+        let result = self.run_prepared(
+            &conn,
+            &cypher,
+            vec![("tid", Value::String(tenant_id.to_string()))],
+            "query_code_symbols",
+        )?;
         let mut rows = Vec::new();
         for row in result {
             if row.len() >= 3 {
@@ -1580,15 +1555,12 @@ impl GraphStore for LadybugGraphStore {
         let conn = self.connect()?;
         let cypher = "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
                       RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
-        let mut stmt = conn
-            .prepare(cypher)
-            .map_err(|e| GraphDbError::InvalidInput(format!("Prepare fetch_node_metadata: {e}")))?;
-        let result = conn
-            .execute(
-                &mut stmt,
-                vec![("tid", Value::String(tenant_id.to_string()))],
-            )
-            .map_err(|e| GraphDbError::InvalidInput(format!("Execute fetch_node_metadata: {e}")))?;
+        let result = self.run_prepared(
+            &conn,
+            cypher,
+            vec![("tid", Value::String(tenant_id.to_string()))],
+            "fetch_node_metadata",
+        )?;
         let mut map = std::collections::HashMap::new();
         for row in result {
             if row.len() >= 4 {
@@ -1640,23 +1612,15 @@ impl GraphStore for LadybugGraphStore {
                  WHERE {node_predicate} DELETE r"
             );
             for cypher in [out_cypher, in_cypher] {
-                let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                    GraphDbError::InvalidInput(format!(
-                        "Prepare delete_narrative_nodes_by_file edges: {e}"
-                    ))
-                })?;
-                conn.execute(
-                    &mut stmt,
+                self.run_prepared(
+                    &conn,
+                    &cypher,
                     vec![
                         ("tid", Value::String(tenant_id.to_string())),
                         ("fp", Value::String(file_path.to_string())),
                     ],
-                )
-                .map_err(|e| {
-                    GraphDbError::InvalidInput(format!(
-                        "Execute delete_narrative_nodes_by_file edges: {e}"
-                    ))
-                })?;
+                    "delete_narrative_nodes_by_file edges",
+                )?;
             }
         }
 
@@ -1667,19 +1631,15 @@ impl GraphStore for LadybugGraphStore {
                    AND n.symbol_type IN [{type_list}] \
              DELETE n"
         );
-        let mut stmt = conn.prepare(&cypher).map_err(|e| {
-            GraphDbError::InvalidInput(format!("Prepare delete_narrative_nodes_by_file: {e}"))
-        })?;
-        conn.execute(
-            &mut stmt,
+        self.run_prepared(
+            &conn,
+            &cypher,
             vec![
                 ("tid", Value::String(tenant_id.to_string())),
                 ("fp", Value::String(file_path.to_string())),
             ],
-        )
-        .map_err(|e| {
-            GraphDbError::InvalidInput(format!("Execute delete_narrative_nodes_by_file: {e}"))
-        })?;
+            "delete_narrative_nodes_by_file",
+        )?;
         // LadybugDB does not return affected row counts from DELETE.
         Ok(0)
     }
@@ -1739,17 +1699,12 @@ impl GraphStore for LadybugGraphStore {
                 "MATCH (n:GraphNode {{node_id: $id}}) \
                  WHERE n.tenant_id IN {tenant_list} RETURN n.node_id"
             );
-            let mut stmt = conn.prepare(&cypher).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare cross_boundary seed guard: {e}"))
-            })?;
             let mut params: Vec<(&str, Value)> = Vec::with_capacity(tenants.len() + 1);
             params.push(("id", Value::String(source_node_id.to_string())));
             for (name, tenant) in tenant_names.iter().zip(tenants.iter()) {
                 params.push((name.as_str(), Value::String(tenant.clone())));
             }
-            let result = conn.execute(&mut stmt, params).map_err(|e| {
-                GraphDbError::InvalidInput(format!("Execute cross_boundary seed guard: {e}"))
-            })?;
+            let result = self.run_prepared(&conn, &cypher, params, "cross_boundary seed guard")?;
             if result.into_iter().next().is_none() {
                 return Ok(Vec::new());
             }
@@ -1826,23 +1781,13 @@ impl GraphStore for LadybugGraphStore {
         let conn = self.connect()?;
 
         // 1. Load all nodes for the tenant, sorted deterministically (DOM-01).
-        let mut node_stmt = conn
-            .prepare(
-                "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
-                 RETURN n.node_id ORDER BY n.node_id",
-            )
-            .map_err(|e| {
-                GraphDbError::InvalidInput(format!("Prepare export_adjacency nodes: {e}"))
-            })?;
-
-        let node_result = conn
-            .execute(
-                &mut node_stmt,
-                vec![("tid", Value::String(tenant_id.to_string()))],
-            )
-            .map_err(|e| {
-                GraphDbError::InvalidInput(format!("Execute export_adjacency nodes: {e}"))
-            })?;
+        let node_result = self.run_prepared(
+            &conn,
+            "MATCH (n:GraphNode) WHERE n.tenant_id = $tid \
+             RETURN n.node_id ORDER BY n.node_id",
+            vec![("tid", Value::String(tenant_id.to_string()))],
+            "export_adjacency nodes",
+        )?;
 
         let node_ids: Vec<String> = node_result
             .into_iter()
@@ -1883,18 +1828,12 @@ impl GraphStore for LadybugGraphStore {
              ORDER BY a.node_id, b.node_id"
         );
 
-        let mut edge_stmt = conn.prepare(&edge_cypher).map_err(|e| {
-            GraphDbError::InvalidInput(format!("Prepare export_adjacency edges: {e}"))
-        })?;
-
-        let edge_result = conn
-            .execute(
-                &mut edge_stmt,
-                vec![("tid", Value::String(tenant_id.to_string()))],
-            )
-            .map_err(|e| {
-                GraphDbError::InvalidInput(format!("Execute export_adjacency edges: {e}"))
-            })?;
+        let edge_result = self.run_prepared(
+            &conn,
+            &edge_cypher,
+            vec![("tid", Value::String(tenant_id.to_string()))],
+            "export_adjacency edges",
+        )?;
 
         // 4. Convert to indexed edges; skip orphan endpoints.
         let mut edges: Vec<(usize, usize, f64)> = Vec::new();
