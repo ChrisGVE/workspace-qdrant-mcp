@@ -1011,7 +1011,13 @@ impl GraphStore for LadybugGraphStore {
             let mut next_frontier: Vec<Vec<String>> = Vec::new();
 
             for path in &frontier {
-                let current_id = path.last().expect("path is non-empty");
+                // A frontier path is never empty by construction (every entry
+                // starts with `source_id` and only grows). Handle the empty
+                // case gracefully rather than panicking: a panic here would
+                // unwind the tokio runtime on a fallible async path (CR-020).
+                let Some(current_id) = path.last() else {
+                    continue;
+                };
 
                 // Single-hop outgoing neighbour query for this node.
                 let cypher = format!(
