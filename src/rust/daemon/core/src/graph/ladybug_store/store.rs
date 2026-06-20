@@ -101,10 +101,13 @@ pub struct LadybugGraphStore {
     graph_rag: crate::config::GraphRagConfig,
 }
 
-// Safety: Database is Send+Sync per lbug crate documentation.
-// Connection is also Send+Sync per the lbug crate.
-unsafe impl Send for LadybugGraphStore {}
-unsafe impl Sync for LadybugGraphStore {}
+// `LadybugGraphStore` is automatically Send + Sync: every field is already
+// Send + Sync. `lbug 0.14.1` declares `unsafe impl Send/Sync` for `Database`
+// (database.rs:13-14) and `Connection` (connection.rs:74-75) — "synchronized on
+// the C++ side" — so the inline `Database`, the `Mutex<()>`, `LadybugConfig`,
+// and `GraphRagConfig` all carry the marker traits through auto-derivation. The
+// previous manual `unsafe impl Send/Sync` here was redundant (CR-005); removing
+// it lets the compiler prove thread-safety instead of asserting it by hand.
 
 // ---- Constructor and helpers -------------------------------------------------
 
