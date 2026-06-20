@@ -590,6 +590,49 @@ fn tenant_param_list(count: usize) -> (String, Vec<String>) {
     (fragment, names)
 }
 
+/// An in-progress cross-boundary BFS path.
+///
+/// Carries two views of the same path so cycle detection and result formatting
+/// stay independent:
+/// - `visited` is the ordered set of node-ids already on the path. The acyclic
+///   guard tests membership here with exact id comparison.
+/// - `display` is the human-readable `"a -> b -> c"` string stored on the
+///   resulting [`TraversalNode::path`] and parsed by `apply_fan_out_caps` for
+///   concept attribution.
+///
+/// Splitting the two fixes CR-021: the old code derived the cycle check by
+/// splitting `display` on " -> ", so a node_id containing that separator
+/// corrupted the parse and could wrongly exclude (or admit) a node.
+struct CrossBoundaryPath {
+    visited: Vec<String>,
+    display: String,
+}
+
+impl CrossBoundaryPath {
+    /// Start a path at the source node.
+    fn seed(source_node_id: &str) -> Self {
+        Self {
+            visited: vec![source_node_id.to_string()],
+            display: source_node_id.to_string(),
+        }
+    }
+
+    /// Whether `node_id` is already on this path (exact match, no string split).
+    fn visits(&self, node_id: &str) -> bool {
+        self.visited.iter().any(|id| id == node_id)
+    }
+
+    /// Extend the path by one hop to `node_id`, returning the new path.
+    fn extend(&self, node_id: &str) -> Self {
+        let mut visited = self.visited.clone();
+        visited.push(node_id.to_string());
+        Self {
+            visited,
+            display: format!("{} -> {}", self.display, node_id),
+        }
+    }
+}
+
 // ---- Value helpers -----------------------------------------------------------
 
 /// A node reached in one cross-boundary hop, with the reaching edge's type and
@@ -1635,10 +1678,18 @@ impl GraphStore for LadybugGraphStore {
         // guard so we never traverse through a foreign tenant.
         let mut reached: std::collections::HashMap<String, TraversalNode> =
             std::collections::HashMap::new();
-        // Frontier maps node_id -> path string up to that node (source first).
-        let mut frontier: std::collections::HashMap<String, String> =
+        // Each frontier entry maps a node_id to the [`CrossBoundaryPath`] that
+        // reached it: the display path string (used for `TraversalNode.path`
+        // and concept attribution in `apply_fan_out_caps`) plus the ordered set
+        // of node-ids already visited on that path. The visited set drives the
+        // acyclic guard via exact id comparison; a node_id that itself contains
+        // the path separator " -> " no longer corrupts cycle detection (CR-021).
+        let mut frontier: std::collections::HashMap<String, CrossBoundaryPath> =
             std::collections::HashMap::new();
-        frontier.insert(source_node_id.to_string(), source_node_id.to_string());
+        frontier.insert(
+            source_node_id.to_string(),
+            CrossBoundaryPath::seed(source_node_id),
+        );
 
         // Seed-ownership guard (parity with SQLite): only traverse when the
         // source node belongs to the relaxation set (source_tenant ∪
@@ -1668,17 +1719,20 @@ impl GraphStore for LadybugGraphStore {
         }
 
         for depth in 1..=hops {
-            let mut next: std::collections::HashMap<String, String> =
+            let mut next: std::collections::HashMap<String, CrossBoundaryPath> =
                 std::collections::HashMap::new();
             for (current_id, current_path) in &frontier {
                 let neighbours =
                     self.cross_boundary_neighbours(&conn, current_id, &rel_pattern, &tenants)?;
                 for nb in neighbours {
-                    // Acyclic guard: skip nodes already on this path.
-                    if current_path.split(" -> ").any(|seg| seg == nb.node_id) {
+                    // Acyclic guard: skip nodes already on this path. Compares
+                    // whole node-ids (not " -> "-split substrings), so an id that
+                    // contains the separator cannot trigger a false revisit.
+                    if current_path.visits(&nb.node_id) {
                         continue;
                     }
-                    let new_path = format!("{current_path} -> {}", nb.node_id);
+                    let extended = current_path.extend(&nb.node_id);
+                    let new_path = extended.display.clone();
                     let confidence = nb.weight
                         * crate::graph::cross_boundary::edge_type_base_confidence(&nb.edge_type);
                     // Record the shallowest reach; on equal depth keep the
@@ -1712,7 +1766,7 @@ impl GraphStore for LadybugGraphStore {
                         }
                     }
                     // Continue BFS from the first (shortest) path to this node.
-                    next.entry(nb.node_id.clone()).or_insert(new_path);
+                    next.entry(nb.node_id.clone()).or_insert(extended);
                 }
             }
             frontier = next;

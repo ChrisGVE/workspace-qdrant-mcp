@@ -1099,3 +1099,67 @@ async fn test_query_related_under_cap_returns_full_set() {
         "both reachable nodes returned (well under the cap)"
     );
 }
+
+// ---- Cross-boundary cycle detection with separator in node id (CR-021) -------
+
+/// Cross-boundary traversal must use exact node-id comparison for its acyclic
+/// guard, not a " -> " string split. This builds a 2-hop path through an
+/// intermediate node whose id literally contains the path separator " -> ":
+///
+/// ```text
+///   src ("S", tenant T)
+///     --IMPLEMENTS_CONCEPT--> mid ("a -> b", __global__ concept)
+///     --IMPLEMENTS_CONCEPT--> dst ("b", tenant T)
+/// ```
+///
+/// With the old split-based guard, after reaching `mid` the path string was
+/// `"S -> a -> b"`; splitting it yielded the segment `"b"`, so `dst` (id `"b"`)
+/// was wrongly treated as already visited and excluded. The visited-set guard
+/// compares whole ids, so `dst` is reached.
+#[tokio::test]
+#[serial]
+async fn test_cross_boundary_node_id_contains_separator() {
+    let (store, _tmp) = fresh_store("graph_cb_separator");
+
+    // Source in tenant T; mid is a global concept whose id contains " -> ";
+    // dst is in tenant T with id "b" (the trailing split segment of mid's id).
+    let mut src = GraphNode::new(T, "s.rs", "src_fn", NodeType::Function);
+    src.node_id = "S".to_string();
+    let mut mid = GraphNode::new("__global__", "", "concept", NodeType::ConceptNode);
+    mid.node_id = "a -> b".to_string();
+    let mut dst = GraphNode::new(T, "d.rs", "dst_fn", NodeType::Function);
+    dst.node_id = "b".to_string();
+
+    store
+        .upsert_nodes(&[src.clone(), mid.clone(), dst.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &src.node_id, &mid.node_id, EdgeType::ImplementsConcept, "s.rs"),
+            GraphEdge::new(
+                "__global__",
+                &mid.node_id,
+                &dst.node_id,
+                EdgeType::ImplementsConcept,
+                "",
+            ),
+        ])
+        .await
+        .unwrap();
+
+    let results = store
+        .query_cross_boundary(T, &src.node_id, &[EdgeType::ImplementsConcept], 2, &[])
+        .await
+        .unwrap();
+
+    let ids: Vec<&str> = results.iter().map(|n| n.node_id.as_str()).collect();
+    assert!(
+        ids.contains(&"a -> b"),
+        "mid (id with separator) reached at hop 1, got {ids:?}"
+    );
+    assert!(
+        ids.contains(&"b"),
+        "dst reached at hop 2 (not falsely excluded by split), got {ids:?}"
+    );
+}
