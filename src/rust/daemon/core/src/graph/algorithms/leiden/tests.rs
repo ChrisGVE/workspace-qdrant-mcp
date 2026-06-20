@@ -298,6 +298,72 @@ fn leiden_two_disconnected_pairs() {
     );
 }
 
+// ─── CR-014: refinement cut-weight must not be halved ─────────────────────────
+
+/// Build a symmetrised `UndirAdj` directly from an edge list (each edge added
+/// in both directions), matching the shape produced by `build_undirected_adj`.
+fn make_adj(n: usize, edges: &[(usize, usize, f64)]) -> UndirAdj {
+    let mut adj: UndirAdj = vec![BTreeMap::new(); n];
+    for &(i, j, w) in edges {
+        *adj[i].entry(j).or_insert(0.0) += w;
+        *adj[j].entry(i).or_insert(0.0) += w;
+    }
+    adj
+}
+
+/// Disambiguating test for CR-014.
+///
+/// `refine_partition` gates every sub-community merge on the Traag 2019
+/// well-connectedness condition `w(T, C\T) > γ·|T|·(|C|−|T|)`.  The cut weight
+/// `w(T, C\T)` is summed by iterating ONLY the candidate-side members `T` and
+/// keeping edges whose other endpoint lies in `C\T`, so each cut edge is
+/// visited exactly once (the opposite endpoint, being outside `T`, is never
+/// iterated).  Dividing that single-count sum by 2 therefore HALVES the cut and
+/// spuriously fails the well-connectedness check, fragmenting a genuinely
+/// well-connected community into singletons.
+///
+/// Fixture: one phase-1 community `C = {0,1,2,3}` that is a 4-clique with every
+/// edge weight 1.5, at γ = 1.0.  Hand computation for a singleton candidate
+/// `T = {1}` (|T| = 1, |C| = 4):
+///   - true cut  w({1}, {0,2,3}) = 1.5 + 1.5 + 1.5 = 4.5
+///   - threshold γ·|T|·(|C|−|T|) = 1.0 · 1 · 3       = 3.0
+///   true cut 4.5 > 3.0  →  well-connected, so the merge is allowed (and its
+///   CPM gain 1.5 − 1.0 = 0.5 > 0, so it actually happens).
+/// With an erroneous `/2.0` the computed cut is 4.5/2 = 2.25 < 3.0, so EVERY
+/// candidate is rejected and the clique stays as four singleton sub-communities.
+///
+/// A clique is the textbook maximally well-connected community: correct
+/// refinement collapses it into a SINGLE sub-community.
+#[test]
+fn refine_clique_collapses_to_one_subcommunity() {
+    // 4-clique on {0,1,2,3}, uniform weight 1.5 (the disambiguating weight).
+    let edges = vec![
+        (0, 1, 1.5),
+        (0, 2, 1.5),
+        (0, 3, 1.5),
+        (1, 2, 1.5),
+        (1, 3, 1.5),
+        (2, 3, 1.5),
+    ];
+    let adj = make_adj(4, &edges);
+
+    // Single phase-1 community containing all four nodes.
+    let phase1: BTreeMap<usize, usize> = (0..4).map(|i| (i, 0usize)).collect();
+
+    let refined = refine_partition(&adj, 4, &phase1, 1.0, 42);
+
+    let distinct: std::collections::BTreeSet<usize> = refined.values().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        1,
+        "a γ-well-connected 4-clique must refine to ONE sub-community, got {} \
+         sub-communities: {:?} (halving the cut weight under-counts \
+         well-connectedness and fragments the clique)",
+        distinct.len(),
+        refined
+    );
+}
+
 // ─── HashMap/HashSet/rayon source-level guard ─────────────────────────────────
 
 /// This test verifies the DOM-01 determinism invariant at source level by
