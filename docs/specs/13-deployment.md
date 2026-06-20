@@ -114,6 +114,18 @@ A C++ compiler is additionally required for grammars with C++ external scanners 
 
 If no compiler is found, the daemon logs a warning and falls back to text-based chunking for that language.
 
+**Build-from-source prerequisite — Clang/LLVM (LadybugDB C++ core):**
+
+Building `memexd` from source requires Clang/LLVM to compile the LadybugDB C++ core, which is the default graph backend. This applies only to source builds — pre-built release binaries do not need it.
+
+| Platform | Toolchain | Install Command |
+|----------|-----------|-----------------|
+| macOS | Clang (Xcode CLT) | `xcode-select --install` |
+| Linux (Debian/Ubuntu) | Clang | `apt install clang libclang-dev` |
+| Linux (Fedora/RHEL) | Clang | `dnf install clang` |
+
+For environments without a C++ toolchain, build the SQLite-only graph backend instead: `cargo build --no-default-features --features sqlite`.
+
 **Release Verification:**
 The CI release workflow (`release.yml`) enforces self-contained binaries via:
 1. Per-platform dependency verification scripts (`scripts/verify-deps-{linux,macos,windows}.*`) that **fail the build** if unexpected dynamic dependencies are found

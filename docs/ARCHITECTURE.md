@@ -242,7 +242,7 @@ Databases (under the platform data dir, e.g. `~/.local/share/workspace-qdrant/`)
 |----------|----------|
 | `state.db` | watch folders, tracked files, unified queue, rules mirror, tenants |
 | `search.db` | FTS5 indexes, file metadata, indexed-content cache |
-| `graph.db` | code-relationship graph (nodes, edges, CTE queries) |
+| `graph.db` | code-relationship graph (nodes, edges; LadybugDB default · SQLite CTE fallback — see `graph.backend` in configuration) |
 | `daemon_state.db` | daemon runtime bookkeeping |
 
 Conventions:
@@ -291,7 +291,7 @@ Behavioral rules live in the `rules` collection (with a SQLite mirror for fast l
 - **Shared**: `src/rust/common/`, `src/rust/proto/`, `src/rust/client/`
 
 **Version**: 2.0
-**Last Updated**: 2026-06-16
+**Last Updated**: 2026-06-19
 **Spec Alignment**: docs/specs/ (modular specification)
 **ADR Alignment**: ADR-001 (canonical collections), ADR-002 (daemon-only writes), ADR-003 (daemon owns SQLite)
 **Updates**: Rewritten for the all-Rust architecture (daemon + MCP server + CLI); removed obsolete Python/FastMCP component model

@@ -53,6 +53,15 @@ impl Default for CommunityConfig {
 /// `symbol_name`, `symbol_type`, and `file_path` fields in the returned members
 /// are left empty; callers that need display metadata should enrich the results
 /// separately after this function returns.
+///
+/// # References
+/// - Raghavan, Albert & Kumara, "Near linear time algorithm to detect community
+///   structures in large-scale networks", Physical Review E 76, 036106, 2007.
+///   <https://doi.org/10.1103/PhysRevE.76.036106>
+///
+/// Note: this implementation uses a deterministic min-label tiebreak (see the
+/// `max_by` comparator below) instead of the paper's random tiebreak, to make
+/// community assignment reproducible across runs.
 pub fn detect_communities(adj: &AdjacencyExport, config: &CommunityConfig) -> Vec<Community> {
     let n = adj.node_ids.len();
     if n == 0 {

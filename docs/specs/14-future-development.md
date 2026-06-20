@@ -212,7 +212,7 @@ This ensures that graph queries from MCP/CLI are never starved by sustained writ
 **Phase 1 — SQLite CTEs (zero new dependencies): COMPLETE (2026-02-24)**
 - Dedicated `graph.db` SQLite database with adjacency tables (separate from `state.db` to avoid lock contention)
 - `GraphStore` trait with `SqliteGraphStore` implementation (recursive CTEs for multi-hop traversal)
-- `LadybugGraphStore` stub implementation behind `ladybug` feature flag
+- `LadybugGraphStore` production implementation (now the default in memexd; conformance-tested in `core/tests/graph_backend_conformance.rs`)
 - `SharedGraphStore` wrapper providing `Arc<dyn GraphStore>` for concurrent access
 - `GraphDbManager` for schema creation, migrations, and WAL mode configuration
 - Edge extractor (`graph::extractor`) deriving relationships from tree-sitter semantic chunks (CALLS, CONTAINS, IMPORTS, USES_TYPE, EXTENDS, IMPLEMENTS)
@@ -232,18 +232,18 @@ This ensures that graph queries from MCP/CLI are never starved by sustained writ
 - Impact analysis: ~821μs (target: <100ms) ✓
 - Community detection (4K nodes): ~76ms (target: <5s) ✓
 
-**Phase 2 — LadybugDB upgrade (when deep queries needed):**
-- Add `lbug` crate dependency with `LadybugGraphStore` implementation of same `GraphStore` trait
+**Phase 2 — LadybugDB upgrade: COMPLETE (A0.7)**
+- Added `lbug` crate dependency with `LadybugGraphStore` implementation of the same `GraphStore` trait
 - Full Cypher support: multi-hop traversal, path finding, graph algorithms
 - Community detection, centrality analysis, impact analysis
-- Feature-flag or config toggle between SQLite and LadybugDB backends
+- Config toggle between SQLite and LadybugDB backends (`graph.backend`); LadybugDB is now the shipped default
 - Dedicated `~/.workspace-qdrant/graph/` storage directory for LadybugDB
 
 ##### Graph Database Evaluation (2026-02-23 update)
 
 | DB | License | Embeddable | Query Language | Concurrent R/W | Status | Verdict |
 |----|---------|------------|----------------|----------------|--------|---------|
-| LadybugDB (lbug) | MIT | Yes (in-process) | Cypher | MVCC / single writer | Active (Jan 2026, v0.14.2) | **Phase 2 target** — best embeddable property graph |
+| LadybugDB (lbug) | MIT | Yes (in-process) | Cypher | MVCC / single writer | Active (Jan 2026, v0.14.2) | **Shipped (A0.7 — default backend)** — best embeddable property graph |
 | HelixDB | AGPL-3.0 | No (server only) | Custom HelixQL | Yes (server) | Active (Feb 2026) | **Rejected** — AGPL incompatible with MIT, server-only |
 | CozoDB | MPL-2.0 | Yes (in-process) | Datalog | RocksDB: full | Stalled (Dec 2023) | **Rejected** — stalled development, Datalog not Cypher |
 | IndraDB | MPL-2.0 | Yes (in-process) | None (Rust API) | Backend-dependent | Low (Aug 2025) | **Rejected** — no query language, low maintenance |

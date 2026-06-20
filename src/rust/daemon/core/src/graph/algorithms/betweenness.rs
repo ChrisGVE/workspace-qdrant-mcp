@@ -30,6 +30,13 @@ pub struct BetweennessEntry {
 /// `symbol_name`, `symbol_type`, and `file_path` fields in the returned entries
 /// are left empty; callers that need display metadata should enrich the results
 /// separately after this function returns.
+///
+/// # References
+/// - Brandes, "A Faster Algorithm for Betweenness Centrality",
+///   J. Math. Sociology 25(2):163-177, 2001.
+///   <https://doi.org/10.1080/0022250X.2001.9990249>
+/// - Bader, Kintali, Madduri & Mihail, "Approximating Betweenness Centrality",
+///   ALENEX 2007 (sampling approximation used when `max_samples` is set).
 pub fn compute_betweenness_centrality(
     adj: &AdjacencyExport,
     max_samples: Option<usize>,
