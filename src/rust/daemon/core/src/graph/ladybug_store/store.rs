@@ -318,6 +318,28 @@ impl LadybugGraphStore {
             .collect())
     }
 
+    /// Execute a parameterized Cypher query and return results as formatted
+    /// strings, with every user value bound as a `$param` (never interpolated).
+    ///
+    /// LadybugDB-specific (not part of the `GraphStore` trait). Used by the
+    /// migrator exporters to bind a tenant filter (`$tid`) safely instead of
+    /// `format!`-interpolating it into the query text — closing the Cypher
+    /// injection hole an attacker-controlled tenant id would otherwise open
+    /// (CR-007). Runs through the [`run_prepared`](Self::run_prepared)
+    /// choke-point, so it is also panic-guarded (SEC-03 / CR-006).
+    pub fn execute_cypher_with_params(
+        &self,
+        cypher: &str,
+        params: Vec<(&str, Value)>,
+    ) -> GraphDbResult<Vec<Vec<String>>> {
+        let conn = self.connect()?;
+        let rows = self.run_prepared(&conn, cypher, params, "execute_cypher_with_params")?;
+        Ok(rows
+            .iter()
+            .map(|row| row.iter().map(|v| format!("{v}")).collect())
+            .collect())
+    }
+
     /// Upsert a single node using parameterized MERGE+SET.
     ///
     /// MERGE matches on `node_id` (primary key); SET updates all properties.
