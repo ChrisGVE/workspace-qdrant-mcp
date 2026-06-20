@@ -350,6 +350,90 @@ async fn test_ladybug_query_related_edge_filter() {
     assert_eq!(related[0].symbol_name, "baz");
 }
 
+/// CR-011 regression: `query_related` must report each reached node exactly
+/// once, at its TRUE minimum depth, even when the same node is reachable by
+/// several paths of different lengths. This pins the minimum-depth + dedup
+/// contract of the per-hop `*k..k` loop, which CR-011 kept (lbug 0.14.1 rejects
+/// the single-query `ALL SHORTEST` form that would otherwise replace it).
+///
+/// Graph (all CALLS edges):
+/// ```text
+///        a
+///       / \
+///      b   c        b,c at depth 1
+///       \ /
+///        d          d at depth 2 (two equal-shortest paths a->b->d, a->c->d)
+///        |
+///        e          e at depth 3
+///        |
+///        a  (e -> a back-edge)  introduces a longer cyclic route to b/c/d
+/// ```
+/// The back-edge `e -> a` means a naive walk would also reach `d` at depth 5
+/// (a->b->d->e->a->c->d ... ) and beyond; the rewrite must still pin `d` to its
+/// shortest depth 2 and emit it once. Asserts the reached set and per-node
+/// minimum depth, which is the contract the old per-hop `*k..k` loop guaranteed.
+#[tokio::test]
+#[serial]
+async fn test_query_related_min_depth_with_multiple_paths() {
+    let (store, _tmp) = fresh_store("graph_qr_diamond");
+
+    let a = GraphNode::new(T, "a.rs", "a_fn", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "b_fn", NodeType::Function);
+    let c = GraphNode::new(T, "c.rs", "c_fn", NodeType::Function);
+    let d = GraphNode::new(T, "d.rs", "d_fn", NodeType::Function);
+    let e = GraphNode::new(T, "e.rs", "e_fn", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone(), d.clone(), e.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &a.node_id, &c.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &d.node_id, EdgeType::Calls, "b.rs"),
+            GraphEdge::new(T, &c.node_id, &d.node_id, EdgeType::Calls, "c.rs"),
+            GraphEdge::new(T, &d.node_id, &e.node_id, EdgeType::Calls, "d.rs"),
+            GraphEdge::new(T, &e.node_id, &a.node_id, EdgeType::Calls, "e.rs"),
+        ])
+        .await
+        .unwrap();
+
+    // max_hops large enough to admit the cyclic long routes, so the rewrite is
+    // exercised against the case where naive walks would inflate the depth.
+    let related = store
+        .query_related(T, &a.node_id, 5, None, None)
+        .await
+        .unwrap();
+
+    // Each reachable node appears exactly once.
+    let mut by_name: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+    for n in &related {
+        assert!(
+            by_name.insert(n.symbol_name.as_str(), n.depth).is_none(),
+            "node {} reported more than once",
+            n.symbol_name
+        );
+    }
+
+    // b,c at depth 1; d at depth 2; e at depth 3. The back-edge e -> a makes the
+    // start node `a` reachable from itself, at its shortest cycle length 4
+    // (a->b->d->e->a) — recorded just as the old per-hop `*4..4` query would have
+    // matched it. The minimum-depth contract is what both implementations share.
+    assert_eq!(by_name.get("b_fn"), Some(&1), "b at min depth 1");
+    assert_eq!(by_name.get("c_fn"), Some(&1), "c at min depth 1");
+    assert_eq!(by_name.get("d_fn"), Some(&2), "d at min depth 2 (not a longer cyclic route)");
+    assert_eq!(by_name.get("e_fn"), Some(&3), "e at min depth 3");
+    assert_eq!(by_name.get("a_fn"), Some(&4), "start node reachable via cycle at min depth 4");
+
+    // Result is sorted by (depth, symbol_name): b,c (d=1), d (d=2), e (d=3), a (d=4).
+    let order: Vec<&str> = related.iter().map(|n| n.symbol_name.as_str()).collect();
+    assert_eq!(
+        order,
+        vec!["b_fn", "c_fn", "d_fn", "e_fn", "a_fn"],
+        "depth-then-name ordering"
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn test_ladybug_impact_analysis() {

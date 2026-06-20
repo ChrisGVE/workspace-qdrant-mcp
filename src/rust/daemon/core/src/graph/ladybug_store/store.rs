@@ -573,66 +573,162 @@ impl LadybugGraphStore {
         Ok(None)
     }
 
-    /// Fetch each node in `path` (ordered vec of node_ids) from the graph and
-    /// return them as `TraversalNode`s with `depth` = index in the path.
+    /// Turn an already-traversed BFS path into `TraversalNode`s, with `depth` =
+    /// index in the path.
     ///
-    /// Called once the BFS has confirmed the full path exists. Re-queries each
-    /// node to populate all `TraversalNode` fields consistently with the rest of
-    /// the LadybugDB backend.
-    fn reconstruct_path(
-        &self,
-        tenant_id: &str,
-        path: &[String],
-        conn: &Connection<'_>,
-    ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
-        let mut nodes = Vec::with_capacity(path.len());
-        for (depth, nid) in path.iter().enumerate() {
-            let cypher = "MATCH (n:GraphNode {node_id: $id}) \
-                          WHERE n.tenant_id = $tid \
-                          RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
-            let result = self.run_prepared(
-                conn,
-                cypher,
-                vec![
-                    ("id", Value::String(nid.clone())),
-                    ("tid", Value::String(tenant_id.to_string())),
-                ],
-                "reconstruct_path",
-            )?;
+    /// The forward BFS in [`find_path`](Self::find_path) already fetched every
+    /// node's `(symbol_name, symbol_type, file_path)` columns when it expanded
+    /// the frontier and carries them on each [`PathNode`]. Reconstruction
+    /// therefore reads straight from memory and issues **no** further queries.
+    /// Previously this re-queried every node on the path — a second wave of
+    /// per-node FFI lookups for nodes the BFS had already seen (the N+1 in
+    /// CR-011); capturing the columns during the forward pass removes it.
+    ///
+    /// There is no "node vanished mid-path" branch anymore: the columns were
+    /// captured at traversal time, so they cannot disappear between the BFS and
+    /// reconstruction (the old per-node re-query could race a concurrent delete;
+    /// reading from the captured path cannot).
+    fn reconstruct_path(&self, tenant_id: &str, path: &[PathNode]) -> Vec<TraversalNode> {
+        path.iter()
+            .enumerate()
+            .map(|(depth, node)| TraversalNode {
+                node_id: node.node_id.clone(),
+                symbol_name: node.symbol_name.clone(),
+                symbol_type: node.symbol_type.clone(),
+                file_path: node.file_path.clone(),
+                edge_type: String::new(),
+                depth: depth as u32,
+                path: String::new(),
+                tenant_id: tenant_id.to_string(),
+                edge_confidence: 1.0,
+            })
+            .collect()
+    }
 
-            let mut found = false;
-            for row in result {
-                if row.len() < 4 {
-                    continue;
-                }
-                nodes.push(TraversalNode {
-                    node_id: value_to_string(&row[0]),
-                    symbol_name: value_to_string(&row[1]),
-                    symbol_type: value_to_string(&row[2]),
-                    file_path: value_to_string(&row[3]),
-                    edge_type: String::new(),
-                    depth: depth as u32,
-                    path: String::new(),
-                    tenant_id: tenant_id.to_string(),
-                    edge_confidence: 1.0,
-                });
-                found = true;
-                break;
+    /// Fetch one node's identity columns by id within `tenant_id`, returning
+    /// `None` when it does not exist. Used to seed the `find_path` BFS with the
+    /// source node (the only path entry never seen as a neighbour row). One FFI
+    /// round-trip, through the [`run_prepared`](Self::run_prepared) choke-point.
+    fn fetch_path_node(
+        &self,
+        conn: &Connection<'_>,
+        tenant_id: &str,
+        node_id: &str,
+    ) -> GraphDbResult<Option<PathNode>> {
+        let cypher = "MATCH (n:GraphNode {node_id: $id}) \
+                      WHERE n.tenant_id = $tid \
+                      RETURN n.node_id, n.symbol_name, n.symbol_type, n.file_path";
+        let result = self.run_prepared(
+            conn,
+            cypher,
+            vec![
+                ("id", Value::String(node_id.to_string())),
+                ("tid", Value::String(tenant_id.to_string())),
+            ],
+            "find_path source seed",
+        )?;
+        for row in result {
+            if row.len() < 4 {
+                continue;
             }
-            if !found {
-                // A node in a valid path disappeared from the graph (concurrent
-                // delete race). Treat as no path rather than returning a partial
-                // result — matches SQLite's JOIN behaviour where a missing node
-                // simply drops the row.
-                debug!(
-                    "find_path reconstruct: node {} vanished mid-path for tenant {}",
-                    nid, tenant_id
-                );
-                return Ok(None);
+            return Ok(Some(PathNode {
+                node_id: value_to_string(&row[0]),
+                symbol_name: value_to_string(&row[1]),
+                symbol_type: value_to_string(&row[2]),
+                file_path: value_to_string(&row[3]),
+            }));
+        }
+        Ok(None)
+    }
+
+    /// Fetch the 1-hop outgoing neighbours of EVERY node in `current_ids` over
+    /// `rel_pattern`, in a single query, grouped by their source node-id.
+    ///
+    /// This collapses the `find_path` per-hop N+1 (CR-011): instead of one
+    /// neighbour query per frontier path, one bound IN-list query returns all
+    /// neighbours for the whole frontier at once. `a.node_id` is returned so the
+    /// caller can route each neighbour back to the path(s) it extends. The ids
+    /// are bound as parameters (`[$n0,$n1,...]`) — never interpolated — reusing
+    /// the same mechanism as [`cross_boundary_neighbours`](Self::cross_boundary_neighbours).
+    fn find_path_neighbours(
+        &self,
+        conn: &Connection<'_>,
+        tenant_id: &str,
+        current_ids: &[String],
+        rel_pattern: &str,
+    ) -> GraphDbResult<std::collections::HashMap<String, Vec<PathNode>>> {
+        let mut by_source: std::collections::HashMap<String, Vec<PathNode>> =
+            std::collections::HashMap::new();
+        if current_ids.is_empty() {
+            return Ok(by_source);
+        }
+
+        // Bind one parameter per source id: `a.node_id IN [$n0,$n1,...]`.
+        let names: Vec<String> = (0..current_ids.len()).map(|i| format!("n{i}")).collect();
+        let id_list = format!(
+            "[{}]",
+            names
+                .iter()
+                .map(|n| format!("${n}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let cypher = format!(
+            "MATCH (a:GraphNode)-[:{rel_pattern}*1..1]->(b:GraphNode) \
+             WHERE a.node_id IN {id_list} AND b.tenant_id = $tid \
+             RETURN a.node_id, b.node_id, b.symbol_name, b.symbol_type, b.file_path"
+        );
+        let mut params: Vec<(&str, Value)> = Vec::with_capacity(current_ids.len() + 1);
+        params.push(("tid", Value::String(tenant_id.to_string())));
+        for (name, id) in names.iter().zip(current_ids.iter()) {
+            params.push((name.as_str(), Value::String(id.clone())));
+        }
+
+        let result = self.run_prepared(conn, &cypher, params, "find_path neighbours")?;
+        for row in result {
+            if row.len() < 5 {
+                continue;
+            }
+            let source_id = value_to_string(&row[0]);
+            by_source.entry(source_id).or_default().push(PathNode {
+                node_id: value_to_string(&row[1]),
+                symbol_name: value_to_string(&row[2]),
+                symbol_type: value_to_string(&row[3]),
+                file_path: value_to_string(&row[4]),
+            });
+        }
+        Ok(by_source)
+    }
+}
+
+/// Collect the distinct tail (current) node-ids across all frontier paths, so
+/// the per-hop neighbour query fetches each source node only once even when
+/// several in-progress paths currently end at the same node. Order is
+/// deterministic (first-seen) and irrelevant: the result feeds an IN-list and a
+/// lookup map.
+fn distinct_frontier_tails(frontier: &[Vec<PathNode>]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ids = Vec::new();
+    for path in frontier {
+        if let Some(tail) = path.last() {
+            if seen.insert(tail.node_id.clone()) {
+                ids.push(tail.node_id.clone());
             }
         }
-        Ok(Some(nodes))
     }
+    ids
+}
+
+/// One node on an in-progress `find_path` BFS path, carrying the identity
+/// columns the neighbour query already returned for it. Capturing them here lets
+/// [`reconstruct_path`](LadybugGraphStore::reconstruct_path) build the result
+/// without a second per-node query (CR-011).
+#[derive(Clone)]
+struct PathNode {
+    node_id: String,
+    symbol_name: String,
+    symbol_type: String,
+    file_path: String,
 }
 
 /// Build a parameterized Cypher tenant IN-list. Returns the bracketed fragment
@@ -945,8 +1041,20 @@ impl GraphStore for LadybugGraphStore {
         // SQLite reports the TRUE minimum depth per reached node. Kuzu's
         // variable-length `*1..n` pattern cannot expose per-row depth directly,
         // so we query each exact hop length `*k..k` in ascending order and keep
-        // the first (minimum) depth at which a node is reached. The last edge's
-        // type is captured for parity with the SQLite `edge_type` column.
+        // the first (minimum) depth at which a node is reached.
+        //
+        // CR-011 — why this stays an N-query loop on lbug 0.14.1: the ideal fix
+        // is a single `... ALL SHORTEST 1..max_hops ...` query that returns each
+        // node at its shortest length in one round-trip. lbug 0.14.1's Cypher
+        // parser REJECTS the `ALL SHORTEST` keyword ("Parser exception: expected
+        // rule oC_SingleQuery" at the `ALL` token), and the bare default `*1..n`
+        // is VARIABLE_LENGTH_WALK — it enumerates every walk (cyclic revisits
+        // included), which both loses the per-row minimum depth and risks an
+        // exponential row blow-up that defeats the CR-010 frontier cap. With
+        // neither a working shortest-path keyword nor a safe single-query form on
+        // this version, the per-hop `*k..k` loop is the correct shape: it is
+        // O(max_hops) FFI calls (small, bounded) and gives exact min-depth. Revisit
+        // if a future lbug accepts `ALL SHORTEST`.
         let mut by_node: std::collections::HashMap<String, TraversalNode> =
             std::collections::HashMap::new();
 
@@ -1126,71 +1234,69 @@ impl GraphStore for LadybugGraphStore {
         };
 
         // Rust-side BFS replicating SQLite's `WITH RECURSIVE bfs` logic:
-        //   - Each candidate is a full path (Vec<String> of node_ids) rather
-        //     than just a frontier node, so the no-revisit check is O(path len)
-        //     and the reconstruction step is trivial.
+        //   - Each candidate is a full path (Vec<PathNode>) carrying every node's
+        //     identity columns, so the no-revisit check is O(path len) and
+        //     reconstruction reads from memory with no extra query (CR-011).
         //   - We process complete hop levels in ascending order, so the first
         //     time target_id is reached it is guaranteed to be a minimum-hop path.
         //   - Tie-breaking among equal-depth paths is implementation-defined
         //     (matches SQLite, which also gives no tie-break guarantee via LIMIT 1
         //     on the CTE result); tests use unique-shortest-path fixtures only.
 
-        // frontier: list of in-progress paths, each ending at the current node.
-        let mut frontier: Vec<Vec<String>> = vec![vec![source_id.to_string()]];
-
         let conn = self.connect()?;
+
+        // The source node is the only path entry that is never returned as a
+        // neighbour row, so fetch its identity columns once to seed the path.
+        // A single query, not an N+1 (CR-011). A missing source means no path.
+        let Some(source_node) = self.fetch_path_node(&conn, tenant_id, source_id)? else {
+            return Ok(None);
+        };
+
+        // frontier: list of in-progress paths, each ending at the current node.
+        let mut frontier: Vec<Vec<PathNode>> = vec![vec![source_node]];
 
         for _hop in 0..max_depth {
             if frontier.is_empty() {
                 break;
             }
-            let mut next_frontier: Vec<Vec<String>> = Vec::new();
 
+            // CR-011: expand the WHOLE frontier with ONE neighbour query per hop
+            // instead of one per frontier path. We collect the distinct current
+            // node-ids, fetch every neighbour in a single bound IN-list query,
+            // then expand each path against that map in pure Rust. FFI calls per
+            // hop drop from O(frontier size) to O(1); kuzu query compilation is
+            // entered once per hop rather than once per path.
+            let current_ids = distinct_frontier_tails(&frontier);
+            let neighbours_by_source =
+                self.find_path_neighbours(&conn, tenant_id, &current_ids, &rel_pattern)?;
+
+            let mut next_frontier: Vec<Vec<PathNode>> = Vec::new();
             for path in &frontier {
                 // A frontier path is never empty by construction (every entry
                 // starts with `source_id` and only grows). Handle the empty
                 // case gracefully rather than panicking: a panic here would
                 // unwind the tokio runtime on a fallible async path (CR-020).
-                let Some(current_id) = path.last() else {
+                let Some(current) = path.last() else {
                     continue;
                 };
+                let Some(neighbours) = neighbours_by_source.get(&current.node_id) else {
+                    continue; // this node had no outgoing neighbours
+                };
 
-                // Single-hop outgoing neighbour query for this node.
-                let cypher = format!(
-                    "MATCH (a:GraphNode {{node_id: $id}})\
-                     -[:{rel_pattern}*1..1]->(b:GraphNode) \
-                     WHERE b.tenant_id = $tid \
-                     RETURN b.node_id, b.symbol_name, b.symbol_type, b.file_path"
-                );
-                let result = self.run_prepared(
-                    &conn,
-                    &cypher,
-                    vec![
-                        ("id", Value::String(current_id.clone())),
-                        ("tid", Value::String(tenant_id.to_string())),
-                    ],
-                    "find_path neighbour",
-                )?;
-
-                for row in result {
-                    if row.len() < 4 {
-                        continue;
-                    }
-                    let neighbour_id = value_to_string(&row[0]);
-
-                    // No-revisit within this path (mirrors SQLite's INSTR check).
-                    if path.contains(&neighbour_id) {
+                for neighbour in neighbours {
+                    // No-revisit within this path (mirrors SQLite's INSTR check),
+                    // comparing whole node-ids.
+                    if path.iter().any(|n| n.node_id == neighbour.node_id) {
                         continue;
                     }
 
                     let mut new_path = path.clone();
-                    new_path.push(neighbour_id.clone());
+                    new_path.push(neighbour.clone());
 
-                    if neighbour_id == target_id {
-                        // Found the target — reconstruct TraversalNode vec and return.
-                        // The final node's fields are already in `row`; all prior
-                        // nodes in the path must be fetched from the graph.
-                        return self.reconstruct_path(tenant_id, &new_path, &conn);
+                    if neighbour.node_id == target_id {
+                        // Found the target — every node on the path already
+                        // carries its columns, so reconstruction needs no query.
+                        return Ok(Some(self.reconstruct_path(tenant_id, &new_path)));
                     }
 
                     // Frontier cap (CR-010): a dense graph can blow the frontier
