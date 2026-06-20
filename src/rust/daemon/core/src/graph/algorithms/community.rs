@@ -1,5 +1,5 @@
 /// Community detection using label propagation algorithm.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
@@ -54,6 +54,13 @@ impl Default for CommunityConfig {
 /// are left empty; callers that need display metadata should enrich the results
 /// separately after this function returns.
 ///
+/// # Determinism (DOM-01)
+/// Neighbour sets and per-iteration label tallies use ordered collections
+/// (`BTreeSet`/`BTreeMap`) rather than hash collections so that iteration order
+/// is input-determined, matching the sibling Leiden implementation. Combined
+/// with the min-label tiebreak below, the output (node → community assignment)
+/// is identical across runs on identical input.
+///
 /// # References
 /// - Raghavan, Albert & Kumara, "Near linear time algorithm to detect community
 ///   structures in large-scale networks", Physical Review E 76, 036106, 2007.
@@ -81,8 +88,10 @@ pub fn detect_communities(adj: &AdjacencyExport, config: &CommunityConfig) -> Ve
 }
 
 /// Build an undirected neighbour map (index → set of neighbour indices).
-fn build_undirected_neighbors(n: usize, edges: &[(usize, usize, f64)]) -> Vec<HashSet<usize>> {
-    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+///
+/// Uses `BTreeSet` so neighbour iteration order is deterministic (DOM-01).
+fn build_undirected_neighbors(n: usize, edges: &[(usize, usize, f64)]) -> Vec<BTreeSet<usize>> {
+    let mut neighbors: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
     for &(src, tgt, _w) in edges {
         if src != tgt {
             neighbors[src].insert(tgt);
@@ -95,7 +104,7 @@ fn build_undirected_neighbors(n: usize, edges: &[(usize, usize, f64)]) -> Vec<Ha
 /// Run label-propagation until convergence or `max_iterations`.
 fn run_label_propagation(
     n: usize,
-    neighbors: &[HashSet<usize>],
+    neighbors: &[BTreeSet<usize>],
     config: &CommunityConfig,
 ) -> Vec<u32> {
     let mut labels: Vec<u32> = (0..n as u32).collect();
@@ -106,7 +115,9 @@ fn run_label_propagation(
             if neighbors[i].is_empty() {
                 continue;
             }
-            let mut label_counts: HashMap<u32, usize> = HashMap::new();
+            // BTreeMap keeps the tally iteration order input-determined (DOM-01);
+            // the min-label tiebreak below then resolves ties reproducibly.
+            let mut label_counts: BTreeMap<u32, usize> = BTreeMap::new();
             for &nbr in &neighbors[i] {
                 *label_counts.entry(labels[nbr]).or_default() += 1;
             }
@@ -129,8 +140,11 @@ fn run_label_propagation(
 }
 
 /// Group labeled nodes into `Community` values and sort by size descending.
+///
+/// Uses `BTreeMap` so the label → members grouping is built in a deterministic
+/// order (DOM-01), independent of hash randomization.
 fn assemble_communities(labels: &[u32], node_ids: &[String], min_size: usize) -> Vec<Community> {
-    let mut groups: HashMap<u32, Vec<CommunityMember>> = HashMap::new();
+    let mut groups: BTreeMap<u32, Vec<CommunityMember>> = BTreeMap::new();
     for (i, &label) in labels.iter().enumerate() {
         groups.entry(label).or_default().push(CommunityMember {
             node_id: node_ids[i].clone(),
@@ -164,11 +178,24 @@ fn assemble_communities(labels: &[u32], node_ids: &[String], min_size: usize) ->
 mod tests {
     use super::*;
     use crate::graph::AdjacencyExport;
+    use std::collections::BTreeMap;
 
     fn make_export(n: usize, edges: Vec<(usize, usize)>) -> AdjacencyExport {
         let node_ids: Vec<String> = (0..n).map(|i| format!("n{}", i)).collect();
         let edges: Vec<(usize, usize, f64)> = edges.into_iter().map(|(s, t)| (s, t, 1.0)).collect();
         AdjacencyExport { node_ids, edges }
+    }
+
+    /// Flatten communities into a `node_id → community_id` membership map so two
+    /// runs can be compared at the member level (not just by community count).
+    fn membership_map(communities: &[Community]) -> BTreeMap<String, u32> {
+        let mut map = BTreeMap::new();
+        for community in communities {
+            for member in &community.members {
+                map.insert(member.node_id.clone(), community.community_id);
+            }
+        }
+        map
     }
 
     #[test]
@@ -254,6 +281,10 @@ mod tests {
         }
     }
 
+    /// DOM-01: two runs on identical input must produce identical community
+    /// membership, not merely an identical community count. This asserts the
+    /// node → community assignment is stable, which is only guaranteed because
+    /// the tallies and neighbour sets use ordered (BTree) collections.
     #[test]
     fn test_communities_identical_output_on_identical_input() {
         let adj = make_export(
@@ -274,10 +305,19 @@ mod tests {
         let config = CommunityConfig::default();
         let r1 = detect_communities(&adj, &config);
         let r2 = detect_communities(&adj, &config);
+
         assert_eq!(r1.len(), r2.len(), "community count must be deterministic");
         for (c1, c2) in r1.iter().zip(r2.iter()) {
             assert_eq!(c1.community_id, c2.community_id);
             assert_eq!(c1.members.len(), c2.members.len());
         }
+
+        // Member-level equality: every node lands in the same community across
+        // both runs (the real determinism guarantee, not just the count).
+        assert_eq!(
+            membership_map(&r1),
+            membership_map(&r2),
+            "node → community assignment must be identical across runs"
+        );
     }
 }
