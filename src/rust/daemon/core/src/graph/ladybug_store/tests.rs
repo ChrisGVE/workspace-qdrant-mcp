@@ -1003,3 +1003,50 @@ async fn test_lbug_export_adjacency_node_ids_sorted() {
         "node_ids must be sorted by node_id"
     );
 }
+
+// ---- Narrative-node deletion (CR-008) ----------------------------------------
+
+/// A narrative node with an incident edge can be deleted without a referential
+/// -integrity error. LadybugDB enforces node<->edge integrity, so the delete
+/// must remove incident edges before the node itself (mirroring `delete_tenant`).
+/// Asserts the call succeeds and both the node and its edge are gone.
+#[tokio::test]
+#[serial]
+async fn test_ladybug_delete_narrative_nodes_by_file_with_incident_edge() {
+    let (store, _tmp) = fresh_store("graph_del_narrative_edge");
+
+    // A document_section narrative node that owns "doc.md", plus a code node it
+    // explains. The EXPLAINS edge makes the narrative node a live endpoint.
+    let section = GraphNode::new(T, "doc.md", "intro", NodeType::DocumentSection);
+    let code = GraphNode::new(T, "lib.rs", "do_work", NodeType::Function);
+    store
+        .upsert_nodes(&[section.clone(), code.clone()])
+        .await
+        .unwrap();
+
+    let edge = GraphEdge::new(
+        T,
+        &section.node_id,
+        &code.node_id,
+        EdgeType::Explains,
+        "doc.md",
+    );
+    store.insert_edges(&[edge]).await.unwrap();
+
+    let before = store.stats(Some(T), None).await.unwrap();
+    assert_eq!(before.total_nodes, 2, "section + code node present");
+    assert_eq!(before.total_edges, 1, "EXPLAINS edge present");
+
+    // Must not error despite the incident edge.
+    store
+        .delete_narrative_nodes_by_file(T, "doc.md")
+        .await
+        .expect("delete_narrative_nodes_by_file must not error on incident edges");
+
+    let after = store.stats(Some(T), None).await.unwrap();
+    assert_eq!(
+        after.total_nodes, 1,
+        "narrative section gone, code node remains"
+    );
+    assert_eq!(after.total_edges, 0, "incident EXPLAINS edge removed too");
+}

@@ -1498,6 +1498,50 @@ impl GraphStore for LadybugGraphStore {
             .map(|t| format!("'{t}'"))
             .collect::<Vec<_>>()
             .join(",");
+
+        // Edge-first deletion (mirrors `delete_tenant`). LadybugDB enforces
+        // node<->edge referential integrity, so a narrative node that is the
+        // endpoint of any edge (e.g. an EXPLAINS edge to the code it documents)
+        // cannot be deleted while that edge exists. Delete every incident edge
+        // across all rel types -- in both directions, since a narrative node
+        // may be the source (EXPLAINS) or the target (REFERENCES_DOC) -- before
+        // removing the nodes themselves.
+        let node_predicate = format!(
+            "m.tenant_id = $tid AND m.file_path = $fp \
+             AND m.symbol_type IN [{type_list}]"
+        );
+        for rel_type in ALL_REL_TYPES {
+            // Outgoing (narrative -> other) and incoming (other -> narrative).
+            let out_cypher = format!(
+                "MATCH (m:GraphNode)-[r:{rel_type}]->(:GraphNode) \
+                 WHERE {node_predicate} DELETE r"
+            );
+            let in_cypher = format!(
+                "MATCH (:GraphNode)-[r:{rel_type}]->(m:GraphNode) \
+                 WHERE {node_predicate} DELETE r"
+            );
+            for cypher in [out_cypher, in_cypher] {
+                let mut stmt = conn.prepare(&cypher).map_err(|e| {
+                    GraphDbError::InvalidInput(format!(
+                        "Prepare delete_narrative_nodes_by_file edges: {e}"
+                    ))
+                })?;
+                conn.execute(
+                    &mut stmt,
+                    vec![
+                        ("tid", Value::String(tenant_id.to_string())),
+                        ("fp", Value::String(file_path.to_string())),
+                    ],
+                )
+                .map_err(|e| {
+                    GraphDbError::InvalidInput(format!(
+                        "Execute delete_narrative_nodes_by_file edges: {e}"
+                    ))
+                })?;
+            }
+        }
+
+        // Now the (edge-free) narrative nodes can be removed.
         let cypher = format!(
             "MATCH (n:GraphNode) \
              WHERE n.tenant_id = $tid AND n.file_path = $fp \
