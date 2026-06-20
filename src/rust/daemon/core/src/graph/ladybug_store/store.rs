@@ -73,6 +73,15 @@ const NARRATIVE_FILE_NODE_TYPES: &[&str] = &[
     "docstring",
 ];
 
+/// Upper bound on the number of in-progress BFS paths (the frontier) held at
+/// once in `find_path` and `query_related`. A dense or highly connected graph
+/// can grow the frontier exponentially per hop; without a cap a single query
+/// could exhaust process memory (a local denial-of-service). When the frontier
+/// would exceed this size we stop expanding and return the best result found so
+/// far. This mirrors the intent of `apply_fan_out_caps` in `cross_boundary`,
+/// which bounds fan-out for the cross-tenant traversal.
+pub(super) const MAX_FRONTIER_PATHS: usize = 10_000;
+
 // ---- Store struct ------------------------------------------------------------
 
 /// LadybugDB-backed graph store.
@@ -830,7 +839,8 @@ impl GraphStore for LadybugGraphStore {
         let mut by_node: std::collections::HashMap<String, TraversalNode> =
             std::collections::HashMap::new();
 
-        for hop in 1..=max_hops {
+        // Labeled so the frontier cap below can stop the whole traversal.
+        'hops: for hop in 1..=max_hops {
             // Kuzu does not allow projecting a property off an indexed element
             // of a recursive-rel list (`rels[i].edge_type`), so we return only
             // node identity. `edge_type` is left empty for the per-hop result;
@@ -878,6 +888,17 @@ impl GraphStore for LadybugGraphStore {
                     tenant_id: tenant_id.to_string(),
                     edge_confidence: 1.0,
                 });
+
+                // Frontier cap (CR-010): a dense graph can return an enormous
+                // result set. Once we have collected the cap, stop traversing
+                // and return what we have rather than risking OOM.
+                if by_node.len() >= MAX_FRONTIER_PATHS {
+                    warn!(
+                        "query_related result reached cap ({}); returning partial set",
+                        MAX_FRONTIER_PATHS
+                    );
+                    break 'hops;
+                }
             }
         }
         let mut nodes: Vec<TraversalNode> = by_node.into_values().collect();
@@ -1062,6 +1083,18 @@ impl GraphStore for LadybugGraphStore {
                         return self.reconstruct_path(tenant_id, &new_path, &conn);
                     }
 
+                    // Frontier cap (CR-010): a dense graph can blow the frontier
+                    // up exponentially. Once we hit the cap, stop expanding and
+                    // give up the search — the target was not reached within the
+                    // budget, so return Ok(None) just as we do when paths are
+                    // exhausted.
+                    if next_frontier.len() >= MAX_FRONTIER_PATHS {
+                        warn!(
+                            "find_path frontier reached cap ({}); returning no path",
+                            MAX_FRONTIER_PATHS
+                        );
+                        return Ok(None);
+                    }
                     next_frontier.push(new_path);
                 }
             }

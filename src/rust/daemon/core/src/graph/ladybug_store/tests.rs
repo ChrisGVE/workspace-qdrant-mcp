@@ -1050,3 +1050,52 @@ async fn test_ladybug_delete_narrative_nodes_by_file_with_incident_edge() {
     );
     assert_eq!(after.total_edges, 0, "incident EXPLAINS edge removed too");
 }
+
+// ---- BFS frontier cap (CR-010) -----------------------------------------------
+
+/// The frontier cap is a positive bound that guards the `find_path` and
+/// `query_related` BFS loops against unbounded memory growth on dense graphs.
+/// A regression that removed or zeroed the cap would either disable the guard
+/// or break every traversal; this asserts the constant stays a sane bound.
+#[test]
+fn test_max_frontier_paths_is_a_sane_bound() {
+    use super::store::MAX_FRONTIER_PATHS;
+    assert!(MAX_FRONTIER_PATHS >= 1_000, "cap must allow real traversals");
+    assert!(
+        MAX_FRONTIER_PATHS <= 1_000_000,
+        "cap must still bound memory"
+    );
+}
+
+/// A query well under the frontier cap returns its full result set: the cap
+/// guards against runaway growth without truncating ordinary traversals.
+#[tokio::test]
+#[serial]
+async fn test_query_related_under_cap_returns_full_set() {
+    let (store, _tmp) = fresh_store("graph_under_cap");
+
+    let a = GraphNode::new(T, "a.rs", "foo", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "bar", NodeType::Function);
+    let c = GraphNode::new(T, "c.rs", "baz", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &c.node_id, EdgeType::Calls, "b.rs"),
+        ])
+        .await
+        .unwrap();
+
+    let related = store
+        .query_related(T, &a.node_id, 2, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        related.len(),
+        2,
+        "both reachable nodes returned (well under the cap)"
+    );
+}
