@@ -15,6 +15,7 @@ use tracing::{debug, warn};
 use crate::graph::{
     compute_edge_id,
     cross_boundary::{apply_fan_out_caps, tenant_relaxation_set, CROSS_BOUNDARY_MAX_HOPS},
+    is_cross_branch,
     schema::{GraphDbError, GraphDbResult},
     AdjacencyExport, EdgeType, GraphEdge, GraphNode, GraphStats, GraphStore, ImpactNode,
     ImpactReport, NodeMetadata, SymbolRow, TraversalNode,
@@ -850,14 +851,24 @@ impl GraphStore for LadybugGraphStore {
         Ok(0)
     }
 
+    /// LadybugDB backend: branch scoping is not implemented. A branch-scoped
+    /// query (`branch = Some(name)` with `name != "*"`) returns a
+    /// [`GraphDbError::BranchScopingUnsupported`] (surfaced as gRPC
+    /// `Status::unimplemented`) rather than silently returning cross-branch
+    /// results. `None` or `Some("*")` behave as before (no filtering).
     async fn query_related(
         &self,
         tenant_id: &str,
         node_id: &str,
         max_hops: u32,
         edge_types: Option<&[EdgeType]>,
-        _branch: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<Vec<TraversalNode>> {
+        if !is_cross_branch(branch) {
+            return Err(GraphDbError::BranchScopingUnsupported(
+                branch.unwrap_or_default().to_string(),
+            ));
+        }
         if max_hops == 0 {
             return Ok(Vec::new());
         }
@@ -953,13 +964,23 @@ impl GraphStore for LadybugGraphStore {
         Ok(nodes)
     }
 
+    /// LadybugDB backend: branch scoping is not implemented. A branch-scoped
+    /// query (`branch = Some(name)` with `name != "*"`) returns a
+    /// [`GraphDbError::BranchScopingUnsupported`] (surfaced as gRPC
+    /// `Status::unimplemented`) rather than silently returning cross-branch
+    /// results. `None` or `Some("*")` behave as before (no filtering).
     async fn impact_analysis(
         &self,
         tenant_id: &str,
         symbol_name: &str,
         file_path: Option<&str>,
-        _branch: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport> {
+        if !is_cross_branch(branch) {
+            return Err(GraphDbError::BranchScopingUnsupported(
+                branch.unwrap_or_default().to_string(),
+            ));
+        }
         let conn = self.connect()?;
 
         // Reverse traversal: find all callers up to 3 hops (matching SQLite
@@ -1022,6 +1043,11 @@ impl GraphStore for LadybugGraphStore {
         })
     }
 
+    /// LadybugDB backend: branch scoping is not implemented. A branch-scoped
+    /// query (`branch = Some(name)` with `name != "*"`) returns a
+    /// [`GraphDbError::BranchScopingUnsupported`] (surfaced as gRPC
+    /// `Status::unimplemented`) rather than silently returning cross-branch
+    /// results. `None` or `Some("*")` behave as before (no filtering).
     async fn find_path(
         &self,
         tenant_id: &str,
@@ -1029,12 +1055,13 @@ impl GraphStore for LadybugGraphStore {
         target_id: &str,
         max_depth: u32,
         edge_types: Option<&[EdgeType]>,
-        _branch: Option<&str>,
-        // NOTE: branch scoping is intentionally ignored at the LadybugDB layer,
-        // matching the convention established in `query_related` (_branch param).
-        // SQLite uses branch-aware edge filters; the cross-backend branch-parity
-        // gap is formally asserted in the conformance suite (task 8).
+        branch: Option<&str>,
     ) -> GraphDbResult<Option<Vec<TraversalNode>>> {
+        if !is_cross_branch(branch) {
+            return Err(GraphDbError::BranchScopingUnsupported(
+                branch.unwrap_or_default().to_string(),
+            ));
+        }
         // Self-path: source == target — return the source node at depth 0,
         // matching SQLite's BFS base-case behaviour.
         if source_id == target_id {
@@ -1149,11 +1176,21 @@ impl GraphStore for LadybugGraphStore {
         Ok(None)
     }
 
+    /// LadybugDB backend: branch scoping is not implemented. A branch-scoped
+    /// query (`branch = Some(name)` with `name != "*"`) returns a
+    /// [`GraphDbError::BranchScopingUnsupported`] (surfaced as gRPC
+    /// `Status::unimplemented`) rather than silently returning cross-branch
+    /// results. `None` or `Some("*")` behave as before (no filtering).
     async fn stats(
         &self,
         tenant_id: Option<&str>,
-        _branch: Option<&str>,
+        branch: Option<&str>,
     ) -> GraphDbResult<GraphStats> {
+        if !is_cross_branch(branch) {
+            return Err(GraphDbError::BranchScopingUnsupported(
+                branch.unwrap_or_default().to_string(),
+            ));
+        }
         let conn = self.connect()?;
 
         // --- Node counts by type ---

@@ -5,7 +5,7 @@
 
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
-use workspace_qdrant_core::graph::EdgeType;
+use workspace_qdrant_core::graph::{EdgeType, GraphDbError};
 
 use crate::proto::{
     graph_service_server::GraphService, narrative_query_request::QueryTarget, BetweennessRequest,
@@ -26,6 +26,20 @@ use super::service_impl::GraphServiceImpl;
 /// Returns `None` (cross-branch) when the field is absent or empty.
 fn branch_filter(branch: &Option<String>) -> Option<&str> {
     branch.as_deref().filter(|b| !b.is_empty())
+}
+
+/// Map a graph-store error to a gRPC status.
+///
+/// A `BranchScopingUnsupported` error means the caller asked for a branch-scoped
+/// query against a backend (currently LadybugDB) that does not implement branch
+/// columns; surface that as `Status::unimplemented` so clients can distinguish
+/// "not built yet" from a genuine internal fault. Everything else maps to
+/// `Status::internal` with the supplied context prefix.
+fn graph_error_to_status(context: &str, error: &GraphDbError) -> Status {
+    match error {
+        GraphDbError::BranchScopingUnsupported(_) => Status::unimplemented(error.to_string()),
+        other => Status::internal(format!("{context}: {other}")),
+    }
 }
 
 #[tonic::async_trait]
@@ -113,7 +127,7 @@ impl GraphService for GraphServiceImpl {
             }
             Err(e) => {
                 error!("GraphService.QueryRelated failed: {}", e);
-                Err(Status::internal(format!("Graph query failed: {}", e)))
+                Err(graph_error_to_status("Graph query failed", &e))
             }
         }
     }
@@ -186,7 +200,7 @@ impl GraphService for GraphServiceImpl {
             }
             Err(e) => {
                 error!("GraphService.ImpactAnalysis failed: {}", e);
-                Err(Status::internal(format!("Impact analysis failed: {}", e)))
+                Err(graph_error_to_status("Impact analysis failed", &e))
             }
         }
     }
@@ -225,7 +239,7 @@ impl GraphService for GraphServiceImpl {
             }
             Err(e) => {
                 error!("GraphService.GetGraphStats failed: {}", e);
-                Err(Status::internal(format!("Graph stats query failed: {}", e)))
+                Err(graph_error_to_status("Graph stats query failed", &e))
             }
         }
     }
@@ -373,7 +387,7 @@ impl GraphService for GraphServiceImpl {
             .await
             .map_err(|e| {
                 error!("FindPath failed: {}", e);
-                Status::internal(format!("FindPath error: {}", e))
+                graph_error_to_status("FindPath error", &e)
             })?;
 
         let elapsed = start.elapsed().as_millis() as i64;

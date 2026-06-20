@@ -1163,3 +1163,56 @@ async fn test_cross_boundary_node_id_contains_separator() {
         "dst reached at hop 2 (not falsely excluded by split), got {ids:?}"
     );
 }
+
+// ---- Branch scoping is unsupported on LadybugDB (CR-009) ---------------------
+
+/// Branch-scoped queries are not implemented on the LadybugDB backend. A query
+/// asking for a concrete branch returns `GraphDbError::BranchScopingUnsupported`
+/// (mapped to gRPC `Status::unimplemented`) rather than silently returning
+/// cross-branch results. The cross-branch sentinels (`None` / `Some("*")`)
+/// behave normally.
+#[tokio::test]
+#[serial]
+async fn test_query_related_branch_scoping_unsupported() {
+    use crate::graph::schema::GraphDbError;
+
+    let (store, _tmp) = fresh_store("graph_branch_unsupported");
+
+    let a = GraphNode::new(T, "a.rs", "foo", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "bar", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    store
+        .insert_edges(&[GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            EdgeType::Calls,
+            "a.rs",
+        )])
+        .await
+        .unwrap();
+
+    // A concrete branch is rejected with the unsupported error.
+    let err = store
+        .query_related(T, &a.node_id, 1, None, Some("feature/x"))
+        .await
+        .expect_err("branch-scoped query must be rejected");
+    assert!(
+        matches!(err, GraphDbError::BranchScopingUnsupported(ref name) if name == "feature/x"),
+        "expected BranchScopingUnsupported(\"feature/x\"), got {err:?}"
+    );
+
+    // None (cross-branch) works as before.
+    let related = store
+        .query_related(T, &a.node_id, 1, None, None)
+        .await
+        .expect("cross-branch (None) query must succeed");
+    assert_eq!(related.len(), 1, "edge to b traversed");
+
+    // The wildcard "*" is also treated as cross-branch.
+    let related_wild = store
+        .query_related(T, &a.node_id, 1, None, Some("*"))
+        .await
+        .expect("wildcard branch query must succeed");
+    assert_eq!(related_wild.len(), 1, "wildcard behaves as cross-branch");
+}
