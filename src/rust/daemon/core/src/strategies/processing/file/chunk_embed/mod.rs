@@ -7,7 +7,11 @@
 mod payload;
 mod types;
 
-pub(super) use types::{ChunkRecord, EmbedResult};
+// N11: promoted from pub(super) so branch_index/tagger.rs (a crate-level sibling
+// of strategies/) can import ChunkRecord without E0603. EmbedResult remains
+// pub(super) as it is only consumed within strategies/processing/file/.
+pub(crate) use types::ChunkRecord;
+pub(super) use types::EmbedResult;
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -17,7 +17,11 @@
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
 //! - `zero_byte` — graceful handling of empty (0-byte) files
 
-mod chunk_embed;
+// N11: promoted to pub(crate) so branch_index/tagger.rs (a crate-level sibling
+// of strategies/) can reach ChunkRecord. The module is an implementation detail
+// of the file-processing pipeline; the re-export in chunk_embed/mod.rs controls
+// what is visible inside vs. outside the crate.
+pub(crate) mod chunk_embed;
 mod component;
 mod dedup;
 mod delete;
