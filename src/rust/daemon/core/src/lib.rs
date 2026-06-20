@@ -9,7 +9,6 @@ pub mod adaptive_resources;
 pub mod allowed_extensions;
 pub mod branch_cleanup;
 pub mod branch_discovery;
-pub mod branch_index;
 pub mod branch_switch;
 pub mod circuit_breaker;
 pub mod clip;
