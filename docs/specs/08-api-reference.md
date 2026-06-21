@@ -528,7 +528,7 @@ Multi-tenant project lifecycle and session management.
 - `Heartbeat` must be called periodically (within 60s timeout) to maintain session
 - `DeprioritizeProject` is called when MCP server stops
 
-#### GraphService (7 RPCs)
+#### GraphService (9 RPCs)
 
 Code relationship graph queries and algorithms. Operates on the embedded graph database (`graph.db`).
 
@@ -540,13 +540,15 @@ Code relationship graph queries and algorithms. Operates on the embedded graph d
 | `ComputePageRank`    | CLI     | Rank nodes by structural importance        | Production |
 | `DetectCommunities`  | CLI     | Label propagation community detection      | Production |
 | `ComputeBetweenness` | CLI     | Betweenness centrality scores              | Production |
-| `MigrateGraph`       | CLI     | Migrate data between graph backends        | Production |
+| `NarrativeQuery`     | CLI     | Narrative-layer graph query (SQLite only)  | Partial    |
+| `QueryCrossBoundary` | CLI     | Cross-boundary graph traversal             | Production |
+| `MigrateGraph`       | CLI     | Migrate data between graph backends        | Partial    |
 
 **QueryRelated:**
 - Traverses the graph from a starting node up to `max_hops` depth (1-5)
 - Optional `edge_types` filter (CALLS, IMPORTS, CONTAINS, USES_TYPE, EXTENDS, IMPLEMENTS)
 - Returns `TraversalNode` entries with symbol name, type, file path, edge type, and depth
-- Uses recursive CTEs (SQLite backend) for efficient multi-hop traversal
+- Traversal implementation varies by backend — Cypher path queries on LadybugDB (default) or recursive CTEs on the SQLite fallback
 
 **ImpactAnalysis:**
 - Finds all nodes that would be affected by modifying a symbol
@@ -568,11 +570,21 @@ Code relationship graph queries and algorithms. Operates on the embedded graph d
 - Sampled BFS for large graphs (`max_samples` parameter, 0 = all nodes)
 - Optional `top_k` and `edge_types` filters
 
+**NarrativeQuery:**
+- Queries the narrative graph layer (relationships derived from documentation/comment structure rather than code symbols)
+- Returns UNIMPLEMENTED on the LadybugDB backend (the default as of A0.7); supported only on the SQLite backend
+- Switch `graph.backend` to `sqlite` to use this RPC
+
+**QueryCrossBoundary:**
+- Cross-boundary graph traversal — follows edges that span layer or module boundaries (e.g. from a code symbol into the narrative layer)
+- Returns traversal entries that cross from the starting boundary into adjacent graph regions
+
 **MigrateGraph:**
 - Exports nodes/edges from one backend, imports into another
 - Supports `sqlite` and `ladybug` backend identifiers
 - Optional `tenant_id` for per-tenant migration, `batch_size` for import batching
 - Returns export/import counts and validation (nodes_match, edges_match)
+- Note: gRPC-based import to `ladybug` is not implemented; use `wqm graph migrate --from sqlite --to ladybug` CLI for migration
 
 ---
 

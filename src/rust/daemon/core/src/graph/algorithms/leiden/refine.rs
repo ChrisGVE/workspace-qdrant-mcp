@@ -107,14 +107,24 @@ pub(crate) fn refine_partition(
                     // Well-connectedness check (Traag 2019 Theorem 3 / Algorithm 2):
                     // The candidate sub-community T must be γ-well-connected to the
                     // rest of the phase-1 community C.
-                    // w(T, C \ T) > γ · |T| · (|C| − |T|)
+                    //   w(T, C \ T) > γ · |T| · (|C| − |T|)
+                    //
+                    // The cut weight w(T, C\T) is summed by iterating ONLY the
+                    // candidate-side members `m ∈ T` and keeping edges whose other
+                    // endpoint `nb` lies in `C \ T`.  Because `nb` is, by the
+                    // `!cand_members.contains(&nb)` filter, OUTSIDE `T`, the
+                    // adjacency of `nb` is never iterated here — so each cut edge
+                    // is counted exactly ONCE (single-count), and the sum must NOT
+                    // be halved.  (Contrast the intra-community sums in
+                    // `local_move_phase`/`aggregate_graph`, where both endpoints
+                    // are inside the same set and each edge is genuinely seen
+                    // twice, so a `/2.0` is correct there.)
                     let w_cand_to_rest: f64 = cand_members
                         .iter()
                         .flat_map(|&m| adj[m].iter())
                         .filter(|(&nb, _)| member_set.contains(&nb) && !cand_members.contains(&nb))
                         .map(|(_, &w)| w)
-                        .sum::<f64>()
-                        / 2.0; // undirected: each edge counted once from each end
+                        .sum::<f64>();
 
                     let well_connected_threshold =
                         resolution * cand_size as f64 * (comm_size - cand_size) as f64;

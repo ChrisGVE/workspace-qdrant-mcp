@@ -40,7 +40,7 @@ fn fresh_store(name: &str) -> (LadybugGraphStore, tempfile::TempDir) {
 
 #[test]
 fn test_escape_cypher() {
-    use super::store::escape_cypher;
+    use super::store::helpers::escape_cypher;
     assert_eq!(escape_cypher("hello"), "hello");
     assert_eq!(escape_cypher("it's"), "it\\'s");
     assert_eq!(escape_cypher("a'b'c"), "a\\'b\\'c");
@@ -348,6 +348,98 @@ async fn test_ladybug_query_related_edge_filter() {
         .unwrap();
     assert_eq!(related.len(), 1);
     assert_eq!(related[0].symbol_name, "baz");
+}
+
+/// CR-011 regression: `query_related` must report each reached node exactly
+/// once, at its TRUE minimum depth, even when the same node is reachable by
+/// several paths of different lengths. This pins the minimum-depth + dedup
+/// contract of the per-hop `*k..k` loop, which CR-011 kept (lbug 0.14.1 rejects
+/// the single-query `ALL SHORTEST` form that would otherwise replace it).
+///
+/// Graph (all CALLS edges):
+/// ```text
+///        a
+///       / \
+///      b   c        b,c at depth 1
+///       \ /
+///        d          d at depth 2 (two equal-shortest paths a->b->d, a->c->d)
+///        |
+///        e          e at depth 3
+///        |
+///        a  (e -> a back-edge)  introduces a longer cyclic route to b/c/d
+/// ```
+/// The back-edge `e -> a` means a naive walk would also reach `d` at depth 5
+/// (a->b->d->e->a->c->d ... ) and beyond; the rewrite must still pin `d` to its
+/// shortest depth 2 and emit it once. Asserts the reached set and per-node
+/// minimum depth, which is the contract the old per-hop `*k..k` loop guaranteed.
+#[tokio::test]
+#[serial]
+async fn test_query_related_min_depth_with_multiple_paths() {
+    let (store, _tmp) = fresh_store("graph_qr_diamond");
+
+    let a = GraphNode::new(T, "a.rs", "a_fn", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "b_fn", NodeType::Function);
+    let c = GraphNode::new(T, "c.rs", "c_fn", NodeType::Function);
+    let d = GraphNode::new(T, "d.rs", "d_fn", NodeType::Function);
+    let e = GraphNode::new(T, "e.rs", "e_fn", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone(), d.clone(), e.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &a.node_id, &c.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &d.node_id, EdgeType::Calls, "b.rs"),
+            GraphEdge::new(T, &c.node_id, &d.node_id, EdgeType::Calls, "c.rs"),
+            GraphEdge::new(T, &d.node_id, &e.node_id, EdgeType::Calls, "d.rs"),
+            GraphEdge::new(T, &e.node_id, &a.node_id, EdgeType::Calls, "e.rs"),
+        ])
+        .await
+        .unwrap();
+
+    // max_hops large enough to admit the cyclic long routes, so the rewrite is
+    // exercised against the case where naive walks would inflate the depth.
+    let related = store
+        .query_related(T, &a.node_id, 5, None, None)
+        .await
+        .unwrap();
+
+    // Each reachable node appears exactly once.
+    let mut by_name: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+    for n in &related {
+        assert!(
+            by_name.insert(n.symbol_name.as_str(), n.depth).is_none(),
+            "node {} reported more than once",
+            n.symbol_name
+        );
+    }
+
+    // b,c at depth 1; d at depth 2; e at depth 3. The back-edge e -> a makes the
+    // start node `a` reachable from itself, at its shortest cycle length 4
+    // (a->b->d->e->a) — recorded just as the old per-hop `*4..4` query would have
+    // matched it. The minimum-depth contract is what both implementations share.
+    assert_eq!(by_name.get("b_fn"), Some(&1), "b at min depth 1");
+    assert_eq!(by_name.get("c_fn"), Some(&1), "c at min depth 1");
+    assert_eq!(
+        by_name.get("d_fn"),
+        Some(&2),
+        "d at min depth 2 (not a longer cyclic route)"
+    );
+    assert_eq!(by_name.get("e_fn"), Some(&3), "e at min depth 3");
+    assert_eq!(
+        by_name.get("a_fn"),
+        Some(&4),
+        "start node reachable via cycle at min depth 4"
+    );
+
+    // Result is sorted by (depth, symbol_name): b,c (d=1), d (d=2), e (d=3), a (d=4).
+    let order: Vec<&str> = related.iter().map(|n| n.symbol_name.as_str()).collect();
+    assert_eq!(
+        order,
+        vec!["b_fn", "c_fn", "d_fn", "e_fn", "a_fn"],
+        "depth-then-name ordering"
+    );
 }
 
 #[tokio::test]
@@ -1002,4 +1094,226 @@ async fn test_lbug_export_adjacency_node_ids_sorted() {
         result.node_ids, sorted,
         "node_ids must be sorted by node_id"
     );
+}
+
+// ---- Narrative-node deletion (CR-008) ----------------------------------------
+
+/// A narrative node with an incident edge can be deleted without a referential
+/// -integrity error. LadybugDB enforces node<->edge integrity, so the delete
+/// must remove incident edges before the node itself (mirroring `delete_tenant`).
+/// Asserts the call succeeds and both the node and its edge are gone.
+#[tokio::test]
+#[serial]
+async fn test_ladybug_delete_narrative_nodes_by_file_with_incident_edge() {
+    let (store, _tmp) = fresh_store("graph_del_narrative_edge");
+
+    // A document_section narrative node that owns "doc.md", plus a code node it
+    // explains. The EXPLAINS edge makes the narrative node a live endpoint.
+    let section = GraphNode::new(T, "doc.md", "intro", NodeType::DocumentSection);
+    let code = GraphNode::new(T, "lib.rs", "do_work", NodeType::Function);
+    store
+        .upsert_nodes(&[section.clone(), code.clone()])
+        .await
+        .unwrap();
+
+    let edge = GraphEdge::new(
+        T,
+        &section.node_id,
+        &code.node_id,
+        EdgeType::Explains,
+        "doc.md",
+    );
+    store.insert_edges(&[edge]).await.unwrap();
+
+    let before = store.stats(Some(T), None).await.unwrap();
+    assert_eq!(before.total_nodes, 2, "section + code node present");
+    assert_eq!(before.total_edges, 1, "EXPLAINS edge present");
+
+    // Must not error despite the incident edge.
+    store
+        .delete_narrative_nodes_by_file(T, "doc.md")
+        .await
+        .expect("delete_narrative_nodes_by_file must not error on incident edges");
+
+    let after = store.stats(Some(T), None).await.unwrap();
+    assert_eq!(
+        after.total_nodes, 1,
+        "narrative section gone, code node remains"
+    );
+    assert_eq!(after.total_edges, 0, "incident EXPLAINS edge removed too");
+}
+
+// ---- BFS frontier cap (CR-010) -----------------------------------------------
+
+/// The frontier cap is a positive bound that guards the `find_path` and
+/// `query_related` BFS loops against unbounded memory growth on dense graphs.
+/// A regression that removed or zeroed the cap would either disable the guard
+/// or break every traversal; this asserts the constant stays a sane bound.
+#[test]
+fn test_max_frontier_paths_is_a_sane_bound() {
+    use super::store::helpers::MAX_FRONTIER_PATHS;
+    assert!(
+        MAX_FRONTIER_PATHS >= 1_000,
+        "cap must allow real traversals"
+    );
+    assert!(
+        MAX_FRONTIER_PATHS <= 1_000_000,
+        "cap must still bound memory"
+    );
+}
+
+/// A query well under the frontier cap returns its full result set: the cap
+/// guards against runaway growth without truncating ordinary traversals.
+#[tokio::test]
+#[serial]
+async fn test_query_related_under_cap_returns_full_set() {
+    let (store, _tmp) = fresh_store("graph_under_cap");
+
+    let a = GraphNode::new(T, "a.rs", "foo", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "bar", NodeType::Function);
+    let c = GraphNode::new(T, "c.rs", "baz", NodeType::Function);
+    store
+        .upsert_nodes(&[a.clone(), b.clone(), c.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(T, &a.node_id, &b.node_id, EdgeType::Calls, "a.rs"),
+            GraphEdge::new(T, &b.node_id, &c.node_id, EdgeType::Calls, "b.rs"),
+        ])
+        .await
+        .unwrap();
+
+    let related = store
+        .query_related(T, &a.node_id, 2, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        related.len(),
+        2,
+        "both reachable nodes returned (well under the cap)"
+    );
+}
+
+// ---- Cross-boundary cycle detection with separator in node id (CR-021) -------
+
+/// Cross-boundary traversal must use exact node-id comparison for its acyclic
+/// guard, not a " -> " string split. This builds a 2-hop path through an
+/// intermediate node whose id literally contains the path separator " -> ":
+///
+/// ```text
+///   src ("S", tenant T)
+///     --IMPLEMENTS_CONCEPT--> mid ("a -> b", __global__ concept)
+///     --IMPLEMENTS_CONCEPT--> dst ("b", tenant T)
+/// ```
+///
+/// With the old split-based guard, after reaching `mid` the path string was
+/// `"S -> a -> b"`; splitting it yielded the segment `"b"`, so `dst` (id `"b"`)
+/// was wrongly treated as already visited and excluded. The visited-set guard
+/// compares whole ids, so `dst` is reached.
+#[tokio::test]
+#[serial]
+async fn test_cross_boundary_node_id_contains_separator() {
+    let (store, _tmp) = fresh_store("graph_cb_separator");
+
+    // Source in tenant T; mid is a global concept whose id contains " -> ";
+    // dst is in tenant T with id "b" (the trailing split segment of mid's id).
+    let mut src = GraphNode::new(T, "s.rs", "src_fn", NodeType::Function);
+    src.node_id = "S".to_string();
+    let mut mid = GraphNode::new("__global__", "", "concept", NodeType::ConceptNode);
+    mid.node_id = "a -> b".to_string();
+    let mut dst = GraphNode::new(T, "d.rs", "dst_fn", NodeType::Function);
+    dst.node_id = "b".to_string();
+
+    store
+        .upsert_nodes(&[src.clone(), mid.clone(), dst.clone()])
+        .await
+        .unwrap();
+    store
+        .insert_edges(&[
+            GraphEdge::new(
+                T,
+                &src.node_id,
+                &mid.node_id,
+                EdgeType::ImplementsConcept,
+                "s.rs",
+            ),
+            GraphEdge::new(
+                "__global__",
+                &mid.node_id,
+                &dst.node_id,
+                EdgeType::ImplementsConcept,
+                "",
+            ),
+        ])
+        .await
+        .unwrap();
+
+    let results = store
+        .query_cross_boundary(T, &src.node_id, &[EdgeType::ImplementsConcept], 2, &[])
+        .await
+        .unwrap();
+
+    let ids: Vec<&str> = results.iter().map(|n| n.node_id.as_str()).collect();
+    assert!(
+        ids.contains(&"a -> b"),
+        "mid (id with separator) reached at hop 1, got {ids:?}"
+    );
+    assert!(
+        ids.contains(&"b"),
+        "dst reached at hop 2 (not falsely excluded by split), got {ids:?}"
+    );
+}
+
+// ---- Branch scoping is unsupported on LadybugDB (CR-009) ---------------------
+
+/// Branch-scoped queries are not implemented on the LadybugDB backend. A query
+/// asking for a concrete branch returns `GraphDbError::BranchScopingUnsupported`
+/// (mapped to gRPC `Status::unimplemented`) rather than silently returning
+/// cross-branch results. The cross-branch sentinels (`None` / `Some("*")`)
+/// behave normally.
+#[tokio::test]
+#[serial]
+async fn test_query_related_branch_scoping_unsupported() {
+    use crate::graph::schema::GraphDbError;
+
+    let (store, _tmp) = fresh_store("graph_branch_unsupported");
+
+    let a = GraphNode::new(T, "a.rs", "foo", NodeType::Function);
+    let b = GraphNode::new(T, "b.rs", "bar", NodeType::Function);
+    store.upsert_nodes(&[a.clone(), b.clone()]).await.unwrap();
+    store
+        .insert_edges(&[GraphEdge::new(
+            T,
+            &a.node_id,
+            &b.node_id,
+            EdgeType::Calls,
+            "a.rs",
+        )])
+        .await
+        .unwrap();
+
+    // A concrete branch is rejected with the unsupported error.
+    let err = store
+        .query_related(T, &a.node_id, 1, None, Some("feature/x"))
+        .await
+        .expect_err("branch-scoped query must be rejected");
+    assert!(
+        matches!(err, GraphDbError::BranchScopingUnsupported(ref name) if name == "feature/x"),
+        "expected BranchScopingUnsupported(\"feature/x\"), got {err:?}"
+    );
+
+    // None (cross-branch) works as before.
+    let related = store
+        .query_related(T, &a.node_id, 1, None, None)
+        .await
+        .expect("cross-branch (None) query must succeed");
+    assert_eq!(related.len(), 1, "edge to b traversed");
+
+    // The wildcard "*" is also treated as cross-branch.
+    let related_wild = store
+        .query_related(T, &a.node_id, 1, None, Some("*"))
+        .await
+        .expect("wildcard branch query must succeed");
+    assert_eq!(related_wild.len(), 1, "wildcard behaves as cross-branch");
 }

@@ -17,9 +17,11 @@ use super::sqlite_store::SqliteGraphStore;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphBackend {
-    /// SQLite with recursive CTEs (default, no extra dependencies).
+    /// SQLite with recursive CTEs. Fallback when `graph.backend` is absent
+    /// from config. No extra build dependencies.
     Sqlite,
     /// LadybugDB (Kuzu fork) --- requires `ladybug` feature flag.
+    /// Shipped default in `assets/default_configuration.yaml`.
     Ladybug,
 }
 
@@ -156,6 +158,9 @@ mod tests {
 
     #[test]
     fn test_graph_config_defaults() {
+        // Asserts the absent-key serde fallback (no `graph` section in config),
+        // NOT the shipped runtime default — `assets/default_configuration.yaml`
+        // sets `graph.backend: ladybug`.
         let config = GraphConfig::default();
         assert_eq!(config.backend, GraphBackend::Sqlite);
         assert!(config.db_dir.is_none());

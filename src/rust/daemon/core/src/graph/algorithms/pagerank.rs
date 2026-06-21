@@ -1,4 +1,18 @@
-/// PageRank algorithm for code relationship graphs.
+//! PageRank algorithm for code relationship graphs.
+//!
+//! Location: `src/rust/daemon/core/src/graph/algorithms/`.
+//!
+//! Role: pure-function analytics that consumes an [`AdjacencyExport`] produced
+//! by `GraphStore::export_adjacency` and returns ranked nodes. Performs no
+//! database I/O. Invoked by the gRPC graph service
+//! (`grpc/.../graph_service/analytics_handlers.rs`).
+//!
+//! # References
+//! - Page, Brin, Motwani & Winograd, "The PageRank Citation Ranking: Bringing
+//!   Order to the Web", Stanford InfoLab Technical Report, 1999.
+//!
+//! Dangling nodes (no outgoing edges) have their rank mass redistributed
+//! uniformly across all nodes each iteration, preserving the total rank sum.
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 

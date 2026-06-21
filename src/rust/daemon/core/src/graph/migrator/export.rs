@@ -6,6 +6,8 @@ use tracing::{info, warn};
 use super::GraphSnapshot;
 use crate::graph::schema::GraphDbResult;
 use crate::graph::{EdgeType, GraphEdge, GraphNode, NodeType};
+#[cfg(feature = "ladybug")]
+use lbug::Value;
 
 // ─── Export from SQLite ─────────────────────────────────────────────────
 
@@ -146,9 +148,13 @@ pub fn export_nodes_ladybug(
     store: &crate::graph::LadybugGraphStore,
     tenant_id: Option<&str>,
 ) -> GraphDbResult<Vec<GraphNode>> {
+    // Bind the tenant id as a `$tid` parameter rather than interpolating it into
+    // the query text. A tenant id containing a quote or backslash can no longer
+    // alter the query structure (Cypher injection, CR-007); the value is passed
+    // through lbug's PreparedStatement binding instead.
     let filter = match tenant_id {
-        Some(tid) => format!(" WHERE n.tenant_id = '{}'", tid.replace('\'', "\\'")),
-        None => String::new(),
+        Some(_) => " WHERE n.tenant_id = $tid",
+        None => "",
     };
 
     let cypher = format!(
@@ -159,11 +165,22 @@ pub fn export_nodes_ladybug(
         filter
     );
 
-    let rows = store.execute_cypher(&cypher)?;
+    let params: Vec<(&str, Value)> = match tenant_id {
+        Some(tid) => vec![("tid", Value::String(tid.to_string()))],
+        None => Vec::new(),
+    };
+    let rows = store.execute_cypher_with_params(&cypher, params)?;
     let mut nodes = Vec::with_capacity(rows.len());
 
     for row in &rows {
         if row.len() < 5 {
+            // A node row missing its required columns (node_id..file_path) is
+            // unusable; skip it rather than panic. Log it so a schema/projection
+            // mismatch is visible, mirroring the skipped-edge warning above.
+            warn!(
+                "Skipping malformed node row during ladybug export: {:?}",
+                row
+            );
             continue;
         }
         let symbol_type = match NodeType::from_str(&row[3]) {
@@ -197,6 +214,12 @@ pub fn export_nodes_ladybug(
                 .filter(|&v| v != 0),
             signature: row.get(7).cloned().filter(|s| !s.is_empty()),
             language: row.get(8).cloned().filter(|s| !s.is_empty()),
+            // NOTE: LadybugDB schema has no per-node branches column; branch
+            // lists are not preserved across migration (collapsed to ["main"]).
+            // Tracked as a known gap — see CR-024 / CR-009. A node carrying a
+            // multi-branch list in SQLite round-trips back as ["main"]; the
+            // `test_export_nodes_ladybug_collapses_branches_to_main` test asserts
+            // this loss is visible rather than silent.
             branches: r#"["main"]"#.to_string(),
             qdrant_point_id,
             point_id_state,
@@ -232,9 +255,13 @@ pub fn export_edges_ladybug(
         "COVERS_TOPIC",
         "IMPLEMENTS_CONCEPT",
     ] {
+        // Bind the tenant id as `$tid` (CR-007). The rel-type position
+        // (`edge_type_str`) is a compile-time constant from the fixed list
+        // above, never user input, so it stays interpolated -- Cypher cannot
+        // parameterize a relationship-type label.
         let filter = match tenant_id {
-            Some(tid) => format!(" WHERE r.tenant_id = '{}'", tid.replace('\'', "\\'")),
-            None => String::new(),
+            Some(_) => " WHERE r.tenant_id = $tid",
+            None => "",
         };
 
         let cypher = format!(
@@ -249,7 +276,11 @@ pub fn export_edges_ladybug(
             None => continue,
         };
 
-        let rows = store.execute_cypher(&cypher)?;
+        let params: Vec<(&str, Value)> = match tenant_id {
+            Some(tid) => vec![("tid", Value::String(tid.to_string()))],
+            None => Vec::new(),
+        };
+        let rows = store.execute_cypher_with_params(&cypher, params)?;
         for row in &rows {
             if row.len() < 6 {
                 continue;
@@ -288,4 +319,163 @@ pub fn export_ladybug(
     let nodes = export_nodes_ladybug(store, tenant_id)?;
     let edges = export_edges_ladybug(store, tenant_id)?;
     Ok(GraphSnapshot { nodes, edges })
+}
+
+#[cfg(all(test, feature = "ladybug"))]
+mod tests {
+    use super::*;
+    use crate::graph::{GraphStore, LadybugConfig, LadybugGraphStore};
+    use serial_test::serial;
+
+    /// Small buffer pool: every live LadybugDB `Database` mmaps its buffer pool
+    /// regardless of contents, so tests keep it tiny (and run `#[serial]`) to
+    /// avoid exhausting the address space when several stores exist at once.
+    const TEST_BUFFER_POOL: u64 = 64 * 1024 * 1024;
+
+    /// Build a ladybug store in a fresh temp dir, returning the `TempDir`
+    /// alongside it so the caller keeps the database directory alive for the
+    /// store's lifetime.
+    fn ladybug_store() -> (tempfile::TempDir, LadybugGraphStore) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let config = LadybugConfig {
+            db_path: dir.path().join("graph.kuzu"),
+            buffer_pool_size: TEST_BUFFER_POOL,
+            max_num_threads: 2,
+        };
+        let store = LadybugGraphStore::new(config).expect("create ladybug store");
+        (dir, store)
+    }
+
+    fn node_with_branches(node_id: &str, tenant_id: &str, branches: &str) -> GraphNode {
+        GraphNode {
+            node_id: node_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            symbol_name: "fn_foo".to_string(),
+            symbol_type: NodeType::Function,
+            file_path: "src/lib.rs".to_string(),
+            start_line: Some(10),
+            end_line: Some(20),
+            signature: Some("fn foo()".to_string()),
+            language: Some("rust".to_string()),
+            branches: branches.to_string(),
+            qdrant_point_id: None,
+            point_id_state: "none".to_string(),
+        }
+    }
+
+    /// CR-024: LadybugDB has no per-node branches column, so a multi-branch list
+    /// stored in SQLite cannot survive a SQLite -> LadybugDB -> SQLite round-trip.
+    /// This test pins the *known, documented* loss: a node seeded with
+    /// ["main","feature/foo"] comes back from the ladybug export as ["main"], so
+    /// the gap is asserted and visible rather than silently masked.
+    #[tokio::test]
+    #[serial]
+    async fn test_export_nodes_ladybug_collapses_branches_to_main() {
+        let (_dir, store) = ladybug_store();
+        let tenant = "tenant-cr024";
+        let node = node_with_branches("n1", tenant, r#"["main","feature/foo"]"#);
+        store.upsert_node(&node).await.expect("upsert node");
+
+        let exported = export_nodes_ladybug(&store, Some(tenant)).expect("export nodes");
+
+        assert_eq!(exported.len(), 1, "exactly one node should round-trip");
+        assert_eq!(
+            exported[0].branches, r#"["main"]"#,
+            "branch list is not preserved across LadybugDB migration (known gap, CR-024): \
+             a multi-branch list collapses to [\"main\"]"
+        );
+    }
+
+    fn node_for_tenant(node_id: &str, tenant_id: &str) -> GraphNode {
+        node_with_branches(node_id, tenant_id, r#"["main"]"#)
+    }
+
+    /// CR-007: the ladybug exporters must bind the tenant id as a `$tid`
+    /// parameter, never interpolate it into the Cypher text. A tenant id that
+    /// contains a single quote AND a backslash is the adversarial case the old
+    /// `format!` + `.replace('\'', "\\'")` escape could not handle: a stray
+    /// backslash-quote sequence broke out of the string literal, malforming the
+    /// query (injection). This test seeds two tenants -- one whose id carries a
+    /// quote and a backslash, one benign -- and asserts the export filtered by
+    /// the hostile id round-trips its own node correctly and never leaks the
+    /// other tenant's node. Passing proves the value travels through lbug's
+    /// PreparedStatement binding rather than the query string.
+    #[tokio::test]
+    #[serial]
+    async fn test_export_ladybug_tenant_filter_is_parameterized() {
+        let (_dir, store) = ladybug_store();
+
+        // Quote + backslash: the exact shape that defeats naive escaping.
+        let hostile = r#"acme' OR n.tenant_id <> '' \back"#;
+        let benign = "other-tenant";
+
+        // Two nodes per tenant so a broken filter (leak or empty) is obvious.
+        store
+            .upsert_node(&node_for_tenant("h1", hostile))
+            .await
+            .expect("upsert hostile node 1");
+        store
+            .upsert_node(&node_for_tenant("h2", hostile))
+            .await
+            .expect("upsert hostile node 2");
+        store
+            .upsert_node(&node_for_tenant("b1", benign))
+            .await
+            .expect("upsert benign node");
+
+        // An edge in each tenant so the edge exporter is covered too.
+        let edge = |edge_id: &str, src: &str, dst: &str, tenant: &str| GraphEdge {
+            edge_id: edge_id.to_string(),
+            tenant_id: tenant.to_string(),
+            source_node_id: src.to_string(),
+            target_node_id: dst.to_string(),
+            edge_type: EdgeType::Calls,
+            source_file: "src/lib.rs".to_string(),
+            weight: 1.0,
+            metadata_json: None,
+            branch: None,
+        };
+        store
+            .insert_edge(&edge("eh", "h1", "h2", hostile))
+            .await
+            .expect("insert hostile edge");
+        store
+            .insert_edge(&edge("eb", "b1", "b1", benign))
+            .await
+            .expect("insert benign edge");
+
+        // Nodes: filtering by the hostile id must return exactly its two nodes,
+        // all carrying the hostile tenant id (verbatim round-trip, no escaping
+        // artefacts), and never the benign tenant's node.
+        let nodes = export_nodes_ladybug(&store, Some(hostile)).expect("export hostile nodes");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "tenant filter must match exactly the hostile tenant's two nodes, got {nodes:?}"
+        );
+        assert!(
+            nodes.iter().all(|n| n.tenant_id == hostile),
+            "every exported node must carry the hostile tenant id verbatim (no escape artefact)"
+        );
+        assert!(
+            nodes.iter().all(|n| n.node_id != "b1"),
+            "the benign tenant's node must never leak through the hostile filter (injection)"
+        );
+
+        // Edges: same guarantee on the edge exporter.
+        let edges = export_edges_ladybug(&store, Some(hostile)).expect("export hostile edges");
+        assert_eq!(
+            edges.len(),
+            1,
+            "edge filter must match exactly the hostile tenant's one edge, got {edges:?}"
+        );
+        assert_eq!(
+            edges[0].tenant_id, hostile,
+            "edge tenant id round-trips verbatim"
+        );
+        assert_eq!(
+            edges[0].edge_id, "eh",
+            "only the hostile tenant's edge is exported"
+        );
+    }
 }

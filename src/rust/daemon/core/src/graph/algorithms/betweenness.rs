@@ -1,4 +1,13 @@
-/// Betweenness centrality using Brandes' algorithm.
+//! Betweenness centrality using Brandes' algorithm.
+//!
+//! Location: `src/rust/daemon/core/src/graph/algorithms/`.
+//!
+//! Role: pure-function analytics that consumes an [`AdjacencyExport`] produced
+//! by `GraphStore::export_adjacency` and returns per-node centrality scores.
+//! Performs no database I/O. Invoked by the gRPC graph service
+//! (`grpc/.../graph_service/analytics_handlers.rs`). Algorithm references are on
+//! the entry-point function below.
+
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -30,6 +39,13 @@ pub struct BetweennessEntry {
 /// `symbol_name`, `symbol_type`, and `file_path` fields in the returned entries
 /// are left empty; callers that need display metadata should enrich the results
 /// separately after this function returns.
+///
+/// # References
+/// - Brandes, "A Faster Algorithm for Betweenness Centrality",
+///   J. Math. Sociology 25(2):163-177, 2001.
+///   <https://doi.org/10.1080/0022250X.2001.9990249>
+/// - Bader, Kintali, Madduri & Mihail, "Approximating Betweenness Centrality",
+///   ALENEX 2007 (sampling approximation used when `max_samples` is set).
 pub fn compute_betweenness_centrality(
     adj: &AdjacencyExport,
     max_samples: Option<usize>,

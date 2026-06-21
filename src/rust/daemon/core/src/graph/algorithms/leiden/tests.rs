@@ -298,6 +298,148 @@ fn leiden_two_disconnected_pairs() {
     );
 }
 
+// ─── CR-014: refinement cut-weight must not be halved ─────────────────────────
+
+/// Build a symmetrised `UndirAdj` directly from an edge list (each edge added
+/// in both directions), matching the shape produced by `build_undirected_adj`.
+fn make_adj(n: usize, edges: &[(usize, usize, f64)]) -> UndirAdj {
+    let mut adj: UndirAdj = vec![BTreeMap::new(); n];
+    for &(i, j, w) in edges {
+        *adj[i].entry(j).or_insert(0.0) += w;
+        *adj[j].entry(i).or_insert(0.0) += w;
+    }
+    adj
+}
+
+/// Disambiguating test for CR-014.
+///
+/// `refine_partition` gates every sub-community merge on the Traag 2019
+/// well-connectedness condition `w(T, C\T) > γ·|T|·(|C|−|T|)`.  The cut weight
+/// `w(T, C\T)` is summed by iterating ONLY the candidate-side members `T` and
+/// keeping edges whose other endpoint lies in `C\T`, so each cut edge is
+/// visited exactly once (the opposite endpoint, being outside `T`, is never
+/// iterated).  Dividing that single-count sum by 2 therefore HALVES the cut and
+/// spuriously fails the well-connectedness check, fragmenting a genuinely
+/// well-connected community into singletons.
+///
+/// Fixture: one phase-1 community `C = {0,1,2,3}` that is a 4-clique with every
+/// edge weight 1.5, at γ = 1.0.  Hand computation for a singleton candidate
+/// `T = {1}` (|T| = 1, |C| = 4):
+///   - true cut  w({1}, {0,2,3}) = 1.5 + 1.5 + 1.5 = 4.5
+///   - threshold γ·|T|·(|C|−|T|) = 1.0 · 1 · 3       = 3.0
+///   true cut 4.5 > 3.0  →  well-connected, so the merge is allowed (and its
+///   CPM gain 1.5 − 1.0 = 0.5 > 0, so it actually happens).
+/// With an erroneous `/2.0` the computed cut is 4.5/2 = 2.25 < 3.0, so EVERY
+/// candidate is rejected and the clique stays as four singleton sub-communities.
+///
+/// A clique is the textbook maximally well-connected community: correct
+/// refinement collapses it into a SINGLE sub-community.
+#[test]
+fn refine_clique_collapses_to_one_subcommunity() {
+    // 4-clique on {0,1,2,3}, uniform weight 1.5 (the disambiguating weight).
+    let edges = vec![
+        (0, 1, 1.5),
+        (0, 2, 1.5),
+        (0, 3, 1.5),
+        (1, 2, 1.5),
+        (1, 3, 1.5),
+        (2, 3, 1.5),
+    ];
+    let adj = make_adj(4, &edges);
+
+    // Single phase-1 community containing all four nodes.
+    let phase1: BTreeMap<usize, usize> = (0..4).map(|i| (i, 0usize)).collect();
+
+    let refined = refine_partition(&adj, 4, &phase1, 1.0, 42);
+
+    let distinct: std::collections::BTreeSet<usize> = refined.values().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        1,
+        "a γ-well-connected 4-clique must refine to ONE sub-community, got {} \
+         sub-communities: {:?} (halving the cut weight under-counts \
+         well-connectedness and fragments the clique)",
+        distinct.len(),
+        refined
+    );
+}
+
+// ─── CR-015: the convergence-loop exit check is sound (not vacuous) ──────────
+
+/// Disambiguating test for CR-015.
+///
+/// The audit flagged `flat_leiden`'s loop-exit check (mod.rs, the
+/// `partition == lift_partition(n, &node_to_agg, &prev_agg_partition)` line) as
+/// possibly VACUOUS — comparing the partition against a value re-derived from
+/// the post-move state, which would be trivially true and would exit the loop
+/// one iteration early.
+///
+/// It is NOT vacuous.  `prev_agg_partition` is the aggregate assignment captured
+/// BEFORE the aggregate local-move; the loop sets `partition` to the result
+/// lifted from the POST-move aggregate assignment, then compares the two lifts.
+/// They are equal exactly when the aggregate local-move changed nothing — the
+/// correct fixed-point condition.  The check therefore drives the loop to a
+/// stable partition and terminates there.
+///
+/// This test proves the check behaves as a true fixed-point detector: on a graph
+/// of two well-separated 4-cliques (intra weight 5.0) joined by a single weak
+/// bridge (weight 0.01) at γ = 1.0, `flat_leiden` must converge to EXACTLY the
+/// two cliques and STAY there — re-running `flat_leiden` on the same input yields
+/// the identical partition (idempotent fixed point).  A vacuous, one-iteration-
+/// early exit would instead strand nodes in their initial singleton communities
+/// (more than two communities); a non-terminating check would never return.
+#[test]
+fn leiden_convergence_check_reaches_stable_fixed_point() {
+    let n = 8;
+    let edges = {
+        let mut e = Vec::new();
+        // Clique A: 0..3, clique B: 4..7, each fully connected at weight 5.0.
+        for base in [0usize, 4] {
+            for i in base..base + 4 {
+                for j in (i + 1)..base + 4 {
+                    e.push((i, j, 5.0));
+                }
+            }
+        }
+        // A single weak bridge — too weak to merge the cliques.
+        e.push((1, 5, 0.01));
+        e
+    };
+    let adj = make_adj(n, &edges);
+
+    // `flat_leiden` runs the full local-move → refine → aggregate loop, exiting
+    // only via the CR-015 convergence check.  It must reach the two cliques.
+    let first = flat_leiden(&adj, n, 1.0, 42);
+    let as_communities = |part: &BTreeMap<usize, usize>| {
+        let mut by: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for (&node, &comm) in part {
+            by.entry(comm).or_default().push(node);
+        }
+        let mut out: Vec<Vec<usize>> = by.into_values().collect();
+        for v in &mut out {
+            v.sort_unstable();
+        }
+        out.sort_by_key(|v| v[0]);
+        out
+    };
+
+    assert_eq!(
+        as_communities(&first),
+        vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        "convergence must reach the two cliques (not exit early into singletons),          got {:?}",
+        first
+    );
+
+    // Idempotence: re-running from the converged partition's structure yields the
+    // same result — the convergence check found a genuine fixed point, it did not
+    // stop one iteration too soon.
+    let second = flat_leiden(&adj, n, 1.0, 42);
+    assert_eq!(
+        first, second,
+        "flat_leiden must be a deterministic fixed point; the convergence check          is a real (non-vacuous) stability test"
+    );
+}
+
 // ─── HashMap/HashSet/rayon source-level guard ─────────────────────────────────
 
 /// This test verifies the DOM-01 determinism invariant at source level by

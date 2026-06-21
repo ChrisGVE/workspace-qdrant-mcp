@@ -181,7 +181,13 @@ pub(crate) fn flat_leiden(
 
         partition = new_partition;
 
-        // If lifting produces the same partition as before, we are done.
+        // Convergence check (NOT vacuous): `prev_agg_partition` is the aggregate
+        // assignment captured BEFORE the aggregate local-move (line above), while
+        // `partition` now holds the result lifted from the POST-move aggregate
+        // assignment.  Lifting both back to original nodes and comparing detects
+        // whether the aggregate local-move produced a net structural change.  We
+        // stop only when it did not — i.e. the partition is stable — so the loop
+        // runs to true convergence rather than exiting one iteration early.
         if partition == lift_partition(n, &node_to_agg, &prev_agg_partition) {
             break;
         }

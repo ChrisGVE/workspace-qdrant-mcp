@@ -562,7 +562,11 @@ pub trait GraphStore: Send + Sync {
     ///
     /// When `branch` is `Some(name)` (and not `"*"`), only nodes whose
     /// `branches` JSON array contains `name` and edges whose `branch`
-    /// column equals `name` (or is `NULL`) are traversed.
+    /// column equals `name` (or is `NULL`) are traversed.    ///
+    /// LadybugDB backend: branch scoping is not implemented; a branch-scoped
+    /// query (`branch = Some(name)`, `name != "*"`) returns an
+    /// unsupported/unimplemented error rather than silently returning
+    /// cross-branch results.
     async fn query_related(
         &self,
         tenant_id: &str,
@@ -575,7 +579,11 @@ pub trait GraphStore: Send + Sync {
     /// Find all nodes that would be affected by changing a given symbol.
     ///
     /// When `branch` is provided (and not `"*"`), only edges and nodes
-    /// belonging to that branch are considered.
+    /// belonging to that branch are considered.    ///
+    /// LadybugDB backend: branch scoping is not implemented; a branch-scoped
+    /// query (`branch = Some(name)`, `name != "*"`) returns an
+    /// unsupported/unimplemented error rather than silently returning
+    /// cross-branch results.
     async fn impact_analysis(
         &self,
         tenant_id: &str,
@@ -584,7 +592,11 @@ pub trait GraphStore: Send + Sync {
         branch: Option<&str>,
     ) -> GraphDbResult<ImpactReport>;
 
-    /// Get graph statistics, optionally filtered by tenant and branch.
+    /// Get graph statistics, optionally filtered by tenant and branch.    ///
+    /// LadybugDB backend: branch scoping is not implemented; a branch-scoped
+    /// query (`branch = Some(name)`, `name != "*"`) returns an
+    /// unsupported/unimplemented error rather than silently returning
+    /// cross-branch results.
     async fn stats(
         &self,
         tenant_id: Option<&str>,
@@ -597,7 +609,11 @@ pub trait GraphStore: Send + Sync {
     /// Find shortest path between two nodes using BFS.
     ///
     /// When `branch` is provided (and not `"*"`), only edges belonging
-    /// to that branch (or with `NULL` branch) are traversed.
+    /// to that branch (or with `NULL` branch) are traversed.    ///
+    /// LadybugDB backend: branch scoping is not implemented; a branch-scoped
+    /// query (`branch = Some(name)`, `name != "*"`) returns an
+    /// unsupported/unimplemented error rather than silently returning
+    /// cross-branch results.
     async fn find_path(
         &self,
         tenant_id: &str,

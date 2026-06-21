@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LadybugDB default code-graph backend (A0.7)** — `graph.db` is now backed by LadybugDB (a maintained Kuzu fork with embedded Cypher) by default, replacing the SQLite recursive-CTE adjacency store as the shipped default. The SQLite backend remains available as a fallback via `graph.backend: sqlite`.
+- **Backend-agnostic `GraphStore` trait + conformance suite** — graph operations are routed through a single `GraphStore` trait implemented by both the SQLite and LadybugDB backends, with a shared conformance test suite (`core/tests/graph_backend_conformance.rs`) that runs the identical assertions against each backend.
+- **New gRPC GraphService RPCs** — `NarrativeQuery` (narrative-layer graph query; SQLite-only, returns UNIMPLEMENTED on the LadybugDB backend) and `QueryCrossBoundary` (cross-boundary graph traversal across layer/module boundaries).
+- **`qdrant_point_id` graph link columns (graph schema v5)** — graph nodes carry a `qdrant_point_id` linking each node to its corresponding Qdrant vector point, enabling graph↔vector cross-references.
+- **CI graph backend lanes** — a SQLite-only conformance lane runs on every PR, and a scheduled lane exercises the full LadybugDB conformance suite.
 - **Path abstraction system (spec 16)** — type-system-enforced root/relative path discipline for host/Docker deployment parity. `CanonicalPath` for root paths (watch folders, project roots), `RelativePath` for content paths (files under a root). All paths stored relative to their watch folder root; absolute paths reconstructed via FK join at query time.
 - **RelativePath newtype** (`wqm-common::paths`) — validates relative paths (rejects absolute, `..` segments, embedded NUL), serde-transparent for wire compatibility.
 - **Schema v37 migration** — drops denormalized `file_path` columns from `tracked_files`, truncates ingest tables, implements crash-safe 4-phase migration protocol with `relative_path_migration_in_progress` marker table.
@@ -24,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Default graph backend is now `ladybug`** — the `graph.backend` default in `assets/default_configuration.yaml` is now `ladybug` (was `sqlite`). Existing deployments keep their configured backend; set `graph.backend: sqlite` to retain the recursive-CTE store.
 - **BREAKING: Schema v37** — first startup after upgrade triggers a wipe-and-rebuild of all ingested data (tracked_files, qdrant_chunks, unified_queue). Re-ingestion runs automatically; large repos may take 30+ minutes. Monitor via `wqm status health` banner.
 - **BREAKING: File paths stored as relative** — `tracked_files` no longer has a `file_path` column; paths are stored as `relative_path` anchored to the watch folder root. Queries that previously used absolute file paths must join through `watch_folders.path`.
 - **Proto field annotations** — all path fields in `workspace_daemon.proto` annotated with `[canonical]`, `[relative]`, or `[non-path]` comments.

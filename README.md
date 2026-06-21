@@ -29,6 +29,10 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
   - **macOS**: `xcode-select --install` (Xcode Command Line Tools)
   - **Linux**: `apt install build-essential` (Debian/Ubuntu) or `dnf groupinstall "Development Tools"` (Fedora)
   - **Windows**: Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with C++ workload
+- **Clang/LLVM** - Required only to **build `memexd` from source**, for the LadybugDB C++ core (the default graph backend). Pre-built binaries (Homebrew, release artifacts) do not need it.
+  - **macOS**: Xcode Command Line Tools include Clang (`xcode-select --install`)
+  - **Linux**: `apt install clang libclang-dev` (Debian/Ubuntu) or `dnf install clang` (Fedora)
+  - **Alternative**: build without the C++ toolchain using the SQLite-only backend — `cargo build --no-default-features --features sqlite`
 
 ### Install
 

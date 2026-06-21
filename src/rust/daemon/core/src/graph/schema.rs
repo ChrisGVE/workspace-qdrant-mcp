@@ -52,6 +52,13 @@ pub enum GraphDbError {
     /// This is best-effort containment, not a complete fault barrier.
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    /// A branch-scoped query was requested against a backend that does not
+    /// implement branch scoping (currently the LadybugDB backend). The gRPC
+    /// layer maps this to `Status::unimplemented`. Carries the requested
+    /// branch name for diagnostics.
+    #[error("Branch-scoped queries are not implemented on this backend (branch \"{0}\")")]
+    BranchScopingUnsupported(String),
 }
 
 /// Result type for graph database operations.
