@@ -1,4 +1,4 @@
-//! `ladybug_store/mutate.rs` — write-path methods for `LadybugGraphStore`.
+//! `ladybug_store/store/mutate.rs` — write-path methods for `LadybugGraphStore`.
 //!
 //! Every method in this file mutates graph state: upsert/insert of nodes and
 //! edges, deletion of edges or entire tenants, narrative node cleanup,

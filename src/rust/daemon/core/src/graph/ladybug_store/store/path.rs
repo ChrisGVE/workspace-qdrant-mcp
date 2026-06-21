@@ -1,4 +1,4 @@
-//! `ladybug_store/path.rs` — BFS-driven path and cross-boundary traversal
+//! `ladybug_store/store/path.rs` — BFS-driven path and cross-boundary traversal
 //! methods for `LadybugGraphStore`.
 //!
 //! These two methods drive the BFS machinery defined in `traversal.rs` and are

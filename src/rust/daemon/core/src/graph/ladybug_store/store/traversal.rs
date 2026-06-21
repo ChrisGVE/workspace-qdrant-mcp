@@ -1,4 +1,4 @@
-//! `ladybug_store/traversal.rs` — private BFS helpers for path-finding and
+//! `ladybug_store/store/traversal.rs` — private BFS helpers for path-finding and
 //! cross-boundary traversal.
 //!
 //! These methods are inherent `impl LadybugGraphStore` helpers: they are called

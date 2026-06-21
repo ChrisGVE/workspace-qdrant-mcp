@@ -1,4 +1,13 @@
-/// Betweenness centrality using Brandes' algorithm.
+//! Betweenness centrality using Brandes' algorithm.
+//!
+//! Location: `src/rust/daemon/core/src/graph/algorithms/`.
+//!
+//! Role: pure-function analytics that consumes an [`AdjacencyExport`] produced
+//! by `GraphStore::export_adjacency` and returns per-node centrality scores.
+//! Performs no database I/O. Invoked by the gRPC graph service
+//! (`grpc/.../graph_service/analytics_handlers.rs`). Algorithm references are on
+//! the entry-point function below.
+
 use serde::{Deserialize, Serialize};
 use tracing::info;
 

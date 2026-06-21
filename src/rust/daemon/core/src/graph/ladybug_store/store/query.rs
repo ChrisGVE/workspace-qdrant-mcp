@@ -1,4 +1,4 @@
-//! `ladybug_store/query.rs` — simpler read-path `GraphStore` methods.
+//! `ladybug_store/store/query.rs` — simpler read-path `GraphStore` methods.
 //!
 //! Contains all read methods except the two BFS-driver methods (`do_find_path`,
 //! `do_query_cross_boundary`) which live in `path.rs` due to their size. The

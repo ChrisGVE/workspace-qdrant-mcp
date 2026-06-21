@@ -1,4 +1,13 @@
-/// Community detection using label propagation algorithm.
+//! Community detection using the label-propagation algorithm.
+//!
+//! Location: `src/rust/daemon/core/src/graph/algorithms/`.
+//!
+//! Role: pure-function analytics that consumes an [`AdjacencyExport`] produced
+//! by `GraphStore::export_adjacency` and returns deterministic node clusters
+//! (BTreeMap/BTreeSet throughout, DOM-01). Performs no database I/O. Invoked by
+//! the gRPC graph service. Algorithm references are on the detection function
+//! below.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};

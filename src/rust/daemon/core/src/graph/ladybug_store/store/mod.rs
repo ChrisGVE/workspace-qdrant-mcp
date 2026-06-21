@@ -1,6 +1,6 @@
 //! `ladybug_store/store/mod.rs` — module router and single `GraphStore` impl.
 //!
-//! Declares the five focused submodules that together implement `GraphStore`
+//! Declares the six focused submodules that together implement `GraphStore`
 //! for LadybugDB and hosts the single `impl GraphStore for LadybugGraphStore`
 //! delegation block. All trait methods delegate to the `pub(super)` inherent
 //! methods defined in `mutate` (write path) and `query` (read path).

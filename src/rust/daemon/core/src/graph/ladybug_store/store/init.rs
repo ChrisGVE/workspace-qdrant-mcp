@@ -1,4 +1,4 @@
-//! `ladybug_store/init.rs` — `LadybugGraphStore` struct, constructor, FFI
+//! `ladybug_store/store/init.rs` — `LadybugGraphStore` struct, constructor, FFI
 //! choke-point methods, and the two low-level write helpers.
 //!
 //! Owns the responsibilities that must precede any graph I/O: defining the

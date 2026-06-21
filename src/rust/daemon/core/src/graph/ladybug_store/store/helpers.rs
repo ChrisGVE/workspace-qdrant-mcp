@@ -1,4 +1,4 @@
-//! `ladybug_store/helpers.rs` — shared primitives for the LadybugDB backend.
+//! `ladybug_store/store/helpers.rs` — shared primitives for the LadybugDB backend.
 //!
 //! Contains everything that the four implementation files (`init`, `mutate`,
 //! `query`) all depend on: the lbug FFI panic guard (`lbug_call`), Value
