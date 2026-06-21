@@ -1,89 +1,15 @@
-#![allow(deprecated)] // v40 insert_tracked_file under test (F6 deprecation)
 use super::super::*;
-use super::{create_test_pool, setup_tables};
-
-#[tokio::test]
-async fn test_insert_tracked_file_tx_commit() {
-    let pool = create_test_pool().await;
-    setup_tables(&pool).await;
-
-    let mut tx = pool.begin().await.unwrap();
-    let file_id = insert_tracked_file_tx(
-        &mut tx,
-        "w1",
-        "src/tx_test.rs",
-        Some("main"),
-        Some("code"),
-        Some("rust"),
-        "2025-01-01T00:00:00Z",
-        "txhash1",
-        2,
-        Some("tree_sitter"),
-        ProcessingStatus::Done,
-        ProcessingStatus::Done,
-        None,
-        None,
-        false,
-        None,
-        None,
-    )
-    .await
-    .expect("Tx insert failed");
-    tx.commit().await.unwrap();
-
-    assert!(file_id > 0);
-    let found = lookup_tracked_file(&pool, "w1", "src/tx_test.rs", Some("main"))
-        .await
-        .unwrap();
-    assert!(found.is_some());
-    assert_eq!(found.unwrap().file_hash, "txhash1");
-}
-
-#[tokio::test]
-async fn test_insert_tracked_file_tx_rollback() {
-    let pool = create_test_pool().await;
-    setup_tables(&pool).await;
-
-    {
-        let mut tx = pool.begin().await.unwrap();
-        let _file_id = insert_tracked_file_tx(
-            &mut tx,
-            "w1",
-            "src/rollback.rs",
-            Some("main"),
-            Some("code"),
-            Some("rust"),
-            "2025-01-01T00:00:00Z",
-            "rollback_hash",
-            1,
-            None,
-            ProcessingStatus::None,
-            ProcessingStatus::None,
-            None,
-            None,
-            false,
-            None,
-            None,
-        )
-        .await
-        .expect("Tx insert failed");
-        // Drop tx without committing = implicit rollback
-    }
-
-    let found = lookup_tracked_file(&pool, "w1", "src/rollback.rs", Some("main"))
-        .await
-        .unwrap();
-    assert!(found.is_none(), "Rolled-back insert should not be visible");
-}
+use super::{create_test_pool, insert_test_tracked_file, setup_tables};
 
 #[tokio::test]
 async fn test_transaction_atomicity_insert_and_chunks() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let mut tx = pool.begin().await.unwrap();
-    let file_id = insert_tracked_file_tx(
-        &mut tx,
+    // The v48 inventory insert is pool-based; create the file first, then open a
+    // transaction for the chunk insert whose atomicity this test verifies.
+    let file_id = insert_test_tracked_file(
+        &pool,
         "w1",
         "src/atomic.rs",
         Some("main"),
@@ -103,6 +29,8 @@ async fn test_transaction_atomicity_insert_and_chunks() {
     )
     .await
     .unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
 
     let chunks = vec![
         (
@@ -143,7 +71,7 @@ async fn test_transaction_atomicity_rollback_both() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/base.rs",
@@ -219,7 +147,7 @@ async fn test_delete_tracked_file_tx() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/delete_tx.rs",
@@ -270,7 +198,7 @@ async fn test_mark_and_query_needs_reconcile() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/reconcile.rs",
@@ -328,7 +256,7 @@ async fn test_update_tracked_file_tx_clears_reconcile_flag() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/reconcile_clear.rs",

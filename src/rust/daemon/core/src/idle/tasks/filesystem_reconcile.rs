@@ -16,7 +16,7 @@ use crate::unified_queue_schema::{ItemType, QueueOperation};
 /// references it via `watch_folder_id`. Kept as a named const so the join
 /// is exercised by a schema-backed test and cannot silently drift from the
 /// real schema again.
-const RECONCILE_BATCH_QUERY: &str = "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS branch, tf.collection,
+const RECONCILE_BATCH_QUERY: &str = "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection,
                     COALESCE(tf.chunk_count, 0) AS chunk_count,
                     wf.tenant_id, wf.path AS watch_path
              FROM tracked_files tf
@@ -233,29 +233,24 @@ impl MaintenanceTask for FilesystemReconcileTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queue_config::QueueConnectionConfig;
-    use crate::schema_version::v40::CREATE_TRACKED_FILES_V40_SQL;
+    use crate::schema_version::SchemaManager;
+    use sqlx::sqlite::SqlitePoolOptions;
 
-    /// The reconcile join must run against the real `watch_folders` schema,
-    /// whose primary key is `watch_id` (regression guard for the `wf.id`
-    /// typo that produced "no such column: wf.id" and flooded the log).
-    #[tokio::test]
+    /// The reconcile join must run against the real v48 `tracked_files` +
+    /// `watch_folders` schema. It guards two things at once: the join keys on
+    /// `watch_folders.watch_id` (its PK — the historic `wf.id` typo produced
+    /// "no such column: wf.id"), and the v48 scalar `tf.branch` column the query
+    /// now selects (the dropped v40 `primary_branch` would fail with "no such
+    /// column").
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reconcile_query_matches_watch_folders_schema() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().join("reconcile_schema.db");
-        let pool = QueueConnectionConfig::with_database_path(&db_path)
-            .create_pool()
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
             .unwrap();
-
-        for stmt in include_str!("../../schema/watch_folders_schema.sql").split(';') {
-            let stmt = stmt.trim();
-            if !stmt.is_empty() {
-                sqlx::query(stmt).execute(&pool).await.unwrap();
-            }
-        }
-        sqlx::query(CREATE_TRACKED_FILES_V40_SQL)
-            .execute(&pool)
+        SchemaManager::new(pool.clone())
+            .run_migrations()
             .await
             .unwrap();
 
@@ -267,8 +262,11 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO tracked_files (watch_folder_id, primary_branch, file_mtime, file_hash, collection, relative_path, created_at, updated_at)
-             VALUES ('w1', 'main', '2025-01-01T00:00:00Z', 'h1', 'projects', 'src/main.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            "INSERT INTO tracked_files
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+              file_mtime, file_hash, collection, relative_path, created_at, updated_at)
+             VALUES ('w1', 't1', 'main', 'fid1', 'ck1', '2025-01-01T00:00:00Z', 'h1',
+                     'projects', 'src/main.rs', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
         )
         .execute(&pool)
         .await
@@ -279,11 +277,13 @@ mod tests {
             .bind(0_i64)
             .fetch_all(&pool)
             .await
-            .expect("reconcile query must execute against the real schema");
+            .expect("reconcile query must execute against the real v48 schema");
 
         assert_eq!(rows.len(), 1, "expected the single tracked file to join");
         let watch_path: String = rows[0].try_get("watch_path").unwrap();
         assert_eq!(watch_path, "/tmp/proj");
+        let branch: String = rows[0].try_get("branch").unwrap();
+        assert_eq!(branch, "main", "the v48 scalar branch column must be selected");
         // Guard the chunk_count column the oversized self-heal (#121) reads.
         let chunk_count: i64 = rows[0]
             .try_get("chunk_count")

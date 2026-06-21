@@ -256,7 +256,7 @@ async fn enqueue_delete_for_missing_tracked_files(
     let tracked_rows = sqlx::query(
         "SELECT tf.file_id, tf.relative_path, wf.path AS watch_path, \
                 wf.tenant_id, wf.collection, \
-                COALESCE(tf.primary_branch, 'main') AS branch \
+                tf.branch \
          FROM tracked_files tf \
          JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id",
     )
@@ -359,7 +359,7 @@ async fn remove_stale_tracked_files(pool: &SqlitePool) -> Result<u64, String> {
     info!("Checking tracked files against filesystem...");
     let tracked_rows = sqlx::query(
         "SELECT tf.file_id, tf.relative_path, wf.path AS watch_path, \
-                wf.tenant_id, COALESCE(tf.primary_branch, 'main') AS branch, \
+                wf.tenant_id, tf.branch, \
                 wf.collection \
          FROM tracked_files tf \
          JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id",

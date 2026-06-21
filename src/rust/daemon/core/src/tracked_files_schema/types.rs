@@ -109,6 +109,14 @@ impl ChunkType {
 /// identity is anchored to the watch-folder root via a validated
 /// [`RelativePath`]. Absolute paths are reconstructed at I/O boundaries by
 /// joining with the owning `watch_folders.path` (a `CanonicalPath`).
+///
+/// Post-v48 (branch-lineage): the v40 `primary_branch`/`branches` JSON pair was
+/// replaced by the per-(branch, path) model — one row per branch, carrying a
+/// scalar [`branch`](Self::branch), a content-addressed
+/// [`content_key`](Self::content_key), a content-independent
+/// [`file_identity_id`](Self::file_identity_id), an
+/// [`is_virtual`](Self::is_virtual) shadow flag, and an explicit lifecycle
+/// [`state`](Self::state). See `schema_version/v48.rs`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackedFile {
     /// Auto-incremented primary key
@@ -119,10 +127,21 @@ pub struct TrackedFile {
     /// Replaces both the legacy absolute `file_path` and the prior optional
     /// `relative_path` string.
     pub relative_path: RelativePath,
-    /// Primary branch that last wrote this row (NULL for libraries or non-git contexts)
-    pub primary_branch: Option<String>,
-    /// JSON array of branch names sharing this file content (e.g., '["main","feature/auth"]')
-    pub branches: String,
+    /// Project/tenant identifier this row belongs to.
+    pub tenant_id: String,
+    /// The single git branch this row represents (v48: one row per branch).
+    pub branch: String,
+    /// Content-independent file-lineage UUID, inherited down a branch lineage or
+    /// minted for a genuinely new file (see `tracked_files_schema::identity`).
+    pub file_identity_id: String,
+    /// Content-addressed dedup key `SHA256(tenant_id|file_identity_id|file_hash)`
+    /// (see `wqm_common::hashing::content_key`).
+    pub content_key: String,
+    /// Whether this is a virtual shadow row inherited down a lineage (no own
+    /// embeddings; it shares the real point of the row it shadows).
+    pub is_virtual: bool,
+    /// Lifecycle state: `"present"` (live) or `"deleted"` (logical tombstone).
+    pub state: String,
     /// Detected file type (e.g., "code", "markdown", "config")
     pub file_type: Option<String>,
     /// Detected programming language (e.g., "rust", "python")

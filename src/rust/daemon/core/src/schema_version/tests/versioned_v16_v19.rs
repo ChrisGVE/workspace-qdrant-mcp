@@ -274,8 +274,11 @@ async fn test_migration_v18_indexed_content() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at)
-         VALUES ('w1', 'test.rs', '2025-01-01T00:00:00Z', 'h1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+              relative_path, file_mtime, file_hash, created_at, updated_at)
+         VALUES ('w1', 't1', 'main', 'fid1', 'ck1',
+                 'test.rs', '2025-01-01T00:00:00Z', 'h1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let file_id: i64 =
@@ -316,8 +319,11 @@ async fn test_migration_v18_indexed_content() {
 async fn test_migration_v19_base_point_columns() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
+    // Asserts the v19 base_point/refcount indexes on tracked_files; the v48
+    // rebuild drops them and creates its own index set, so migrate only THROUGH
+    // v19 to test the version this case targets.
     manager
-        .run_migrations()
+        .run_migrations_through(19)
         .await
         .expect("Failed to run migrations");
 
@@ -371,11 +377,15 @@ async fn test_migration_v19_backfill() {
          VALUES ('w1', '/tmp/project', 'projects', 'tenant_abc', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
-    // Post-v40: the `branch` column no longer exists; use the v40 schema
-    // which has `primary_branch` and `branches` instead.
+    // v48 tracked_files requires tenant_id/branch/file_identity_id/content_key;
+    // base_point and incremental still default to NULL / 0, which is what this
+    // backfill test asserts.
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, collection, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+              relative_path, file_mtime, file_hash, collection, created_at, updated_at)
+         VALUES ('w1', 'tenant_abc', 'main', 'fid1', 'ck1',
+                 'src/main.rs', '2025-01-01T00:00:00Z', 'deadbeef', 'projects', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let bp: Option<String> = sqlx::query_scalar(

@@ -291,19 +291,27 @@ async fn test_incremental_migration_v2_to_v3() {
         .await
         .expect("Failed to record v2");
 
+    // Run only through v3 to assert v3's reconcile index — the later v48
+    // migration rebuilds tracked_files and drops the v3-era indexes, so the
+    // check must happen at the version it targets.
     manager
-        .run_migrations()
+        .run_migrations_through(3)
         .await
-        .expect("Failed to run migrations from v2");
-
-    let version = manager.get_current_version().await.unwrap();
-    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
+        .expect("Failed to run migrations from v2 through v3");
 
     let has_index: bool = sqlx::query_scalar(
         "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_tracked_files_reconcile'"
     )
     .fetch_one(&pool).await.unwrap();
     assert!(has_index, "Reconcile index should exist after v3 migration");
+
+    // Finish the chain and confirm it lands at the current version.
+    manager
+        .run_migrations()
+        .await
+        .expect("Failed to run remaining migrations");
+    let version = manager.get_current_version().await.unwrap();
+    assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
 }
 
 #[tokio::test]

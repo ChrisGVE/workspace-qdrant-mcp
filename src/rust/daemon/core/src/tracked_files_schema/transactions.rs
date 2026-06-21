@@ -1,75 +1,15 @@
 //! Transaction-aware write operations for tracked files and Qdrant chunks
+//!
+//! Post-v48 (branch-lineage): the transactional insert (`insert_tracked_file_tx`)
+//! wrote the dropped v40 `primary_branch`/`branches` columns and was retired.
+//! The sole tracked-file insert path is now `operations::insert_tracked_file_v48`
+//! (pool-based); the update and delete helpers below remain transaction-aware.
 
 use sqlx::Sqlite;
-use wqm_common::constants::COLLECTION_PROJECTS;
 use wqm_common::timestamps;
 
 use super::operations::{execute_chunk_batch_insert, CHUNK_INSERT_BATCH_SIZE};
 use super::types::{ChunkType, ProcessingStatus};
-
-/// Insert a new tracked file record within a transaction, returning the file_id.
-///
-/// Post-v37: the SQL column is `relative_path` (no more absolute `file_path`).
-/// Callers pass the validated relative-path string. Absolute reconstruction
-/// happens at I/O boundaries via `watch_folders.path` + `RelativePath`.
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_tracked_file_tx(
-    tx: &mut sqlx::Transaction<'_, Sqlite>,
-    watch_folder_id: &str,
-    relative_path: &str,
-    branch: Option<&str>,
-    file_type: Option<&str>,
-    language: Option<&str>,
-    file_mtime: &str,
-    file_hash: &str,
-    chunk_count: i32,
-    chunking_method: Option<&str>,
-    lsp_status: ProcessingStatus,
-    treesitter_status: ProcessingStatus,
-    collection: Option<&str>,
-    extension: Option<&str>,
-    is_test: bool,
-    base_point: Option<&str>,
-    component: Option<&str>,
-) -> Result<i64, sqlx::Error> {
-    let now = timestamps::now_utc();
-    let collection = collection.unwrap_or(COLLECTION_PROJECTS);
-    // Build the branches JSON array from the branch parameter.
-    let branches_json = match branch {
-        Some(b) => format!(r#"["{}"]"#, b),
-        None => "[]".to_string(),
-    };
-    let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, primary_branch, branches,
-         file_type, language,
-         file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         extension, is_test, collection, base_point, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-    )
-    .bind(watch_folder_id)
-    .bind(relative_path)
-    .bind(branch)
-    .bind(&branches_json)
-    .bind(file_type)
-    .bind(language)
-    .bind(file_mtime)
-    .bind(file_hash)
-    .bind(chunk_count)
-    .bind(chunking_method)
-    .bind(lsp_status.to_string())
-    .bind(treesitter_status.to_string())
-    .bind(extension)
-    .bind(is_test as i32)
-    .bind(collection)
-    .bind(base_point)
-    .bind(component)
-    .bind(&now)
-    .bind(&now)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(result.last_insert_rowid())
-}
 
 /// Update an existing tracked file record within a transaction
 pub async fn update_tracked_file_tx(

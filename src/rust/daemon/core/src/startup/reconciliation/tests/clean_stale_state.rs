@@ -180,8 +180,9 @@ async fn test_clean_stale_state_removes_orphan_chunks() {
 
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at) \
-         VALUES ('w1', 'file.rs', '2025-01-01T00:00:00Z', 'hash1', \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, created_at, updated_at) \
+         VALUES ('w1', 't1', 'main', 'fid-w1', 'ck-w1', 'file.rs', '2025-01-01T00:00:00Z', 'hash1', \
          '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
@@ -406,8 +407,9 @@ async fn test_f036_enqueue_delete_keeps_row_while_in_flight() {
     // File that does NOT exist on disk.
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at) \
-         VALUES ('wf1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash1', \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, created_at, updated_at) \
+         VALUES ('wf1', 't1', 'main', 'fid-wf1', 'ck-wf1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash1', \
          '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
@@ -487,8 +489,9 @@ async fn test_f036_enqueue_delete_is_idempotent() {
 
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, created_at, updated_at) \
-         VALUES ('wf1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash1', \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, created_at, updated_at) \
+         VALUES ('wf1', 't1', 'main', 'fid-wf1', 'ck-wf1', 'gone.rs', '2025-01-01T00:00:00Z', 'hash1', \
          '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
@@ -551,9 +554,10 @@ async fn test_f020_needs_reconcile_cleared_on_queue_completion() {
 
     let file_id: i64 = sqlx::query_scalar(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, collection, \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, chunk_count, collection, \
           needs_reconcile, reconcile_reason, created_at, updated_at) \
-         VALUES ('wf-rc', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, \
+         VALUES ('wf-rc', 'tenant-rc', 'main', 'fid-rc', 'ck-rc', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, \
          'test_reason', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z') \
          RETURNING file_id",
     )
@@ -647,9 +651,10 @@ async fn test_f020_no_duplicate_enqueue_flag_stays_set() {
 
     let file_id: i64 = sqlx::query_scalar(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, collection, \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, chunk_count, collection, \
           needs_reconcile, reconcile_reason, created_at, updated_at) \
-         VALUES ('wf-dedup', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, \
+         VALUES ('wf-dedup', 'tenant-dedup', 'main', 'fid-dedup', 'ck-dedup', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, \
          'test_reason', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z') \
          RETURNING file_id",
     )
@@ -747,9 +752,10 @@ async fn test_f043_failed_row_preserved_as_sole_repair_intent() {
     // — the exemption is about the queue row, not disk state).
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, needs_reconcile, \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, needs_reconcile, \
           reconcile_reason, created_at, updated_at) \
-         VALUES ('wf-f043', 'broken.rs', '2025-01-01T00:00:00Z', 'hash1', 1, \
+         VALUES ('wf-f043', 't-f043', 'main', 'fid-f043', 'ck-f043', 'broken.rs', '2025-01-01T00:00:00Z', 'hash1', 1, \
          'ingest_tx_failed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)
@@ -815,9 +821,10 @@ async fn test_f043_failed_row_purged_when_newer_pending_exists() {
 
     sqlx::query(
         "INSERT INTO tracked_files \
-         (watch_folder_id, relative_path, file_mtime, file_hash, needs_reconcile, \
+         (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
+          relative_path, file_mtime, file_hash, needs_reconcile, \
           reconcile_reason, created_at, updated_at) \
-         VALUES ('wf-f043b', 'broken.rs', '2025-01-01T00:00:00Z', 'hash1', 1, \
+         VALUES ('wf-f043b', 't-f043b', 'main', 'fid-f043b', 'ck-f043b', 'broken.rs', '2025-01-01T00:00:00Z', 'hash1', 1, \
          'ingest_tx_failed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
     )
     .execute(&pool)

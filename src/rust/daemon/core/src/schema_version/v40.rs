@@ -246,9 +246,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Run all prior migrations so the schema is up to date through v40.
+        // Migrate only THROUGH v40 — these tests assert the v40 `tracked_files`
+        // shape (primary_branch/branches), which the later v48 migration
+        // rewrites. Running the full chain would land at v48 and break them.
         let manager = SchemaManager::new(pool.clone());
-        manager.run_migrations().await.unwrap();
+        manager.run_migrations_through(40).await.unwrap();
         pool
     }
 

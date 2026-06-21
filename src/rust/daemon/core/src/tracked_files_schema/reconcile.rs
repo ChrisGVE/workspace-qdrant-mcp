@@ -3,7 +3,7 @@
 use sqlx::{Sqlite, SqlitePool};
 use wqm_common::timestamps;
 
-use super::operations::tracked_file_from_row;
+use super::operations::{tracked_file_from_row, TRACKED_FILE_COLUMNS};
 use super::types::TrackedFile;
 
 /// Mark a tracked file as needing reconciliation (using pool, not transaction)
@@ -32,19 +32,8 @@ pub async fn mark_needs_reconcile(
 pub async fn get_files_needing_reconcile(
     pool: &SqlitePool,
 ) -> Result<Vec<TrackedFile>, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
-                file_type, language,
-                file_mtime, file_hash, chunk_count, chunking_method,
-                lsp_status, treesitter_status, last_error,
-                needs_reconcile, reconcile_reason, extension, is_test,
-                collection, base_point, incremental,
-                component, routing_reason, created_at, updated_at
-         FROM tracked_files
-         WHERE needs_reconcile = 1",
-    )
-    .fetch_all(pool)
-    .await?;
+    let sql = format!("SELECT {TRACKED_FILE_COLUMNS} FROM tracked_files WHERE needs_reconcile = 1");
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
 
     Ok(rows.iter().map(tracked_file_from_row).collect())
 }
@@ -72,10 +61,13 @@ impl UpgradeReason {
 
 /// Find files needing capability upgrade for a given tenant and language.
 ///
-/// Returns `(file_id, relative_path, primary_branch, collection)` tuples for files
+/// Returns `(file_id, relative_path, branch, collection)` tuples for files
 /// where:
 /// - `treesitter_status` is 'none', 'failed', or 'skipped' (grammar upgrade), or
 /// - `lsp_status` is 'none' or 'failed' (LSP upgrade)
+///
+/// v48: the selected branch is the scalar NOT-NULL `tf.branch` (was the v40
+/// `primary_branch`); the join keys on `watch_folders.watch_id` (its PK).
 pub async fn get_files_needing_upgrade(
     pool: &SqlitePool,
     tenant_id: &str,
@@ -90,9 +82,9 @@ pub async fn get_files_needing_upgrade(
 
     let query = if language.is_some() {
         format!(
-            "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS primary_branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
              WHERE wf.tenant_id = ?1
                AND ({})
                AND tf.language = ?2",
@@ -100,9 +92,9 @@ pub async fn get_files_needing_upgrade(
         )
     } else {
         format!(
-            "SELECT tf.file_id, tf.relative_path, COALESCE(tf.primary_branch, 'default') AS primary_branch, tf.collection
+            "SELECT tf.file_id, tf.relative_path, tf.branch, tf.collection
              FROM tracked_files tf
-             JOIN watch_folders wf ON tf.watch_folder_id = wf.id
+             JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
              WHERE wf.tenant_id = ?1
                AND ({})",
             status_filter
@@ -126,7 +118,7 @@ pub async fn get_files_needing_upgrade(
             (
                 r.get::<i64, _>("file_id"),
                 r.get::<String, _>("relative_path"),
-                r.get::<String, _>("primary_branch"),
+                r.get::<String, _>("branch"),
                 r.get::<String, _>("collection"),
             )
         })

@@ -29,23 +29,23 @@ pub use schema::{
     MIGRATE_V8_ADD_COLUMNS_SQL,
 };
 
-// Re-export pool-based operations. `insert_tracked_file` is #[deprecated] (v40
-// only) but still re-exported for the v40-schema unit tests until the
-// v40-retirement task deletes it — allow the deprecation on the re-export.
-#[allow(deprecated)]
+// Re-export pool-based operations. The v40 `insert_tracked_file`,
+// `lookup_tracked_file_by_hash`, and `add_branch_to_tracked_file` (which wrote /
+// read the dropped `primary_branch`/`branches` columns) were retired in the v48
+// branch-lineage migration; the v48 inventory uses `insert_tracked_file_v48`,
+// `lookup_tracked_file`, and `locate_byte_identical`.
 pub use operations::{
-    add_branch_to_tracked_file, compute_content_hash, compute_file_hash, compute_relative_path,
-    delete_qdrant_chunks, delete_tracked_file, get_chunk_point_ids, get_file_mtime,
-    get_tracked_file_paths, get_tracked_files_by_prefix, get_tracked_files_with_hashes,
-    insert_qdrant_chunks, insert_tracked_file, insert_tracked_file_v48, is_incremental,
-    locate_byte_identical, lookup_tracked_file, lookup_tracked_file_by_hash, lookup_watch_folder,
-    real_point_id_for, set_incremental, update_tracked_file, ByteIdenticalHit,
+    compute_content_hash, compute_file_hash, compute_relative_path, delete_qdrant_chunks,
+    delete_tracked_file, get_chunk_point_ids, get_file_mtime, get_tracked_file_paths,
+    get_tracked_files_by_prefix, get_tracked_files_with_hashes, insert_qdrant_chunks,
+    insert_tracked_file_v48, is_incremental, locate_byte_identical, lookup_tracked_file,
+    lookup_watch_folder, real_point_id_for, set_incremental, update_tracked_file, ByteIdenticalHit,
 };
 
 // Re-export transaction-aware operations
 pub use transactions::{
     delete_qdrant_chunks_tx, delete_tracked_file_tx, insert_qdrant_chunks_tx,
-    insert_tracked_file_tx, update_tracked_file_tx,
+    update_tracked_file_tx,
 };
 
 // Re-export reconcile operations

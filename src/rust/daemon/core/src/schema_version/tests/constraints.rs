@@ -21,8 +21,11 @@ async fn test_qdrant_chunks_cascade_delete() {
     ).execute(&pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
-         VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'abc123', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+              relative_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
+         VALUES ('w1', 't1', 'main', 'fid1', 'ck1',
+                 'src/main.rs', '2025-01-01T00:00:00Z', 'abc123', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     ).execute(&pool).await.unwrap();
 
     let file_id: i64 =
@@ -75,8 +78,11 @@ async fn test_qdrant_chunks_cascade_delete() {
 async fn test_tracked_files_unique_constraint() {
     let pool = create_test_pool().await;
     let manager = SchemaManager::new(pool.clone());
+    // This asserts the v40 UNIQUE (watch_folder_id, relative_path, file_hash),
+    // which v48 replaced with the per-(branch, path) live-view index. Migrate
+    // only THROUGH v40 so the constraint under test still exists.
     manager
-        .run_migrations()
+        .run_migrations_through(40)
         .await
         .expect("Failed to run migrations");
 

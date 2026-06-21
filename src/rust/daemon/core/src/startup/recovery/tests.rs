@@ -52,11 +52,8 @@ fn test_compute_relative_path_for_recovery() {
     assert_eq!(rel, "src/main.rs");
 }
 
-use crate::tracked_files_schema::{
-    self as tfs, CREATE_TRACKED_FILES_V40_INDEXES_SQL, CREATE_TRACKED_FILES_V40_SQL,
-};
-use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_INDEXES_SQL, CREATE_UNIFIED_QUEUE_SQL};
-use crate::watch_folders_schema;
+use crate::schema_version::SchemaManager;
+use crate::tracked_files_schema::{self as tfs};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 
@@ -70,28 +67,12 @@ async fn create_test_pool() -> SqlitePool {
 }
 
 async fn setup_reconcile_tables(pool: &SqlitePool) {
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(pool)
+    // Build the real v48 schema (watch_folders + tracked_files + unified_queue
+    // and the rest) so reconcile queries run against production columns.
+    SchemaManager::new(pool.clone())
+        .run_migrations()
         .await
-        .unwrap();
-    sqlx::query(watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query(CREATE_TRACKED_FILES_V40_SQL)
-        .execute(pool)
-        .await
-        .unwrap();
-    for idx in CREATE_TRACKED_FILES_V40_INDEXES_SQL {
-        sqlx::query(idx).execute(pool).await.unwrap();
-    }
-    sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
-        .execute(pool)
-        .await
-        .unwrap();
-    for idx in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
-        sqlx::query(idx).execute(pool).await.unwrap();
-    }
+        .expect("v48 migration chain must apply");
 }
 
 /// Insert a watch_folder and a tracked_file with needs_reconcile=1
@@ -104,8 +85,13 @@ async fn insert_reconcile_fixture(pool: &SqlitePool, base_path: &str, rel_path: 
     .execute(pool).await.unwrap();
 
     sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, file_mtime, file_hash, chunk_count, collection, needs_reconcile, reconcile_reason, created_at, updated_at)
-         VALUES ('wf-rc', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, 'ingest_tx_failed: test', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        "INSERT INTO tracked_files
+             (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+              relative_path, file_mtime, file_hash, chunk_count, collection,
+              needs_reconcile, reconcile_reason, created_at, updated_at)
+         VALUES ('wf-rc', 'tenant-rc', 'main', 'fid-rc', 'ck-rc',
+                 ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects',
+                 1, 'ingest_tx_failed: test', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
     )
     .bind(rel_path)
     .execute(pool).await.unwrap();

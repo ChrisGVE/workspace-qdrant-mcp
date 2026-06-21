@@ -115,7 +115,7 @@ pub(crate) async fn process_folder_delete(
 /// Returns `(files_queued, errors)`.
 async fn enqueue_file_deletions(
     item: &UnifiedQueueItem,
-    tracked_files: &[(i64, String, Option<String>)],
+    tracked_files: &[(i64, String, String)],
     queue_manager: &Arc<QueueManager>,
 ) -> UnifiedProcessorResult<(u64, u64)> {
     let mut files_queued = 0u64;

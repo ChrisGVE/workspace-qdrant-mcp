@@ -1,13 +1,12 @@
-#![allow(deprecated)] // v40 insert_tracked_file under test (F6 deprecation)
 use super::super::*;
-use super::{create_test_pool, setup_tables};
+use super::{create_test_pool, insert_test_tracked_file, setup_tables};
 
 #[tokio::test]
 async fn test_insert_and_lookup_tracked_file() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/main.rs",
@@ -49,7 +48,7 @@ async fn test_lookup_tracked_file_null_branch() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "doc.pdf",
@@ -90,7 +89,7 @@ async fn test_update_tracked_file() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/main.rs",
@@ -144,7 +143,7 @@ async fn test_insert_and_get_qdrant_chunks() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/lib.rs",
@@ -204,7 +203,7 @@ async fn test_delete_tracked_file_cascades_chunks() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/main.rs",
@@ -257,7 +256,7 @@ async fn test_get_tracked_file_paths() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    insert_tracked_file(
+    insert_test_tracked_file(
         &pool,
         "w1",
         "src/main.rs",
@@ -279,7 +278,7 @@ async fn test_get_tracked_file_paths() {
     .await
     .unwrap();
 
-    insert_tracked_file(
+    insert_test_tracked_file(
         &pool,
         "w1",
         "src/lib.rs",
@@ -335,7 +334,7 @@ async fn test_delete_qdrant_chunks_explicit() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "file.rs",
@@ -404,7 +403,7 @@ async fn test_get_tracked_files_by_prefix() {
         ("src/cli/main.rs", "h4"),
         ("README.md", "h5"),
     ] {
-        insert_tracked_file(
+        insert_test_tracked_file(
             &pool,
             "w1",
             path,
@@ -466,7 +465,7 @@ async fn test_get_tracked_files_by_prefix_no_false_positives() {
         ("src/core/main.rs", "h1"),
         ("src/core_utils/helpers.rs", "h2"),
     ] {
-        insert_tracked_file(
+        insert_test_tracked_file(
             &pool,
             "w1",
             path,

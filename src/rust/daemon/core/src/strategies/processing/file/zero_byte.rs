@@ -78,6 +78,14 @@ pub(super) async fn handle_zero_byte_file(
 }
 
 /// Insert or update the `tracked_files` row for a zero-byte file.
+///
+/// The update path stays transaction-wrapped (`update_tracked_file_tx`); the
+/// insert path uses the v48 inventory writer (`insert_tracked_file_v48`), which
+/// is pool-based. The two paths are mutually exclusive and each is a single
+/// statement, so no cross-statement transaction is needed. The v48 insert needs
+/// a `file_identity_id` (allocated via the lineage rule) and a `content_key`
+/// (the same `tenant_id|file_identity_id|file_hash` digest the branch tagger
+/// uses), so a zero-byte row participates in dedup like any other file.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn record_tracked_file(
     pool: &SqlitePool,
@@ -102,11 +110,10 @@ pub(super) async fn record_tracked_file(
         UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e))
     })?;
 
-    let mut tx = pool.begin().await.map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
-    })?;
-
     if let Some(existing_file) = existing {
+        let mut tx = pool.begin().await.map_err(|e| {
+            UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e))
+        })?;
         tracked_files_schema::update_tracked_file_tx(
             &mut tx,
             existing_file.file_id,
@@ -123,34 +130,57 @@ pub(super) async fn record_tracked_file(
         .map_err(|e| {
             UnifiedProcessorError::QueueOperation(format!("tracked_files update failed: {}", e))
         })?;
-    } else {
-        tracked_files_schema::insert_tracked_file_tx(
-            &mut tx,
-            watch_folder_id,
-            relative_path,
-            Some(item.branch.as_str()),
-            payload_file_type,
-            None, // language
-            file_mtime,
-            file_hash,
-            0,    // chunk_count
-            None, // chunking_method
-            ProcessingStatus::Skipped,
-            ProcessingStatus::Skipped,
-            Some(&item.collection),
-            extension,
-            is_test,
-            Some(base_point),
-            None, // component
-        )
-        .await
-        .map_err(|e| {
-            UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e))
+        tx.commit().await.map_err(|e| {
+            UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
         })?;
+        return Ok(());
     }
 
-    tx.commit().await.map_err(|e| {
-        UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e))
+    // New row: allocate the file-identity (mint-or-inherit down the lineage) and
+    // derive the content_key, then write a v48 inventory row.
+    let identity = tracked_files_schema::allocate_file_identity(
+        pool,
+        &item.tenant_id,
+        &item.branch,
+        relative_path,
+    )
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::QueueOperation(format!("file-identity allocation failed: {}", e))
+    })?;
+    let file_identity_id = identity.id().to_string();
+    let content_key =
+        wqm_common::hashing::content_key(&item.tenant_id, &file_identity_id, file_hash);
+
+    tracked_files_schema::insert_tracked_file_v48(
+        pool,
+        watch_folder_id,
+        &item.tenant_id,
+        &item.branch,
+        &file_identity_id,
+        &content_key,
+        false,     // is_virtual
+        "present", // state
+        payload_file_type,
+        None, // language
+        file_mtime,
+        file_hash,
+        0,    // chunk_count (zero-byte file)
+        None, // chunking_method
+        ProcessingStatus::Skipped,
+        ProcessingStatus::Skipped,
+        &item.collection,
+        extension,
+        is_test,
+        Some(base_point),
+        None, // component
+        relative_path,
+        false, // needs_reconcile (no Qdrant point written)
+        None,  // reconcile_reason
+    )
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e))
     })?;
 
     Ok(())

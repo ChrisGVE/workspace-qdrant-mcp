@@ -11,11 +11,26 @@ use super::types::{ChunkType, ProcessingStatus, TrackedFile};
 // Re-export hashing functions from wqm-common
 pub use wqm_common::hashing::{compute_content_hash, compute_file_hash};
 
+/// The full v48 `tracked_files` column list read by [`tracked_file_from_row`].
+///
+/// Kept as a single source of truth so every `SELECT *`-style read (the two
+/// [`lookup_tracked_file`] arms, [`super::reconcile::get_files_needing_reconcile`])
+/// stays in lock-step with the row decoder and cannot drift column-by-column.
+pub(crate) const TRACKED_FILE_COLUMNS: &str =
+    "file_id, watch_folder_id, relative_path, tenant_id, \
+     branch, file_identity_id, content_key, is_virtual, state, \
+     file_type, language, file_mtime, file_hash, chunk_count, chunking_method, \
+     lsp_status, treesitter_status, last_error, needs_reconcile, reconcile_reason, \
+     extension, is_test, collection, base_point, incremental, \
+     component, routing_reason, created_at, updated_at";
+
 /// Build a TrackedFile from a SQLite row.
 ///
 /// Post-v37: the row carries a single relative path column (`relative_path`).
-/// The legacy absolute `file_path` column was dropped by migration v37 and is
-/// no longer hydrated here.
+/// Post-v48 (branch-lineage): the v40 `primary_branch`/`branches` JSON columns
+/// were dropped; the row carries the scalar `branch`, `tenant_id`, `content_key`,
+/// `file_identity_id`, `is_virtual`, and `state` instead (`schema_version/v48.rs`).
+/// The caller's SELECT must list [`TRACKED_FILE_COLUMNS`].
 pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
     let raw_relative: String = r.get("relative_path");
     let relative_path = RelativePath::from_validated(raw_relative.clone()).unwrap_or_else(|e| {
@@ -39,10 +54,12 @@ pub(crate) fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         file_id: r.get("file_id"),
         watch_folder_id: r.get("watch_folder_id"),
         relative_path,
-        primary_branch: r.get("primary_branch"),
-        branches: r
-            .get::<Option<String>, _>("branches")
-            .unwrap_or_else(|| "[]".to_string()),
+        tenant_id: r.get("tenant_id"),
+        branch: r.get("branch"),
+        file_identity_id: r.get("file_identity_id"),
+        content_key: r.get("content_key"),
+        is_virtual: r.get::<i64, _>("is_virtual") != 0,
+        state: r.get("state"),
         file_type: r.get("file_type"),
         language: r.get("language"),
         file_mtime: r.get("file_mtime"),
@@ -103,11 +120,17 @@ pub async fn lookup_watch_folder(
     Ok(row.map(|r| (r.get("watch_id"), r.get("path"))))
 }
 
-/// Look up a tracked file by (watch_folder_id, relative_path, branch).
+/// Look up a live tracked file by (watch_folder_id, relative_path[, branch]).
 ///
-/// First checks `primary_branch` for an exact match. If not found, checks
-/// `branches` JSON array membership — this handles content-hash deduped
-/// files that share a single row across multiple branches.
+/// v48 (branch-lineage) keeps one live row per `(branch, path)`, so the lookup
+/// is a direct equality match — no `branches` JSON membership fallback:
+///
+/// - `Some(branch)` → the row for exactly that branch and path.
+/// - `None` → any live row for the path (first match) — used by callers that do
+///   not care which branch owns the row.
+///
+/// Both arms filter on `state = 'present'`, so logically-deleted tombstones are
+/// never returned. Returns `Ok(None)` when no live row matches.
 pub async fn lookup_tracked_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
@@ -116,151 +139,42 @@ pub async fn lookup_tracked_file(
 ) -> Result<Option<TrackedFile>, sqlx::Error> {
     let row = match branch {
         Some(b) => {
-            let r = sqlx::query(
-                "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
-                        file_type, language,
-                        file_mtime, file_hash, chunk_count, chunking_method,
-                        lsp_status, treesitter_status, last_error,
-                        needs_reconcile, reconcile_reason, extension, is_test,
-                        collection, base_point, incremental,
-                        component, routing_reason, created_at, updated_at
-                 FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND primary_branch = ?3",
-            )
-            .bind(watch_folder_id)
-            .bind(relative_path)
-            .bind(b)
-            .fetch_optional(pool)
-            .await?;
-            if r.is_some() {
-                r
-            } else {
-                sqlx::query(
-                    "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
-                            file_type, language,
-                            file_mtime, file_hash, chunk_count, chunking_method,
-                            lsp_status, treesitter_status, last_error,
-                            needs_reconcile, reconcile_reason, extension, is_test,
-                            collection, base_point, incremental,
-                            component, routing_reason, created_at, updated_at
-                     FROM tracked_files
-                     WHERE watch_folder_id = ?1 AND relative_path = ?2
-                       AND EXISTS (SELECT 1 FROM json_each(branches) WHERE json_each.value = ?3)",
-                )
+            let sql = format!(
+                "SELECT {TRACKED_FILE_COLUMNS} FROM tracked_files \
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 \
+                   AND branch = ?3 AND state = 'present'"
+            );
+            sqlx::query(&sql)
                 .bind(watch_folder_id)
                 .bind(relative_path)
                 .bind(b)
                 .fetch_optional(pool)
                 .await?
-            }
         }
         None => {
-            sqlx::query(
-                "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
-                        file_type, language,
-                        file_mtime, file_hash, chunk_count, chunking_method,
-                        lsp_status, treesitter_status, last_error,
-                        needs_reconcile, reconcile_reason, extension, is_test,
-                        collection, base_point, incremental,
-                        component, routing_reason, created_at, updated_at
-                 FROM tracked_files
-                 WHERE watch_folder_id = ?1 AND relative_path = ?2 AND primary_branch IS NULL",
-            )
-            .bind(watch_folder_id)
-            .bind(relative_path)
-            .fetch_optional(pool)
-            .await?
+            let sql = format!(
+                "SELECT {TRACKED_FILE_COLUMNS} FROM tracked_files \
+                 WHERE watch_folder_id = ?1 AND relative_path = ?2 \
+                   AND state = 'present' LIMIT 1"
+            );
+            sqlx::query(&sql)
+                .bind(watch_folder_id)
+                .bind(relative_path)
+                .fetch_optional(pool)
+                .await?
         }
     };
 
     Ok(row.map(|r| tracked_file_from_row(&r)))
 }
 
-/// Look up a tracked file by content hash for cross-branch deduplication.
-///
-/// Finds an existing `tracked_files` row for the same `watch_folder_id` and
-/// `relative_path` that has the same `file_hash` but a **different**
-/// `primary_branch`. This is the key query for content-hash dedup: if a
-/// matching row exists, the Qdrant points already contain the embeddings and
-/// only the `branches` array needs updating.
-///
-/// Returns `None` when no cross-branch duplicate exists.
-pub async fn lookup_tracked_file_by_hash(
-    pool: &SqlitePool,
-    watch_folder_id: &str,
-    relative_path: &str,
-    file_hash: &str,
-    exclude_branch: &str,
-) -> Result<Option<TrackedFile>, sqlx::Error> {
-    let row = sqlx::query(
-        "SELECT file_id, watch_folder_id, relative_path, primary_branch, branches,
-                file_type, language,
-                file_mtime, file_hash, chunk_count, chunking_method,
-                lsp_status, treesitter_status, last_error,
-                needs_reconcile, reconcile_reason, extension, is_test,
-                collection, base_point, incremental,
-                component, routing_reason, created_at, updated_at
-         FROM tracked_files
-         WHERE watch_folder_id = ?1
-           AND relative_path = ?2
-           AND file_hash = ?3
-           AND primary_branch IS NOT NULL
-           AND primary_branch != ?4
-         LIMIT 1",
-    )
-    .bind(watch_folder_id)
-    .bind(relative_path)
-    .bind(file_hash)
-    .bind(exclude_branch)
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| tracked_file_from_row(&r)))
-}
-
-/// Add a branch name to the `branches` JSON array of a tracked file.
-///
-/// Uses SQLite's `json_insert` to append the branch at the end of the array
-/// (`'$[#]'`). The caller must hold the per-tenant branch lock to prevent
-/// concurrent read-modify-write races.
-///
-/// Returns the updated `branches` JSON string after the mutation.
-pub async fn add_branch_to_tracked_file(
-    pool: &SqlitePool,
-    file_id: i64,
-    branch: &str,
-) -> Result<String, sqlx::Error> {
-    let now = timestamps::now_utc();
-    sqlx::query(
-        "UPDATE tracked_files
-         SET branches = json_insert(branches, '$[#]', ?1),
-             updated_at = ?2
-         WHERE file_id = ?3",
-    )
-    .bind(branch)
-    .bind(&now)
-    .bind(file_id)
-    .execute(pool)
-    .await?;
-
-    // Fetch the updated branches value
-    let row: (String,) =
-        sqlx::query_as("SELECT COALESCE(branches, '[]') FROM tracked_files WHERE file_id = ?1")
-            .bind(file_id)
-            .fetch_one(pool)
-            .await?;
-
-    Ok(row.0)
-}
-
 /// Insert a v48 `tracked_files` row, returning the `file_id` (AUTOINCREMENT PK).
 ///
 /// The v48 branch-lineage model (one row per `(branch, path)`, virtual shadows,
 /// lifecycle `state`) replaced the v40 columns (`primary_branch`, `branches`
-/// JSON array) — see `schema_version/v48.rs`. The legacy [`insert_tracked_file`]
-/// writes those removed columns and fails at runtime against v48; this is its
-/// v48-correct successor, called by the branch tagger (`branch_index::tagger`,
-/// F6) for all three dedup cases.
+/// JSON array) — see `schema_version/v48.rs`. This is the sole tracked-file
+/// insert path; it is called by the branch tagger (`branch_index::tagger`, F6)
+/// for all three dedup cases and by the zero-byte recorder.
 ///
 /// `created_at`/`updated_at` are generated internally via
 /// [`wqm_common::timestamps::now_utc`] (the established idiom). `lsp_status`/
@@ -330,77 +244,6 @@ pub async fn insert_tracked_file_v48(
     .bind(relative_path)
     .bind(needs_reconcile as i32)
     .bind(reconcile_reason)
-    .bind(&now)
-    .bind(&now)
-    .execute(pool)
-    .await?;
-
-    Ok(result.last_insert_rowid())
-}
-
-/// Insert a new tracked file record, returning the file_id.
-///
-/// `relative_path` is the post-v37 anchored relative path stored alongside
-/// the row. Callers must have validated/normalized the string upstream.
-///
-/// **Deprecated (branch-lineage F6):** writes the v40 `primary_branch`/`branches`
-/// columns removed by migration v48 (`schema_version/v48.rs`); it fails at
-/// runtime against the v48 schema. Use [`insert_tracked_file_v48`]. Retained only
-/// for the v40-schema unit tests until the v40 retirement task deletes it.
-#[deprecated(
-    note = "v40-only (primary_branch/branches removed in v48); use insert_tracked_file_v48"
-)]
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_tracked_file(
-    pool: &SqlitePool,
-    watch_folder_id: &str,
-    relative_path: &str,
-    branch: Option<&str>,
-    file_type: Option<&str>,
-    language: Option<&str>,
-    file_mtime: &str,
-    file_hash: &str,
-    chunk_count: i32,
-    chunking_method: Option<&str>,
-    lsp_status: ProcessingStatus,
-    treesitter_status: ProcessingStatus,
-    collection: Option<&str>,
-    extension: Option<&str>,
-    is_test: bool,
-    base_point: Option<&str>,
-    component: Option<&str>,
-) -> Result<i64, sqlx::Error> {
-    let now = timestamps::now_utc();
-    let collection = collection.unwrap_or(COLLECTION_PROJECTS);
-    // Build the branches JSON array from the branch parameter.
-    let branches_json = match branch {
-        Some(b) => format!(r#"["{}"]"#, b),
-        None => "[]".to_string(),
-    };
-    let result = sqlx::query(
-        "INSERT INTO tracked_files (watch_folder_id, relative_path, primary_branch, branches,
-         file_type, language,
-         file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         extension, is_test, collection, base_point, component, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-    )
-    .bind(watch_folder_id)
-    .bind(relative_path)
-    .bind(branch)
-    .bind(&branches_json)
-    .bind(file_type)
-    .bind(language)
-    .bind(file_mtime)
-    .bind(file_hash)
-    .bind(chunk_count)
-    .bind(chunking_method)
-    .bind(lsp_status.to_string())
-    .bind(treesitter_status.to_string())
-    .bind(extension)
-    .bind(is_test as i32)
-    .bind(collection)
-    .bind(base_point)
-    .bind(component)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -619,13 +462,14 @@ pub async fn set_incremental(
 
 /// Get all tracked file paths for a watch_folder (for cleanup/recovery).
 ///
-/// Returns `(file_id, relative_path, primary_branch)`.
+/// Returns `(file_id, relative_path, branch)`. v48: `branch` is the scalar
+/// NOT-NULL branch column (was the v40 `primary_branch`).
 pub async fn get_tracked_file_paths(
     pool: &SqlitePool,
     watch_folder_id: &str,
-) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
+) -> Result<Vec<(i64, String, String)>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT file_id, relative_path, primary_branch FROM tracked_files WHERE watch_folder_id = ?1",
+        "SELECT file_id, relative_path, branch FROM tracked_files WHERE watch_folder_id = ?1",
     )
     .bind(watch_folder_id)
     .fetch_all(pool)
@@ -633,13 +477,7 @@ pub async fn get_tracked_file_paths(
 
     Ok(rows
         .iter()
-        .map(|r| {
-            (
-                r.get("file_id"),
-                r.get("relative_path"),
-                r.get("primary_branch"),
-            )
-        })
+        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
         .collect())
 }
 
@@ -678,12 +516,12 @@ pub async fn get_tracked_files_with_hashes(
 ///
 /// Used for folder-level delete/move operations. Matches files whose
 /// relative path starts with `folder_prefix/` (ensuring proper directory
-/// boundary).
+/// boundary). Returns `(file_id, relative_path, branch)` (v48 scalar `branch`).
 pub async fn get_tracked_files_by_prefix(
     pool: &SqlitePool,
     watch_folder_id: &str,
     folder_prefix: &str,
-) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
+) -> Result<Vec<(i64, String, String)>, sqlx::Error> {
     // Ensure prefix ends with '/' for proper directory boundary matching
     let prefix = if folder_prefix.ends_with('/') {
         folder_prefix.to_string()
@@ -692,7 +530,7 @@ pub async fn get_tracked_files_by_prefix(
     };
 
     let rows = sqlx::query(
-        "SELECT file_id, relative_path, primary_branch FROM tracked_files
+        "SELECT file_id, relative_path, branch FROM tracked_files
          WHERE watch_folder_id = ?1 AND (relative_path LIKE ?2 OR relative_path = ?3)",
     )
     .bind(watch_folder_id)
@@ -703,13 +541,7 @@ pub async fn get_tracked_files_by_prefix(
 
     Ok(rows
         .iter()
-        .map(|r| {
-            (
-                r.get("file_id"),
-                r.get("relative_path"),
-                r.get("primary_branch"),
-            )
-        })
+        .map(|r| (r.get("file_id"), r.get("relative_path"), r.get("branch")))
         .collect())
 }
 
@@ -725,12 +557,11 @@ pub fn compute_relative_path(abs_path: &str, base_path: &str) -> Option<String> 
 // ---------------------------------------------------------------------------
 // Branch-lineage F5: tenant-wide byte-identical locator (v48).
 //
-// New, self-contained, v48-correct. Distinct from the superseded
-// `lookup_tracked_file_by_hash` above (which is watch-folder-AND-path scoped on
-// the v40 columns). This locator is the Case-2 "copy-vector" probe of arch §5.1:
-// a tenant-wide hash lookup spanning projects+libraries, used by the F6 tagger
-// to dedup compute across distinct file-identities / collections by copying the
-// vector of an existing byte-identical real point instead of re-embedding.
+// New, self-contained, v48-correct. This locator is the Case-2 "copy-vector"
+// probe of arch §5.1: a tenant-wide hash lookup spanning projects+libraries,
+// used by the F6 tagger to dedup compute across distinct file-identities /
+// collections by copying the vector of an existing byte-identical real point
+// instead of re-embedding.
 // ---------------------------------------------------------------------------
 
 /// A byte-identical existing view row located tenant-wide by `file_hash`.

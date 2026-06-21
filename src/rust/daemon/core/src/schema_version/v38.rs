@@ -67,8 +67,11 @@ mod tests {
         crate::schema_version::v35::INJECT_FAILURE_AFTER_WATCH_FOLDERS
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
+        // Migrate only THROUGH v38 — this test asserts the pre-v48 tracked_files
+        // shape (its INSERTs omit the v48 NOT-NULL columns). The full chain
+        // would land at v48 and reject those INSERTs.
         let manager = SchemaManager::new(pool.clone());
-        manager.run_migrations().await.unwrap();
+        manager.run_migrations_through(38).await.unwrap();
         pool
     }
 

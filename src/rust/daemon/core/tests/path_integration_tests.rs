@@ -57,29 +57,40 @@ async fn insert_watch_folder(pool: &SqlitePool, watch_id: &str, abs_path: &str, 
     .expect("insert watch_folder");
 }
 
-/// Insert a tracked_file row and return its auto-generated `file_id`.
+/// Insert a v48 `tracked_files` row and return its auto-generated `file_id`.
+///
+/// v48 (branch-lineage) keeps one row per (branch, path) with the scalar
+/// `branch`/`content_key`/`file_identity_id`/`state` columns (the v40
+/// `primary_branch`/`branches` JSON pair was dropped). `tenant_id` is read back
+/// from the owning watch_folder; `file_identity_id`/`content_key` are synthesized
+/// per row (these path-semantics tests do not exercise dedup).
 async fn insert_tracked_file(
     pool: &SqlitePool,
     watch_folder_id: &str,
     relative_path: &str,
     branch: &str,
 ) -> i64 {
-    let branches_json = format!("[\"{}\"]", branch);
     let row = sqlx::query(
         r"INSERT INTO tracked_files
-              (watch_folder_id, relative_path, primary_branch, branches,
+              (watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+               is_virtual, state, relative_path,
                file_mtime, file_hash, created_at, updated_at)
-          VALUES (?1, ?2, ?3, ?4,
-                  strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                  'deadbeef',
-                  strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                  strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+          VALUES (
+              ?1,
+              (SELECT tenant_id FROM watch_folders WHERE watch_id = ?1),
+              ?2,
+              ?2 || ':' || ?3,
+              ?2 || ':' || ?3 || ':deadbeef',
+              0, 'present', ?3,
+              strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              'deadbeef',
+              strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              strftime('%Y-%m-%dT%H:%M:%fZ','now'))
           RETURNING file_id",
     )
     .bind(watch_folder_id)
-    .bind(relative_path)
     .bind(branch)
-    .bind(&branches_json)
+    .bind(relative_path)
     .fetch_one(pool)
     .await
     .expect("insert tracked_file");

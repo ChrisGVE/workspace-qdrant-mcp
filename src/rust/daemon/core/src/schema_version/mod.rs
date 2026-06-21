@@ -320,6 +320,27 @@ impl SchemaManager {
         Ok(())
     }
 
+    /// Run the migration chain only up to and including `target` (test helper).
+    ///
+    /// Mirrors [`run_migrations`](Self::run_migrations) but stops at `target`
+    /// instead of [`CURRENT_SCHEMA_VERSION`]. Used by version-specific migration
+    /// tests that need to assert the schema state *at* a historic version (e.g.
+    /// the v40 `tracked_files` shape) without the later migrations (v48) having
+    /// already rewritten it.
+    pub async fn run_migrations_through(&self, target: i32) -> Result<(), SchemaError> {
+        self.initialize().await?;
+        let current = self.get_current_version().await?.unwrap_or(0);
+        if current >= target {
+            return Ok(());
+        }
+        let registry = Self::build_registry();
+        for version in (current + 1)..=target {
+            self.run_migration_from_registry(&registry, version).await?;
+            self.record_migration(version).await?;
+        }
+        Ok(())
+    }
+
     /// Run a specific migration by version number (used by tests).
     pub async fn run_migration(&self, version: i32) -> Result<(), SchemaError> {
         let registry = Self::build_registry();

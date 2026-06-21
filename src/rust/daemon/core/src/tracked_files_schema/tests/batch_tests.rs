@@ -1,13 +1,12 @@
-#![allow(deprecated)] // v40 insert_tracked_file under test (F6 deprecation)
 use super::super::*;
-use super::{create_test_pool, setup_tables};
+use super::{create_test_pool, insert_test_tracked_file, setup_tables};
 
 #[tokio::test]
 async fn test_batch_insert_large_chunk_count() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/large.rs",
@@ -62,7 +61,7 @@ async fn test_batch_insert_boundary_sizes() {
 
     for count in [1usize, 99, 100, 101] {
         let path = format!("src/boundary_{}.rs", count);
-        let file_id = insert_tracked_file(
+        let file_id = insert_test_tracked_file(
             &pool,
             "w1",
             &path,
@@ -118,7 +117,7 @@ async fn test_batch_insert_empty_chunks() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let file_id = insert_tracked_file(
+    let file_id = insert_test_tracked_file(
         &pool,
         "w1",
         "src/empty.rs",
@@ -153,9 +152,10 @@ async fn test_batch_insert_tx_large_count() {
     let pool = create_test_pool().await;
     setup_tables(&pool).await;
 
-    let mut tx = pool.begin().await.unwrap();
-    let file_id = insert_tracked_file_tx(
-        &mut tx,
+    // The v48 inventory insert is pool-based; create the file first, then open a
+    // transaction for the batched chunk insert this test exercises.
+    let file_id = insert_test_tracked_file(
+        &pool,
         "w1",
         "src/tx_large.rs",
         Some("main"),
@@ -175,6 +175,8 @@ async fn test_batch_insert_tx_large_count() {
     )
     .await
     .unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
 
     let chunks: Vec<_> = (0..150)
         .map(|i| {
