@@ -22,14 +22,20 @@ pub(crate) fn convert_to_qdrant_point(point: DocumentPoint) -> Result<PointStruc
     // Build named vectors with "dense" and optionally "sparse"
     let mut named_vectors = HashMap::new();
 
-    // Add dense vector
-    named_vectors.insert(
-        "dense".to_string(),
-        DenseVector {
-            data: point.dense_vector,
-        }
-        .into(),
-    );
+    // Add the dense vector — UNLESS it is empty. A branch-lineage VIRTUAL point
+    // (a shadow view that shares a real point's content) carries no vector
+    // (arch §4.1); Qdrant accepts a point that omits a named vector present in
+    // the schema, so a virtual point stores payload-only with no dense slot. A
+    // real point always has a non-empty dense vector and keeps this slot.
+    if !point.dense_vector.is_empty() {
+        named_vectors.insert(
+            "dense".to_string(),
+            DenseVector {
+                data: point.dense_vector,
+            }
+            .into(),
+        );
+    }
 
     // Add sparse vector if present
     if let Some(sparse_map) = point.sparse_vector {

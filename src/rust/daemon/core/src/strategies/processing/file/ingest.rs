@@ -499,7 +499,7 @@ async fn run_middle_phases(
 /// into all point payloads.
 ///
 /// Performance target: <30ms per file (cosine sim against ~180 terms is O(n*d)).
-async fn run_tier2_tagging(
+pub(crate) async fn run_tier2_tagging(
     ctx: &ProcessingContext,
     points: &mut [crate::storage::DocumentPoint],
     timings: &mut Vec<PhaseTiming>,

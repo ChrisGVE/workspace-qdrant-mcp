@@ -29,7 +29,10 @@ pub use schema::{
     MIGRATE_V8_ADD_COLUMNS_SQL,
 };
 
-// Re-export pool-based operations
+// Re-export pool-based operations. `insert_tracked_file` is #[deprecated] (v40
+// only) but still re-exported for the v40-schema unit tests until the
+// v40-retirement task deletes it — allow the deprecation on the re-export.
+#[allow(deprecated)]
 pub use operations::{
     add_branch_to_tracked_file, compute_content_hash, compute_file_hash, compute_relative_path,
     delete_qdrant_chunks, delete_tracked_file, get_chunk_point_ids, get_file_mtime,

@@ -22,7 +22,7 @@
 // of the file-processing pipeline; the re-export in chunk_embed/mod.rs controls
 // what is visible inside vs. outside the crate.
 pub(crate) mod chunk_embed;
-mod component;
+pub(crate) mod component;
 mod dedup;
 mod delete;
 mod dependency_ingest;
@@ -30,7 +30,7 @@ mod discovery_trigger;
 mod fts5_index;
 mod grammar;
 mod graph_ingest;
-mod ingest;
+pub(crate) mod ingest;
 mod keyword_extract;
 mod keyword_persist;
 pub(crate) mod lsp_payload;

@@ -36,7 +36,7 @@ pub(crate) struct LibraryContext<'a> {
 /// differ from `item.branch` when a branch switch happened after the queue
 /// item was enqueued.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn build_chunk_payload(
+pub(crate) fn build_chunk_payload(
     content: &str,
     chunk_index: usize,
     item: &UnifiedQueueItem,

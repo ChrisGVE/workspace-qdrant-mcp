@@ -27,7 +27,11 @@ use crate::unified_queue_schema::UnifiedQueueItem;
 use crate::DocumentContent;
 
 use super::lsp_payload;
-use payload::{build_chunk_payload, sparse_embedding_to_map};
+use payload::sparse_embedding_to_map;
+
+// pub(crate) so branch_index/tagger.rs (Option C) builds the SAME rich payload
+// for virtual/copy points as the embed path does, with no duplication.
+pub(crate) use payload::build_chunk_payload;
 
 /// Result of processing a single chunk, to be assembled into `EmbedResult`.
 struct ChunkOutput {
@@ -57,7 +61,7 @@ struct ChunkOutput {
         batch.size = tracing::field::Empty,
     )
 )]
-pub(super) async fn embed_chunks(
+pub(crate) async fn embed_chunks(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     document_content: &DocumentContent,

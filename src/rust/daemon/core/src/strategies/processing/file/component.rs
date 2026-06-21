@@ -16,7 +16,7 @@ use crate::patterns::GitattributesOverrides;
 /// Also invalidates the component cache when a workspace definition file
 /// (Cargo.toml, package.json) is modified, and invalidates the gitattributes
 /// cache when `.gitattributes` changes.
-pub(super) async fn inject_component(
+pub(crate) async fn inject_component(
     ctx: &ProcessingContext,
     pool: &SqlitePool,
     watch_folder_id: &str,
