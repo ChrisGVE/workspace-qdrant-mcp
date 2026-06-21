@@ -40,7 +40,7 @@ fn fresh_store(name: &str) -> (LadybugGraphStore, tempfile::TempDir) {
 
 #[test]
 fn test_escape_cypher() {
-    use super::store::escape_cypher;
+    use super::store::helpers::escape_cypher;
     assert_eq!(escape_cypher("hello"), "hello");
     assert_eq!(escape_cypher("it's"), "it\\'s");
     assert_eq!(escape_cypher("a'b'c"), "a\\'b\\'c");
@@ -421,9 +421,17 @@ async fn test_query_related_min_depth_with_multiple_paths() {
     // matched it. The minimum-depth contract is what both implementations share.
     assert_eq!(by_name.get("b_fn"), Some(&1), "b at min depth 1");
     assert_eq!(by_name.get("c_fn"), Some(&1), "c at min depth 1");
-    assert_eq!(by_name.get("d_fn"), Some(&2), "d at min depth 2 (not a longer cyclic route)");
+    assert_eq!(
+        by_name.get("d_fn"),
+        Some(&2),
+        "d at min depth 2 (not a longer cyclic route)"
+    );
     assert_eq!(by_name.get("e_fn"), Some(&3), "e at min depth 3");
-    assert_eq!(by_name.get("a_fn"), Some(&4), "start node reachable via cycle at min depth 4");
+    assert_eq!(
+        by_name.get("a_fn"),
+        Some(&4),
+        "start node reachable via cycle at min depth 4"
+    );
 
     // Result is sorted by (depth, symbol_name): b,c (d=1), d (d=2), e (d=3), a (d=4).
     let order: Vec<&str> = related.iter().map(|n| n.symbol_name.as_str()).collect();
@@ -1143,8 +1151,11 @@ async fn test_ladybug_delete_narrative_nodes_by_file_with_incident_edge() {
 /// or break every traversal; this asserts the constant stays a sane bound.
 #[test]
 fn test_max_frontier_paths_is_a_sane_bound() {
-    use super::store::MAX_FRONTIER_PATHS;
-    assert!(MAX_FRONTIER_PATHS >= 1_000, "cap must allow real traversals");
+    use super::store::helpers::MAX_FRONTIER_PATHS;
+    assert!(
+        MAX_FRONTIER_PATHS >= 1_000,
+        "cap must allow real traversals"
+    );
     assert!(
         MAX_FRONTIER_PATHS <= 1_000_000,
         "cap must still bound memory"
@@ -1220,7 +1231,13 @@ async fn test_cross_boundary_node_id_contains_separator() {
         .unwrap();
     store
         .insert_edges(&[
-            GraphEdge::new(T, &src.node_id, &mid.node_id, EdgeType::ImplementsConcept, "s.rs"),
+            GraphEdge::new(
+                T,
+                &src.node_id,
+                &mid.node_id,
+                EdgeType::ImplementsConcept,
+                "s.rs",
+            ),
             GraphEdge::new(
                 "__global__",
                 &mid.node_id,
