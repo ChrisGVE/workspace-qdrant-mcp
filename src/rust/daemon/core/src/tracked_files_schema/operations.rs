@@ -253,10 +253,103 @@ pub async fn add_branch_to_tracked_file(
     Ok(row.0)
 }
 
+/// Insert a v48 `tracked_files` row, returning the `file_id` (AUTOINCREMENT PK).
+///
+/// The v48 branch-lineage model (one row per `(branch, path)`, virtual shadows,
+/// lifecycle `state`) replaced the v40 columns (`primary_branch`, `branches`
+/// JSON array) — see `schema_version/v48.rs`. The legacy [`insert_tracked_file`]
+/// writes those removed columns and fails at runtime against v48; this is its
+/// v48-correct successor, called by the branch tagger (`branch_index::tagger`,
+/// F6) for all three dedup cases.
+///
+/// `created_at`/`updated_at` are generated internally via
+/// [`wqm_common::timestamps::now_utc`] (the established idiom). `lsp_status`/
+/// `treesitter_status` should be [`ProcessingStatus::None`] for virtual/initial
+/// rows. `is_virtual`/`is_test` are stored as `0`/`1`; `needs_reconcile` is `1`
+/// for the crash-safe real-point cases (cleared on success) and `0` for virtual
+/// writes (arch §4.2/§5.1). `last_error`, `incremental`, and `routing_reason`
+/// take their DDL defaults (NULL / 0).
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_tracked_file_v48(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    tenant_id: &str,
+    branch: &str,
+    file_identity_id: &str,
+    content_key: &str,
+    is_virtual: bool,
+    state: &str,
+    file_type: Option<&str>,
+    language: Option<&str>,
+    file_mtime: &str,
+    file_hash: &str,
+    chunk_count: i32,
+    chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+    collection: &str,
+    extension: Option<&str>,
+    is_test: bool,
+    base_point: Option<&str>,
+    component: Option<&str>,
+    relative_path: &str,
+    needs_reconcile: bool,
+    reconcile_reason: Option<&str>,
+) -> Result<i64, sqlx::Error> {
+    let now = timestamps::now_utc();
+    let result = sqlx::query(
+        "INSERT INTO tracked_files (
+            watch_folder_id, tenant_id, branch, file_identity_id, content_key,
+            is_virtual, state, file_type, language, file_mtime, file_hash,
+            chunk_count, chunking_method, lsp_status, treesitter_status,
+            collection, extension, is_test, base_point, component, relative_path,
+            needs_reconcile, reconcile_reason, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                 ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+    )
+    .bind(watch_folder_id)
+    .bind(tenant_id)
+    .bind(branch)
+    .bind(file_identity_id)
+    .bind(content_key)
+    .bind(is_virtual as i32)
+    .bind(state)
+    .bind(file_type)
+    .bind(language)
+    .bind(file_mtime)
+    .bind(file_hash)
+    .bind(chunk_count)
+    .bind(chunking_method)
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
+    .bind(collection)
+    .bind(extension)
+    .bind(is_test as i32)
+    .bind(base_point)
+    .bind(component)
+    .bind(relative_path)
+    .bind(needs_reconcile as i32)
+    .bind(reconcile_reason)
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(result.last_insert_rowid())
+}
+
 /// Insert a new tracked file record, returning the file_id.
 ///
 /// `relative_path` is the post-v37 anchored relative path stored alongside
 /// the row. Callers must have validated/normalized the string upstream.
+///
+/// **Deprecated (branch-lineage F6):** writes the v40 `primary_branch`/`branches`
+/// columns removed by migration v48 (`schema_version/v48.rs`); it fails at
+/// runtime against the v48 schema. Use [`insert_tracked_file_v48`]. Retained only
+/// for the v40-schema unit tests until the v40 retirement task deletes it.
+#[deprecated(
+    note = "v40-only (primary_branch/branches removed in v48); use insert_tracked_file_v48"
+)]
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_tracked_file(
     pool: &SqlitePool,
@@ -895,5 +988,120 @@ mod f5_locator_tests {
             real_point_id_for(ck, 1),
             "different chunk indices must derive different point ids"
         );
+    }
+
+    /// T-F6b: `insert_tracked_file_v48` writes all branch-lineage v48 columns
+    /// and returns the AUTOINCREMENT file_id; the inserted row is then locatable
+    /// by the F5 byte-identical probe (the tagger's Case-2 path).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_f6b_insert_tracked_file_v48_real() {
+        let pool = v48_pool().await;
+        let fid_uuid = uuid::Uuid::new_v4().to_string();
+
+        let file_id = insert_tracked_file_v48(
+            &pool,
+            "wf_proj",
+            TENANT,
+            "main",
+            &fid_uuid,
+            "ck_real",
+            false,        // is_virtual
+            "present",    // state
+            Some("code"), // file_type
+            Some("rust"), // language
+            "2025-01-01T00:00:00.000Z",
+            "hash_real",
+            3, // chunk_count
+            Some("tree_sitter"),
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            "projects",    // collection
+            Some("rs"),    // extension
+            false,         // is_test
+            Some("bp1"),   // base_point
+            Some("core"),  // component
+            "src/main.rs", // relative_path
+            true,          // needs_reconcile (Case 2/3 crash-safety)
+            Some("additive_crash"),
+        )
+        .await
+        .expect("insert_tracked_file_v48 must succeed against v48");
+        assert!(file_id > 0, "AUTOINCREMENT file_id must be positive");
+
+        let row = sqlx::query(
+            "SELECT branch, file_identity_id, content_key, is_virtual, state, \
+             chunk_count, collection, component, relative_path, needs_reconcile, \
+             reconcile_reason FROM tracked_files WHERE file_id = ?1",
+        )
+        .bind(file_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("branch"), "main");
+        assert_eq!(row.get::<String, _>("file_identity_id"), fid_uuid);
+        assert_eq!(row.get::<String, _>("content_key"), "ck_real");
+        assert_eq!(row.get::<i64, _>("is_virtual"), 0);
+        assert_eq!(row.get::<String, _>("state"), "present");
+        assert_eq!(row.get::<i64, _>("chunk_count"), 3);
+        assert_eq!(row.get::<String, _>("collection"), "projects");
+        assert_eq!(row.get::<String, _>("component"), "core");
+        assert_eq!(row.get::<String, _>("relative_path"), "src/main.rs");
+        assert_eq!(row.get::<i64, _>("needs_reconcile"), 1);
+        assert_eq!(row.get::<String, _>("reconcile_reason"), "additive_crash");
+
+        // Integration with the F5 locator (Case-2 copy-vector probe).
+        let hit = locate_byte_identical(&pool, TENANT, "hash_real")
+            .await
+            .unwrap()
+            .expect("the inserted row must be byte-locatable");
+        assert_eq!(hit.content_key, "ck_real");
+        assert!(!hit.is_virtual);
+    }
+
+    /// T-F6b-virtual: a virtual write stores `is_virtual=1`, `needs_reconcile=0`,
+    /// NULL reconcile_reason (arch §5.1 Case 1 — no crash-safety flag needed).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t_f6b_insert_tracked_file_v48_virtual() {
+        let pool = v48_pool().await;
+        let file_id = insert_tracked_file_v48(
+            &pool,
+            "wf_proj",
+            TENANT,
+            "feature/x",
+            &uuid::Uuid::new_v4().to_string(),
+            "ck_virt",
+            true, // is_virtual
+            "present",
+            None,
+            None,
+            "2025-01-01T00:00:00.000Z",
+            "hash_virt",
+            2,
+            None,
+            ProcessingStatus::None,
+            ProcessingStatus::None,
+            "projects",
+            None,
+            false,
+            None,
+            None,
+            "src/v.rs",
+            false, // needs_reconcile
+            None,
+        )
+        .await
+        .expect("virtual insert must succeed");
+
+        let row = sqlx::query(
+            "SELECT is_virtual, needs_reconcile, reconcile_reason \
+             FROM tracked_files WHERE file_id = ?1",
+        )
+        .bind(file_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<i64, _>("is_virtual"), 1);
+        assert_eq!(row.get::<i64, _>("needs_reconcile"), 0);
+        assert!(row.get::<Option<String>, _>("reconcile_reason").is_none());
     }
 }

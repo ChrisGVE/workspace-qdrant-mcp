@@ -1,3 +1,4 @@
+#![allow(deprecated)] // v40 insert_tracked_file under test (F6 deprecation)
 use super::super::*;
 use super::{create_test_pool, setup_tables};
 
