@@ -165,7 +165,7 @@ serves every tool and satisfies P9.
 ### 1.4 Why this model and not the array
 
 The existing `branches:[]` array on a single real point already delivers
-"no re-embed for verbatim-shared content" (`dedup.rs:94-135`,
+"no re-embed for verbatim-shared content" (`branch_index/tagger.rs` Case 1 — `dedup.rs` RETIRED, see §8;
 `scanner.rs` branch-add). It **cannot** represent **per-branch metadata
 divergence**: one real point carries exactly one `relative_path`
 (`tracked_files.relative_path` in the v40 DDL, `v40.rs:48`; payload
@@ -244,14 +244,14 @@ flowchart TB
 | Component | Responsibility | Boundary / must NOT do | Anchor |
 |---|---|---|---|
 | **BranchTagger** (new) | The single chokepoint every ingestion surface routes through to (a) compute the content_key, (b) dedup against existing content, (c) write the real point once and/or the per-branch virtual point, (d) write the tracker row, (e) keep `search.db` `file_metadata` in step (§5.4). | Must NOT embed — it asks the embed stage only when content is genuinely new. Must NOT know tool specifics beyond the `IngestItem` contract (§5.1). | new `daemon/core/src/branch_index/tagger.rs`; replaces ad-hoc tagging at `payload.rs:65`, `url.rs:269`, `text.rs:226/339/420` |
-| **Content dedup** | The dedup decision the tagger runs. **§5.1 is the single authoritative three-case description** — see it for the case-by-case ladder. | Must key on the content_key `(tenant_id, file_identity_id, file_hash)` (§4.3), NOT on path. The byte-locator is a **state.db probe on `(tenant_id, file_hash)`**, NOT a Qdrant scan. Must NEVER share identity across file-identities (D2). | extends `dedup.rs:36-89`; uses the NEW tenant-wide hash locator + `StorageClient::retrieve_point_with_vector` (§5.1, §8) |
+| **Content dedup** | The dedup decision the tagger runs. **§5.1 is the single authoritative three-case description** — see it for the case-by-case ladder. | Must key on the content_key `(tenant_id, file_identity_id, file_hash)` (§4.3), NOT on path. The byte-locator is a **state.db probe on `(tenant_id, file_hash)`**, NOT a Qdrant scan. Must NEVER share identity across file-identities (D2). | lives entirely in `branch_index/tagger.rs`; `dedup.rs` RETIRED (deleted). Uses `locate_byte_identical` (operations.rs:680, F5, already implemented) + `retrieve_point_with_vector` (scroll.rs:440, F5, already implemented). |
 | **LineageStore** (new) | Persist and read the parent-branch pointer per `(tenant, branch)`; expand a branch to its ordered lineage chain (depth-capped + cycle-guarded, §4.4/§5.2). | Must NOT infer lineage heuristically at read time — inference happens once at create/discovery, is **git-validated** (M9, §3.1), and persisted. | new `daemon/core/src/branch_index/lineage.rs` + `branch_lineage` table (§4.4) |
 | **branch lifecycle wiring** | On `BranchEvent::Created`, synchronously write the lineage row (today `main.rs:528-533` is a `debug!` no-op). | Must NOT rely solely on the lazy 30s discovery poll for lineage; see the race fix (M6, §3.1). | `memexd/src/main.rs:528-533`, `branch_lifecycle/detector.rs:265` |
 | **branch_switch handlers** | On switch/commit/merge: diff the tree, supersede shadows for changed/added paths (P2), enqueue genuinely-new content. | Must NOT treat merge as a plain commit (today it does — `handlers.rs:41`); merge must reconcile deleted paths (P8, §3.5). | `branch_switch/handlers.rs:30-134`; `apply_branch_add` at `branch_switch/handlers.rs:140` (NOT `db.rs:37`, which is the per-tenant lock acquisition in `batch_add_branch_to_unchanged_files`, `db.rs:26`) |
 | **branch_cleanup** | On branch deletion: delete that branch's virtual points and any real points no other branch references; relink children's lineage to the deleted branch's parent. | Must NOT delete a real point while any branch (direct or virtual) still sees it — needs a **cross-branch** reference count (the existing guard is watch-folder-scoped, M7). | `branch_cleanup/mod.rs:210-386` (partition `:294-295`), `db::has_other_base_point_references:307` |
 | **branch_discovery** | First-touch inference of a new branch's parent when no create event was observed (local-only, no remote). | Must persist the **git-validated** inferred parent via LineageStore; today `parent_branch` is computed (`scanner.rs:305`) and **dropped**. | `branch_discovery/scanner.rs:305-323`, `discovery_trigger.rs` |
 | **ViewResolver** (new) | Turn the caller's requested/defaulted branch into the **lineage chain + tombstoned-path set** (two-phase, §5.2), build the Qdrant condition, and signal empty-vs-unknown. | Must NOT default to `session.current_branch` for the same-project case (the bug). Must keep tenant isolation unless `scope=all` (M10). | new daemon gRPC `branch_view` + mcp-server client helper (§5.2/M5); integrates `search/mod.rs:97-111`, `list/mod.rs:452-464`, `dispatch.rs:266-285`, extends `target_branch.rs` |
-| **Filter builder** | Translate a lineage chain + tombstoned-path set into a Qdrant `Filter`. | Add a NEW `build_lineage_branch_condition(chain)` that matches `field::BRANCHES` against an `IN`-set, beside the existing single-string `build_branch_condition` (`filters.rs:207-213`) — do **not** break its current callers; add an explicit tombstone `must_not` (§5.2, §8). | `client/src/qdrant/filters.rs:207-213` |
+| **Filter builder** | Translate a lineage chain + tombstoned-path set into a Qdrant `Filter`. | Add a NEW `build_lineage_branch_condition(chain)` that matches `field::BRANCH` against an `IN`-set, beside the existing single-string `build_branch_condition` (`filters.rs:207-213`) — do **not** break its current callers; add an explicit tombstone `must_not` (§5.2, §8). | `client/src/qdrant/filters.rs:207-213` |
 
 ---
 
@@ -728,7 +728,7 @@ Today two incompatible schemes coexist (validation §B):
 **Decision: one coherent scheme — the path-independent content_key.**
 
 ```
-file_hash         = SHA-256( content bytes )            # 32 bytes, re-derived in tagger (SEC-6)
+file_hash         = SHA-256( content bytes )            # 32 bytes, re-derived in-process at the post-parse seam (SEC-6)
 file_identity_id  = inherit from lineage parent, else MINT a fresh random UUID  # content-INDEPENDENT (§4.4)
 content_key       = hex( SHA-256( lp(tenant_id) ‖ lp(file_identity_id) ‖ lp(file_hash_hex) ) )   # FULL 32 bytes → 64 hex (DATA-2)
 point_id          = UUIDv5( POINT_NS, lp(content_key) ‖ lp(u32_be(chunk_index)) )  # 128-bit Qdrant id (UNCHANGED derivation)
@@ -1111,145 +1111,201 @@ races, the index is the final word: a second live row cannot be committed.
 
 ### 5.1 The single branch-tagging chokepoint (P9)
 
-All ingestion surfaces converge on one entry point. The contract is defined
-against **existing** types (M14): chunks are the established `ChunkRecord` /
-`DocumentContent` shapes already produced by the strategies, and embedding is
-invoked through the existing `ctx.embedding_generator` on `ProcessingContext` —
-**not** a new `EmbedFn` trait (which would be a premature single-impl
-abstraction). The tagger is a free async function, so no `async-trait` object is
-needed.
+**Design invariant (P9):** Every path that writes a Qdrant point — file, URL, text, library — passes through `tag_and_store` before the point reaches Qdrant. No caller writes branch information directly into a payload field.
 
-**`ChunkRecord` visibility must be widened (N11).** `ChunkRecord` is defined
-`pub struct ChunkRecord` in `chunk_embed/types.rs:7` but re-exported only as
-`pub(super) use types::{ChunkRecord, EmbedResult};` (`chunk_embed/mod.rs:10`).
-Today's importers (`store_track.rs:20`, `ingest.rs`, `narrative_phase.rs`) reach
-it through `super::chunk_embed::ChunkRecord` **because they live inside the same
-`strategies/processing/file/` module** where `pub(super)` is visible. A new
-`daemon/core/src/branch_index/tagger.rs` is a **sibling of `strategies/`, not a
-child** — `pub(super)` does not reach it, so its first `use … ChunkRecord` fails
-to compile (E0603). The fix is a one-line visibility promotion: change the
-re-export at `chunk_embed/mod.rs:10` to **`pub(crate) use`** (or relocate the type
-to a shared `daemon/core/src/strategies/chunk_types.rs`). `pub(crate)` is
-sufficient — both `branch_index/` and `chunk_embed/` are in the same `daemon-core`
-crate — and keeps the type internal to the crate. This is listed as a concrete
-edit in §8.
+#### Input type — M14 corrected (supersedes original M14)
+
+M14 originally stated "chunks are the established `ChunkRecord`." This was wrong. `ChunkRecord` (`chunk_embed/types.rs:7`) is a post-embedding metadata record: `point_id`, `chunk_index`, `content_hash`, optional `chunk_type`/`symbol_name`/`start_line`/`end_line`, but **no content bytes**. A tagger receiving only `ChunkRecord` cannot embed genuinely-new content for Case 3, and cannot drive the ladder without calling back into `embed_chunks` (`pub(super)` to `chunk_embed/`, inaccessible from `branch_index/`).
+
+**M14 corrected:** The tagger's chunk input type is `TextChunk` (`crate::core_types::TextChunk`), the content-bearing pre-embed record strategies already produce before `embed_chunks`:
+- `content: String` — raw extracted text (for Case-3 embedding)
+- `chunk_index: usize` — position (for `point_id` derivation)
+- `metadata: HashMap<String, String>` — optional `"chunk_type"`/`"symbol_name"`/`"start_line"`/`"end_line"`, populated **only** for semantic (tree-sitter) chunks (`chunking.rs:163-230`). For paragraph/character chunks these keys are absent; the tagger writes the corresponding `qdrant_chunks` columns as `NULL` (nullable per `schema.rs:64-68`).
+
+`TextChunk` is exported crate-wide at `lib.rs:129` — no visibility change needed.
+
+**EmbeddingGenerator (not EmbedFn) — retained from M14:** the tagger calls `ctx.embedding_generator.generate_embeddings_batch(&chunk_texts, "default")` directly; it does NOT call `embed_chunks`.
+
+#### `IngestItem<'a>` struct
 
 ```rust
-// daemon/core/src/branch_index/tagger.rs  (NEW)
-
-/// What any ingestion surface hands the tagger. Tool-agnostic by design.
-/// Borrows the strategies' existing chunk type rather than inventing one.
-pub struct IngestItem<'a> {
-    pub tenant_id: &'a str,
-    pub branch: &'a str,
+/// Input to tag_and_store. Constructed at the post-parse seam inside
+/// run_ingest_pipeline (after parse_document L224).
+pub(crate) struct IngestItem<'a> {
     pub watch_folder_id: &'a str,
+    pub tenant_id: &'a str,            // TEXT in state.db (NOT i64)
+    pub branch: &'a str,
     pub collection: &'a str,
-    /// Logical path/identity for the VIEW (file path, URL, scratchpad key).
-    pub relative_path: &'a str,
-    /// Content bytes per chunk — the tagger RE-DERIVES file_hash from these
-    /// (SEC-6), so a wrong upstream hash cannot poison the content_key.
-    pub chunks: &'a [ChunkRecord],   // existing type (chunk_embed)
+    pub relative_path: &'a str,        // required by the §5.2 view layer
+    /// Absolute on-disk path (mirrors finish_pipeline's existing abs_file_path
+    /// param). Bound into search.db file_metadata.file_path, which holds an
+    /// ABSOLUTE path (not relative — N5).
+    pub abs_file_path: &'a str,
+    pub file_identity_id: uuid::Uuid,  // minted/inherited via allocate_file_identity
+    /// Whole-file SHA-256 hex from parse_document (parse.rs:88).
+    /// Re-derived IN-PROCESS at the post-parse seam — never the queue payload.
+    /// Used as BOTH (a) content_key third ingredient and (b) Case-2 locator input.
+    pub file_hash: &'a str,
+    pub chunks: &'a [crate::core_types::TextChunk],  // content-bearing; NOT ChunkRecord
+    pub file_mtime: &'a str,
+    pub file_type: Option<&'a str>,
+    pub language: Option<&'a str>,
+    pub is_test: bool,
+    pub extension: Option<&'a str>,
+    pub component: Option<&'a str>,
+    pub base_point: Option<&'a str>,
+    pub extra_payload: std::collections::HashMap<String, serde_json::Value>,
 }
-
-/// Outcome lets the caller report dedup hits vs fresh embeds for telemetry (§7.5).
-/// CopiedVector = Case 2 (§5.1): own real point, vector copied across a distinct
-/// file-identity / collection — compute deduped, identity NOT shared (D2).
-pub enum TagOutcome { EmbeddedNew, SharedExisting, CopiedVector, Tombstoned, MovedMetadataOnly }
-
-/// Entry point. Reads/writes state.db, Qdrant, and search.db (§4.2). Calls
-/// ctx.embedding_generator ONLY when content is genuinely new.
-pub async fn tag_and_store(
-    ctx: &ProcessingContext,
-    item: IngestItem<'_>,
-) -> UnifiedProcessorResult<TagOutcome>;
 ```
 
-- `FileStrategy` (`chunk_embed/`) builds an `IngestItem` and calls
-  `tag_and_store`, replacing the inline `branches:[branch]` write at
-  `payload.rs:65` and the bespoke dedup at `dedup.rs:36-89`.
-- `url.rs`, `text.rs`, `library.rs` build an `IngestItem` and call the same
-  function, replacing their direct `branches:[item.branch]` writes
-  (`url.rs:269`, `text.rs:226/339/420`) and `generate_point_id`.
-- `library.rs` has **two** paths: its scan op enqueues files that inherit
-  `FileStrategy`, but its content-bearing **Add** path writes its own
-  branch-scoped payload directly — that Add path is what routes through
-  `tag_and_store` (this is the `LIB.Add → CHOKE` edge in §2, READ-7).
-- The tagger resolves `file_identity_id` (inherit from the lineage parent, else
-  mint — §4.4.1), computes `content_key` (§4.3), and runs the **three-case dedup
-  ladder** below.
+#### SEC-6: content_key keyed on `file_hash` — in-process re-derivation at the post-parse seam
 
-**The dedup chokepoint — a three-case ladder (D2 = no-share).** The tagger keys on
-content_key (`(tenant_id, file_identity_id, file_hash)`) for identity but ALSO
-holds a tenant-wide byte locator on `(tenant_id, file_hash)` to dedup the compute
-across distinct identities. The decision is:
+content_key is keyed on `file_hash` — the whole-file SHA-256 returned by `parse_document` (ingest.rs:224) as a fresh local. SEC-6 holds because `file_hash` is derived in-process from disk bytes, not from queue-supplied `UnifiedQueueItem.file_hash`. By the time `tag_and_store` runs, `file_hash` is a caller-scope local from `parse_document`.
 
-- **Case 1 — content_key HIT** (this **same** file-identity already has these exact
-  bytes): reference the existing real point; create only a **virtual point +
-  tracker row**. **No embed, no copy.** This is axis A / today's dedup behavior.
-- **Case 2 — content_key MISS, but the tenant-wide `(tenant_id, file_hash)`
-  locator HITS** (a **different** file-identity, or a **different collection** —
-  `projects` vs `libraries` — under the same tenant holds byte-identical content):
-  create **this** file-identity's **OWN** real point, but **COPY** the vector from
-  the located point instead of re-embedding. Identity is **never** shared across
-  file-identities or collections. This covers **axis B** (different files, same
-  bytes, same project) and **axis C** (the same document in a project AND a
-  library under one tenant — e.g. academic papers).
-  - **Locator row selection (DS4 — the index is NOT unique).**
-    `idx_tracked_files_file_hash` is `(tenant_id, file_hash)` and can return
-    **multiple** rows. Select the **oldest real point** —
-    `ORDER BY created_at ASC LIMIT 1` — for the copy; all hits share identical
-    bytes, so the selection is for **determinism**, not correctness. **If the
-    selected row is itself a virtual/view row (`is_virtual=1`), follow its
-    `real_point_id` link to the actual real point before retrieving the vector** —
-    never attempt a vector retrieve on a virtual point id (a virtual point has no
-    vector).
-  - **The copy mechanism (I1/I3 — a NEW daemon/core method).** The tagger lives in
-    `daemon/core`, which does **not** depend on the `wqm-client` crate (the
-    dependency runs mcp-server → wqm-client), so it **cannot** call
-    `QdrantReadClient::retrieve` — and that method sets only `.with_payload(true)`,
-    returning **no vectors** anyway (`client/src/qdrant/client.rs:238-267`;
-    `QdrantRetrievedPoint` at `:47-51` has no vectors field). Copy-vector therefore
-    requires a **NEW method on `daemon/core`'s `StorageClient`** (in
-    `daemon/core/src/storage/points/`):
-    `StorageClient::retrieve_point_with_vector(collection, point_id) -> Result<Option<Vec<f32>>, StorageError>`
-    (the dense-vector representation already used in this module —
-    `scroll_dense_vectors_by_tenant` returns `Vec<Vec<f32>>`, `storage/scroll.rs:172`),
-    which issues `get_points(...).with_vectors(true)` and extracts the dense vector
-    via the existing `extract_dense_vector` helper (`storage/scroll.rs:339`).
-    It is **modeled on the existing `StorageClient::scroll_dense_vectors_by_tenant`**,
-    which already calls `.with_vectors(selector)` (`storage/scroll.rs:204-206`). The
-    tagger calls **this new `StorageClient` method**, NOT `QdrantReadClient`. Listed
-    as a new deliverable in §8.
-- **Case 3 — both MISS**: genuinely new content → ask the embed stage
-  (`ctx.embedding_generator`).
+```
+file_hash    = SHA-256( content bytes )               # re-derived by parse_document (SEC-6)
+content_key  = content_key(tenant_id, file_identity_id, file_hash)
+             = hex( SHA-256( lp(tenant_id) ‖ lp(file_identity_id) ‖ lp(file_hash_hex) ) )
+point_id     = UUIDv5( POINT_NS, lp(content_key_bytes) ‖ lp(u32_be(chunk_index)) )   # unchanged
+```
 
-**Cost of the locator.** The locator is a **state.db indexed lookup on
-`(tenant_id, file_hash)`** (the `idx_tracked_files_file_hash` index, §4.5),
-spanning `projects` + `libraries` — **NOT** a Qdrant scan, so it is cheap. **This
-locator is a NEW component, built from scratch (I2):** today's
-`lookup_tracked_file_by_hash` (`tracked_files_schema/operations.rs:188-219`) is
-keyed `(watch_folder_id, relative_path, file_hash)` with `primary_branch != ?` —
-watch-folder-AND-path scoped, **not** a tenant-wide hash probe; **no
-`WHERE tenant_id=? AND file_hash=?` function exists today.** The tenant-wide
-`(tenant_id, file_hash)` locator function **and** its `idx_tracked_files_file_hash`
-index are both new (the index is in the §4.5 DDL; the function is a new deliverable
-in §8). It does NOT pre-exist and is NOT a "widening" of the existing per-path
-check. The copy itself (a by-id retrieve-with-vector + upsert) **replaces** an
-expensive embed — so the marginal cost of dedup is negative. A whole-document hash
-hit **bulk-copies all chunk vectors** in one pass.
+This is the identical call the F16 re-key pass makes (`hashing.rs:46` "ONLY producer" guarantee; `t_f1_encoding_agreement` enforces it). No `chunk_content_digest`, no `lp`-concat of chunk bytes, no `hex::encode`. `IngestItem.file_hash` serves as both the content_key third ingredient AND the Case-2 `locate_byte_identical` input — both take the in-process value.
 
-**Impl caveat — original (un-quantized) vectors.** The copy must use the
-**original** stored vector, not a quantized approximation. Note that
-**no-quantization cannot be requested at the qdrant-client Rust API level** — there
-is no per-call `with_vectors` flag that says "give me the raw vector"; what is
-returned is controlled by the **Qdrant COLLECTION CONFIG**. The implementer must
-therefore ensure the source collection is configured so a vector read returns the
-original (i.e. quantization is not lossily applied on read), and verify this on any
-collection that enables quantization.
+#### Seam location — post-parse, pre-embed
 
-The Case-1 identity check still keys on `content_key`; the v48 schema replaces
-v40's `UNIQUE(watch_folder_id, relative_path, file_hash)` (`v40.rs:55`) — that
-constraint is exactly what binds dedup to the path and defeats P4.
+`tag_and_store` is called inside `run_ingest_pipeline`, **after `parse_document` (L224)**, replacing `run_middle_phases` (L236) and `upsert_and_mark_done` (L255) for the embed + write path:
+
+1. `parse_document` (L224) → `(document_content, file_document_id, file_hash, base_point)`; `document_content.chunks` is `&[TextChunk]`.
+2. `allocate_file_identity(&ctx.pool, item.tenant_id, detected_branch, relative_path)` → `file_identity_id` (`identity.rs:67`).
+3. Construct `IngestItem`.
+4. `let (outcome, file_id, points) = branch_index::tag_and_store(ctx, &item).await?`
+5. Thread returned `file_id` + `Vec<DocumentPoint>` through concept/narrative/component phases (formerly in `run_middle_phases`).
+6. `finish_pipeline(ctx, item, pool, file_id, …)` continues with FTS5/graph/dependency phases.
+
+**Parse-cost tradeoff (accepted):** Cases 1/2 pay parse cost (~5–20 ms) before short-circuiting; they still skip embed (~100–500 ms). Goal: no-re-embed, not no-re-parse.
+
+**dedup.rs retirement:** `dedup.rs` and `try_dedup` (`:30`) are **deleted**; the `ingest.rs:92` early-exit gate is removed.
+
+#### `insert_tracked_file_v48` — new v48-compatible insert
+
+The existing `insert_tracked_file` (`operations.rs:261`) targets v40 (`primary_branch`, `branches` JSON array — removed in v48 `v48.rs:52-87`); it fails at runtime against v48. New function:
+
+```rust
+/// Insert a v48 tracked_files row, returning file_id (AUTOINCREMENT PK).
+/// created_at/updated_at generated internally via wqm_common::timestamps::now_utc().
+pub async fn insert_tracked_file_v48(
+    pool: &SqlitePool,
+    watch_folder_id: &str, tenant_id: &str, branch: &str,
+    file_identity_id: &str, content_key: &str,
+    is_virtual: bool, state: &str,
+    file_type: Option<&str>, language: Option<&str>,
+    file_mtime: &str, file_hash: &str,
+    chunk_count: i32, chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus, treesitter_status: ProcessingStatus,
+    collection: &str, extension: Option<&str>, is_test: bool,
+    base_point: Option<&str>, component: Option<&str>, relative_path: &str,
+    needs_reconcile: bool, reconcile_reason: Option<&str>,
+) -> Result<i64, sqlx::Error>
+```
+
+`lsp_status`/`treesitter_status` default `ProcessingStatus::None` for virtual/initial rows. `chunk_count = item.chunks.len() as i32`. `created_at`/`updated_at` via `wqm_common::timestamps::now_utc()` (idiom at `operations.rs:280`). New deliverable in §8.
+
+#### Write-field vs filter-field reconciliation
+
+The tagger writes `branch: item.branch` — Qdrant payload key `"branch"` (singular scalar) — on real and virtual points, per §4.1 (L621/L629). No `branches` array. `build_lineage_branch_condition` (§8) must match `field::BRANCH` (= `"branch"`), NOT `field::BRANCHES` (legacy v40 array). `constants.rs:112-115` comments are inverted vs intent (§7.6 L2112: `branch` is the NEW scalar post-Replace) and are corrected as part of the §8 payload-index deliverable.
+
+#### Three-case dedup ladder
+
+Pre-computation at entry:
+```rust
+// content_key from in-process file_hash (SEC-6). Conforms to hashing.rs:48 "ONLY
+// producer" contract; matches F16 re-key pass exactly.
+let content_key = wqm_common::hashing::content_key(
+    item.tenant_id, &item.file_identity_id.to_string(), item.file_hash,
+);
+```
+
+**Case 1 — content_key HIT (virtual write, axis A):**
+
+A HIT means this same file-identity already has these bytes. v48 operation = INSERT a virtual row, NOT mutate a `branches` array (none in v48).
+
+*Idempotency guard:* before inserting, check whether a live row already exists for the exact `(tenant_id, content_key, branch, relative_path)` tuple (same branch re-ingesting unchanged content — restart, `git restore`, watcher re-deliver). If so, no-op refresh, not a new INSERT (which would collide with `UNIQUE(tenant_id, content_key, branch, relative_path)` and `idx_tracked_files_live_view`).
+
+1. Query `tracked_files WHERE tenant_id=? AND content_key=? AND state='present'`. If HIT:
+2. **Same-branch idempotency check:** Query `WHERE tenant_id=? AND content_key=? AND branch=? AND relative_path=? AND state='present'`. If a row exists: `UPDATE updated_at=now_utc()`, return `(SharedExisting, that.file_id)`. No Qdrant/search.db writes (already correct).
+3. Else (DIFFERENT branch): `insert_tracked_file_v48` with `is_virtual=true, state='present', needs_reconcile=false, reconcile_reason=None`, same `content_key`/`file_identity_id` as hit, → `virtual_file_id`.
+4. For each chunk `i`, virtual Qdrant point: `point_id = real_point_id_for(&content_key, i)`, payload `virtual:true`, `real_point_id`, `branch:item.branch` (singular), `relative_path`, `state:"present"`, `chunk_index`, `tenant_id`, `content_key`, `file_identity_id`, **no vector**; `insert_points_batch`.
+5. search.db `file_metadata` via `UPSERT_FILE_METADATA_V8_SQL` (§8 BN2): `(virtual_file_id, tenant_id, branch, abs_file_path, base_point, relative_path, file_hash, 'present')`.
+6. Return `(SharedExisting, virtual_file_id)`.
+
+*A same-branch HIT on a DIFFERENT relative_path is a MOVE, not an idempotent re-ingest — route it to `write_move_metadata` (tombstone old path first, §3.3), never a Case-1 virtual INSERT (which would collide with the live-view index). The idempotency guard's same-path probe already distinguishes these (a same-branch, same-content_key hit on a different relative_path falls through the same-path check, so the tagger routes it to the move path rather than a Case-1 INSERT).*
+
+**Case 2 — content_key MISS + file_hash locator HIT (copy-vector, axes B/C):**
+
+1. content_key not in tracked_files.
+2. `locate_byte_identical(&ctx.pool, item.tenant_id, item.file_hash)` (`operations.rs:680`). If `Some(hit)`:
+3. **DS4 — no follow-link:** `real_point_id_for(hit.content_key, i)` is correct for virtual+real rows (virtual shares the real point's content_key; pure fn, `operations.rs:705-713`).
+4. **Ordering (state.db first, §4.2):**
+   - a. `insert_tracked_file_v48(is_virtual=false, needs_reconcile=true, reconcile_reason=Some("additive_crash"))` → file_id
+   - b. each `i`: `retrieve_point_with_vector(&hit.collection, &real_point_id_for(&hit.content_key, i))` → vec
+   - c. qdrant_chunks tuples `(real_point_id_for(&content_key, i), i, compute_content_hash(&chunk.content), chunk_type?, symbol_name?, start_line?, end_line?)`
+   - d. `insert_qdrant_chunks(&ctx.pool, file_id, &tuples)` (`operations.rs:372`)
+   - e. DocumentPoints: `id=real_point_id_for(&content_key,i)`, `dense_vector=fetched`, payload `branch:item.branch`(singular), `virtual:false`, content_key, file_identity_id, tenant_id, relative_path
+   - f. **component injection inside the tagger:** `component::inject_component(ctx, &ctx.pool, item.watch_folder_id, base_path, item.relative_path, &mut points)` — mutates `&mut points` (component tags) BEFORE the upsert so they reach Qdrant (NF1; symmetric to tier-2 in Case 3). `inject_component` needs `(ctx, pool, watch_folder_id, base_path, relative_path, &mut points)`; it must be reachable from `branch_index/` (§8 BN3).
+   - g. `insert_points_batch(&item.collection, points, None)`
+   - h. search.db `UPSERT_FILE_METADATA_V8_SQL`: `(file_id, tenant_id, branch, abs_file_path, base_point, relative_path, file_hash, 'present')`
+   - i. `UPDATE tracked_files SET needs_reconcile=0, reconcile_reason=NULL WHERE file_id=?`
+5. Return `(CopiedVector, file_id)`.
+
+D2: new content_key (this file's file_hash), new point_id, independent real point.
+
+**Case 3 — both MISS (embed + upsert):**
+
+1. content_key not in tracked_files; file_hash not located.
+2. **Ordering (state.db first, §4.2):**
+   - a. `insert_tracked_file_v48(is_virtual=false, needs_reconcile=true, reconcile_reason=Some("additive_crash"))` → file_id
+   - b. acquire `ctx.embedding_semaphore`
+   - c. `chunk_texts = item.chunks.iter().map(|c| c.content.clone()).collect()`
+   - d. `ctx.embedding_generator.generate_embeddings_batch(&chunk_texts, "default")` → `Vec<EmbeddingResult>` (pattern at `chunk_embed/mod.rs:126`)
+   - e. each `(chunk, embed_result)` at `i`: point_id, `dense_vector=embed_result.dense.vector.clone()`, `sparse_vector=sparse_embedding_to_map(&embed_result.sparse)`, payload `branch:item.branch`(**singular** — NOT branches[]), `virtual:false`, content_key, file_identity_id, tenant_id, relative_path, chunk fields from `chunk.metadata` (nullable), + `item.extra_payload`; `DocumentPoint{id, dense_vector, sparse_vector, payload}`
+   - f. **tier-2 tagging inside the tagger:** `run_tier2_tagging(ctx, &mut points, timings)` — the existing free async fn (`ingest.rs:502`; made `pub(crate)`/relocated per §8 BN3) MUTATES `points` BEFORE `insert_points_batch` so the taxonomy labels land in Qdrant without a second upsert. (NOT `ctx.tier2_tagger.run(...)` — no such method exists.)
+   - g. **component injection inside the tagger:** `component::inject_component(ctx, &ctx.pool, item.watch_folder_id, base_path, item.relative_path, &mut points)` — mutates `&mut points` (component tags) BEFORE the upsert so they reach Qdrant (NF1; symmetric to tier-2). Must be reachable from `branch_index/` (§8 BN3).
+   - h. qdrant_chunks tuples (as Case 2c)
+   - i. `insert_qdrant_chunks(&ctx.pool, file_id, &tuples)`
+   - j. `insert_points_batch(&item.collection, points, None)`
+   - k. search.db `UPSERT_FILE_METADATA_V8_SQL` (P9/M4): `(file_id, tenant_id, branch, abs_file_path, base_point, relative_path, file_hash, 'present')`
+   - l. `UPDATE tracked_files SET needs_reconcile=0, reconcile_reason=NULL WHERE file_id=?`
+3. Return `(EmbeddedNew, file_id)`.
+
+**Case-3 embed-orchestration duplication (accepted drift debt):** Case 3 replicates `embed_chunks`'s semaphore+batch+sparse assembly (it is `pub(super)`). Accepted cost of Option B; any change to `embed_chunks` orchestration must mirror to the tagger. File a GH issue at impl time for a future shared `pub(crate)` helper.
+
+#### Helper split
+- `write_virtual(ctx, item, &content_key) -> Result<(TagOutcome, i64, Vec<DocumentPoint>), TaggerError>` — Case 1
+- `write_real_copy(ctx, item, &hit, &content_key) -> …` — Case 2
+- `write_real_embed(ctx, item, &content_key) -> …` — Case 3
+
+#### TagOutcome
+```rust
+pub(crate) enum TagOutcome {
+    SharedExisting,    // Case 1: virtual row + virtual point
+    CopiedVector,      // Case 2: own real point, vector copied
+    EmbeddedNew,       // Case 3: embedded + upserted
+    Tombstoned,        // delete
+    MovedMetadataOnly, // move, no re-embed
+}
+```
+
+#### tag_and_store entry point
+```rust
+pub(crate) async fn tag_and_store(
+    ctx: &ProcessingContext,   // ctx.pool at context.rs:124; no separate pool param
+    item: &IngestItem<'_>,
+) -> Result<(TagOutcome, i64, Vec<crate::storage::DocumentPoint>), TaggerError>
+// i64 = file_id (for finish_pipeline FTS5); Vec<DocumentPoint> = tier-2-tagged points
+// threaded through concept/narrative phases
+```
+
+---
 
 **Timing-oracle constraint (S1, CWE-208 — LOAD-BEARING assumption).** Case-2 copy
 (~µs: an indexed state.db probe + a by-id vector copy) vs Case-3 embed (~100s ms)
@@ -1409,7 +1465,7 @@ Algorithm (Phase 1):
 // N14: ONE must list — both conditions in a single key so neither is shadowed.
 Filter {
   must: [
-    build_lineage_branch_condition(chain),       // matches field::BRANCHES IN (chain)
+    build_lineage_branch_condition(chain),       // matches field::BRANCH IN (chain)
     tenant_condition,                            // M10 — present unless scope==all
   ],
   must_not: [ Condition::has_id(excluded_point_ids) ],  // explicit, bounded set
@@ -1424,14 +1480,14 @@ present.
 
 **The lineage-filter interface (I4 — concrete signature).** The existing
 `build_branch_condition` (`client/src/qdrant/filters.rs:207-213`) reads
-`params.branch: Option<String>` and matches the array field `field::BRANCHES`
-against a **single** branch string. The lineage read needs that same array field
+`params.branch: Option<String>` and matches the legacy array field `field::BRANCHES`
+against a **single** branch string (v40 back-compat). The lineage read must match the SCALAR field `field::BRANCH` (= `"branch"`, written by the tagger per §4.1)
 matched against a **CHAIN** (an `IN`-set of branches), so this design adds a NEW
 sibling function rather than mutating the existing one:
 
 ```rust
 // client/src/qdrant/filters.rs — NEW, beside build_branch_condition (NOT a rewrite of it).
-/// Match field::BRANCHES against ANY branch in the resolved lineage chain.
+/// Match field::BRANCH (= "branch", singular scalar written by the tagger per §4.1) against ANY branch in the resolved lineage chain.
 /// Returns None when the chain is empty (caller then falls back to the
 /// single-branch build_branch_condition, preserving existing behavior).
 fn build_lineage_branch_condition(chain: &[String]) -> Option<Condition>;
@@ -1949,7 +2005,7 @@ is **tenant-scoped**, so both worktrees now resolve to the **same** real point.
 
 Concurrent writes to the same content_key are serialized by the existing
 **per-tenant lock** (`ctx.branch_locks.get(&item.tenant_id)`, an
-`Arc<TenantBranchLocks>`; used at `dedup.rs:117`, `branch_cleanup/mod.rs:76,308`,
+`Arc<TenantBranchLocks>`; used at `branch_index/tagger.rs` (per-content_key lock, §7.1), `branch_cleanup/mod.rs:76,308`,
 and `branch_switch/db.rs:37` — the lock-acquisition line of
 `batch_add_branch_to_unchanged_files` (`db.rs:26`), distinct from `apply_branch_add`
 at `branch_switch/handlers.rs:140`). **PERF-4 / M13:** this lock currently spans a SQLite
@@ -2053,6 +2109,8 @@ path that was tombstoned on one branch can come back live via another). State.db
 lags — tombstone-direction via `write_tombstone`, present-direction via
 `write_resurrection`.
 
+**Additive-crash anchor.** Cases 2/3 write the tracked_files row with `needs_reconcile=1` FIRST (state.db-first, FP order-by-recoverability), cleared LAST after Qdrant + search.db succeed. A startup additive-crash reconciler that re-drives rows left at `state='present' AND needs_reconcile=1` is a NAMED deliverable (§8), designed in its own task: it completes Case-1/Case-2 rows from state.db alone (point_id is derivable from content_key; vectors are re-copyable via `locate_byte_identical` + `retrieve_point_with_vector`; no chunk content needed), and RE-ENQUEUES Case-3 rows for normal ingestion (the existing pipeline re-parses → re-runs the tagger, idempotent via the Case-1 same-branch guard for unchanged files; a since-changed or deleted file flows through the normal change/delete path, which supersedes the stale row). NOTE (security): completing from the stored `file_hash` trusts state.db rather than re-deriving from disk — acceptable under Q3=(b) (anything that can write state.db can already forge Qdrant directly); this shifts residual trust from the queue to state.db and does not reopen SEC-6.
+
 Lineage edits are single
 SQLite transactions, atomic across a crash; the relink-before-drop ordering
 (§3.6) plus the read-path cycle guard (§5.2.1) contain any transient dangling
@@ -2061,7 +2119,7 @@ child.
 ### 7.3 Error handling
 
 Per FP and §X: no silent fallback. Embed failure → DLQ. Dedup lookup failure →
-surfaced as a `QueueOperation` error (as today, `dedup.rs:57`). Read-path
+surfaced as a `QueueOperation` error (as today; from `branch_index/tagger.rs` — `dedup.rs` RETIRED). Read-path
 resolution failure (SQLite/gRPC error) → the tool returns an explicit error,
 **never** a silently empty result — distinct from the deliberate `EmptyKnown` /
 `UnknownBranch` signals (§5.2/§5.3).
@@ -2131,8 +2189,8 @@ tolerance. Each new file carries the §X header context block.
 
 | File | Responsibility | Est. lines |
 |---|---|---|
-| `branch_index/mod.rs` | Module facade + `IngestItem` / `TagOutcome` types. | ~120 |
-| `branch_index/tagger.rs` | `tag_and_store`: content_key compute, dedup decision, real-vs-virtual write, search.db sync. Split helpers (`write_real`, `write_virtual`, `write_tombstone`, `move_metadata`, `sync_search_db`) keep each fn < 80. | ~380 |
+| `branch_index/mod.rs` | Module facade. `IngestItem<'a>`: watch_folder_id, tenant_id: &str (NOT i64), branch, collection, relative_path (required by §5.2), abs_file_path (absolute on-disk path → search.db file_metadata.file_path), file_identity_id: Uuid, file_hash (in-process; content_key ingredient AND Case-2 locator), chunks: &[TextChunk], file_mtime, file_type, language, is_test, extension, component, base_point, extra_payload. `TagOutcome`. `tag_and_store` re-export. | ~150 |
+| `branch_index/tagger.rs` | `tag_and_store(ctx, item) -> (TagOutcome, file_id, Vec<DocumentPoint>)`: content_key from in-process file_hash (SEC-6/M1); three-case ladder with same-branch idempotency guard. Helpers: `write_virtual` (Case 1 — same-branch probe, then insert_tracked_file_v48 is_virtual=true + virtual Qdrant point + UPSERT_FILE_METADATA_V8_SQL), `write_real_copy` (Case 2 — insert_tracked_file_v48 needs_reconcile=1 + insert_qdrant_chunks + retrieve_point_with_vector + inject_component + insert_points_batch + UPSERT_FILE_METADATA_V8_SQL + clear needs_reconcile), `write_real_embed` (Case 3 — insert_tracked_file_v48 needs_reconcile=1 + generate_embeddings_batch + run_tier2_tagging in-tagger + inject_component in-tagger + insert_qdrant_chunks + insert_points_batch + UPSERT_FILE_METADATA_V8_SQL + clear needs_reconcile). Returned Vec<DocumentPoint> is tier-2-tagged; caller threads it to concept/narrative phases. Retained: `write_tombstone`, `write_resurrection` (DS5), `move_metadata`. reconcile_reason='additive_crash' at insert for Cases 2/3; cleared on success. wqm_common::timestamps::now_utc() for created_at/updated_at. All fns < 80. The tagger deliberately orchestrates tier-2 + component injection via the shared `ProcessingContext` (cohesion accepted; no build cycle — NF3). | ~470 |
 | `branch_index/lineage.rs` | `LineageStore`: persist/read parent, `lineage_chain` (CTE), `children_of`, `relink`, cross-branch ref count. | ~300 |
 | `branch_index/virtual_point.rs` | Virtual/tombstone payload builders + the `state` enum. | ~180 |
 | `branch_index/resolve.rs` | Two-phase `resolve_view` (Phase-1 reduce + Phase-2 filter build, §5.2). | ~260 |
@@ -2199,18 +2257,21 @@ and shipping only the first re-opens the SEC-4 mid-window hazard:
 
 | File | Change |
 |---|---|
-| `common/src/hashing.rs` | Add the **NEW day-one helper** `lp(&[u8]) -> Vec<u8>` (length-prefix framing, N7/N1 — does NOT exist yet, it is new); add `content_key(tenant, file_identity_id, file_hash)` (full 32B, D2 = no-share) built on `lp`; keep `compute_point_id`/`compute_base_point` transitionally. |
+| `common/src/hashing.rs` | ALREADY IMPLEMENTED: `lp()` :29, `content_key()` :48. No edit. Tagger calls `content_key(tenant_id, file_identity_id, file_hash)` (file_hash = parse_document in-process value) — conforming to the F1 "ONLY producer" contract (:43-47) + `t_f1_encoding_agreement` (:570-582). No `chunk_content_digest`. §4.3 formula unchanged. |
 | `common/src/document_id.rs` | Retire `generate_point_id` (branch-scoped); keep `generate_document_id`. |
-| `…/file/chunk_embed/payload.rs` | Drop inline `branches:[branch]` (`:65`); emit `virtual:false` + `content_key` + `file_identity_id`. |
-| `daemon/core/src/storage/points/` (NEW method) | Add `StorageClient::retrieve_point_with_vector(collection, point_id) -> Result<Option<Vec<f32>>, StorageError>` (I1/I3) — `get_points(...).with_vectors(true)` + the existing `extract_dense_vector` helper (`storage/scroll.rs:339`), modeled on `StorageClient::scroll_dense_vectors_by_tenant` (`storage/scroll.rs:172`, `.with_vectors(selector)` at `:204-206`). The tagger's Case-2 copy calls THIS, not `QdrantReadClient` (daemon/core does not depend on wqm-client). |
-| `…/tracked_files_schema/operations.rs` (NEW function) | Add the **tenant-wide byte locator** `WHERE tenant_id=? AND file_hash=? ORDER BY created_at ASC LIMIT 1` (I2/DS4) — does NOT exist today; `lookup_tracked_file_by_hash` (`:188-219`) is watch-folder-AND-path scoped, not a tenant-wide hash probe. Follow `real_point_id` if the hit is virtual. |
-| `client/src/qdrant/filters.rs` (NEW fn + struct field) | Add `build_lineage_branch_condition(chain: &[String]) -> Option<Condition>` matching `field::BRANCHES` against an `IN`-set, beside the existing `build_branch_condition` (NOT a rewrite). Add `FilterParams.lineage_chain: Option<Vec<String>>`, populated by the ViewResolver; builder falls back to single-branch when absent (I4). |
-| `…/file/dedup.rs` | Implement the **three-case ladder** (§5.1): content_key HIT → virtual point; `(tenant_id, file_hash)` locator HIT → own real point with **copied vector** (`StorageClient::retrieve_point_with_vector` → upsert); both MISS → embed. Resolve/mint `file_identity_id` (§4.4.1). Use the NEW tenant-wide locator (projects+libraries). Narrow the per-tenant lock to per-`content_key` (§7.1). |
+| `…/file/chunk_embed/payload.rs` | Drop inline `branches:[branch]` (`:65`); emit `virtual:false` + `content_key` + `file_identity_id`. Under Option B the tagger owns payload assembly and upsert for the file surface; the `:65` `branches` write is deleted as part of tagger integration. Non-file callers (url.rs, text.rs) unaffected until F7+. |
+| `daemon/core/src/storage/points/scroll.rs:440` | ALREADY IMPLEMENTED (F5, commit df3caee09). `retrieve_point_with_vector` exists. No edit needed. |
+| `…/tracked_files_schema/operations.rs` | ALREADY IMPLEMENTED (F5, commit df3caee09): `ByteIdenticalHit` (:650), `locate_byte_identical` (:680), `real_point_id_for` (:714). DS4 is_virtual follow-link NOT required: `real_point_id_for(hit.content_key, i)` is correct for virtual+real rows (virtual shares the real point's content_key, :705-713). NEW DELIVERABLE: `insert_tracked_file_v48` — existing `insert_tracked_file` (:261) targets v40 (primary_branch, branches absent in v48) and fails at runtime against v48; spec in §5.1. Mark `insert_tracked_file` (:261) `#[deprecated]`; audit callers; delete once migrated. |
+| `daemon/core/src/code_lines_schema.rs` | NEW CONSTANT `UPSERT_FILE_METADATA_V8_SQL`: the existing `UPSERT_FILE_METADATA_SQL` (:206) targets the pre-v8 schema — binds `(file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)` with `ON CONFLICT(file_id, branch)` and has NO `state` column. After the search.db v8 ALTER (`migrations.rs:166`: ADD COLUMN state TEXT NOT NULL DEFAULT 'present' CHECK(state IN ('present','deleted'))), tagger writes must include `state`. Spec: `INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, state) VALUES (?1..?8) ON CONFLICT(file_id, branch) DO UPDATE SET tenant_id=excluded.tenant_id, file_path=excluded.file_path, base_point=excluded.base_point, relative_path=excluded.relative_path, file_hash=excluded.file_hash, state=excluded.state`. Bind: ?1=file_id, ?2=tenant_id, ?3=branch, ?4=item.abs_file_path (the `file_path` column holds an ABSOLUTE path — all existing writers store absolute, `fts5_index` reads it from disk, search readers do `LIKE '/abs/%'`; N5), ?5=item.base_point, ?6=item.relative_path, ?7=item.file_hash, ?8='present'. Conflict target `(file_id, branch)` matches the v7 DDL UNIQUE(file_id, branch). NOTE: the earlier "spec-16 reclassification" conflated `file_metadata.file_path` (search.db, ABSOLUTE) with the Qdrant payload `FilePayload.file_path` (RelativePath) — they are different columns; `file_metadata.file_path` is absolute. |
+| `…/file/ingest.rs` | RESTRUCTURE `run_ingest_pipeline`: remove `run_middle_phases` + `upsert_and_mark_done` calls; insert `allocate_file_identity` + `IngestItem` construction + `tag_and_store` at the post-parse seam. Thread returned `file_id` + `Vec<DocumentPoint>` through concept/narrative/component phases (formerly in run_middle_phases). `finish_pipeline` call unchanged (receives file_id, base_point, file_hash, payload, file_path, abs_file_path, detected_language, timings, detected_branch — all in-scope locals). `run_middle_phases` deleted (embed+upsert → tagger; phase calls → restructured pipeline). `upsert_and_mark_done` deleted (tagger owns). Concept/narrative phases adapted to accept `&[TextChunk]`. Make `run_tier2_tagging` (`:502`) `pub(crate)` / relocate so `branch_index/tagger.rs` can call it. `component::inject_component` (`:484`, `pub(super)`) must likewise be reachable from `branch_index/` — it mutates `&mut points`; today it runs AFTER `run_middle_phases` returns but BEFORE the upsert, so no gap exists. Option B moving the upsert INTO the tagger NEWLY strands it (component tags would never reach Qdrant). It is NOT a pre-existing gap: it is newly stranded by the seam move and is now owned by the tagger (run inside the real-point cases right after tier-2, before insert_points_batch — symmetric to tier-2, NF1). NF3: the tagger deliberately orchestrates tier-2 + component via the shared `ProcessingContext` (cohesion accepted; no build cycle). |
+| `branch_index/tagger.rs` + `memexd/src/main.rs` (startup reconcile sweep) | ADDITIVE-CRASH RECONCILER (startup sweep, own task — NAMED deliverable, designed in its own task): re-drive `state='present' AND needs_reconcile=1` rows — Case-1/2 completed from state.db, Case-3 re-enqueued for normal ingestion; stale (changed/deleted file) rows superseded by the normal path. Lives in `memexd/src/main.rs` startup, gated before serving (no concurrent tagger writes race the sweep). reconcile_reason='additive_crash' set at insert (diagnostic). See the §7.2 addendum for the full mechanism. |
+| `client/src/qdrant/filters.rs` (NEW fn + struct field) | Add `build_lineage_branch_condition(chain: &[String]) -> Option<Condition>` matching `field::BRANCH` (= `"branch"`, the SINGULAR scalar written by the tagger per §4.1) — NOT `field::BRANCHES` (legacy array). Matching the wrong field makes newly-indexed points invisible to lineage queries. Retained: `build_branch_condition` (:207-213, matches `field::BRANCHES`) for v40 back-compat during D1=Replace; retired once all old points re-keyed. Add `FilterParams.lineage_chain: Option<Vec<String>>`. Also correct `constants.rs:112-115` comments: `BRANCH="branch"` is the NEW post-Replace scalar; `BRANCHES="branches"` is the LEGACY array — current comments inverted. |
+| `…/file/dedup.rs` | RETIRE — DELETE. Three-case ladder moves entirely to `branch_index/tagger.rs`. `try_dedup` (`:30`) deleted. `ingest.rs:92` early-exit gate removed; pipeline always proceeds to `parse_document` before the tagger decides. |
 | `daemon/core ProcessingContext` (NEW field) | Add the **per-`content_key` lock map** (§7.1) — e.g. a **bounded** `DashMap<content_key, Arc<Mutex<()>>>` on `ProcessingContext`. It is a NEW data structure; it **must be size-bounded / evicted** (LRU or capacity cap) so the map cannot grow unbounded with the number of distinct content_keys seen. Both the tagger add and `cleanup_deleted_branch` (DS2) acquire from it. |
 | `branch_index/tagger.rs` (NEW fn) | Add `write_resurrection` (DS5) — the inverse of `write_tombstone`: drive state.db / Qdrant / search.db back to `state='present'` on re-ingest of a previously-deleted path (§7.2, §3.2). |
 | `…/tenant/library.rs`, `…/url.rs`, `…/text.rs` | Route through `tag_and_store`; remove direct branch/point-id writes. |
 | `…/file/delete.rs` (`check_qdrant_deletion_needed:166`, `has_other_references:175`) | Per-file delete becomes tombstone-or-delete with a **cross-branch** reference guard (§3.4). |
-| `…/file/chunk_embed/mod.rs:10` | Promote the `ChunkRecord` re-export from `pub(super)` to `pub(crate)` so `branch_index/tagger.rs` can import it (N11). |
+| `…/file/chunk_embed/mod.rs:13` | ALREADY DONE (commit f964b018a, green). N11 applied: `pub(crate) use types::ChunkRecord;`. Under Option B the tagger imports `TextChunk`, NOT `ChunkRecord`; N11 not required for the tagger. The `pub(crate)` promotion is harmless and crate-internal; reverting is net churn for a visibility-only change with no maintenance contract. Keep. |
 | `branch_switch/handlers.rs:41`, `branch_switch/handlers.rs:140`, `branch_switch/db.rs:37` | The `Commit \| Merge \| Pull \| Rebase` arm (`handlers.rs:41` — all four GitEventTypes share it) reconciles deletions for **every** merge-shaped event, not just `Merge` (§3.5, NIT); `apply_branch_add` (`handlers.rs:140`, NOT `db.rs:37` — the latter is the per-tenant lock acquisition in `batch_add_branch_to_unchanged_files`) folds into the tagger. |
 | `branch_cleanup/mod.rs` (`:294-295`,`:338`), `branch_cleanup/db.rs:307` | Cross-branch real-point guard + child lineage relink + search.db cleanup (§3.6). **DS2 lock-granularity edit:** `cleanup_deleted_branch` acquires **per-`content_key`** locks while iterating the affected set, **replacing** the per-tenant `branch_locks.get(tenant_id)` acquisitions at `mod.rs:76` and `:308`; held across the ref-count read AND the delete so a concurrent add for K cannot interleave (§7.1). |
 | `branch_discovery/scanner.rs:305`, `discovery_trigger.rs` | Git-validate + persist inferred parent (stop dropping it). |
@@ -2229,8 +2290,8 @@ and shipping only the first re-opens the SEC-4 mid-window hazard:
 
 **What exists.** A single **real** point accumulates branch names in a
 `branches:[]` payload array (`payload.rs:65`) and a mirror JSON array in
-`tracked_files.branches` (`v40.rs` DDL). Dedup appends a branch on a content match
-(`dedup.rs:94-135`); branch-switch adds branches; cleanup prunes the array or
+`tracked_files.branches` (`v40.rs` DDL). Dedup appended a branch on a content match
+(`dedup.rs:94-135` — **retired**, replaced by `branch_index/tagger.rs` Case 1 virtual-row INSERT); branch-switch adds branches; cleanup prunes the array or
 deletes the point with a watch-folder-scoped guard (`branch_cleanup/mod.rs:294-339`,
 `db.rs:307`). This delivers "no re-embed for verbatim-shared content" but carries
 **one** `relative_path` per point — it cannot represent per-branch path
