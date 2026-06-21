@@ -469,7 +469,13 @@ mod tests {
             1,
             "edge filter must match exactly the hostile tenant's one edge, got {edges:?}"
         );
-        assert_eq!(edges[0].tenant_id, hostile, "edge tenant id round-trips verbatim");
-        assert_eq!(edges[0].edge_id, "eh", "only the hostile tenant's edge is exported");
+        assert_eq!(
+            edges[0].tenant_id, hostile,
+            "edge tenant id round-trips verbatim"
+        );
+        assert_eq!(
+            edges[0].edge_id, "eh",
+            "only the hostile tenant's edge is exported"
+        );
     }
 }
