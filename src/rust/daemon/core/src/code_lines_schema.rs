@@ -229,6 +229,36 @@ CREATE TABLE IF NOT EXISTS file_metadata (
 )
 "#;
 
+/// SQL to upsert a file_metadata row including the v8 lifecycle `state` column
+/// (branch-lineage F6 — written by the branch tagger's `tag_and_store`).
+///
+/// The pre-v8 [`UPSERT_FILE_METADATA_SQL`] omits `state`; after the search.db v8
+/// ALTER (`migrations.rs` `migrate_v8`: `ADD COLUMN state TEXT NOT NULL DEFAULT
+/// 'present' CHECK(state IN ('present','deleted'))`) every tagger write must set
+/// `state` explicitly so resurrection/tombstone flips land symmetrically.
+///
+/// Binds (arch §5.1/§8):
+/// `?1` = file_id, `?2` = tenant_id, `?3` = branch, `?4` = file_path
+/// (**ABSOLUTE** on-disk path — the `file_metadata.file_path` column holds the
+/// absolute path; `fts5_index` reads it from disk and search readers match
+/// `LIKE '/abs/%'`, N5), `?5` = base_point (nullable), `?6` = relative_path
+/// (nullable), `?7` = file_hash (nullable), `?8` = state (`'present'`/`'deleted'`).
+///
+/// Conflict target `(file_id, branch)` matches the v7 DDL `UNIQUE(file_id,
+/// branch)`. Distinct from the Qdrant payload `FilePayload.file_path`
+/// (relative) — `file_metadata.file_path` is absolute (N5).
+pub const UPSERT_FILE_METADATA_V8_SQL: &str = r#"
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash, state)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+ON CONFLICT(file_id, branch) DO UPDATE SET
+    tenant_id = excluded.tenant_id,
+    file_path = excluded.file_path,
+    base_point = excluded.base_point,
+    relative_path = excluded.relative_path,
+    file_hash = excluded.file_hash,
+    state = excluded.state
+"#;
+
 /// SQL to delete a file_metadata row when its code_lines are removed.
 pub const DELETE_FILE_METADATA_SQL: &str = "DELETE FROM file_metadata WHERE file_id = ?1";
 

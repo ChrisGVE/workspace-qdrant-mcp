@@ -100,6 +100,78 @@ async fn test_file_metadata_upsert() {
     manager.close().await;
 }
 
+/// T-F6c: `UPSERT_FILE_METADATA_V8_SQL` writes the v8 `state` column on insert
+/// and flips it on conflict (the present→deleted tombstone / deleted→present
+/// resurrection flow the tagger drives). Conflict target is `(file_id, branch)`.
+#[tokio::test]
+async fn test_file_metadata_upsert_v8_state() {
+    use sqlx::Row;
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("search.db");
+    let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+    // Insert a 'present' row.
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_V8_SQL)
+        .bind(7_i64)
+        .bind("project-abc")
+        .bind("main")
+        .bind("/abs/src/lib.rs")
+        .bind(Some("bp1"))
+        .bind(Some("src/lib.rs"))
+        .bind(Some("hash1"))
+        .bind("present")
+        .execute(manager.pool())
+        .await
+        .unwrap();
+
+    let row = sqlx::query(
+        "SELECT file_path, base_point, relative_path, file_hash, state \
+         FROM file_metadata WHERE file_id = 7 AND branch = 'main'",
+    )
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("file_path"), "/abs/src/lib.rs");
+    assert_eq!(row.get::<String, _>("base_point"), "bp1");
+    assert_eq!(row.get::<String, _>("relative_path"), "src/lib.rs");
+    assert_eq!(row.get::<String, _>("file_hash"), "hash1");
+    assert_eq!(row.get::<String, _>("state"), "present");
+
+    // Conflict on (file_id, branch) flips state to 'deleted' (tombstone).
+    sqlx::query(crate::code_lines_schema::UPSERT_FILE_METADATA_V8_SQL)
+        .bind(7_i64)
+        .bind("project-abc")
+        .bind("main")
+        .bind("/abs/src/lib.rs")
+        .bind(Some("bp1"))
+        .bind(Some("src/lib.rs"))
+        .bind(Some("hash1"))
+        .bind("deleted")
+        .execute(manager.pool())
+        .await
+        .unwrap();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM file_metadata WHERE file_id = 7 AND branch = 'main'",
+    )
+    .fetch_one(manager.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 1,
+        "conflict must UPDATE in place, not insert a 2nd row"
+    );
+
+    let state: String =
+        sqlx::query_scalar("SELECT state FROM file_metadata WHERE file_id = 7 AND branch = 'main'")
+            .fetch_one(manager.pool())
+            .await
+            .unwrap();
+    assert_eq!(state, "deleted", "state must flip on conflict");
+
+    manager.close().await;
+}
+
 #[tokio::test]
 async fn test_file_metadata_null_branch() {
     use sqlx::Row;
