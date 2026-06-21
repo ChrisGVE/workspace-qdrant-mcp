@@ -23,21 +23,23 @@
 //! `write_tombstone` helper exists for the delete path (task 23/24) but is not
 //! wired from this ADD chokepoint.
 
-#![allow(dead_code)] // tag_and_store + helpers wired into run_ingest_pipeline in F6e (task 22.5)
-
 use std::collections::HashMap;
 
 use sqlx::{Row, SqlitePool};
 use wqm_common::hashing::content_key;
 use wqm_common::timestamps;
 
-use super::{EmbedInputs, IngestItem, TagOutcome, TaggerError};
+use super::{EmbedInputs, IngestItem, TagOutcome, TagStored, TaggerError};
 use crate::context::ProcessingContext;
 use crate::processing_timings::PhaseTiming;
 use crate::storage::DocumentPoint;
-use crate::strategies::processing::file::chunk_embed::{build_chunk_payload, embed_chunks};
+use crate::strategies::processing::file::chunk_embed::{
+    build_chunk_payload, embed_chunks, ChunkRecord,
+};
 use crate::strategies::processing::file::component::inject_component;
 use crate::strategies::processing::file::ingest::run_tier2_tagging;
+use crate::strategies::processing::file::keyword_extract::run_keyword_extraction;
+use crate::strategies::processing::file::keyword_persist::persist_extraction;
 use crate::tracked_files_schema::{
     self, compute_content_hash, insert_qdrant_chunks, insert_tracked_file_v48,
     locate_byte_identical, real_point_id_for, ChunkType, ProcessingStatus,
@@ -45,15 +47,15 @@ use crate::tracked_files_schema::{
 
 /// Tag and store one file's chunks, routing through the dedup ladder.
 ///
-/// Returns `(outcome, file_id, points)`. `points` is non-empty only for the
-/// real-point cases (2/3) that produce vectors for the downstream concept /
-/// narrative phases; virtual / move / idempotent outcomes return an empty Vec
-/// (no re-embed → no downstream graph work for this branch).
+/// See [`TagStored`] for the return contract: `points`/`records` are non-empty
+/// only for the real-point cases (2/3 + resurrection) that feed the downstream
+/// concept / narrative / graph phases; virtual / move / idempotent outcomes
+/// carry empty vecs (no re-embed → no downstream graph work for this branch).
 pub(crate) async fn tag_and_store(
     ctx: &ProcessingContext,
     item: &IngestItem<'_>,
     embed: &EmbedInputs<'_>,
-) -> Result<(TagOutcome, i64, Vec<DocumentPoint>), TaggerError> {
+) -> Result<TagStored, TaggerError> {
     let content_key = content_key(
         item.tenant_id,
         &item.file_identity_id.to_string(),
@@ -63,8 +65,13 @@ pub(crate) async fn tag_and_store(
     // Resurrection: a re-add of a path that currently carries a tombstone flips
     // it back to present rather than inserting a colliding row (§3.2/§7.2).
     if let Some(file_id) = tombstone_file_id(&ctx.pool, item).await? {
-        let points = write_resurrection(ctx, item, embed, &content_key, file_id).await?;
-        return Ok((TagOutcome::EmbeddedNew, file_id, points));
+        let (points, records) = write_resurrection(ctx, item, embed, &content_key, file_id).await?;
+        return Ok(TagStored {
+            outcome: TagOutcome::EmbeddedNew,
+            file_id,
+            points,
+            records,
+        });
     }
 
     // Case 1 — content_key already present somewhere for this identity.
@@ -75,13 +82,24 @@ pub(crate) async fn tag_and_store(
     // Case 2 — byte-identical content exists tenant-wide under a different
     // identity/collection: copy its vector instead of re-embedding.
     if let Some(hit) = locate_byte_identical(&ctx.pool, item.tenant_id, item.file_hash).await? {
-        let (file_id, points) = write_real_copy(ctx, item, embed, &content_key, &hit).await?;
-        return Ok((TagOutcome::CopiedVector, file_id, points));
+        let (file_id, points, records) =
+            write_real_copy(ctx, item, embed, &content_key, &hit).await?;
+        return Ok(TagStored {
+            outcome: TagOutcome::CopiedVector,
+            file_id,
+            points,
+            records,
+        });
     }
 
     // Case 3 — genuinely new content: embed + re-key.
-    let (file_id, points) = write_real_embed(ctx, item, embed, &content_key).await?;
-    Ok((TagOutcome::EmbeddedNew, file_id, points))
+    let (file_id, points, records) = write_real_embed(ctx, item, embed, &content_key).await?;
+    Ok(TagStored {
+        outcome: TagOutcome::EmbeddedNew,
+        file_id,
+        points,
+        records,
+    })
 }
 
 // ── Classification probes ──────────────────────────────────────────────────
@@ -128,7 +146,7 @@ async fn route_content_key_hit(
     item: &IngestItem<'_>,
     embed: &EmbedInputs<'_>,
     content_key: &str,
-) -> Result<(TagOutcome, i64, Vec<DocumentPoint>), TaggerError> {
+) -> Result<TagStored, TaggerError> {
     // Same-branch live row for this content_key (at most one — live-view index).
     let same_branch = sqlx::query(
         "SELECT file_id, relative_path FROM tracked_files \
@@ -146,17 +164,28 @@ async fn route_content_key_hit(
         if existing_path == item.relative_path {
             // Idempotent re-ingest: refresh the timestamp, no store writes.
             touch_row(&ctx.pool, file_id).await?;
-            return Ok((TagOutcome::SharedExisting, file_id, Vec::new()));
+            return Ok(empty_stored(TagOutcome::SharedExisting, file_id));
         }
         // Same content, same branch, new path → MOVE (a Case-1 INSERT would
         // collide with idx_tracked_files_live_view).
         write_move_metadata(ctx, item, content_key, file_id, &existing_path).await?;
-        return Ok((TagOutcome::MovedMetadataOnly, file_id, Vec::new()));
+        return Ok(empty_stored(TagOutcome::MovedMetadataOnly, file_id));
     }
 
     // Different branch already holds these bytes → virtual shadow on this branch.
     let file_id = write_virtual(ctx, item, embed, content_key).await?;
-    Ok((TagOutcome::SharedExisting, file_id, Vec::new()))
+    Ok(empty_stored(TagOutcome::SharedExisting, file_id))
+}
+
+/// A [`TagStored`] for the vectorless outcomes (Case 1 / move / idempotent):
+/// no points, no records, so the pipeline skips the graph phases for this branch.
+fn empty_stored(outcome: TagOutcome, file_id: i64) -> TagStored {
+    TagStored {
+        outcome,
+        file_id,
+        points: Vec::new(),
+        records: Vec::new(),
+    }
 }
 
 // ── Case 1: virtual write ──────────────────────────────────────────────────
@@ -201,10 +230,11 @@ async fn write_real_copy(
     embed: &EmbedInputs<'_>,
     content_key: &str,
     hit: &tracked_files_schema::ByteIdenticalHit,
-) -> Result<(i64, Vec<DocumentPoint>), TaggerError> {
+) -> Result<(i64, Vec<DocumentPoint>, Vec<ChunkRecord>), TaggerError> {
     let file_id = insert_row(ctx, item, content_key, false, ProcessingStatus::None, true).await?;
 
     let mut points = Vec::with_capacity(item.chunks.len());
+    let mut records = Vec::with_capacity(item.chunks.len());
     let mut tuples = Vec::with_capacity(item.chunks.len());
     for (i, chunk) in item.chunks.iter().enumerate() {
         let src_id = real_point_id_for(&hit.content_key, i as u32).to_string();
@@ -216,7 +246,9 @@ async fn write_real_copy(
         let new_id = real_point_id_for(content_key, i as u32).to_string();
         let mut payload = base_payload(item, embed, chunk);
         apply_lineage_payload(&mut payload, item, content_key, false, None);
-        tuples.push(chunk_tuple(&new_id, i, chunk));
+        let record = chunk_record(&new_id, i, chunk);
+        tuples.push(record_tuple(&record));
+        records.push(record);
         points.push(DocumentPoint {
             id: new_id,
             dense_vector: vector,
@@ -241,7 +273,7 @@ async fn write_real_copy(
         .await?;
     upsert_file_metadata(ctx, item, file_id, "present").await?;
     clear_reconcile(&ctx.pool, file_id).await?;
-    Ok((file_id, points))
+    Ok((file_id, points, records))
 }
 
 // ── Case 3: embed + re-key (Option C) ──────────────────────────────────────
@@ -255,7 +287,7 @@ async fn write_real_embed(
     item: &IngestItem<'_>,
     embed: &EmbedInputs<'_>,
     content_key: &str,
-) -> Result<(i64, Vec<DocumentPoint>), TaggerError> {
+) -> Result<(i64, Vec<DocumentPoint>, Vec<ChunkRecord>), TaggerError> {
     let file_id = insert_row(ctx, item, content_key, false, ProcessingStatus::None, true).await?;
 
     let embed_result = embed_chunks(
@@ -273,27 +305,18 @@ async fn write_real_embed(
     .await
     .map_err(|e| TaggerError::Embed(e.to_string()))?;
 
+    let lsp_status = embed_result.lsp_status;
+    let treesitter_status = embed_result.treesitter_status;
     let mut points = embed_result.points;
     let mut records = embed_result.chunk_records;
-    let mut tuples = Vec::with_capacity(points.len());
-    for (i, (p, r)) in points.iter_mut().zip(records.iter_mut()).enumerate() {
-        let new_id = real_point_id_for(content_key, i as u32).to_string();
-        p.id = new_id.clone();
-        apply_lineage_payload(&mut p.payload, item, content_key, false, None);
-        r.point_id = new_id.clone();
-        tuples.push((
-            new_id,
-            r.chunk_index,
-            r.content_hash.clone(),
-            r.chunk_type,
-            r.symbol_name.clone(),
-            r.start_line,
-            r.end_line,
-        ));
-    }
+    let tuples = rekey_to_content_key(content_key, item, &mut points, &mut records);
 
     let mut timings: Vec<PhaseTiming> = Vec::new();
     run_tier2_tagging(ctx, &mut points, &mut timings).await;
+    // Keyword/ranking-aid payloads must be injected BEFORE the upsert below —
+    // the tagger owns the single point write, so this runs here (not in a
+    // post-tagger phase, where it would never reach Qdrant). F6e Issue-1.
+    enrich_and_persist_keywords(ctx, item, embed, &mut points).await;
     inject_component(
         ctx,
         &ctx.pool,
@@ -309,8 +332,8 @@ async fn write_real_embed(
         .insert_points_batch(item.collection, points.clone(), None)
         .await?;
     upsert_file_metadata(ctx, item, file_id, "present").await?;
-    clear_reconcile(&ctx.pool, file_id).await?;
-    Ok((file_id, points))
+    finalize_embed_row(&ctx.pool, file_id, lsp_status, treesitter_status).await?;
+    Ok((file_id, points, records))
 }
 
 // ── Move / resurrection / tombstone ────────────────────────────────────────
@@ -360,7 +383,7 @@ async fn write_resurrection(
     embed: &EmbedInputs<'_>,
     content_key: &str,
     file_id: i64,
-) -> Result<Vec<DocumentPoint>, TaggerError> {
+) -> Result<(Vec<DocumentPoint>, Vec<ChunkRecord>), TaggerError> {
     let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET state = 'present', content_key = ?1, file_hash = ?2, \
@@ -389,41 +412,29 @@ async fn write_resurrection(
     .await
     .map_err(|e| TaggerError::Embed(e.to_string()))?;
 
+    let lsp_status = embed_result.lsp_status;
+    let treesitter_status = embed_result.treesitter_status;
     let mut points = embed_result.points;
-    let mut tuples = Vec::with_capacity(points.len());
-    for (i, (p, r)) in points
-        .iter_mut()
-        .zip(embed_result.chunk_records.iter())
-        .enumerate()
-    {
-        let new_id = real_point_id_for(content_key, i as u32).to_string();
-        p.id = new_id.clone();
-        apply_lineage_payload(&mut p.payload, item, content_key, false, None);
-        tuples.push((
-            new_id,
-            r.chunk_index,
-            r.content_hash.clone(),
-            r.chunk_type,
-            r.symbol_name.clone(),
-            r.start_line,
-            r.end_line,
-        ));
-    }
+    let mut records = embed_result.chunk_records;
+    let tuples = rekey_to_content_key(content_key, item, &mut points, &mut records);
 
     let mut timings: Vec<PhaseTiming> = Vec::new();
     run_tier2_tagging(ctx, &mut points, &mut timings).await;
+    // Ranking-aids before the upsert (F6e Issue-1; see write_real_embed).
+    enrich_and_persist_keywords(ctx, item, embed, &mut points).await;
     insert_qdrant_chunks(&ctx.pool, file_id, &tuples).await?;
     ctx.storage_client
         .insert_points_batch(item.collection, points.clone(), None)
         .await?;
     upsert_file_metadata(ctx, item, file_id, "present").await?;
-    clear_reconcile(&ctx.pool, file_id).await?;
-    Ok(points)
+    finalize_embed_row(&ctx.pool, file_id, lsp_status, treesitter_status).await?;
+    Ok((points, records))
 }
 
 /// Write a delete tombstone for this branch+path: flip state.db to `deleted` and
 /// search.db file_metadata to `deleted` (the inverse of resurrection). Helper
 /// for the per-file delete path (task 23/24); NOT wired from the ADD chokepoint.
+#[allow(dead_code)] // wired by the delete path (task 23/24), not the ADD chokepoint
 async fn write_tombstone(
     ctx: &ProcessingContext,
     item: &IngestItem<'_>,
@@ -542,12 +553,8 @@ fn apply_lineage_payload(
     }
 }
 
-/// Build an `insert_qdrant_chunks` tuple from a chunk + its content-key point id.
-fn chunk_tuple(
-    point_id: &str,
-    chunk_index: usize,
-    chunk: &crate::core_types::TextChunk,
-) -> (
+/// The tuple shape `insert_qdrant_chunks` expects per chunk.
+type ChunkTuple = (
     String,
     i32,
     String,
@@ -555,26 +562,98 @@ fn chunk_tuple(
     Option<String>,
     Option<i32>,
     Option<i32>,
-) {
-    let symbol_name = chunk.metadata.get("symbol_name").cloned();
-    let start_line = chunk
-        .metadata
-        .get("start_line")
-        .and_then(|s| s.parse().ok());
-    let end_line = chunk.metadata.get("end_line").and_then(|s| s.parse().ok());
-    let chunk_type = chunk
-        .metadata
-        .get("chunk_type")
-        .and_then(|s| ChunkType::from_str(s));
+);
+
+/// Build a `ChunkRecord` for one chunk + its content-key point id. Used by the
+/// no-embed cases (1/2), where there is no `embed_chunks` call to produce
+/// records; semantic metadata is read from the chunk's `metadata` map.
+fn chunk_record(
+    point_id: &str,
+    chunk_index: usize,
+    chunk: &crate::core_types::TextChunk,
+) -> ChunkRecord {
+    ChunkRecord {
+        point_id: point_id.to_string(),
+        chunk_index: chunk_index as i32,
+        content_hash: compute_content_hash(&chunk.content),
+        chunk_type: chunk
+            .metadata
+            .get("chunk_type")
+            .and_then(|s| ChunkType::from_str(s)),
+        symbol_name: chunk.metadata.get("symbol_name").cloned(),
+        start_line: chunk
+            .metadata
+            .get("start_line")
+            .and_then(|s| s.parse().ok()),
+        end_line: chunk.metadata.get("end_line").and_then(|s| s.parse().ok()),
+    }
+}
+
+/// The `insert_qdrant_chunks` tuple for a `ChunkRecord`.
+fn record_tuple(r: &ChunkRecord) -> ChunkTuple {
     (
-        point_id.to_string(),
-        chunk_index as i32,
-        compute_content_hash(&chunk.content),
-        chunk_type,
-        symbol_name,
-        start_line,
-        end_line,
+        r.point_id.clone(),
+        r.chunk_index,
+        r.content_hash.clone(),
+        r.chunk_type,
+        r.symbol_name.clone(),
+        r.start_line,
+        r.end_line,
     )
+}
+
+/// Re-key embedded points + records to the content-key scheme (Option C). The
+/// production `embed_chunks` keys points by `base_point`; the branch-lineage
+/// index keys them by `content_key`. Rewrites each point id + lineage payload
+/// and each record's `point_id` (by position), returning the
+/// `insert_qdrant_chunks` tuples. Shared by Case 3 and resurrection.
+fn rekey_to_content_key(
+    content_key: &str,
+    item: &IngestItem<'_>,
+    points: &mut [DocumentPoint],
+    records: &mut [ChunkRecord],
+) -> Vec<ChunkTuple> {
+    let mut tuples = Vec::with_capacity(points.len());
+    for (i, (p, r)) in points.iter_mut().zip(records.iter_mut()).enumerate() {
+        let new_id = real_point_id_for(content_key, i as u32).to_string();
+        p.id = new_id.clone();
+        apply_lineage_payload(&mut p.payload, item, content_key, false, None);
+        r.point_id = new_id;
+        tuples.push(record_tuple(r));
+    }
+    tuples
+}
+
+/// Run keyword extraction over freshly-embedded points — injecting the
+/// ranking-aid payload keys (`keywords`/`concept_tags`/`structural_tags`/
+/// `keyword_baskets`) into the payloads BEFORE the tagger's single upsert so
+/// they reach Qdrant — and persist the extraction to state.db. F6e Issue-1: the
+/// embed path ran this before its upsert; the tagger now owns the upsert, so it
+/// runs here. Real-point embed cases only (Case 3 + resurrection).
+async fn enrich_and_persist_keywords(
+    ctx: &ProcessingContext,
+    item: &IngestItem<'_>,
+    embed: &EmbedInputs<'_>,
+    points: &mut [DocumentPoint],
+) {
+    if let Some(extraction) = run_keyword_extraction(
+        ctx,
+        embed.queue_item,
+        embed.file_path,
+        embed.document_content,
+        points,
+    )
+    .await
+    {
+        persist_extraction(
+            &ctx.pool,
+            embed.file_document_id,
+            item.tenant_id,
+            item.collection,
+            &extraction,
+        )
+        .await;
+    }
 }
 
 /// Upsert the search.db `file_metadata` row (v8, with `state`).
@@ -614,11 +693,36 @@ async fn touch_row(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
 }
 
 /// Clear the crash-safety flag after the real-point cases complete (FP
-/// order-by-recoverability: cleared LAST, arch §4.2).
+/// order-by-recoverability: cleared LAST, arch §4.2). Used by Case 2 (copy),
+/// which performs no embed and so has no enrichment status to record.
 async fn clear_reconcile(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL WHERE file_id = ?1",
     )
+    .bind(file_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Clear the crash-safety flag AND record the embed's real LSP / tree-sitter
+/// enrichment status (Case 3 + resurrection). The enrichment-upgrade reconciler
+/// selects files by `lsp_status`/`treesitter_status IN ('none','failed',…)`
+/// (`reconcile.rs`); leaving these at the row's `'none'` default would re-flag
+/// every freshly-embedded file for re-enrichment. Cleared/set LAST (FP
+/// order-by-recoverability, arch §4.2).
+async fn finalize_embed_row(
+    pool: &SqlitePool,
+    file_id: i64,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, \
+         lsp_status = ?1, treesitter_status = ?2 WHERE file_id = ?3",
+    )
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
     .bind(file_id)
     .execute(pool)
     .await?;
@@ -722,9 +826,10 @@ mod tests {
         assert!(!payload.contains_key("real_point_id"));
     }
 
-    /// chunk_tuple parses semantic metadata into the qdrant_chunks tuple shape.
+    /// chunk_record parses semantic metadata into the ChunkRecord; record_tuple
+    /// projects it into the qdrant_chunks tuple shape.
     #[test]
-    fn chunk_tuple_extracts_metadata() {
+    fn chunk_record_extracts_metadata() {
         let chunk = text_chunk(
             "fn f() {}",
             2,
@@ -734,7 +839,15 @@ mod tests {
                 ("end_line", "12"),
             ],
         );
-        let (pid, idx, hash, _ct, sym, sl, el) = chunk_tuple("pid-2", 2, &chunk);
+        let record = chunk_record("pid-2", 2, &chunk);
+        assert_eq!(record.point_id, "pid-2");
+        assert_eq!(record.chunk_index, 2);
+        assert_eq!(record.content_hash, compute_content_hash("fn f() {}"));
+        assert_eq!(record.symbol_name.as_deref(), Some("f"));
+        assert_eq!(record.start_line, Some(10));
+        assert_eq!(record.end_line, Some(12));
+
+        let (pid, idx, hash, _ct, sym, sl, el) = record_tuple(&record);
         assert_eq!(pid, "pid-2");
         assert_eq!(idx, 2);
         assert_eq!(hash, compute_content_hash("fn f() {}"));

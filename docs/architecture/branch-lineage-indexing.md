@@ -1177,14 +1177,21 @@ This is the identical call the F16 re-key pass makes (`hashing.rs:46` "ONLY prod
 
 1. `parse_document` (L224) → `(document_content, file_document_id, file_hash, base_point)`; `document_content.chunks` is `&[TextChunk]`.
 2. `allocate_file_identity(&ctx.pool, item.tenant_id, detected_branch, relative_path)` → `file_identity_id` (`identity.rs:67`).
-3. Construct `IngestItem`.
-4. `let (outcome, file_id, points) = branch_index::tag_and_store(ctx, &item).await?`
-5. Thread returned `file_id` + `Vec<DocumentPoint>` through concept/narrative/component phases (formerly in `run_middle_phases`).
-6. `finish_pipeline(ctx, item, pool, file_id, …)` continues with FTS5/graph/dependency phases.
+3. Construct `IngestItem` + `EmbedInputs`.
+4. `let tagged = branch_index::tag_and_store(ctx, &item, &embed).await?` → `TagStored { outcome, file_id, points, records }`.
+5. Mark the qdrant destination `Done` (the tagger already wrote the points), then — **only when `tagged.points` is non-empty** (real-point Cases 2/3 + resurrection) — run `run_graph_phases` (concept → narrative → graph reingest) on the returned `points`/`records`.
+6. `finish_pipeline(ctx, item, pool, tagged.file_id, …)` continues with FTS5/dependency phases.
 
 **Parse-cost tradeoff (accepted):** Cases 1/2 pay parse cost (~5–20 ms) before short-circuiting; they still skip embed (~100–500 ms). Goal: no-re-embed, not no-re-parse.
 
-**dedup.rs retirement:** `dedup.rs` and `try_dedup` (`:30`) are **deleted**; the `ingest.rs:92` early-exit gate is removed.
+**dedup.rs + store_track.rs retirement:** `dedup.rs`/`try_dedup` and `store_track.rs`/`upsert_and_track` are **deleted**, along with both Add-op dedup gates (`ingest.rs` + dispatch `mod.rs`) and `run_middle_phases`/`upsert_and_mark_done`. The tagger now owns the full embed+write path.
+
+#### F6e implementation notes (2026-06-21)
+
+- **Per-point enrichment runs INSIDE the tagger, before its single upsert** (the tagger owns the point write, P9): tier-2 tagging, **keyword/ranking-aid injection + `keyword_persist`** (`keywords`/`concept_tags`/`structural_tags`/`keyword_baskets` — F6e Issue-1, else they would never reach Qdrant), and component injection. `run_graph_phases` (concept/narrative/graph-DB writes) runs AFTER, reading the returned points/records — it mutates only the graph DB, never the Qdrant points. Case 2 (copy) gets component-only (no embed → no tier2/keyword, matching the retired dedup's add-nothing behavior).
+- **Enrichment status fidelity:** Case 3 + resurrection record the embed's real `lsp_status`/`treesitter_status` via `finalize_embed_row` (not the `'none'` default), so the enrichment-upgrade reconciler (`reconcile.rs`, which selects on those columns) does not re-flag every freshly-embedded file.
+- **Add-path changed-content Replace is DEFERRED** (issue #171): a changed file arriving as an **Add** op (rescan/reembed/startup — not a watcher modify, which routes through the Update preamble) leaves the old generation live (two live rows, orphaned points). Correct Replace is content_key-reference-counted + virtual-share-aware + entangled with the §5.2 read resolver; designed alongside the additive-crash reconciler. `gc_superseded_points` recoverable from `store_track.rs` @ `9d00bf7e5`.
+- **Graph-side lineage visibility for virtual shares is DEFERRED** to the graph component (issue #172): Case 1 produces no points → no `branch=B` graph edges; recovered later by a graph-side lineage resolver analogous to §5.2.
 
 #### `insert_tracked_file_v48` — new v48-compatible insert
 

@@ -12,14 +12,14 @@ use futures::future::FutureExt;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
+use crate::branch_index;
 use crate::context::ProcessingContext;
+use crate::file_classification::{get_extension_for_storage, is_test_file};
 use crate::processing_timings::{self, PhaseTiming};
 use crate::tagging::aggregate_document_embedding;
 use crate::tracked_files_schema;
-use crate::unified_queue_processor::UnifiedProcessorResult;
-use crate::unified_queue_schema::{
-    DestinationStatus, FilePayload, QueueOperation, UnifiedQueueItem,
-};
+use crate::unified_queue_processor::{UnifiedProcessorError, UnifiedProcessorResult};
+use crate::unified_queue_schema::{DestinationStatus, FilePayload, UnifiedQueueItem};
 
 use super::chunk_embed;
 use super::component;
@@ -27,11 +27,8 @@ use super::dependency_ingest;
 use super::fts5_index;
 use super::grammar;
 use super::graph_ingest;
-use super::keyword_extract;
-use super::keyword_persist;
 use super::narrative_phase;
 use super::parse::parse_document;
-use super::store_track;
 
 /// Ingest file content: embedding, Qdrant upsert, tracked_files, FTS5.
 ///
@@ -83,27 +80,10 @@ pub(crate) async fn ingest_file_content(
         .await;
     }
 
-    // === CONTENT-HASH DEDUP CHECK ===
-    // If identical content exists at same path for another branch, skip
-    // embedding. Forced re-ingests (needs_reconcile repairs, #110) bypass
-    // dedup: its branch-already-present early return assumes stored state is
-    // intact, which is exactly what the repair is rebuilding.
-    if !super::force_reingest(item) {
-        if let Some(()) = super::dedup::try_dedup(
-            ctx,
-            item,
-            pool,
-            file_path,
-            watch_folder_id,
-            relative_path,
-            abs_file_path,
-            &detected_branch,
-        )
-        .await?
-        {
-            return Ok(());
-        }
-    }
+    // Content-hash dedup is no longer a pre-pipeline gate: the branch-tagging
+    // chokepoint (`branch_index::tag_and_store`, P9) subsumes it — Case 1
+    // (content_key hit) writes a virtual view, Case 2 (byte-identical locator
+    // hit) copies the vector. Every add flows through the tagger now.
 
     // Mark qdrant status as in_progress
     let _ = ctx
@@ -233,50 +213,105 @@ async fn run_ingest_pipeline(
     )
     .await?;
 
-    let (points, chunk_records, lsp_status, treesitter_status) = run_middle_phases(
-        ctx,
-        item,
-        pool,
-        file_path,
-        &document_content,
-        &file_document_id,
-        watch_folder_id,
-        base_path,
-        relative_path,
-        &base_point,
-        &file_hash,
-        payload.file_type.as_deref(),
-        &mut timings,
+    // === BRANCH-TAGGING CHOKEPOINT (P9, arch §5.1) ===
+    // Mint/inherit this (branch, path) lineage's file identity, then route the
+    // write through the single tagger (the three-case dedup ladder). The tagger
+    // OWNS the Qdrant point write + state.db/search.db rows + the per-point
+    // enrichment (tier2, keyword ranking-aids, component) for the embed path.
+    let file_identity = tracked_files_schema::allocate_file_identity(
+        &ctx.pool,
+        &item.tenant_id,
         detected_branch,
-        detected_language,
+        relative_path,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        UnifiedProcessorError::QueueOperation(format!("file identity allocation failed: {e}"))
+    })?;
 
-    let file_id = upsert_and_mark_done(
-        ctx,
-        item,
-        pool,
-        points,
-        &chunk_records,
+    let file_mtime = tracked_files_schema::get_file_mtime(file_path).unwrap_or_default();
+    let extension = get_extension_for_storage(file_path);
+
+    let ingest_item = branch_index::IngestItem {
         watch_folder_id,
+        tenant_id: &item.tenant_id,
+        branch: detected_branch,
+        collection: &item.collection,
         relative_path,
-        &base_point,
-        &file_hash,
+        abs_file_path,
+        file_identity_id: file_identity.id(),
+        file_hash: &file_hash,
+        chunks: &document_content.chunks,
+        file_mtime: &file_mtime,
+        file_type: payload.file_type.as_deref(),
+        language: detected_language,
+        is_test: is_test_file(file_path),
+        extension: extension.as_deref(),
+        // The pre-F6e file path stored NULL here (component tags the Qdrant
+        // points via inject_component, not the tracked_files row); preserved.
+        component: None,
+        base_point: Some(base_point.as_str()),
+        extra_payload: std::collections::HashMap::new(),
+    };
+    let embed_inputs = branch_index::EmbedInputs {
+        queue_item: item,
+        document_content: &document_content,
         file_path,
-        &document_content,
-        lsp_status,
-        treesitter_status,
-        payload,
-        &mut timings,
-        detected_branch,
-    )
-    .await?;
+        file_document_id: &file_document_id,
+        base_path,
+    };
+
+    let t_tag = Instant::now();
+    let tagged = branch_index::tag_and_store(ctx, &ingest_item, &embed_inputs)
+        .await
+        .map_err(|e| {
+            UnifiedProcessorError::QueueOperation(format!("branch tagging failed: {e}"))
+        })?;
+    timings.push(PhaseTiming {
+        phase: "tag_and_store",
+        duration_ms: t_tag.elapsed().as_millis() as u64,
+    });
+
+    // The tagger has completed the Qdrant write (or determined none was needed):
+    // mark the destination done (preserves the bookkeeping upsert_and_mark_done did).
+    let _ = ctx
+        .queue_manager
+        .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
+        .await;
+
+    debug!(
+        "branch tagger: {:?} file_id={} ({} points) for {}",
+        tagged.outcome,
+        tagged.file_id,
+        tagged.points.len(),
+        relative_path
+    );
+
+    // Concept/narrative/graph phases run only for real-point outcomes (Cases
+    // 2/3 + resurrection). Virtual/move/idempotent produce no points → no graph
+    // work for this branch; graph-side lineage visibility for virtual shares is
+    // the graph component's concern (deferred — see arch §5.2 / tracking issue).
+    if !tagged.points.is_empty() {
+        run_graph_phases(
+            ctx,
+            item,
+            file_path,
+            &document_content,
+            relative_path,
+            &tagged.points,
+            &tagged.records,
+            &mut timings,
+            detected_branch,
+            detected_language,
+        )
+        .await;
+    }
 
     finish_pipeline(
         ctx,
         item,
         pool,
-        file_id,
+        tagged.file_id,
         payload,
         file_path,
         abs_file_path,
@@ -344,154 +379,6 @@ async fn finish_pipeline(
         item.queue_id,
         payload.file_path.as_str()
     );
-}
-
-/// Phases 2-5: embed chunks, Tier 2 tagging, extract keywords/graph, inject component.
-///
-/// Returns `(points, chunk_records, lsp_status, treesitter_status)`.
-#[allow(clippy::too_many_arguments)]
-async fn run_middle_phases(
-    ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    pool: &SqlitePool,
-    file_path: &Path,
-    document_content: &crate::DocumentContent,
-    file_document_id: &str,
-    watch_folder_id: &str,
-    base_path: &str,
-    relative_path: &str,
-    base_point: &str,
-    file_hash: &str,
-    file_type: Option<&str>,
-    timings: &mut Vec<PhaseTiming>,
-    detected_branch: &str,
-    detected_language: Option<&'static str>,
-) -> UnifiedProcessorResult<(
-    Vec<crate::storage::DocumentPoint>,
-    Vec<chunk_embed::ChunkRecord>,
-    crate::tracked_files_schema::ProcessingStatus,
-    crate::tracked_files_schema::ProcessingStatus,
-)> {
-    // Phase 2: embed chunks
-    let t0 = Instant::now();
-    let embed_result = chunk_embed::embed_chunks(
-        ctx,
-        item,
-        document_content,
-        file_path,
-        file_document_id,
-        relative_path,
-        base_point,
-        file_hash,
-        file_type,
-        detected_branch,
-    )
-    .await?;
-    timings.push(PhaseTiming {
-        phase: "embed",
-        duration_ms: t0.elapsed().as_millis() as u64,
-    });
-
-    let mut points = embed_result.points;
-    let chunk_records = embed_result.chunk_records;
-    let lsp_status = embed_result.lsp_status;
-    let treesitter_status = embed_result.treesitter_status;
-
-    // Phase 2b: Tier 2 taxonomy tagging (after embedding, before keyword extraction)
-    run_tier2_tagging(ctx, &mut points, timings).await;
-
-    // Phase 2c: build symbol-granular IMPLEMENTS_CONCEPT nodes/edges. These are
-    // NOT written here; they are merged into the Phase 4 graph `reingest_file`
-    // transaction so the single delete-then-insert covers code + concept edges
-    // (using relative_path as source_file → cleaned up on re-ingestion).
-    let (concept_nodes, concept_edges) = match &ctx.tier2_tagger {
-        Some(tagger) => build_implements_concept_edges(
-            tagger,
-            &ctx.concept_config,
-            &item.tenant_id,
-            relative_path,
-            detected_branch,
-            &points,
-            &chunk_records,
-        ),
-        None => (Vec::new(), Vec::new()),
-    };
-
-    // Phase 4b: narrative extraction. Failure-isolated — any error yields an
-    // empty result and a warning, never aborting ingestion (AC-A9). Its output
-    // is threaded into the SAME graph reingest transaction as the code and
-    // concept layers (a separate write would delete those edges).
-    // Library-collection files emit LibrarySection (not DocumentSection) nodes,
-    // scoped by library name (== tenant_id for the libraries collection).
-    let library_name = if item.collection == wqm_common::constants::COLLECTION_LIBRARIES {
-        Some(item.tenant_id.as_str())
-    } else {
-        None
-    };
-    let t_narr = Instant::now();
-    let narrative_result = match AssertUnwindSafe(narrative_phase::run(
-        ctx,
-        &item.tenant_id,
-        file_path,
-        relative_path,
-        &document_content.raw_text,
-        detected_language,
-        detected_branch,
-        library_name,
-        &points,
-        &chunk_records,
-    ))
-    .catch_unwind()
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            warn!(
-                "narrative_extraction_failed: panic during narrative extraction for {} (tenant {}); ingestion continues",
-                relative_path, item.tenant_id
-            );
-            crate::narrative::NarrativeExtractionResult::default()
-        }
-    };
-    timings.push(PhaseTiming {
-        phase: "narrative",
-        duration_ms: t_narr.elapsed().as_millis() as u64,
-    });
-    let (narrative_nodes, narrative_edges) = (narrative_result.nodes, narrative_result.edges);
-
-    // Phases 3-4: keyword extraction + graph edges (concept + narrative
-    // nodes/edges merged into the single graph reingest transaction).
-    run_keyword_and_graph_phases(
-        ctx,
-        item,
-        pool,
-        file_path,
-        document_content,
-        file_document_id,
-        relative_path,
-        &mut points,
-        timings,
-        detected_branch,
-        &chunk_records,
-        concept_nodes,
-        concept_edges,
-        narrative_nodes,
-        narrative_edges,
-    )
-    .await;
-
-    // Phase 5: component detection + injection
-    component::inject_component(
-        ctx,
-        pool,
-        watch_folder_id,
-        base_path,
-        relative_path,
-        &mut points,
-    )
-    .await;
-
-    Ok((points, chunk_records, lsp_status, treesitter_status))
 }
 
 /// Tier 2 taxonomy-based tagging: compute aggregate embedding from chunk
@@ -726,49 +613,82 @@ fn is_narrative_file(path: &Path) -> bool {
         })
 }
 
-/// Run keyword extraction (phase 3) and graph edge ingestion (phase 4).
+/// Concept + narrative extraction and graph-edge ingestion for the real-point
+/// cases (Cases 2/3 + resurrection). Runs AFTER the tagger's upsert — the points
+/// already carry tier2 + keyword + component enrichment — so these phases only
+/// READ the points/records and write the graph DB (no Qdrant point mutation).
+/// Keyword extraction + persistence now live inside the tagger (F6e Issue-1), so
+/// this is graph-only; empty-point outcomes skip it entirely.
 #[allow(clippy::too_many_arguments)]
-async fn run_keyword_and_graph_phases(
+async fn run_graph_phases(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
-    pool: &SqlitePool,
     file_path: &Path,
     document_content: &crate::DocumentContent,
-    file_document_id: &str,
     relative_path: &str,
-    points: &mut [crate::storage::DocumentPoint],
+    points: &[crate::storage::DocumentPoint],
+    chunk_records: &[chunk_embed::ChunkRecord],
     timings: &mut Vec<PhaseTiming>,
     detected_branch: &str,
-    chunk_records: &[chunk_embed::ChunkRecord],
-    concept_nodes: Vec<crate::graph::GraphNode>,
-    concept_edges: Vec<crate::graph::GraphEdge>,
-    narrative_nodes: Vec<crate::graph::GraphNode>,
-    narrative_edges: Vec<crate::graph::GraphEdge>,
+    detected_language: Option<&'static str>,
 ) {
-    if matches!(
-        item.op,
-        QueueOperation::Add | QueueOperation::Update | QueueOperation::Uplift
-    ) {
-        let t0 = Instant::now();
-        let extraction =
-            keyword_extract::run_keyword_extraction(ctx, item, file_path, document_content, points)
-                .await;
-        timings.push(PhaseTiming {
-            phase: "extract",
-            duration_ms: t0.elapsed().as_millis() as u64,
-        });
-        if let Some(ref extraction) = extraction {
-            keyword_persist::persist_extraction(
-                pool,
-                file_document_id,
-                &item.tenant_id,
-                &item.collection,
-                extraction,
-            )
-            .await;
-        }
-    }
+    // Symbol-granular IMPLEMENTS_CONCEPT nodes/edges — merged into the graph
+    // reingest transaction below (a single delete-then-insert covers code +
+    // concept edges, cleaned up on re-ingestion).
+    let (concept_nodes, concept_edges) = match &ctx.tier2_tagger {
+        Some(tagger) => build_implements_concept_edges(
+            tagger,
+            &ctx.concept_config,
+            &item.tenant_id,
+            relative_path,
+            detected_branch,
+            points,
+            chunk_records,
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
 
+    // Narrative extraction. Failure-isolated — a panic yields an empty result and
+    // a warning, never aborting ingestion (AC-A9). Merged into the SAME graph
+    // reingest transaction as the code + concept layers. Library-collection files
+    // emit LibrarySection nodes scoped by library name (== tenant for libraries).
+    let library_name = if item.collection == wqm_common::constants::COLLECTION_LIBRARIES {
+        Some(item.tenant_id.as_str())
+    } else {
+        None
+    };
+    let t_narr = Instant::now();
+    let narrative_result = match AssertUnwindSafe(narrative_phase::run(
+        ctx,
+        &item.tenant_id,
+        file_path,
+        relative_path,
+        &document_content.raw_text,
+        detected_language,
+        detected_branch,
+        library_name,
+        points,
+        chunk_records,
+    ))
+    .catch_unwind()
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            warn!(
+                "narrative_extraction_failed: panic during narrative extraction for {} (tenant {}); ingestion continues",
+                relative_path, item.tenant_id
+            );
+            crate::narrative::NarrativeExtractionResult::default()
+        }
+    };
+    timings.push(PhaseTiming {
+        phase: "narrative",
+        duration_ms: t_narr.elapsed().as_millis() as u64,
+    });
+    let (narrative_nodes, narrative_edges) = (narrative_result.nodes, narrative_result.edges);
+
+    // Graph edges: code + concept + narrative in one reingest transaction.
     let t0 = Instant::now();
     graph_ingest::ingest_graph_edges(
         ctx,
@@ -787,59 +707,6 @@ async fn run_keyword_and_graph_phases(
         phase: "graph",
         duration_ms: t0.elapsed().as_millis() as u64,
     });
-}
-
-/// Upsert into Qdrant + tracked_files, then mark qdrant destination done (phase 6).
-#[allow(clippy::too_many_arguments)]
-async fn upsert_and_mark_done(
-    ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    pool: &SqlitePool,
-    points: Vec<crate::storage::DocumentPoint>,
-    chunk_records: &[chunk_embed::ChunkRecord],
-    watch_folder_id: &str,
-    relative_path: &str,
-    base_point: &str,
-    file_hash: &str,
-    file_path: &Path,
-    document_content: &crate::DocumentContent,
-    lsp_status: crate::tracked_files_schema::ProcessingStatus,
-    treesitter_status: crate::tracked_files_schema::ProcessingStatus,
-    payload: &FilePayload,
-    timings: &mut Vec<PhaseTiming>,
-    detected_branch: &str,
-) -> UnifiedProcessorResult<i64> {
-    let t0 = Instant::now();
-    let file_id = store_track::upsert_and_track(
-        ctx,
-        item,
-        pool,
-        points,
-        chunk_records,
-        watch_folder_id,
-        relative_path,
-        base_point,
-        file_hash,
-        file_path,
-        document_content,
-        lsp_status,
-        treesitter_status,
-        payload.file_type.as_deref(),
-        None,
-        detected_branch,
-    )
-    .await?;
-    timings.push(PhaseTiming {
-        phase: "upsert",
-        duration_ms: t0.elapsed().as_millis() as u64,
-    });
-
-    let _ = ctx
-        .queue_manager
-        .update_destination_status(&item.queue_id, "qdrant", DestinationStatus::Done)
-        .await;
-
-    Ok(file_id)
 }
 
 /// Update FTS5 search index for a file (phase 7).

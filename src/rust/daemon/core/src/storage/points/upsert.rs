@@ -164,7 +164,7 @@ impl StorageClient {
 ///
 /// **F-032 contract:** when `failed > 0`, return `Err(StorageError::Batch)`
 /// even when some chunks succeeded. Returning `Ok(stats)` on partial failure
-/// caused every caller (`file/ingest.rs`, `store_track.rs`, `text.rs`,
+/// caused every caller (`file/ingest.rs`, `branch_index/tagger.rs`, `text.rs`,
 /// `url.rs`) to treat dropped points as success and skip retry metadata.
 pub(crate) fn finalize_batch_result(
     total_points: usize,

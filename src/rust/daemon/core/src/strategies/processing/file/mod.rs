@@ -6,15 +6,18 @@
 //!
 //! Split into focused submodules:
 //! - `chunk_embed` — per-chunk embedding, payload construction, LSP enrichment
-//! - `dedup` — content-hash deduplication for cross-branch file ingestion
 //! - `delete` — delete operation, missing-file cleanup, Qdrant failure handling
 //! - `dependency_ingest` — dependency manifest parsing and storage for grouping
 //! - `fts5_index` — FTS5 code search index updates
-//! - `keyword_extract` — keyword/tag extraction pipeline
+//! - `keyword_extract` — keyword/tag extraction pipeline (run inside the tagger)
+//! - `keyword_persist` — keyword/tag persistence to state.db (run inside the tagger)
 //! - `lsp_payload` — LSP enrichment payload serialization
 //! - `parse` — document parse + identifier phase (extract.document span)
-//! - `store_track` — Qdrant upsert + tracked_files/qdrant_chunks transaction
 //! - `update_preamble` — hash comparison + reference-counted old point deletion
+//!
+//! Content-hash dedup and the Qdrant upsert + tracked_files/qdrant_chunks writes
+//! moved into the branch-tagging chokepoint (`crate::branch_index`, F6) — the
+//! former `dedup` and `store_track` modules were retired with it.
 //! - `zero_byte` — graceful handling of empty (0-byte) files
 
 // N11: promoted to pub(crate) so branch_index/tagger.rs (a crate-level sibling
@@ -23,7 +26,6 @@
 // what is visible inside vs. outside the crate.
 pub(crate) mod chunk_embed;
 pub(crate) mod component;
-mod dedup;
 mod delete;
 mod dependency_ingest;
 mod discovery_trigger;
@@ -31,12 +33,11 @@ mod fts5_index;
 mod grammar;
 mod graph_ingest;
 pub(crate) mod ingest;
-mod keyword_extract;
-mod keyword_persist;
+pub(crate) mod keyword_extract;
+pub(crate) mod keyword_persist;
 pub(crate) mod lsp_payload;
 mod narrative_phase;
 mod parse;
-mod store_track;
 mod update_preamble;
 mod zero_byte;
 
@@ -282,30 +283,10 @@ impl FileStrategy {
             .await?;
         }
 
-        // Content-hash dedup: if identical content already exists under a
-        // different branch, skip embedding and just add this branch.
-        // Only applies to Add operations (Update already handles hash comparison
-        // in prepare_update, and Uplift intentionally re-processes). Forced
-        // re-ingests (needs_reconcile repairs, #110) bypass dedup: its
-        // branch-already-present early return assumes stored state is intact,
-        // which is exactly what the repair is rebuilding.
-        if item.op == QueueOperation::Add && !force_reingest(item) {
-            if let Some(()) = dedup::try_dedup(
-                ctx,
-                item,
-                pool,
-                file_path,
-                &watch_folder_id,
-                relative_path,
-                &abs_file_path,
-                &item.branch,
-            )
-            .await?
-            {
-                return Ok(());
-            }
-        }
-
+        // Content-hash dedup is no longer a dispatch-level gate: the
+        // branch-tagging chokepoint (`branch_index::tag_and_store`, P9) subsumes
+        // it inside `ingest_file_content` — Case 1 (content_key hit) writes a
+        // virtual view, Case 2 (byte-identical locator hit) copies the vector.
         ingest::ingest_file_content(
             ctx,
             item,

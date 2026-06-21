@@ -440,54 +440,8 @@ pub(super) async fn cleanup_missing_file(
     Ok(())
 }
 
-/// Handle Qdrant insert failure by cleaning up stale SQLite state.
-pub(super) async fn handle_qdrant_failure(
-    _ctx: &ProcessingContext,
-    item: &UnifiedQueueItem,
-    pool: &SqlitePool,
-    watch_folder_id: &str,
-    relative_path: &str,
-    qdrant_err: &str,
-) {
-    // Old Qdrant points were deleted but new ones failed to insert.
-    // Clean up stale qdrant_chunks so SQLite doesn't reference non-existent points.
-    if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
-        pool,
-        watch_folder_id,
-        relative_path,
-        Some(item.branch.as_str()),
-    )
-    .await
-    {
-        let cleanup_result: Result<(), String> = async {
-            let mut tx = pool.begin().await.map_err(|e| format!("begin tx: {}", e))?;
-            tracked_files_schema::delete_qdrant_chunks_tx(&mut tx, existing.file_id)
-                .await
-                .map_err(|e| format!("delete chunks: {}", e))?;
-            tx.commit().await.map_err(|e| format!("commit: {}", e))?;
-            Ok(())
-        }
-        .await;
-
-        match cleanup_result {
-            Ok(()) => {
-                warn!(
-                    "Qdrant insert failed for {}; cleaned up stale SQLite chunks. Error: {}",
-                    relative_path, qdrant_err
-                );
-            }
-            Err(cleanup_err) => {
-                warn!(
-                    "Qdrant insert failed AND chunk cleanup failed for {}: insert={}, cleanup={}",
-                    relative_path, qdrant_err, cleanup_err
-                );
-                let _ = tracked_files_schema::mark_needs_reconcile(
-                    pool,
-                    existing.file_id,
-                    &format!("qdrant_insert_failed_cleanup_failed: {}", cleanup_err),
-                )
-                .await;
-            }
-        }
-    }
-}
+// `handle_qdrant_failure` (post-upsert SQLite cleanup) was retired with
+// `store_track`: the branch-tagging chokepoint inserts the tracked_files row
+// with `needs_reconcile = 1` BEFORE the Qdrant upsert, so an insert failure
+// leaves the row flagged for the additive-crash reconciler to repair (FP
+// order-by-recoverability, arch §4.2) — no inline compensating delete needed.

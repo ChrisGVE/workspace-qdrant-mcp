@@ -17,7 +17,7 @@ use crate::unified_queue_schema::UnifiedQueueItem;
 /// Run keyword/tag extraction pipeline and inject results into point payloads.
 ///
 /// Returns the `ExtractionResult` for SQLite persistence by the caller.
-pub(super) async fn run_keyword_extraction(
+pub(crate) async fn run_keyword_extraction(
     ctx: &ProcessingContext,
     item: &UnifiedQueueItem,
     file_path: &Path,

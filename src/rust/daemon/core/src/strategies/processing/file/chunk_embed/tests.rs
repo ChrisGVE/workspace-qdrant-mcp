@@ -401,7 +401,7 @@ fn test_chunk_record_optional_fields_none() {
 
 #[test]
 fn test_chunk_record_to_tuple_conversion() {
-    // Mirrors the conversion in store_track::upsert_and_track
+    // Mirrors the ChunkRecord → qdrant_chunks tuple conversion (branch_index::tagger)
     let records = vec![
         ChunkRecord {
             point_id: "p1".into(),

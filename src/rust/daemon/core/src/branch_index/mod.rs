@@ -19,15 +19,14 @@
 
 mod tagger;
 
-// Wired into run_ingest_pipeline in F6e (task 22.5); the re-export is the
-// crate-facing entry point until then.
-#[allow(unused_imports)]
 pub(crate) use tagger::tag_and_store;
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::core_types::{DocumentContent, TextChunk};
+use crate::storage::DocumentPoint;
+use crate::strategies::processing::file::chunk_embed::ChunkRecord;
 use crate::unified_queue_schema::UnifiedQueueItem;
 
 /// Input to [`tag_and_store`]: the branch-lineage identity + per-file metadata
@@ -37,7 +36,6 @@ use crate::unified_queue_schema::UnifiedQueueItem;
 /// `file_hash` is the whole-file SHA-256 hex re-derived IN-PROCESS by
 /// `parse_document` (SEC-6 — never the queue-supplied value). It is BOTH the
 /// `content_key` third ingredient AND the Case-2 byte-identical locator input.
-#[allow(dead_code)] // wired into run_ingest_pipeline in F6e (task 22.5)
 pub(crate) struct IngestItem<'a> {
     pub watch_folder_id: &'a str,
     /// TEXT in state.db (NOT i64).
@@ -72,7 +70,6 @@ pub(crate) struct IngestItem<'a> {
 /// Kept distinct from [`IngestItem`] (the branch-lineage identity bundle) so the
 /// identity contract stays clean while Option C still reuses the one production
 /// embed path. All in-scope at the post-parse seam in `run_ingest_pipeline`.
-#[allow(dead_code)] // wired into run_ingest_pipeline in F6e (task 22.5)
 pub(crate) struct EmbedInputs<'a> {
     pub queue_item: &'a UnifiedQueueItem,
     pub document_content: &'a DocumentContent,
@@ -83,7 +80,6 @@ pub(crate) struct EmbedInputs<'a> {
 }
 
 /// The outcome of a [`tag_and_store`] call — which ladder arm ran.
-#[allow(dead_code)] // variants constructed by tagger; consumed once F6e wires it
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TagOutcome {
     /// Case 1: a virtual view row + virtual (vectorless) Qdrant point.
@@ -92,14 +88,26 @@ pub(crate) enum TagOutcome {
     CopiedVector,
     /// Case 3: embedded + upserted as a new real point.
     EmbeddedNew,
-    /// A delete tombstone was written.
+    /// A delete tombstone was written. Constructed by the per-file delete path
+    /// (task 23/24), which is not yet wired from this ADD chokepoint.
+    #[allow(dead_code)]
     Tombstoned,
     /// A pure rename — metadata rewritten, no re-embed.
     MovedMetadataOnly,
 }
 
+/// What [`tag_and_store`] produced. `points`/`records` are non-empty only for
+/// the real-point cases (2/3 + resurrection) that the downstream
+/// concept/narrative/graph phases consume; virtual / move / idempotent outcomes
+/// carry empty vecs (no re-embed → no graph work for this branch).
+pub(crate) struct TagStored {
+    pub outcome: TagOutcome,
+    pub file_id: i64,
+    pub points: Vec<DocumentPoint>,
+    pub records: Vec<ChunkRecord>,
+}
+
 /// Errors the branch tagger can return.
-#[allow(dead_code)] // surfaced once F6e wires tag_and_store into the pipeline
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TaggerError {
     #[error("state.db error: {0}")]
@@ -108,6 +116,4 @@ pub(crate) enum TaggerError {
     Storage(#[from] crate::storage::StorageError),
     #[error("embedding error: {0}")]
     Embed(String),
-    #[error("{0}")]
-    Other(String),
 }

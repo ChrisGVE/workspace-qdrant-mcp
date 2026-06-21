@@ -16,7 +16,7 @@ use crate::keyword_extraction::pipeline::ExtractionResult;
 /// Writes keywords, tags (concept + structural), and keyword baskets for a
 /// single document. Operates within a transaction for atomicity. Old records
 /// for the same `doc_id` are deleted first (replace-on-re-index).
-pub(super) async fn persist_extraction(
+pub(crate) async fn persist_extraction(
     pool: &SqlitePool,
     doc_id: &str,
     tenant_id: &str,
