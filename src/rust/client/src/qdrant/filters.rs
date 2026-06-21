@@ -30,7 +30,17 @@ pub struct FilterParams {
     /// Multiple tenant IDs for group-scope filtering.
     pub group_tenant_ids: Option<Vec<String>>,
     /// Git branch filter (`None` or `"*"` skips the branch condition).
+    ///
+    /// Legacy single-branch path: matched against the v40 `branches` array. When
+    /// [`lineage_chain`](Self::lineage_chain) is set, it takes precedence and
+    /// this scalar `branch` condition is skipped (branch-lineage Replace, D1).
     pub branch: Option<String>,
+    /// Branch-lineage view chain (nearest-first): the set of branches whose
+    /// view points are visible for the effective view (§5.2). When present and
+    /// non-empty, the lineage condition (`branch IN chain`) replaces the legacy
+    /// single-branch filter and tombstone (`state="deleted"`) points are
+    /// excluded. The full nearest-wins resolution lives in the resolver.
+    pub lineage_chain: Option<Vec<String>>,
     /// File extension discriminator.
     pub file_type: Option<String>,
     /// Library name filter (libraries collection only).
@@ -141,7 +151,12 @@ fn build_must_conditions(params: &FilterParams) -> Vec<Condition> {
     if let Some(c) = build_project_condition(params) {
         conditions.push(c);
     }
-    if let Some(c) = build_branch_condition(params) {
+    // Branch-lineage takes precedence: when a lineage chain is set, the
+    // `branch IN chain` set condition replaces the legacy single-branch filter
+    // (D1=Replace, §5.2).
+    if let Some(c) = build_lineage_branch_condition(params.lineage_chain.as_deref()) {
+        conditions.push(c);
+    } else if let Some(c) = build_branch_condition(params) {
         conditions.push(c);
     }
     if let Some(c) = build_file_type_condition(params) {
@@ -167,11 +182,25 @@ fn build_must_conditions(params: &FilterParams) -> Vec<Condition> {
 }
 
 fn build_must_not_conditions(params: &FilterParams) -> Vec<Condition> {
-    // Mirror TS: must_not [deleted=true] applies only to the libraries collection.
-    if params.collection != COLLECTION_LIBRARIES {
-        return vec![];
+    let mut conditions: Vec<Condition> = Vec::new();
+
+    // Branch-lineage: exclude tombstone (deleted) view points so deleted files
+    // stop surfacing on lineage reads (§5.2; coarse filter — the resolver adds
+    // nearest-wins). Applies whenever a lineage chain drives the read.
+    if params
+        .lineage_chain
+        .as_deref()
+        .is_some_and(|c| !c.is_empty())
+    {
+        conditions.push(Condition::matches(field::STATE, "deleted".to_string()));
     }
-    vec![Condition::matches(field::DELETED, true)]
+
+    // Mirror TS: must_not [deleted=true] applies only to the libraries collection.
+    if params.collection == COLLECTION_LIBRARIES {
+        conditions.push(Condition::matches(field::DELETED, true));
+    }
+
+    conditions
 }
 
 // ── Individual condition builders (mirror TS private functions) ───────────────
@@ -204,6 +233,10 @@ fn build_project_condition(params: &FilterParams) -> Option<Condition> {
 }
 
 /// Mirrors `buildBranchCondition` in `search-filters.ts`.
+///
+/// LEGACY single-branch path: matches the v40 `branches` array. Retained for
+/// back-compat during D1=Replace; superseded by
+/// [`build_lineage_branch_condition`] when a lineage chain is present.
 fn build_branch_condition(params: &FilterParams) -> Option<Condition> {
     let branch = params.branch.as_deref()?;
     if branch == "*" {
@@ -211,6 +244,22 @@ fn build_branch_condition(params: &FilterParams) -> Option<Condition> {
     }
     // TS uses FIELD_BRANCHES (the array field) — use `field::BRANCHES` not `field::BRANCH`.
     Some(Condition::matches(field::BRANCHES, branch.to_string()))
+}
+
+/// Build the branch-lineage view condition: `branch IN chain` against the
+/// SINGULAR scalar `field::BRANCH` written by the tagger (NOT the legacy
+/// `field::BRANCHES` array — matching the wrong field makes newly-indexed points
+/// invisible to lineage queries, arch §5.1/§8).
+///
+/// Returns `None` for an absent or empty chain (no lineage condition). A
+/// multi-value `matches` is Qdrant match-any (set membership), the same idiom
+/// [`build_project_condition`] uses for group tenant ids.
+pub fn build_lineage_branch_condition(chain: Option<&[String]>) -> Option<Condition> {
+    let chain = chain?;
+    if chain.is_empty() {
+        return None;
+    }
+    Some(Condition::matches(field::BRANCH, chain.to_vec()))
 }
 
 /// Mirrors `buildFileTypeCondition` in `search-filters.ts`.

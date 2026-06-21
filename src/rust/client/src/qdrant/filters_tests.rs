@@ -398,3 +398,62 @@ fn all_conditions_combined_correct_count() {
     );
     assert_eq!(f.must_not.len(), 0);
 }
+
+// ── branch-lineage (F6f) ───────────────────────────────────────────────────────
+
+#[test]
+fn lineage_chain_none_or_empty_builds_no_condition() {
+    assert!(build_lineage_branch_condition(None).is_none());
+    let empty: Vec<String> = vec![];
+    assert!(build_lineage_branch_condition(Some(&empty)).is_none());
+}
+
+#[test]
+fn lineage_chain_builds_set_condition() {
+    let chain = vec!["feature/x".to_string(), "main".to_string()];
+    assert!(
+        build_lineage_branch_condition(Some(&chain)).is_some(),
+        "a non-empty chain must yield a branch IN chain condition"
+    );
+}
+
+#[test]
+fn lineage_chain_takes_precedence_over_single_branch() {
+    // Both branch and lineage_chain set: lineage wins, single-branch is skipped,
+    // and the tombstone exclusion lands in must_not.
+    let params = FilterParams {
+        collection: COLLECTION_PROJECTS.to_string(),
+        scope: "project".to_string(),
+        project_id: Some("proj".to_string()),
+        branch: Some("main".to_string()),
+        lineage_chain: Some(vec!["feature/x".to_string(), "main".to_string()]),
+        ..Default::default()
+    };
+    let f = build_filter(&params).expect("filter");
+    assert_eq!(
+        f.must.len(),
+        2,
+        "tenant_id + lineage condition (single-branch skipped, not doubled)"
+    );
+    assert_eq!(
+        f.must_not.len(),
+        1,
+        "lineage read excludes tombstone (state=deleted) points"
+    );
+}
+
+#[test]
+fn lineage_chain_in_libraries_excludes_tombstones_and_deleted() {
+    let params = FilterParams {
+        collection: COLLECTION_LIBRARIES.to_string(),
+        scope: "all".to_string(),
+        lineage_chain: Some(vec!["main".to_string()]),
+        ..Default::default()
+    };
+    let f = build_filter(&params).expect("filter");
+    assert_eq!(
+        f.must_not.len(),
+        2,
+        "state=deleted (lineage) + deleted=true (libraries)"
+    );
+}

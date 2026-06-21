@@ -433,6 +433,9 @@ fn search_filter_params<'a>(
         project_id: project_id.map(str::to_string),
         group_tenant_ids: scope_ctx.group_tenant_ids.clone(),
         branch: opts.branch.clone(),
+        // Lineage-chain reads are wired by the view resolver (§5.2, separate
+        // task); the single-branch path leaves it unset.
+        lineage_chain: None,
         file_type: opts.file_type.clone(),
         library_name: if collection == COLLECTION_LIBRARIES {
             opts.library_name.clone()

@@ -109,10 +109,17 @@ pub mod field {
     pub const ROUTING_REASON: &str = "routing_reason";
     /// Instance-aware filtering (base point IDs)
     pub const BASE_POINT: &str = "base_point";
-    /// Git branch filter (legacy scalar — use BRANCHES for new code)
+    /// Git branch filter — the SINGULAR scalar payload key. Under the
+    /// branch-lineage Replace model (D1) this is the field the tagger writes on
+    /// real and virtual points; lineage reads match `branch IN chain` against it.
     pub const BRANCH: &str = "branch";
-    /// Git branches array filter (replaces scalar BRANCH in Qdrant payloads)
+    /// Git branches array filter — the LEGACY v40 array key, retained for
+    /// back-compat until all old points are re-keyed (then retired). New code
+    /// uses the scalar `BRANCH`.
     pub const BRANCHES: &str = "branches";
+    /// Lifecycle state of a branch-lineage view point (`"present"`/`"deleted"`).
+    /// Tombstone (deleted) view points carry `state="deleted"`.
+    pub const STATE: &str = "state";
     /// File extension discriminator
     pub const FILE_TYPE: &str = "file_type";
     /// File path for glob matching

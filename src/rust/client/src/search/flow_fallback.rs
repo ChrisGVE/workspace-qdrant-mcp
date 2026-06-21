@@ -142,6 +142,9 @@ pub(super) fn fallback_filter_params<'a>(
         // not apply group/all tenant filtering (search-qdrant.ts:342).
         group_tenant_ids: None,
         branch: opts.branch.clone(),
+        // Lineage-chain reads are wired by the view resolver (§5.2, separate
+        // task); the daemon-down fallback leaves it unset.
+        lineage_chain: None,
         file_type: opts.file_type.clone(),
         library_name: if collection == COLLECTION_LIBRARIES {
             opts.library_name.clone()
