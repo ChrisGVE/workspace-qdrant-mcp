@@ -72,9 +72,9 @@ garbage-collected — the same cycle git uses for unreachable objects.
 - **chunk_content_hash** — `hex(SHA256(raw_chunk_text))`. The CHUNK-grain content
   digest; the primary dedup input. Path-independent: identical chunk content in
   different files or branches yields the same hash.
-- **content_key** — `hex(SHA256(lp(tenant_id)||lp(chunk_content_hash)||lp("")))`,
+- **content_key** — `hex(SHA256(lp(tenant_id)||lp("code")||lp(chunk_content_hash)||lp("")))`,
   computed by the single canonical producer `wqm_common::hashing::content_key(
-  tenant_id, chunk_content_hash, "")` (`common/src/hashing.rs:48`). Path-independent
+  tenant_id, "code", chunk_content_hash, "")` (`common/src/hashing.rs:48`). Path-independent
   dedup key at chunk grain. Two identical chunks anywhere in the same tenant → same
   `content_key` → same blob row. See §5.4 for the full formula and rationale.
 - **point_id** — `UUIDv5(POINT_NS, lp(content_key)||lp(u32_be(0)))`, produced by
@@ -251,7 +251,7 @@ graph TB
         LockMgr["ContentKeyLockManager<br/>per-content_key async Mutex"]
     end
 
-    subgraph "Per-project SQLite DB  (projects/&lt;tenant_id&gt;/store.db) — 8 tables"
+    subgraph "Per-project SQLite DB  (projects/&lt;tenant_id&gt;/store.db) — 9 tables"
         Files["files table<br/>file-level metadata, 1 row/(branch_id,path)"]
         BlobRefs["blob_refs junction table<br/>(branch_id, file_id, chunk_index, blob_id)<br/>GC referrer count = COUNT(*) WHERE blob_id=?"]
         Blobs["blobs table<br/>1 row per unique CHUNK:<br/>content_key UNIQUE,<br/>dense_vec + sparse_vec + raw_text"]
@@ -342,8 +342,8 @@ to `state.db` from the MCP or CLI; writes route through daemon gRPC.
 
 **Per-project SQLite DB** — One `.db` file per project at
 `projects/<tenant_id>/store.db` (relative to the wqm data directory). Contains
-eight tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`,
-`fts_content`, `fts_branch_membership`. Opened in WAL mode. The single writer is
+nine tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`,
+`fts_content`, `fts_branch_membership`, `store_meta`. Opened in WAL mode. The single writer is
 `memexd` (GP-9); `mcp-server` and `wqm-cli` open it read-only via WAL snapshots.
 `busy_timeout` and `wal_autocheckpoint` are set at connection open time for
 multi-reader + single-writer stability.
@@ -414,7 +414,7 @@ sequenceDiagram
     Ingest->>SQLite: UPSERT concrete row (branch_id, file_id, status…)
 
     loop for each chunk [chunk_index=0..N-1]
-        Ingest->>Ingest: compute chunk_content_hash = hex(SHA256(raw_chunk_text))<br/>compute content_key = content_key(tenant_id, chunk_content_hash, "")<br/>compute point_id = point_id(content_key, 0)<br/>— canonical producers, §5.4 (path-independent, chunk_index NOT in content_key)
+        Ingest->>Ingest: compute chunk_content_hash = hex(SHA256(raw_chunk_text))<br/>compute content_key = content_key(tenant_id, "code", chunk_content_hash, "")<br/>compute point_id = point_id(content_key, 0)<br/>— canonical producers, §5.4 (path-independent, chunk_index NOT in content_key)
         Ingest->>LockMgr: acquire lock(content_key)
         LockMgr-->>Ingest: lock held
 
@@ -571,6 +571,35 @@ after Step 3 (orphan Qdrant points deleted) but before Step 5 (blobs rows delete
 leaves orphan `blobs` rows; §4.7 prunes them on next run. At no point is an
 unreferenced blob GC'd while the SQLite truth still references it.
 
+**Single-file delete variant (`delete_file_from_branch(branch_id, file_id)`):**
+The macro git-diff path (§4.6) and a single-file removal both need to retract ONE
+file from ONE branch without tearing down the whole branch. This is the
+branch-delete ordering above, scoped to a single `(branch_id, file_id)` instead of
+all of `branch_id`, and following the same FP-1 physical-delete order (data
+products first, truth rows last):
+
+1. Pre-select the file's `(blob_id, point_id)` set: `SELECT DISTINCT bf.blob_id,
+   b.point_id FROM blob_refs bf JOIN blobs b ON b.blob_id = bf.blob_id WHERE
+   bf.branch_id = ? AND bf.file_id = ?` (read-only, outside the transaction).
+2. `BEGIN IMMEDIATE`; delete this file's junction + membership + concrete rows on
+   this branch: `DELETE FROM blob_refs WHERE branch_id=? AND file_id=?`,
+   `DELETE FROM concrete WHERE branch_id=? AND file_id=?`, and the matching
+   `fts_branch_membership` rows for any blob that lost its last membership on this
+   branch; `COMMIT`.
+3. For each `blob_id` from step 1, re-test referrer count
+   (`SELECT COUNT(*) FROM blob_refs WHERE blob_id=?`): count 0 → orphan (delete its
+   Qdrant point, then delete the `blobs` row under `BEGIN IMMEDIATE` with the ABA
+   re-verify); count > 0 → still referenced → recompute `branch_id[]` from SQLite
+   and `overwrite_payload` (PUT) under the ContentKeyLock (`compute_membership`, the
+   one producer).
+4. Delete the `files` row for this `(branch_id, file_id)` LAST, only if no
+   `blob_refs` for it remain on this branch (crash-recovery anchor removed last).
+
+A rename (§4.6) is `ingest_file_content(new_path)` FIRST, then
+`delete_file_from_branch(old_path)` — ingest-before-delete so a blob shared between
+the old and new path never transiently drops to refcount 0 and gets GC'd between
+the two steps (AC-F8.6).
+
 ### 4.4 Search — root resolution → pre-filter → SQLite enrich
 
 ```mermaid
@@ -637,7 +666,7 @@ sequenceDiagram
         else FileChangeStatus::Deleted
             Facade->>Facade: delete_file_from_branch (§4.3 single-file variant)
         else FileChangeStatus::Renamed
-            Facade->>Facade: delete_file_from_branch(old_path)<br/>ingest_file_content(new_path)
+            Facade->>Facade: ingest_file_content(new_path)<br/>delete_file_from_branch(old_path)
             Note over Facade: Content unchanged → blob dedup hit → no re-embed.<br/>Only concrete rows and FTS membership update.
         end
     end
@@ -698,6 +727,9 @@ CREATE TABLE projects (
     name          TEXT NOT NULL,
     tenant_id     TEXT NOT NULL UNIQUE,  -- UUID, stable across renames
     db_path       TEXT NOT NULL,          -- path to per-project store.db
+    content_key_version INTEGER NOT NULL DEFAULT 3,  -- per-tenant content_key producer-version
+                                          -- gate (3 = legacy three-slot, 4 = four-slot). Created
+                                          -- by F4 in Phase 1; flipped per-tenant by F13 at cutover.
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
@@ -733,8 +765,9 @@ is identical; identical content → same blobs (shared via dedup), different
 
 ### 5.2 Per-project SQLite DB — store.db schema
 
-**Authoritative table count: 8 tables** (`files`, `blob_refs`, `blobs`,
-`branches`, `concrete`, `xrefs`, `fts_content`, `fts_branch_membership`).
+**Authoritative table count: 9 tables** (`files`, `blob_refs`, `blobs`,
+`branches`, `concrete`, `xrefs`, `fts_content`, `fts_branch_membership`,
+`store_meta`).
 
 **Blob grain:** one `blobs` row = one deduped CHUNK of content. A file with N
 chunks produces N blob rows. The dedup unit is a chunk's raw text content, not a
@@ -799,7 +832,7 @@ CREATE TABLE branches (
 -- producers in wqm_common::hashing::{content_key, point_id}. See §5.4.
 CREATE TABLE blobs (
     blob_id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    content_key          TEXT NOT NULL UNIQUE, -- chunk-grain dedup key: content_key(tenant_id, chunk_content_hash, "")
+    content_key          TEXT NOT NULL UNIQUE, -- chunk-grain dedup key: content_key(tenant_id, "code", chunk_content_hash, "")
     chunk_content_hash   TEXT NOT NULL,         -- hex(SHA256(raw_text)) — the dedup input (path-independent)
     point_id             TEXT NOT NULL UNIQUE,  -- UUIDv5: point_id(content_key, 0); one blob = one point
     tenant_id            TEXT NOT NULL,         -- = owning tenant of this store.db (single-tenant
@@ -932,6 +965,15 @@ CREATE TABLE fts_branch_membership (
     PRIMARY KEY (blob_id, branch_id)
 );
 CREATE INDEX idx_fts_branch ON fts_branch_membership(branch_id, blob_id);
+
+-- Single-row table binding this store.db file to its owning tenant. The
+-- AC-F3.4 blobs BEFORE-INSERT trigger reads store_meta.tenant_id to stamp
+-- blobs.tenant_id, enforcing cross-tenant isolation (no blob may be written
+-- under a tenant other than this store's owner). Populated once at store
+-- creation (F13/registration); never updated.
+CREATE TABLE store_meta (
+    tenant_id  TEXT NOT NULL
+);
 ```
 
 **Connection-open protocol (mandatory for every connection to store.db):**
@@ -1059,19 +1101,20 @@ vector pair).
 
 **FP-2 / GP-5 — canonical producer, one formula everywhere (B2):**
 
-The existing `wqm_common::hashing::content_key(tenant_id, identity, content_hash_hex)`
-at `src/rust/common/src/hashing.rs:48` takes three string slots. For chunk-grain blob
+The canonical `wqm_common::hashing::content_key(tenant_id, collection, identity, content_hash_hex)`
+producer (`src/rust/common/src/hashing.rs:48`, generalized to four slots by F5) takes four
+string slots (`tenant`, `collection`, `identity`, `content_hash`). For chunk-grain blob
 dedup, the call is:
 
 ```
-content_key(tenant_id, chunk_content_hash, "")
+content_key(tenant_id, "code", chunk_content_hash, "")
 ```
 
-That is: `identity` slot = `chunk_content_hash`, `content_hash_hex` slot = `""` (empty).
-This collapses to:
+That is: `collection` slot = `"code"`, `identity` slot = `chunk_content_hash`,
+`content_hash_hex` slot = `""` (empty). This collapses to:
 
 ```
-content_key = hex(SHA256(lp(tenant_id) || lp(chunk_content_hash) || lp("")))
+content_key = hex(SHA256(lp(tenant_id) || lp("code") || lp(chunk_content_hash) || lp("")))
 ```
 
 **Why path-independent:** `file_path_hash` and `chunk_index` are NOT arguments.
@@ -1094,7 +1137,7 @@ via the `chunk_index` column. This is the only arrangement consistent with the
 
 ```
 chunk_content_hash = hex(SHA256(raw_chunk_text))         -- path-independent digest
-content_key        = content_key(tenant_id,
+content_key        = content_key(tenant_id, "code",
                                  chunk_content_hash, "")  -- per §5.4 formula above
 point_id           = point_id(content_key, 0)            -- UUIDv5(POINT_NS,
                                                          --   lp(content_key)||lp(u32_be(0)))
@@ -1813,9 +1856,24 @@ by its own path-walking logic.
 
 ### Inherited nexuses (unchanged)
 
-**Error handling** — `StorageError` (existing, `storage/types.rs`) wraps all
-storage errors. The facade's `Result<_, StorageError>` is the outward-facing error
-type; internals use `?` propagation.
+**Canonical home — F0 relocation into `wqm-common` (D-PRD-1 / DR GP-9):** four
+shared nexuses that physically lived in the daemon-WRITE crate are MOVED DOWN into
+the leaf crate `wqm-common` so the new read crate can reuse them without depending
+on daemon-core. Each is defined ONCE in `wqm-common`; the prior daemon-core
+definition becomes a `pub use` re-export. The four: `StorageError`
+(`wqm-common/src/error.rs`), `SearchResult` (`wqm-common/src/search/types.rs`),
+`FileChange`/`FileChangeStatus` (`wqm-common/src/git/file_change.rs`), and the
+shared **`rrf_merge` ONLY** (`wqm-common/src/search/rrf.rs`, a pure function with no
+daemon deps). **`cross_collection_search` does NOT relocate** — it is a 915-line
+`async fn` over a live `Qdrant` handle (fans over Qdrant collections); moving it
+would pull qdrant-client's async stack into the leaf crate (MF-4). It stays in
+daemon-core. F17 fans over per-project SQLite stores (not Qdrant collections) and
+reuses only `rrf_merge`.
+
+**Error handling** — `StorageError` (now home in `wqm-common/src/error.rs` per F0;
+re-exported from `storage/types.rs`) wraps all storage errors. The facade's
+`Result<_, StorageError>` is the outward-facing error type; internals use `?`
+propagation.
 
 **Configuration** — `wqm_common` config types. The storage crate reads the Qdrant
 endpoint, data directory, and WAL settings from the existing config nexus; it
@@ -1870,7 +1928,7 @@ at `src/rust/storage/` (read crate, `wqm-storage`) and
 `client/`. Config lives in `src/rust/common/src/config/` (a MODULE in `wqm-common`,
 not a separate crate — no "config crate" exists). External line-count anchors
 (verified against live tree): `tracked_files_schema/schema.rs` = 202 lines /
-2 tables (multi-file model required for 8 tables); `storage/search.rs` = 609 lines
+2 tables (multi-file model required for 9 tables); `storage/search.rs` = 609 lines
 (already over limit; split pattern precedent).
 
 **Implementation prerequisite — workspace members:** `src/rust/Cargo.toml`'s
@@ -1912,7 +1970,7 @@ tracing       = { workspace = true }          # in [workspace.dependencies]
 uuid          = { workspace = true }          # in [workspace.dependencies]
 # The following 3 deps are NOT in [workspace.dependencies] (verified against
 # src/rust/Cargo.toml) — use explicit version strings, not workspace inheritance:
-sqlx          = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+sqlx          = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
 async-trait   = { version = "0.1" }          # required: traits used as Arc<dyn …>
 qdrant-client = { version = "1" }            # read client only (search + query)
 ```
@@ -1974,7 +2032,7 @@ wqm-client    = { path = "../client" }
 tokio         = { workspace = true }
 tracing       = { workspace = true }
 uuid          = { workspace = true }
-sqlx          = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+sqlx          = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
 qdrant-client = { version = "1" }             # full client (upsert + delete + overwrite_payload)
                                               # NOTE: set_payload available in client but MUST NOT
                                               # be used for branch_id[] — see qdrant/membership.rs
@@ -2088,9 +2146,9 @@ second FTS5 implementation exists anywhere in the crate tree.
 | Current file | Lines (verified) | Disposition |
 |---|---|---|
 | `daemon/core/src/branch_index/tagger.rs` | 989 | Absorbed into `wqm-storage-write/blob/dedup.rs` (≤500 lines, overflow → blob/embed.rs); `BranchTagger` struct retired |
-| `daemon/core/src/storage/cross_collection_search.rs` | 915 | Retained (cross-collection search not branch-specific); split `rrf_merge` to ≤500 lines |
+| `daemon/core/src/storage/cross_collection_search.rs` | 915 | Retained in daemon-core (cross-collection search not branch-specific; stays per MF-4 — pulls qdrant-client async stack, must not move to leaf crate); `rrf_merge` ONLY relocates to `wqm-common/src/search/rrf.rs` (F0), this file calls the relocated function |
 | `daemon/core/src/tracked_files_schema/operations.rs` | 938 | Replaced by `wqm-storage-write/schema/` (DDL + migrations) + `wqm-storage-write/blob/dedup.rs` (write logic) |
-| `daemon/core/src/tracked_files_schema/identity.rs` | ~177 | **RETIRED** — `allocate_file_identity` walks `branch_lineage` (confirmed in live tree). No reuse possible. New model mints `file_id` per `(branch_id, path)` in `wqm-storage-write/project/registry.rs`; no identity allocator needed. |
+| `daemon/core/src/tracked_files_schema/identity.rs` | 422 | **RETIRED** — `allocate_file_identity` walks `branch_lineage` (confirmed in live tree). No reuse possible. New model mints `file_id` per `(branch_id, path)` in `wqm-storage-write/project/registry.rs`; no identity allocator needed. |
 | `daemon/core/src/strategies/processing/file/ingest.rs` | 1149 | Retained but trimmed: branch-tagging call becomes `WriteStoreFacade::ingest_file` |
 | `daemon/core/src/graph/sqlite_store.rs` | 1293 | Not in this subsystem's scope; flagged for separate split |
 | `daemon/core/src/graph/ladybug_store/store.rs` | 1869 | Not in scope; flagged |
