@@ -1,5 +1,15 @@
 # Branch / Worktree-Aware Indexing — Subsystem Architecture
 
+> **⛔ SUPERSEDED (2026-06-22).** This document describes the DISCARDED
+> lazy-read-up + lineage-chain + tombstone + virtual-shadow-point model. It has
+> been REPLACED by the git-faithful "blob + concrete, branch as flat barrier"
+> model in **[`branch-storage-model.md`](./branch-storage-model.md)** (converged
+> via a 7-round `/agentic-arch` adversarial loop). Do NOT design or implement
+> against this file. It is retained only until the lineage-era code it references
+> (e.g. `tracked_files_schema/identity.rs`) is retired during implementation, at
+> which point it is deleted. `branch-storage-model.md` is the sole canonical
+> branch-storage architecture.
+
 <!--
   File: docs/architecture/branch-lineage-indexing.md
   Location: docs/architecture/ (subsystem doc — not the root ARCHITECTURE.md)
