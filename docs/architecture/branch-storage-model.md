@@ -339,6 +339,13 @@ ADD to race the membership-read between enqueue and flush, reintroducing the F04
 `(CWD → registered project root → tenant_id → per-project DB path → branch_id)`.
 Implements the query root resolution rule (§4, data flow "Search"). Must NOT write
 to `state.db` from the MCP or CLI; writes route through daemon gRPC.
+This type is MINTED net-new by F10 (the `resolve_project` CWD→tenant resolution) and
+EXTENDED by F16 with the FP-3 fuzzy handle→key resolver (address-by-name on inputs,
+identify-by-key internally — projects AND scratchpad/rules handles AND future handles;
+see §8). One nexus, two phases (FP-2): F10 mints, F16 extends. The resolver's
+human-facing input path is fuzzy (Jaro-Winkler ≥ 0.92, exact-match-wins short-circuit,
+action-tiered strictness); the resolved exact key — never the typed string — feeds the
+`tenant_id = ?` filter (§6.5 binding, extended to cover `state.db` queries).
 
 **Per-project SQLite DB** — One `.db` file per project at
 `projects/<tenant_id>/store.db` (relative to the wqm data directory). Contains
@@ -347,6 +354,14 @@ nine tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`,
 `memexd` (GP-9); `mcp-server` and `wqm-cli` open it read-only via WAL snapshots.
 `busy_timeout` and `wal_autocheckpoint` are set at connection open time for
 multi-reader + single-writer stability.
+
+**Store-bucket folder layout (canonical, citable rule).** Per-tenant `store.db` files
+live under three sibling top-level buckets in the wqm data directory, keyed by tenant
+class: `projects/<tenant_id>/store.db` (a registered project), `libraries/<tenant_id>/store.db`
+(a reference library), and `global/<tenant_id>/store.db` (the `global` bucket — the
+orphan re-home target of AC-F16.5 and the home of globally-scoped scratchpad/rules after
+the F16 data refactor). All three are structurally identical store.db files; the bucket
+prefix alone records tenant class. This layout is the citable target for AC-F16.3.
 
 **Central state.db** — The lean registry. Contains the `projects` table (project
 name, `tenant_id`, per-project DB path, location list with `(location, branch_name,
@@ -374,7 +389,7 @@ Synced with the `blobs` table via `AFTER INSERT` and `AFTER DELETE` triggers on
 `blobs` — NOT auto-synced; without these triggers a GC'd blob leaves a ghost FTS
 rowid and a new blob is invisible to FTS. The `fts_branch_membership` junction
 table provides an indexed `(branch_id, blob_id)` scalar filter so FTS5 MATCH results
-can be branch-scoped without json_each (avoids the 8–35× slowdown from SEED F01).
+can be branch-scoped without json_each (avoids the 8–35x slowdown from SEED F01).
 Full-text search never touches Qdrant; it is a pure SQLite query with the pattern:
 `fts_content MATCH ? JOIN fts_branch_membership USING (blob_id) WHERE branch_id = ?`.
 
@@ -410,8 +425,8 @@ sequenceDiagram
     FS->>Ingest: file event (path, branch_id, watch_folder_id)
     Ingest->>Ingest: parse + chunk (tree-sitter); compute file_hash
     Note over Ingest: Per §5.4: mint file_id per (branch_id, path).<br/>NO lineage walk (identity.rs retired — branch_lineage dropped §5.6).
-    Ingest->>SQLite: UPSERT files row (branch_id, file_id, path, language…)
-    Ingest->>SQLite: UPSERT concrete row (branch_id, file_id, status…)
+    Ingest->>SQLite: UPSERT files row (branch_id, file_id, path, language...)
+    Ingest->>SQLite: UPSERT concrete row (branch_id, file_id, status...)
 
     loop for each chunk [chunk_index=0..N-1]
         Ingest->>Ingest: compute chunk_content_hash = hex(SHA256(raw_chunk_text))<br/>compute content_key = content_key(tenant_id, "code", chunk_content_hash, "")<br/>compute point_id = point_id(content_key, 0)<br/>— canonical producers, §5.4 (path-independent, chunk_index NOT in content_key)
@@ -618,7 +633,7 @@ sequenceDiagram
     MCP->>Qdrant: hybrid search (dense named vector + sparse named vector + RRF)<br/>filter: branch_id ANY [branch_id] AND tenant_id = ?<br/>(pre-filter exact — payload index on both fields required, see §5.3)<br/>limit: k (exact top-K within branch, no post-filter dilution)
     Qdrant-->>MCP: blob point_ids + scores
 
-    MCP->>SQLite: SELECT enrichment for point_ids:<br/>blobs.symbol_name, blobs.start_line, blobs.end_line,<br/>files.relative_path<br/>JOIN blob_refs ON blob_refs.blob_id = blobs.blob_id<br/>JOIN files ON files.file_id = blob_refs.file_id<br/>WHERE blob_refs.branch_id = ? AND blobs.point_id IN (…)
+    MCP->>SQLite: SELECT enrichment for point_ids:<br/>blobs.symbol_name, blobs.start_line, blobs.end_line,<br/>files.relative_path<br/>JOIN blob_refs ON blob_refs.blob_id = blobs.blob_id<br/>JOIN files ON files.file_id = blob_refs.file_id<br/>WHERE blob_refs.branch_id = ? AND blobs.point_id IN (...)
     SQLite-->>MCP: enriched results (xrefs fetched separately via xrefs table if needed)
 
     MCP-->>Claude: ranked results with full metadata
@@ -648,7 +663,18 @@ sequenceDiagram
 
 **Memory bound:** results are fetched in paginated batches (cursor by `blob_id`),
 not in a single `SELECT *` query. A single-query load of a 400k-blob project
-would spike the daemon heap by ~1.9 GB (400k × 3KB vectors + metadata).
+would spike the daemon heap by ~1.9 GB (400k x 3KB vectors + metadata).
+
+**Recovery directions (`recover_state` retired).** In the blob+concrete model the
+SQLite stores are the TRUTH and Qdrant is the rebuildable index, so the legacy
+`recover_state` command — which reconstructed `state.db` FROM Qdrant (the OLD inverted
+direction) — is retired (F12). There are exactly two correct recovery directions:
+(1) **index recovery** = `wqm rebuild` / `rebuild_qdrant` (store.db → Qdrant, this §4.5
+path), used when Qdrant is lost or stale but the SQLite truth survives; and
+(2) **disaster recovery** = `wqm restore --full` (F20), used when the SQLite truth
+itself is lost — it restores the full truth-inclusive backup bundle, after which index
+recovery (1) can re-derive Qdrant if needed. Neither direction ever reconstructs truth
+from the rebuildable index.
 
 ### 4.6 Macro git op diff apply (merge, rebase, checkout)
 
@@ -678,7 +704,7 @@ The reconcile pass runs periodically (cadence must beat `gc.reflogExpire` — de
 90 days for reachable refs, 30 days for unreachable) and on daemon startup. It
 corrects state drift from crashes or missed events.
 
-**Four cases reconcile handles:**
+**Five cases reconcile handles:**
 
 1. **Missing Qdrant membership (SQLite says branch B owns blob X; Qdrant's `branch_id[]`
    lacks B):** crash after §4.1 SQLite write, before Qdrant flush. Fix: recompute the
@@ -705,6 +731,35 @@ corrects state drift from crashes or missed events.
    `(blob_id, branch_id)` in `blob_refs`, INSERT into `fts_branch_membership ON
    CONFLICT IGNORE`. Cheap incremental scan — can be scoped to rows newer than
    the last successful reconcile timestamp.
+5. **Cross-DB tenant-mismatch** (a Qdrant point whose payload `tenant_id` disagrees
+   with its owning SQLite store's `store_meta.tenant_id`): crash mid-re-tenant — the
+   scratchpad/rules data refactor (F16, AC-F16.2) or the orphan re-home (AC-F16.5)
+   moves a row between two store.db files (copy-then-delete: write destination row →
+   Qdrant payload PUT → delete source row LAST) and updates the Qdrant payload
+   `tenant_id` non-transactionally across the two backends. A crash leaves a point whose
+   payload `tenant_id` no longer matches an owning store. **Heal with disambiguation**
+   (the transient window after the PUT but before the source-row delete has BOTH stores
+   holding a `blob_refs` row for the point, so "the store that holds the row" is
+   ambiguous):
+   - **If exactly one of the candidate stores has `store_meta.tenant_id` EQUAL to the
+     current Qdrant payload `tenant_id`** → that store is authoritative; case 5 is a
+     **NO-OP** (the payload already names the intended owner; the migration's remaining
+     step — the source-row delete — will resolve the duplicate). This is the transient
+     copy-then-delete window: do NOT re-PUT the payload back to the source tenant, which
+     would revert the migration and oscillate.
+   - **If NO candidate store matches the payload** (a genuine stale-payload mismatch:
+     the move's Qdrant PUT never landed, or landed wrong) → re-derive the authoritative
+     owning tenant from the store that holds the `blob_refs`/concrete row and
+     `overwrite_payload` the point's `tenant_id` to match (additive-first, no re-embed).
+   This case MUST be evaluated before case 2: without it, case 2 sees a point whose
+   `tenant_id` finds zero referrers in the store it points at and culls it as a
+   zero-referrer orphan = **silent data loss**.
+   **Detection bound (not an every-pass full scan):** cases 1/2/4 are watermark-scoped;
+   case 5 is likewise bounded — its candidate set is sourced from the **migration journal**
+   (tenant-move operations in flight or completed since the last reconcile), NOT an
+   O(N_points) full-collection scan on every pass. Reconcile evaluates case 5 only when
+   the journal shows a tenant-move touched points since the last successful pass.
+   Owned by F15 (AC-F15.6).
 
 The reconcile pass is additive-first (adds missing memberships and FTS rows before
 pruning stale ones), honoring FP-1's bias toward false-positives over false-negatives
@@ -742,7 +797,7 @@ CREATE TABLE project_locations (
     location_id   INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id    INTEGER NOT NULL REFERENCES projects(project_id),
     location      TEXT NOT NULL,          -- absolute root path
-    branch_name   TEXT NOT NULL,          -- git ref name ("main", "feat/x", …)
+    branch_name   TEXT NOT NULL,          -- git ref name ("main", "feat/x", ...)
     branch_id     TEXT NOT NULL UNIQUE,   -- canonical search key
     active        INTEGER NOT NULL DEFAULT 1,  -- 1 = currently checked out
     sync_state    TEXT NOT NULL DEFAULT 'pending'
@@ -874,7 +929,7 @@ CREATE TABLE blob_refs (
 CREATE INDEX idx_blob_refs_branch ON blob_refs(branch_id);
 CREATE INDEX idx_blob_refs_file   ON blob_refs(file_id);
 -- Covering index for the search-enrichment JOIN (§4.4) and the GC GROUP BY scan:
--- blob_refs.blob_id IN (…) AND branch_id = ? → yields file_id without heap fetch.
+-- blob_refs.blob_id IN (...) AND branch_id = ? → yields file_id without heap fetch.
 -- This index also covers single-column blob_id lookups (prefix of the key).
 CREATE INDEX idx_blob_refs_covering ON blob_refs(blob_id, branch_id, file_id);
 
@@ -1016,7 +1071,7 @@ POST /collections/projects
 
 `m=16` and `ef_construct=100` are Qdrant's defaults, adequate for 768-dim Cosine
 embeddings at typical corpus sizes. Tuning guidance: raise `m` (e.g. to 32) for
-higher recall at ~2× graph memory cost; `ef_construct` affects only build quality,
+higher recall at ~2x graph memory cost; `ef_construct` affects only build quality,
 not search latency. The primary search-time recall/latency lever is Qdrant's
 `hnsw_ef` (search-time parameter, default 128 in Qdrant), set per-query or via
 the collection `optimizer_config`. These values are deferred to PRD performance tuning.
@@ -1250,7 +1305,7 @@ sequenced AFTER the blob_refs mutation so SQLite truth is correct at recompute t
    `WHERE rowid IN (SELECT rowid FROM <t> WHERE branch_id=? LIMIT 10000)` looped
    until 0 rows, committing per batch (releases RESERVED lock so ingest can interleave).
 5. SQLite: Re-verify orphan set in batches of ≤1000 candidates inside individual
-   `BEGIN IMMEDIATE … COMMIT` cycles (ABA guard — see §4.3): per batch, select
+   `BEGIN IMMEDIATE ... COMMIT` cycles (ABA guard — see §4.3): per batch, select
    still-referenced blob_ids from the candidate window, then DELETE confirmed-orphan
    `blobs` rows using the subselect idiom. Chunked to avoid both the
    `SQLITE_MAX_VARIABLE_NUMBER` limit and unbounded write-stall (same rationale as
@@ -1282,11 +1337,11 @@ SQLite-truth-referenced blob GC'd.
 This is a D1-scale reset: the `branch_lineage` table (v48 migration) and the
 virtual/tombstone semantics in `tracked_files` are replaced wholesale. The
 migration introduces a new per-project store.db schema and must run across all
-registered projects (×N per-project DBs). It also requires a Qdrant collection
+registered projects (xN per-project DBs). It also requires a Qdrant collection
 re-key because the dedup unit changes (whole-file → chunk-grain blobs).
 
 **SQLite table rebuild pattern (authoritative):** SQLite does not support
-`ALTER TABLE … DROP COLUMN` in versions before 3.35 or `ALTER TABLE … DROP
+`ALTER TABLE ... DROP COLUMN` in versions before 3.35 or `ALTER TABLE ... DROP
 CONSTRAINT` in any version. Schema changes that remove columns or constraints
 MUST use the CREATE+INSERT SELECT+DROP+RENAME pattern established in migrations
 v35/v37/v40:
@@ -1294,8 +1349,8 @@ v35/v37/v40:
 ```sql
 PRAGMA foreign_keys = OFF;   -- disable FK enforcement during rebuild
 BEGIN IMMEDIATE;
-CREATE TABLE tracked_files_new ( … new schema … );
-INSERT INTO tracked_files_new SELECT … FROM tracked_files;
+CREATE TABLE tracked_files_new ( ... new schema ... );
+INSERT INTO tracked_files_new SELECT ... FROM tracked_files;
 DROP TABLE tracked_files;
 ALTER TABLE tracked_files_new RENAME TO tracked_files;
 COMMIT;
@@ -1318,7 +1373,7 @@ The FK-off window is a data-integrity risk; it must be as narrow as possible
    - Rebuild `tracked_files` → retired (absorbed into per-project `files` +
      `concrete` tables); any surviving tracked_files data migrated or discarded.
    - Add `project_locations` table to state.db (already in §5.1 DDL).
-4. **Per-project store.db creation** (×N, serial by default; parallel allowed with
+4. **Per-project store.db creation** (xN, serial by default; parallel allowed with
    a per-project file lock): create new `store.db` with the 8-table schema from
    §5.2 using plain `CREATE TABLE` statements — this is a FRESH FILE, not a
    rebuild of an existing table via the CREATE+INSERT+DROP+RENAME pattern (that
@@ -1353,7 +1408,7 @@ write trait definition is absent from every binary that must not write.
 /// No method accepts a raw SQL string or a database connection.
 /// `#[async_trait]` is required: async fn in traits produces opaque `impl Future`
 /// which is not object-safe; the macro erases it so `Arc<dyn WriteStoreFacade>`
-/// compiles (see §6.4 for the Arc<dyn …> usage pattern).
+/// compiles (see §6.4 for the Arc<dyn ...> usage pattern).
 #[async_trait::async_trait]
 pub trait WriteStoreFacade: ReadStoreFacade {
     /// Ingest one file chunk batch for a given (branch_id, file).
@@ -1613,7 +1668,7 @@ search. The SEC-3 `tenant_id=?` filter can only be satisfied with a known
   maintained on the shared point.
 
 **Evidence:** HNSW scales with point count N (~log(N) hops). A typical project
-with 50k files × 8 chunks = 400k points. With 10 active branches, copy-at-create
+with 50k files x 8 chunks = 400k points. With 10 active branches, copy-at-create
 = 4M points. Qdrant's HNSW with 4M points at ef=128 requires ~3–4 GB RAM for the
 graph alone at 768-dim float32 vectors (~2.3 GB vectors + ~1.2 GB HNSW graph);
 400k blobs require ~230 MB vectors + ~120 MB graph. **Note:** sparse vector index
@@ -1628,7 +1683,7 @@ deciding factor, per brief §3.
 assumes a meaningful cross-branch chunk-dedup rate. Specifically, the blob-dedup
 model is preferable to copy-at-create when the cross-branch dedup rate exceeds
 ~30% (i.e. at least 30% of chunks on a new branch are identical to chunks already
-in `blobs` from another branch). Below ~30%, blob count approaches 400k × B and
+in `blobs` from another branch). Below ~30%, blob count approaches 400k x B and
 the HNSW advantage over copy-at-create narrows. This floor is an architectural
 assumption, not an observed measurement.
 
@@ -1684,7 +1739,7 @@ updates. At 1000-point Qdrant batches (GP-6), this is 400 batch calls.
 
 **Performance note:** The ~640s estimate in SEED §B is based on UPSERT timing
 (vector upsert), not `overwrite_payload` (PUT) timing. An `overwrite_payload`-only
-call (membership update for existing blobs — the M3 unified pattern) may be 2–5×
+call (membership update for existing blobs — the M3 unified pattern) may be 2–5x
 faster or slower depending on payload size and Qdrant version. The PRD must benchmark
 `overwrite_payload` (PUT) specifically before committing to the 640s SLA.
 
@@ -1820,8 +1875,47 @@ reads `git for-each-ref` and `git reflog` to detect topology events the watcher
 may have missed (branch delete, forced push, rebase). Cadence must beat
 `gc.reflogExpire` (default 90 days for reachable refs, 30 days for unreachable).
 
+### 7.7 Truth-inclusive full backup / restore (F20, Decision 3)
+
+**Decision: `wqm backup --full <dest>` / `wqm restore --full <file>` produce and
+restore a single compressed archive that bundles the TRUTH (all SQLite stores) plus a
+Qdrant snapshot, replacing the truth-reconstructing `recover_state`.**
+
+**Rationale.** Today `wqm backup` snapshots Qdrant only (`cli/src/commands/backup/`).
+In the blob+concrete model the SQLite stores are the durable truth (vectors live in the
+`blobs` table) and Qdrant is the rebuildable index, so a Qdrant-only backup protects the
+*discardable* layer and leaves the truth unprotected. The full backup bundles: all
+SQLite stores (`state.db` + every per-project and `global`/`libraries` store.db) AND a
+Qdrant snapshot (reusing the existing snapshot helpers and `restore/from_backup.rs`) AND
+a manifest enumerating the members. This is the migration backup gate F13 points at
+("back up first"), and it guards the second destructive re-key — the F16 scratchpad/rules
+data refactor — so one full backup covers both cutovers.
+
+**Compression — shell out, do not roll our own.** We invoke the best external compressor
+present rather than compressing in-process; detection order `zstd → xz → gzip` (first
+present wins, §14-Q10, Chris-overridable). The shell-out uses a **fixed argv** (no shell
+template), Guard-4 / CWE-78 safe, consistent with the no-shell-git contract (AC-F12.6).
+Configurable archive format is deferred (§15).
+
+**`restore --full`** refuses to run while the daemon is live and restores the SQLite
+stores + Qdrant snapshot from the bundle. It is the *disaster-recovery* direction;
+*index recovery* remains `wqm rebuild` (§4.5). `recover_state` (the OLD Qdrant→SQLite
+inverted direction) is retired/redirected under F12 — its two correct replacements are
+rebuild (index) and full restore (disaster).
+
+**Daemon-running guard — transition path (FP-2).** The refuse-if-daemon-live check is
+the same invariant `recover_state` enforces today, but F12 DELETES `recover_state`, so
+that check's only current home disappears in the same phase F20 ships. To avoid both a
+compile break (F20 sharing the check by reference into a soon-deleted file) and an FP-2
+duplicate-divergence (two identical daemon-running checks maintained separately), the
+guard is **EXTRACTED to a single shared location** (a named `wqm-common` guard, e.g.
+`assert_daemon_stopped()`) BEFORE F12 removes `recover_state`; F20's `restore --full` and
+any future destructive command call the one shared guard. (Build order: the extraction
+lands with F20, the deletion with F12; F20 precedes F12 in §10 so the shared home exists
+before the old one is removed.)
+
 **Security note:** all git interaction uses `git2` (libgit2 Rust bindings), NOT
-shell-spawned `git` commands. Any `git …` command syntax shown in this document
+shell-spawned `git` commands. Any `git ...` command syntax shown in this document
 is ILLUSTRATIVE of what the git topology check computes; the implementation MUST
 call `git2::Repository` methods (e.g. `repo.reflog()`, `repo.references()`) to
 avoid shell-injection through branch names or paths.
@@ -1852,7 +1946,16 @@ may write to the `blobs` table or the Qdrant blob point outside this lock.
 
 **ProjectRegistry** — The single resolver mapping a CWD to a `ProjectBinding`.
 All search and list calls route through it. No component resolves CWD→tenant_id
-by its own path-walking logic.
+by its own path-walking logic. **Minted by F10, extended by F16 (FP-2, one nexus,
+two phases):** F10 mints the type with `resolve_project` (CWD→tenant). F16 extends
+the SAME type with the FP-3 fuzzy handle→key resolver — the single broad resolver for
+project handles AND scratchpad/rules `(collection_id, path, name)` handles AND any
+future handle (explicitly NOT a narrow `tenants.rs` ladder). Address-by-name on
+human inputs (Jaro-Winkler ≥ 0.92, exact-match-wins short-circuit, action-tiered:
+READ resolves-or-disambiguates / WRITE exact-or-confirm-or-exit / DESTRUCTIVE
+unique-ID confirm), identify-by-key internally — the resolved exact key, never the
+typed string, feeds the `tenant_id = ?` filter (§6.5 binding, extended to `state.db`).
+No component implements its own name→key matching.
 
 ### Inherited nexuses (unchanged)
 
@@ -1971,7 +2074,7 @@ uuid          = { workspace = true }          # in [workspace.dependencies]
 # The following 3 deps are NOT in [workspace.dependencies] (verified against
 # src/rust/Cargo.toml) — use explicit version strings, not workspace inheritance:
 sqlx          = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
-async-trait   = { version = "0.1" }          # required: traits used as Arc<dyn …>
+async-trait   = { version = "0.1" }          # required: traits used as Arc<dyn ...>
 qdrant-client = { version = "1" }            # read client only (search + query)
 ```
 
@@ -2092,7 +2195,7 @@ src/rust/storage-write/
     │   ├── branch.rs       (~100 lines)  — branches + concrete table DDL
     │   ├── xrefs.rs        (~100 lines)  — xrefs table DDL
     │   ├── fts.rs          (~100 lines)  — fts_content + fts_branch_membership DDL
-    │   └── migrations.rs   (~200 lines)  — migration runner (v49 → …); executes DDL;
+    │   └── migrations.rs   (~200 lines)  — migration runner (v49 → ...); executes DDL;
     │                                       daemon-only (write-path); NOT in wqm-storage read crate.
     │                                       The GP-7 "absence of code" guarantee requires all
     │                                       executable DDL to live here, never in wqm-storage.
@@ -2233,7 +2336,7 @@ matters.
 
 ### R3 — Write-amplification on large-branch lifecycle
 
-Onboarding or deleting a branch with 50k files × 8 chunks = 400k blobs requires
+Onboarding or deleting a branch with 50k files x 8 chunks = 400k blobs requires
 400 batched Qdrant calls. At ~1.6s per batch (SEED §B, remote Qdrant upsert
 timing — `overwrite_payload` (PUT) may differ, see §7.3 performance note), total ≈ 640s for
 the full membership update. This is a background daemon operation and does not
