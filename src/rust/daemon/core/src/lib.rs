@@ -96,6 +96,11 @@ pub mod watch_folders_schema;
 pub mod watching_queue;
 pub mod write_actor;
 
+// ── Branch-storage modules (F4+) ────────────────────────────────────────
+/// Branch-name validation (AC-F4.6 / SEC-N04). Delegates to git2::Reference::is_valid_name.
+/// Lives in daemon-core (NOT wqm-common) because git2 is leaf-forbidden in wqm-common.
+pub mod branch_name_validation;
+
 // ── Architectural refactoring modules (Phase 0+) ────────────────────────
 pub mod context;
 pub mod lifecycle;
