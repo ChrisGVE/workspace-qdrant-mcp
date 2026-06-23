@@ -15,9 +15,11 @@
 //! Neighbors: `wqm-storage` (read sibling), `wqm-common` (canonical types — F0),
 //! `wqm-client`. Outward errors are `wqm_common::StorageError` (DR GP-9).
 
+pub mod connection;
 pub mod migrations;
 pub mod qdrant;
 pub mod registry;
 pub mod schema;
 
+pub use connection::{open_store, open_store_write};
 pub use qdrant::QdrantWriteClient;

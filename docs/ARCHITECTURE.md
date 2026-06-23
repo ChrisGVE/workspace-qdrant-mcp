@@ -280,6 +280,7 @@ Databases (under the platform data dir, e.g. `~/.local/share/workspace-qdrant/`)
 | `search.db` | FTS5 indexes, file metadata (incl. `file_metadata.state`, search.db v8 — lets `grep` hide tombstoned files; branch-lineage P9), indexed-content cache |
 | `graph.db` | code-relationship graph (nodes, edges, CTE queries) |
 | `daemon_state.db` | daemon runtime bookkeeping |
+| `projects/<tenant_id>/store.db` | Per-project branch-storage DB (branch-storage redesign, F3). 9 tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`, `fts_content` (FTS5 external-content), `fts_branch_membership`, `store_meta`. Authoritative schema: [`docs/architecture/branch-storage-model.md` §5.2](./architecture/branch-storage-model.md). DDL implementation: `src/rust/storage-write/src/schema/`. Column name constants (read-only): `src/rust/storage/src/schema/columns.rs`. |
 
 Conventions:
 
