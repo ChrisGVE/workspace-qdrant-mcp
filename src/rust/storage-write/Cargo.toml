@@ -39,6 +39,10 @@ thiserror = { workspace = true }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
 async-trait = "0.1"
 qdrant-client = "1"
+# class E — OS advisory flock(2) for single-writer enforcement (AC-F14.1). Not in
+# [workspace.dependencies] (libc is a direct dep of daemon/core + daemon/memexd with
+# explicit "0.2" strings there; the workspace does not host it). fs2 is FORBIDDEN.
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -21,7 +21,9 @@ pub mod migrations;
 pub mod qdrant;
 pub mod registry;
 pub mod schema;
+pub mod single_writer;
 
 pub use blob::{ingest_file, ContentKeyLockManager, Embedder, IngestParams};
 pub use connection::{open_store, open_store_write};
 pub use qdrant::QdrantWriteClient;
+pub use single_writer::{DaemonLock, DaemonLockConfig};
