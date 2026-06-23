@@ -17,6 +17,7 @@ pub mod cli_profiles;
 pub mod config;
 pub mod constants;
 pub mod document_id;
+pub mod domain;
 pub mod duration_fmt;
 pub mod env_expand;
 pub mod error;
