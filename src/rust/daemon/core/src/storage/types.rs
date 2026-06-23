@@ -3,46 +3,20 @@
 //! Error types, document points, search results, and collection info
 //! structures used across the storage module.
 
-use qdrant_client::QdrantError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use thiserror::Error;
 
 use crate::source_diversity::DiversityPenaltyConfig;
 
-/// Storage-related errors
-#[derive(Error, Debug)]
-pub enum StorageError {
-    #[error("Connection error: {0}")]
-    Connection(String),
-
-    #[error("Collection error: {0}")]
-    Collection(String),
-
-    #[error("Point operation error: {0}")]
-    Point(String),
-
-    #[error("Search error: {0}")]
-    Search(String),
-
-    #[error("Batch operation error: {0}")]
-    Batch(String),
-
-    #[error("Timeout error: {0}")]
-    Timeout(String),
-
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Qdrant client error: {0}")]
-    Qdrant(Box<QdrantError>),
-}
-
-impl From<QdrantError> for StorageError {
-    fn from(err: QdrantError) -> Self {
-        StorageError::Qdrant(Box::new(err))
-    }
-}
+/// Storage-related errors.
+///
+/// Canonical definition relocated to `wqm-common` (F0); re-exported here so
+/// existing `crate::storage::StorageError` / `super::types::StorageError`
+/// paths are unchanged (FP-2 one definition, DR GP-9 no duplication).
+/// `From<QdrantError>` is also hosted in `wqm_common::error` (legal there:
+/// `StorageError` is local to that crate), so all `?`-operator sites in
+/// daemon-core keep compiling without change (AC-F0.2).
+pub use wqm_common::error::StorageError;
 
 /// Result of multi-tenant collection initialization
 #[derive(Debug, Clone, Default)]

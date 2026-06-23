@@ -19,6 +19,7 @@ pub mod constants;
 pub mod document_id;
 pub mod duration_fmt;
 pub mod env_expand;
+pub mod error;
 pub mod exclusion;
 pub mod git;
 pub mod git_url;

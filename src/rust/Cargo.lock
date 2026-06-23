@@ -9040,6 +9040,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "proptest",
+ "qdrant-client",
  "regex-lite",
  "rusqlite",
  "serde",

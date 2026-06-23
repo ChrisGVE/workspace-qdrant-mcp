@@ -38,6 +38,14 @@ walkdir = "2.4"
 # JSON serialization (for payloads)
 serde_json = "1.0"
 
+# Qdrant client — needed for StorageError::Qdrant(Box<QdrantError>) variant (F0).
+# wqm-common defines StorageError as the canonical type; hosting Box<QdrantError>
+# here keeps the From<QdrantError> impl legal (orphan rule: StorageError is local)
+# and lets all existing daemon-core ?-operator sites compile unchanged (AC-F0.2).
+# This names the error type only — no mutating methods are imported, so Guard-3
+# symbol-reachability stays green for read-only consumers.
+qdrant-client = "1.17"
+
 # SQLite (optional, for resolve_path_to_project)
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 
