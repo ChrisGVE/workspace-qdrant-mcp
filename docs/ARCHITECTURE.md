@@ -251,11 +251,14 @@ seam), `lock.rs` (the lock manager). The authoritative flow is the arch §4.1 in
 sequence diagram in `docs/architecture/branch-storage-model.md`.
 
 - **content_key HIT** (blob row exists): add `blob_refs` + `fts_branch_membership`
-  (ON CONFLICT IGNORE), recompute the full `branch_id[]` from SQLite truth
-  (`SELECT DISTINCT branch_id FROM blob_refs WHERE blob_id=?`), and enqueue an
-  `overwrite_payload` (PUT) against the **stored** `blobs.point_id` (never recomputed,
-  honoring a SEC-4 salted re-key). No re-embed. `set_payload` (POST) is never used for
-  `branch_id[]` — it has no append mode and would drop prior memberships.
+  (ON CONFLICT IGNORE), recompute the full `branch_id[]` from SQLite truth via the
+  single canonical producer `blob::membership::compute_membership` in
+  `storage-write/src/blob/membership.rs` (`SELECT DISTINCT branch_id FROM blob_refs
+  WHERE blob_id=?` appears exactly once in the write crate -- F7 / AC-F7.6 / FP-2),
+  then enqueue an `overwrite_payload` (PUT) via `qdrant::membership` against the
+  **stored** `blobs.point_id` (never recomputed, honoring a SEC-4 salted re-key).
+  No re-embed. `set_payload` (POST) is never used for `branch_id[]` -- it has no
+  append mode and would drop prior memberships.
 - **content_key MISS** (new blob): embed once (dense + sparse), INSERT the blob (the
   FTS5 trigger fires), add the single referrer, and enqueue an upsert with
   `branch_id:[current_branch_id]`.
