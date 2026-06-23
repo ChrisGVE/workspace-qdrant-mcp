@@ -57,6 +57,13 @@ pub enum StorageError {
     /// Low-level Qdrant client error (boxed to keep the enum small).
     #[error("Qdrant client error: {0}")]
     Qdrant(Box<QdrantError>),
+
+    /// Input validation failure (e.g. invalid branch_name, AC-F4.6 / SEC-N04).
+    ///
+    /// The message describes what was rejected and why. Never contains raw
+    /// user input rendered for display — callers should sanitize before showing.
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 impl From<QdrantError> for StorageError {
