@@ -11,6 +11,8 @@ members = [
     "common",
     "proto",
     "client",
+    "storage",
+    "storage-write",
     "cli",
     "daemon/core",
     "daemon/grpc",

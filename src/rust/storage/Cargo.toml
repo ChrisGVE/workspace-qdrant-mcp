@@ -1,0 +1,50 @@
+# wqm-storage — the READ side of the branch-storage two-crate split (F1).
+#
+# This crate holds every read path over the per-branch SQLite DBs and Qdrant
+# collections. It MUST NOT depend on `wqm-storage-write`, git2, or any Qdrant
+# mutating method — that boundary is enforced by CI Guards 1-3 (arch §9).
+#
+# Dependency-declaration classes (AC-F1.2) — do NOT conflate:
+#   class W: deps that ARE in root [workspace.dependencies] -> `{ workspace = true }`.
+#   class E: deps that are NOT in [workspace.dependencies] (sqlx, async-trait,
+#            qdrant-client) -> explicit per-crate version strings. Writing
+#            `{ workspace = true }` for these is a Cargo inheritance compile error.
+[package]
+name = "wqm-storage"
+version = "0.1.3"
+edition = "2021"
+description = "Read-side storage facade (SQLite + Qdrant) for workspace-qdrant-mcp"
+authors = ["Chris Van Eerden"]
+license = "Apache-2.0"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[dependencies]
+# Canonical homes of StorageError / SearchResult / FileChange / RRF (F0).
+wqm-common = { path = "../common" }
+wqm-client = { path = "../client" }
+
+# class W — shared via root [workspace.dependencies] (ARCH-07).
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# class E — NOT in [workspace.dependencies]; explicit versions (arch §9 Crate 1).
+# sqlx pinned to the live 0.8.6 (daemon/core) to keep Cargo.lock resolution stable;
+# rustls TLS + chrono/uuid column binding match the live workspace.
+sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio-rustls", "chrono", "uuid"] }
+async-trait = "0.1"
+# Reached ONLY through QdrantReadClient (AC-F1.6): read methods, no mutation.
+qdrant-client = "1"
+
+[dev-dependencies]
+# Guard 2: compile-fail proof that the read crate cannot call write-crate
+# schema::*/migrations::* execution functions (DDL lives only in wqm-storage-write).
+trybuild = "1.0"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
