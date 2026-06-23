@@ -64,6 +64,13 @@ pub enum StorageError {
     /// user input rendered for display — callers should sanitize before showing.
     #[error("Validation error: {0}")]
     Validation(String),
+
+    /// Per-project `store.db` (SQLite) operation failed — a query, transaction, or
+    /// connection-protocol step in the write/read storage path (arch §5.2). The
+    /// message names the failing step so a log reader can locate it; it never carries
+    /// raw indexed content.
+    #[error("SQLite error: {0}")]
+    Sqlite(String),
 }
 
 impl From<QdrantError> for StorageError {
