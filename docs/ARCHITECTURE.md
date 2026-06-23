@@ -10,7 +10,9 @@ workspace-qdrant-mcp is implemented entirely in Rust as a single Cargo workspace
 | `workspace-qdrant-mcp` | `daemon/mcp-server` | MCP server: Claude Desktop/Code integration (stdio), hybrid search pipeline |
 | `wqm` | `cli` | CLI + TUI: administration, monitoring, queue/graph/search tooling |
 
-Shared crates: `common` (types, project-id calculation, constants), `proto` (gRPC definitions), `client` (gRPC client used by CLI and MCP server), `common-node` (Node.js bridge), `daemon/shared-test-utils`, `tools/registry-updater` (language-registry maintenance).
+Shared crates: `common` / `wqm-common` (types, project-id calculation, constants), `proto` (gRPC definitions), `client` (gRPC client used by CLI and MCP server), `common-node` (Node.js bridge), `daemon/shared-test-utils`, `tools/registry-updater` (language-registry maintenance).
+
+`wqm-common` is the canonical home of the content-addressing producers (`content_key` / `point_id`, in `hashing`) and, since the branch-storage redesign (F0), of four further shared nexuses relocated out of daemon-core so the read/write storage crates share one definition each (FP-2, no duplication): `StorageError` (`error`), `SearchResult` (`search::types`), `FileChange` / `FileChangeStatus` (`git::file_change`), and the pure Reciprocal-Rank-Fusion primitives `rrf_merge` / `rrf_score` (`search::rrf`). Daemon-core re-exports each from its former path, so existing call sites are unchanged. (`cross_collection_search` stays in daemon-core — it fans over a live Qdrant handle.)
 
 ## Table of Contents
 
