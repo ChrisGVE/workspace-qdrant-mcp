@@ -22,6 +22,7 @@ pub mod dedup;
 pub mod embed;
 pub mod ladder;
 pub mod lock;
+pub mod membership;
 
 pub use dedup::{ingest_file, IngestParams};
 pub use embed::{EmbeddedChunk, Embedder};

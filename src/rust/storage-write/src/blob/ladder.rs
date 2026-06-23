@@ -18,9 +18,9 @@
 //!   case produced and with exactly which payload.
 //!
 //! Neighbors: [`crate::blob::dedup`] (caller — file-level loop), [`crate::blob::embed`]
-//!   (the lazy embed seam), [`crate::blob::membership`] is F7's home for the canonical
-//!   `compute_membership` producer (this module inlines the recompute for F6; F7 lifts
-//!   it to the single producer).
+//!   (the lazy embed seam), [`crate::blob::membership`] (the canonical
+//!   `compute_membership` producer — the HIT path delegates here, never re-implements
+//!   the SELECT DISTINCT query; FP-2 / DR GP-1 / AC-F7.6).
 
 use std::collections::HashMap;
 
@@ -64,7 +64,8 @@ pub enum QdrantOp {
 pub struct BlobPayload {
     pub tenant_id: String,
     /// The FULL branch membership set. For a new blob this is `[current_branch_id]`;
-    /// for a hit it is the recomputed `SELECT DISTINCT branch_id FROM blob_refs`.
+    /// for a hit it is the set returned by `blob::membership::compute_membership`
+    /// (the single canonical SELECT DISTINCT producer; AC-F7.6 / FP-2).
     pub branch_id: Vec<String>,
     pub collection_id: String,
 }
@@ -228,9 +229,10 @@ async fn ingest_hit(
     let _ = now;
 
     // Recompute the FULL branch_id[] from SQLite truth, INSIDE the lock (arch §5.5).
-    // This is the F6 inline recompute; F7 replaces it with the single
-    // `blob::membership::compute_membership` producer.
-    let branch_ids = recompute_membership(pool, blob_id).await?;
+    // Delegated to the single canonical producer (AC-F7.6 / FP-2 / DR GP-1):
+    // `blob::membership::compute_membership` is the ONLY site of the
+    // SELECT DISTINCT query in this crate.
+    let branch_ids = crate::blob::membership::compute_membership(pool, blob_id).await?;
 
     // PUT (overwrite_payload) the full payload against the STORED point_id.
     sink.enqueue(QdrantOp::OverwritePayload {
@@ -326,24 +328,6 @@ async fn ingest_miss(
         },
     });
     Ok(())
-}
-
-/// The full branch membership for a blob: `SELECT DISTINCT branch_id FROM blob_refs
-/// WHERE blob_id = ?` (arch §5.5). The F6 inline form; F7 lifts it to the single
-/// `blob::membership::compute_membership` producer.
-async fn recompute_membership(
-    pool: &SqlitePool,
-    blob_id: i64,
-) -> Result<Vec<String>, StorageError> {
-    let rows = sqlx::query("SELECT DISTINCT branch_id FROM blob_refs WHERE blob_id = ?")
-        .bind(blob_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| StorageError::Sqlite(format!("recompute membership: {e}")))?;
-    Ok(rows
-        .into_iter()
-        .map(|r| r.get::<String, _>("branch_id"))
-        .collect())
 }
 
 // ---------------------------------------------------------------------------
