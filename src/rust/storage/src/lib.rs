@@ -19,5 +19,6 @@
 //! parallel definition).
 
 pub mod qdrant;
+pub mod types;
 
 pub use qdrant::QdrantReadClient;
