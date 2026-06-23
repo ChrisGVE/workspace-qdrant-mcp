@@ -103,20 +103,12 @@ pub struct DocumentPoint {
     pub payload: HashMap<String, serde_json::Value>,
 }
 
-/// Search result from Qdrant
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResult {
-    /// Document ID
-    pub id: String,
-    /// Search score
-    pub score: f32,
-    /// Document payload
-    pub payload: HashMap<String, serde_json::Value>,
-    /// Dense vector (if requested)
-    pub dense_vector: Option<Vec<f32>>,
-    /// Sparse vector (if requested)
-    pub sparse_vector: Option<HashMap<u32, f32>>,
-}
+/// Search result from Qdrant.
+///
+/// Canonical definition relocated to `wqm-common` (F0); re-exported here so
+/// existing `crate::storage::SearchResult` / `super::types::SearchResult` paths
+/// are unchanged (FP-2 one definition, DR GP-9 no duplication).
+pub use wqm_common::search::types::SearchResult;
 
 /// Parameters for search operations
 #[derive(Debug, Clone)]

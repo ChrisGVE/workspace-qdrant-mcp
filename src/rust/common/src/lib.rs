@@ -32,6 +32,7 @@ pub mod qdrant_endpoint;
 pub mod queue_types;
 pub mod rules_legacy;
 pub mod schema;
+pub mod search;
 pub mod timestamp_fmt;
 pub mod timestamps;
 pub mod yaml_defaults;
