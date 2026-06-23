@@ -236,6 +236,41 @@ copy. That read must return the **original, un-quantized** vector; this project 
 quantization on any collection, so a point read returns the original (see the method
 doc-comment in `storage/scroll.rs`).
 
+### Blob dedup ladder + `ContentKeyLockManager` (branch-storage F6)
+
+For the branch-storage per-project `store.db` model, chunk ingest runs the **two-case
+dedup ladder** (`wqm-storage-write/src/blob/`), the chunk-grain greenfield replacement
+of the retired 989-line `daemon/core/src/branch_index/tagger.rs` BranchTagger. The
+ladder is split by responsibility (coding §X): `dedup.rs` (file-level `files`/`concrete`
+upsert + chunk loop), `ladder.rs` (one chunk's write cycle), `embed.rs` (the lazy embed
+seam), `lock.rs` (the lock manager). The authoritative flow is the arch §4.1 ingest
+sequence diagram in `docs/architecture/branch-storage-model.md`.
+
+- **content_key HIT** (blob row exists): add `blob_refs` + `fts_branch_membership`
+  (ON CONFLICT IGNORE), recompute the full `branch_id[]` from SQLite truth
+  (`SELECT DISTINCT branch_id FROM blob_refs WHERE blob_id=?`), and enqueue an
+  `overwrite_payload` (PUT) against the **stored** `blobs.point_id` (never recomputed,
+  honoring a SEC-4 salted re-key). No re-embed. `set_payload` (POST) is never used for
+  `branch_id[]` — it has no append mode and would drop prior memberships.
+- **content_key MISS** (new blob): embed once (dense + sparse), INSERT the blob (the
+  FTS5 trigger fires), add the single referrer, and enqueue an upsert with
+  `branch_id:[current_branch_id]`.
+- **FP-1 ordering**: durable vectors persist in SQLite before any Qdrant op is enqueued;
+  the batch flush fires outside the locks.
+
+The **`ContentKeyLockManager`** is the §8 nexus that guarantees no blob or Qdrant blob
+point is written outside a per-`content_key` lock. It holds one async lock per
+`content_key` in a DashMap, eviction-bounded (cap 100,000 entries, idle-evict 300 s,
+30 s cleanup, zero-waiter eviction only; a global fallback lock serializes over-cap
+writes). A file's locks are always acquired **sorted by `content_key`** so two files
+sharing chunks cannot deadlock by opposite traversal order.
+
+**Daemon cutover is a follow-up**: the ladder + lock + facade method ship tested in
+`wqm-storage-write`; wiring the daemon ingest path (`strategies/processing/file/ingest.rs`)
+to the new write facade — and deleting `branch_index/tagger.rs` — requires the daemon to
+construct the `WriteStoreFacade` impl with an injected embedder and store handle, tracked
+as a separate task so the existing ingest path stays working end-to-end until then.
+
 ## Hybrid Search Flow
 
 ```mermaid
