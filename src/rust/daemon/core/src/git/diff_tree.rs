@@ -2,31 +2,10 @@ use std::path::Path;
 
 use super::watcher_types::GitWatcherError;
 
-/// File change status from git diff-tree output
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FileChangeStatus {
-    /// Modified file (M)
-    Modified,
-    /// Added file (A)
-    Added,
-    /// Deleted file (D)
-    Deleted,
-    /// Renamed file (R) with similarity percentage
-    Renamed { old_path: String, similarity: u8 },
-    /// Copied file (C) with similarity percentage
-    Copied { src_path: String, similarity: u8 },
-    /// Type changed (T) -- e.g., file became symlink
-    TypeChanged,
-}
-
-/// A single file change from git diff-tree
-#[derive(Debug, Clone)]
-pub struct FileChange {
-    /// Change status (modified, added, deleted, etc.)
-    pub status: FileChangeStatus,
-    /// Path relative to repo root
-    pub path: String,
-}
+/// Git diff-tree value types relocated to `wqm-common` (F0); re-exported so
+/// `crate::git::{FileChange, FileChangeStatus}` and all call sites (incl. the
+/// `git/mod.rs` re-export, branch_switch) are unchanged (FP-2 one definition).
+pub use wqm_common::git::file_change::{FileChange, FileChangeStatus};
 
 /// Run git diff-tree between two commits to get the list of changed files.
 ///

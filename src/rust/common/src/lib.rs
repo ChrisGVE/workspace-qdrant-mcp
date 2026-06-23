@@ -20,6 +20,7 @@ pub mod document_id;
 pub mod duration_fmt;
 pub mod env_expand;
 pub mod exclusion;
+pub mod git;
 pub mod git_url;
 pub mod hashing;
 pub mod language_registry;
