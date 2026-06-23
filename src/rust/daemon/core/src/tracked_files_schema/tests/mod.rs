@@ -77,7 +77,7 @@ async fn insert_test_tracked_file(
     let branch = branch.unwrap_or(NO_BRANCH_SENTINEL);
     let identity = allocate_file_identity(pool, "t1", branch, relative_path).await?;
     let file_identity_id = identity.id().to_string();
-    let content_key = wqm_common::hashing::content_key("t1", &file_identity_id, file_hash);
+    let content_key = wqm_common::hashing::content_key_v3("t1", &file_identity_id, file_hash);
 
     insert_tracked_file_v48(
         pool,

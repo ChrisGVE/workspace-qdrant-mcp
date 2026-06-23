@@ -89,8 +89,9 @@ string_newtype! {
 }
 
 string_newtype! {
-    /// A content-addressing dedup key — the hex `String` returned by
-    /// `hashing::content_key(tenant_id, collection, identity, content_hash)`.
+    /// A content-addressing dedup key — the hex `String` returned by the canonical
+    /// `hashing::content_key_v4(tenant_id, collection, identity, content_hash)`
+    /// producer (or the legacy `content_key_v3` for `content_key_version = 3` tenants).
     /// Equal bytes in the same tenant always yield the same `ContentKey` (a dedup HIT).
     ContentKey
 }

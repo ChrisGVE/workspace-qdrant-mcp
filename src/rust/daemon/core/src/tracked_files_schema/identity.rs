@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::schema_version::SchemaManager;
     use sqlx::sqlite::SqlitePoolOptions;
-    use wqm_common::hashing::content_key;
+    use wqm_common::hashing::content_key_v3;
 
     const TENANT: &str = "tenant1";
     const NOW: &str = "2025-01-01T00:00:00.000Z";
@@ -246,7 +246,7 @@ mod tests {
         file_hash: &str,
     ) {
         let id = file_identity_id.to_string();
-        let ck = content_key(TENANT, &id, file_hash);
+        let ck = content_key_v3(TENANT, &id, file_hash);
         sqlx::query(
             "INSERT INTO tracked_files \
              (watch_folder_id, tenant_id, branch, file_identity_id, content_key, \
@@ -315,8 +315,8 @@ mod tests {
 
         // ONE content_key (same tenant, same identity, same bytes).
         let id = on_main.id().to_string();
-        let ck_main = content_key(TENANT, &id, hash);
-        let ck_feat = content_key(TENANT, &on_feat.id().to_string(), hash);
+        let ck_main = content_key_v3(TENANT, &id, hash);
+        let ck_feat = content_key_v3(TENANT, &on_feat.id().to_string(), hash);
         assert_eq!(ck_main, ck_feat, "axis A must yield one content_key");
     }
 
@@ -351,8 +351,8 @@ mod tests {
         );
 
         // Distinct content_keys → distinct real points.
-        let ck_a = content_key(TENANT, &file_a.id().to_string(), same_bytes);
-        let ck_b = content_key(TENANT, &file_b.id().to_string(), same_bytes);
+        let ck_a = content_key_v3(TENANT, &file_a.id().to_string(), same_bytes);
+        let ck_b = content_key_v3(TENANT, &file_b.id().to_string(), same_bytes);
         assert_ne!(
             ck_a, ck_b,
             "distinct identities over identical bytes must yield distinct content_keys"

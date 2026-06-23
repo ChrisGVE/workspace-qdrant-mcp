@@ -150,7 +150,7 @@ pub(super) async fn record_tracked_file(
     })?;
     let file_identity_id = identity.id().to_string();
     let content_key =
-        wqm_common::hashing::content_key(&item.tenant_id, &file_identity_id, file_hash);
+        wqm_common::hashing::content_key_v3(&item.tenant_id, &file_identity_id, file_hash);
 
     tracked_files_schema::insert_tracked_file_v48(
         pool,

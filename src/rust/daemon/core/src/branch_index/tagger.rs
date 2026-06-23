@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 
 use sqlx::{Row, SqlitePool};
-use wqm_common::hashing::content_key;
+use wqm_common::hashing::content_key_v3;
 use wqm_common::timestamps;
 
 use super::{EmbedInputs, IngestItem, TagOutcome, TagStored, TaggerError};
@@ -56,7 +56,7 @@ pub(crate) async fn tag_and_store(
     item: &IngestItem<'_>,
     embed: &EmbedInputs<'_>,
 ) -> Result<TagStored, TaggerError> {
-    let content_key = content_key(
+    let content_key = content_key_v3(
         item.tenant_id,
         &item.file_identity_id.to_string(),
         item.file_hash,
