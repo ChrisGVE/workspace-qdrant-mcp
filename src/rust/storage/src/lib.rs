@@ -18,8 +18,10 @@
 //! errors are `wqm_common::StorageError` (DR GP-9 — one error type, never a
 //! parallel definition).
 
+pub mod connection;
 pub mod qdrant;
 pub mod schema;
 pub mod types;
 
+pub use connection::open_store_readonly;
 pub use qdrant::QdrantReadClient;

@@ -47,6 +47,8 @@ trybuild = "1.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # serde round-trip tests for the facade stat DTOs (types::stats).
 serde_json = "1.0"
+# AC-F14.2 tests: create temp DB files for read-only connection tests.
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
