@@ -1,0 +1,5 @@
+error[E0599]: no method named `upsert_points` found for reference `&QdrantReadClient` in the current scope
+ --> tests/compile_fail/read_client_no_mutation.rs:6:20
+  |
+6 |     let _ = client.upsert_points();
+  |                    ^^^^^^^^^^^^^ method not found in `&QdrantReadClient`

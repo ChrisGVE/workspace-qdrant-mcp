@@ -1,0 +1,7 @@
+error[E0433]: cannot find module or crate `wqm_storage_write` in this scope
+ --> tests/compile_fail/call_write_schema.rs:4:5
+  |
+4 |     wqm_storage_write::schema::create_schema();
+  |     ^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `wqm_storage_write`
+  |
+  = help: if you wanted to use a crate named `wqm_storage_write`, use `cargo add wqm_storage_write` to add it to your `Cargo.toml`
