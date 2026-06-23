@@ -360,7 +360,7 @@ pub fn encode_dense(dense: &[f32]) -> Vec<u8> {
     out
 }
 
-/// Encode a sparse vector as `u32_le count` followed by `count` × (`u32_le term`,
+/// Encode a sparse vector as `u32_le count` followed by `count` x (`u32_le term`,
 /// `f32_le weight`) pairs. Terms are sorted so the encoding is deterministic for a
 /// given map (a `HashMap` has no inherent order).
 pub fn encode_sparse(sparse: &HashMap<u32, f32>) -> Vec<u8> {
