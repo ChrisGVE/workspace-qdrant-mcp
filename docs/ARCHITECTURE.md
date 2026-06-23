@@ -68,8 +68,12 @@ graph TB
 **Key invariants** (see [docs/specs/](./specs/) and the ADRs):
 
 - **Daemon owns all persistent state** (ADR-002, ADR-003): Qdrant writes and SQLite schema/mutations are daemon-only. MCP server and CLI route every mutation through daemon gRPC; their direct SQLite access is read-only.
+- **Single-writer enforcement** (GP-9, F14): `memexd` is the sole writer to all per-project `store.db` files and the Qdrant `projects` collection. Enforcement has three layers:
+  - **OS advisory lock**: on startup `memexd` acquires an exclusive `flock(2)` on `<data_dir>/daemon.lock` (`wqm-storage-write::single_writer::DaemonLock`). One lock per host/data-dir, not per-project. The OS releases it automatically on process exit or crash -- no manual stale detection needed for the crash case. A second process that finds the lock held is refused immediately with a clear error (fail-closed, no auto-reclaim). The daemon also writes a PID + timestamp heartbeat into the lock file; a staleness check is available as a diagnostic only (never force-reclaims). If a stale lock remains after a crash, the operator removes it manually.
+  - **Structurally read-only connections**: every non-daemon SQLite connection (MCP server, CLI) is opened with `SQLITE_OPEN_READONLY` and `PRAGMA query_only = ON` (`wqm-storage::connection::open_store_readonly`). A write attempt on such a connection returns an error regardless of the schema. WAL readers proceed without blocking the daemon writer.
+  - **No third write path**: any future write-capable operation (e.g. `wqm admin rebuild`) must acquire the same singleton advisory lock or run inside `memexd`. There is no third path.
 - **Enqueue-only gRPC pattern**: write-path gRPC handlers enqueue to the unified queue; the queue processor performs the actual mutation (see `docs/specs/04-write-path.md`).
-- **4 canonical collections** (ADR-001): `projects`, `libraries`, `rules`, `scratchpad` — fixed regardless of project count.
+- **4 canonical collections** (ADR-001): `projects`, `libraries`, `rules`, `scratchpad` -- fixed regardless of project count.
 - **Idempotency key**: `SHA256(item_type|op|tenant_id|collection|payload_json)[:32]`, computed identically in the daemon, MCP server, and CLI.
 
 ## Component Responsibilities
