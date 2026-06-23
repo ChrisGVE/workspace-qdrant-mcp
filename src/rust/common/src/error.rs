@@ -71,6 +71,13 @@ pub enum StorageError {
     /// raw indexed content.
     #[error("SQLite error: {0}")]
     Sqlite(String),
+
+    /// A second writer attempted to acquire the singleton OS advisory daemon lock
+    /// (`<data_dir>/daemon.lock`) while it was already held by another process
+    /// (AC-F14.1). The message identifies the lock path and instructs the operator.
+    /// Fail-closed: never auto-reclaimed.
+    #[error("Lock conflict: {0}")]
+    LockConflict(String),
 }
 
 impl From<QdrantError> for StorageError {
