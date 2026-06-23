@@ -608,4 +608,102 @@ mod tests {
         assert_ne!(point_id(&ck_a, 1), point_id(&ck_b, 1));
         assert_ne!(point_id(&ck_a, 1), point_id(&ck_a, 2));
     }
+
+    // ---- F0: producers pinned to one canonical home (FP-2) + golden output lock ----
+
+    /// T-F0-golden: literal golden values for the `content_key` and `point_id`
+    /// producers. These pin the EXACT bytes the canonical producers emit. Any change
+    /// to the framing, field order, hash backend, or [`POINT_NS`] namespace flips
+    /// these values and the test fails loudly — which is the point: content addressing
+    /// is a stored contract (point IDs already persisted in every corpus), so a
+    /// behavioral change must be a deliberate, version-gated migration, never silent
+    /// drift. The golden values were computed out-of-band from the documented formula
+    /// (`hex(SHA256(lp..))` and `UUIDv5(POINT_NS, lp..)`).
+    #[test]
+    fn t_f0_producer_golden_vectors() {
+        let ck = content_key("tenant_golden", "fid-golden", &"ab".repeat(32));
+        assert_eq!(
+            ck, "829340abef5c0c8c6760f472b0d687a0dd9525f74fe03130f20cb1c8bd893b88",
+            "content_key golden vector changed — content addressing would break"
+        );
+        let pid = point_id(&ck, 0);
+        assert_eq!(
+            pid.to_string(),
+            "d2736140-73aa-5ae6-b133-71d846462533",
+            "point_id golden vector changed — stored Qdrant point IDs would break"
+        );
+    }
+
+    /// T-F0-single-home (FP-2): the content-addressing producers have exactly ONE
+    /// definition tree-wide, here in `wqm-common::hashing`. A second definition
+    /// anywhere is the drift FP-2 forbids — two producers can silently diverge and
+    /// split a corpus into incompatible key spaces. The guard walks the workspace
+    /// Rust source and counts `pub fn` producer signatures, asserting one each.
+    #[test]
+    fn t_f0_producers_have_single_definition() {
+        use std::path::{Path, PathBuf};
+
+        // Locate the workspace source root (src/rust): walk up from this crate's
+        // manifest dir until a directory holding both the `common` and `daemon`
+        // members. Outside the in-repo tree (e.g. a packaged crate) the guard no-ops.
+        let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let ws_root = loop {
+            if root.join("common").is_dir() && root.join("daemon").is_dir() {
+                break Some(root.clone());
+            }
+            if !root.pop() {
+                break None;
+            }
+        };
+        let Some(ws_root) = ws_root else {
+            return;
+        };
+
+        let producers = [
+            "pub fn content_key(",
+            "pub fn point_id(",
+            "pub fn content_point_id(",
+        ];
+        let mut counts = [0usize; 3];
+
+        fn walk(dir: &Path, f: &mut impl FnMut(&Path)) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    if name == "target" || name.starts_with('.') {
+                        continue;
+                    }
+                    walk(&p, f);
+                } else if p.extension().and_then(|s| s.to_str()) == Some("rs") {
+                    f(&p);
+                }
+            }
+        }
+
+        walk(&ws_root, &mut |p| {
+            let Ok(src) = std::fs::read_to_string(p) else {
+                return;
+            };
+            for line in src.lines() {
+                let t = line.trim_start();
+                for (i, pat) in producers.iter().enumerate() {
+                    if t.starts_with(pat) {
+                        counts[i] += 1;
+                    }
+                }
+            }
+        });
+
+        for (i, pat) in producers.iter().enumerate() {
+            assert_eq!(
+                counts[i], 1,
+                "expected exactly one definition of `{}` tree-wide, found {} (FP-2 single-home violated)",
+                pat, counts[i]
+            );
+        }
+    }
 }
