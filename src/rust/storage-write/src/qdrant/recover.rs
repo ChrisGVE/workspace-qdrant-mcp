@@ -32,7 +32,7 @@
 //! `(point_id, dense, sparse, payload)` tuples for assertion.
 //!
 //! Neighbors: [`crate::qdrant::collection`] (collection + index creation),
-//!   [`crate::blob::ladder::{decode_dense, decode_sparse}`] (vector decode),
+//!   [`crate::blob::vector_codec::{decode_dense, decode_sparse}`] (vector decode),
 //!   [`crate::qdrant::membership::blob_payload_to_qdrant`] (payload map),
 //!   [`crate::blob::ladder::BlobPayload`] (three-field payload shape).
 
@@ -45,7 +45,8 @@ use qdrant_client::qdrant::{
 use sqlx::{Row, SqlitePool};
 use wqm_common::error::StorageError;
 
-use crate::blob::ladder::{decode_dense, decode_sparse, BlobPayload};
+use crate::blob::ladder::BlobPayload;
+use crate::blob::vector_codec::{decode_dense, decode_sparse};
 use crate::qdrant::membership::blob_payload_to_qdrant;
 use crate::qdrant::write_client::QdrantWriteClient;
 
@@ -344,3 +345,7 @@ fn parse_branch_ids_json(json: &str, blob_id: i64) -> Vec<String> {
 #[cfg(test)]
 #[path = "recover_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "recover_memory_tests.rs"]
+mod memory_tests;
