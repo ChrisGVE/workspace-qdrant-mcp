@@ -370,6 +370,54 @@ pub fn encode_sparse(sparse: &HashMap<u32, f32>) -> Vec<u8> {
     out
 }
 
+/// Decode a dense vector from the little-endian `f32` byte array produced by
+/// [`encode_dense`]. Returns an empty `Vec` for empty input. Panics if
+/// `bytes.len()` is not a multiple of 4 (caller-enforced invariant: the SQLite
+/// column stores exactly `encode_dense` output).
+pub fn decode_dense(bytes: &[u8]) -> Vec<f32> {
+    assert!(
+        bytes.len() % 4 == 0,
+        "decode_dense: byte length {} is not a multiple of 4 -- corrupted blobs.dense_vec",
+        bytes.len()
+    );
+    bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect()
+}
+
+/// Decode a sparse vector from the byte format produced by [`encode_sparse`]:
+/// `u32_le count` followed by `count` x (`u32_le term`, `f32_le weight`) pairs.
+/// Returns an empty `HashMap` for empty input. Panics if the byte stream is
+/// malformed (caller-enforced invariant: the SQLite column stores exactly
+/// `encode_sparse` output).
+pub fn decode_sparse(bytes: &[u8]) -> HashMap<u32, f32> {
+    if bytes.is_empty() {
+        return HashMap::new();
+    }
+    assert!(
+        bytes.len() >= 4,
+        "decode_sparse: too short ({} bytes) -- corrupted blobs.sparse_vec",
+        bytes.len()
+    );
+    let count = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+    let expected_len = 4 + count * 8;
+    assert!(
+        bytes.len() == expected_len,
+        "decode_sparse: expected {} bytes for {count} entries, got {} -- corrupted blobs.sparse_vec",
+        expected_len,
+        bytes.len()
+    );
+    let mut map = HashMap::with_capacity(count);
+    for i in 0..count {
+        let base = 4 + i * 8;
+        let term = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap());
+        let weight = f32::from_le_bytes(bytes[base + 4..base + 8].try_into().unwrap());
+        map.insert(term, weight);
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
