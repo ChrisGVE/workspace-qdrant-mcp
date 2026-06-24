@@ -16,6 +16,7 @@
 //! `wqm-client`. Outward errors are `wqm_common::StorageError` (DR GP-9).
 
 pub mod blob;
+pub mod branch;
 pub mod connection;
 pub mod migrations;
 pub mod qdrant;
@@ -23,7 +24,11 @@ pub mod registry;
 pub mod schema;
 pub mod single_writer;
 
-pub use blob::{ingest_file, ContentKeyLockManager, Embedder, IngestParams};
+pub use blob::{
+    blob_refcount, delete_file_from_branch, delete_orphan_blob_row, ingest_file,
+    ContentKeyLockManager, Embedder, IngestParams,
+};
+pub use branch::{branch_delete, delete_decision, probe_branch, DeleteAction, GitBranchProbe};
 pub use connection::{open_store, open_store_write};
 pub use qdrant::{MembershipPutBatch, PendingMembershipPut, QdrantWriteClient};
 pub use single_writer::{DaemonLock, DaemonLockConfig};

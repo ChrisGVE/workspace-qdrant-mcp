@@ -43,6 +43,9 @@ qdrant-client = "1"
 # [workspace.dependencies] (libc is a direct dep of daemon/core + daemon/memexd with
 # explicit "0.2" strings there; the workspace does not host it). fs2 is FORBIDDEN.
 libc = "0.2"
+# class E — git2 for GP-4 deletion truth table probe (AC-F9.1). Version matches
+# daemon/core to avoid duplicate compilations. No shell git anywhere in this crate.
+git2 = { version = "0.20", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

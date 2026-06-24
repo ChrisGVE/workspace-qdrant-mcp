@@ -9184,6 +9184,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap 6.2.1",
+ "git2",
  "libc",
  "qdrant-client",
  "serde",

@@ -20,12 +20,16 @@
 
 pub mod dedup;
 pub mod embed;
+pub mod file_delete;
+pub mod gc;
 pub mod ladder;
 pub mod lock;
 pub mod membership;
 
 pub use dedup::{ingest_file, IngestParams};
 pub use embed::{EmbeddedChunk, Embedder};
+pub use file_delete::delete_file_from_branch;
+pub use gc::{blob_refcount, delete_orphan_blob_row};
 pub use ladder::{BlobPayload, QdrantOp, QdrantSink};
 pub use lock::{ContentKeyLock, ContentKeyLockManager, LockManagerConfig};
 

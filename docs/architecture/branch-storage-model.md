@@ -2182,8 +2182,18 @@ src/rust/storage-write/
     ├── branch/
     │   ├── mod.rs          (~50 lines)
     │   ├── onboard.rs      (~300 lines)  — branch_onboard: register + git diff + ingest loop
-    │   ├── delete.rs       (~350 lines)  — branch_delete: FP-1 ordering + truth-table check
-    │   │                                   + bounded chunked DELETE + orphan re-verify sequence
+    │   ├── probe.rs        (~180 lines)  — GP-4 truth-table types (DeleteAction, GitBranchProbe)
+    │   │                                   + git2-backed probe_branch + pure delete_decision fn.
+    │   │                                   Separated so the decision function is unit-testable
+    │   │                                   without a git repository (AC-F9.1).
+    │   ├── steps.rs        (~350 lines)  — SQL step helpers step1–step8 + BlobCandidate.
+    │   │                                   All SQL mutations: preselect, orphan GROUP BY,
+    │   │                                   chunked DELETE, ABA-guarded orphan blob delete,
+    │   │                                   survivor membership PUT enqueue, files cleanup,
+    │   │                                   branch row delete last (crash-recovery anchor).
+    │   ├── delete.rs       (~140 lines)  — Thin orchestrator: branch_delete public async fn +
+    │   │                                   test module. Imports from probe + steps; holds the
+    │   │                                   AC-F9.x test coverage for the whole branch-delete path.
     │   └── registry.rs     (~150 lines)  — branches table CRUD (write path)
     ├── project/
     │   ├── mod.rs          (~50 lines)
@@ -2257,14 +2267,14 @@ second FTS5 implementation exists anywhere in the crate tree.
 | `daemon/core/src/graph/ladybug_store/store.rs` | 1869 | Not in scope; flagged |
 | `client/project.rs` | ~417 | Superseded by `wqm-storage/project/resolver.rs`; retire after callers migrated |
 | `search_db/` module | n/a | Retired; replaced by `wqm-storage/fts/`. `search.db` removed; FTS5 lives in `store.db` |
-| `branch_cleanup/` module | n/a | Retired; replaced by `wqm-storage-write/branch/delete.rs` + `blob/gc.rs` |
+| `branch_cleanup/` module | n/a | Replacement (`wqm-storage-write/branch/delete.rs` + `probe.rs` + `steps.rs` + `blob/gc.rs`) implemented and tested. Daemon cutover (wiring `memexd` to call `branch_delete` instead of `branch_cleanup/`) is DEFERRED to task #175; until then `branch_cleanup/` continues serving the daemon unchanged. |
 
 ### Existing modules that are unchanged or extended
 
 - `git/` — promoted to topology source of truth (additive consumers: `branch/onboard.rs`,
-  `branch/delete.rs`, §4.7 reconcile). API unchanged (no new public types needed).
-  The doc's prior "unchanged API" understated this: these are additive consumers, not
-  new API surface.
+  `branch/probe.rs` + `branch/delete.rs`, §4.7 reconcile). API unchanged (no new public
+  types needed). The doc's prior "unchanged API" understated this: these are additive
+  consumers, not new API surface.
 - `common/src/exclusion.rs` (canonical path: `src/rust/common/src/exclusion.rs`) —
   unchanged; used by git topology reader and discovery walk.
 - `common/src/hashing.rs` — unchanged as a file; generalized call-site in

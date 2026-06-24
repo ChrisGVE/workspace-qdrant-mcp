@@ -32,10 +32,11 @@ use crate::blob::embed::{EmbeddedChunk, Embedder};
 
 /// A Qdrant mutation the ladder enqueues for the batch flush (GP-6).
 ///
-/// The two ladder cases map to the two variants:
+/// The three ladder cases map to the three variants:
 ///   - MISS -> [`QdrantOp::Upsert`] (new point: vectors + initial single-branch payload).
 ///   - HIT  -> [`QdrantOp::OverwritePayload`] (PUT — full payload replacement with the
 ///     recomputed full branch set; NO vectors, NO re-embed).
+///   - DELETE (F9 orphan) -> [`QdrantOp::Delete`] (remove the point; no payload update).
 ///
 /// `set_payload` (POST) is deliberately NOT representable: it has no array-append mode
 /// and would silently drop prior memberships (arch §5.3 / AC-F6.2). Every payload
@@ -55,6 +56,16 @@ pub enum QdrantOp {
     OverwritePayload {
         point_id: String,
         payload: BlobPayload,
+    },
+    /// Orphaned blob: delete the Qdrant point (F9 Step 3).
+    ///
+    /// Enqueued BEFORE the SQLite blobs row is deleted (FP-1: data product first,
+    /// truth row last). The `collection` field names the Qdrant collection to target.
+    /// The delete is applied by calling `QdrantWriteClient::delete_points` during
+    /// the batch flush; tests capture it via `CaptureSink` without a live client.
+    Delete {
+        point_id: String,
+        collection: String,
     },
 }
 

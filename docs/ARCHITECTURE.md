@@ -288,6 +288,48 @@ inside the per-content_key lock; the Qdrant PUT flushes outside via
 `MembershipPutBatch` (`wqm-storage-write/src/qdrant/membership_batch.rs`).
 Full benchmark report: `docs/benchmarks/F19-put-vs-upsert.md`.
 
+### Branch delete + blob GC (branch-storage F9)
+
+Whole-branch deletion and single-file deletion are implemented in `wqm-storage-write`
+and follow the **FP-1 physical-delete ordering** (data products before truth rows,
+truth rows committed before data products on ingest):
+
+**Module layout** (three-file split for arch §9 line-budget compliance):
+- `branch/probe.rs` — `DeleteAction`, `GitBranchProbe`, `delete_decision` (pure, no
+  side effects), `probe_branch` (git2-backed). Split out so the truth-table decision
+  function is unit-testable without a real git repository (AC-F9.1).
+- `branch/steps.rs` — `BlobCandidate`, `step1_preselect` through `step8_delete_branch`.
+  All SQL mutations for the 8-step sequence.
+- `branch/delete.rs` — Thin orchestrator: `branch_delete` public async fn + test module.
+- `blob/gc.rs` — `blob_refcount`, `delete_orphan_blob_row` (refcount-guarded GC helpers).
+- `blob/file_delete.rs` — `delete_file_from_branch` (single-file delete, same 8-step
+  FP-1 ordering scoped to one `file_id`).
+
+**GP-4 truth table** (arch §4.3): deletion requires POSITIVE confirmation. A transient
+`git2::ErrorCode::NotFound` (ambiguous: genuine absence vs. network error on a
+remote-tracking ref) maps to **DEFER**, never Proceed.
+
+| Git probe result | Action |
+|---|---|
+| `for-each-ref` empty + reflog delete event | Proceed |
+| Branch present in topology | Keep |
+| git2 error / I/O / Auth / NotFound-ambiguous | DEFER |
+| Reflog unavailable / git dir unreachable | DEFER |
+
+**8-step FP-1 sequence** (`branch_delete`, arch §4.3/§5.5):
+1. Pre-select all `(blob_id, point_id, content_key)` for the branch (read-only, outside tx).
+2. Identify orphan candidates via `GROUP BY blob_id HAVING SUM(other-branch refs) = 0` (batched ≤1000).
+3. Enqueue `QdrantOp::Delete` for orphaned points — **data product before truth row** (FP-1 Step 3).
+4. Chunked branch-wide DELETE of `fts_branch_membership` / `blob_refs` / `concrete` (subselect idiom; `DELETE ... LIMIT` is invalid without `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`).
+5. ABA-guarded re-verify under `BEGIN IMMEDIATE`: delete only still-unrefenced blobs rows.
+6. Recompute membership for survivors (INSIDE `ContentKeyLock`); enqueue PUTs into `MembershipPutBatch`; flush OUTSIDE all locks (AC-F19.3).
+7. DELETE orphaned `files` rows (no blob_refs from other branches).
+8. DELETE `branches` row **LAST** — crash-recovery anchor (arch §4.3).
+
+The `branch_cleanup/` module in `daemon/core` is **not retired** by this implementation:
+the daemon cutover (wiring `memexd` to call `branch_delete` instead of `branch_cleanup/`)
+is deferred to task #175. Until then `branch_cleanup/` continues serving the daemon.
+
 ## Hybrid Search Flow
 
 ```mermaid
