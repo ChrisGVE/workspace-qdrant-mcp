@@ -52,6 +52,28 @@ pub struct RebuildStats {
     pub blobs_scanned: usize,
 }
 
+/// Result of `apply_git_diff` -- incremental update from a macro git op (arch §4.6).
+///
+/// Counts per change-kind so callers can distinguish ingest from deletion work.
+/// All fields default to 0 so a no-change diff is `DiffApplyStats::default()`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffApplyStats {
+    /// Files processed as Added (new ingest path).
+    pub files_added: usize,
+    /// Files processed as Modified (re-ingest path).
+    pub files_modified: usize,
+    /// Files removed from the branch via single-file delete (F9).
+    pub files_deleted: usize,
+    /// Files processed as Renamed: ingest(new) + delete(old).
+    pub files_renamed: usize,
+    /// Total chunks ingested across added + modified + renamed-new paths.
+    pub chunks_ingested: usize,
+    /// Chunk-blobs newly embedded and stored (content_key misses).
+    pub blobs_created: usize,
+    /// Chunk-blobs reused via membership only (content_key hits -- no re-embed).
+    pub blobs_reused: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,6 +84,7 @@ mod tests {
         assert_eq!(BranchOnboardStats::default().files_changed, 0);
         assert_eq!(BranchDeleteStats::default().blobs_gc, 0);
         assert_eq!(RebuildStats::default().points_rebuilt, 0);
+        assert_eq!(DiffApplyStats::default().files_added, 0);
     }
 
     #[test]

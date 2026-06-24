@@ -46,6 +46,8 @@ libc = "0.2"
 # class E — git2 for GP-4 deletion truth table probe (AC-F9.1). Version matches
 # daemon/core to avoid duplicate compilations. No shell git anywhere in this crate.
 git2 = { version = "0.20", default-features = false }
+# class W -- JSON cursor serialization for branch sync_metadata (AC-F8.2).
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
