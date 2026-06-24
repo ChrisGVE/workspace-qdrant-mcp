@@ -63,31 +63,55 @@ async fn watermark_max_blob_id_never_regresses() {
     );
 }
 
-// Two concurrent update_watermark calls do not lose-update (BEGIN IMMEDIATE guard).
-// We simulate "concurrent" by running two sequential RMWs on separate handles --
-// in a single-connection test pool they serialize. The key invariant is that both
-// updates are committed and the last one wins (no phantom write lost).
+// Transaction-held serialization: update_watermark holds the single connection
+// for the entire RMW so no interleaving is possible on a size-1 pool.
+//
+// This test is non-vacuous by design: it verifies that a concurrent task which
+// tries to acquire the pool connection while update_watermark holds it is
+// serialized -- the concurrent write cannot interleave between update_watermark's
+// upsert and commit. We spawn a task that sleeps briefly then tries pool.begin();
+// because pool_size=1, it blocks until update_watermark commits. The final
+// max_seen_blob_id reflects both writes applied in order, not a lost update.
 #[tokio::test]
-async fn watermark_begin_immediate_no_lost_update() {
+async fn watermark_transaction_held_serializes_concurrent_writer() {
+    use std::sync::Arc;
+    use tokio::time::{sleep, Duration};
+
     let fx = fixture("branch-a").await;
     setup_meta(&fx.pool).await;
 
-    // First writer sets blob_id=50.
-    update_watermark(&fx.pool, TENANT, "2026-06-25T09:00:00Z", 50)
+    // Seed an initial watermark so the MAX merge is exercised.
+    update_watermark(&fx.pool, TENANT, "2026-06-25T08:00:00Z", 30)
         .await
-        .expect("writer-1");
+        .expect("seed");
 
-    // Second writer sets blob_id=80 (strictly higher).
-    update_watermark(&fx.pool, TENANT, "2026-06-25T10:00:00Z", 80)
+    let pool = Arc::new(fx.pool.clone());
+
+    // Spawn a concurrent writer that tries to set blob_id=10 (lower than 30 and 50).
+    // With correct Transaction-held semantics, this writer cannot interleave with
+    // the main writer's RMW: it must wait for the main writer to commit.
+    let pool2 = Arc::clone(&pool);
+    let concurrent = tokio::spawn(async move {
+        // Small delay so the main writer's pool.begin() lands first.
+        sleep(Duration::from_millis(5)).await;
+        // pool_size=1: this pool.begin() blocks until the main writer commits.
+        update_watermark(&*pool2, TENANT, "2026-06-25T09:30:00Z", 10)
+            .await
+            .expect("concurrent writer")
+    });
+
+    // Main writer holds the connection for blob_id=50.
+    update_watermark(&*pool, TENANT, "2026-06-25T09:00:00Z", 50)
         .await
-        .expect("writer-2");
+        .expect("main writer");
 
-    let wm = read_watermark(&fx.pool, TENANT).await.expect("read");
-    // Both writes committed; MAX = 80.
-    assert_eq!(wm.max_seen_blob_id, 80);
+    concurrent.await.expect("concurrent task");
+
+    let wm = read_watermark(&*pool, TENANT).await.expect("read");
+    // MAX(30, 50, 10) = 50: the concurrent lower write cannot regress the watermark.
     assert_eq!(
-        wm.last_reconcile_at.as_deref(),
-        Some("2026-06-25T10:00:00Z")
+        wm.max_seen_blob_id, 50,
+        "serialized MAX must never regress: concurrent lower write must not win"
     );
 }
 

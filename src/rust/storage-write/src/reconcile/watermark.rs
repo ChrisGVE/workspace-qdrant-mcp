@@ -32,7 +32,7 @@
 //! Neighbors: [`super::mod`] (the reconcile pass that calls this module),
 //!   F13 (which reuses `maintenance_meta` for migration-epoch rows).
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use wqm_common::error::StorageError;
 
 /// DDL for `maintenance_meta` -- created IF NOT EXISTS so F15 and F13 can both
@@ -128,8 +128,10 @@ pub async fn read_watermark(
 
 /// Update the watermark for `tenant_id` after a successful pass.
 ///
-/// Runs under `BEGIN IMMEDIATE` (DATA-NIT-02) so a concurrent migration
-/// writer cannot clobber this update. The caller supplies:
+/// Holds a `pool.begin()` transaction for the entire RMW (DATA-NIT-02).
+/// Keeping the single connection inside `tx` for both the upsert and the
+/// commit prevents any concurrent writer from slipping between read and write
+/// (lost-update safety). The caller supplies:
 /// - `now_iso8601` -- current timestamp (injectable for tests).
 /// - `max_blob_id` -- the highest `blob_id` the pass scanned.
 pub async fn update_watermark(
@@ -138,13 +140,12 @@ pub async fn update_watermark(
     now_iso8601: &str,
     max_blob_id: i64,
 ) -> Result<(), StorageError> {
-    // BEGIN IMMEDIATE serializes concurrent RMW (DATA-NIT-02).
-    sqlx::query("BEGIN IMMEDIATE")
-        .execute(pool)
+    let mut tx: Transaction<'_, Sqlite> = pool
+        .begin()
         .await
-        .map_err(|e| StorageError::Sqlite(format!("update_watermark BEGIN: {e}")))?;
+        .map_err(|e| StorageError::Sqlite(format!("update_watermark begin: {e}")))?;
 
-    let result = sqlx::query(
+    sqlx::query(
         "INSERT INTO maintenance_meta(tenant_id, last_reconcile_at, max_seen_blob_id) \
          VALUES (?, ?, ?) \
          ON CONFLICT(tenant_id) DO UPDATE SET \
@@ -154,26 +155,18 @@ pub async fn update_watermark(
     .bind(tenant_id)
     .bind(now_iso8601)
     .bind(max_blob_id)
-    .execute(pool)
-    .await;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| StorageError::Sqlite(format!("update_watermark upsert: {e}")))?;
 
-    match result {
-        Ok(_) => {
-            sqlx::query("COMMIT")
-                .execute(pool)
-                .await
-                .map_err(|e| StorageError::Sqlite(format!("update_watermark COMMIT: {e}")))?;
-            Ok(())
-        }
-        Err(e) => {
-            let _ = sqlx::query("ROLLBACK").execute(pool).await;
-            Err(StorageError::Sqlite(format!("update_watermark: {e}")))
-        }
-    }
+    tx.commit()
+        .await
+        .map_err(|e| StorageError::Sqlite(format!("update_watermark commit: {e}")))
 }
 
 /// Record a tenant-move event in `maintenance_meta.last_tenant_move_at`.
 ///
+/// Holds a `pool.begin()` transaction for the entire RMW (DATA-NIT-02).
 /// Called by F16 (AC-F16.2 / AC-F16.5) when a tenant-move operation starts.
 /// This feeds the M4 detection bound for case-5.
 pub async fn record_tenant_move(
@@ -181,12 +174,12 @@ pub async fn record_tenant_move(
     tenant_id: &str,
     now_iso8601: &str,
 ) -> Result<(), StorageError> {
-    sqlx::query("BEGIN IMMEDIATE")
-        .execute(pool)
+    let mut tx: Transaction<'_, Sqlite> = pool
+        .begin()
         .await
-        .map_err(|e| StorageError::Sqlite(format!("record_tenant_move BEGIN: {e}")))?;
+        .map_err(|e| StorageError::Sqlite(format!("record_tenant_move begin: {e}")))?;
 
-    let result = sqlx::query(
+    sqlx::query(
         "INSERT INTO maintenance_meta(tenant_id, last_tenant_move_at) \
          VALUES (?, ?) \
          ON CONFLICT(tenant_id) DO UPDATE SET \
@@ -194,22 +187,13 @@ pub async fn record_tenant_move(
     )
     .bind(tenant_id)
     .bind(now_iso8601)
-    .execute(pool)
-    .await;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| StorageError::Sqlite(format!("record_tenant_move upsert: {e}")))?;
 
-    match result {
-        Ok(_) => {
-            sqlx::query("COMMIT")
-                .execute(pool)
-                .await
-                .map_err(|e| StorageError::Sqlite(format!("record_tenant_move COMMIT: {e}")))?;
-            Ok(())
-        }
-        Err(e) => {
-            let _ = sqlx::query("ROLLBACK").execute(pool).await;
-            Err(StorageError::Sqlite(format!("record_tenant_move: {e}")))
-        }
-    }
+    tx.commit()
+        .await
+        .map_err(|e| StorageError::Sqlite(format!("record_tenant_move commit: {e}")))
 }
 
 // ---------------------------------------------------------------------------
