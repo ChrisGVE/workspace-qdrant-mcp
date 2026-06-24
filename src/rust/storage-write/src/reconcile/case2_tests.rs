@@ -89,29 +89,50 @@ async fn case2_orphan_blob_is_deleted_and_delete_op_enqueued() {
     assert_eq!(count, 0, "orphan blob row must be deleted from SQLite");
 }
 
-// AC-F15.3 ABA guard: a blob that gains a ref after the candidate scan is NOT deleted.
+// AC-F15.3 ABA guard (non-vacuous): a ref inserted BETWEEN scan_orphan_candidates
+// and confirm_and_delete_orphan causes the blob to be classified as a survivor.
+//
+// This is the genuine ABA scenario: the candidate scan sees count=0 (orphan).
+// Before confirm runs, a concurrent ingest commits a new blob_ref (here we do it
+// synchronously between the two calls). confirm re-reads count inside its held
+// transaction and sees count=1 -- the blob is NOT deleted.
+//
+// This directly tests the property that would have been broken by the old
+// raw BEGIN/COMMIT pattern: the re-verify inside confirm must see the ref.
+// With pool.begin() holding the connection for the re-verify + delete, the only
+// way a ref can appear in the re-verify is if it was committed BEFORE confirm
+// acquired the connection -- which is exactly what this test sets up.
 #[tokio::test]
-async fn case2_aba_survivor_is_kept_alive() {
+async fn case2_aba_ref_inserted_between_scan_and_confirm_survives() {
     let fx = fixture(BRANCH_A).await;
 
-    // Insert blob without any ref first.
-    let blob_id = insert_blob(&fx.pool, "pt-aba").await;
+    // Insert blob with no refs -- scan will find it as an orphan candidate.
+    let blob_id = insert_blob(&fx.pool, "pt-aba-between").await;
 
-    // Now add a ref BEFORE calling run_case2 -- simulates the ABA window where
-    // a concurrent ingest added a ref after an earlier refcount=0 snapshot but
-    // before the DELETE. In a single-threaded test we model this by inserting the
-    // ref before the pass runs; the BEGIN IMMEDIATE re-verify will see count=1.
-    insert_ref(&fx.pool, BRANCH_A, blob_id, "aba.rs").await;
+    // Step 1: scan finds the blob as an orphan (count=0).
+    let candidates = scan_orphan_candidates(&fx.pool, 0).await.expect("scan");
+    assert_eq!(candidates.len(), 1, "scan must find one orphan candidate");
+    assert_eq!(candidates[0].blob_id, blob_id);
 
+    // Step 2: simulate concurrent ingest -- insert a ref AFTER the scan.
+    // In production this would happen in a separate tokio task. Here we do it
+    // synchronously to make the test deterministic.
+    insert_ref(&fx.pool, BRANCH_A, blob_id, "aba-between.rs").await;
+
+    // Step 3: confirm runs and re-reads the refcount inside its held transaction.
+    // It must see count=1 and return false (ABA survivor -- blob kept alive).
     let mut sink = CaptureSink::default();
-    let deleted = run_case2(&fx.pool, &mut sink, 0, COLL)
+    let deleted = confirm_and_delete_orphan(&fx.pool, &mut sink, &candidates[0], COLL)
         .await
-        .expect("case2");
+        .expect("confirm");
 
-    assert_eq!(deleted, 0, "ABA survivor must not be deleted");
+    assert!(
+        !deleted,
+        "ABA survivor: ref inserted after scan must prevent deletion"
+    );
     assert!(
         sink.ops.is_empty(),
-        "no Delete op for a blob that has a live referrer"
+        "ABA survivor: no Delete op must be enqueued"
     );
 
     // Blob row must still exist.
@@ -120,7 +141,7 @@ async fn case2_aba_survivor_is_kept_alive() {
         .fetch_one(&fx.pool)
         .await
         .expect("count");
-    assert_eq!(count, 1, "ABA survivor blob row must remain in SQLite");
+    assert_eq!(count, 1, "ABA survivor: blob row must remain in SQLite");
 }
 
 // Referenced blob is NOT pruned.
