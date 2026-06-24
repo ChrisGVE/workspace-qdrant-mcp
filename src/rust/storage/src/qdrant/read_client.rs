@@ -23,6 +23,10 @@ use qdrant_client::{Qdrant, QdrantError};
 /// Construct with [`QdrantReadClient::new`] from an already-built `Qdrant`
 /// handle. Only the read methods below are reachable; the wrapped client is
 /// private and never exposed (no field access, no `Deref`).
+///
+/// `Clone` is derived because `Qdrant` is internally `Arc`-based (cheap to
+/// clone); needed by the F17 fan-out tasks which capture a client per task.
+#[derive(Clone)]
 pub struct QdrantReadClient {
     inner: Qdrant,
 }

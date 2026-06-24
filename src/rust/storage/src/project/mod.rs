@@ -10,4 +10,4 @@
 
 pub mod resolver;
 
-pub use resolver::{BranchEntry, ProjectRegistry};
+pub use resolver::{BranchEntry, ProjectRegistry, SearchScope};
