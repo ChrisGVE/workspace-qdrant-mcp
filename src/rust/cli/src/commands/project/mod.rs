@@ -150,21 +150,38 @@ enum ProjectCommand {
         dry_run: bool,
     },
 
-    /// List branches known to the index for this project
+    /// List branches known to the branch-storage index for this project
     #[command(
-        long_about = "Show all git branches that have indexed files in this project. Each branch \
-            is listed with its indexed file count. The currently checked-out branch is marked \
-            in the Current column. Branch data comes from the `tracked_files.branches` JSON \
-            arrays in the local state database — no daemon connection required.\n\n\
+        long_about = "Show all git branches registered for this project in the branch-storage \
+            index. Each row shows the branch name, its current sync state (pending / indexing / \
+            current / error), checkout location, and whether the branch is active. Data is read \
+            from state.db project_locations -- no daemon connection required.\n\n\
+            Use --json for structured output, --script for tab-separated machine-readable output, \
+            and --no-headers to suppress the header row in script mode.\n\n\
             Use `--branch \"*\"` on `wqm search project` to search across all branches.",
         after_long_help = "Examples:\n  \
             wqm project branches                        List branches for current project\n  \
             wqm project branches my-project             List branches for a named project\n  \
-            wqm project branches /path/to/repo          List branches for a specific path"
+            wqm project branches /path/to/repo          List branches for a specific path\n  \
+            wqm project branches --json                 Output as JSON\n  \
+            wqm project branches --script               Machine-readable tab-separated output\n  \
+            wqm project branches --script --no-headers  Script output without header row"
     )]
     Branches {
         /// Project name, ID, or path (auto-detected from CWD if omitted)
         project: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Output as tab-separated script-friendly format
+        #[arg(long)]
+        script: bool,
+
+        /// Omit headers in script output
+        #[arg(long)]
+        no_headers: bool,
     },
 
     /// Show group memberships for this project
@@ -256,7 +273,12 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
         ProjectCommand::List { active, verbose } => {
             list::list_projects(active, verbose, None).await
         }
-        ProjectCommand::Branches { project } => branches::list_branches(project.as_deref()).await,
+        ProjectCommand::Branches {
+            project,
+            json,
+            script,
+            no_headers,
+        } => branches::list_branches(project.as_deref(), json, script, no_headers).await,
         ProjectCommand::Groups {
             project,
             strategy,
