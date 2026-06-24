@@ -19,9 +19,14 @@
 //! parallel definition).
 
 pub mod connection;
+pub mod facade;
+pub mod fts;
+pub mod project;
 pub mod qdrant;
 pub mod schema;
 pub mod types;
 
 pub use connection::open_store_readonly;
+pub use facade::ReadStoreFacade;
+pub use project::ProjectRegistry;
 pub use qdrant::QdrantReadClient;
