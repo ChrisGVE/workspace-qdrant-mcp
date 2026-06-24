@@ -95,19 +95,19 @@ async fn watermark_transaction_held_serializes_concurrent_writer() {
         // Small delay so the main writer's pool.begin() lands first.
         sleep(Duration::from_millis(5)).await;
         // pool_size=1: this pool.begin() blocks until the main writer commits.
-        update_watermark(&*pool2, TENANT, "2026-06-25T09:30:00Z", 10)
+        update_watermark(&pool2, TENANT, "2026-06-25T09:30:00Z", 10)
             .await
             .expect("concurrent writer")
     });
 
     // Main writer holds the connection for blob_id=50.
-    update_watermark(&*pool, TENANT, "2026-06-25T09:00:00Z", 50)
+    update_watermark(&pool, TENANT, "2026-06-25T09:00:00Z", 50)
         .await
         .expect("main writer");
 
     concurrent.await.expect("concurrent task");
 
-    let wm = read_watermark(&*pool, TENANT).await.expect("read");
+    let wm = read_watermark(&pool, TENANT).await.expect("read");
     // MAX(30, 50, 10) = 50: the concurrent lower write cannot regress the watermark.
     assert_eq!(
         wm.max_seen_blob_id, 50,
