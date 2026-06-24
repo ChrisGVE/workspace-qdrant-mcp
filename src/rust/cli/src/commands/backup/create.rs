@@ -53,7 +53,11 @@ pub async fn create_backup(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async fn trigger_snapshot(
+/// Trigger a Qdrant snapshot and return its metadata.
+///
+/// `pub(crate)` so `backup::full` can reuse this without a second snapshot path
+/// (FP-2 / DR GP-9 -- no duplicate snapshot logic).
+pub(crate) async fn trigger_snapshot(
     client: &reqwest::Client,
     collection: &str,
     json: bool,
@@ -96,7 +100,10 @@ async fn trigger_snapshot(
     Ok(api_resp.result)
 }
 
-async fn download_snapshot(
+/// Download a snapshot file from Qdrant to a local directory.
+///
+/// `pub(crate)` for use by `backup::full` (AC-F20.1 -- Qdrant snapshot leg).
+pub(crate) async fn download_snapshot(
     client: &reqwest::Client,
     collection: &str,
     snapshot: &SnapshotInfo,
