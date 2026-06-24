@@ -1360,31 +1360,58 @@ PRAGMA foreign_keys = ON;
 The FK-off window is a data-integrity risk; it must be as narrow as possible
 (one transaction, confirmed commit before re-enabling).
 
-**Migration steps:**
+**Pre-flight gates (ALL must pass before any schema change; ordered) -- amended 2026-06-24:**
 
-1. **Stop daemon** (`memexd`).
-2. **Backup state.db and all per-project DBs** to a timestamped archive path.
-   `db_maintenance.maintenance_meta` records the archive location AND a
-   per-project migration state flag: `{"migration_epoch": 49, "project_state":
-   {"<tenant_id>": "pending"|"complete"|"error"}}`. This flag enables resumption
-   after a partial migration (daemon killed mid-run).
-3. **State.db schema** (v49 migration):
-   - DROP `branch_lineage` table.
-   - Rebuild `tracked_files` → retired (absorbed into per-project `files` +
-     `concrete` tables); any surviving tracked_files data migrated or discarded.
-   - Add `project_locations` table to state.db (already in §5.1 DDL).
-4. **Per-project store.db creation** (xN, serial by default; parallel allowed with
-   a per-project file lock): create new `store.db` with the 8-table schema from
-   §5.2 using plain `CREATE TABLE` statements — this is a FRESH FILE, not a
-   rebuild of an existing table via the CREATE+INSERT+DROP+RENAME pattern (that
-   pattern applies only to in-place schema changes on `state.db` tables like
-   `tracked_files`). Each project's migration state is updated in
-   `db_maintenance.maintenance_meta` on completion.
-5. **Re-ingest all projects** (full re-index): daemon re-scans all registered
-   locations. Because durable vectors are not available on the old schema, this
-   initial migration re-embeds. After migration, re-embed is never required for
-   Qdrant recovery.
-6. **Restart daemon** and run §4.7 reconcile pass; verify zero discrepancies.
+P1. **Drain the dead-letter queue.** Reprocess `dead_letter_queue` (v42) entries so
+    permanently-failed items are resolved before the corpus is frozen (avoids the
+    systematic verify flagging never-ingested content as migration loss). The
+    migration refuses to proceed while unresolved DLQ rows remain, unless the
+    operator passes `--accept-dlq` (which records the residual permanent-failure set
+    to `maintenance_meta` so the post-migration verify classifies them as
+    pre-existing-not-indexed, NOT migration loss).
+P2. **Quiesce the work queue.** Assert `unified_queue` has zero pending and zero
+    in-flight items (daemon reports idle). The migration MUST NOT start while the
+    daemon still has work to do -- a busy daemon would be writing the old schema as
+    the migration reads it.
+P3. **Stop the daemon (graceful).** Request `memexd` shutdown; the daemon finishes
+    its current item, drains, and releases `daemon.lock`. `assert_daemon_stopped`
+    (F14 flock probe) then confirms the daemon is down. Guard is fully effective
+    only once memexd acquires `DaemonLock` at startup -- rides #175.
+P4. **Full backup (F20).** Run `wqm backup --full` AFTER the daemon is down (so the
+    bundle is a consistent point-in-time of the drained state). Record the archive
+    path in `maintenance_meta`. Rollback restores via `wqm restore --full`
+    (AC-F13.9). Refuse to proceed without a recorded archive unless `--skip-backup`
+    is passed explicitly.
+
+`db_maintenance.maintenance_meta` records the archive location AND a per-tenant
+migration state row `{"migration_epoch": 50, "phase": "pending"|"in_progress"|
+"complete"|"error", ...}` (keyed per tenant_id, DATA-R5-NIT-03) for crash-resume.
+
+**Migration steps (daemon down, post-backup):**
+
+1. **State.db schema (v50 migration -- v49 is owned by F4):**
+   - DROP `branch_lineage` table (added by v48).
+   - Retire the `tracked_files` write path (data absorbed into per-project `files` +
+     `concrete`). `project_locations` and `projects.content_key_version` ALREADY
+     exist (created by F4 in v49) -- F13 does NOT re-add them.
+   - Schema-removal uses the CREATE+INSERT SELECT+DROP+RENAME pattern under
+     `PRAGMA foreign_keys = OFF` in one narrow transaction.
+2. **Per-project store.db creation** (xN, serial by default; parallel allowed with a
+   per-project file lock): create new `store.db` with the §5.2 schema using plain
+   `CREATE TABLE` statements -- a FRESH FILE, not the in-place rebuild pattern.
+3. **Re-key + REUSE vectors (no re-embed) -- amended 2026-06-24.** Per tenant, a
+   batched Qdrant `scroll` (page >= 1000, `with_vectors`, journaled cursor -- the
+   same mechanism as AC-F16.2) pulls each existing point's durable dense+sparse
+   vectors, computes the new four-slot `content_key`/`point_id`, writes the blob
+   with the REUSED vector (`INSERT ... ON CONFLICT(content_key) IGNORE` collapses the
+   whole-file -> chunk-grain dedup change), and re-keys the point. The per-tenant
+   flip of `content_key_version` 3->4 happens BEFORE this write (AC-F13.8 step 3).
+   Re-embedding is a FALLBACK only for a chunk whose old vector is missing/corrupt
+   (an F15 reconcile case). See R4.
+4. **Restart daemon** and run the §4.7 reconcile in FULL/systematic mode (not
+   watermark-bounded -- the migration acceptance gate): verify functional 1-to-1
+   (every file in every branch found with the same data) and zero unexplained
+   discrepancies.
 
 Detailed runbook (backup path naming, rollback procedure, daemon-safe partial
 re-index) belongs in the PRD. This section establishes the approach and the
@@ -2454,17 +2481,28 @@ may be incomplete. A progress metric `branch_onboard_progress{branch_id,
 chunks_done, total}` is emitted at 10-second intervals. Per-batch retry policy
 and crash-resume cursor are specified in §7.3.
 
-### R4 — Migration re-embedding cost (first migration only)
+### R4 — Migration vector handling: REUSE, not re-embed (amended 2026-06-24)
 
-The initial migration to this model cannot preserve old vectors (the prior schema
-does not store dense + sparse vectors durably). All existing indexed content must
-be re-embedded on the first migration. For a large project this is expensive (see
-§7.2). After the migration, the durable-vector property holds for all future
-recoveries.
+The initial migration re-keys every point (the four-slot `content_key` changes the
+`point_id`) but **REUSES the existing embeddings** -- it does NOT re-embed on the
+normal path. The prior schema does not store dense + sparse vectors durably in
+SQLite, but they ARE durable in the live Qdrant collection. The migration pulls
+them back via a batched `scroll` (`with_vectors`, the same AC-F16.2 mechanism) and
+writes them into the new `blobs` table. This is valid because the embedding model
+(dense 768-dim Cosine + sparse) and the chunker are unchanged by this storage-only
+redesign: a chunk's `content_hash` is identical old->new, so its old vector is
+exactly the vector the new blob needs. Re-embedding remains only as a FALLBACK for
+content whose old Qdrant vector is missing or corrupt (an F15 reconcile case).
 
-**Mitigation:** the migration runbook (§5.6) stages the re-index as a background
-rebuild so the daemon is available before the re-index completes (search degrades
-gracefully to empty results until blobs are indexed).
+This eliminates the prior "~2,500 GPU-hour first-migration re-embed" cost. The
+earlier R4 mandated a full re-embed on the premise that old vectors were
+unrecoverable -- true only of SQLite, NOT the live Qdrant; that premise was a defect
+and is superseded here. A migration re-arranges existing data; it does not rebuild
+the index from source.
+
+**Precondition:** reuse is valid ONLY while the embedding model and chunker are
+unchanged. If a future revision changes either, re-embed returns for affected
+content (and that revision must say so explicitly).
 
 ### R5 — Per-project DB fan-out for scope=group|all searches
 
