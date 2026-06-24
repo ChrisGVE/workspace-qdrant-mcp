@@ -11,27 +11,8 @@ use tempfile::NamedTempFile;
 
 use super::{most_specific_match, LocationRow, ProjectRegistry};
 
-// ---------------------------------------------------------------------------
-// Test DB bootstrap (writable, not via wqm-storage-write)
-// ---------------------------------------------------------------------------
-
-async fn create_writable_pool(path: &std::path::Path) -> SqlitePool {
-    let url = format!("sqlite://{}", path.display());
-    let opts = SqliteConnectOptions::from_str(&url)
-        .expect("url")
-        .create_if_missing(true)
-        .pragma("foreign_keys", "ON")
-        .pragma("journal_mode", "WAL");
-    SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
-        .await
-        .expect("writable pool")
-}
-
-/// Seed a minimal state.db with `projects` and `project_locations` tables.
-async fn seed_state_db(pool: &SqlitePool, rows: &[(&str, &str, &str, &str, &str)]) {
-    // rows: (name, tenant_id, db_path, location, branch_name)
+/// Create the state.db schema (projects + project_locations) in `pool`.
+async fn create_schema(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS projects (
             project_id  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +46,30 @@ async fn seed_state_db(pool: &SqlitePool, rows: &[(&str, &str, &str, &str, &str)
     .execute(pool)
     .await
     .expect("create project_locations");
+}
+
+// ---------------------------------------------------------------------------
+// Test DB bootstrap (writable, not via wqm-storage-write)
+// ---------------------------------------------------------------------------
+
+async fn create_writable_pool(path: &std::path::Path) -> SqlitePool {
+    let url = format!("sqlite://{}", path.display());
+    let opts = SqliteConnectOptions::from_str(&url)
+        .expect("url")
+        .create_if_missing(true)
+        .pragma("foreign_keys", "ON")
+        .pragma("journal_mode", "WAL");
+    SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .expect("writable pool")
+}
+
+/// Seed a minimal state.db with `projects` and `project_locations` tables.
+async fn seed_state_db(pool: &SqlitePool, rows: &[(&str, &str, &str, &str, &str)]) {
+    // rows: (name, tenant_id, db_path, location, branch_name)
+    create_schema(pool).await;
 
     for (name, tenant_id, db_path, location, branch_name) in rows {
         sqlx::query(
@@ -240,86 +245,28 @@ async fn t_f10_04_nested_project_most_specific_wins() {
 
     {
         let w_pool = create_writable_pool(tmp.path()).await;
-
-        // Insert container first, then submodule (intentional order — should not matter).
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS projects (
-                project_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                tenant_id   TEXT NOT NULL UNIQUE,
-                db_path     TEXT NOT NULL,
-                content_key_version INTEGER NOT NULL DEFAULT 3,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL
-            )",
+        // Insert container first, then submodule (order should not matter).
+        create_schema(&w_pool).await;
+        seed_state_db(
+            &w_pool,
+            &[
+                (
+                    "Container",
+                    "container-t",
+                    "/d/c/store.db",
+                    "/work/project",
+                    "main",
+                ),
+                (
+                    "Submodule",
+                    "submodule-t",
+                    "/d/s/store.db",
+                    "/work/project/sub",
+                    "main",
+                ),
+            ],
         )
-        .execute(&w_pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS project_locations (
-                location_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id  INTEGER NOT NULL REFERENCES projects(project_id),
-                location    TEXT NOT NULL,
-                branch_name TEXT NOT NULL,
-                branch_id   TEXT NOT NULL UNIQUE,
-                active      INTEGER NOT NULL DEFAULT 1,
-                sync_state  TEXT NOT NULL DEFAULT 'current'
-                                CHECK (sync_state IN ('pending','indexing','current','error')),
-                last_synced TEXT,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL
-            )",
-        )
-        .execute(&w_pool)
-        .await
-        .unwrap();
-
-        for (name, tenant, db, loc, bn) in &[
-            (
-                "Container",
-                "container-t",
-                "/d/c/store.db",
-                "/work/project",
-                "main",
-            ),
-            (
-                "Submodule",
-                "submodule-t",
-                "/d/s/store.db",
-                "/work/project/sub",
-                "main",
-            ),
-        ] {
-            sqlx::query(
-                "INSERT INTO projects (name, tenant_id, db_path, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, '2026-01-01', '2026-01-01')",
-            )
-            .bind(name)
-            .bind(tenant)
-            .bind(db)
-            .execute(&w_pool)
-            .await
-            .unwrap();
-
-            sqlx::query(
-                "INSERT INTO project_locations
-                 (project_id, location, branch_name, branch_id, active, created_at, updated_at)
-                 VALUES (
-                   (SELECT project_id FROM projects WHERE tenant_id = ?1),
-                   ?2, ?3, ?4, 1, '2026-01-01', '2026-01-01'
-                 )",
-            )
-            .bind(tenant)
-            .bind(loc)
-            .bind(bn)
-            .bind(format!("bid-{tenant}"))
-            .execute(&w_pool)
-            .await
-            .unwrap();
-        }
-
+        .await;
         w_pool.close().await;
     }
 

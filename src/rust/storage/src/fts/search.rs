@@ -54,85 +54,20 @@ pub async fn fts_search(
     branch_id: &str,
     limit: u32,
 ) -> Result<Vec<FtsResult>, StorageError> {
+    // FTS5 external-content restriction: snippet() only works when fts_content
+    // is the outermost FROM with no JOINs. Two-pass approach:
+    //   Pass 1: fts_content alone (blob_id, rank, snip).
+    //   Pass 2: JOIN blob_refs + files for branch filter + path.
     let safe_query = sanitize_fts_query(query);
-
-    // FTS5 external-content restriction: snippet() can only be used when the
-    // FTS5 virtual table is the direct outermost FROM with no JOINs. Joining
-    // fts_content with other tables causes "unable to use function snippet in
-    // the requested context". The workaround is a two-pass approach:
-    //   Pass 1: query fts_content alone for (blob_id, rank, snip).
-    //   Pass 2: JOIN blob_refs + files to filter by branch_id and add path.
-    // This is correct because branch membership is enforced in pass 2.
-
-    // Pass 1 — collect all FTS5 hits with snippet (no JOINs, large enough
-    // limit to not miss branch-filtered results).
     let fts_limit = (limit as i64).saturating_mul(10).max(200);
-    let fts_hits = sqlx::query_as::<_, FtsHitRow>(
-        r#"
-        SELECT rowid                                                      AS blob_id,
-               rank,
-               snippet(fts_content, 0, '<b>', '</b>', '...', 12)        AS snip
-        FROM   fts_content
-        WHERE  fts_content MATCH ?
-        ORDER BY rank
-        LIMIT ?
-        "#,
-    )
-    .bind(&safe_query)
-    .bind(fts_limit)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| StorageError::Sqlite(format!("fts_search pass1 failed: {e}")))?;
 
+    let fts_hits = fts_pass1(pool, &safe_query, fts_limit).await?;
     if fts_hits.is_empty() {
         return Ok(vec![]);
     }
 
-    // Pass 2 — enrich with branch membership + file path using
-    // idx_fts_branch (branch_id, blob_id) to scope to the requested branch.
-    let blob_ids: Vec<i64> = fts_hits.iter().map(|h| h.blob_id).collect();
-    // Build IN clause placeholders for blob_ids. branch_id is bound three
-    // times (one per ? occurrence) then each blob_id once.
-    let placeholders: String = std::iter::repeat_n("?", blob_ids.len())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let enrich_map = fts_pass2(pool, branch_id, &fts_hits).await?;
 
-    let sql = format!(
-        r#"
-        SELECT
-            f.file_id,
-            f.relative_path    AS path,
-            m.blob_id
-        FROM fts_branch_membership m
-        JOIN blob_refs br ON br.blob_id = m.blob_id AND br.branch_id = ?
-        JOIN files f      ON f.file_id  = br.file_id AND f.branch_id = ?
-        WHERE m.branch_id = ?
-          AND m.blob_id IN ({placeholders})
-        GROUP BY m.blob_id, f.file_id
-        "#
-    );
-
-    // Bind: branch_id x3 (three ? in JOIN/WHERE), then blob_ids.
-    let mut q = sqlx::query_as::<_, EnrichRow>(&sql)
-        .bind(branch_id)
-        .bind(branch_id)
-        .bind(branch_id);
-    for id in &blob_ids {
-        q = q.bind(id);
-    }
-    let enriched = q
-        .fetch_all(pool)
-        .await
-        .map_err(|e| StorageError::Sqlite(format!("fts_search pass2 failed: {e}")))?;
-
-    // Build a blob_id -> (file_id, path) map from pass 2.
-    let enrich_map: std::collections::HashMap<i64, (i64, String)> = enriched
-        .into_iter()
-        .map(|r| (r.blob_id, (r.file_id, r.path)))
-        .collect();
-
-    // Merge pass 1 hits with pass 2 enrichment; apply branch filter implicitly
-    // (hits absent from enrich_map are not on the requested branch).
     let mut rows: Vec<FtsResult> = fts_hits
         .into_iter()
         .filter_map(|h| {
@@ -147,7 +82,6 @@ pub async fn fts_search(
         })
         .collect();
 
-    // Sort by descending score and cap to limit.
     rows.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -155,6 +89,73 @@ pub async fn fts_search(
     });
     rows.truncate(limit as usize);
     Ok(rows)
+}
+
+/// Pass 1: query fts_content alone (snippet() works here — no JOINs).
+async fn fts_pass1(
+    pool: &SqlitePool,
+    safe_query: &str,
+    limit: i64,
+) -> Result<Vec<FtsHitRow>, StorageError> {
+    sqlx::query_as::<_, FtsHitRow>(
+        r#"
+        SELECT rowid                                                      AS blob_id,
+               rank,
+               snippet(fts_content, 0, '<b>', '</b>', '...', 12)        AS snip
+        FROM   fts_content
+        WHERE  fts_content MATCH ?
+        ORDER BY rank
+        LIMIT ?
+        "#,
+    )
+    .bind(safe_query)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| StorageError::Sqlite(format!("fts_search pass1 failed: {e}")))
+}
+
+/// Pass 2: enrich blob_ids with branch-scoped file metadata.
+///
+/// Returns a map `blob_id -> (file_id, path)`. Hits absent from the map are
+/// not on the requested branch (implicit branch filter).
+async fn fts_pass2(
+    pool: &SqlitePool,
+    branch_id: &str,
+    hits: &[FtsHitRow],
+) -> Result<std::collections::HashMap<i64, (i64, String)>, StorageError> {
+    let blob_ids: Vec<i64> = hits.iter().map(|h| h.blob_id).collect();
+    // Build IN placeholders; branch_id bound 3x (one per ? in JOIN/WHERE).
+    let placeholders: String = std::iter::repeat_n("?", blob_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sql = format!(
+        r#"
+        SELECT f.file_id, f.relative_path AS path, m.blob_id
+        FROM fts_branch_membership m
+        JOIN blob_refs br ON br.blob_id = m.blob_id AND br.branch_id = ?
+        JOIN files f      ON f.file_id  = br.file_id AND f.branch_id = ?
+        WHERE m.branch_id = ?
+          AND m.blob_id IN ({placeholders})
+        GROUP BY m.blob_id, f.file_id
+        "#
+    );
+
+    let mut q = sqlx::query_as::<_, EnrichRow>(&sql)
+        .bind(branch_id)
+        .bind(branch_id)
+        .bind(branch_id);
+    for id in &blob_ids {
+        q = q.bind(id);
+    }
+
+    Ok(q.fetch_all(pool)
+        .await
+        .map_err(|e| StorageError::Sqlite(format!("fts_search pass2 failed: {e}")))?
+        .into_iter()
+        .map(|r| (r.blob_id, (r.file_id, r.path)))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------

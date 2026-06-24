@@ -94,21 +94,15 @@ async fn open_readonly(path: &std::path::Path) -> SqlitePool {
         .expect("readonly pool")
 }
 
-/// Seed a minimal store.db with the FTS5 tables populated.
-///
-/// Schema mirrors the write-crate DDL from `schema/fts.rs` and `schema/files.rs`.
-async fn seed_store_db(pool: &SqlitePool) {
+/// Seed branches/files/blobs/blob_refs core tables.
+async fn seed_core_tables(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE branches (
-            branch_id   TEXT PRIMARY KEY,
-            branch_name TEXT NOT NULL,
-            location    TEXT NOT NULL,
-            active      INTEGER NOT NULL DEFAULT 1,
-            sync_state  TEXT NOT NULL DEFAULT 'current'
-                            CHECK (sync_state IN ('pending','indexing','current','error')),
-            sync_metadata TEXT,
-            created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
+            branch_id TEXT PRIMARY KEY, branch_name TEXT NOT NULL,
+            location TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+            sync_state TEXT NOT NULL DEFAULT 'current'
+                CHECK (sync_state IN ('pending','indexing','current','error')),
+            sync_metadata TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         )",
     )
     .execute(pool)
@@ -117,16 +111,12 @@ async fn seed_store_db(pool: &SqlitePool) {
 
     sqlx::query(
         "CREATE TABLE files (
-            file_id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id       TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
-            relative_path   TEXT NOT NULL,
-            file_type       TEXT,
-            language        TEXT,
-            extension       TEXT,
-            is_test         INTEGER NOT NULL DEFAULT 0,
-            collection      TEXT NOT NULL DEFAULT 'projects',
-            created_at      TEXT NOT NULL,
-            updated_at      TEXT NOT NULL,
+            file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
+            relative_path TEXT NOT NULL, file_type TEXT, language TEXT,
+            extension TEXT, is_test INTEGER NOT NULL DEFAULT 0,
+            collection TEXT NOT NULL DEFAULT 'projects',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             UNIQUE (branch_id, relative_path)
         )",
     )
@@ -136,38 +126,44 @@ async fn seed_store_db(pool: &SqlitePool) {
 
     sqlx::query(
         "CREATE TABLE blobs (
-            blob_id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            content_key         TEXT NOT NULL UNIQUE,
-            chunk_content_hash  TEXT NOT NULL,
-            point_id            TEXT NOT NULL UNIQUE,
-            tenant_id           TEXT NOT NULL,
-            raw_text            TEXT NOT NULL,
-            dense_vec           BLOB NOT NULL,
-            sparse_vec          BLOB NOT NULL,
-            chunk_type          TEXT,
-            symbol_name         TEXT,
-            start_line          INTEGER,
-            end_line            INTEGER,
-            created_at          TEXT NOT NULL
+            blob_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content_key TEXT NOT NULL UNIQUE, chunk_content_hash TEXT NOT NULL,
+            point_id TEXT NOT NULL UNIQUE, tenant_id TEXT NOT NULL,
+            raw_text TEXT NOT NULL, dense_vec BLOB NOT NULL, sparse_vec BLOB NOT NULL,
+            chunk_type TEXT, symbol_name TEXT, start_line INTEGER, end_line INTEGER,
+            created_at TEXT NOT NULL
         )",
     )
     .execute(pool)
     .await
     .expect("create blobs");
 
-    // FTS5 external-content table (mirrors schema/fts.rs).
+    sqlx::query(
+        "CREATE TABLE blob_refs (
+            ref_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
+            chunk_index INTEGER NOT NULL,
+            blob_id INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE RESTRICT,
+            UNIQUE (branch_id, file_id, chunk_index)
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("create blob_refs");
+}
+
+/// Seed FTS5 virtual table, triggers, and branch-membership junction.
+async fn seed_fts_tables(pool: &SqlitePool) {
     sqlx::query(
         "CREATE VIRTUAL TABLE fts_content USING fts5 (
-            raw_text,
-            content=\"blobs\",
-            content_rowid=\"blob_id\"
+            raw_text, content=\"blobs\", content_rowid=\"blob_id\"
         )",
     )
     .execute(pool)
     .await
     .expect("create fts_content");
 
-    // FTS5 sync triggers.
     sqlx::query(
         "CREATE TRIGGER blobs_ai AFTER INSERT ON blobs BEGIN
              INSERT INTO fts_content(rowid, raw_text) VALUES (new.blob_id, new.raw_text);
@@ -188,22 +184,8 @@ async fn seed_store_db(pool: &SqlitePool) {
     .expect("trigger blobs_ad");
 
     sqlx::query(
-        "CREATE TABLE blob_refs (
-            ref_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id   TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
-            file_id     INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
-            chunk_index INTEGER NOT NULL,
-            blob_id     INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE RESTRICT,
-            UNIQUE (branch_id, file_id, chunk_index)
-        )",
-    )
-    .execute(pool)
-    .await
-    .expect("create blob_refs");
-
-    sqlx::query(
         "CREATE TABLE fts_branch_membership (
-            blob_id   INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE CASCADE,
+            blob_id INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE CASCADE,
             branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
             PRIMARY KEY (blob_id, branch_id)
         )",
@@ -216,6 +198,12 @@ async fn seed_store_db(pool: &SqlitePool) {
         .execute(pool)
         .await
         .expect("idx_fts_branch");
+}
+
+/// Seed a minimal store.db with all FTS5 tables populated (core + FTS).
+async fn seed_store_db(pool: &SqlitePool) {
+    seed_core_tables(pool).await;
+    seed_fts_tables(pool).await;
 }
 
 async fn insert_branch(pool: &SqlitePool, branch_id: &str, branch_name: &str) {

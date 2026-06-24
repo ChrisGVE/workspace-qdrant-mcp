@@ -38,18 +38,14 @@ async fn open_readonly(path: &std::path::Path) -> SqlitePool {
         .expect("readonly pool")
 }
 
-async fn seed_schema(pool: &SqlitePool) {
+async fn create_branch_file_tables(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE branches (
-            branch_id     TEXT PRIMARY KEY,
-            branch_name   TEXT NOT NULL,
-            location      TEXT NOT NULL,
-            active        INTEGER NOT NULL DEFAULT 1,
-            sync_state    TEXT NOT NULL DEFAULT 'current'
-                              CHECK (sync_state IN ('pending','indexing','current','error')),
-            sync_metadata TEXT,
-            created_at    TEXT NOT NULL,
-            updated_at    TEXT NOT NULL
+            branch_id TEXT PRIMARY KEY, branch_name TEXT NOT NULL,
+            location TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+            sync_state TEXT NOT NULL DEFAULT 'current'
+                CHECK (sync_state IN ('pending','indexing','current','error')),
+            sync_metadata TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         )",
     )
     .execute(pool)
@@ -58,38 +54,29 @@ async fn seed_schema(pool: &SqlitePool) {
 
     sqlx::query(
         "CREATE TABLE files (
-            file_id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id       TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
-            relative_path   TEXT NOT NULL,
-            file_type       TEXT,
-            language        TEXT,
-            extension       TEXT,
-            is_test         INTEGER NOT NULL DEFAULT 0,
-            collection      TEXT NOT NULL DEFAULT 'projects',
-            created_at      TEXT NOT NULL,
-            updated_at      TEXT NOT NULL,
+            file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
+            relative_path TEXT NOT NULL, file_type TEXT, language TEXT,
+            extension TEXT, is_test INTEGER NOT NULL DEFAULT 0,
+            collection TEXT NOT NULL DEFAULT 'projects',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             UNIQUE (branch_id, relative_path)
         )",
     )
     .execute(pool)
     .await
     .unwrap();
+}
 
+async fn create_blob_tables(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE blobs (
-            blob_id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            content_key         TEXT NOT NULL UNIQUE,
-            chunk_content_hash  TEXT NOT NULL,
-            point_id            TEXT NOT NULL UNIQUE,
-            tenant_id           TEXT NOT NULL,
-            raw_text            TEXT NOT NULL,
-            dense_vec           BLOB NOT NULL,
-            sparse_vec          BLOB NOT NULL,
-            chunk_type          TEXT,
-            symbol_name         TEXT,
-            start_line          INTEGER,
-            end_line            INTEGER,
-            created_at          TEXT NOT NULL
+            blob_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content_key TEXT NOT NULL UNIQUE, chunk_content_hash TEXT NOT NULL,
+            point_id TEXT NOT NULL UNIQUE, tenant_id TEXT NOT NULL,
+            raw_text TEXT NOT NULL, dense_vec BLOB NOT NULL, sparse_vec BLOB NOT NULL,
+            chunk_type TEXT, symbol_name TEXT, start_line INTEGER, end_line INTEGER,
+            created_at TEXT NOT NULL
         )",
     )
     .execute(pool)
@@ -98,11 +85,11 @@ async fn seed_schema(pool: &SqlitePool) {
 
     sqlx::query(
         "CREATE TABLE blob_refs (
-            ref_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id   TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
-            file_id     INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
+            ref_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
             chunk_index INTEGER NOT NULL,
-            blob_id     INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE RESTRICT,
+            blob_id INTEGER NOT NULL REFERENCES blobs(blob_id) ON DELETE RESTRICT,
             UNIQUE (branch_id, file_id, chunk_index)
         )",
     )
@@ -112,27 +99,28 @@ async fn seed_schema(pool: &SqlitePool) {
 
     sqlx::query(
         "CREATE TABLE concrete (
-            concrete_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            branch_id         TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
-            file_id           INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
-            file_mtime        TEXT NOT NULL,
-            file_hash         TEXT NOT NULL,
-            lsp_status        TEXT NOT NULL DEFAULT 'none'
-                                  CHECK (lsp_status IN ('none','done','failed','skipped')),
+            concrete_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id TEXT NOT NULL REFERENCES branches(branch_id) ON DELETE CASCADE,
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
+            file_mtime TEXT NOT NULL, file_hash TEXT NOT NULL,
+            lsp_status TEXT NOT NULL DEFAULT 'none'
+                CHECK (lsp_status IN ('none','done','failed','skipped')),
             treesitter_status TEXT NOT NULL DEFAULT 'none'
-                                  CHECK (treesitter_status IN ('none','done','failed','skipped')),
-            component         TEXT,
-            routing_reason    TEXT,
-            last_error        TEXT,
-            needs_reconcile   INTEGER NOT NULL DEFAULT 0,
-            created_at        TEXT NOT NULL,
-            updated_at        TEXT NOT NULL,
+                CHECK (treesitter_status IN ('none','done','failed','skipped')),
+            component TEXT, routing_reason TEXT, last_error TEXT,
+            needs_reconcile INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             UNIQUE (branch_id, file_id)
         )",
     )
     .execute(pool)
     .await
     .unwrap();
+}
+
+async fn seed_schema(pool: &SqlitePool) {
+    create_branch_file_tables(pool).await;
+    create_blob_tables(pool).await;
 }
 
 async fn insert_branch(pool: &SqlitePool, branch_id: &str) {
