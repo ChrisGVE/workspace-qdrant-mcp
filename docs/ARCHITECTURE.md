@@ -381,6 +381,38 @@ sequenceDiagram
 - Dense embeddings come from the configured provider (FastEmbed by default; OpenAI et al. configurable). Sparse vectors use BM25 with corpus statistics persisted in SQLite.
 - Literal/regex queries take the separate FTS5 path (`grep` tool, `TextSearchService`).
 
+## Read Path (F10 -- ReadStoreFacade)
+
+`wqm-storage` (the read crate) exposes a single read entrypoint `ReadStoreFacade`
+(`src/rust/storage/src/facade/read/mod.rs`) that wires together:
+
+- **`ProjectRegistry`** (`src/rust/storage/src/project/resolver.rs`) -- maps a caller's
+  CWD to `(tenant_id, branch_id, db_path)` via `state.db.project_locations JOIN projects`.
+  Most-specific-root-wins: a submodule at `/a/b` beats a container at `/a` when the CWD is
+  inside `/a/b/`. Returns `None` when no registered root matches; callers MUST treat `None`
+  as an error and never fall through to an all-tenant query (SEC-3, AC-F10.2). F16 will
+  extend this same struct with the fuzzy handle->key resolver (FP-2, one nexus).
+
+- **`branch_search`** (`src/rust/storage/src/facade/read/search.rs`) -- hybrid
+  Qdrant dense + sparse search with `branch_id + tenant_id` pre-filter on every query
+  (AC-F10.2 / SEC-3), RRF fusion (k=60), and SQLite enrichment via
+  `idx_blob_refs_covering` JOIN to attach file paths and symbol metadata.
+
+- **`fts_search`** (`src/rust/storage/src/fts/search.rs`) -- branch-scoped FTS5
+  full-text search (arch §5.2, AC-F10.3). Uses a two-pass approach: pass 1 queries
+  `fts_content MATCH ?` alone (FTS5 external-content restriction -- `snippet()` requires
+  no JOINs at the driver level); pass 2 joins `fts_branch_membership` and `blob_refs` to
+  enforce the branch filter. All user input phrase-wrapped via `sanitize_fts_query` before
+  binding (arch §6.5 A5). This is the SOLE FTS5 module in the read crate (AC-F10.5);
+  `facade/read/fts.rs` must not exist.
+
+- **`list_branch`** (`src/rust/storage/src/facade/read/list.rs`) -- enumerates all
+  files on a branch from `store.db`, with content hash and chunk count.
+
+`wqm project branches` (AC-F10.8) is re-sourced from `state.db.project_locations JOIN
+projects` -- one row per `(project, branch, checkout)` triple, carrying `sync_state` and
+`location`. Supports `--json`, `--script`, `--no-headers` output flags.
+
 ## SQLite State Management
 
 **Reference:** ADR-003 — **the daemon owns SQLite.** It creates the databases, owns the schema, and runs all migrations. Other components open read-only connections for browsing; every mutation goes through daemon gRPC.
