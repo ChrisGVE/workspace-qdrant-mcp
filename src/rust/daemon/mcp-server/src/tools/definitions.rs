@@ -91,7 +91,13 @@ fn search_schema() -> Arc<JsonObject> {
         "scope".into(),
         str_enum_prop(
             &["project", "group", "all"],
-            "Search scope: project (current), group (related projects), or all (default: project)",
+            "Search scope. \
+             'project' (default): current project only. \
+             'group': current project plus all projects sharing a group in state.db. \
+             'all': every registered project -- blocked above 50 projects with \
+             ScopeTooBroad error (cliff configurable; see arch §8). \
+             On ScopeTooBroad the response payload carries suggested_scope='group' \
+             and cliff as discrete fields.",
         ),
     );
     props.insert(

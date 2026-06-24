@@ -2017,6 +2017,101 @@ both route through this nexus to avoid enumerating `target/`, `node_modules/`,
   be able to surface another project's content. This is not a future feature;
   it is a required clause in every search call today.
 
+### F17 -- scope=group|all multi-DB fan-out (AC-F17.4 doc requirement)
+
+`ReadStoreFacade::search_scoped` implements bounded fan-out for `scope=group`
+and `scope=all`. The entry point and its supporting types live in:
+
+- `storage/src/facade/read/mod.rs` -- `search_scoped`, `assemble_merged_hits`
+- `storage/src/facade/read/fanout.rs` -- `FanoutConfig`, `run_bounded`,
+  `apply_per_project_top_k`, `build_project_collection`, `merge_project_results`,
+  `compute_cliff`
+- `storage/src/project/resolver.rs` -- `SearchScope`, `enumerate_by_scope`
+- `wqm-common/src/error.rs` -- `ScopeTooBroadPayload`, `StorageError::ScopeTooBroad`
+
+**Scope semantics:**
+
+| scope   | Projects queried                                                       |
+|---------|------------------------------------------------------------------------|
+| project | Current project only (existing F10 single-project path, unchanged).    |
+| group   | All tenants sharing a `project_groups` row (state.db schema v24) with  |
+|         | the current tenant. Falls back to `project` when no group membership.  |
+| all     | Every tenant with at least one active `project_locations` row.         |
+|         | Blocked by cliff check (see below).                                    |
+
+**Cost model and derived cliff (AC-F17.2, PERF-04):**
+
+Fan-out latency estimate:
+
+    total_fan_out_p95 ~= ceil(P / concurrency) * per_project_p95
+
+where `P` = number of projects, `concurrency` = min(N_CPU, 8),
+`per_project_p95` = per-project search time at the 95th percentile.
+
+The `scope=all` cliff is derived from a stated ceiling, not a magic number:
+
+    cliff = ceil(ceiling_ms / per_project_p95_ms) * concurrency
+
+Default values (PRD §14-Q3):
+- `ceiling_ms` = 1000 ms (1 s fan-out p95 budget)
+- `per_project_p95_ms` = 200 ms
+- `concurrency` = 10 (10-core reference machine)
+- => `cliff = ceil(1000/200) * 10 = 5 * 10 = 50 projects`
+
+Both `cliff` and `ceiling` are configurable via `FanoutConfig`. `compute_cliff`
+in `fanout.rs` implements the formula so callers can derive a new cliff for
+their hardware. The default `FanoutConfig` uses `cliff = 50`.
+
+**ScopeTooBroad error (AC-F17.2, AC-F17.5):**
+
+When `scope=all` and the project count exceeds `cliff`, `check_cliff` returns
+`StorageError::ScopeTooBroad(count, cliff, Box<ScopeTooBroadPayload>)`.
+
+The payload carries machine-actionable discrete fields (not only prose):
+
+    ScopeTooBroadPayload {
+        requested_scope: "all",
+        project_count: N,      // projects found
+        cliff: 50,             // configured ceiling
+        suggested_scope: "group",  // always "group" -- concrete, not generic
+        hint: "...",           // prose for human readers
+    }
+
+Per-surface rendering (AC-F17.5):
+- **MCP/JSON**: serialize `ScopeTooBroadPayload` directly -- all fields appear
+  as discrete JSON keys. Clients read `suggested_scope` and `cliff` without
+  parsing prose.
+- **CLI**: `payload.cli_banner()` produces a one-line stderr message:
+  `"Scope too broad: N projects > cliff K -- retry with --scope group"`.
+  Exit code is non-zero.
+- **Prose/agent**: state count, cliff, and suggested scope in a sentence.
+
+**Bounded concurrency (AC-F17.2):**
+
+Fan-out tasks run under a `tokio::sync::Semaphore` with capacity equal to
+`FanoutConfig::concurrency` (default: `min(N_CPU, 8)`). Extras queue.
+
+**Per-project top-K cap (AC-F17.3):**
+
+Each project's result list is truncated to `top_k` BEFORE the cross-project
+RRF merge. The merge candidate set is therefore bounded at `P * K`.
+
+**RRF normalization per project (AC-F17.1, DR GP-9):**
+
+The cross-project merge uses `wqm_common::search::rrf::rrf_merge` (the F0-
+relocated pure RRF function -- no fork, DR GP-9). The collection key is the
+`tenant_id`, so each project contributes one ranked list. RRF rank-1 in a
+2-result project and rank-1 in a 50-result project yield the same per-collection
+contribution (1/(k+1)), preventing large projects from drowning small ones.
+
+**Live wiring deferral (Path note):**
+
+`ReadStoreFacade` has no live consumers in mcp-server or the CLI yet -- the
+live search path still routes through the daemon gRPC `run_search_pipeline`.
+`search_scoped` is complete and fully unit-tested. Wire-up rides the read-
+facade cutover (same posture as F8/F20 write features pending #175). Until
+that cutover, this feature is unreachable from production surfaces.
+
 ---
 
 ## 9. Module and Codesize Plan

@@ -1,10 +1,30 @@
-//! Search command — real hybrid search from the CLI (#125).
+//! Search command -- real hybrid search from the CLI (#125).
 //!
 //! Located at: `src/rust/cli/src/commands/search/mod.rs`
 //!
 //! Subcommands: project, collection, global, rules. All execute the shared
-//! `wqm_client::search` pipeline (embed via daemon → dense+sparse Qdrant →
-//! RRF fusion) — the same code path the MCP server's `search` tool runs.
+//! `wqm_client::search` pipeline (embed via daemon -> dense+sparse Qdrant ->
+//! RRF fusion) -- the same code path the MCP server's `search` tool runs.
+//!
+//! **Search scope (F17):**
+//!
+//! | Subcommand   | Effective scope | Notes                                        |
+//! |--------------|-----------------|----------------------------------------------|
+//! | `project`    | `scope=project` | Current project only.                        |
+//! | `global`     | `scope=all`     | All registered projects. Blocked above the   |
+//! |              |                 | 50-project cliff with a ScopeTooBroad error. |
+//! |              |                 | Banner: "Scope too broad: N projects > cliff |
+//! |              |                 | K -- retry with --scope group". Exit non-0.  |
+//! | `collection` | n/a             | Named collection, no project scope.          |
+//! | `rules`      | n/a             | Rules collection only.                       |
+//!
+//! The `scope=group` value is available via the MCP `search` tool (searches all
+//! projects sharing a `project_groups` group with the current project). The CLI
+//! `global` subcommand maps to `scope=all`; a dedicated `group` subcommand is
+//! a planned addition.
+//!
+//! The cliff (default 50) is configurable; see `FanoutConfig` in
+//! `storage/src/facade/read/fanout.rs` and arch §8.
 //!
 //! Neighbors: `hybrid.rs` (pipeline glue + project/scope resolution),
 //! `render.rs` (terminal output).
