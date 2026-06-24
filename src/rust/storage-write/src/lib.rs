@@ -20,6 +20,7 @@ pub mod branch;
 pub mod connection;
 pub mod migrations;
 pub mod qdrant;
+pub mod reconcile;
 pub mod registry;
 pub mod schema;
 pub mod single_writer;
