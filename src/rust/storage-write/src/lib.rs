@@ -30,5 +30,5 @@ pub use blob::{
 };
 pub use branch::{branch_delete, delete_decision, probe_branch, DeleteAction, GitBranchProbe};
 pub use connection::{open_store, open_store_write};
-pub use qdrant::{MembershipPutBatch, PendingMembershipPut, QdrantWriteClient};
+pub use qdrant::{rebuild_qdrant, MembershipPutBatch, PendingMembershipPut, QdrantWriteClient};
 pub use single_writer::{DaemonLock, DaemonLockConfig};
