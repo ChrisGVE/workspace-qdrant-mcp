@@ -278,6 +278,16 @@ to the new write facade — and deleting `branch_index/tagger.rs` — requires t
 construct the `WriteStoreFacade` impl with an injected embedder and store handle, tracked
 as a separate task so the existing ingest path stays working end-to-end until then.
 
+**F19 PUT throughput (AC-F19.1/F19.4)**: `overwrite_payload` (PUT) was benchmarked
+against a paired upsert baseline on a 100k-point corpus (1536-dim dense + 16-entry
+sparse, batch 1000, 10 measured iterations). Results on the reference loopback
+environment (Intel i7-10700K, Qdrant 1.18.2): PUT p50 = 2686.92 ms per 1000-point
+batch; UPSERT p50 = 463.97 ms; ratio = 5.791x (threshold N=3). F9 deletion Step-6
+uses the **batched-outside-lock fallback** (AC-F19.3): membership RECOMPUTE stays
+inside the per-content_key lock; the Qdrant PUT flushes outside via
+`MembershipPutBatch` (`wqm-storage-write/src/qdrant/membership_batch.rs`).
+Full benchmark report: `docs/benchmarks/F19-put-vs-upsert.md`.
+
 ## Hybrid Search Flow
 
 ```mermaid
