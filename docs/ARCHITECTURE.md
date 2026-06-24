@@ -476,8 +476,103 @@ Behavioral rules live in the `rules` collection (with a SQLite mirror for fast l
 - **CLI/TUI**: `src/rust/cli/` (`wqm` binary; TUI under `src/tui/`)
 - **Shared**: `src/rust/common/`, `src/rust/proto/`, `src/rust/client/`
 
-**Version**: 2.0
-**Last Updated**: 2026-06-16
+## Truth-Inclusive Full Backup / Restore (F20)
+
+### Two recovery directions
+
+In the blob+concrete model the SQLite stores are the TRUTH and Qdrant is the
+rebuildable index. There are exactly two correct recovery directions:
+
+1. **Index recovery** (`wqm admin rebuild`): store.db -> Qdrant. Used when Qdrant
+   is lost or stale but the SQLite truth survives.
+2. **Disaster recovery** (`wqm restore --full`): truth-inclusive bundle -> data
+   directory. Used when the SQLite truth itself is lost.
+
+Neither direction reconstructs truth from the rebuildable index. `recover_state`
+(the old Qdrant->SQLite direction) is retired by F12.
+
+### `wqm backup --full <destination>` (AC-F20.1)
+
+Produces a single compressed archive bundling:
+
+- Every SQLite truth store copied read-consistently via `VACUUM INTO` (no torn
+  pages): `state.db`, `projects/<id>/store.db`, `global/store.db`,
+  `libraries/store.db`.
+- A Qdrant snapshot (reusing the existing snapshot helpers in
+  `cli/src/commands/backup/create.rs` -- no second snapshot path, FP-2/DR GP-9).
+- `manifest.json` inside the archive recording: `wqm_version`, `stores` list with
+  `tenant_id` and `content_key_version` per store, `qdrant_snapshot_name`,
+  `archive_timestamp`, `compressor`, `daemon_running`.
+
+**Peak transient disk formula (AC-F20.1b):**
+`sum(SQLite store sizes) + Qdrant snapshot size`
+
+A pre-flight free-space check (using `statvfs`) runs BEFORE copying starts and
+refuses with a clear required-vs-available message rather than failing partway.
+
+**Daemon-running at backup time (DATA-N01):** `backup --full` may run with the
+daemon live (it is read-only over the stores). When the daemon is running, the
+SQLite stores and the Qdrant snapshot are captured at slightly different instants
+(temporal skew). The manifest records `daemon_running: true` so a restore knows
+the bundle may be mildly inconsistent. After restoring a daemon-running bundle,
+run `wqm admin rebuild` to re-derive a consistent Qdrant index.
+
+### `wqm restore --full <archive>` (AC-F20.2)
+
+1. Calls `wqm_common::guard::assert_daemon_stopped` -- refuses if the daemon is
+   live (AC-F20.4 / DR GP-4). The daemon must be stopped before restore.
+2. Decompresses the archive by piping the file through the external compressor's
+   `-d -c` mode into a streaming `tar::Archive` (PERF-NN-02). The full archive is
+   never buffered in memory; peak memory is bounded by pipe buffers.
+3. Extracts `stores/*` members to the data directory, reproducing the original
+   layout (atomic write-then-rename per file).
+4. Uploads the `qdrant/*` snapshot via the existing REST multipart upload path
+   (reusing `cli/src/commands/restore/from_backup.rs` -- no second upload path).
+   The Qdrant leg is skipped with a warning when Qdrant is unreachable; the
+   SQLite truth is always the primary recovery target.
+
+### Compressor detection and invocation (AC-F20.3)
+
+Detection order: `zstd` -> `xz` -> `gzip` (first binary found on PATH wins).
+Each binary is resolved to an absolute path via `which`. Invocation:
+
+- Compress: `Command::new(<abs-path>).args(["-c", "-"])` (reads stdin, writes stdout)
+- Decompress: `Command::new(<abs-path>).args(["-d", "-c", "-"])` (reads stdin, writes stdout)
+
+Never `sh -c`; the binary path is the only resolved variable; argv is a fixed
+constant array. Guard-4 / CWE-78 safe. Configurable explicit-format option is
+deferred (PRD SS15).
+
+### Daemon-running guard and the #175 transition path (AC-F20.4)
+
+`wqm_common::guard::assert_daemon_stopped(data_dir)` is the single authoritative
+daemon-running check in the workspace (FP-2 / DR GP-9). It probes
+`<data_dir>/daemon.lock` with `flock(LOCK_EX|LOCK_NB)` -- the same lock that
+`DaemonLock` (wqm-storage-write/src/single_writer.rs) holds while the daemon is
+live.
+
+**Effectiveness caveat (#175):** The guard becomes FULLY effective only once
+`memexd` acquires `DaemonLock` at startup. This wiring rides the #175
+daemon/write-crate cutover (the daemon does not yet depend on
+`wqm-storage-write`). Until #175 lands, a running daemon will not hold
+`daemon.lock`, so the guard will return `Ok(())` even when the daemon is live.
+This is the correct posture for this branch: build the correct structure now;
+daemon wiring rides #175.
+
+`recover_state` (AC-F20.4 repoint): its local `is_daemon_running()` gRPC probe
+was replaced with `assert_daemon_stopped` in the same change-set so exactly one
+definition exists.
+
+### F13 migration pre-step
+
+`wqm backup --full <dest>` is the mandatory backup gate before running the F13
+schema migration. Run it first; the migration guard checks for a recent full
+backup before allowing the destructive re-key.
+
+---
+
+**Version**: 2.1
+**Last Updated**: 2026-06-24
 **Spec Alignment**: docs/specs/ (modular specification)
 **ADR Alignment**: ADR-001 (canonical collections), ADR-002 (daemon-only writes), ADR-003 (daemon owns SQLite)
-**Updates**: Rewritten for the all-Rust architecture (daemon + MCP server + CLI); removed obsolete Python/FastMCP component model
+**Updates**: Rewritten for the all-Rust architecture (daemon + MCP server + CLI); removed obsolete Python/FastMCP component model. Added F20 full backup/restore section.

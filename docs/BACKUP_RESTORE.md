@@ -1,30 +1,136 @@
 # Backup and Restore Operations
 
-This guide covers backup and restore operations for workspace-qdrant-mcp, including version compatibility requirements, best practices, and troubleshooting.
+This guide covers backup and restore operations for workspace-qdrant-mcp, including
+version compatibility requirements, best practices, and troubleshooting.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Quick Start](#quick-start)
-3. [Version Compatibility](#version-compatibility)
-4. [Backup Operations](#backup-operations)
-5. [Restore Operations](#restore-operations)
-6. [Configuration Options](#configuration-options)
-7. [Version Migration Framework](#version-migration-framework)
-8. [Troubleshooting](#troubleshooting)
-9. [Best Practices](#best-practices)
+2. [Full Backup and Restore (F20 -- truth-inclusive)](#full-backup-and-restore-f20)
+3. [Quick Start (Qdrant snapshot operations)](#quick-start)
+4. [Version Compatibility](#version-compatibility)
+5. [Backup Operations](#backup-operations)
+6. [Restore Operations](#restore-operations)
+7. [Configuration Options](#configuration-options)
+8. [Version Migration Framework](#version-migration-framework)
+9. [Troubleshooting](#troubleshooting)
+10. [Best Practices](#best-practices)
+
+---
+
+## Full Backup and Restore (F20)
+
+In the blob+concrete model the **SQLite stores are the TRUTH** (durable dense+sparse
+vectors) and Qdrant is the rebuildable index. The legacy `wqm backup create` command
+snapshots Qdrant only (the discardable layer). F20 adds a truth-inclusive full backup.
+
+### Two recovery directions
+
+| Direction | Command | When to use |
+|-----------|---------|-------------|
+| **Index recovery** | `wqm admin rebuild` | Qdrant lost/stale; SQLite truth survives |
+| **Disaster recovery** | `wqm restore --full` | SQLite truth itself is lost |
+
+### `wqm backup --full <destination>`
+
+Produces a single compressed archive containing:
+
+- Every SQLite truth store (read-consistent via `VACUUM INTO`):
+  `state.db`, `projects/<id>/store.db`, `global/store.db`, `libraries/store.db`
+- A Qdrant full snapshot (skipped gracefully if Qdrant is unreachable)
+- `manifest.json` (wqm_version, stores list with tenant_id/content_key_version,
+  qdrant_snapshot_name, archive_timestamp, compressor, daemon_running)
+
+```bash
+# Pre-migration backup (required before wqm admin migrate, F13)
+wqm backup --full /path/to/backup-2026-06-24.tar.zst
+
+# Qdrant-snapshot operations (unchanged)
+wqm backup create --collection all
+wqm backup list
+wqm backup delete <snapshot-name> --collection all
+```
+
+**Daemon at backup time (DATA-N01):** `backup --full` may run with the daemon live
+(it is read-only). When the daemon is running, the manifest records
+`daemon_running: true` to flag a possible SQLite<->Qdrant temporal skew. After
+restoring such a bundle, run `wqm admin rebuild` to re-derive a consistent index.
+
+**Pre-flight free-space check (AC-F20.1b):** Before copying anything, the command
+checks that the destination has enough free space for the peak transient footprint:
+`sum(SQLite store sizes) + Qdrant snapshot size`. It refuses with a clear
+required-vs-available message rather than failing partway.
+
+### `wqm restore --full <archive>`
+
+Restores the truth-inclusive bundle. **The daemon must be stopped first** (AC-F20.4).
+
+```bash
+# Stop daemon
+wqm service stop
+
+# Restore (prompts for confirmation)
+wqm restore --full /path/to/backup-2026-06-24.tar.zst
+
+# Restore without confirmation prompt
+wqm restore --full /path/to/backup-2026-06-24.tar.zst --force
+
+# After restore, rebuild Qdrant index if needed
+wqm admin rebuild
+
+# Restart daemon
+wqm service start
+```
+
+**Streaming decompression (PERF-NN-02):** The archive is never fully buffered in
+memory. The external compressor's stdout is streamed directly into `tar::Archive`.
+Peak memory is bounded by pipe buffers regardless of archive size.
+
+**Daemon-running guard caveat (#175):** The guard probes `daemon.lock` with
+`flock(LOCK_EX|LOCK_NB)`. It becomes fully effective once `memexd` acquires
+`DaemonLock` at startup (rides the #175 daemon/write-crate cutover). Until #175
+lands, the guard is best-effort; stop the daemon manually before restore.
+
+### Compressor detection
+
+Detection order: `zstd` -> `xz` -> `gzip`. First binary found on PATH wins.
+Install at least one before running `backup --full`. A configurable explicit-format
+option is deferred to a later version.
+
+```bash
+brew install zstd   # macOS preferred
+# or: brew install xz
+# or: gzip is usually pre-installed
+```
+
+### F13 migration runbook
+
+`wqm backup --full` is the mandatory pre-step before the F13 schema migration:
+
+```bash
+# 1. Full backup first
+wqm backup --full ~/wqm-pre-migration.tar.zst
+
+# 2. Run migration
+wqm admin migrate
+
+# 3. Verify
+wqm admin health
+```
+
+---
 
 ## Overview
 
-The backup and restore system provides data protection and disaster recovery capabilities for workspace-qdrant-mcp. It supports:
+The backup and restore system provides data protection and disaster recovery
+capabilities for workspace-qdrant-mcp. It supports:
 
-- Complete system state backups (Qdrant collections, SQLite state, configuration)
-- Partial backups (selected collections)
+- **Truth-inclusive full backup** (F20): all SQLite stores + Qdrant snapshot + manifest
+- Qdrant snapshot management (create, list, delete)
 - Version compatibility validation
 - Configurable retention policies
-- Optional compression
-- Integrity verification
-- Version migration framework (future)
+- External compression (zstd/xz/gzip)
+- Integrity verification via manifest
 
 ### Key Features
 
