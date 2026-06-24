@@ -45,7 +45,43 @@ pub async fn backup_full(destination: &Path) -> Result<()> {
         .context("no compressor found; install zstd, xz, or gzip before running backup --full")?;
     output::kv("Compressor", compressor.name);
 
-    // 2. Discover stores.
+    // 2-6. Stage SQLite copies + Qdrant snapshot + pre-flight free-space check.
+    let prepared = prepare_backup(destination).await?;
+
+    // 7. Build manifest.
+    let manifest_bytes = build_manifest_bytes(&prepared, compressor.name)?;
+
+    // 8. Build tar archive, stream through compressor to destination file.
+    output::info(format!(
+        "Writing archive ({} compression)...",
+        compressor.name
+    ));
+    write_archive(destination, &compressor, &prepared, &manifest_bytes)?;
+
+    // 9. Summary.
+    print_backup_summary(destination, &prepared, compressor.name);
+
+    Ok(())
+}
+
+// ---- Steps -----------------------------------------------------------------
+
+/// Result of the staging phase: SQLite copies, the optional Qdrant snapshot,
+/// and the daemon-running flag.  Holds the `TempDir` alive until the archive
+/// is written.
+struct PreparedBackup {
+    _stage_dir: TempDir,
+    staged_stores: Vec<(String, PathBuf)>,
+    store_entries: Vec<StoreEntry>,
+    qdrant_snapshot_path: Option<PathBuf>,
+    qdrant_snapshot_name: Option<String>,
+    daemon_running: bool,
+}
+
+/// Discover stores, stage read-consistent SQLite copies, attempt a Qdrant
+/// snapshot, and run the AC-F20.1b pre-flight free-space check.
+async fn prepare_backup(destination: &Path) -> Result<PreparedBackup> {
+    // Discover stores.
     let data_dir = wqm_common::paths::get_data_dir()
         .map_err(|e| anyhow::anyhow!("could not determine data directory: {}", e))?;
     let stores = discover_stores(&data_dir);
@@ -57,8 +93,8 @@ pub async fn backup_full(destination: &Path) -> Result<()> {
         output::info(format!("  {}", s.rel_path));
     }
 
-    // 3. Check whether daemon is running (DATA-N01: for manifest only -- we do
-    //    NOT refuse; backup is read-only).
+    // Daemon-running probe (DATA-N01: for manifest only -- backup is read-only,
+    // it does NOT refuse).
     let daemon_running = is_daemon_running_probe(&data_dir);
     if daemon_running {
         output::warning(
@@ -68,111 +104,131 @@ pub async fn backup_full(destination: &Path) -> Result<()> {
         );
     }
 
-    // 4. Stage SQLite copies in a temp directory.
+    // Stage SQLite copies + attempt Qdrant snapshot.
     let stage_dir = TempDir::new().context("could not create temp staging directory")?;
     let staged_stores = stage_sqlite_copies(&stores, stage_dir.path())?;
-
-    // 5. Attempt to trigger + download a Qdrant snapshot.
     let (qdrant_snapshot_path, qdrant_snapshot_name) =
         attempt_qdrant_snapshot(stage_dir.path()).await;
 
-    // 6. Pre-flight free-space check (AC-F20.1b).
-    let sqlite_bytes: u64 = total_store_bytes(&stores);
+    // Pre-flight free-space check (AC-F20.1b).
     let qdrant_bytes: u64 = qdrant_snapshot_path
         .as_deref()
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .unwrap_or(0);
-    let required = sqlite_bytes + qdrant_bytes;
+    let required = total_store_bytes(&stores) + qdrant_bytes;
+    let dest_parent = ensure_dest_parent(destination)?;
+    output::kv("Required space", output::format_bytes(required as i64));
+    check_free_space(&dest_parent, required).context("pre-flight free-space check failed")?;
+    check_free_space(stage_dir.path(), 0).ok(); // staging dir check (informational)
 
+    output::kv("Qdrant URL", qdrant_url());
+    output::separator();
+
+    let store_entries: Vec<StoreEntry> = stores.iter().map(to_store_entry).collect();
+    Ok(PreparedBackup {
+        _stage_dir: stage_dir,
+        staged_stores,
+        store_entries,
+        qdrant_snapshot_path,
+        qdrant_snapshot_name,
+        daemon_running,
+    })
+}
+
+/// Resolve and create the destination's parent directory.
+fn ensure_dest_parent(destination: &Path) -> Result<PathBuf> {
     let dest_parent = destination
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-
-    // Ensure destination parent exists.
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
     if !dest_parent.exists() {
-        std::fs::create_dir_all(dest_parent).with_context(|| {
+        std::fs::create_dir_all(&dest_parent).with_context(|| {
             format!(
                 "could not create destination directory: {}",
                 dest_parent.display()
             )
         })?;
     }
+    Ok(dest_parent)
+}
 
-    output::kv("Required space", output::format_bytes(required as i64));
-    check_free_space(dest_parent, required).context("pre-flight free-space check failed")?;
-    check_free_space(stage_dir.path(), 0).ok(); // staging dir check (informational)
-
-    output::kv("Qdrant URL", qdrant_url());
-    output::separator();
-
-    // 7. Build manifest.
-    let store_entries: Vec<StoreEntry> = stores.iter().map(to_store_entry).collect();
+/// Build the `manifest.json` bytes from the prepared bundle.
+fn build_manifest_bytes(
+    prepared: &PreparedBackup,
+    compressor_name: &'static str,
+) -> Result<Vec<u8>> {
     let manifest = BackupManifest::new(
-        store_entries,
-        qdrant_snapshot_name.clone(),
-        compressor.name,
-        daemon_running,
+        prepared.store_entries.clone(),
+        prepared.qdrant_snapshot_name.clone(),
+        compressor_name,
+        prepared.daemon_running,
     );
-    let manifest_bytes = manifest.to_json_bytes()?;
+    manifest.to_json_bytes()
+}
 
-    // 8. Build tar archive, stream through compressor to destination file.
-    output::info(format!(
-        "Writing archive ({} compression)...",
-        compressor.name
-    ));
+/// Stream a tar archive of the prepared bundle through the compressor into the
+/// destination file.
+fn write_archive(
+    destination: &Path,
+    compressor: &super::compressor::Compressor,
+    prepared: &PreparedBackup,
+    manifest_bytes: &[u8],
+) -> Result<()> {
+    let dest_file = File::create(destination)
+        .with_context(|| format!("could not create archive: {}", destination.display()))?;
+
+    let mut child = compressor
+        .spawn_compress(std::process::Stdio::from(dest_file))
+        .context("could not spawn compressor")?;
+
     {
-        let dest_file = File::create(destination)
-            .with_context(|| format!("could not create archive: {}", destination.display()))?;
-
-        use std::process::Stdio;
-        let mut child = compressor
-            .spawn_compress(Stdio::from(dest_file))
-            .context("could not spawn compressor")?;
-
-        {
-            let stdin = child
-                .stdin
-                .take()
-                .context("compressor stdin not captured")?;
-
-            write_tar_to_writer(
-                stdin,
-                &staged_stores,
-                qdrant_snapshot_path.as_deref(),
-                &qdrant_snapshot_name,
-                &manifest_bytes,
-            )?;
-        }
-
-        let status = child.wait().context("compressor did not exit cleanly")?;
-        if !status.success() {
-            anyhow::bail!("compressor exited with status: {}", status);
-        }
+        let stdin = child
+            .stdin
+            .take()
+            .context("compressor stdin not captured")?;
+        write_tar_to_writer(
+            stdin,
+            &prepared.staged_stores,
+            prepared.qdrant_snapshot_path.as_deref(),
+            &prepared.qdrant_snapshot_name,
+            manifest_bytes,
+        )?;
     }
 
-    // 9. Summary.
+    let status = child.wait().context("compressor did not exit cleanly")?;
+    if !status.success() {
+        anyhow::bail!("compressor exited with status: {}", status);
+    }
+    Ok(())
+}
+
+/// Print the post-backup summary.
+fn print_backup_summary(
+    destination: &Path,
+    prepared: &PreparedBackup,
+    compressor_name: &'static str,
+) {
     let archive_size = std::fs::metadata(destination).map(|m| m.len()).unwrap_or(0);
     output::separator();
     output::success(format!("Archive written: {}", destination.display()));
     output::kv("Archive size", output::format_bytes(archive_size as i64));
-    output::kv("SQLite stores", staged_stores.len().to_string());
+    output::kv("SQLite stores", prepared.staged_stores.len().to_string());
     output::kv(
         "Qdrant snapshot",
-        qdrant_snapshot_name
+        prepared
+            .qdrant_snapshot_name
             .as_deref()
             .unwrap_or("skipped (Qdrant unreachable)"),
     );
-    output::kv("Compressor", compressor.name);
-    if daemon_running {
+    output::kv("Compressor", compressor_name);
+    if prepared.daemon_running {
         output::info(
             "Reminder: daemon was running during backup. \
              Run `wqm admin rebuild` after restore to ensure index consistency.",
         );
     }
-
-    Ok(())
 }
 
 // ---- Helpers ---------------------------------------------------------------
