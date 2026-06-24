@@ -23,8 +23,13 @@
 //!   survivor PUT flush outside the lock, F19 strategy).
 
 pub mod delete;
+pub mod onboard;
 pub(crate) mod probe;
 pub(crate) mod steps;
 
 pub use delete::{branch_delete, delete_decision, DeleteAction, GitBranchProbe};
+pub use onboard::{
+    apply_git_diff, branch_onboard, resume_pending_onboards, FileContentProvider, OnboardConfig,
+    PendingBranch, PendingDiffProvider,
+};
 pub use probe::probe_branch;

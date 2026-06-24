@@ -28,7 +28,11 @@ pub use blob::{
     blob_refcount, delete_file_from_branch, delete_orphan_blob_row, ingest_file,
     ContentKeyLockManager, Embedder, IngestParams,
 };
-pub use branch::{branch_delete, delete_decision, probe_branch, DeleteAction, GitBranchProbe};
+pub use branch::{
+    apply_git_diff, branch_delete, branch_onboard, delete_decision, probe_branch,
+    resume_pending_onboards, DeleteAction, FileContentProvider, GitBranchProbe, OnboardConfig,
+    PendingBranch, PendingDiffProvider,
+};
 pub use connection::{open_store, open_store_write};
 pub use qdrant::{rebuild_qdrant, MembershipPutBatch, PendingMembershipPut, QdrantWriteClient};
 pub use single_writer::{DaemonLock, DaemonLockConfig};
