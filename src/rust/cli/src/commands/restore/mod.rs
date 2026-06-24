@@ -1,25 +1,41 @@
-//! Restore command - Qdrant snapshot restoration
+//! Restore command - Qdrant snapshot restoration + truth-inclusive full restore
 //!
-//! Restores data from Qdrant snapshots.
-//! Subcommands: snapshot, from-backup, list, verify
+//! Subcommands (existing): snapshot, from-backup, list, verify
+//! Flag (new, F20):        --full <archive>  -- truth-inclusive restore.
+//!
+//! `restore --full` refuses to run while the daemon is live (AC-F20.4).
 
-mod client;
+pub(crate) mod client;
 mod from_backup;
+pub(crate) mod full;
 mod list;
 mod snapshot;
 mod verify;
 
-use anyhow::Result;
+use std::path::PathBuf;
+
+use anyhow::{bail, Result};
 use clap::{Args, Subcommand};
 
 /// Restore command arguments
 #[derive(Args)]
 pub struct RestoreArgs {
+    /// Restore from a truth-inclusive full backup archive produced by
+    /// `wqm backup --full`.  Specify the archive file path as the argument.
+    /// The daemon must be stopped before running this command (AC-F20.4).
+    /// Cannot be combined with a subcommand.
+    #[arg(long, value_name = "ARCHIVE")]
+    full: Option<PathBuf>,
+
+    /// Force restore without confirmation prompt (use with --full).
+    #[arg(long)]
+    force: bool,
+
     #[command(subcommand)]
-    command: RestoreCommand,
+    command: Option<RestoreCommand>,
 }
 
-/// Restore subcommands
+/// Restore subcommands (Qdrant snapshot restoration)
 #[derive(Subcommand)]
 enum RestoreCommand {
     /// Restore from a Qdrant snapshot
@@ -70,21 +86,40 @@ enum RestoreCommand {
 
 /// Execute restore command
 pub async fn execute(args: RestoreArgs) -> Result<()> {
+    // --full and a subcommand are mutually exclusive.
+    if args.full.is_some() && args.command.is_some() {
+        bail!(
+            "--full cannot be combined with a subcommand. \
+             Use either `wqm restore --full <archive>` or `wqm restore <subcommand>`."
+        );
+    }
+
+    if let Some(archive) = args.full {
+        return full::restore_full(&archive, args.force).await;
+    }
+
     match args.command {
-        RestoreCommand::Snapshot {
+        Some(RestoreCommand::Snapshot {
             snapshot,
             collection,
             force,
-        } => snapshot::restore_snapshot(&snapshot, &collection, force).await,
-        RestoreCommand::FromBackup {
+        }) => snapshot::restore_snapshot(&snapshot, &collection, force).await,
+        Some(RestoreCommand::FromBackup {
             path,
             collection,
             force,
-        } => from_backup::restore_from_backup(&path, &collection, force).await,
-        RestoreCommand::List { collection } => list::list_snapshots(collection).await,
-        RestoreCommand::Verify {
+        }) => from_backup::restore_from_backup(&path, &collection, force).await,
+        Some(RestoreCommand::List { collection }) => list::list_snapshots(collection).await,
+        Some(RestoreCommand::Verify {
             snapshot,
             collection,
-        } => verify::verify_snapshot(&snapshot, &collection).await,
+        }) => verify::verify_snapshot(&snapshot, &collection).await,
+        None => {
+            bail!(
+                "no subcommand specified. \
+                 Use `wqm restore --full <archive>` for a truth-inclusive restore, \
+                 or `wqm restore <snapshot|from-backup|list|verify>` for Qdrant operations."
+            );
+        }
     }
 }
