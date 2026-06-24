@@ -330,6 +330,25 @@ The `branch_cleanup/` module in `daemon/core` is **not retired** by this impleme
 the daemon cutover (wiring `memexd` to call `branch_delete` instead of `branch_cleanup/`)
 is deferred to task #175. Until then `branch_cleanup/` continues serving the daemon.
 
+### Qdrant recovery from durable SQLite vectors (branch-storage F11)
+
+`rebuild_qdrant` is implemented in `wqm-storage-write/src/qdrant/recover.rs`. It
+streams blobs from the SQLite `blobs JOIN blob_refs` table using keyset pagination
+(`WHERE blob_id > ?`, page size clamped to [1000, 10000] per PERF-R5-N3) and upserts
+them into Qdrant with the exact arch §5.3 collection spec (768-dim Cosine dense,
+sparse dot-product under `sparse_vectors`, `branch_id`/`tenant_id` keyword payload
+indexes). No embedding calls are made: `blobs.dense_vec` and `blobs.sparse_vec` are
+decoded verbatim and `blobs.point_id` is used verbatim (DATA-05/SEC-4: salted re-keys
+honored). Collection creation and payload-index creation live in
+`wqm-storage-write/src/qdrant/collection.rs`.
+
+**Daemon/CLI rewire deferred**: the `wqm admin rebuild` verb currently routes via the
+daemon gRPC `RebuildIndexRequest` handler (`cli/src/commands/rebuild.rs`). Wiring
+the daemon handler to call `rebuild_qdrant` from the write crate requires the daemon
+cutover (#175, same milestone as the ingest and branch-delete cutover). Until #175
+lands, `wqm admin rebuild` continues using the pre-existing daemon implementation and
+`rebuild_qdrant` is available in the write crate ready to be wired in.
+
 ## Hybrid Search Flow
 
 ```mermaid
