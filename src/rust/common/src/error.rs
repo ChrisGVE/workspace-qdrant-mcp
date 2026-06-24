@@ -18,10 +18,60 @@
 //! `.into()` call site keeps compiling unchanged. Daemon-core re-exports this
 //! from `crate::storage` so all call sites are unchanged.
 //!
+//! F17 adds `ScopeTooBroad` carrying `ScopeTooBroadPayload` — a structured,
+//! machine-actionable payload so MCP/JSON clients can read `suggested_scope` and
+//! `cliff` as discrete fields rather than parsing prose (AC-F17.5).
+//!
 //! Neighbors: `crate::search::types::SearchResult`, `crate::hashing`.
 
 use qdrant_client::QdrantError;
+use serde::Serialize;
 use thiserror::Error;
+
+// ---------------------------------------------------------------------------
+// ScopeTooBroad payload (AC-F17.5)
+// ---------------------------------------------------------------------------
+
+/// Machine-actionable payload carried by `StorageError::ScopeTooBroad`.
+///
+/// Every field is a discrete, typed value so an MCP/JSON client reads
+/// `suggested_scope` and `cliff` directly without parsing prose (AC-F17.5).
+///
+/// Per-surface rendering (AC-F17.5):
+/// - **MCP/JSON**: serialise this struct — all fields appear as JSON keys.
+/// - **CLI**: format as `"Scope too broad: {project_count} projects > cliff
+///   {cliff} -- retry with --scope {suggested_scope}"` and exit non-zero.
+/// - **Prose/agent**: state count + cliff + suggested scope in a sentence.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScopeTooBroadPayload {
+    /// The scope the caller requested (e.g. `"all"`).
+    pub requested_scope: String,
+    /// How many projects were found for that scope.
+    pub project_count: usize,
+    /// The configured project count ceiling for `scope=all`.
+    pub cliff: usize,
+    /// The scope the caller should use instead (always `"group"` for F17).
+    pub suggested_scope: String,
+    /// Human-readable hint, names the concrete narrower scope.
+    pub hint: String,
+}
+
+impl ScopeTooBroadPayload {
+    /// Render a one-line CLI banner suitable for stderr + non-zero exit.
+    ///
+    /// Example: `"Scope too broad: 75 projects > cliff 50 -- retry with
+    /// --scope group"`
+    pub fn cli_banner(&self) -> String {
+        format!(
+            "Scope too broad: {} projects > cliff {} -- retry with --scope {}",
+            self.project_count, self.cliff, self.suggested_scope
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StorageError
+// ---------------------------------------------------------------------------
 
 /// Storage-related errors
 #[derive(Error, Debug)]
@@ -78,6 +128,15 @@ pub enum StorageError {
     /// Fail-closed: never auto-reclaimed.
     #[error("Lock conflict: {0}")]
     LockConflict(String),
+
+    /// The `scope=all` fan-out would exceed the configured project cliff
+    /// (AC-F17.2). The payload carries machine-actionable fields so callers can
+    /// programmatically re-narrow without parsing prose (AC-F17.5).
+    ///
+    /// Never returned for `scope=project` or `scope=group`. The cliff is
+    /// configurable; the default is 50 projects (PRD §F17, §14-Q3).
+    #[error("scope too broad: {0} projects exceed cliff {1} -- narrow to scope=group")]
+    ScopeTooBroad(usize, usize, Box<ScopeTooBroadPayload>),
 }
 
 impl From<QdrantError> for StorageError {
@@ -89,6 +148,66 @@ impl From<QdrantError> for StorageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // AC-F17.5: ScopeTooBroadPayload machine-readable fields + CLI banner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn t_f17_05_scope_too_broad_payload_json_has_discrete_fields() {
+        let payload = ScopeTooBroadPayload {
+            requested_scope: "all".into(),
+            project_count: 75,
+            cliff: 50,
+            suggested_scope: "group".into(),
+            hint: "Use --scope group to search only related projects.".into(),
+        };
+
+        let json_str = serde_json::to_string(&payload).expect("serialize");
+        let val: serde_json::Value = serde_json::from_str(&json_str).expect("parse");
+
+        // suggested_scope and cliff MUST be discrete JSON fields, not embedded
+        // in a prose string (AC-F17.5 MCP/JSON surface assertion).
+        assert_eq!(
+            val["suggested_scope"], "group",
+            "suggested_scope must be a top-level JSON field"
+        );
+        assert_eq!(val["cliff"], 50, "cliff must be a top-level JSON field");
+        assert_eq!(val["project_count"], 75);
+        assert_eq!(val["requested_scope"], "all");
+    }
+
+    #[test]
+    fn t_f17_05_cli_banner_carries_count_and_cliff() {
+        let payload = ScopeTooBroadPayload {
+            requested_scope: "all".into(),
+            project_count: 75,
+            cliff: 50,
+            suggested_scope: "group".into(),
+            hint: "Use --scope group.".into(),
+        };
+
+        let banner = payload.cli_banner();
+        // The banner must name the count, cliff, and the concrete narrower scope.
+        assert!(banner.contains("75"), "banner must include project_count");
+        assert!(banner.contains("50"), "banner must include cliff");
+        assert!(banner.contains("group"), "banner must name suggested_scope");
+    }
+
+    #[test]
+    fn t_f17_05_scope_too_broad_variant_display() {
+        let payload = ScopeTooBroadPayload {
+            requested_scope: "all".into(),
+            project_count: 75,
+            cliff: 50,
+            suggested_scope: "group".into(),
+            hint: "Use --scope group.".into(),
+        };
+        let err = StorageError::ScopeTooBroad(75, 50, Box::new(payload));
+        let display = err.to_string();
+        assert!(display.contains("75"), "display includes count");
+        assert!(display.contains("50"), "display includes cliff");
+    }
 
     #[test]
     fn t_f0_storage_error_display_string_variants() {
