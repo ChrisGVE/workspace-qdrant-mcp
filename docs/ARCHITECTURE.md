@@ -349,6 +349,69 @@ cutover (#175, same milestone as the ingest and branch-delete cutover). Until #1
 lands, `wqm admin rebuild` continues using the pre-existing daemon implementation and
 `rebuild_qdrant` is available in the write crate ready to be wired in.
 
+### Reconcile pass (branch-storage F15)
+
+The reconcile pass heals state drift between SQLite (`store.db`) and Qdrant
+arising from crashes or missed events. Implemented in
+`wqm-storage-write/src/reconcile/`. All cases use injectable seams
+(`QdrantPointReader`, `GitRefReader`) so the entire pass is testable offline
+with no live Qdrant or git process.
+
+**Five cases (implemented, fully unit-tested):**
+
+1. **Missing Qdrant membership** (`case1.rs`): blob in `blob_refs` whose
+   `point_id` is absent from Qdrant, or whose payload `branch_id[]` is stale.
+   Enqueues `OverwritePayload` always; adds a full `Upsert` when the point is
+   absent (`QdrantPointReader.point_exists` returns false). Uses durable
+   `blobs.dense_vec`/`sparse_vec` -- no re-embedding (arch §4.7 case 1, AC-F15.1).
+2. **ABA-guarded orphan prune** (`case2.rs`): blobs with zero `blob_refs`
+   referrers. ABA re-verify under `BEGIN IMMEDIATE` before `QdrantOp::Delete`
+   + `blobs` row delete. FP-1 ordering: Delete enqueued before truth row removed
+   (arch §4.7 case 2, AC-F15.3). MUST run after case 5.
+3. **Missed branch-topology event** (`case3.rs`): branches in `store.db` that
+   no longer exist in git. Probes via injectable `GitRefReader`; runs
+   `branch_delete` for confirmed-deleted branches. Live git2 wiring rides #175
+   (arch §4.7 case 3, AC-F15.1).
+4. **FTS drift repair** (`case4.rs`): `blob_refs` rows with no corresponding
+   `fts_branch_membership` row. `INSERT ... ON CONFLICT DO NOTHING` -- idempotent.
+   Incremental: scoped to `blob_id > watermark` (arch §4.7 case 4, AC-F15.4).
+5. **Cross-DB tenant-mismatch heal** (`case5.rs`): Qdrant payload `tenant_id`
+   disagrees with owning store's `store_meta.tenant_id` after a crash mid-re-tenant
+   (F16). M4 detection bound: skips entirely when no tenant-move recorded since last
+   pass (`watermark.tenant_move_since_last_pass()` false). M1 disambiguation: NO-OP
+   when payload matches a candidate store (transient copy-then-delete window);
+   `OverwritePayload` when no store matches (genuine stale mismatch).
+   MUST run before case 2 (DATA-R7-04, arch §4.7 case 5, AC-F15.6).
+
+**Watermark and maintenance_meta** (`watermark.rs`): per-tenant watermark stored
+in `maintenance_meta` table (`tenant_id PRIMARY KEY`, `last_reconcile_at`,
+`max_seen_blob_id`, `last_tenant_move_at`). All RMW ops under `BEGIN IMMEDIATE`
+to prevent lost-update races (DATA-NIT-02). Cases 1/2/4 are scoped to
+`blob_id > watermark`; FULL mode passes `watermark = 0` to scan all blobs.
+
+**AC-F15.2 startup branch sync** (`branches_sync.rs`): on daemon startup,
+`run_branches_sync` fetches `project_locations` from `state.db` and inserts
+missing rows into `store.db.branches` (`ON CONFLICT(branch_id) DO NOTHING`).
+Additive-only: `state.db` wins on additions; does not delete extra `store.db`
+branches. Live wiring (daemon startup hook) rides #175.
+
+**FULL mode** (`full_mode.rs`): `run_full_mode` runs all five cases with
+`watermark = 0`, enforcing the required ordering case5 -> case1 -> case2 ->
+case3 -> case4 (DATA-R7-04). Returns `FullModeReport` with per-case counts.
+Used as the migration acceptance gate after F13 re-key (arch §5.6 step 4).
+
+**Operator startup budget note:** on daemon startup, the reconcile pass runs in
+incremental mode (watermark-bounded). FULL mode is an explicit operator action
+(`wqm admin reconcile --full`, rides #175) or the post-migration acceptance gate.
+Cadence must beat `gc.reflogExpire` (default 90 days reachable, 30 days
+unreachable refs) to avoid missing branch-delete events.
+
+**Live wiring deferral (Path note):** the periodic scheduler, daemon-startup
+hook, `wqm admin reconcile` CLI verb, live `git2` ref reader, and real Qdrant
+scroll for case-5 candidate sourcing all ride #175 (same deferral posture as
+F8/F9/F11/F20 write features). The reconcile logic is complete and fully
+unit-tested (159 tests pass). Wire-up requires the daemon cutover milestone.
+
 ## Hybrid Search Flow
 
 ```mermaid
