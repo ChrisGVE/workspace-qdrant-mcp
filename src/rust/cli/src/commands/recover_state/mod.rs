@@ -19,6 +19,7 @@ use anyhow::Result;
 use wqm_common::constants::{
     COLLECTION_LIBRARIES, COLLECTION_PROJECTS, COLLECTION_RULES, COLLECTION_SCRATCHPAD,
 };
+use wqm_common::paths::get_data_dir;
 
 use super::qdrant_helpers;
 use crate::output;
@@ -94,12 +95,12 @@ async fn reconstruct_all_collections(
 pub async fn execute(confirm: bool) -> Result<()> {
     output::section("State Recovery from Qdrant");
 
-    // Safety: refuse to run if daemon is active — concurrent writes would corrupt state
-    if is_daemon_running().await {
-        output::error(
-            "Daemon is currently running. Stop it before recovering state.\n\
-             Hint: wqm service stop  (or: launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist)",
-        );
+    // Safety: refuse to run if daemon is active -- concurrent writes would corrupt state.
+    // Uses the shared wqm_common::guard::assert_daemon_stopped (AC-F20.4 / FP-2)
+    // so EXACTLY ONE daemon-running-guard definition exists in the workspace.
+    let data_dir = get_data_dir().map_err(|e| anyhow::anyhow!("{}", e))?;
+    if let Err(e) = wqm_common::guard::assert_daemon_stopped(&data_dir) {
+        output::error(format!("{}", e));
         anyhow::bail!("Cannot recover state while daemon is running");
     }
 
@@ -151,9 +152,4 @@ pub async fn execute(confirm: bool) -> Result<()> {
     output::info("Verify with: wqm admin health");
 
     Ok(())
-}
-
-/// Check if the daemon is currently running by attempting a gRPC health check.
-async fn is_daemon_running() -> bool {
-    crate::grpc::connect_default().await.is_ok()
 }
