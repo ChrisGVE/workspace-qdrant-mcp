@@ -63,6 +63,14 @@ pub struct TenantMismatchCandidate {
     pub blob_id: i64,
     /// The `collection_id` for the payload.
     pub collection_id: String,
+    /// All candidate store tenant IDs involved in the migration that produced this
+    /// candidate (source AND destination). Used for M1 disambiguation: if the current
+    /// Qdrant payload tenant is present in this set, the payload already names a
+    /// legitimate owner (transient copy-then-delete window) -- NO-OP.
+    ///
+    /// In the live daemon (#175) this is sourced from the migration journal entries
+    /// for this point. In tests, inject the set directly.
+    pub candidate_store_tenants: Vec<String>,
 }
 
 /// Read the `store_meta.tenant_id` from the store.
@@ -82,10 +90,15 @@ pub async fn read_store_tenant(pool: &SqlitePool) -> Result<String, StorageError
 ///
 /// For each candidate point in `candidates`:
 ///   1. Read the current payload `tenant_id` via `reader.payload_tenant_id`.
-///   2. If the payload matches `candidate.store_tenant_id` -> NO-OP (already correct
-///      or transient copy-then-delete window where destination already set).
-///   3. If the payload matches NO known store tenant AND the store holds a `blob_refs`
-///      row -> genuine stale mismatch; enqueue `QdrantOp::OverwritePayload` to fix.
+///   2. **M1 disambiguation**: if the payload tenant is present in
+///      `candidate.candidate_store_tenants` -> NO-OP. The payload already names
+///      a legitimate owner (either already correct, or the transient
+///      copy-then-delete window where the destination PUT succeeded but the source
+///      row delete is still pending). Do NOT re-PUT back to the source tenant --
+///      that would revert the migration and oscillate.
+///   3. If NO candidate store tenant matches the payload AND this store holds a
+///      `blob_refs` row -> genuine stale mismatch; enqueue `QdrantOp::OverwritePayload`
+///      to fix (additive-first: no Delete).
 ///
 /// Returns the number of points where an `OverwritePayload` was enqueued.
 pub async fn run_case5<S, R>(
@@ -109,65 +122,58 @@ where
     let mut healed = 0u64;
 
     for candidate in candidates {
-        let payload_tenant = reader.payload_tenant_id(&candidate.point_id).await;
-
-        match payload_tenant {
+        let payload_tenant = match reader.payload_tenant_id(&candidate.point_id).await {
             None => {
                 // Point absent from Qdrant: case-1 handles the upsert; skip here.
                 continue;
             }
-            Some(ref pt) if pt == &store_tenant => {
-                // Payload already names this store's tenant: NO-OP.
-                // (Either already correct, or the transient copy-then-delete window
-                //  where the PUT succeeded and the source-row delete is still pending.)
-                continue;
-            }
-            Some(ref pt) => {
-                // Check whether any OTHER store has store_meta.tenant_id == pt.
-                // In the offline test, there is only one store (this pool), so if the
-                // payload tenant != store_tenant and there is no other matching store,
-                // this is a genuine stale mismatch.
-                //
-                // The disambiguation logic: if exactly one candidate store matches the
-                // payload tenant -> NO-OP (M1). If NO store matches -> re-PUT.
-                //
-                // In the offline single-store model: store_tenant != pt AND no other
-                // store matches pt -> genuine mismatch.
-                let _ = pt; // disambiguation complete: genuine mismatch path
+            Some(pt) => pt,
+        };
 
-                // Verify this store actually holds a blob_refs row for the point
-                // (i.e., this store is the rightful owner).
-                let ref_count: i64 =
-                    sqlx::query_scalar("SELECT COUNT(*) FROM blob_refs WHERE blob_id = ?")
-                        .bind(candidate.blob_id)
-                        .fetch_one(pool)
-                        .await
-                        .map_err(|e| StorageError::Sqlite(format!("case5 ref_count: {e}")))?;
-
-                if ref_count == 0 {
-                    // This store does NOT own the blob; another store does.
-                    // Skip: let that store's reconcile pass fix the payload.
-                    continue;
-                }
-
-                // This store owns the blob. Re-derive branch membership and PUT.
-                let branch_ids =
-                    crate::blob::membership::compute_membership(pool, candidate.blob_id).await?;
-
-                let payload = BlobPayload {
-                    tenant_id: store_tenant.clone(),
-                    branch_id: branch_ids,
-                    collection_id: collection_id.to_owned(),
-                };
-
-                sink.enqueue(QdrantOp::OverwritePayload {
-                    point_id: candidate.point_id.clone(),
-                    payload,
-                });
-
-                healed += 1;
-            }
+        // M1 disambiguation: if the payload tenant is present in the candidate
+        // store set, at least one store legitimately owns this payload -- NO-OP.
+        // This covers BOTH directions of the transient copy-then-delete window:
+        //   - Destination-store run: payload == destination tenant (in set) -> NO-OP.
+        //   - Source-store run: payload == destination tenant (in set because source
+        //     and destination are both candidates) -> NO-OP. This prevents the
+        //     dangerous oscillation where case-5 would re-PUT back to the source.
+        if candidate
+            .candidate_store_tenants
+            .iter()
+            .any(|t| t == &payload_tenant)
+        {
+            continue;
         }
+
+        // No candidate store matches the payload: genuine stale mismatch.
+        // Verify this store holds a blob_refs row (is the rightful owner).
+        let ref_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM blob_refs WHERE blob_id = ?")
+            .bind(candidate.blob_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| StorageError::Sqlite(format!("case5 ref_count: {e}")))?;
+
+        if ref_count == 0 {
+            // This store does not own the blob; let the owning store's pass fix it.
+            continue;
+        }
+
+        // This store owns the blob. Re-derive branch membership and re-PUT payload.
+        let branch_ids =
+            crate::blob::membership::compute_membership(pool, candidate.blob_id).await?;
+
+        let payload = BlobPayload {
+            tenant_id: store_tenant.clone(),
+            branch_id: branch_ids,
+            collection_id: collection_id.to_owned(),
+        };
+
+        sink.enqueue(QdrantOp::OverwritePayload {
+            point_id: candidate.point_id.clone(),
+            payload,
+        });
+
+        healed += 1;
     }
 
     Ok(healed)
