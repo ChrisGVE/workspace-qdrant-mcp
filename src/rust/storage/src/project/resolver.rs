@@ -13,6 +13,11 @@
 //!   FP-3 fuzzy handle->key resolver (AC-F16.6) — one nexus, two phases, no
 //!   second resolver (FP-2). Leave room for that extension in the public API.
 //!
+//!   F17 adds `SearchScope` (Project/Group/All) and `enumerate_by_scope` which
+//!   returns the `Vec<ProjectBinding>` of all projects the fan-out should query.
+//!   `scope=group` reads `project_groups` (state.db schema v24) to find sibling
+//!   tenants; falls back to single-project when the tenant has no group.
+//!
 //!   Path canonicalization (arch §6.5): `resolve_project` resolves symlinks and
 //!   `..` components via `std::fs::canonicalize` before any query, preventing
 //!   path-traversal in the walk-up logic.
@@ -143,11 +148,152 @@ impl ProjectRegistry {
 
         Ok(rows)
     }
+
+    /// Return all `ProjectBinding`s the fan-out should query for `scope`.
+    ///
+    /// - `Project` — the current tenant's active binding only (the F10 path).
+    /// - `Group` — all tenants sharing a `project_groups` group with the
+    ///   current tenant; falls back to `[current]` when none found.
+    /// - `All` — every tenant with at least one active `project_locations` row.
+    ///
+    /// Each returned binding uses the `active=1` / `sync_state='current'`
+    /// location for the project; if a project has several active locations the
+    /// `current` sync_state wins, then the most-recently-created row as a
+    /// tie-break.
+    pub async fn enumerate_by_scope(
+        &self,
+        scope: SearchScope,
+        current_tenant_id: &str,
+    ) -> Result<Vec<ProjectBinding>, StorageError> {
+        match scope {
+            SearchScope::Project => self.bindings_for_tenants(&[current_tenant_id]).await,
+            SearchScope::Group => self.bindings_for_group(current_tenant_id).await,
+            SearchScope::All => self.bindings_all_active().await,
+        }
+    }
+
+    /// Resolve bindings for an explicit list of `tenant_id`s.
+    async fn bindings_for_tenants(
+        &self,
+        tenant_ids: &[&str],
+    ) -> Result<Vec<ProjectBinding>, StorageError> {
+        let mut results = Vec::with_capacity(tenant_ids.len());
+        for tid in tenant_ids {
+            if let Some(b) = self.active_binding_for_tenant(tid).await? {
+                results.push(b);
+            }
+        }
+        Ok(results)
+    }
+
+    /// Resolve bindings for all tenants sharing a group with `current_tenant_id`.
+    ///
+    /// Falls back to `[current_tenant_id]` when the tenant has no group.
+    async fn bindings_for_group(
+        &self,
+        current_tenant_id: &str,
+    ) -> Result<Vec<ProjectBinding>, StorageError> {
+        let member_ids = query_group_members(&self.state_pool, current_tenant_id).await?;
+
+        // No group membership — behave like scope=project.
+        if member_ids.is_empty() {
+            return self.bindings_for_tenants(&[current_tenant_id]).await;
+        }
+
+        let refs: Vec<&str> = member_ids.iter().map(String::as_str).collect();
+        self.bindings_for_tenants(&refs).await
+    }
+
+    /// Resolve bindings for ALL tenants with at least one active location.
+    async fn bindings_all_active(&self) -> Result<Vec<ProjectBinding>, StorageError> {
+        let rows = sqlx::query_as::<_, ProjectRow>(
+            r#"
+            SELECT DISTINCT p.tenant_id
+            FROM projects p
+            JOIN project_locations pl ON pl.project_id = p.project_id
+            WHERE pl.active = 1
+            ORDER BY p.tenant_id
+            "#,
+        )
+        .fetch_all(&self.state_pool)
+        .await
+        .map_err(|e| StorageError::Sqlite(format!("enumerate all tenants failed: {e}")))?;
+
+        let tenant_ids: Vec<String> = rows.into_iter().map(|r| r.tenant_id).collect();
+        let refs: Vec<&str> = tenant_ids.iter().map(String::as_str).collect();
+        self.bindings_for_tenants(&refs).await
+    }
+
+    /// Return the best active `ProjectBinding` for a single `tenant_id`.
+    ///
+    /// Selection priority: `sync_state='current'` first, then latest
+    /// `created_at` as tie-break. Returns `None` when the tenant has no active
+    /// location (skipped silently — not an error).
+    async fn active_binding_for_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Option<ProjectBinding>, StorageError> {
+        let row = sqlx::query_as::<_, ActiveRow>(
+            r#"
+            SELECT
+                p.tenant_id,
+                p.db_path,
+                pl.branch_id
+            FROM project_locations pl
+            JOIN projects p ON p.project_id = pl.project_id
+            WHERE p.tenant_id = ?1 AND pl.active = 1
+            ORDER BY
+                CASE pl.sync_state WHEN 'current' THEN 0 ELSE 1 END ASC,
+                pl.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_optional(&self.state_pool)
+        .await
+        .map_err(|e| StorageError::Sqlite(format!("active binding for tenant {tenant_id}: {e}")))?;
+
+        Ok(row.map(|r| {
+            ProjectBinding::new(
+                TenantId::new(&r.tenant_id),
+                BranchId::new(&r.branch_id),
+                &r.db_path,
+            )
+        }))
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+/// Search scope controlling which projects the fan-out targets (AC-F17, arch R5).
+///
+/// The MCP `search` tool declares `["project","group","all"]` — this enum is
+/// the authoritative Rust representation; parse from those strings via
+/// `SearchScope::from_str_loose`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    /// Query only the current project (the existing F10 single-project path).
+    Project,
+    /// Query the current project plus all tenants sharing a `project_groups`
+    /// group with it. Falls back to `Project` when the tenant has no group.
+    Group,
+    /// Query every active project. Above the cliff, returns `ScopeTooBroad`.
+    All,
+}
+
+impl SearchScope {
+    /// Parse from a string value (case-insensitive). Unknown strings default to
+    /// `Project` so callers that receive an unrecognised value fail safe.
+    pub fn from_str_loose(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "group" => Self::Group,
+            "all" => Self::All,
+            _ => Self::Project,
+        }
+    }
+}
 
 /// One branch entry returned by `ProjectRegistry::list_project_branches`.
 /// Used by `wqm project branches` (AC-F10.8).
@@ -176,6 +322,59 @@ struct LocationRow {
     branch_id: String,
     tenant_id: String,
     db_path: String,
+}
+
+/// Minimal row returned by `active_binding_for_tenant`.
+#[derive(sqlx::FromRow)]
+struct ActiveRow {
+    tenant_id: String,
+    db_path: String,
+    branch_id: String,
+}
+
+/// Minimal row used by `bindings_all_active` to list distinct tenant_ids.
+#[derive(sqlx::FromRow)]
+struct ProjectRow {
+    tenant_id: String,
+}
+
+/// Query `project_groups` in `state.db` for all tenant_ids sharing at least
+/// one group with `current_tenant_id` (including the tenant itself).
+///
+/// Returns an empty `Vec` when the `project_groups` table does not exist (pre-
+/// v24 state.db) or the tenant has no group membership — both treated as
+/// "no group" so the caller falls back gracefully.
+async fn query_group_members(
+    pool: &SqlitePool,
+    current_tenant_id: &str,
+) -> Result<Vec<String>, StorageError> {
+    // Guard: table may not exist on older state.db versions.
+    let table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_groups')",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| StorageError::Sqlite(format!("check project_groups existence: {e}")))?;
+
+    if !table_exists {
+        return Ok(vec![]);
+    }
+
+    let rows: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT pg2.tenant_id
+        FROM project_groups pg1
+        JOIN project_groups pg2 ON pg1.group_id = pg2.group_id
+        WHERE pg1.tenant_id = ?1
+        ORDER BY pg2.tenant_id
+        "#,
+    )
+    .bind(current_tenant_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| StorageError::Sqlite(format!("query_group_members failed: {e}")))?;
+
+    Ok(rows)
 }
 
 /// Canonicalize a path — resolve symlinks and `..`.

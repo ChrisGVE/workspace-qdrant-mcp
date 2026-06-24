@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tempfile::NamedTempFile;
 
-use super::{most_specific_match, LocationRow, ProjectRegistry};
+use super::{most_specific_match, LocationRow, ProjectRegistry, SearchScope};
 
-/// Create the state.db schema (projects + project_locations) in `pool`.
+/// Create the state.db schema (projects + project_locations + project_groups).
 async fn create_schema(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS projects (
@@ -46,6 +46,21 @@ async fn create_schema(pool: &SqlitePool) {
     .execute(pool)
     .await
     .expect("create project_locations");
+
+    // project_groups table (schema v24): groups related tenants for scope=group.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS project_groups (
+            group_id   TEXT NOT NULL,
+            tenant_id  TEXT NOT NULL,
+            group_type TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 1.0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, tenant_id)
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("create project_groups");
 }
 
 // ---------------------------------------------------------------------------
@@ -338,4 +353,146 @@ async fn t_list_project_branches_returns_entries() {
         .find(|b| b.branch_name == "develop")
         .unwrap();
     assert_eq!(dev.sync_state, "indexing");
+}
+
+// ---------------------------------------------------------------------------
+// enumerate_by_scope tests (AC-F17.2, AC-F17 scope=group)
+// ---------------------------------------------------------------------------
+
+/// Seed three projects: proj-a and proj-b share "grp-1", proj-c is independent.
+async fn seed_three_projects_with_group(pool: &SqlitePool) {
+    create_schema(pool).await;
+
+    for (name, tid, dbp, loc, bn) in &[
+        ("ProjA", "t-a", "/d/a/store.db", "/loc/a", "main"),
+        ("ProjB", "t-b", "/d/b/store.db", "/loc/b", "main"),
+        ("ProjC", "t-c", "/d/c/store.db", "/loc/c", "main"),
+    ] {
+        sqlx::query(
+            "INSERT INTO projects (name, tenant_id, db_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, '2026-01-01', '2026-01-01')",
+        )
+        .bind(name)
+        .bind(tid)
+        .bind(dbp)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        let bid = format!("bid-{tid}");
+        sqlx::query(
+            "INSERT INTO project_locations
+             (project_id, location, branch_name, branch_id, active, created_at, updated_at)
+             VALUES (
+               (SELECT project_id FROM projects WHERE tenant_id = ?1),
+               ?2, ?3, ?4, 1, '2026-01-01', '2026-01-01'
+             )",
+        )
+        .bind(tid)
+        .bind(loc)
+        .bind(bn)
+        .bind(&bid)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    // Only proj-a and proj-b share group grp-1; proj-c is isolated.
+    for tid in &["t-a", "t-b"] {
+        sqlx::query(
+            "INSERT INTO project_groups (group_id, tenant_id, group_type, confidence, created_at)
+             VALUES ('grp-1', ?1, 'workspace', 1.0, '2026-01-01')",
+        )
+        .bind(*tid)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+// scope=project returns only the binding's project.
+#[tokio::test]
+async fn t_f17_enumerate_scope_project_returns_one() {
+    let tmp = NamedTempFile::new().unwrap();
+    let pool = create_writable_pool(tmp.path()).await;
+    seed_three_projects_with_group(&pool).await;
+    pool.close().await;
+
+    let registry = ProjectRegistry::open(tmp.path()).await.unwrap();
+    let bindings = registry
+        .enumerate_by_scope(SearchScope::Project, "t-a")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        bindings.len(),
+        1,
+        "scope=project must return exactly one binding"
+    );
+    assert_eq!(bindings[0].tenant_id.as_str(), "t-a");
+}
+
+// scope=group returns only the group members (t-a and t-b), not the outsider
+// (t-c). This is the AC-F17 scope=group contract.
+#[tokio::test]
+async fn t_f17_enumerate_scope_group_excludes_non_member() {
+    let tmp = NamedTempFile::new().unwrap();
+    let pool = create_writable_pool(tmp.path()).await;
+    seed_three_projects_with_group(&pool).await;
+    pool.close().await;
+
+    let registry = ProjectRegistry::open(tmp.path()).await.unwrap();
+    let bindings = registry
+        .enumerate_by_scope(SearchScope::Group, "t-a")
+        .await
+        .unwrap();
+
+    let tids: Vec<&str> = bindings.iter().map(|b| b.tenant_id.as_str()).collect();
+    assert!(tids.contains(&"t-a"), "group member t-a must be included");
+    assert!(tids.contains(&"t-b"), "group member t-b must be included");
+    assert!(
+        !tids.contains(&"t-c"),
+        "non-member t-c must NOT appear in scope=group results"
+    );
+    assert_eq!(bindings.len(), 2, "exactly 2 group members");
+}
+
+// scope=all returns every active project.
+#[tokio::test]
+async fn t_f17_enumerate_scope_all_returns_all_projects() {
+    let tmp = NamedTempFile::new().unwrap();
+    let pool = create_writable_pool(tmp.path()).await;
+    seed_three_projects_with_group(&pool).await;
+    pool.close().await;
+
+    let registry = ProjectRegistry::open(tmp.path()).await.unwrap();
+    let bindings = registry
+        .enumerate_by_scope(SearchScope::All, "t-a")
+        .await
+        .unwrap();
+
+    assert_eq!(bindings.len(), 3, "scope=all must include all 3 projects");
+}
+
+// scope=group falls back to the single project when the tenant has no group.
+#[tokio::test]
+async fn t_f17_enumerate_scope_group_no_group_falls_back_to_project() {
+    let tmp = NamedTempFile::new().unwrap();
+    let pool = create_writable_pool(tmp.path()).await;
+    seed_three_projects_with_group(&pool).await;
+    pool.close().await;
+
+    // t-c has no group membership.
+    let registry = ProjectRegistry::open(tmp.path()).await.unwrap();
+    let bindings = registry
+        .enumerate_by_scope(SearchScope::Group, "t-c")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        bindings.len(),
+        1,
+        "scope=group with no group membership falls back to project-scope (1 result)"
+    );
+    assert_eq!(bindings[0].tenant_id.as_str(), "t-c");
 }
