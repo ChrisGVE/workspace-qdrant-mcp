@@ -17,6 +17,7 @@
 //! Neighbors: `search.rs` (Qdrant + SQLite enrich), `list.rs` (file listing),
 //!   `crate::fts::search` (FTS5 — sole module), `crate::project::ProjectRegistry`.
 
+pub mod fanout;
 pub mod list;
 pub mod search;
 
