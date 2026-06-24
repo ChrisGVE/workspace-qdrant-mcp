@@ -7,6 +7,8 @@
 //! Neighbors: `wqm-storage::qdrant::QdrantReadClient` (the read sibling).
 
 pub mod membership;
+pub mod membership_batch;
 pub mod write_client;
 
+pub use membership_batch::{MembershipPutBatch, PendingMembershipPut};
 pub use write_client::QdrantWriteClient;
