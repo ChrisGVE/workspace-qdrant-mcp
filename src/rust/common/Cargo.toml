@@ -8,6 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 
 [dependencies]
+# String similarity for handle resolver (AC-F16.6 FP-3).
+strsim = { workspace = true }
+# Unicode NFC normalization for handle resolver (AC-F16.6 DOM-R8-N2).
+unicode-normalization = { workspace = true }
+# Unicode case folding for handle resolver exact/fuzzy comparisons (AC-F16.6).
+focaccia = { workspace = true }
+
 # Date/time
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

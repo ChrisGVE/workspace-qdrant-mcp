@@ -496,3 +496,10 @@ async fn t_f17_enumerate_scope_group_no_group_falls_back_to_project() {
     );
     assert_eq!(bindings[0].tenant_id.as_str(), "t-c");
 }
+
+// ---------------------------------------------------------------------------
+// AC-F16.6: resolve_by_handle tests (split to sibling file for line budget)
+// ---------------------------------------------------------------------------
+
+#[path = "resolver_tests_f16.rs"]
+mod f16;

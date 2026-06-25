@@ -224,6 +224,53 @@ impl ProjectRegistry {
         self.bindings_for_tenants(&refs).await
     }
 
+    /// Resolve a human-provided project handle to a `ProjectBinding` (AC-F16.6).
+    ///
+    /// Loads all project names from `state.db` as `HandleCandidate`s
+    /// (handle = `projects.name`, key = `projects.tenant_id`) and delegates to
+    /// the ONE shared resolver in `wqm_common::handle::resolve_handle`.
+    ///
+    /// This is the project-name face of the FP-3 resolver. Scratchpad/rules
+    /// handle consumption is a separate, later piece (do not build here).
+    ///
+    /// # Action tiers (see `wqm_common::handle::ResolveAction`)
+    ///
+    /// - `Read`: fuzzy single-candidate resolution; ambiguity surfaces the set.
+    /// - `Write`: exact required; near-miss → `BestGuess` for caller confirm.
+    /// - `Destructive`: same as Write; caller demands unique-ID typed confirm.
+    pub async fn resolve_by_handle(
+        &self,
+        input: &str,
+        action: wqm_common::handle::ResolveAction,
+    ) -> Result<wqm_common::handle::Resolved, wqm_common::handle::HandleResolveError> {
+        use wqm_common::handle::{resolve_handle, HandleCandidate};
+
+        // Load all project names from state.db as candidates.
+        // handle = projects.name (human-readable), key = projects.tenant_id (opaque).
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT name, tenant_id FROM projects ORDER BY name ASC")
+                .fetch_all(&self.state_pool)
+                .await
+                .map_err(|e| {
+                    // Map StorageError → HandleResolveError::NotFound as a plausible
+                    // degradation — the caller can't distinguish a DB error from an
+                    // empty registry at this layer, and the result is the same.
+                    wqm_common::handle::HandleResolveError::NotFound {
+                        handle: format!("{input} (state.db error: {e})"),
+                    }
+                })?;
+
+        let candidates: Vec<HandleCandidate> = rows
+            .into_iter()
+            .map(|(name, tenant_id)| HandleCandidate {
+                handle: name,
+                key: tenant_id,
+            })
+            .collect();
+
+        resolve_handle(input, &candidates, action)
+    }
+
     /// Return the best active `ProjectBinding` for a single `tenant_id`.
     ///
     /// Selection priority: `sync_state='current'` first, then latest

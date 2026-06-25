@@ -61,6 +61,14 @@ windows = ["-C", "target-cpu=native"]
 
 # Workspace-level dependencies that crates can inherit
 [workspace.dependencies]
+# String similarity metrics (Jaro-Winkler for handle resolver AC-F16.6).
+# 0.11.1 is already in the lockfile as a transitive dep via clap.
+strsim = "0.11"
+# Unicode NFC normalization for handle resolver normalization step (AC-F16.6).
+unicode-normalization = "0.1"
+# Unicode case folding for handle resolver exact/fuzzy comparison (AC-F16.6).
+focaccia = "2.0"
+
 # Async runtime and utilities
 tokio = { version = "1.50", features = [
     "rt-multi-thread", "macros", "time", "fs", "process", "signal",

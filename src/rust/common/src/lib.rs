@@ -25,6 +25,7 @@ pub mod exclusion;
 pub mod git;
 pub mod git_url;
 pub mod guard;
+pub mod handle;
 pub mod hashing;
 pub mod language_registry;
 pub mod lsp_detection;
