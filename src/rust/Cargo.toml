@@ -66,8 +66,6 @@ windows = ["-C", "target-cpu=native"]
 strsim = "0.11"
 # Unicode NFC normalization for handle resolver normalization step (AC-F16.6).
 unicode-normalization = "0.1"
-# Unicode case folding for handle resolver exact/fuzzy comparison (AC-F16.6).
-focaccia = "2.0"
 
 # Async runtime and utilities
 tokio = { version = "1.50", features = [

@@ -19,15 +19,20 @@
 //!
 //! ## Normalization (DOM-R8-N2)
 //!
-//! Both input and each candidate are normalized identically before any
-//! comparison (exact or fuzzy):
+//! Both input and each candidate pass through the SAME [`normalize_handle`]
+//! before any comparison — exact OR fuzzy:
 //!   1. Unicode NFC via `unicode-normalization` (`.nfc().collect::<String>()`)
-//!   2. Unicode case-fold via `focaccia::CaseFold::Full` applied character by
-//!      character to produce a canonical lowercase string.
+//!      so composed and decomposed accented forms compare equal.
+//!   2. Unicode case-fold to lowercase via `str::to_lowercase`, so `MathLex`,
+//!      `mathlex`, and `MATHLEX` compare equal.
 //!
-//! The SAME helper is used in both the exact short-circuit (step 1 of the
-//! algorithm) and the Jaro-Winkler fuzzy step. Stored keys are NEVER altered;
-//! normalization is query-time only.
+//! Using ONE helper for both steps is the correctness requirement (DOM-R8-N2):
+//! two different fold functions could disagree on an edge codepoint and make an
+//! exact-equal pair score as a non-exact fuzzy match. `str::to_lowercase`
+//! realizes the PRD's "simple case-fold" intent — case-insensitive NFC matching
+//! — across the ASCII/Latin/script range that project, library, and
+//! scratchpad/rules handles occupy; it needs no extra dependency. Stored keys
+//! are NEVER altered; normalization produces a transient comparison key only.
 //!
 //! ## Algorithm (§14-Q9)
 //!
@@ -55,7 +60,6 @@
 //! `Resolved::BestGuess { best, alternatives }` so the caller can prompt for
 //! confirmation before acting.
 
-use focaccia::CaseFold;
 use unicode_normalization::UnicodeNormalization;
 
 // ---------------------------------------------------------------------------
@@ -168,41 +172,22 @@ pub enum Resolved {
 // Normalization helper (DOM-R8-N2)
 // ---------------------------------------------------------------------------
 
-/// Normalize a handle for comparison: Unicode NFC then Unicode Full case-fold.
+/// Normalize a handle for comparison: Unicode NFC then case-fold to lowercase.
 ///
 /// Applied identically to both the input and every candidate before any
-/// comparison (exact or fuzzy). The stored key is never altered; this
+/// comparison (exact or fuzzy) — the same comparison key feeds the exact
+/// short-circuit (string equality) and the Jaro-Winkler fuzzy step, so the two
+/// steps can never disagree on a pair. The stored key is never altered; this
 /// produces a transient comparison key only.
 ///
-/// ## Why Full case-fold?
-///
-/// `focaccia::CaseFold::Full` is the correct Unicode fold for handle matching:
-/// it maps uppercase to lowercase across all Unicode scripts (including
-/// characters that `str::to_lowercase` handles differently). The PRD calls for
-/// "simple case fold" in spirit (ASCII + common Latin), and Full is a superset
-/// that is strictly more correct for multi-script project names.
+/// `str::to_lowercase` realizes the PRD's "simple case-fold" intent
+/// (case-insensitive NFC matching) for the ASCII/Latin/script range that
+/// handles occupy, with no extra dependency (FP-2 leverage-existing).
 pub fn normalize_handle(s: &str) -> String {
-    // Step 1: NFC normalization — canonicalize composed vs. decomposed forms.
+    // Step 1: NFC — canonicalize composed vs. decomposed forms.
     let nfc: String = s.chars().nfc().collect();
-    // Step 2: Unicode Full case-fold to lowercase.
-    // focaccia::CaseFold does not expose a fold-to-String API; we produce the
-    // folded form by collecting char-by-char using to_lowercase() on the NFC
-    // string, then verify equality via focaccia in comparisons.
-    //
-    // For the strsim scoring step we need a String; `str::to_lowercase()` is
-    // the standard Rust idiom and matches the Unicode simple-case-fold for
-    // the ASCII + common Latin range that handles occupy in practice.
-    // The focaccia Full fold is used for EQUALITY checks (see are_eq_folded).
+    // Step 2: case-fold to lowercase.
     nfc.to_lowercase()
-}
-
-/// Return `true` when two NFC strings are case-fold equal under
-/// `CaseFold::Full` (focaccia).
-///
-/// Used for the exact-match short-circuit step — gives the correct Unicode
-/// Full fold equality rather than byte-level `==` on lowercased strings.
-pub(crate) fn are_eq_folded(a: &str, b: &str) -> bool {
-    CaseFold::Full.case_eq(a, b)
 }
 
 // ---------------------------------------------------------------------------
@@ -235,22 +220,21 @@ pub fn resolve_handle(
 ) -> Result<Resolved, HandleResolveError> {
     let norm_input: String = normalize_handle(input);
 
-    // NFC-normalize all candidate handles for comparison.
-    let nfc_candidates: Vec<String> = candidates
+    // Normalize every candidate handle ONCE (NFC + case-fold). The same key
+    // drives both the exact short-circuit (string equality) and the fuzzy
+    // scoring, so the two steps can never disagree on a pair (DOM-R8-N2).
+    let norm_candidates: Vec<String> = candidates
         .iter()
-        .map(|c| {
-            let nfc: String = c.handle.chars().nfc().collect();
-            nfc
-        })
+        .map(|c| normalize_handle(&c.handle))
         .collect();
 
     // ------------------------------------------------------------------
-    // Step 1: Exact short-circuit (case-insensitive via focaccia Full fold)
+    // Step 1: Exact short-circuit (case-insensitive via normalized equality)
     // ------------------------------------------------------------------
     let exact_matches: Vec<&HandleCandidate> = candidates
         .iter()
-        .zip(nfc_candidates.iter())
-        .filter(|(_, nfc_c)| are_eq_folded(&norm_input, nfc_c))
+        .zip(norm_candidates.iter())
+        .filter(|(_, norm_c)| **norm_c == norm_input)
         .map(|(c, _)| c)
         .collect();
 
@@ -270,10 +254,9 @@ pub fn resolve_handle(
     // ------------------------------------------------------------------
     let mut over_threshold: Vec<(f64, &HandleCandidate)> = candidates
         .iter()
-        .zip(nfc_candidates.iter())
-        .filter_map(|(c, nfc_c)| {
-            let norm_c = normalize_handle(nfc_c);
-            let score = strsim::jaro_winkler(&norm_input, &norm_c);
+        .zip(norm_candidates.iter())
+        .filter_map(|(c, norm_c)| {
+            let score = strsim::jaro_winkler(&norm_input, norm_c);
             if score >= JARO_WINKLER_THRESHOLD {
                 Some((score, c))
             } else {

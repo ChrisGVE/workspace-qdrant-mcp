@@ -174,7 +174,10 @@ fn t_fuzzy_multiple_over_threshold_is_ambiguous_under_read() {
 #[test]
 fn t_empty_candidate_list_not_found() {
     let err = resolve_handle("anything", &[], ResolveAction::Read).unwrap_err();
-    matches!(err, HandleResolveError::NotFound { .. });
+    assert!(
+        matches!(&err, HandleResolveError::NotFound { handle } if handle == "anything"),
+        "empty candidate list must yield NotFound, got {err:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +255,10 @@ fn t_write_tier_exact_input_returns_exact() {
 fn t_write_tier_no_match_not_found() {
     let cs = cands(&[("mathlex", "tid-mathlex")]);
     let err = resolve_handle("zzzzzzz", &cs, ResolveAction::Write).unwrap_err();
-    matches!(err, HandleResolveError::NotFound { .. });
+    assert!(
+        matches!(err, HandleResolveError::NotFound { .. }),
+        "Write tier with nothing in range must yield NotFound, got {err:?}"
+    );
 }
 
 // WRITE tier with multiple over-threshold candidates exposes all via BestGuess.
