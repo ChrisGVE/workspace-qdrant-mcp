@@ -20,6 +20,7 @@ pub mod branch;
 pub mod connection;
 pub mod library;
 pub mod migrations;
+pub mod orphan;
 pub mod qdrant;
 pub mod reconcile;
 pub mod registry;

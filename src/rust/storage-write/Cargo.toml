@@ -52,6 +52,8 @@ serde_json = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tempfile = { workspace = true }
+tracing-test = { workspace = true }
+sha2 = { workspace = true }
 
 # F19 bench: custom async harness (harness=false) connecting to localhost:6333.
 # qdrant-client is already in [dependencies]; no duplicate needed.

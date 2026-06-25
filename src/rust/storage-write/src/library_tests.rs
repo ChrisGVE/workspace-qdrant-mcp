@@ -14,7 +14,7 @@
 use tempfile::NamedTempFile;
 use wqm_common::hashing::{bucket, content_key_v4, point_id};
 
-use super::{open_library_store, LIBRARY_SENTINEL_BRANCH_ID};
+use super::open_library_store;
 use crate::connection::open_store_write;
 use crate::schema::ddl_statements;
 
