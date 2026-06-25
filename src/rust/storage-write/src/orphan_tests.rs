@@ -356,6 +356,73 @@ async fn test_iii_no_orphaned_rows_after_migration() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Invariant test: re-home preserves point_id + content_key (payload-only model)
+// ---------------------------------------------------------------------------
+/// The destination `blobs.point_id` stored in the global store MUST equal the
+/// `point_id` used in `QdrantOp::OverwritePayload`, and both MUST equal the
+/// source chunk's original `point_id`. This validates the payload-only re-home
+/// model (DATA-05/SEC-4): no re-embedding, no point recreation.
+#[tokio::test]
+async fn test_rehome_preserves_point_id_and_content_key_invariant() {
+    let (proj, _p_dir) = project_fixture().await;
+    let (glob, _g_dir) = global_fixture().await;
+    let chunk_text = "invariant-test content";
+
+    let (_, _, chunk_hash, src_pid) = insert_library_doc(&proj, chunk_text, BRANCH_A).await;
+    let src_ck = content_key_v4(PROJECT_TENANT, bucket::CODE, &chunk_hash, "");
+
+    let mut sink = CaptureSink::default();
+    migrate_project_library_docs(
+        &proj,
+        &glob,
+        &mut sink,
+        PROJECT_TENANT,
+        GLOBAL_TENANT,
+        COLLECTION_ID,
+    )
+    .await
+    .expect("migrate invariant");
+
+    // Destination row point_id must equal source point_id (preserved verbatim).
+    let glob_pid: String =
+        sqlx::query_scalar("SELECT point_id FROM blobs WHERE chunk_content_hash = ?")
+            .bind(&chunk_hash)
+            .fetch_one(&glob)
+            .await
+            .expect("global point_id");
+    assert_eq!(
+        glob_pid, src_pid,
+        "dest point_id must equal source point_id"
+    );
+
+    // Destination row content_key must equal source content_key (preserved verbatim).
+    let glob_ck: String =
+        sqlx::query_scalar("SELECT content_key FROM blobs WHERE chunk_content_hash = ?")
+            .bind(&chunk_hash)
+            .fetch_one(&glob)
+            .await
+            .expect("global content_key");
+    assert_eq!(
+        glob_ck, src_ck,
+        "dest content_key must equal source content_key"
+    );
+
+    // OverwritePayload must target the same point_id.
+    let overwrite_pid = sink.ops.iter().find_map(|op| {
+        if let QdrantOp::OverwritePayload { point_id, .. } = op {
+            Some(point_id.clone())
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        overwrite_pid.as_deref(),
+        Some(src_pid.as_str()),
+        "OverwritePayload point_id must equal source point_id"
+    );
+}
+
 /// Insert a library doc at a specific path (avoids the `UNIQUE(branch_id, relative_path)` constraint).
 pub(crate) async fn insert_project_doc_at_path(pool: &SqlitePool, chunk_text: &str, path: &str) {
     let chunk_hash = format!("{:x}", sha2_hash(chunk_text));

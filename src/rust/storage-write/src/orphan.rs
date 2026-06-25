@@ -77,7 +77,13 @@ pub struct ChunkRecord {
     pub blob_id: i64,
     /// Tenant-independent hash (SHA256 of raw chunk text).
     pub chunk_content_hash: String,
+    /// STORED `blobs.content_key` verbatim — carried into the destination row
+    /// unchanged on re-home (payload-only model: point_id and content_key are
+    /// STABLE across re-home; only the tenant_id payload field changes).
+    pub content_key: String,
     /// STORED `blobs.point_id` verbatim — never recomputed (DATA-05/SEC-4).
+    /// Same value is used in `QdrantOp::OverwritePayload` so the destination
+    /// SQLite row and the Qdrant op agree on which point to re-tenant.
     pub point_id: String,
     /// Raw chunk text (durable — no re-embed needed on re-home).
     pub raw_text: String,

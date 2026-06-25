@@ -20,7 +20,6 @@
 use sqlx::SqlitePool;
 use tracing::info;
 use wqm_common::error::StorageError;
-use wqm_common::hashing::{bucket, content_key_v4, point_id as derive_point_id};
 use wqm_common::timestamps::now_utc;
 
 use crate::blob::ladder::{QdrantOp, QdrantSink};
@@ -63,8 +62,8 @@ async fn fetch_doc_chunks(
     pool: &SqlitePool,
     file_id: i64,
 ) -> Result<Vec<ChunkRecord>, StorageError> {
-    let rows = sqlx::query_as::<_, (i64, String, String, String, Vec<u8>, Vec<u8>, i64)>(
-        "SELECT b.blob_id, b.chunk_content_hash, b.point_id, b.raw_text, \
+    let rows = sqlx::query_as::<_, (i64, String, String, String, String, Vec<u8>, Vec<u8>, i64)>(
+        "SELECT b.blob_id, b.chunk_content_hash, b.content_key, b.point_id, b.raw_text, \
                 b.dense_vec, b.sparse_vec, r.chunk_index \
          FROM blobs b \
          JOIN blob_refs r ON r.blob_id = b.blob_id \
@@ -81,6 +80,7 @@ async fn fetch_doc_chunks(
             |(
                 blob_id,
                 chunk_content_hash,
+                content_key,
                 point_id,
                 raw_text,
                 dense_vec,
@@ -90,6 +90,7 @@ async fn fetch_doc_chunks(
                 ChunkRecord {
                     blob_id,
                     chunk_content_hash,
+                    content_key,
                     point_id,
                     raw_text,
                     dense_vec,
@@ -225,9 +226,15 @@ where
 
 /// Step 1 of RE-HOME: INSERT destination blob rows in global store.
 ///
-/// Each blob gets a new content_key for the global tenant (arch §5.4).
-/// The point_id is derived from the global content_key (the Qdrant point
-/// payload is updated in step 2 via `OverwritePayload`).
+/// Payload-only re-home model: `content_key` and `point_id` are copied
+/// VERBATIM from the source row — they are NOT recomputed for the global
+/// tenant. Only `tenant_id` changes to `global_tenant_id`. This keeps the
+/// one-row↔one-point invariant intact: the destination row references the
+/// SAME Qdrant point that `OverwritePayload` (step 2) will update.
+///
+/// The `blobs_bi` trigger fires on INSERT but only checks
+/// `tenant_id == store_meta.tenant_id`; passing `global_tenant_id` satisfies
+/// this for the global store's DDL.
 async fn copy_chunks_to_global(
     global_pool: &SqlitePool,
     doc: &LibraryDoc,
@@ -236,21 +243,14 @@ async fn copy_chunks_to_global(
 ) -> Result<(), StorageError> {
     let global_file_id = insert_global_file(global_pool, &doc.collection, now).await?;
     for chunk in &doc.chunks {
-        let global_ck = content_key_v4(
-            global_tenant_id,
-            bucket::CODE,
-            &chunk.chunk_content_hash,
-            "",
-        );
-        let global_pid = derive_point_id(&global_ck, 0).to_string();
         sqlx::query(
             "INSERT OR IGNORE INTO blobs(content_key, chunk_content_hash, point_id, \
              tenant_id, raw_text, dense_vec, sparse_vec, created_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(&global_ck)
+        .bind(&chunk.content_key)
         .bind(&chunk.chunk_content_hash)
-        .bind(&global_pid)
+        .bind(&chunk.point_id)
         .bind(global_tenant_id)
         .bind(&chunk.raw_text)
         .bind(&chunk.dense_vec)
@@ -262,7 +262,7 @@ async fn copy_chunks_to_global(
 
         let global_blob_id: i64 =
             sqlx::query_scalar("SELECT blob_id FROM blobs WHERE content_key = ?")
-                .bind(&global_ck)
+                .bind(&chunk.content_key)
                 .fetch_one(global_pool)
                 .await
                 .map_err(|e| StorageError::Sqlite(format!("orphan re-home: fetch blob_id: {e}")))?;
