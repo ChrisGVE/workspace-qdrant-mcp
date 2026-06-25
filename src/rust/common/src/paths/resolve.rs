@@ -165,6 +165,9 @@ pub fn get_model_cache_dir() -> Result<PathBuf, ConfigPathError> {
     get_cache_dir().map(|d| d.join("models"))
 }
 
+// Store-bucket layout lives in `super::bucket` (bucket.rs — AC-F16.3).
+// Re-exported from `paths/mod.rs` so callers use `wqm_common::paths::{StoreBucket, …}`.
+
 /// Shared mutex serialising env-var mutation across the `paths` test modules
 /// (`resolve` and `discovery` both mutate process-global env vars).
 #[cfg(test)]

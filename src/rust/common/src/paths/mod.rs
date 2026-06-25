@@ -21,6 +21,11 @@
 //!   Cache:  ~/.cache/workspace-qdrant/            (grammars/, models/)
 //!   Logs:   ~/Library/Logs/workspace-qdrant/
 //!
+//! Store-bucket layout (AC-F16.3):
+//!   Data:   ~/.local/share/workspace-qdrant/projects/<tenant_id>/store.db
+//!           ~/.local/share/workspace-qdrant/libraries/<tenant_id>/store.db
+//!           ~/.local/share/workspace-qdrant/global/<tenant_id>/store.db
+//!
 //! Environment overrides (highest priority):
 //!   WQM_CONFIG_PATH  — explicit config file path
 //!   WQM_CONFIG_DIR   — config directory
@@ -33,6 +38,7 @@
 //! respected on all platforms.
 
 mod boundary;
+mod bucket;
 mod canonical;
 mod discovery;
 mod error;
@@ -46,6 +52,7 @@ mod resolve;
 mod tests;
 
 pub use boundary::is_within_boundary;
+pub use bucket::{ensure_store_dir, store_bucket_path, StoreBucket};
 pub use canonical::CanonicalPath;
 pub use discovery::{find_config_file, get_config_search_paths};
 pub use error::PathError;
