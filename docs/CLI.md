@@ -432,7 +432,9 @@ wqm search research "microservices architecture best practices"
 
 ### Library Management
 
-Manage library tenants within the unified `_libraries` collection. Libraries are reference documentation (PDFs, ebooks, API docs) stored with `library_name` tenant isolation.
+Manage library tenants. Libraries are reference documentation (PDFs, ebooks, API docs)
+indexed under the branch-storage model as branchless per-tenant `store.db` files
+(AC-F16.1).
 
 #### `wqm library`
 
@@ -440,16 +442,52 @@ Manage library tenants within the unified `_libraries` collection. Libraries are
 wqm library [OPTIONS] COMMAND [ARGS]
 ```
 
-**Architecture Note:** All libraries share the unified `_libraries` collection with `library_name` field for tenant isolation. This provides:
-- Single HNSW index for efficient cross-library search
-- O(1) filtering via payload index on `library_name`
-- Consistent metadata enrichment across all libraries
+**Storage home (AC-F16.3):** Each library tenant gets its own isolated store.db at
+`<data_dir>/libraries/<tenant_id>/store.db`. The `libraries/` bucket is a sibling
+of `projects/` and `global/` under the wqm data directory
+(`~/.local/share/workspace-qdrant/` by default). All three buckets use the same
+9-table schema; the bucket prefix alone records tenant class.
+
+**Branchless tenant (AC-F16.1):** Library stores have no git branches. Each contains
+exactly one sentinel branch row (`branch_id = "_library_sentinel"`) so the schema
+foreign-key constraint is satisfied. Callers pass `LIBRARY_SENTINEL_BRANCH_ID`
+wherever a `branch_id` is required. Implemented in `storage-write/src/library.rs`
+(`open_library_store`).
+
+**Orphan-migration-on-delete (AC-F16.5):** When a project is deleted, library-collection
+docs attached to that project are migrated rather than silently dropped:
+- **Duplicate**: a doc whose chunk-content-hash set exactly matches a doc already in
+  the global library store is dropped (the global copy is the surviving truth).
+- **Unique**: a doc with no equal-cardinality match in the global store is re-homed to
+  `<data_dir>/global/<tenant_id>/store.db` (the global bucket). Its Qdrant point
+  payload `tenant_id` is updated in place; no re-embedding is needed. The re-home is
+  logged at INFO with structured fields (SEC-F16-01). After re-homing the doc remains
+  searchable under `scope=global` or `scope=all`.
+- Implemented in `storage-write/src/orphan.rs` (`migrate_project_library_docs`).
+  Live wiring at project-delete call site rides F18 / #175.
+
+**Handle resolver address-by-name (AC-F16.6, FP-3):** Library names (and project names)
+are resolved by the shared fuzzy handle resolver in `wqm-common/src/handle/mod.rs`:
+- **Exact match always wins** (case-insensitive, Unicode NFC): if the typed name
+  matches exactly one library, it is selected immediately without fuzzy scoring.
+- **READ** operations: a single fuzzy match (Jaro-Winkler >= 0.92) is silently
+  resolved. Two or more fuzzy matches surface as an ambiguity error listing the
+  candidates.
+- **WRITE / DESTRUCTIVE** operations: a non-exact match returns a best-guess for
+  caller confirmation -- the daemon never silently acts on a fuzzy-only match for
+  mutating operations. The confirmation prompt shows the candidate's unique key
+  (tenant_id) for DESTRUCTIVE confirms.
+
+> **(Deferred) Scratchpad/rules pseudo-fs path/name addressing** -- documented when
+> AC-F16.2 lands. The schema home for scratchpad/rules pseudo-filesystem addressing
+> is not yet finalized. Do not rely on pseudo-fs path syntax for those collections
+> until AC-F16.2 is shipped.
 
 **Commands:**
 
 - `list` - Show all library tenants with document counts
 - `add` - Add documents to a library (creates tenant if new)
-- `remove` - Remove all documents for a library tenant
+- `remove` - Remove all documents for a library tenant (orphan migration runs on delete)
 - `status` - Show library statistics and health
 - `info` - Show detailed library information
 - `search` - Search within specific library
@@ -457,7 +495,7 @@ wqm library [OPTIONS] COMMAND [ARGS]
 **Examples:**
 
 ```bash
-# List all libraries (tenants in _libraries collection)
+# List all libraries
 wqm library list
 
 # Add documents to a library
@@ -473,7 +511,7 @@ wqm library info fastapi
 # Search within specific library
 wqm library search fastapi "dependency injection"
 
-# Remove library (deletes all documents with that library_name)
+# Remove library (orphan migration runs: unique docs re-homed to global, duplicates dropped)
 wqm library remove deprecated-lib
 
 # Include libraries in project search

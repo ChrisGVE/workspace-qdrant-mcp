@@ -2550,6 +2550,31 @@ trait OR the impl type; both conditions are satisfied here.
 Qdrant-touching integration tests are gated on a Docker fixture (existing pattern).
 This is a non-negotiable deliverable for any PRD derived from this architecture.
 
+### R9 — Folder-layout amendment (AC-F16.3, LANDED)
+
+**Status: IMPLEMENTED.** This entry is the §10 amendment-list target for the
+store-bucket folder layout (AC-F16.3), referenced by the PRD as amendment item (10).
+
+The canonical store-bucket layout established in §3 ("Store-bucket folder layout")
+has been implemented and is the law:
+
+```
+<data_dir>/
+  projects/<tenant_id>/store.db    -- registered project
+  libraries/<tenant_id>/store.db   -- reference library (branchless, AC-F16.1)
+  global/<tenant_id>/store.db      -- global bucket (orphan re-home, AC-F16.5)
+```
+
+**Implementation:** `wqm_common::paths::store_bucket_path(data_dir, StoreBucket, tenant_id)`
+in `src/rust/common/src/paths/bucket.rs`. `StoreBucket { Projects, Libraries, Global }`
+is the single name-to-directory mapping (FP-2). `ensure_store_dir` creates the parent
+directory before store creation. Five unit tests (T-F16.3-*) assert the exact path
+shapes and folder-creation idempotency.
+
+**Consumers:** F13/registration writes `projects.db_path` via `StoreBucket::Projects`;
+`open_library_store` (`storage-write/src/library.rs`) uses `StoreBucket::Libraries`;
+`migrate_project_library_docs` (`storage-write/src/orphan.rs`) uses `StoreBucket::Global`.
+
 ---
 
 *Architecture document — workspace-qdrant-mcp branch-storage subsystem.*

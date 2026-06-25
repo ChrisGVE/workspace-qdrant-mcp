@@ -489,6 +489,29 @@ Databases (under the platform data dir, e.g. `~/.local/share/workspace-qdrant/`)
 | `graph.db` | code-relationship graph (nodes, edges, CTE queries) |
 | `daemon_state.db` | daemon runtime bookkeeping |
 | `projects/<tenant_id>/store.db` | Per-project branch-storage DB (branch-storage redesign, F3). 9 tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`, `fts_content` (FTS5 external-content), `fts_branch_membership`, `store_meta`. Authoritative schema: [`docs/architecture/branch-storage-model.md` §5.2](./architecture/branch-storage-model.md). DDL implementation: `src/rust/storage-write/src/schema/`. Column name constants (read-only): `src/rust/storage/src/schema/columns.rs`. |
+| `libraries/<tenant_id>/store.db` | Per-library branchless store (AC-F16.1). Same 9-table DDL as project stores. Contains exactly one sentinel branch row (`branch_id = "_library_sentinel"`) instead of real git branches. Path built via `wqm_common::paths::store_bucket_path(data_dir, StoreBucket::Libraries, tenant_id)` (AC-F16.3). |
+| `global/<tenant_id>/store.db` | Global library bucket — orphan re-home target (AC-F16.5). When a project is deleted its unique library-collection docs are re-homed here so they remain searchable; byte-identical duplicates are dropped. Same 9-table DDL, sentinel branch. Path built via `wqm_common::paths::store_bucket_path(data_dir, StoreBucket::Global, tenant_id)` (AC-F16.3). |
+
+### Store-bucket folder layout (AC-F16.3)
+
+Per-tenant `store.db` files live under three sibling top-level buckets in the wqm data directory, keyed by tenant class (arch §3 canonical layout, `docs/architecture/branch-storage-model.md` §3):
+
+```
+<data_dir>/                                  (e.g. ~/.local/share/workspace-qdrant/)
+  state.db                                   central registry
+  projects/<tenant_id>/store.db              registered project store
+  libraries/<tenant_id>/store.db             reference library store (branchless)
+  global/<tenant_id>/store.db                global bucket (orphan re-home target)
+```
+
+All three `store.db` files are structurally identical (same 9-table DDL, same WAL mode, same `store_meta` single-row constraint). The bucket prefix alone records tenant class — there is no per-tenant collection type column.
+
+**Path construction** is centralized in `wqm_common::paths::store_bucket_path(data_dir, StoreBucket, tenant_id)` (implemented in `src/rust/common/src/paths/bucket.rs`, AC-F16.3). The `StoreBucket` enum (`Projects`, `Libraries`, `Global`) is the single name-to-path mapping: no per-call-site bucket-string literals anywhere (FP-2). Call `wqm_common::paths::ensure_store_dir(&store_path)` before opening a store for writing to create the `<bucket>/<tenant_id>/` parent directory.
+
+Consumed by:
+- **F13 / project registration**: daemon writes `projects.db_path = store_bucket_path(data_dir, Projects, tenant_id)` when registering a new project.
+- **AC-F16.1 library open**: `open_library_store` (`storage-write/src/library.rs`) opens `store_bucket_path(data_dir, Libraries, tenant_id)`.
+- **AC-F16.5 orphan re-home**: `migrate_project_library_docs` (`storage-write/src/orphan.rs`) targets `store_bucket_path(data_dir, Global, tenant_id)` for docs without a duplicate in the global store.
 
 Conventions:
 
