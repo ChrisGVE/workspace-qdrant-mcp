@@ -18,6 +18,7 @@
 pub mod blob;
 pub mod branch;
 pub mod connection;
+pub mod library;
 pub mod migrations;
 pub mod qdrant;
 pub mod reconcile;
