@@ -12,9 +12,9 @@ workspace-qdrant-mcp is implemented entirely in Rust as a single Cargo workspace
 
 Shared crates: `common` / `wqm-common` (types, project-id calculation, constants), `proto` (gRPC definitions), `client` (gRPC client used by CLI and MCP server), `common-node` (Node.js bridge), `daemon/shared-test-utils`, `tools/registry-updater` (language-registry maintenance).
 
-Storage crates (branch-storage redesign, F1) — a hard read/write split: `storage` / `wqm-storage` holds every read path over the per-branch SQLite databases and Qdrant collections; `storage-write` / `wqm-storage-write` owns all mutation (SQLite DDL + migrations, Qdrant upserts/deletes/payload writes, the per-branch write-lock registry, and — in later features — git2). The dependency edge is one-directional (`wqm-storage-write` → `wqm-storage`, never the reverse). The read crate touches Qdrant only through `QdrantReadClient` (`wqm-storage::qdrant`), a newtype exposing the four read methods (`search_points`/`query`/`scroll`/`retrieve`) with a private inner client and no `Deref`; the five mutating methods live solely on `QdrantWriteClient` (`wqm-storage-write::qdrant`). Three CI guards enforce the boundary (`scripts/ci/storage-guards.sh`, plus a trybuild test): **Guard 1** keeps `wqm-storage-write` out of `mcp-server`'s feature closure (`cargo tree`); **Guard 2** makes a read-crate call to a `schema::*`/`migrations::*` function a compile error (trybuild); **Guard 3** scans the `mcp-server`/`wqm-cli` release binaries with `nm` to assert no Qdrant-mutating symbol is reachable there.
+Storage crates (branch-storage redesign, F1) -- a hard read/write split: `storage` / `wqm-storage` holds every read path over the per-branch SQLite databases and Qdrant collections; `storage-write` / `wqm-storage-write` owns all mutation (SQLite DDL + migrations, Qdrant upserts/deletes/payload writes, the per-branch write-lock registry, and -- in later features -- git2). The dependency edge is one-directional (`wqm-storage-write` -> `wqm-storage`, never the reverse). The read crate touches Qdrant only through `QdrantReadClient` (`wqm-storage::qdrant`), a newtype exposing the four read methods (`search_points`/`query`/`scroll`/`retrieve`) with a private inner client and no `Deref`; the five mutating methods live solely on `QdrantWriteClient` (`wqm-storage-write::qdrant`). Three CI guards enforce the boundary (`scripts/ci/storage-guards.sh`, plus a trybuild test): **Guard 1** keeps `wqm-storage-write` out of `mcp-server`'s feature closure (`cargo tree`); **Guard 2** makes a read-crate call to a `schema::*`/`migrations::*` function a compile error (trybuild); **Guard 3** scans the `mcp-server`/`wqm-cli` release binaries with `nm` to assert no Qdrant-mutating symbol is reachable there.
 
-`wqm-common` is the canonical home of the content-addressing producers (`content_key` / `point_id`, in `hashing`) and, since the branch-storage redesign (F0), of four further shared nexuses relocated out of daemon-core so the read/write storage crates share one definition each (FP-2, no duplication): `StorageError` (`error`), `SearchResult` (`search::types`), `FileChange` / `FileChangeStatus` (`git::file_change`), and the pure Reciprocal-Rank-Fusion primitives `rrf_merge` / `rrf_score` (`search::rrf`). Daemon-core re-exports each from its former path, so existing call sites are unchanged. (`cross_collection_search` stays in daemon-core — it fans over a live Qdrant handle.)
+`wqm-common` is the canonical home of the content-addressing producers (`content_key` / `point_id`, in `hashing`) and, since the branch-storage redesign (F0), of four further shared nexuses relocated out of daemon-core so the read/write storage crates share one definition each (FP-2, no duplication): `StorageError` (`error`), `SearchResult` (`search::types`), `FileChange` / `FileChangeStatus` (`git::file_change`), and the pure Reciprocal-Rank-Fusion primitives `rrf_merge` / `rrf_score` (`search::rrf`). Daemon-core re-exports each from its former path, so existing call sites are unchanged. (`cross_collection_search` stays in daemon-core -- it fans over a live Qdrant handle.)
 
 ## Table of Contents
 
@@ -86,7 +86,7 @@ graph TB
         D_Queue[Unified Queue<br/>SQLite-backed]
         D_Proc[Processors<br/>tree-sitter chunking,<br/>LSP enrichment,<br/>language registry]
         D_Embed[Embedding<br/>dense provider + BM25 sparse]
-        D_Graph[Code Graph<br/>LadybugDB default · SQLite CTE fallback]
+        D_Graph[Code Graph<br/>LadybugDB default  SQLite CTE fallback]
 
         D_gRPC --> D_Queue
         D_Watch --> D_Queue
@@ -135,17 +135,17 @@ The MCP server (`daemon/mcp-server` crate, binary `workspace-qdrant-mcp`) speaks
 
 ## gRPC Services
 
-13 services defined in `src/rust/daemon/proto/workspace_daemon.proto` — 8 read/operate services plus 5 write services (the write services implement the enqueue-only pattern):
+13 services defined in `src/rust/daemon/proto/workspace_daemon.proto` -- 8 read/operate services plus 5 write services (the write services implement the enqueue-only pattern):
 
-- **SystemService** — health, status, metrics, refresh signals, watcher pause/resume, DLQ
-- **CollectionService** — canonical collection lifecycle and aliases (daemon-internal)
-- **DocumentService** — text ingestion, document update/delete
-- **EmbeddingService** — dense embedding + sparse vector generation, provider status
-- **ProjectService** — project registration, sessions/heartbeats, branch lifecycle
-- **TextSearchService** — exact (FTS5 whole-phrase) and regex text search
-- **GraphService** — code-graph queries (related nodes, impact, PageRank, communities, betweenness)
-- **LanguageService** — language registry, LSP/grammar management
-- **QueueWriteService / WatchWriteService / LibraryWriteService / TrackingWriteService / AdminWriteService** — mutation surface used by the CLI/TUI and MCP server (queue retry/cancel/remove, watch enable/disable, library ops, tracking, admin)
+- **SystemService** -- health, status, metrics, refresh signals, watcher pause/resume, DLQ
+- **CollectionService** -- canonical collection lifecycle and aliases (daemon-internal)
+- **DocumentService** -- text ingestion, document update/delete
+- **EmbeddingService** -- dense embedding + sparse vector generation, provider status
+- **ProjectService** -- project registration, sessions/heartbeats, branch lifecycle
+- **TextSearchService** -- exact (FTS5 whole-phrase) and regex text search
+- **GraphService** -- code-graph queries (related nodes, impact, PageRank, communities, betweenness)
+- **LanguageService** -- language registry, LSP/grammar management
+- **QueueWriteService / WatchWriteService / LibraryWriteService / TrackingWriteService / AdminWriteService** -- mutation surface used by the CLI/TUI and MCP server (queue retry/cancel/remove, watch enable/disable, library ops, tracking, admin)
 
 ## Collection Structure
 
@@ -161,7 +161,7 @@ graph TB
     end
 
     subgraph "Document Metadata"
-        Meta[tenant_id · branch · file_path<br/>file_type · symbols · content hash]
+        Meta[tenant_id  branch  file_path<br/>file_type  symbols  content hash]
     end
 
     P -.->|payload index| Meta
@@ -203,7 +203,7 @@ graph TB
 
 Properties:
 
-- **Single mutation path**: one processor applies every write — consistent metadata enrichment, dedup, and GC.
+- **Single mutation path**: one processor applies every write -- consistent metadata enrichment, dedup, and GC.
 - **Idempotency**: duplicate enqueues collapse on the idempotency key.
 - **Fairness**: queue ordering blends priority (active sessions first), age promotion, and tenant line-jumping for interactive operations.
 - **Crash safety**: the queue is SQLite-backed; work survives daemon restarts and is recovered at startup.
@@ -213,22 +213,22 @@ Properties:
 Every Qdrant point ID is derived through one path-independent scheme, defined once in
 `wqm-common::hashing` so the tagger, the re-key pass, and the v48 conversion all agree:
 
-- **`lp(x) = u32_be(len) ‖ x`** — length-prefix framing. Prefixing each field with its
+- **`lp(x) = u32_be(len) ‖ x`** -- length-prefix framing. Prefixing each field with its
   byte length makes a multi-field concatenation injective, which a bare separator
   (`a|b`) cannot guarantee when the data may contain the separator.
-- **`content_key = hex(SHA256(lp(tenant) ‖ lp(identity) ‖ lp(content_hash_hex)))`** —
+- **`content_key = hex(SHA256(lp(tenant) ‖ lp(identity) ‖ lp(content_hash_hex)))`** --
   the full 32-byte digest (64 hex chars), birthday bound **~2⁶⁴**. The third field is
   the content hash rendered as a 64-char lowercase-hex ASCII string, never raw bytes,
   so the value converted during migration equals the freshly-computed one. For files
   the fields are `(tenant_id, file_identity_id, file_hash_hex)`.
-- **`point_id = UUIDv5(POINT_NS, lp(content_key) ‖ lp(u32_be(chunk_index)))`** — a
+- **`point_id = UUIDv5(POINT_NS, lp(content_key) ‖ lp(u32_be(chunk_index)))`** -- a
   UUIDv5 (RFC 9562 §5.5), birthday bound **~2⁶¹** (6 bits fixed for version+variant).
   A `point_id` collision silently overwrites a chunk on upsert, so corpus-size
-  guidance quotes ~2⁶¹ for `point_id` and ~2⁶⁴ for `content_key` — different bounds.
+  guidance quotes ~2⁶¹ for `point_id` and ~2⁶⁴ for `content_key` -- different bounds.
 
 Files are **content-addressed** (a content change yields a new `point_id`; the old
 point is tombstoned). Non-file content (rules, scratchpad, memory, URL, library) is
-**identity-addressed** via `content_point_id(tenant, identity, chunk)` — the same
+**identity-addressed** via `content_point_id(tenant, identity, chunk)` -- the same
 `content_key`/`point_id` flow with an empty content-hash slot, so re-ingesting changed
 content keeps the ID stable and the update lands in place.
 
@@ -274,7 +274,7 @@ sharing chunks cannot deadlock by opposite traversal order.
 
 **Daemon cutover is a follow-up**: the ladder + lock + facade method ship tested in
 `wqm-storage-write`; wiring the daemon ingest path (`strategies/processing/file/ingest.rs`)
-to the new write facade — and deleting `branch_index/tagger.rs` — requires the daemon to
+to the new write facade -- and deleting `branch_index/tagger.rs` -- requires the daemon to
 construct the `WriteStoreFacade` impl with an injected embedder and store handle, tracked
 as a separate task so the existing ingest path stays working end-to-end until then.
 
@@ -295,14 +295,14 @@ and follow the **FP-1 physical-delete ordering** (data products before truth row
 truth rows committed before data products on ingest):
 
 **Module layout** (three-file split for arch §9 line-budget compliance):
-- `branch/probe.rs` — `DeleteAction`, `GitBranchProbe`, `delete_decision` (pure, no
+- `branch/probe.rs` -- `DeleteAction`, `GitBranchProbe`, `delete_decision` (pure, no
   side effects), `probe_branch` (git2-backed). Split out so the truth-table decision
   function is unit-testable without a real git repository (AC-F9.1).
-- `branch/steps.rs` — `BlobCandidate`, `step1_preselect` through `step8_delete_branch`.
+- `branch/steps.rs` -- `BlobCandidate`, `step1_preselect` through `step8_delete_branch`.
   All SQL mutations for the 8-step sequence.
-- `branch/delete.rs` — Thin orchestrator: `branch_delete` public async fn + test module.
-- `blob/gc.rs` — `blob_refcount`, `delete_orphan_blob_row` (refcount-guarded GC helpers).
-- `blob/file_delete.rs` — `delete_file_from_branch` (single-file delete, same 8-step
+- `branch/delete.rs` -- Thin orchestrator: `branch_delete` public async fn + test module.
+- `blob/gc.rs` -- `blob_refcount`, `delete_orphan_blob_row` (refcount-guarded GC helpers).
+- `blob/file_delete.rs` -- `delete_file_from_branch` (single-file delete, same 8-step
   FP-1 ordering scoped to one `file_id`).
 
 **GP-4 truth table** (arch §4.3): deletion requires POSITIVE confirmation. A transient
@@ -319,12 +319,12 @@ remote-tracking ref) maps to **DEFER**, never Proceed.
 **8-step FP-1 sequence** (`branch_delete`, arch §4.3/§5.5):
 1. Pre-select all `(blob_id, point_id, content_key)` for the branch (read-only, outside tx).
 2. Identify orphan candidates via `GROUP BY blob_id HAVING SUM(other-branch refs) = 0` (batched ≤1000).
-3. Enqueue `QdrantOp::Delete` for orphaned points — **data product before truth row** (FP-1 Step 3).
+3. Enqueue `QdrantOp::Delete` for orphaned points -- **data product before truth row** (FP-1 Step 3).
 4. Chunked branch-wide DELETE of `fts_branch_membership` / `blob_refs` / `concrete` (subselect idiom; `DELETE ... LIMIT` is invalid without `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`).
 5. ABA-guarded re-verify under `BEGIN IMMEDIATE`: delete only still-unrefenced blobs rows.
 6. Recompute membership for survivors (INSIDE `ContentKeyLock`); enqueue PUTs into `MembershipPutBatch`; flush OUTSIDE all locks (AC-F19.3).
 7. DELETE orphaned `files` rows (no blob_refs from other branches).
-8. DELETE `branches` row **LAST** — crash-recovery anchor (arch §4.3).
+8. DELETE `branches` row **LAST** -- crash-recovery anchor (arch §4.3).
 
 The `branch_cleanup/` module in `daemon/core` is **not retired** by this implementation:
 the daemon cutover (wiring `memexd` to call `branch_delete` instead of `branch_cleanup/`)
@@ -423,7 +423,7 @@ sequenceDiagram
     Claude->>MCP: search(query, scope, branch?)
 
     activate MCP
-    Note over MCP: 1. Project detection → tenant_id
+    Note over MCP: 1. Project detection -> tenant_id
     Note over MCP: 2. Filter building (tenant, branch, file_type)
     Note over MCP: 3. Dense embedding (configured provider)
     Note over MCP: 4. Sparse vector (BM25/IDF stats from SQLite)
@@ -478,19 +478,19 @@ projects` -- one row per `(project, branch, checkout)` triple, carrying `sync_st
 
 ## SQLite State Management
 
-**Reference:** ADR-003 — **the daemon owns SQLite.** It creates the databases, owns the schema, and runs all migrations. Other components open read-only connections for browsing; every mutation goes through daemon gRPC.
+**Reference:** ADR-003 -- **the daemon owns SQLite.** It creates the databases, owns the schema, and runs all migrations. Other components open read-only connections for browsing; every mutation goes through daemon gRPC.
 
 Databases (under the platform data dir, e.g. `~/.local/share/workspace-qdrant/`):
 
 | Database | Contents |
 |----------|----------|
-| `state.db` | Lean central registry (branch-storage F4). **Core tables:** `projects` (one row per registered project — `tenant_id` UNIQUE + stable, `db_path`, `content_key_version` DEFAULT 3), `project_locations` (one row per `(project, location, branch)` triple — `branch_id` UNIQUE, `sync_state` CHECK `pending/indexing/current/error`). **Existing tables unchanged:** `watch_folders`, `tracked_files`, `unified_queue`, `db_maintenance` (+`maintenance_meta`), `branch_lineage`, `control_baseline`, etc. Authoritative DDL: [`docs/architecture/branch-storage-model.md` §5.1](./architecture/branch-storage-model.md). `branch_id = SHA256(lp(tenant_id)||lp(location)||lp(branch_name))` — single producer `wqm_common::hashing::branch_id` (GP-5). `branch_name` validated via `daemon_core::branch_name_validation` (git2 ref-name rules, SEC-N04) before every INSERT into `project_locations`. |
-| `search.db` | FTS5 indexes, file metadata (incl. `file_metadata.state`, search.db v8 — lets `grep` hide tombstoned files; branch-lineage P9), indexed-content cache |
+| `state.db` | Lean central registry (branch-storage F4). **Core tables:** `projects` (one row per registered project -- `tenant_id` UNIQUE + stable, `db_path`, `content_key_version` DEFAULT 3), `project_locations` (one row per `(project, location, branch)` triple -- `branch_id` UNIQUE, `sync_state` CHECK `pending/indexing/current/error`). **Existing tables unchanged:** `watch_folders`, `tracked_files`, `unified_queue`, `db_maintenance` (+`maintenance_meta`), `branch_lineage`, `control_baseline`, etc. Authoritative DDL: [`docs/architecture/branch-storage-model.md` §5.1](./architecture/branch-storage-model.md). `branch_id = SHA256(lp(tenant_id)||lp(location)||lp(branch_name))` -- single producer `wqm_common::hashing::branch_id` (GP-5). `branch_name` validated via `daemon_core::branch_name_validation` (git2 ref-name rules, SEC-N04) before every INSERT into `project_locations`. |
+| `search.db` | FTS5 indexes, file metadata (incl. `file_metadata.state`, search.db v8 -- lets `grep` hide tombstoned files; branch-lineage P9), indexed-content cache |
 | `graph.db` | code-relationship graph (nodes, edges, CTE queries) |
 | `daemon_state.db` | daemon runtime bookkeeping |
 | `projects/<tenant_id>/store.db` | Per-project branch-storage DB (branch-storage redesign, F3). 9 tables: `files`, `blob_refs`, `blobs`, `branches`, `concrete`, `xrefs`, `fts_content` (FTS5 external-content), `fts_branch_membership`, `store_meta`. Authoritative schema: [`docs/architecture/branch-storage-model.md` §5.2](./architecture/branch-storage-model.md). DDL implementation: `src/rust/storage-write/src/schema/`. Column name constants (read-only): `src/rust/storage/src/schema/columns.rs`. |
 | `libraries/<tenant_id>/store.db` | Per-library branchless store (AC-F16.1). Same 9-table DDL as project stores. Contains exactly one sentinel branch row (`branch_id = "_library_sentinel"`) instead of real git branches. Path built via `wqm_common::paths::store_bucket_path(data_dir, StoreBucket::Libraries, tenant_id)` (AC-F16.3). |
-| `global/<tenant_id>/store.db` | Global library bucket — orphan re-home target (AC-F16.5). When a project is deleted its unique library-collection docs are re-homed here so they remain searchable; byte-identical duplicates are dropped. Same 9-table DDL, sentinel branch. Path built via `wqm_common::paths::store_bucket_path(data_dir, StoreBucket::Global, tenant_id)` (AC-F16.3). |
+| `global/<tenant_id>/store.db` | Global library bucket -- orphan re-home target (AC-F16.5). When a project is deleted its unique library-collection docs are re-homed here so they remain searchable; byte-identical duplicates are dropped. Same 9-table DDL, sentinel branch. Path built via `wqm_common::paths::store_bucket_path(data_dir, StoreBucket::Global, tenant_id)` (AC-F16.3). |
 
 ### Store-bucket folder layout (AC-F16.3)
 
@@ -504,7 +504,7 @@ Per-tenant `store.db` files live under three sibling top-level buckets in the wq
   global/<tenant_id>/store.db                global bucket (orphan re-home target)
 ```
 
-All three `store.db` files are structurally identical (same 9-table DDL, same WAL mode, same `store_meta` single-row constraint). The bucket prefix alone records tenant class — there is no per-tenant collection type column.
+All three `store.db` files are structurally identical (same 9-table DDL, same WAL mode, same `store_meta` single-row constraint). The bucket prefix alone records tenant class -- there is no per-tenant collection type column.
 
 **Path construction** is centralized in `wqm_common::paths::store_bucket_path(data_dir, StoreBucket, tenant_id)` (implemented in `src/rust/common/src/paths/bucket.rs`, AC-F16.3). The `StoreBucket` enum (`Projects`, `Libraries`, `Global`) is the single name-to-path mapping: no per-call-site bucket-string literals anywhere (FP-2). Call `wqm_common::paths::ensure_store_dir(&store_path)` before opening a store for writing to create the `<bucket>/<tenant_id>/` parent directory.
 
@@ -515,13 +515,13 @@ Consumed by:
 
 Conventions:
 
-- WAL mode, `busy_timeout`, and transaction-wrapped operations everywhere — no bare queries outside a transaction.
+- WAL mode, `busy_timeout`, and transaction-wrapped operations everywhere -- no bare queries outside a transaction.
 - Schema migrations are versioned (`schema_version` module); table-rebuild migrations own their transaction and FK-guard.
-- Watch-folder changes are made via gRPC (`EnableWatch`/`DisableWatch`, registration) and picked up by the daemon — the CLI never mutates `watch_folders` directly.
+- Watch-folder changes are made via gRPC (`EnableWatch`/`DisableWatch`, registration) and picked up by the daemon -- the CLI never mutates `watch_folders` directly.
 
 ## Queue-Processor Health
 
-The queue processor's health is determined by a functional verdict (#133) rather than simple counters. Four dual-EWMA control lanes — ms/KB processing cost, embedder-call latency, drain throughput, and DLQ delta-rate — are fed through the metrics switchboard (`switchboard/control_fanout.rs`, `ControlLane`) and shared with `EwmaState` (`queue_health/state.rs`) via `Arc<ControlLane>` clones. At each poll the verdict runs:
+The queue processor's health is determined by a functional verdict (#133) rather than simple counters. Four dual-EWMA control lanes -- ms/KB processing cost, embedder-call latency, drain throughput, and DLQ delta-rate -- are fed through the metrics switchboard (`switchboard/control_fanout.rs`, `ControlLane`) and shared with `EwmaState` (`queue_health/state.rs`) via `Arc<ControlLane>` clones. At each poll the verdict runs:
 
 - **Trend probes (A-series):** dual-EWMA crossover on ms/KB cost, embedder latency, and DLQ delta-rate. Slow-lane baseline divergence from the fast lane signals degradation; a signed DLQ delta distinguishes draining (Green) from growing (Red).
 - **Hard-state probes (B-series):** Qdrant reachability, disk headroom, processor-stall detection, and an all-items-failing predicate.
@@ -533,7 +533,7 @@ Slow-lane baselines for the three persist-true metrics (`EmbedderLatency`, `Queu
 
 Migration v47 rebuilds the `search_events` table to relax its `actor` CHECK constraint, adding `'benchmark'` to the accepted set (`'claude'`, `'user'`, `'daemon'`, `'benchmark'`). This allows the quality-eval harness (`wqm benchmark search-quality`, #135) to tag its own search traffic so organic-query mining can exclude it.
 
-Migration v48 supports the branch-lineage indexing model (feature F2). It rebuilds `tracked_files` so every (branch, path) pair gets its own row, keyed on the new `tenant_id`, `branch`, `file_identity_id`, `content_key`, `is_virtual`, and `state` columns; the v40 `(watch_folder_id, relative_path, file_hash)` UNIQUE collides with this per-(branch, path) virtual model, so the table is dropped and recreated (D1 = Replace, pre-release convention — the indexing walk repopulates it). A partial unique index (`idx_tracked_files_live_view`) enforces one live row per `(tenant_id, content_key, branch)` while exempting `state = 'deleted'` tombstones, so logical deletes are recoverable. The migration also adds the `branch_lineage` table (per-tenant parent/child branch edges with an `origin` of `'event'`, `'inferred'`, or `'root'`) and a nullable JSON `db_maintenance.maintenance_meta` column — a general-purpose multi-use store (e.g. migration bookkeeping) added idempotently via a `pragma_table_info` probe. The migration is DDL-only: it does not touch Qdrant, transform rows, or mint `file_identity_id`.
+Migration v48 supports the branch-lineage indexing model (feature F2). It rebuilds `tracked_files` so every (branch, path) pair gets its own row, keyed on the new `tenant_id`, `branch`, `file_identity_id`, `content_key`, `is_virtual`, and `state` columns; the v40 `(watch_folder_id, relative_path, file_hash)` UNIQUE collides with this per-(branch, path) virtual model, so the table is dropped and recreated (D1 = Replace, pre-release convention -- the indexing walk repopulates it). A partial unique index (`idx_tracked_files_live_view`) enforces one live row per `(tenant_id, content_key, branch)` while exempting `state = 'deleted'` tombstones, so logical deletes are recoverable. The migration also adds the `branch_lineage` table (per-tenant parent/child branch edges with an `origin` of `'event'`, `'inferred'`, or `'root'`) and a nullable JSON `db_maintenance.maintenance_meta` column -- a general-purpose multi-use store (e.g. migration bookkeeping) added idempotently via a `pragma_table_info` probe. The migration is DDL-only: it does not touch Qdrant, transform rows, or mint `file_identity_id`.
 
 **The current schema version is v49.** Migration v49 adds the `projects` and `project_locations` tables to state.db (branch-storage feature F4). `projects` carries a `content_key_version INTEGER NOT NULL DEFAULT 3` column introduced here by F4 (the sole DDL owner per AC-F4.5 / MF-R4-1; F13 only flips the value per-tenant at cutover, it does not add the column). `project_locations` enforces `branch_id UNIQUE` and a `sync_state CHECK ('pending','indexing','current','error')` constraint. Both tables use `CREATE TABLE IF NOT EXISTS` for idempotency. The migration runs inside a single `BEGIN IMMEDIATE` / `COMMIT` without a `ForeignKeysGuard` (no FK-referenced table is dropped). Existing state.db tables are untouched.
 
@@ -550,10 +550,10 @@ Behavioral rules live in the `rules` collection (with a SQLite mirror for fast l
 
 ## Additional Resources
 
-- **[docs/specs/](./specs/)** — authoritative modular specification (16 files)
-- **[Component Boundaries](./architecture/component-boundaries.md)** — formal component responsibilities
-- **[Write Path Enforcement](./architecture/write-path-enforcement.md)** — write path validation
-- **[Data Flow and Isolation](./architecture/data-flow-and-isolation.md)** — system workflows
+- **[docs/specs/](./specs/)** -- authoritative modular specification (16 files)
+- **[Component Boundaries](./architecture/component-boundaries.md)** -- formal component responsibilities
+- **[Write Path Enforcement](./architecture/write-path-enforcement.md)** -- write path validation
+- **[Data Flow and Isolation](./architecture/data-flow-and-isolation.md)** -- system workflows
 
 **Reference Implementation:**
 
@@ -627,7 +627,7 @@ Each binary is resolved to an absolute path via `which`. Invocation:
 
 Never `sh -c`; the binary path is the only resolved variable; argv is a fixed
 constant array. Guard-4 / CWE-78 safe. Configurable explicit-format option is
-deferred (PRD SS15).
+deferred.
 
 ### Daemon-running guard and the #175 transition path (AC-F20.4)
 

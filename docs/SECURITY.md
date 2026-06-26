@@ -31,13 +31,13 @@ workspace-qdrant-mcp implements defense-in-depth security across multiple layers
 ### Security Posture
 
 **Current Status** (Post-Task 382 Remediation):
-- ✅ Automatic log sanitization preventing credential leaks
-- ✅ Rate limiting and abuse detection implemented
-- ✅ Async-friendly operations eliminating blocking
-- ✅ Comprehensive integration test coverage
-- ✅ gRPC protocol alignment completed
-- 🔒 Authentication implementation ready for deployment
-- 🔒 TLS encryption configured for production use
+-  Automatic log sanitization preventing credential leaks
+-  Rate limiting and abuse detection implemented
+-  Async-friendly operations eliminating blocking
+-  Comprehensive integration test coverage
+-  gRPC protocol alignment completed
+-  Authentication implementation ready for deployment
+-  TLS encryption configured for production use
 
 **Security Principles:**
 
@@ -76,24 +76,24 @@ workspace-qdrant-mcp implements defense-in-depth security across multiple layers
 
 ### Security Boundaries
 
-**Boundary 1: MCP Protocol (Claude ↔ MCP Server)**
-- **Trust Level**: Untrusted → Trusted
+**Boundary 1: MCP Protocol (Claude <-> MCP Server)**
+- **Trust Level**: Untrusted -> Trusted
 - **Controls**:
   - Log sanitization prevents credential exposure to LLM
   - Rate limiting prevents abuse
   - Input validation and sanitization
   - LLM access control for sensitive operations
 
-**Boundary 2: gRPC (MCP Server ↔ Daemon)**
-- **Trust Level**: Trusted ↔ Trusted
+**Boundary 2: gRPC (MCP Server <-> Daemon)**
+- **Trust Level**: Trusted <-> Trusted
 - **Controls**:
   - TLS encryption (in production)
   - Mutual authentication (certificate-based)
   - Protocol validation
   - Timeout enforcement
 
-**Boundary 3: Database (Daemon ↔ Qdrant/SQLite)**
-- **Trust Level**: Trusted ↔ Trusted
+**Boundary 3: Database (Daemon <-> Qdrant/SQLite)**
+- **Trust Level**: Trusted <-> Trusted
 - **Controls**:
   - Daemon-only writes (enforced)
   - Connection pooling with limits
@@ -104,13 +104,13 @@ workspace-qdrant-mcp implements defense-in-depth security across multiple layers
 
 **Enforced Write Flow:**
 ```
-MCP Tool → Daemon gRPC → Daemon Process → Qdrant
+MCP Tool -> Daemon gRPC -> Daemon Process -> Qdrant
 ```
 
 **Prohibited Paths:**
-- ❌ Direct Qdrant writes from MCP server (bypasses LLM access control)
-- ❌ SQLite writes without daemon mediation
-- ❌ Unauthenticated gRPC calls
+-  Direct Qdrant writes from MCP server (bypasses LLM access control)
+-  SQLite writes without daemon mediation
+-  Unauthenticated gRPC calls
 
 **Validation** (Task 375.6):
 - 18 comprehensive tests verify daemon-only writes
@@ -123,13 +123,13 @@ MCP Tool → Daemon gRPC → Daemon Process → Qdrant
 ### Authentication Status
 
 **gRPC Authentication** (Task 382.5):
-- Status: ✅ Infrastructure Complete
+- Status:  Infrastructure Complete
 - Method: TLS mutual authentication with certificates
 - Configuration: `src/python/common/core/ssl_config.py`
 - Enforcement: Ready for production deployment
 
 **HTTP Authentication** (Task 382.6):
-- Status: ✅ Infrastructure Complete
+- Status:  Infrastructure Complete
 - Method: API key or JWT bearer tokens
 - Rate Limiting: Configured per-client limits
 - Enforcement: Ready for production deployment
@@ -149,16 +149,16 @@ MCP Tool → Daemon gRPC → Daemon Process → Qdrant
 ### Credential Management
 
 **Secure Patterns:**
-- ✅ API keys read from environment variables only
-- ✅ Credentials never logged (automatic sanitization)
-- ✅ Secrets stored in encrypted configuration when needed
-- ✅ Credential rotation supported
+-  API keys read from environment variables only
+-  Credentials never logged (automatic sanitization)
+-  Secrets stored in encrypted configuration when needed
+-  Credential rotation supported
 
 **Prohibited Patterns:**
-- ❌ Plaintext credentials in YAML configuration
-- ❌ Credentials in git repositories
-- ❌ Hardcoded API keys or passwords
-- ❌ Credentials in log files
+-  Plaintext credentials in YAML configuration
+-  Credentials in git repositories
+-  Hardcoded API keys or passwords
+-  Credentials in log files
 
 ## Data Protection
 
@@ -265,46 +265,46 @@ config = RateLimitConfig(
 ```yaml
 # Good: Secure defaults
 server:
-  debug: false              # ✅ Info disclosure prevented
-  host: "127.0.0.1"        # ✅ Localhost only
+  debug: false              #  Info disclosure prevented
+  host: "127.0.0.1"        #  Localhost only
 
 qdrant:
-  url: "http://localhost:6333"  # ✅ Localhost only
-  api_key: null            # ✅ Forces environment variable
+  url: "http://localhost:6333"  #  Localhost only
+  api_key: null            #  Forces environment variable
 
 logging:
-  level: "info"            # ✅ Not overly verbose
-  sanitize: true           # ✅ Credential redaction enabled
+  level: "info"            #  Not overly verbose
+  sanitize: true           #  Credential redaction enabled
 ```
 
 **Dangerous Configurations:**
 ```yaml
 # Bad: Insecure configurations
 server:
-  debug: true              # ❌ Exposes internal details
-  host: "0.0.0.0"         # ❌ Exposes to network
+  debug: true              #  Exposes internal details
+  host: "0.0.0.0"         #  Exposes to network
 
 qdrant:
-  api_key: "plaintext"     # ❌ Credentials in file
+  api_key: "plaintext"     #  Credentials in file
 
 logging:
-  level: "debug"           # ❌ Verbose logging
-  sanitize: false          # ❌ Credential exposure risk
+  level: "debug"           #  Verbose logging
+  sanitize: false          #  Credential exposure risk
 ```
 
 ### Deployment Security
 
 **Production Checklist:**
-1. ✅ All services bound to `127.0.0.1`
-2. ✅ TLS enabled for all network communication
-3. ✅ Authentication enforced on all control planes
-4. ✅ Rate limiting configured appropriately
-5. ✅ Log sanitization enabled
-6. ✅ Debug mode disabled
-7. ✅ Secrets loaded from environment or keychain
-8. ✅ File permissions properly restricted
-9. ✅ Firewall rules configured
-10. ✅ Audit logging enabled
+1.  All services bound to `127.0.0.1`
+2.  TLS enabled for all network communication
+3.  Authentication enforced on all control planes
+4.  Rate limiting configured appropriately
+5.  Log sanitization enabled
+6.  Debug mode disabled
+7.  Secrets loaded from environment or keychain
+8.  File permissions properly restricted
+9.  Firewall rules configured
+10.  Audit logging enabled
 
 ### Monitoring and Alerting
 
@@ -392,23 +392,23 @@ logging:
 ### For Developers
 
 **DO:**
-- ✅ Use environment variables for credentials
-- ✅ Run tests with log sanitization enabled
-- ✅ Implement input validation on all endpoints
-- ✅ Use parameterized queries for database access
-- ✅ Enable TLS for all network communication
-- ✅ Follow principle of least privilege
-- ✅ Keep dependencies updated
-- ✅ Review security logs regularly
+-  Use environment variables for credentials
+-  Run tests with log sanitization enabled
+-  Implement input validation on all endpoints
+-  Use parameterized queries for database access
+-  Enable TLS for all network communication
+-  Follow principle of least privilege
+-  Keep dependencies updated
+-  Review security logs regularly
 
 **DON'T:**
-- ❌ Log credentials or sensitive data
-- ❌ Commit secrets to version control
-- ❌ Disable security features for debugging
-- ❌ Use weak or default passwords
-- ❌ Trust user input without validation
-- ❌ Expose services to public internet unnecessarily
-- ❌ Ignore security warnings or alerts
+-  Log credentials or sensitive data
+-  Commit secrets to version control
+-  Disable security features for debugging
+-  Use weak or default passwords
+-  Trust user input without validation
+-  Expose services to public internet unnecessarily
+-  Ignore security warnings or alerts
 
 ### For Operators
 
@@ -476,54 +476,54 @@ logging:
 - **Threat**: Gain unauthorized access to control plane
 - **Impact**: Full system compromise
 - **Mitigation**: Mandatory authentication (Task 382.5, 382.6)
-- **Status**: ✅ Implemented
+- **Status**:  Implemented
 
 **2. Credential Exposure**
 - **Threat**: API keys leaked through logs or errors
 - **Impact**: Unauthorized API access
 - **Mitigation**: Automatic log sanitization (Task 382.11)
-- **Status**: ✅ Implemented
+- **Status**:  Implemented
 
 **3. Rate Limit Bypass**
 - **Threat**: Abuse system resources through excessive requests
 - **Impact**: Denial of service, performance degradation
 - **Mitigation**: Token bucket rate limiting (Task 382.11)
-- **Status**: ✅ Implemented
+- **Status**:  Implemented
 
 **4. LLM Access Control Bypass**
 - **Threat**: Direct Qdrant writes bypassing LLM authorization
 - **Impact**: Unauthorized data modifications
 - **Mitigation**: Daemon-only writes enforcement (Task 375.6)
-- **Status**: ✅ Validated
+- **Status**:  Validated
 
 **5. Denial of Service**
 - **Threat**: Overwhelm system with requests
 - **Impact**: Service unavailability
 - **Mitigation**: Rate limiting, connection limits, timeouts
-- **Status**: ✅ Implemented
+- **Status**:  Implemented
 
 **6. Injection Attacks**
 - **Threat**: SQL/command injection through user input
 - **Impact**: Data breach, code execution
 - **Mitigation**: Input validation, parameterized queries
-- **Status**: ✅ Implemented
+- **Status**:  Implemented
 
 ### Risk Matrix
 
 | Threat | Likelihood | Impact | Risk Level | Mitigation Status |
 |--------|-----------|--------|------------|------------------|
-| Authentication Bypass | Low | Critical | Medium | ✅ Implemented |
-| Credential Exposure | Low | High | Medium | ✅ Implemented |
-| Rate Limit Bypass | Medium | Medium | Medium | ✅ Implemented |
-| LLM Bypass | Low | High | Medium | ✅ Validated |
-| DoS Attack | Medium | High | High | ✅ Implemented |
-| Injection | Low | Critical | Medium | ✅ Implemented |
+| Authentication Bypass | Low | Critical | Medium |  Implemented |
+| Credential Exposure | Low | High | Medium |  Implemented |
+| Rate Limit Bypass | Medium | Medium | Medium |  Implemented |
+| LLM Bypass | Low | High | Medium |  Validated |
+| DoS Attack | Medium | High | High |  Implemented |
+| Injection | Low | Critical | Medium |  Implemented |
 
 ## Security Metrics
 
 ### Success Metrics (Task 382)
 
-**✅ Completed:**
+** Completed:**
 1. **Zero Fallback Paths**: Direct Qdrant writes only when daemon unavailable (logged)
 2. **Log Sanitization**: 100% of logs automatically sanitized for credentials
 3. **Rate Limiting**: Configurable per-client and per-endpoint limits active
@@ -531,7 +531,7 @@ logging:
 5. **Integration Tests**: Comprehensive test suite covering all transport layers
 6. **gRPC Protocol**: Python and Rust protocol alignment complete
 
-**🔒 Ready for Production:**
+** Ready for Production:**
 7. **Authentication**: Infrastructure complete for gRPC and HTTP
 8. **TLS Encryption**: Configuration ready for deployment
 9. **Unified Daemon**: Single codebase with consistent behavior
@@ -573,15 +573,6 @@ logging:
 | 0.3.0 | 2025-10-26 | Post-Task 382 security hardening: Log sanitization, rate limiting, async operations, gRPC alignment |
 | 0.2.0 | 2025-10-03 | Task 375.6: Daemon-only writes validation and enforcement |
 | 0.1.0 | 2025-09-27 | Initial security architecture documentation |
-
-## References
-
-- [FIRST-PRINCIPLES.md](../FIRST-PRINCIPLES.md) - Principle 10: Daemon-Only Writes
-- [SECURITY_AUDIT.md](../SECURITY_AUDIT.md) - Comprehensive security audit findings
-- [ARCHITECTURE_IMPLEMENTATION_AUDIT.md](../ARCHITECTURE_IMPLEMENTATION_AUDIT.md) - Architecture compliance
-- [Task 382](../.taskmaster/tasks/task-382.md) - Security remediation roadmap
-- [Task 375.6](../.taskmaster/tasks/task-375.md) - Daemon write path validation
-- [Task 382.11](../.taskmaster/tasks/task-382.md) - Security hardening implementation
 
 ---
 

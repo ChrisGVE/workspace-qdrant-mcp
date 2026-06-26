@@ -36,28 +36,6 @@ dev-debug.log
 # Environment variables
 .env
 
-# Development files - NOT for users/contributors
-CLAUDE.md
-CLAUDE.local.md
-handover.md
-.claude/
-.taskmaster/
-/specs/
-*PRD*.txt
-*PRD*.md
-research/
-*_RESEARCH.md
-*_RESEARCH_*.md
-*_AUDIT.md
-FIRST-PRINCIPLES.md
-GITHUB_ISSUES.md
-/INSTALLATION.md
-CONSOLIDATED_PRD*.md
-SUBTASK_*.md
-SECURITY_NOTICE_*.md
-DEPENDENCY_MATRIX.md
-BENCHMARKING.md
-
 # Legacy/external code
 rust-engine-legacy/
 external/
@@ -79,12 +57,6 @@ docker/secrets/
 
 # Submodule paths (not used)
 web-ui/
-
-# Temporary files with date prefixes (YYYYMMDD-HHMM_*)
-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]_*
-LT_*/
-tmp/
-transcripts/
 
 # Cache directories and files
 .file_watch_cache.json
@@ -132,16 +104,14 @@ test_file_ingestion*.md
 /package.json
 /package-lock.json
 
-# LargeCode analysis output
+# LargeCode / codesize analysis output
 largecode.csv
 large_code.csv
 large_code.sh
+codesize.csv
 
 # Git cleanup artifacts
 affected_commits.txt
 
-# AI workflow files (not published)
-/CLAUDE.md
-/.github/instructions/
-/handover.md
-/code_audit.md
+# Local dev config override (contains machine-specific paths)
+config.dev.yaml

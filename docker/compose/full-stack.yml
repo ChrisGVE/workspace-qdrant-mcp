@@ -1,13 +1,13 @@
 # docker/compose/full-stack.yml
 #
 # Full-stack overlay: adds memexd + MCP server to the running main-docker stack.
-# Qdrant, Prometheus, Grafana, and otel-collector are owned by main-docker —
+# Qdrant, Prometheus, Grafana, and otel-collector are owned by main-docker --
 # they are NOT redefined here.  This file attaches to main-docker's network so
 # all services can reach each other by container name.
 #
 # Prerequisites:
 #   1. main-docker stack running:
-#        docker compose -f /Users/chris/dev/tools/main-docker/docker-compose.yml up -d
+#        docker compose -f $HOME/dev/tools/main-docker/docker-compose.yml up -d
 #   2. The external network 'main-docker_default' exists (created automatically by
 #      the main-docker compose on first `up`).
 #
@@ -19,7 +19,7 @@
 #   Reference config is in docker/prometheus/prometheus.yml (3 scrape
 #   jobs + rule_files pointing at docker/prometheus/alerts.yml).
 #   Prometheus in main-docker reads its config from
-#   /Users/chris/dev/tools/main-docker/prometheus.yml.  Merge the
+#   $HOME/dev/tools/main-docker/prometheus.yml.  Merge the
 #   scrape_configs blocks from docker/prometheus/prometheus.yml into
 #   that file and reload:  curl -X POST http://localhost:9090/-/reload
 #
@@ -50,7 +50,7 @@
 #
 #   Compose's standard merge layers the override on top of this file. The
 #   override also publishes 127.0.0.1:7799:7799 (the memexd control-port
-#   lock — mandatory per spec §10.1) and embeds a `# wqm-config-hash:`
+#   lock -- mandatory per spec §10.1) and embeds a `# wqm-config-hash:`
 #   header that the daemon entrypoint verifies on startup.
 
 # ── YAML anchors ─────────────────────────────────────────────────────────────
@@ -86,14 +86,14 @@ services:
       - XDG_CACHE_HOME=/home/memexd/.cache
       - XDG_STATE_HOME=/home/memexd/.local/state
       # "qdrant" is the service name in main-docker. REST-style URL; gRPC
-      # consumers translate :6333 → :6334 automatically
+      # consumers translate :6333 -> :6334 automatically
       # (wqm_common::qdrant_endpoint, shared by memexd and the mcp server).
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - WQM_LOG_LEVEL=${WQM_LOG_LEVEL:-INFO}
       - WQM_DATABASE_PATH=/home/memexd/.local/share/workspace-qdrant/memexd.db
     volumes: *memexd-volumes
-    # No host port bindings — metrics are scraped over the shared network.
+    # No host port bindings -- metrics are scraped over the shared network.
     expose:
       - "50051"
       - "6337"
@@ -117,7 +117,7 @@ services:
         required: false
     environment:
       - WQM_DAEMON_ENDPOINT=${WQM_DAEMON_ENDPOINT:-memexd:50051}
-      # Same REST-style URL as memexd; the mcp server translates :6333 → :6334
+      # Same REST-style URL as memexd; the mcp server translates :6333 -> :6334
       # automatically (wqm_common::qdrant_endpoint).
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
@@ -131,7 +131,7 @@ services:
       - MCP_HTTP_TOKEN=${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env; generate with `openssl rand -hex 32`}
       # Metrics bind 0.0.0.0 so main-docker's Prometheus can scrape over the
       # shared network; non-loopback binds require a bearer token
-      # (MCP_HTTP_TOKEN reused — hosted deployments should issue a dedicated
+      # (MCP_HTTP_TOKEN reused -- hosted deployments should issue a dedicated
       # secret instead). See the header comment for the Prometheus side.
       - MCP_METRICS_HOST=0.0.0.0
       - MCP_METRICS_TOKEN=${MCP_HTTP_TOKEN}
@@ -150,7 +150,7 @@ services:
 # ── Networks ──────────────────────────────────────────────────────────────────
 # Attach to main-docker's default network.  Docker Compose names the default
 # network "<project-directory>_default"; for a project at
-# /Users/chris/dev/tools/main-docker the network is "main-docker_default".
+# $HOME/dev/tools/main-docker the network is "main-docker_default".
 networks:
   main:
     external: true

@@ -434,7 +434,7 @@ embedding:
   # keyword_embedder: Optional dedicated local FastEmbed provider for keyword extraction
   # Purpose: Offloads keyword/tag embedding (cosine reranking) to a separate local ONNX
   # instance so the main provider (e.g. OpenAI) is free for chunk embeddings.
-  # Keyword embeddings are ephemeral — used only for ranking, never stored in Qdrant.
+  # Keyword embeddings are ephemeral -- used only for ranking, never stored in Qdrant.
   # When disabled (default), the keyword pipeline uses the main embedding provider.
   keyword_embedder:
     # enabled: Activate the dedicated keyword embedder
@@ -1006,9 +1006,9 @@ observability:
     # on hot paths (independent of the otlp sampler, which bounds export).
     tracing:
       # Trace cost-gate tier: "off" | "hot" | "full" (default "off").
-      #   off  — instrumented hot paths do no attribute work
-      #   hot  — only cheap, high-value spans
-      #   full — full span tree (per-chunk/per-point detail)
+      #   off  -- instrumented hot paths do no attribute work
+      #   hot  -- only cheap, high-value spans
+      #   full -- full span tree (per-chunk/per-point detail)
       # Overridable at runtime via the WQM_TRACE_TIER env var (env > YAML).
       tier: "off"
       # Whether #[instrument]-style spans on hot paths are constructed.
@@ -1033,10 +1033,10 @@ observability:
 # impact analysis, and symbol traversal queries.
 graph:
   # backend: Which graph store implementation to use.
-  # "ladybug" — LadybugDB (Kuzu fork), the default backend (A0.7). Requires the
+  # "ladybug" -- LadybugDB (Kuzu fork), the default backend (A0.7). Requires the
   #             'ladybug' compile-time feature, which is on by default for the
   #             daemon binary (memexd). The C++ toolchain is needed to build it.
-  # "sqlite"  — SQLite with recursive CTEs. The fallback backend, no extra
+  # "sqlite"  -- SQLite with recursive CTEs. The fallback backend, no extra
   #             dependencies; build with --no-default-features for a light build.
   backend: ladybug
 
@@ -1152,7 +1152,7 @@ resource_limits:
   ramp_down_step_secs: 300
 
   # burst_hold_secs: Minimum time at Burst before allowing ramp-down
-  # "Generous time at max" — once reaching Burst, the system holds there
+  # "Generous time at max" -- once reaching Burst, the system holds there
   # for at least this long even if user activity resumes, to avoid
   # wasting the ramp-up investment on brief interruptions.
   # Default: 600 (10 minutes)
@@ -1161,7 +1161,7 @@ resource_limits:
 
   # burst_concurrency_multiplier: Multiplier for max_concurrent_embeddings in burst
   # Applied to the resolved (auto-detected) value of max_concurrent_embeddings.
-  # Example: normal=2, multiplier=2.0 → burst=4
+  # Example: normal=2, multiplier=2.0 -> burst=4
   # Default: 2.0
   # Format: Float >= 1.0
   burst_concurrency_multiplier: 2.0
@@ -1342,16 +1342,16 @@ watching:
   # filename is not on this list are silently skipped (never queued, never tracked).
   #
   # Ingestion gate layering:
-  #   1. ALLOWLIST  → extension/filename must be listed → NO  = skip
-  #   2. EXCLUSION  → must not match exclude dirs/patterns → YES = skip
-  #   3. SIZE LIMIT → must be under max_file_size_mb      → OVER = skip
-  #     3a. SIZE-RESTRICTED → stricter limit for risky extensions → OVER = skip
+  #   1. ALLOWLIST  -> extension/filename must be listed -> NO  = skip
+  #   2. EXCLUSION  -> must not match exclude dirs/patterns -> YES = skip
+  #   3. SIZE LIMIT -> must be under max_file_size_mb      -> OVER = skip
+  #     3a. SIZE-RESTRICTED -> stricter limit for risky extensions -> OVER = skip
   #   4. Queue for processing
   #
   # User config can extend or restrict these lists.
 
   # allowed_extensions: File extensions eligible for ingestion
-  # Purpose: Primary gate — only files with these extensions are processed
+  # Purpose: Primary gate -- only files with these extensions are processed
   # Format: Array of extension strings (with leading dot)
   # Categories: 21 language/format categories (see docs/specs/06-file-watching.md)
   allowed_extensions:
@@ -1891,11 +1891,11 @@ watching:
 # the cap applies regardless of how the file was enqueued.
 #
 # Configurable: edit the values below, or override individual extensions in a
-# user config — a user config that lists any extension replaces this map
+# user config -- a user config that lists any extension replaces this map
 # wholesale, so include every extension you want capped. Omitting the section
 # entirely falls back to these compiled-in defaults.
 ingestion_limits:
-  # extension_size_limits_kb: extension (lowercase, no leading dot) → cap in KB.
+  # extension_size_limits_kb: extension (lowercase, no leading dot) -> cap in KB.
   extension_size_limits_kb:
     json: 500
     jsonc: 500
@@ -2120,7 +2120,7 @@ grammars:
 
   # required: List of language grammars to pre-download on daemon startup
   # Purpose: Grammars listed here are downloaded eagerly at startup
-  # Default: Empty — grammars are downloaded on first use via auto_download
+  # Default: Empty -- grammars are downloaded on first use via auto_download
   # Use case: Pre-populate cache for offline environments or faster first-file processing
   # Format: List of language identifiers (lowercase)
   # Example: [rust, python, javascript, typescript, go, java, c, cpp]
@@ -2199,7 +2199,7 @@ grammars:
 # from multiple upstream sources merged by priority.
 #
 # The registry replaces all hardcoded language support. Adding a new language
-# requires only a YAML definition — no code changes.
+# requires only a YAML definition -- no code changes.
 
 # =============================================================================
 # DAEMON SELF-UPDATE CONFIGURATION
@@ -2247,7 +2247,7 @@ updates:
 # TAGGING CONFIGURATION
 # =============================================================================
 # Purpose: Controls LLM-assisted tag extraction (Tier 3). This is the
-# highest-quality but most expensive tagging tier — disabled by default.
+# highest-quality but most expensive tagging tier -- disabled by default.
 # When enabled, document chunks are sent to an AI provider to extract
 # structured concept tags.
 
@@ -2255,7 +2255,7 @@ updates:
 # TAGGING CONFIGURATION
 # =============================================================================
 # Purpose: Controls LLM-assisted tag extraction (Tier 3). This is the
-# highest-quality but most expensive tagging tier — disabled by default.
+# highest-quality but most expensive tagging tier -- disabled by default.
 # When enabled, document chunks are sent to an AI provider to extract
 # structured concept tags.
 tagging:
@@ -2264,7 +2264,7 @@ tagging:
     # Purpose: When false, no LLM calls are made and no tags are extracted
     # Cost: Each document processes up to max_chunks_per_doc LLM calls
     # Format: Boolean
-    # Default reasoning: false — opt-in only when a provider is configured
+    # Default reasoning: false -- opt-in only when a provider is configured
     enabled: false
 
     # primary: Main LLM provider configuration
@@ -2274,8 +2274,8 @@ tagging:
       provider: "anthropic"
 
       # access_mode: How to access the provider
-      # "cli" — shell out to provider CLI tool (uses existing subscription, no API key)
-      # "api" — direct HTTP with API key (pay-per-token)
+      # "cli" -- shell out to provider CLI tool (uses existing subscription, no API key)
+      # "api" -- direct HTTP with API key (pay-per-token)
       # Note: ollama always uses HTTP regardless of this setting
       access_mode: "cli"
 
@@ -2319,7 +2319,7 @@ tagging:
     rate_limit_rps: 10
 
     # temperature: LLM sampling temperature (lower = more deterministic)
-    # Format: Float 0.0–1.0
+    # Format: Float 0.0-1.0
     temperature: 0.3
 
     # total_budget_secs: Hard wall-clock ceiling for the entire extract_tags() call
@@ -2329,7 +2329,7 @@ tagging:
     # Default reasoning: 60s is generous for 10 chunks but prevents multi-minute stalls
     total_budget_secs: 60
 
-    # max_consecutive_failures: Circuit breaker — abort after N consecutive chunk failures
+    # max_consecutive_failures: Circuit breaker -- abort after N consecutive chunk failures
     # Purpose: If the provider is down, stop wasting time on subsequent chunks
     # When triggered: Remaining chunks skipped, partial results returned
     # Format: Integer
@@ -2407,10 +2407,10 @@ url_ingestion:
 #   - Overlapping mounts are allowed (longest-prefix wins on resolution).
 #   - The mount map is immutable for the lifetime of each process. Edits
 #     require a process restart (no SIGHUP-style reload).
-#   - Empty/missing mounts: identity map — host == container, no
+#   - Empty/missing mounts: identity map -- host == container, no
 #     translation.
 #
-# Mirror mounts (host == container) are the default style — they eliminate
+# Mirror mounts (host == container) are the default style -- they eliminate
 # translation entirely when chosen well. Non-mirror mounts are needed only
 # when a host path cannot exist inside a Linux container (e.g. macOS
 # `/Volumes/*` or removable media).
@@ -2419,8 +2419,8 @@ url_ingestion:
 # containerised deployments or unusual mount-point layouts.
 mounts: []
 #mounts:
-#  - host: /Users/chris/dev
-#    container: /Users/chris/dev          # mirror — default style
+#  - host: $HOME/dev
+#    container: $HOME/dev          # mirror -- default style
 #  - host: /Volumes/External/books
 #    container: /mnt/external-books
 #  - host: ~/reference
@@ -2429,7 +2429,7 @@ mounts: []
 # =============================================================================
 # NARRATIVE EXTRACTION CONFIGURATION
 # =============================================================================
-# Purpose: Thresholds and safety limits for the narrative graph layer —
+# Purpose: Thresholds and safety limits for the narrative graph layer --
 # DocumentSection / CodeComment / Docstring nodes and EXPLAINS edges that link
 # human-authored documentation to real code symbols.
 #

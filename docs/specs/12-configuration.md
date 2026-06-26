@@ -255,7 +255,7 @@ watching:
     - "*.obj"
     - "*.lock"
 
-  # (size_restricted_extensions / size_restricted_max_mb removed — see ingestion_limits below)
+  # (size_restricted_extensions / size_restricted_max_mb removed -- see ingestion_limits below)
 
 # Per-extension ingestion size limits (Task 14)
 # Keys: lowercase extension without leading dot. Values: limit in KB.
@@ -276,17 +276,17 @@ ingestion_limits:
     csv:    500   # Tabular data; can be multi-GB dataset dumps
     tsv:    500
 
-# Host-↔-container directory mounts (see 16-path-abstraction.md §5)
+# Host-<->-container directory mounts (see 16-path-abstraction.md §5)
 # Empty/missing = identity map (host == container, no translation).
 # Mirror mounts (host == container) are the default style; non-mirror
 # entries cover macOS /Volumes/* or removable media.
 # Duplicate host or container prefixes are rejected at load time.
 # Overlapping mounts are allowed (longest-prefix wins).
-# Immutable for process lifetime — edits require restart.
+# Immutable for process lifetime -- edits require restart.
 mounts: []
 # mounts:
-#   - host: /Users/chris/dev
-#     container: /Users/chris/dev          # mirror
+#   - host: $HOME/dev
+#     container: $HOME/dev          # mirror
 #   - host: /Volumes/External/books
 #     container: /mnt/external-books
 #   - host: ~/reference
@@ -314,17 +314,17 @@ Thresholds for the functional queue-health verdict (#133). All fields are runtim
 | `regression_ratio` | `2.0` | fast/slow ratio above which ms/KB processing is regressing. | `> 1.0` |
 | `embedder_ratio` | `2.0` | fast/slow ratio above which embedder latency is regressing. | `> 1.0` |
 | `dlq_rate_band` | `1.0` | DLQ delta-rate (counts/poll) at or below which the backlog is "stuck"; above it it is growing (Red). Absolute, not relative (A3). | finite, `> 0` |
-| `dlq_empty_eps` | `1` | DLQ "empty" threshold (count): below this ⇒ Green regardless of rate (A3). | `≥ 1` |
-| `ms_per_kb_floor` | `0.1` | ms/KB baseline below this is "too fast to matter" ⇒ Green; never divides by a near-zero baseline (A1). | finite, `> 0` |
+| `dlq_empty_eps` | `1` | DLQ "empty" threshold (count): below this => Green regardless of rate (A3). | `≥ 1` |
+| `ms_per_kb_floor` | `0.1` | ms/KB baseline below this is "too fast to matter" => Green; never divides by a near-zero baseline (A1). | finite, `> 0` |
 | `embedder_latency_floor` | `1.0` | Embedder-latency baseline (ms) floor, analogous to `ms_per_kb_floor` (A2). | finite, `> 0` |
-| `stall_timeout_secs` | `60` | Pending > 0 AND no poll/heartbeat within this window ⇒ Red (B3). | `≥ 1` |
+| `stall_timeout_secs` | `60` | Pending > 0 AND no poll/heartbeat within this window => Red (B3). | `≥ 1` |
 | `all_failing_window` | `3` | All-items-failing detection window, in poll cycles (B4). | `≥ 1` |
-| `qdrant_probe_timeout_secs` | `2` | Timeout for the B1 Qdrant reachability check; exceed ⇒ Red. | `≥ 1` |
-| `drain_snapshot_max_age_secs` | `15` | A pending-bytes snapshot older than this is insufficient data ⇒ Green (F5). | `> 0` |
+| `qdrant_probe_timeout_secs` | `2` | Timeout for the B1 Qdrant reachability check; exceed => Red. | `≥ 1` |
+| `drain_snapshot_max_age_secs` | `15` | A pending-bytes snapshot older than this is insufficient data => Green (F5). | `> 0` |
 | `baseline_ttl_secs` | `2592000` (30 days) | Orphaned `control_baseline` rows older than this are pruned (F10). | `≥ 86400` (1 day) |
 | `debounce_window` | `5` | Consecutive per-metric verdicts; majority (3) flips state. | non-zero, **odd** |
-| `drain_budget_secs` | `86400` | Backlog draining slower than this (1 day) is "falling behind". | — |
-| `disk_low_bytes` | `1073741824` (1 GiB) | Absolute free-disk low-water mark. | — |
+| `drain_budget_secs` | `86400` | Backlog draining slower than this (1 day) is "falling behind". | -- |
+| `disk_low_bytes` | `1073741824` (1 GiB) | Absolute free-disk low-water mark. | -- |
 | `disk_low_pct` | `0.05` | Relative free-disk low-water mark. | in `(0,1)` |
 | `min_item_bytes` | `256` | ms/KB size floor; known-size items below this are clamped so a tiny file cannot produce an outlier ms/KB. | non-zero |
 | `default_item_bytes` | `65536` (64 KiB) | Imputed item size when no pending row has a known size, so the all-NULL drain fallback never divides by zero. | non-zero |
@@ -365,7 +365,7 @@ Each subconfig error is prefixed with the subsystem name, for example `queue_pro
 | `queue_processor` | `QueueProcessorSettings::validate()` |
 | `monitoring` | `MonitoringConfig::validate()` |
 | `git` | `GitConfig::validate()` |
-| `observability` | `ObservabilityConfig::validate()` → chains `TelemetryConfig::validate()` → `PrometheusExportConfig::validate()`, `OtlpExportConfig::validate()` |
+| `observability` | `ObservabilityConfig::validate()` -> chains `TelemetryConfig::validate()` -> `PrometheusExportConfig::validate()`, `OtlpExportConfig::validate()` |
 | `embedding` | `EmbeddingSettings::validate()` |
 | `lsp` | `LspSettings::validate()` |
 | `grammars` | `GrammarConfig::validate()` |
@@ -375,7 +375,7 @@ Each subconfig error is prefixed with the subsystem name, for example `queue_pro
 | `daemon_endpoint` | `DaemonEndpointConfig::validate()` |
 | `ingestion_limits` | `IngestionLimitsConfig::validate()` |
 | `auto_ingestion` | `AutoIngestionConfig::validate()` |
-| `mounts` | `DaemonConfig::validate_mounts()` → `MountMap::from_yaml_entries()` |
+| `mounts` | `DaemonConfig::validate_mounts()` -> `MountMap::from_yaml_entries()` |
 
 #### `--allow-default` flag
 
@@ -398,7 +398,7 @@ Environment variable overrides (`OTEL_*`, `WQM_PROMETHEUS_*`, `WORKSPACE_QDRANT_
 
 | Field | Constraint |
 |-------|-----------|
-| `check_interval_hours` | [1, 8760] (1 h – 1 year) |
+| `check_interval_hours` | [1, 8760] (1 h - 1 year) |
 
 **`git`**
 
@@ -465,8 +465,8 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Dashboard configuration:**
 - In the dashboard's "Visualize" tab, use the `using` parameter to specify which named vector to use
-- Select `dense` for semantic (embedding) visualization — this produces meaningful spatial clusters
-- Do NOT select `sparse` — sparse (BM25) vectors are not visualizable in 2D/3D projections
+- Select `dense` for semantic (embedding) visualization -- this produces meaningful spatial clusters
+- Do NOT select `sparse` -- sparse (BM25) vectors are not visualizable in 2D/3D projections
 
 **Available named vectors per collection:**
 
@@ -539,7 +539,7 @@ The search DB (`search.db`) is a **separate SQLite database** from `state.db`, d
 
 **Path:** `~/.local/share/workspace-qdrant/search.db` (XDG `$XDG_DATA_HOME`)
 
-**Owner:** Rust daemon (memexd) — same ownership model as state.db
+**Owner:** Rust daemon (memexd) -- same ownership model as state.db
 
 ##### file_metadata Table
 
@@ -585,8 +585,8 @@ Regex search uses a hybrid dispatch strategy. For most queries, FTS5 trigram pre
 
 1. Extract literal substrings from the regex for FTS5 pre-filtering
 2. Run a lightweight FTS5-only probe: `SELECT rowid FROM code_lines_fts WHERE content MATCH ?1 LIMIT 1 OFFSET ?2` (no JOINs, sub-millisecond)
-3. If candidates exceed threshold (5,000) → delegate to `grep-searcher` module which scans source files directly via `file_metadata` paths
-4. Otherwise → stream FTS5 candidates with Rust regex verification
+3. If candidates exceed threshold (5,000) -> delegate to `grep-searcher` module which scans source files directly via `file_metadata` paths
+4. Otherwise -> stream FTS5 candidates with Rust regex verification
 
 **Dependencies:** `grep-searcher`, `grep-regex`, `grep-matcher` (ripgrep's library crates)
 
@@ -596,11 +596,11 @@ The grep path uses `tokio::task::spawn_blocking` for synchronous file I/O, suppo
 
 ##### FTS5 Query Optimization: Redundant AND Elimination
 
-When affix merging prepends a prefix to all alternation branches (e.g., `pub (fn|struct|enum|trait|type) \w+` → branches `"pub fn "`, `"pub struct "`, etc.), the standalone mandatory term `"pub "` is redundant since it's a prefix of every branch. The query builder detects this and omits the redundant AND clause, reducing FTS5 intersection work.
+When affix merging prepends a prefix to all alternation branches (e.g., `pub (fn|struct|enum|trait|type) \w+` -> branches `"pub fn "`, `"pub struct "`, etc.), the standalone mandatory term `"pub "` is redundant since it's a prefix of every branch. The query builder detects this and omits the redundant AND clause, reducing FTS5 intersection work.
 
 ##### Consistency with Qdrant
 
-The search DB follows the same reference-counting deletion logic as Qdrant — the decision (keep/delete old base_point) is made **once** in the queue processor's decision phase and applied to **both** destinations:
+The search DB follows the same reference-counting deletion logic as Qdrant -- the decision (keep/delete old base_point) is made **once** in the queue processor's decision phase and applied to **both** destinations:
 
 - **Qdrant**: Delete/create chunk points
 - **Search DB**: Delete/create file_metadata + code_lines entries
@@ -628,7 +628,7 @@ Write-through on every rules upsert ensures rules survive total Qdrant loss and 
 
 ### Cross-Instance Deduplication
 
-Multiple watch folders can share the same `tenant_id` when they are clones of the same repository (same git remote URL produces the same hash — see [Tenant ID Precedence](02-collection-architecture.md#tenant-id-precedence)). The system handles this naturally through content-addressed identity.
+Multiple watch folders can share the same `tenant_id` when they are clones of the same repository (same git remote URL produces the same hash -- see [Tenant ID Precedence](02-collection-architecture.md#tenant-id-precedence)). The system handles this naturally through content-addressed identity.
 
 **How it works:**
 
@@ -636,7 +636,7 @@ Multiple watch folders can share the same `tenant_id` when they are clones of th
 - The `base_point = hash(tenant_id, branch, relative_path, file_hash)` includes the `file_hash`, so:
   - **Identical content** across clones = same `base_point` = shared Qdrant points and search DB entries
   - **Divergent content** (different edits in different clones) = different `base_point` = separate points
-- No special handling is needed — the `file_hash` in the base point naturally separates divergent content
+- No special handling is needed -- the `file_hash` in the base point naturally separates divergent content
 
 **Reference counting for deletion:**
 
@@ -660,24 +660,24 @@ This query runs within the decision phase (state.db transaction) before any Qdra
 **Example scenario:**
 
 ```
-Clone A: /Users/chris/work/myproject       (tenant_id = abc123)
-Clone B: /Users/chris/personal/myproject   (tenant_id = abc123)
+Clone A: $HOME/work/myproject       (tenant_id = abc123)
+Clone B: $HOME/personal/myproject   (tenant_id = abc123)
 
 Both clones track src/main.rs with identical content:
   base_point = hash(abc123, main, src/main.rs, sha256_of_content)
-  → One set of Qdrant points, one search DB entry (shared)
+  -> One set of Qdrant points, one search DB entry (shared)
 
 Clone A edits src/main.rs:
-  1. Compute new file_hash → new base_point
+  1. Compute new file_hash -> new base_point
   2. Update Clone A's tracked_files entry
-  3. Reference count: Clone B still has old file_hash → keep old points
+  3. Reference count: Clone B still has old file_hash -> keep old points
   4. Create new points for Clone A's version
-  → Now two sets of points coexist (old version for Clone B, new version for Clone A)
+  -> Now two sets of points coexist (old version for Clone B, new version for Clone A)
 
 Clone B also edits src/main.rs:
-  1. Compute new file_hash → new base_point
+  1. Compute new file_hash -> new base_point
   2. Update Clone B's tracked_files entry
-  3. Reference count: no one has old file_hash anymore → delete old points
+  3. Reference count: no one has old file_hash anymore -> delete old points
   4. Create new points for Clone B's version
 ```
 

@@ -58,10 +58,10 @@ Project IDs (`project_id`, also referred to as `tenant_id`) are 12-character hex
 
 The `tenant_id` is determined by the following precedence rules:
 
-1. **If git remote exists** (takes precedence): `tenant_id = hash(normalized_remote_url)` — remote-based identity
-2. **If no remote**: `tenant_id = hash("path_" + filesystem_path)` — path-based identity, prefixed with `path_` to distinguish from remote-based IDs
+1. **If git remote exists** (takes precedence): `tenant_id = hash(normalized_remote_url)` -- remote-based identity
+2. **If no remote**: `tenant_id = hash("path_" + filesystem_path)` -- path-based identity, prefixed with `path_` to distinguish from remote-based IDs
 
-**Key consequence:** Multiple clones of the same remote produce the **same `tenant_id`**. This enables content-addressed deduplication — identical file content across clones shares Qdrant points naturally. See [Cross-Instance Deduplication](#cross-instance-deduplication).
+**Key consequence:** Multiple clones of the same remote produce the **same `tenant_id`**. This enables content-addressed deduplication -- identical file content across clones shares Qdrant points naturally. See [Cross-Instance Deduplication](#cross-instance-deduplication).
 
 **When a local project gains a remote:** The system performs a cascade rename from the path-based `tenant_id` to the remote-based `tenant_id`. See [Local Project Gains Remote](#local-project-gains-remote) and [Cascade Rename Mechanism](#cascade-rename-mechanism).
 
@@ -104,9 +104,9 @@ All git remote URLs are normalized for consistency:
 ```rust
 fn normalize_git_url(url: &str) -> String {
     // Examples:
-    //   git@github.com:user/repo.git  → github.com/user/repo
-    //   https://github.com/User/Repo.git → github.com/user/repo
-    //   ssh://git@gitlab.com/user/repo → gitlab.com/user/repo
+    //   git@github.com:user/repo.git  -> github.com/user/repo
+    //   https://github.com/User/Repo.git -> github.com/user/repo
+    //   ssh://git@gitlab.com/user/repo -> gitlab.com/user/repo
 
     let mut url = url.to_string();
 
@@ -142,8 +142,8 @@ When the same repository is cloned multiple times on the filesystem, each clone 
 **Scenario:**
 
 ```
-/Users/chris/work/client-a/myproject     (remote: github.com/user/myproject)
-/Users/chris/personal/myproject          (remote: github.com/user/myproject)
+$HOME/work/client-a/myproject     (remote: github.com/user/myproject)
+$HOME/personal/myproject          (remote: github.com/user/myproject)
 ```
 
 **Algorithm:**
@@ -154,8 +154,8 @@ When the same repository is cloned multiple times on the filesystem, each clone 
 4. Update both project_ids with disambiguation
 
 ```
-Clone 1: work/client-a/myproject → project_id = sha256("github.com/user/myproject|work/client-a/myproject")[:12]
-Clone 2: personal/myproject      → project_id = sha256("github.com/user/myproject|personal/myproject")[:12]
+Clone 1: work/client-a/myproject -> project_id = sha256("github.com/user/myproject|work/client-a/myproject")[:12]
+Clone 2: personal/myproject      -> project_id = sha256("github.com/user/myproject|personal/myproject")[:12]
 ```
 
 **Single clone:** No disambiguation needed (uses `sha256(normalized_remote)[:12]`)
@@ -171,7 +171,7 @@ For projects without a git remote:
 - The `path_` prefix ensures local project IDs never collide with remote-based IDs
 
 ```
-/Users/chris/experiments/my-test-project → project_id = sha256("path_/Users/chris/experiments/my-test-project")[:12]
+$HOME/experiments/my-test-project -> project_id = sha256("path_$HOME/experiments/my-test-project")[:12]
 ```
 
 #### Branch Handling
@@ -209,7 +209,7 @@ All components are always known at write time. This ensures each branch gets ind
 
 **Branch lifecycle:**
 
-- **Branch detection**: Via the git watcher (Layer 2 — see [Two-Layer Watching Architecture](06-file-watching.md#two-layer-watching-architecture)). A `.git/HEAD` change triggers reflog parsing to identify the operation type.
+- **Branch detection**: Via the git watcher (Layer 2 -- see [Two-Layer Watching Architecture](06-file-watching.md#two-layer-watching-architecture)). A `.git/HEAD` change triggers reflog parsing to identify the operation type.
 - **Branch switch protocol**: On branch switch detection:
   1. Parse reflog to get old/new commit SHAs
   2. `git diff-tree --name-status old_sha new_sha` to get the exact list of changed files
@@ -220,7 +220,7 @@ All components are always known at write time. This ensures each branch gets ind
   7. Update `watch_folders.last_commit_hash = new_sha`
 - **First branch switch optimization**: When switching to a branch with no existing `tracked_files` entries, batch-copy entries from the old branch to the new branch (updating branch and file_hash where files differ). This avoids full re-ingestion.
 - **New branch detected (non-switch)**: For each file, check if identical `file_hash` exists on the source branch (via `tracked_files`). If yes: create new point with branch-qualified ID and **copy the vector** from the existing point (no re-embedding). If no: embed and create new point normally.
-- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant (trivial — filter by branch in payload). Apply reference-counting deletion to avoid removing points still referenced by other watch folder instances.
+- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant (trivial -- filter by branch in payload). Apply reference-counting deletion to avoid removing points still referenced by other watch folder instances.
 - **Branch renamed**: Treat as delete + create (Git doesn't track renames)
 
 **Rationale for hybrid approach (base point identity + reference counting):**
@@ -241,7 +241,7 @@ When a local project (identified by path-based `tenant_id`) gains a git remote:
    - Compute new remote-based `tenant_id` from normalized remote URL (per [Tenant ID Precedence](#tenant-id-precedence))
    - Execute queue-mediated cascade rename from `path_`-based ID to remote-based ID (see [Cascade Rename Mechanism](#cascade-rename-mechanism))
    - This cascades through `watch_folders`, `tracked_files`, `qdrant_chunks`, Qdrant payloads, and search DB entries
-3. No re-ingestion required — only the `tenant_id` changes, all content remains valid
+3. No re-ingestion required -- only the `tenant_id` changes, all content remains valid
 
 #### Remote Rename Detection
 
@@ -278,7 +278,7 @@ When `tenant_id` must change (local project gains remote, remote URL renamed, pr
 
 2. **Queue processor** picks up `cascade_rename` item:
    ```rust
-   // Qdrant set_payload with filter — updates all matching points atomically
+   // Qdrant set_payload with filter -- updates all matching points atomically
    client.set_payload(
        "projects",
        SetPayload {
@@ -304,7 +304,7 @@ When `tenant_id` must change (local project gains remote, remote URL renamed, pr
 | Duplicate detection & disambiguation | On-demand (when `RegisterProject` received from MCP server) |
 | Project move detection               | On-demand (when `RegisterProject` received from MCP server) |
 
-**"Active" definition:** A project becomes active when it has been explicitly registered (via CLI `wqm project add` or MCP with `register_if_new=true`) AND the MCP server sends `RegisterProject` to re-activate it. The MCP server does NOT auto-register new projects — it only re-activates existing entries in `watch_folders`. This triggers on-demand operations like duplicate detection.
+**"Active" definition:** A project becomes active when it has been explicitly registered (via CLI `wqm project add` or MCP with `register_if_new=true`) AND the MCP server sends `RegisterProject` to re-activate it. The MCP server does NOT auto-register new projects -- it only re-activates existing entries in `watch_folders`. This triggers on-demand operations like duplicate detection.
 
 #### Watch Folders Table (Unified)
 
@@ -366,7 +366,7 @@ CREATE INDEX idx_watch_enabled ON watch_folders(enabled);
 - `last_commit_hash`: HEAD commit SHA for git-tracked projects (used for submodule pin comparison and dedup assessment)
 - `is_active`: Activity flag - **inherited by all subprojects** via the junction table (see below)
 - `last_activity_at`: Timestamp - **synced across parent and all subprojects**
-- `is_archived`: Archive flag. Archived projects stop watching/ingesting but remain **fully searchable** in Qdrant. No search exclusion — archived projects are fair game for code exploration. User can un-archive. Archiving preserves junction table entries (historical fact, no detaching).
+- `is_archived`: Archive flag. Archived projects stop watching/ingesting but remain **fully searchable** in Qdrant. No search exclusion -- archived projects are fair game for code exploration. User can un-archive. Archiving preserves junction table entries (historical fact, no detaching).
 - `library_mode`: Only for libraries (`sync` = full sync, `incremental` = no deletes)
 
 **Activity Inheritance for Subprojects:**
@@ -457,7 +457,7 @@ CREATE INDEX idx_tracked_files_base_point ON tracked_files(base_point);
 - `file_mtime`: Filesystem modification time at ingestion. Used for fast change detection during recovery.
 - `lsp_status` / `treesitter_status`: Track processing pipeline state per file. Enables re-processing files that had partial or failed enrichment.
 - `chunk_count`: Cached count of Qdrant points for this file (also available via `qdrant_chunks` table).
-- `incremental`: "Do not delete" flag for library-routed project files. When set, file deletions do not propagate — only full project deletion cascades through this flag.
+- `incremental`: "Do not delete" flag for library-routed project files. When set, file deletions do not propagate -- only full project deletion cascades through this flag.
 
 #### Qdrant Chunks Table
 
@@ -499,10 +499,10 @@ CREATE INDEX idx_qdrant_chunks_file ON qdrant_chunks(file_id);
 
 **Benefits:**
 
-1. **Precise deletion**: Read point_ids from SQLite, delete from Qdrant by ID — no scrolling
+1. **Precise deletion**: Read point_ids from SQLite, delete from Qdrant by ID -- no scrolling
 2. **Future surgical updates**: Compare content_hashes to only modify changed chunks
 3. **Debugging**: See exactly what's in Qdrant per file without querying Qdrant
-4. **Statistics**: Chunks per file/language/project — instant from SQLite
+4. **Statistics**: Chunks per file/language/project -- instant from SQLite
 
 #### List Tool (File Structure Browser)
 
@@ -568,29 +568,29 @@ The score meaning varies by search mode:
 
 | Search Mode | Score Source | Score Range | Interpretation |
 |-------------|------------|-------------|----------------|
-| `semantic` | Cosine similarity (dense vectors) | 0.0–1.0 | Higher = more semantically similar |
-| `keyword` | BM25 relevance (sparse vectors) | 0.0–∞ | Higher = more keyword-relevant (not bounded to 1.0) |
-| `hybrid` | Reciprocal Rank Fusion (RRF) | 0.0–1.0 | Higher = better combined ranking (see below) |
+| `semantic` | Cosine similarity (dense vectors) | 0.0-1.0 | Higher = more semantically similar |
+| `keyword` | BM25 relevance (sparse vectors) | 0.0-∞ | Higher = more keyword-relevant (not bounded to 1.0) |
+| `hybrid` | Reciprocal Rank Fusion (RRF) | 0.0-1.0 | Higher = better combined ranking (see below) |
 
 **Semantic scores** are cosine similarity from the `all-MiniLM-L6-v2` embedding model (384 dimensions). A score of 1.0 means identical vectors; 0.0 means orthogonal (unrelated).
 
-**Keyword scores** are BM25 with IDF weighting. These scores are unbounded — a document with many matching rare terms can score well above 1.0.
+**Keyword scores** are BM25 with IDF weighting. These scores are unbounded -- a document with many matching rare terms can score well above 1.0.
 
-**Hybrid (RRF) scores** are computed after both semantic and keyword results are retrieved and fused: `RRF_score = Σ 1/(k + rank_i)` where `k=60` (standard constant). RRF scores are typically in the 0.001–0.033 range.
+**Hybrid (RRF) scores** are computed after both semantic and keyword results are retrieved and fused: `RRF_score = Σ 1/(k + rank_i)` where `k=60` (standard constant). RRF scores are typically in the 0.001-0.033 range.
 
 #### Threshold Application per Search Mode
 
 | Mode | Dense Threshold | Sparse Threshold | Notes |
 |------|----------------|-----------------|-------|
 | `semantic` | `scoreThreshold` (full) | N/A | Applied directly to cosine similarity |
-| `keyword` | N/A | `scoreThreshold × 0.5` | Halved because BM25 scores have different scale |
-| `hybrid` | `scoreThreshold` (full) | `scoreThreshold × 0.5` | Each leg filtered independently before RRF fusion |
+| `keyword` | N/A | `scoreThreshold x 0.5` | Halved because BM25 scores have different scale |
+| `hybrid` | `scoreThreshold` (full) | `scoreThreshold x 0.5` | Each leg filtered independently before RRF fusion |
 
-The sparse threshold is halved (`× 0.5`) because BM25 scores have a fundamentally different distribution than cosine similarity scores. A cosine threshold of 0.3 would be overly aggressive for BM25.
+The sparse threshold is halved (`x 0.5`) because BM25 scores have a fundamentally different distribution than cosine similarity scores. A cosine threshold of 0.3 would be overly aggressive for BM25.
 
 #### Cross-Collection Threshold Behavior
 
-When `includeLibraries=true` or multiple collections are searched, each collection search uses the same threshold logic. There is no per-collection threshold adjustment — the threshold applies uniformly to each `searchCollection()` call.
+When `includeLibraries=true` or multiple collections are searched, each collection search uses the same threshold logic. There is no per-collection threshold adjustment -- the threshold applies uniformly to each `searchCollection()` call.
 
 #### Fallback Search
 
@@ -607,7 +607,7 @@ The default of `0.3` was chosen as a balance between recall and precision:
 - **Too high** (> 0.5): Filters out results that are relevant but use different terminology
 - **0.3**: Captures semantically related content while filtering clearly unrelated results
 
-For keyword-only mode, the effective threshold is `0.15` (0.3 × 0.5), which is permissive enough to include most BM25 matches.
+For keyword-only mode, the effective threshold is `0.15` (0.3 x 0.5), which is permissive enough to include most BM25 matches.
 
 ### Payload Schemas
 
@@ -640,7 +640,7 @@ For keyword-only mode, the effective threshold is `0.15` (0.3 × 0.5), which is 
 }
 ```
 
-**Note:** File processing metadata (`file_mtime`, chunk details, LSP/tree-sitter status) is tracked in the SQLite `tracked_files` and `qdrant_chunks` tables. However, key identity fields (`base_point`, `relative_path`, `absolute_path`, `file_hash`, `commit_hash`) are stored in Qdrant payloads to enable disaster recovery — `wqm admin recover-state` can rebuild state.db from Qdrant payloads alone. See [Tracked Files Table](#tracked-files-table) and [Disaster Recovery](12-configuration.md#disaster-recovery).
+**Note:** File processing metadata (`file_mtime`, chunk details, LSP/tree-sitter status) is tracked in the SQLite `tracked_files` and `qdrant_chunks` tables. However, key identity fields (`base_point`, `relative_path`, `absolute_path`, `file_hash`, `commit_hash`) are stored in Qdrant payloads to enable disaster recovery -- `wqm admin recover-state` can rebuild state.db from Qdrant payloads alone. See [Tracked Files Table](#tracked-files-table) and [Disaster Recovery](12-configuration.md#disaster-recovery).
 
 **Libraries Collection:**
 

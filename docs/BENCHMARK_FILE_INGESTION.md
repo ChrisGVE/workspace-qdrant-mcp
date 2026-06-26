@@ -322,4 +322,3 @@ This file ingestion benchmark suite is part of a larger performance testing infr
 - [pytest-benchmark documentation](https://pytest-benchmark.readthedocs.io/)
 - [Criterion.rs documentation](https://bheisler.github.io/criterion.rs/book/)
 - [workspace-qdrant-mcp architecture](../ARCHITECTURE.md)
-- [Task 304.2 - File Ingestion Throughput Benchmarks](/.taskmaster/tasks/)

@@ -1,0 +1,4 @@
+.stack-work/
+*.hi
+*.dyn_hi
+*.dyn_o

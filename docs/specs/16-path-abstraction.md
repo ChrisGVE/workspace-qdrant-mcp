@@ -21,8 +21,8 @@ Specifically:
 3. Paths stored in SQLite, transmitted over gRPC, and returned in MCP
    responses are always expressed in a single canonical form.
 4. Each module translates between canonical and process-local paths at
-   exactly one boundary — the filesystem I/O layer.
-5. Mount mappings (host ↔ container directory pairings) are declared in
+   exactly one boundary -- the filesystem I/O layer.
+5. Mount mappings (host <-> container directory pairings) are declared in
    one place: the shared `config.yaml`.
 
 ## 2. Non-Goals
@@ -32,7 +32,7 @@ Specifically:
 - Path translation for content **inside** indexed files (e.g., rewriting
   source-code import paths). Only filesystem paths of indexed files
   themselves.
-- Backward compatibility with pre-spec DB layouts (no users — pre-release).
+- Backward compatibility with pre-spec DB layouts (no users -- pre-release).
 
 ## 3. Canonical Form
 
@@ -60,7 +60,7 @@ The rules apply identically in Rust and TypeScript implementations.
 ### 3.3 Relative Paths
 
 A **relative path** names content **inside** a project or library, anchored to its owning
-root. Relative paths are the correct type for all file-level content fields — every
+root. Relative paths are the correct type for all file-level content fields -- every
 `file_path`, `source_file`, `folder_path`, `document_path`, and similar field that refers
 to a file inside a project or library.
 
@@ -73,9 +73,9 @@ A `RelativePath` value:
 4. Has no leading `/`.
 5. Has no duplicate `/` segments.
 6. Is UTF-8.
-7. Is syntactically normalized (rules 3–5 applied at construction time, pure string op).
+7. Is syntactically normalized (rules 3-5 applied at construction time, pure string op).
 
-`RelativePath` has NO mount-map translation — it is deployment-independent by construction.
+`RelativePath` has NO mount-map translation -- it is deployment-independent by construction.
 A relative path stored in one clone of a project is valid in every other clone sharing the
 same `tenant_id`, and is equally valid inside or outside a container.
 
@@ -99,9 +99,9 @@ syntactic form.
 #### 3.2.1 Why Reject `..` Instead of Resolving Syntactically
 
 Syntactic `..` resolution is unsound across symlink boundaries. If
-`/Users/chris/dev` is a symlink to `/Volumes/fast/dev`, then
-`/Users/chris/dev/project/../other` syntactically collapses to
-`/Users/chris/other`, but the real filesystem target is
+`$HOME/dev` is a symlink to `/Volumes/fast/dev`, then
+`$HOME/dev/project/../other` syntactically collapses to
+`$HOME/other`, but the real filesystem target is
 `/Volumes/fast/other`. Since rule 7 forbids symlink resolution and
 rule 4 originally required syntactic `..` resolution, the two rules
 combined produce paths that do not correspond to any real location.
@@ -112,18 +112,18 @@ containing `..` is rare. The few internal call sites that synthesize
 paths with `..` (e.g., test fixtures) must normalize before passing to
 the constructor.
 
-#### 3.2.2 Existing `canonicalize()` Call Sites — Two Categories
+#### 3.2.2 Existing `canonicalize()` Call Sites -- Two Categories
 
 `canonicalize()` is used in the codebase for two distinct purposes,
 only one of which this spec forbids:
 
-**Category A — Canonical-storage derivation (FORBIDDEN).** The result
+**Category A -- Canonical-storage derivation (FORBIDDEN).** The result
 flows into a path that is persisted to SQLite, transmitted over gRPC,
 written to a Qdrant payload, or returned to the MCP client. These
 sites must be removed and replaced with syntactic normalization. Task
 A-2 enumerates and rewrites every Category A site.
 
-**Category B — Process-local path arithmetic (PERMITTED with
+**Category B -- Process-local path arithmetic (PERMITTED with
 restrictions).** The result never leaves the current process as a
 stored or transmitted value. Examples: resolving `../..` written by
 git into `.git/worktrees/<n>/commondir`; security-sensitive
@@ -154,29 +154,29 @@ spec drafting; the audit verifies no further sites exist.
 
 **CLI (`src/rust/cli/src/commands/`):**
 
-- `project/resolver.rs:16, 147` — Category A (project root → stored)
-- `ingest/file_folder.rs:26, 89` — Category A (ingest target paths)
-- `library/watch_cmd.rs:83` — Category A
-- `library/add.rs:24` — Category A
-- `library/ingest.rs:38` — Category A
-- `library/set_incremental.rs:16` — Category A
-- `project/register.rs:68` — Category A
+- `project/resolver.rs:16, 147` -- Category A (project root -> stored)
+- `ingest/file_folder.rs:26, 89` -- Category A (ingest target paths)
+- `library/watch_cmd.rs:83` -- Category A
+- `library/add.rs:24` -- Category A
+- `library/ingest.rs:38` -- Category A
+- `library/set_incremental.rs:16` -- Category A
+- `project/register.rs:68` -- Category A
 
 **Common (`src/rust/common/src/`):**
 
-- `project_id/calculator.rs:52` — Category A (project ID derivation;
+- `project_id/calculator.rs:52` -- Category A (project ID derivation;
   §3.2.3 covers semantic change)
 
 **Daemon gRPC (`src/rust/daemon/grpc/src/`):**
 
-- `services/project_service/registration.rs:72, 104, 371` — Category A.
+- `services/project_service/registration.rs:72, 104, 371` -- Category A.
   `canonicalize_project_path()` derives the value stored as
   `watch_folders.path` (project root) and returned in gRPC responses.
   Migration: replace with syntactic normalization (§3.1). Line 105
   also uses the `p.to_string_lossy().to_string()` binding pattern
-  forbidden under Category B rule 4 — must be rewritten regardless of
+  forbidden under Category B rule 4 -- must be rewritten regardless of
   category.
-- `services/project_service/worktree.rs:97` — Category A and Category
+- `services/project_service/worktree.rs:97` -- Category A and Category
   B rule 4 violation: combines `std::fs::canonicalize(...).unwrap_or_else(...)`
   with `to_string_lossy().to_string()` binding, then persists to a
   worktree record. Highest-priority site in A-2 because the path
@@ -184,37 +184,37 @@ spec drafting; the audit verifies no further sites exist.
 
 **Daemon core (`src/rust/daemon/core/src/`):**
 
-- `watching/platform/macos.rs:59` (`resolve_symlink`) — Category A;
+- `watching/platform/macos.rs:59` (`resolve_symlink`) -- Category A;
   test §11.1 case 8e gates the redesign
-- `watching/platform/windows.rs:72` — Category A (analogous to macOS
-  resolve_symlink; affects Windows target — currently out-of-scope
+- `watching/platform/windows.rs:72` -- Category A (analogous to macOS
+  resolve_symlink; affects Windows target -- currently out-of-scope
   per §13 last bullet, but the call must be annotated/removed
   consistently with macOS even if Windows tests are deferred)
-- `watching/file_watcher/handle.rs:51, 86` — likely Category A
-  (registration path stored in watcher state) — A-2 verifies
-- `image_extraction/html.rs:48, 52` — Category B (path-traversal
+- `watching/file_watcher/handle.rs:51, 86` -- likely Category A
+  (registration path stored in watcher state) -- A-2 verifies
+- `image_extraction/html.rs:48, 52` -- Category B (path-traversal
   containment check). Replacement: syntactic containment check using
   normalized paths plus an explicit verification that no component is
   a symlink that escapes `base_dir`; or retain `canonicalize()` here
   with a comment justifying Category B status
-- `write_actor/exec_watch.rs:156` — A-2 classifies
-- `write_actor/exec_queue.rs:438` — A-2 classifies
-- `git/branch_detector.rs:67, 182` — Category B (git-internal path
+- `write_actor/exec_watch.rs:156` -- A-2 classifies
+- `write_actor/exec_queue.rs:438` -- A-2 classifies
+- `git/branch_detector.rs:67, 182` -- Category B (git-internal path
   resolution; never stored)
-- `git/worktree.rs:48` — Category B (resolves `../..` in
+- `git/worktree.rs:48` -- Category B (resolves `../..` in
   `commondir`; never stored)
-- `patterns/eligibility_trie.rs:105` — A-2 classifies
-- `patterns/gitignore.rs:140, 141` — A-2 classifies
+- `patterns/eligibility_trie.rs:105` -- A-2 classifies
+- `patterns/gitignore.rs:140, 141` -- A-2 classifies
 
 **Test files in scope (assertions rely on `canonicalize()` semantics
 that change under this spec; A-2 updates the assertions):**
 
-- `git/reflog.rs:356, 357` — currently asserts `result.canonicalize()
+- `git/reflog.rs:356, 357` -- currently asserts `result.canonicalize()
   == main_git_dir.canonicalize()`; post-migration, must assert
   equality of syntactically normalized paths instead. The test files
   in `git/worktree.rs:94, 113, 123, 180` are similar and must also be
   updated.
-- `daemon/grpc/src/services/project_service/tests/registration_tests.rs:71` —
+- `daemon/grpc/src/services/project_service/tests/registration_tests.rs:71` --
   test asserts on canonicalize() output; update to assert on
   syntactic-canonical output after the production sites are migrated.
 
@@ -262,7 +262,7 @@ pub struct LocalPath(PathBuf);
 /// Not absolute, no `..`, no `.`, UTF-8, normalized.
 /// Stored in all file-level path columns (tracked_files.relative_path,
 /// Qdrant FilePayload.file_path, etc.).  Serializes as plain string.
-/// Mount-map translation is NOT needed — relative paths are
+/// Mount-map translation is NOT needed -- relative paths are
 /// deployment-independent.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct RelativePath(String);
@@ -342,7 +342,7 @@ export function fromValidated(s: string): CanonicalPath;
 export function toLocal(c: CanonicalPath, mounts: MountMap): LocalPath;
 export function toCanonical(l: LocalPath, mounts: MountMap): CanonicalPath;
 
-// RelativePath constructors — no mount-map needed.
+// RelativePath constructors -- no mount-map needed.
 export function relativeFromUserInput(s: string): RelativePath;
 export function relativeFromValidated(s: string): RelativePath;
 export function relativeToAbsolute(r: RelativePath, root: CanonicalPath): CanonicalPath;
@@ -359,7 +359,7 @@ implementation includes:
   failure.
 - `fromValidated(s)`: same checks as `fromUserInput` but assumes input
   came from a trusted source (DB row, gRPC). Still throws on
-  validation failure — never silently accepts. In debug builds, can
+  validation failure -- never silently accepts. In debug builds, can
   optionally be a stricter "assert this is already in canonical form"
   check (no transformation, only validation).
 
@@ -377,12 +377,12 @@ After this spec lands, the following are forbidden in code review:
 | Where | Forbidden | Required |
 |---|---|---|
 | SQLite root columns (`watch_folders.path`, `ignore_file_mtimes.project_root`) | `PathBuf`, `&Path`, `&str` | `CanonicalPath` |
-| `sqlx` row decode for root columns | `String` decoded directly to `PathBuf` | `String` → `CanonicalPath::from_validated` |
+| `sqlx` row decode for root columns | `String` decoded directly to `PathBuf` | `String` -> `CanonicalPath::from_validated` |
 | SQLite file-content columns (`tracked_files.relative_path`, etc.) | raw `String` without newtype | `RelativePath::from_validated` |
 | gRPC root path fields (`project_root`, `watch_path`, `path` register inputs) | `String` used directly as fs path | Decode to `CanonicalPath` at handler entry |
 | gRPC file path fields (content inside a project) | `String` used directly | Decode to `RelativePath` or keep as `RelativePath` in payload structs |
-| MCP tool response payloads — root paths | Raw strings | `CanonicalPath` serialized as string |
-| MCP tool response payloads — file paths inside project | Raw strings | `RelativePath` serialized as string |
+| MCP tool response payloads -- root paths | Raw strings | `CanonicalPath` serialized as string |
+| MCP tool response payloads -- file paths inside project | Raw strings | `RelativePath` serialized as string |
 | `tokio::fs::*`, `std::fs::*`, `File::open` | `CanonicalPath`, `RelativePath`, raw string | Reconstruct via `RelativePath::to_absolute`, then `LocalPath::as_std_path()` |
 | Qdrant payload struct root fields | `String` | `CanonicalPath` |
 | Qdrant payload struct file-content fields | `String` | `RelativePath` |
@@ -392,22 +392,22 @@ a type globally, which would break legitimate non-path `String` and
 `PathBuf` uses elsewhere. Enforcement is therefore a multi-layer
 defense, not a single compiler check:
 
-1. **Type system** — `CanonicalPath` and `LocalPath` are distinct types
+1. **Type system** -- `CanonicalPath` and `LocalPath` are distinct types
    with no implicit conversion. The compiler blocks accidental mixing
    inside any function that uses them.
-2. **CI grep job** — `scripts/ci/path-discipline.sh` audits specific
+2. **CI grep job** -- `scripts/ci/path-discipline.sh` audits specific
    known schema-mirroring structs. Two companion allowlist files live in
    `scripts/ci/`:
-   - `path-discipline-allowlist.txt` — process-local fields exempt from
+   - `path-discipline-allowlist.txt` -- process-local fields exempt from
      both `CanonicalPath` and `RelativePath` requirements.
-   - `path-discipline-relative-allowlist.txt` — fields expected to use
+   - `path-discipline-relative-allowlist.txt` -- fields expected to use
      `RelativePath` (not `CanonicalPath`). The script verifies these
      fields are typed `RelativePath`, not `String`/`PathBuf`.
    Runs on every PR. Lists updated by audit task A-1.
-3. **Custom `dylint` lint** (optional, future) — once `dylint` adoption
+3. **Custom `dylint` lint** (optional, future) -- once `dylint` adoption
    matures in the project, port the CI grep into a proper AST lint that
    inspects fields of structs annotated with a marker attribute.
-4. **Code-review policy** — forbidden-pattern table above is part of
+4. **Code-review policy** -- forbidden-pattern table above is part of
    the PR review checklist.
 
 ESLint side covered in §4.2.
@@ -421,8 +421,8 @@ The mount map is a list of `(host, container)` directory pairs in
 
 ```yaml
 mounts:
-  - host: /Users/chris/dev
-    container: /Users/chris/dev          # mirror — default style
+  - host: $HOME/dev
+    container: $HOME/dev          # mirror -- default style
   - host: /Volumes/External/books
     container: /mnt/external-books
   - host: ~/reference
@@ -432,15 +432,15 @@ mounts:
 **Mirror mounts** (host path == container path) are the default
 suggestion in onboarding docs. They eliminate translation entirely when
 chosen well. Non-mirror mounts exist only for cases where a host path
-cannot exist inside a Linux container — primarily `/Volumes/*` on macOS
+cannot exist inside a Linux container -- primarily `/Volumes/*` on macOS
 and removable media.
 
 ### 5.2 Resolution Rules
 
 - Longest-prefix wins. If two entries both cover a path, the entry with
   the longer host prefix is selected.
-- Prefix matches are component-aware. `/Users/chris/dev` matches
-  `/Users/chris/dev/foo` but not `/Users/chris/development`.
+- Prefix matches are component-aware. `$HOME/dev` matches
+  `$HOME/dev/foo` but not `$HOME/development`.
 - `~` in mount entries is expanded once on config load.
 - A canonical path that no mount entry covers cannot be translated to a
   LocalPath. The originating operation fails fast with a clear message.
@@ -482,7 +482,7 @@ The active mount map is selected at process startup:
 | MCP server (host or docker) | Mount map of the deployment it runs in |
 
 Identity maps are the trivial `host == container` case. They still flow
-through the same `LocalPath::from_canonical` plumbing — no special-case
+through the same `LocalPath::from_canonical` plumbing -- no special-case
 code paths for host-only deployments.
 
 ## 6. Schema Audit and Migration
@@ -492,26 +492,26 @@ code paths for host-only deployments.
 This inventory reflects the corrected root/relative discipline (see §3.3 and §6.3).
 Only root paths are canonical. All file-level content paths are relative to their
 owning watch_folder root. Denormalized absolute `file_path` columns are DROPPED in
-schema version 37 — see §6.2.
+schema version 37 -- see §6.2.
 
 Audit task A-1 verifies exhaustiveness by grepping every schema file and serde struct
 in the workspace.
 
-**SQLite — Canonical (root paths only — must become `CanonicalPath`):**
+**SQLite -- Canonical (root paths only -- must become `CanonicalPath`):**
 
 | Table | Column | Source | Notes |
 |---|---|---|---|
 | `watch_folders` | `path` | `schema/watch_folders_schema.sql:14` | Project/library root. Single source of truth for absolute location. |
 | `ignore_file_mtimes` | `project_root` | `schema_version/v34.rs:24` | Absolute root; part of composite PK. |
 
-**SQLite — DROPPED in v37 (denormalized absolute columns — eliminated; use `relative_path` + JOIN):**
+**SQLite -- DROPPED in v37 (denormalized absolute columns -- eliminated; use `relative_path` + JOIN):**
 
 | Table | Column | Source | Notes |
 |---|---|---|---|
 | `tracked_files` | `file_path` | `tracked_files_schema/schema.rs:12` | **DROPPED.** Was absolute; replaced by `(watch_folder_id, relative_path, branch)` UNIQUE constraint. |
 | `file_metadata` (search.db) | `file_path` | `search_db/migrations.rs` | **DROPPED.** Was denormalized absolute copied from `tracked_files.file_path`. |
 
-**SQLite — Relative (content paths — `RelativePath`):**
+**SQLite -- Relative (content paths -- `RelativePath`):**
 
 | Table | Column | Anchor | Notes |
 |---|---|---|---|
@@ -524,7 +524,7 @@ in the workspace.
 | `watch_folders` | `submodule_path` | Parent `watch_folders.path` | NULL for top-level watches. |
 | `watch_folders` | `disambiguation_path` | Path suffix for clone disambiguation | `DisambiguationSuffix` newtype if introduced, otherwise `String`. |
 
-**Qdrant payloads — Relative (content paths inside a project or library — `RelativePath`):**
+**Qdrant payloads -- Relative (content paths inside a project or library -- `RelativePath`):**
 
 | Struct | Field | Source | Notes |
 |---|---|---|---|
@@ -535,7 +535,7 @@ in the workspace.
 | `LibraryDocumentPayload` | `document_path` | `common/src/payloads/library.rs:78` | Relative to library root. Previously absolute; reclassified. |
 | `ImageSearchResult` | `file_path` | `daemon/core/src/image_search.rs:79` | Relative to owning watch_folder root. Previously absolute; reclassified. |
 
-**Proto-defined payload messages — Relative (content inside a project):**
+**Proto-defined payload messages -- Relative (content inside a project):**
 
 | Message | Field | Source | Notes |
 |---|---|---|---|
@@ -543,13 +543,13 @@ in the workspace.
 | `ProjectPayload` | `file_absolute_path` | `proto/workspace_daemon.proto:1338` | **Optional reference field.** Provided for display convenience only; reconstructed from root + relative. Canonical when present. |
 | `SymbolReference` | `file_path` (nested in `LspMetadata`) | `proto/workspace_daemon.proto:1370` | Relative to project root. Previously canonical; reclassified. |
 
-**Proto-defined payload messages — Canonical (library roots, not content):**
+**Proto-defined payload messages -- Canonical (library roots, not content):**
 
 | Message | Field | Source | Notes |
 |---|---|---|---|
 | `LibraryPayload` | `source_file` | `proto/workspace_daemon.proto:1381` | Absolute path to the library root document. Canonical. |
 
-**Proto-defined response messages — Canonical (root paths) or Relative (file content):**
+**Proto-defined response messages -- Canonical (root paths) or Relative (file content):**
 
 | Message | Field | Source | Class | Notes |
 |---|---|---|---|---|
@@ -566,7 +566,7 @@ in the workspace.
 | `CommunityMemberProto` | `file_path` | `proto/workspace_daemon.proto:732` | relative | Same. |
 | `BetweennessNodeProto` | `file_path` | `proto/workspace_daemon.proto:755` | relative | Same. |
 
-**Proto-defined request messages — Canonical (root inputs) or Relative (file filters):**
+**Proto-defined request messages -- Canonical (root inputs) or Relative (file filters):**
 
 | Message | Field | Source | Class | Notes |
 |---|---|---|---|---|
@@ -653,7 +653,7 @@ Two-phase marker approach (the **relative-path migration protocol**):
 2. **Phase 2 (truncate).** Truncate ingest-derived tables. Also
    truncate Qdrant collections. (Cross-store atomicity is impossible;
    ordering: SQLite first, then Qdrant. A crash between leaves SQLite
-   empty and Qdrant non-empty — recovered on next startup.)
+   empty and Qdrant non-empty -- recovered on next startup.)
 3. **Phase 3 (re-ingest).** Walk `watch_folders.path` entries; enqueue
    for ingestion. Crash here just means the queue resumes on next
    startup; the `relative_path_migration_in_progress` marker remains.
@@ -705,11 +705,11 @@ projects. Each submodule has its own `tenant_id` and its own `watch_folders.path
 (root). File paths inside the submodule are relative to the submodule's root, NOT
 the parent project's root. If submodule paths were stored absolute (relative to
 the parent), they would have to change every time the parent moved or was cloned
-to a different location — defeating portability.
+to a different location -- defeating portability.
 
 **`tenant_id` derivation.** `tenant_id` is derived from the remote URL hash (if a
 remote exists) or the absolute root path (if local-only). If a local project later
-gains a remote, `tenant_id` is updated but relative content paths do NOT change —
+gains a remote, `tenant_id` is updated but relative content paths do NOT change --
 the content is the same; only the identity anchor changes. Storing absolute paths
 would require mass re-tagging of every content record on `tenant_id` update.
 
@@ -728,13 +728,13 @@ same root/content split as for project source files.
 **Docker parity.** Only roots need mount-map translation. A `CanonicalPath` root is
 translated to a `LocalPath` via the `MountMap` once, and all content relative paths
 are then resolved relative to that local root. Content paths themselves are
-deployment-independent — no mount-map logic is needed for file-level data, and no
+deployment-independent -- no mount-map logic is needed for file-level data, and no
 rewriting occurs when switching between host and container deployments.
 
 **Single source of truth.** The `(watch_folder_id, relative_path, branch)` tuple
 uniquely identifies a content record. Reconstructing the absolute path at read time
 via `SELECT watch_folders.path || '/' || tracked_files.relative_path` is a
-JOIN — a standard, explicit operation. Storing a denormalized absolute `file_path`
+JOIN -- a standard, explicit operation. Storing a denormalized absolute `file_path`
 alongside `relative_path` (the previous approach) duplicated information, required
 both columns to stay in sync, and silently diverged under mount changes or clone moves.
 
@@ -771,12 +771,12 @@ both columns to stay in sync, and silently diverged under mount changes or clone
 - Forwards canonical roots and relative content paths to daemon via gRPC.
 - Tool responses: root paths serialize `CanonicalPath` as plain string; file paths
   serialize `RelativePath` as plain string. The LLM client sees host-absolute root
-  paths and project-relative file paths — unambiguous and portable.
+  paths and project-relative file paths -- unambiguous and portable.
 
 ### 7.4 gRPC Schema
 
 Every path field in `workspace_daemon.proto` carries a comment marking
-its class — canonical (root) or relative (content):
+its class -- canonical (root) or relative (content):
 
 ```proto
 // Canonical host-absolute root path. See docs/specs/16-path-abstraction.md §3.
@@ -797,13 +797,13 @@ async fn ingest_file(
     request: Request<IngestFileRequest>,
 ) -> Result<Response<IngestFileResponse>, Status> {
     let req = request.into_inner();
-    // Root path → CanonicalPath at handler boundary.
+    // Root path -> CanonicalPath at handler boundary.
     let project_root = CanonicalPath::from_user_input(&req.project_root)
         .map_err(|e| Status::invalid_argument(format!("project_root: {e}")))?;
-    // File path → RelativePath at handler boundary.
+    // File path -> RelativePath at handler boundary.
     let file_path = RelativePath::from_user_input(&req.file_path)
         .map_err(|e| Status::invalid_argument(format!("file_path: {e}")))?;
-    // From this line forward, types enforce correct usage — compiler blocks
+    // From this line forward, types enforce correct usage -- compiler blocks
     // passing a RelativePath where CanonicalPath is required and vice versa.
     // ...
 }
@@ -811,11 +811,11 @@ async fn ingest_file(
 
 Helper layers reduce boilerplate:
 
-1. **`extract_canonical_path!` macro** — single `String` root field extraction with
+1. **`extract_canonical_path!` macro** -- single `String` root field extraction with
    `Status` wrapping, producing `CanonicalPath`.
-2. **`extract_relative_path!` macro** — single `String` content field extraction,
+2. **`extract_relative_path!` macro** -- single `String` content field extraction,
    producing `RelativePath`.
-3. **`extract_relative_paths!` macro** — iterates a `Vec<String>` (proto `repeated
+3. **`extract_relative_paths!` macro** -- iterates a `Vec<String>` (proto `repeated
    string`) and validates each element as `RelativePath`. Used for
    `SetIncrementalRequest.file_paths` (daemon proto line 1083) and
    `ImpactAnalysisRequest.file_path`. Failure mode: first failing element aborts
@@ -861,8 +861,8 @@ The CLI subcommand `wqm docker generate-compose` produces a
 2. For each mount entry, emits a corresponding `volumes:` line under
    each docker service that needs filesystem access (memexd, optionally
    the MCP server if dockerized).
-3. Emits a config-file bind mount: host config path → `/etc/wqm/config.yaml`.
-4. Emits a state-data bind mount: host SQLite + Qdrant data dirs →
+3. Emits a config-file bind mount: host config path -> `/etc/wqm/config.yaml`.
+4. Emits a state-data bind mount: host SQLite + Qdrant data dirs ->
    container-side fixed locations.
 5. Embeds a content-hash of the source `config.yaml` mount-section in a
    YAML comment header of the override file: `# wqm-config-hash: <sha256>`.
@@ -885,10 +885,10 @@ entrypoint defends against this with three layers:
    compose) and compares to the hash computed from the live
    `/etc/wqm/config.yaml` mount section. Mismatch aborts startup with
    a clear error pointing to `wqm docker generate-compose`. If no
-   override is mounted at all — the deployment hand-wires its volumes
-   directly, as the reference/minimal/standalone composes do — there is
+   override is mounted at all -- the deployment hand-wires its volumes
+   directly, as the reference/minimal/standalone composes do -- there is
    no generated override to go stale, so layer 1 is skipped and layers
-   2–3 still run. (Layer 1 only guards against a *stale* mounted
+   2-3 still run. (Layer 1 only guards against a *stale* mounted
    override; it is not a requirement to use the generate-compose flow.)
 2. **Mount-present validation.** For each mount entry in `config.yaml`,
    the entrypoint stats the container path. If any entry's container
@@ -914,7 +914,7 @@ catch:
   is opaque to the container; only the container-side directory
   is statable. Documented limitation; future work tracked in §13.
 
-The hash file is informational only — compose itself doesn't read it.
+The hash file is informational only -- compose itself doesn't read it.
 It is solely the entrypoint's drift-detection signal.
 
 ### 9.2 State Bind Mounts
@@ -931,13 +931,13 @@ directories). They are emitted by `generate-compose` unconditionally.
 
 ## 10. Deployment Matrix
 
-Four combinations of memexd × {MCP, wqm}:
+Four combinations of memexd x {MCP, wqm}:
 
 | memexd | MCP/wqm | Translation needed |
 |---|---|---|
-| Host | Host | None — identity map both sides |
-| Host | Docker | MCP: canonical ↔ container LocalPath. memexd: identity. |
-| Docker | Host | MCP/wqm: identity. memexd: canonical ↔ container LocalPath. |
+| Host | Host | None -- identity map both sides |
+| Host | Docker | MCP: canonical <-> container LocalPath. memexd: identity. |
+| Docker | Host | MCP/wqm: identity. memexd: canonical <-> container LocalPath. |
 | Docker | Docker | Both sides translate via their own mount map. Maps may differ. |
 
 Same SQLite file (host-mounted) is openable by whichever memexd is
@@ -967,20 +967,20 @@ the host/container boundary):
    Without the publish directive, Docker's default bridge networking
    isolates the container's port `7799` in its own network namespace,
    so a host memexd and a bridged-network docker memexd could both
-   believe they hold the lock — leading to silent SQLite corruption.
+   believe they hold the lock -- leading to silent SQLite corruption.
    The generated override is verified by an integration test that
    inspects its YAML for the publish line.
 3. **Network-mode constraints.** Two acceptable docker network modes:
-   - `network_mode: host` (Linux only) — container shares host network
+   - `network_mode: host` (Linux only) -- container shares host network
      namespace; `7799` bind is direct.
    - Default bridge with `ports: ["127.0.0.1:7799:7799"]`. The
      loopback binding prevents external network exposure.
    Any other mode (custom networks without port publish, `network_mode: none`)
    makes the lock ineffective. `generate-compose` refuses configs that
    produce such modes and emits an error pointing to docs.
-4. **Liveness via socket** — process death releases the bound socket
+4. **Liveness via socket** -- process death releases the bound socket
    immediately. No stale-lock cleanup logic required.
-5. **Identity stamp** — on bind, memexd writes its mode (`host` or
+5. **Identity stamp** -- on bind, memexd writes its mode (`host` or
    `docker`) and PID to `~/.local/share/workspace-qdrant/memexd.lock`
    for diagnostics only. The file is informational; the socket is
    authoritative.
@@ -999,13 +999,13 @@ Medium to addressed-Critical.
 Integration tests must cover ingestion in one mode and query in
 another:
 
-1. Ingest host → query host
-2. Ingest host → query docker
-3. Ingest docker → query host
-4. Ingest docker → query docker
-5. Switch midway: ingest host → stop → start as docker → query
+1. Ingest host -> query host
+2. Ingest host -> query docker
+3. Ingest docker -> query host
+4. Ingest docker -> query docker
+5. Switch midway: ingest host -> stop -> start as docker -> query
 6. External volume: mount `/Volumes/External/books` (macOS), query inside docker
-7. Non-mirror mount: host `~/reference` → container `/mnt/reference`
+7. Non-mirror mount: host `~/reference` -> container `/mnt/reference`
 
 ### 11.1 Symlink Test Sub-Cases
 
@@ -1017,9 +1017,9 @@ relative paths (symlink names, NOT resolved to `foo.txt`). MCP `list`
 returns both names.
 
 8b. **Directory symlink as watch root.** Watch root itself is a
-symlink, e.g., `/Users/chris/projects/foo` → `/Volumes/work/foo`.
+symlink, e.g., `$HOME/projects/foo` -> `/Volumes/work/foo`.
 Verify: registered root in `watch_folders.path` is the symlink path
-exactly as the user typed (`/Users/chris/projects/foo`), not the
+exactly as the user typed (`$HOME/projects/foo`), not the
 target. Files under the root appear with paths rooted at the symlink.
 
 8c. **Broken symlink** (target deleted after ingestion). Verify: read
@@ -1047,7 +1047,7 @@ failure.
 
 | Test | Runner | Notes |
 |---|---|---|
-| 1–4 (host/docker matrix) | Linux (docker subset), macOS+Linux (host subset) | Docker on macOS too slow |
+| 1-4 (host/docker matrix) | Linux (docker subset), macOS+Linux (host subset) | Docker on macOS too slow |
 | 5 (mid-run switch) | Linux | Requires docker |
 | 6 (external volume) | macOS | `/Volumes/*` is macOS-specific |
 | 7 (non-mirror mount) | Linux | |
@@ -1104,7 +1104,7 @@ evidence. A-2 closure requires 8e passing somewhere.
   pure-syntactic normalize becomes measurable. Default: assume
   negligible until proven otherwise.
 - `windows` support of canonical form (drive letters, UNC paths,
-  backslashes). Out of current scope — not a supported platform for
+  backslashes). Out of current scope -- not a supported platform for
   v0.1.0. Document as deferred.
 
 ## 14. Acceptance Criteria
@@ -1136,8 +1136,8 @@ The path-abstraction work is complete when:
 7. Cross-process single-instance lock (§10.1) is implemented and tested:
    second memexd attempting to start (host or docker) refuses with a
    clear error.
-8. The integration test matrix (§11 cases 1–7 plus §11.1 sub-cases
-   8a–8e) passes in CI.
+8. The integration test matrix (§11 cases 1-7 plus §11.1 sub-cases
+   8a-8e) passes in CI.
 9. Existing test suite passes with zero ignored / skipped tests.
 10. CHANGELOG `[Unreleased]` documents the spec, the schema-version
    bump, the project-ID derivation change (§3.2.3), and the new

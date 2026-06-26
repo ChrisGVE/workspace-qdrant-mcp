@@ -22,14 +22,14 @@ Runs on every code file during ingestion:
 
 Grammars are downloaded automatically on first use (`auto_download: true` by default) and cached in `~/.workspace-qdrant/grammars/`. Pre-download with `wqm language ts-install <lang>`. The daemon checks for grammar updates when the queue is idle (configurable interval, default: weekly).
 
-Language support is fully data-driven via the **Language Registry**. No language-specific Rust code exists — all languages are defined in YAML definitions that specify:
+Language support is fully data-driven via the **Language Registry**. No language-specific Rust code exists -- all languages are defined in YAML definitions that specify:
 - File extensions and aliases
 - Tree-sitter grammar repository sources (with quality tiers: curated/official/community)
 - Semantic AST node patterns for chunking (function, class, method, struct, enum, trait, interface, module, constant, macro, type alias, preamble)
 - Docstring extraction style (8 variants: PrecedingComments, FirstStringInBody, Javadoc, Haddock, ElixirAttr, OcamlDoc, Pod, None)
 - LSP server binaries and installation methods
 
-**44 languages ship with bundled YAML definitions** including Ada, C, C++, Clojure, Elixir, Erlang, Fortran, Go, Haskell, Java, JavaScript, JSX, Lisp, Lua, OCaml, Odin, Pascal, Perl, Python, Ruby, Rust, Scala, Shell, Swift, TypeScript, TSX, Zig, and more. Adding a new language requires only a YAML entry — no Rust code changes.
+**44 languages ship with bundled YAML definitions** including Ada, C, C++, Clojure, Elixir, Erlang, Fortran, Go, Haskell, Java, JavaScript, JSX, Lisp, Lua, OCaml, Odin, Pascal, Perl, Python, Ruby, Rust, Scala, Shell, Swift, TypeScript, TSX, Zig, and more. Adding a new language requires only a YAML entry -- no Rust code changes.
 
 The **GenericExtractor** reads `SemanticPatterns` from the registry at runtime and walks the AST using pattern matching to extract semantic chunks. Languages without semantic patterns fall back to text-based overlap chunking (384 chars target, 58 chars overlap).
 
@@ -65,8 +65,8 @@ Runs when project is active:
 **Language-agnostic LSP architecture:**
 
 LSP support is not limited to a fixed set of languages. Any language with an LSP server can be used. The Language Registry provides LSP server metadata for all bundled languages, sourced from:
-- **Bundled YAML definitions** — curated LSP entries with binary names, install methods, and priority ordering
-- **mason-registry** — upstream LSP server metadata fetched on refresh
+- **Bundled YAML definitions** -- curated LSP entries with binary names, install methods, and priority ordering
+- **mason-registry** -- upstream LSP server metadata fetched on refresh
 
 The daemon uses these mappings to spawn the correct server when a project containing that language is activated. If no LSP server is registered for a detected language, the daemon proceeds without LSP enrichment for that language (tree-sitter still provides baseline intelligence).
 
@@ -85,7 +85,7 @@ The daemon manages LSP server instances through a state machine:
 │        │                          │                                  │
 │        ▼                          ▼                                  │
 │  ┌───────────┐            ┌───────────────┐                         │
-│  │  Stopped  │──spawn──→  │  Initializing │                         │
+│  │  Stopped  │──spawn──->  │  Initializing │                         │
 │  └───────────┘            └───────┬───────┘                         │
 │        ▲                          │                                  │
 │        │                          ▼ initialized                      │
@@ -147,7 +147,7 @@ wqm language lsp-search <lang>                                   # Search LSP se
 
 **Processing steps:**
 
-1. **Expansion:** Retrieve `$PATH` and expand all environment variables recursively (e.g., `~` → `/Users/chris`, `$XDG_CONFIG_HOME` → `$HOME/.config` → `/Users/chris/.config`)
+1. **Expansion:** Retrieve `$PATH` and expand all environment variables recursively (e.g., `~` -> `$HOME`, `$XDG_CONFIG_HOME` -> `$HOME/.config` -> `$HOME/.config`)
 
 2. **Merge:** Append the existing `user_path` from config to the expanded `$PATH`, split by OS path separator (`:` on Unix, `;` on Windows), preserving order
 
@@ -176,7 +176,7 @@ Instead of arbitrary text chunks, code files are split into semantic units:
 
 ```
 For each code file:
-1. Parse with Tree-sitter → AST
+1. Parse with Tree-sitter -> AST
 2. Extract preamble (imports, module-level items)
 3. Walk AST, create chunk for each:
    - Function definition
@@ -227,7 +227,7 @@ For each code file:
 | Complete context      | LLM gets whole function, not fragments   |
 | Better search         | Query returns complete, meaningful units |
 | Symbol association    | Function name tied to its implementation |
-| Relationship tracking | Method → Class, Function → Module        |
+| Relationship tracking | Method -> Class, Function -> Module        |
 
 ### CLI Commands
 

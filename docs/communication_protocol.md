@@ -47,18 +47,18 @@ This document specifies the complete communication protocol between the componen
 ```
 ┌─────────────┐                    ┌──────────────┐
 │ MCP Server  │                    │              │
-│  (Python)   │────── Reads ──────→│   Qdrant     │
+│  (Python)   │────── Reads ──────->│   Qdrant     │
 │             │                    │   Database   │
 └─────────────┘                    │              │
                                    │              │
 ┌─────────────┐                    │              │
-│     CLI     │────── Reads ──────→│              │
+│     CLI     │────── Reads ──────->│              │
 │  (Python)   │                    │              │
 └─────────────┘                    │              │
                                    │              │
 ┌─────────────┐                    │              │
-│   Daemon    │────── Writes ─────→│              │
-│   (Rust)    │────── Reads ───────→│              │
+│   Daemon    │────── Writes ─────->│              │
+│   (Rust)    │────── Reads ───────->│              │
 └─────────────┘                    └──────────────┘
 ```
 
@@ -79,12 +79,12 @@ This document specifies the complete communication protocol between the componen
 File-based operations are asynchronous via SQLite queue:
 
 ```
-MCP/CLI → SQLite (enqueue_file) → Daemon polls queue → Processes → Qdrant
+MCP/CLI -> SQLite (enqueue_file) -> Daemon polls queue -> Processes -> Qdrant
 ```
 
 **Not:**
 ```
-MCP/CLI → gRPC AddDocument → Daemon → Qdrant  ❌
+MCP/CLI -> gRPC AddDocument -> Daemon -> Qdrant  
 ```
 
 ### 3. Direct String Ingestion
@@ -92,7 +92,7 @@ MCP/CLI → gRPC AddDocument → Daemon → Qdrant  ❌
 For non-file content (user-provided text, chat snippets, etc.), use synchronous gRPC:
 
 ```
-MCP/CLI → gRPC IngestText → Daemon processes immediately → Qdrant
+MCP/CLI -> gRPC IngestText -> Daemon processes immediately -> Qdrant
 ```
 
 ### 4. Event-Driven Memory Refresh
@@ -100,7 +100,7 @@ MCP/CLI → gRPC IngestText → Daemon processes immediately → Qdrant
 Python components signal database changes to daemon via lightweight gRPC:
 
 ```
-MCP → SQLite write → SendRefreshSignal(INGEST_QUEUE) → Daemon batches refresh
+MCP -> SQLite write -> SendRefreshSignal(INGEST_QUEUE) -> Daemon batches refresh
 ```
 
 Daemon batches signals and refreshes internal state periodically (threshold: 10 items or 5 seconds).
@@ -329,10 +329,10 @@ refresh_batch_config:
 ```
 
 **Use cases:**
-- MCP enqueues file → signals `INGEST_QUEUE`
-- CLI adds watch folder → signals `WATCHED_FOLDERS`
-- LSP server detected → signals `TOOLS_AVAILABLE`
-- MCP detects new project → signals `WATCHED_PROJECTS`
+- MCP enqueues file -> signals `INGEST_QUEUE`
+- CLI adds watch folder -> signals `WATCHED_FOLDERS`
+- LSP server detected -> signals `TOOLS_AVAILABLE`
+- MCP detects new project -> signals `WATCHED_PROJECTS`
 
 #### NotifyServerStatus
 
@@ -372,7 +372,7 @@ enum ServerState {
 daemon_client.notify_server_status(
     state=ServerState.SERVER_STATE_UP,
     project_name="workspace-qdrant-mcp",
-    project_root="/Users/chris/dev/projects/workspace-qdrant-mcp"
+    project_root="$HOME/dev/projects/workspace-qdrant-mcp"
 )
 
 # MCP server shutdown
@@ -534,7 +534,7 @@ message CreateAliasRequest {
 - Daemon enforces strict uniqueness (no collision avoidance, only disallowance)
 
 **Use cases:**
-- Project transition local → remote (tenant_id change)
+- Project transition local -> remote (tenant_id change)
 - Collection renaming without data copy
 - Maintaining backward compatibility during migrations
 
@@ -1022,8 +1022,8 @@ service SearchService {
 - No value in daemon proxy for read operations
 
 **MemoryService** - Split and renamed
-- Document operations → DocumentService (direct text only)
-- Collection operations → CollectionService
+- Document operations -> DocumentService (direct text only)
+- Collection operations -> CollectionService
 - Reads removed (MCP queries Qdrant directly)
 
 **ServiceDiscovery** - Over-engineered

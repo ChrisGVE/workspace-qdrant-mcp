@@ -1,0 +1,6 @@
+# *.mod = Fortran compiled module artifact. Scoped here (NOT universal) so it
+# does not collide with go/go.mod, which is a tracked Go module manifest.
+*.o
+*.exe
+*.mod
+bookshelf

@@ -62,7 +62,7 @@ optional_metadata:
 
   # Project path
   # Absolute path to project root
-  project_path: "/Users/chris/dev/workspace-qdrant-mcp"
+  project_path: "$HOME/dev/workspace-qdrant-mcp"
 
   # File type filter
   # Limits collection to specific file types

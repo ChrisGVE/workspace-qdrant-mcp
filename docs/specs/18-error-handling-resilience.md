@@ -26,15 +26,15 @@ determines the fate of the queue item and the daemon's response.
 - Project deregistered between enqueue and processing (`no watch_folder found`)
 - File access permanently blocked by OS-level ACL (`permission denied`)
 
-**Action:** Silently dequeue — `DELETE FROM unified_queue WHERE queue_id = ?`.
+**Action:** Silently dequeue -- `DELETE FROM unified_queue WHERE queue_id = ?`.
 No error logged (or `debug!` at most). The resource is gone; retrying is
 meaningless and would flood logs.
 
-**Note:** `FileNotFound` is not an error condition — it is a normal event in a
+**Note:** `FileNotFound` is not an error condition -- it is a normal event in a
 filesystem-watching system. The item is quietly removed without incrementing any
 error counter.
 
-**Invariant — both destinations must be marked Done before returning Ok:**
+**Invariant -- both destinations must be marked Done before returning Ok:**
 The `cleanup_missing_file` path must explicitly set `qdrant_status = Done` and
 `search_status = Done` before returning `Ok(())`. `check_and_finalize()` only
 deletes an item when both destinations are `Done`; if either remains
@@ -60,7 +60,7 @@ never succeed without a code fix or manual correction.
 - Truncated write (disk full at write time, though SQLite WAL makes this rare).
 
 **Action:** Log at `error!` level (this signals a code bug or schema mismatch),
-then permanently fail the item — set `status = 'failed'`, no retry. The
+then permanently fail the item -- set `status = 'failed'`, no retry. The
 `error_message` is prefixed `[permanent_data]` for observability. The item is
 **not** resurrected by the periodic retry task (see §4).
 
@@ -75,7 +75,7 @@ failure is expected to self-resolve once the subsystem recovers.
 - Embedding semaphore closed during shutdown
 
 **Action:** Retry up to `max_retries` (default: 3) with exponential backoff
-(`60s × 2^retry_count`, capped at 1 hour). If all retries are exhausted, set
+(`60s x 2^retry_count`, capped at 1 hour). If all retries are exhausted, set
 `status = 'failed'`. The item is eligible for periodic resurrection (see §4).
 
 **Daemon response:** The embedding subsystem uses lazy re-initialisation (see
@@ -105,14 +105,14 @@ The correct response is a **queue-wide pause**:
    `infra_probe_interval_secs` (default: 30).
 4. When the probe succeeds, the processor resumes normal dequeuing.
 5. During the pause, SQLite-only operations (lease recovery, status updates)
-   continue unaffected — the local database is always available.
+   continue unaffected -- the local database is always available.
 
 Items that already failed with `transient_infrastructure` before the circuit
 breaker opened are eligible for periodic resurrection (see §4).
 
 ### 1.5 `partial`
 
-**Definition:** The item was partially processed — some destinations succeeded,
+**Definition:** The item was partially processed -- some destinations succeeded,
 others failed. Only the failed destinations need retrying.
 
 **Examples:**
@@ -121,7 +121,7 @@ others failed. Only the failed destinations need retrying.
 
 **Action:** Retry only the failed destinations. The item remains in the queue
 with per-destination status tracking (`qdrant_status`, `search_status`). Not
-currently resurrected by the periodic task — the per-destination retry handles
+currently resurrected by the periodic task -- the per-destination retry handles
 recovery.
 
 ### 1.6 `subsystem_unavailable`
@@ -135,7 +135,7 @@ now but will succeed once the subsystem recovers.
 - OpenAI API key expired, lazy re-init in progress
 
 **Action:** Re-lease the item with 60-second delay. The retry counter is NOT
-incremented — the failure is not the item's fault. The item returns to
+incremented -- the failure is not the item's fault. The item returns to
 `in_progress` with a future `lease_until` timestamp.
 
 ### 1.7 `rate_limit`
@@ -160,14 +160,14 @@ Classification is performed in `UnifiedQueueProcessor::classify_error()` in
 
 | `UnifiedProcessorError` variant | Default category | Exceptions (message-sniffed) |
 |---|---|---|
-| `FileNotFound` | `permanent_gone` | — |
-| `InvalidPayload` | `permanent_data` | — |
-| `UnsupportedOperation` | `permanent_data` | — |
-| `Embedding` | `transient_resource` | `"rate limit"` / `"429"` / `"too many requests"` → `rate_limit` |
-| `EmbeddingUnavailable` | `subsystem_unavailable` | — |
-| `Storage` | `transient_infrastructure` | — |
-| `QueueOperation` | `transient_infrastructure` | `"rate limit"` / `"429"` → `rate_limit`; `"database locked"` / `"sqlite_busy"` → `transient_infrastructure`; `"no watch_folder found"` → `permanent_gone`; `"validation"` → `permanent_data` |
-| `ProcessingFailed` | `transient_infrastructure` | `"rate limit"` / `"429"` → `rate_limit`; `"database locked"` / `"sqlite_busy"` → `transient_infrastructure`; `"permission denied"` → `permanent_gone`; `"unsupported"` → `permanent_data` |
+| `FileNotFound` | `permanent_gone` | -- |
+| `InvalidPayload` | `permanent_data` | -- |
+| `UnsupportedOperation` | `permanent_data` | -- |
+| `Embedding` | `transient_resource` | `"rate limit"` / `"429"` / `"too many requests"` -> `rate_limit` |
+| `EmbeddingUnavailable` | `subsystem_unavailable` | -- |
+| `Storage` | `transient_infrastructure` | -- |
+| `QueueOperation` | `transient_infrastructure` | `"rate limit"` / `"429"` -> `rate_limit`; `"database locked"` / `"sqlite_busy"` -> `transient_infrastructure`; `"no watch_folder found"` -> `permanent_gone`; `"validation"` -> `permanent_data` |
+| `ProcessingFailed` | `transient_infrastructure` | `"rate limit"` / `"429"` -> `rate_limit`; `"database locked"` / `"sqlite_busy"` -> `transient_infrastructure`; `"permission denied"` -> `permanent_gone`; `"unsupported"` -> `permanent_data` |
 | `ShutdownRequested` | *(silently skip)* | Item is left `in_progress`; stale lease recovery picks it up at next startup |
 
 **Known classification gaps** (tracked for future improvement):
@@ -197,7 +197,7 @@ unavailable:
   non-embedding work continue normally.
 - Embedding items dequeued during degraded mode are re-queued immediately with a
   backoff delay rather than being processed (they are not counted against their
-  `max_retries` budget in this path — see §3.3).
+  `max_retries` budget in this path -- see §3.3).
 - A background task (`EmbeddingWatchdog`) periodically attempts to
   re-initialise the embedding generator.
 
@@ -228,7 +228,7 @@ unavailable:
   "daemon_start": "2026-03-10T14:20:00Z",
   "total_attempts": 10,
   "last_error": "OrtError: failed to load model from ...",
-  "ort_lib_location": "/Users/chris/.onnxruntime-static/lib",
+  "ort_lib_location": "$HOME/.onnxruntime-static/lib",
   "model_path": "~/.cache/huggingface/...",
   "action": "controlled_shutdown"
 }
@@ -267,7 +267,7 @@ mechanism as metadata uplift and grammar idle checks). It:
 3. The items re-enter the normal dequeue cycle.
 
 **Frequency:** Configurable via `failed_resurrection_interval_secs` (default:
-3600 — once per hour).
+3600 -- once per hour).
 
 **Scope:** Only `transient_*` categories. `permanent_data` and `permanent_gone`
 items are never resurrected. Items without a `[transient_*]` prefix in
@@ -299,7 +299,7 @@ WHERE status = 'failed'
 > `search_status` to `NULL`. Leaving stale `in_progress` in a destination column
 > while `status = 'pending'` causes `ensure_destinations_resolved()` to preserve
 > the stale value, which then prevents `check_and_finalize()` from ever deleting
-> the item — creating an infinite processing loop.
+> the item -- creating an infinite processing loop.
 
 ---
 

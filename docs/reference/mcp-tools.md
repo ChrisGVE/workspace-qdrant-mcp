@@ -24,20 +24,20 @@ Search for documents using hybrid semantic and keyword search. Use this tool fir
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | — | The search query text |
-| `collection` | string | No | — | Specific collection to search: `projects`, `libraries`, `rules`, `scratchpad` |
+| `query` | string | Yes | -- | The search query text |
+| `collection` | string | No | -- | Specific collection to search: `projects`, `libraries`, `rules`, `scratchpad` |
 | `mode` | string | No | `hybrid` | Search mode: `hybrid`, `semantic`, or `keyword` |
 | `scope` | string | No | `project` | Search scope: `project` (current project only), `global` (all projects), or `all` |
 | `limit` | number | No | `10` | Maximum number of results to return |
-| `projectId` | string | No | — | Specific project ID to search |
-| `libraryName` | string | No | — | Library name when searching the `libraries` collection |
-| `branch` | string | No | — | Filter results by branch name |
-| `fileType` | string | No | — | Filter by file type |
+| `projectId` | string | No | -- | Specific project ID to search |
+| `libraryName` | string | No | -- | Library name when searching the `libraries` collection |
+| `branch` | string | No | -- | Filter results by branch name |
+| `fileType` | string | No | -- | Filter by file type |
 | `includeLibraries` | boolean | No | `false` | Include library content in project search results |
-| `tag` | string | No | — | Filter results by concept tag (exact match) |
-| `tags` | string[] | No | — | Filter results by multiple concept tags (OR logic) |
-| `pathGlob` | string | No | — | File path glob filter, e.g. `"**/*.rs"` or `"src/**/*.ts"` |
-| `component` | string | No | — | Filter by project component, e.g. `"daemon"` or `"daemon.core"`. Supports prefix matching. |
+| `tag` | string | No | -- | Filter results by concept tag (exact match) |
+| `tags` | string[] | No | -- | Filter results by multiple concept tags (OR logic) |
+| `pathGlob` | string | No | -- | File path glob filter, e.g. `"**/*.rs"` or `"src/**/*.ts"` |
+| `component` | string | No | -- | Filter by project component, e.g. `"daemon"` or `"daemon.core"`. Supports prefix matching. |
 | `exact` | boolean | No | `false` | Use exact substring search instead of semantic search |
 | `contextLines` | number | No | `0` | Lines of context to include before/after matches when `exact` is `true` |
 | `includeGraphContext` | boolean | No | `false` | Include code relationship graph context (callers/callees) for matched symbols |
@@ -111,11 +111,11 @@ Search with graph context to understand callers:
 
 Returns an array of result objects. Each object includes:
 
-- `id` — document or chunk identifier
-- `score` — relevance score (0.0–1.0, higher is better)
-- `content` — matched text content
-- `metadata` — document metadata including file path, language, branch, component, and concept tags
-- `graphContext` — (when `includeGraphContext: true`) callers and callees of matched symbols
+- `id` -- document or chunk identifier
+- `score` -- relevance score (0.0-1.0, higher is better)
+- `content` -- matched text content
+- `metadata` -- document metadata including file path, language, branch, component, and concept tags
+- `graphContext` -- (when `includeGraphContext: true`) callers and callees of matched symbols
 
 ---
 
@@ -127,13 +127,13 @@ Retrieve documents by ID or metadata filter. Use `retrieve` when you already kno
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `documentId` | string | No | — | Document ID to retrieve |
+| `documentId` | string | No | -- | Document ID to retrieve |
 | `collection` | string | No | `projects` | Collection to retrieve from: `projects`, `libraries`, `rules`, `scratchpad` |
-| `filter` | object | No | — | Metadata filter as key-value pairs. Values must be strings. |
+| `filter` | object | No | -- | Metadata filter as key-value pairs. Values must be strings. |
 | `limit` | number | No | `10` | Maximum number of results |
 | `offset` | number | No | `0` | Pagination offset |
-| `projectId` | string | No | — | Project ID for the `projects` collection |
-| `libraryName` | string | No | — | Library name for the `libraries` collection |
+| `projectId` | string | No | -- | Project ID for the `projects` collection |
+| `libraryName` | string | No | -- | Library name for the `libraries` collection |
 
 At least one of `documentId` or `filter` should be provided.
 
@@ -174,9 +174,9 @@ Paginate through library content:
 
 Returns an array of document objects. Each object includes:
 
-- `id` — document identifier
-- `content` — document text content
-- `metadata` — associated metadata fields
+- `id` -- document identifier
+- `content` -- document text content
+- `metadata` -- associated metadata fields
 
 ---
 
@@ -188,14 +188,14 @@ Manage persistent behavioral rules. Rules guide how the AI assistant behaves acr
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | — | Action to perform: `add`, `update`, `remove`, or `list` |
-| `label` | string | Conditional | — | Rule label (max 15 chars, format: `word-word-word`, e.g. `prefer-uv`). Required for `add`, `update`, `remove`. |
-| `content` | string | Conditional | — | Rule content. Required for `add` and `update`. |
+| `action` | string | Yes | -- | Action to perform: `add`, `update`, `remove`, or `list` |
+| `label` | string | Conditional | -- | Rule label (max 15 chars, format: `word-word-word`, e.g. `prefer-uv`). Required for `add`, `update`, `remove`. |
+| `content` | string | Conditional | -- | Rule content. Required for `add` and `update`. |
 | `scope` | string | No | `global` | Rule scope: `global` or `project` |
-| `projectId` | string | No | — | Project ID for project-scoped rules |
-| `title` | string | No | — | Rule title (max 50 chars) |
-| `tags` | string[] | No | — | Categorization tags (max 5 tags, max 20 chars each) |
-| `priority` | number | No | — | Rule priority (higher number = more important) |
+| `projectId` | string | No | -- | Project ID for project-scoped rules |
+| `title` | string | No | -- | Rule title (max 50 chars) |
+| `tags` | string[] | No | -- | Categorization tags (max 5 tags, max 20 chars each) |
+| `priority` | number | No | -- | Rule priority (higher number = more important) |
 | `limit` | number | No | `50` | Maximum rules to return for `list` action |
 
 ### Actions
@@ -205,7 +205,7 @@ Manage persistent behavioral rules. Rules guide how the AI assistant behaves acr
 | `add` | `label`, `content` | Create a new rule |
 | `update` | `label`, `content` | Update an existing rule |
 | `remove` | `label` | Delete a rule |
-| `list` | — | List rules, optionally filtered by scope |
+| `list` | -- | List rules, optionally filtered by scope |
 
 ### Label Format
 
@@ -272,17 +272,17 @@ Store content or register a project. Use `type` to select the storage destinatio
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `type` | string | No | `library` | Storage type: `library`, `url`, `scratchpad`, or `project` |
-| `content` | string | Conditional | — | Content to store. Required when `type` is `library`. |
-| `libraryName` | string | Conditional | — | Library name. Required when `type` is `library` unless `forProject` is `true`. |
+| `content` | string | Conditional | -- | Content to store. Required when `type` is `library`. |
+| `libraryName` | string | Conditional | -- | Library name. Required when `type` is `library` unless `forProject` is `true`. |
 | `forProject` | boolean | No | `false` | When `true`, stores to the libraries collection scoped to the current project. `libraryName` defaults to `"project-refs"`. |
-| `path` | string | Conditional | — | Project directory path. Required when `type` is `project`. |
-| `name` | string | No | — | Project display name when `type` is `project`. Defaults to the directory name. |
-| `title` | string | No | — | Content title for `library` type |
-| `url` | string | No | — | Source URL for web content |
-| `filePath` | string | No | — | Source file path |
-| `tags` | string[] | No | — | Tags for `scratchpad` entries |
+| `path` | string | Conditional | -- | Project directory path. Required when `type` is `project`. |
+| `name` | string | No | -- | Project display name when `type` is `project`. Defaults to the directory name. |
+| `title` | string | No | -- | Content title for `library` type |
+| `url` | string | No | -- | Source URL for web content |
+| `filePath` | string | No | -- | Source file path |
+| `tags` | string[] | No | -- | Tags for `scratchpad` entries |
 | `sourceType` | string | No | `user_input` | Source type: `user_input`, `web`, `file`, `scratchbook`, or `note` |
-| `metadata` | object | No | — | Additional metadata as string key-value pairs |
+| `metadata` | object | No | -- | Additional metadata as string key-value pairs |
 
 ### Storage Types
 
@@ -344,7 +344,7 @@ Register a project directory:
 ```json
 {
   "type": "project",
-  "path": "/Users/chris/dev/projects/my-service",
+  "path": "$HOME/dev/projects/my-service",
   "name": "My Service"
 }
 ```
@@ -363,15 +363,15 @@ Search code with exact substring or regex pattern matching. Uses an FTS5 trigram
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pattern` | string | Yes | — | Search pattern (exact substring or regex) |
+| `pattern` | string | Yes | -- | Search pattern (exact substring or regex) |
 | `regex` | boolean | No | `false` | Treat `pattern` as a regular expression |
 | `caseSensitive` | boolean | No | `true` | Case-sensitive matching |
-| `pathGlob` | string | No | — | File path glob filter, e.g. `"**/*.rs"` or `"src/**/*.ts"` |
+| `pathGlob` | string | No | -- | File path glob filter, e.g. `"**/*.rs"` or `"src/**/*.ts"` |
 | `scope` | string | No | `project` | Search scope: `project` (current project) or `all` (all projects) |
 | `contextLines` | number | No | `0` | Lines of context to include before and after each match |
 | `maxResults` | number | No | `1000` | Maximum number of results to return |
-| `branch` | string | No | — | Filter by branch name |
-| `projectId` | string | No | — | Specific project ID to search |
+| `branch` | string | No | -- | Filter by branch name |
+| `projectId` | string | No | -- | Specific project ID to search |
 
 ### When to Use grep vs search
 
@@ -420,11 +420,11 @@ Find all `TODO` comments across the entire project:
 
 Returns an array of match objects. Each object includes:
 
-- `filePath` — relative path to the matched file
-- `lineNumber` — line number of the match (1-indexed)
-- `lineContent` — the matched line text
-- `contextBefore` — lines before the match (when `contextLines` > 0)
-- `contextAfter` — lines after the match (when `contextLines` > 0)
+- `filePath` -- relative path to the matched file
+- `lineNumber` -- line number of the match (1-indexed)
+- `lineContent` -- the matched line text
+- `contextBefore` -- lines before the match (when `contextLines` > 0)
+- `contextAfter` -- lines after the match (when `contextLines` > 0)
 
 ---
 
@@ -439,14 +439,14 @@ List project files and folder structure. Only shows indexed files; gitignored pa
 | `path` | string | No | project root | Subfolder relative to the project root |
 | `depth` | number | No | `3` | Maximum directory depth (maximum accepted value: `10`) |
 | `format` | string | No | `tree` | Output format: `tree`, `summary`, or `flat` |
-| `fileType` | string | No | — | Filter by file category: `code`, `text`, `data`, `config`, `build`, or `web` |
-| `language` | string | No | — | Filter by programming language, e.g. `"rust"` or `"typescript"` |
-| `extension` | string | No | — | Filter by file extension, e.g. `"rs"` or `"ts"` |
-| `pattern` | string | No | — | Glob pattern applied to relative paths, e.g. `"**/*.test.ts"` |
+| `fileType` | string | No | -- | Filter by file category: `code`, `text`, `data`, `config`, `build`, or `web` |
+| `language` | string | No | -- | Filter by programming language, e.g. `"rust"` or `"typescript"` |
+| `extension` | string | No | -- | Filter by file extension, e.g. `"rs"` or `"ts"` |
+| `pattern` | string | No | -- | Glob pattern applied to relative paths, e.g. `"**/*.test.ts"` |
 | `includeTests` | boolean | No | `true` | Include test files in results |
 | `limit` | number | No | `200` | Maximum number of entries returned (maximum: `500`) |
 | `projectId` | string | No | current project | Specific project ID |
-| `component` | string | No | — | Filter by component using dot-separated ID prefix, e.g. `"daemon"` or `"daemon.core"`. Auto-detected from `Cargo.toml`/`package.json` workspaces. |
+| `component` | string | No | -- | Filter by component using dot-separated ID prefix, e.g. `"daemon"` or `"daemon.core"`. Auto-detected from `Cargo.toml`/`package.json` workspaces. |
 
 ### Output Formats
 

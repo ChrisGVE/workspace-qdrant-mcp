@@ -6,7 +6,7 @@ the same inputs and compares the outputs after applying the S10.4 normalizer.
 
 ## Fixture format
 
-Each `.json` file holds the **inner result** — the value BEFORE the MCP
+Each `.json` file holds the **inner result** -- the value BEFORE the MCP
 content-block wrapper:
 
 - **Success path**: the object passed to `JSON.stringify(result, null, 2)`.
@@ -60,7 +60,7 @@ integration fixtures gated via `#[cfg(feature="integration-tests")]`:
 - **retrieve**: point lookup by document_id (requires indexed Qdrant points)
 - **rules**: add / update / remove / list (require live gRPC and Qdrant collection)
 - **grep**: live FTS5 results from daemon TextSearchService
-- **store library/url/scratchpad**: require daemon enqueue → queue_id
+- **store library/url/scratchpad**: require daemon enqueue -> queue_id
 - **store project**: requires daemon RegisterProject gRPC call
 - **list**: real tracked-files enumeration (live SQLite + daemon)
 
@@ -84,6 +84,6 @@ When the TS server changes its output for a case covered here:
 ## Running the conformance suite
 
 ```bash
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
   cargo test --manifest-path src/rust/Cargo.toml -p mcp-server conformance
 ```

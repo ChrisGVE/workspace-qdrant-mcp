@@ -1,4 +1,4 @@
-# Benchmark Harness — tool_overhead
+# Benchmark Harness -- tool_overhead
 
 Criterion micro-benchmarks for MCP tool-call overhead.  These benchmarks
 measure **pure-CPU per-call cost** (envelope construction, input parsing,
@@ -60,7 +60,7 @@ satisfied conservatively (by a large margin) by the 3 s warm-up.
 ### Quick compile check
 
 ```sh
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
   cargo build --benches \
   --manifest-path src/rust/Cargo.toml \
   -p mcp-server
@@ -74,17 +74,17 @@ source via `configured_criterion()`.  To exercise a subset of benchmarks
 quickly, pass a filter regex after `--`:
 
 ```sh
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
   cargo bench \
   --manifest-path src/rust/Cargo.toml \
   -p mcp-server \
   -- stable_stringify
 ```
 
-Or run all groups (will take ~24 s per group × 3 groups with current settings):
+Or run all groups (will take ~24 s per group x 3 groups with current settings):
 
 ```sh
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
   cargo bench \
   --manifest-path src/rust/Cargo.toml \
   -p mcp-server
@@ -96,7 +96,7 @@ To change warm-up / measurement times, edit `configured_criterion()` in
 ### Full measurement run (recommended for parity comparison)
 
 ```sh
-ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
   cargo bench \
   --manifest-path src/rust/Cargo.toml \
   -p mcp-server
@@ -147,6 +147,6 @@ There is no automated TS runner in this bench file.
   individually read below 5 ms p50 (they currently run in the microsecond
   range, so this is a conservative bound).
 - For e2e search / grep / list / retrieve the bounds are relative to TS
-  baseline — a separate e2e benchmark (not in this file) running against a
+  baseline -- a separate e2e benchmark (not in this file) running against a
   live daemon and Qdrant instance would measure those.  This file covers
   only the CPU-overhead slice.
