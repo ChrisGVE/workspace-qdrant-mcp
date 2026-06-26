@@ -18,7 +18,7 @@
 //!
 //! ```
 //! cd src/rust
-//! ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//! ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!   cargo bench -p wqm-storage-write --bench put_vs_upsert
 //! ```
 //!

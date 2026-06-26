@@ -49,7 +49,7 @@ pub(super) fn normalize_path(input: &str) -> Result<String, PathError> {
     let expanded_str: &str = &expanded;
 
     // Rule 1: must be absolute after tilde expansion. We check the expanded
-    // form because `~/foo` becomes `/Users/chris/foo` and IS absolute, but
+    // form because `~/foo` becomes `/Users/username/foo` and IS absolute, but
     // `foo/bar` stays relative.
     let path = Path::new(expanded_str);
     if !path.is_absolute() {

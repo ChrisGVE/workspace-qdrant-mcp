@@ -32,18 +32,18 @@ use super::PathError;
 /// ```
 /// use wqm_common::paths::CanonicalPath;
 ///
-/// let path = CanonicalPath::from_user_input("/Users/chris/dev/project").unwrap();
-/// assert_eq!(path.as_str(), "/Users/chris/dev/project");
+/// let path = CanonicalPath::from_user_input("/Users/username/dev/project").unwrap();
+/// assert_eq!(path.as_str(), "/Users/username/dev/project");
 ///
 /// // Relative paths are rejected.
 /// assert!(CanonicalPath::from_user_input("relative/path").is_err());
 ///
 /// // `..` segments are rejected (spec §3.2.1).
-/// assert!(CanonicalPath::from_user_input("/Users/chris/../other").is_err());
+/// assert!(CanonicalPath::from_user_input("/Users/username/../other").is_err());
 ///
 /// // `.` segments are removed.
-/// let path = CanonicalPath::from_user_input("/Users/chris/./project").unwrap();
-/// assert_eq!(path.as_str(), "/Users/chris/project");
+/// let path = CanonicalPath::from_user_input("/Users/username/./project").unwrap();
+/// assert_eq!(path.as_str(), "/Users/username/project");
 /// ```
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -70,8 +70,8 @@ impl CanonicalPath {
     /// ```
     /// use wqm_common::paths::CanonicalPath;
     ///
-    /// let p = CanonicalPath::from_user_input("/Users/chris//dev/./project").unwrap();
-    /// assert_eq!(p.as_str(), "/Users/chris/dev/project");
+    /// let p = CanonicalPath::from_user_input("/Users/username//dev/./project").unwrap();
+    /// assert_eq!(p.as_str(), "/Users/username/dev/project");
     /// ```
     pub fn from_user_input(s: &str) -> Result<Self, PathError> {
         let normalized = normalize_path(s)?;

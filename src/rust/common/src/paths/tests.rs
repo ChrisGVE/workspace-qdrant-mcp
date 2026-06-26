@@ -20,8 +20,8 @@ use super::{CanonicalPath, LocalPath, MountMap, PathError};
 #[test]
 fn rule_1_absolute_required() {
     // Positive: absolute input survives.
-    let p = CanonicalPath::from_user_input("/Users/chris").unwrap();
-    assert_eq!(p.as_str(), "/Users/chris");
+    let p = CanonicalPath::from_user_input("/Users/username").unwrap();
+    assert_eq!(p.as_str(), "/Users/username");
 }
 
 #[test]
@@ -39,26 +39,26 @@ fn rule_2_tilde_expansion() {
 
 #[test]
 fn rule_3_dot_segments_removed() {
-    let p = CanonicalPath::from_user_input("/Users/./chris/./dev").unwrap();
-    assert_eq!(p.as_str(), "/Users/chris/dev");
+    let p = CanonicalPath::from_user_input("/Users/./username/./dev").unwrap();
+    assert_eq!(p.as_str(), "/Users/username/dev");
 }
 
 #[test]
 fn rule_4_parent_dir_rejected() {
-    let err = CanonicalPath::from_user_input("/Users/chris/../other").unwrap_err();
+    let err = CanonicalPath::from_user_input("/Users/username/../other").unwrap_err();
     assert!(matches!(err, PathError::ContainsParentDir(_)));
 }
 
 #[test]
 fn rule_5_duplicate_slash_collapsed() {
-    let p = CanonicalPath::from_user_input("/Users//chris///dev").unwrap();
-    assert_eq!(p.as_str(), "/Users/chris/dev");
+    let p = CanonicalPath::from_user_input("/Users//username///dev").unwrap();
+    assert_eq!(p.as_str(), "/Users/username/dev");
 }
 
 #[test]
 fn rule_6_case_preserved() {
-    let p = CanonicalPath::from_user_input("/Users/Chris/DevTools").unwrap();
-    assert_eq!(p.as_str(), "/Users/Chris/DevTools");
+    let p = CanonicalPath::from_user_input("/Users/Username/DevTools").unwrap();
+    assert_eq!(p.as_str(), "/Users/Username/DevTools");
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn error_empty_path() {
 
 #[test]
 fn error_embedded_nul() {
-    let err = CanonicalPath::from_user_input("/Users/chris\0/dev").unwrap_err();
+    let err = CanonicalPath::from_user_input("/Users/username\0/dev").unwrap_err();
     assert!(matches!(err, PathError::InvalidNormalization(_)));
 }
 
@@ -156,8 +156,8 @@ fn error_parent_dir_at_start_after_root() {
 
 #[test]
 fn from_validated_accepts_canonical() {
-    let p = CanonicalPath::from_validated("/Users/chris/dev".to_string()).unwrap();
-    assert_eq!(p.as_str(), "/Users/chris/dev");
+    let p = CanonicalPath::from_validated("/Users/username/dev".to_string()).unwrap();
+    assert_eq!(p.as_str(), "/Users/username/dev");
 }
 
 #[test]
@@ -178,8 +178,8 @@ fn from_validated_rejects_parent_dir() {
 
 #[test]
 fn canonical_path_equal_after_normalize() {
-    let a = CanonicalPath::from_user_input("/Users/chris/./dev").unwrap();
-    let b = CanonicalPath::from_user_input("/Users//chris/dev").unwrap();
+    let a = CanonicalPath::from_user_input("/Users/username/./dev").unwrap();
+    let b = CanonicalPath::from_user_input("/Users//username/dev").unwrap();
     assert_eq!(a, b);
 }
 
@@ -199,9 +199,9 @@ fn canonical_path_into_string() {
 
 #[test]
 fn canonical_path_serde_roundtrip() {
-    let p = CanonicalPath::from_user_input("/Users/chris/dev").unwrap();
+    let p = CanonicalPath::from_user_input("/Users/username/dev").unwrap();
     let json = serde_json::to_string(&p).unwrap();
-    assert_eq!(json, "\"/Users/chris/dev\"");
+    assert_eq!(json, "\"/Users/username/dev\"");
     let back: CanonicalPath = serde_json::from_str(&json).unwrap();
     assert_eq!(p, back);
 }
@@ -221,7 +221,7 @@ fn mountmap_identity_is_empty() {
 #[test]
 fn mountmap_new_single_entry() {
     let m = MountMap::new(vec![(
-        "/Users/chris/dev".to_string(),
+        "/Users/username/dev".to_string(),
         "/mnt/dev".to_string(),
     )])
     .unwrap();
@@ -232,8 +232,8 @@ fn mountmap_new_single_entry() {
 #[test]
 fn mountmap_duplicate_host_rejected() {
     let err = MountMap::new(vec![
-        ("/Users/chris".to_string(), "/mnt/a".to_string()),
-        ("/Users/chris".to_string(), "/mnt/b".to_string()),
+        ("/Users/username".to_string(), "/mnt/a".to_string()),
+        ("/Users/username".to_string(), "/mnt/b".to_string()),
     ])
     .unwrap_err();
     assert!(matches!(err, PathError::MountMapError(_)));
@@ -270,13 +270,13 @@ fn mountmap_tilde_expanded_for_duplicate_check() {
 #[test]
 fn mountmap_longest_prefix_wins() {
     let m = MountMap::new(vec![
-        ("/Users/chris".to_string(), "/Users/chris".to_string()),
-        ("/Users/chris/dev".to_string(), "/mnt/dev".to_string()),
+        ("/Users/username".to_string(), "/Users/username".to_string()),
+        ("/Users/username/dev".to_string(), "/mnt/dev".to_string()),
     ])
     .unwrap();
-    let cp = CanonicalPath::from_user_input("/Users/chris/dev/project/file.txt").unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/dev/project/file.txt").unwrap();
     let local = LocalPath::from_canonical(&cp, &m).unwrap();
-    // /Users/chris/dev wins over /Users/chris because it is longer.
+    // /Users/username/dev wins over /Users/username because it is longer.
     assert_eq!(
         local.as_std_path().to_str().unwrap(),
         "/mnt/dev/project/file.txt"
@@ -285,13 +285,13 @@ fn mountmap_longest_prefix_wins() {
 
 #[test]
 fn mountmap_component_boundary_required() {
-    // /Users/chris/dev must NOT match /Users/chris/development.
+    // /Users/username/dev must NOT match /Users/username/development.
     let m = MountMap::new(vec![(
-        "/Users/chris/dev".to_string(),
+        "/Users/username/dev".to_string(),
         "/mnt/dev".to_string(),
     )])
     .unwrap();
-    let cp = CanonicalPath::from_user_input("/Users/chris/development/file.txt").unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/development/file.txt").unwrap();
     let err = LocalPath::from_canonical(&cp, &m).unwrap_err();
     assert!(matches!(err, PathError::NoMountCoverage { .. }));
 }
@@ -299,7 +299,7 @@ fn mountmap_component_boundary_required() {
 #[test]
 fn mountmap_no_coverage_error() {
     let m = MountMap::new(vec![(
-        "/Users/chris/dev".to_string(),
+        "/Users/username/dev".to_string(),
         "/mnt/dev".to_string(),
     )])
     .unwrap();
@@ -314,26 +314,26 @@ fn mountmap_no_coverage_error() {
 
 #[test]
 fn local_path_identity_passes_through() {
-    let cp = CanonicalPath::from_user_input("/Users/chris/dev/project").unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/dev/project").unwrap();
     let local = LocalPath::from_canonical(&cp, &MountMap::identity()).unwrap();
     assert_eq!(
         local.as_std_path().to_str().unwrap(),
-        "/Users/chris/dev/project"
+        "/Users/username/dev/project"
     );
 }
 
 #[test]
 fn local_path_mirror_mount() {
     let m = MountMap::new(vec![(
-        "/Users/chris/dev".to_string(),
-        "/Users/chris/dev".to_string(),
+        "/Users/username/dev".to_string(),
+        "/Users/username/dev".to_string(),
     )])
     .unwrap();
-    let cp = CanonicalPath::from_user_input("/Users/chris/dev/project/file.txt").unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/dev/project/file.txt").unwrap();
     let local = LocalPath::from_canonical(&cp, &m).unwrap();
     assert_eq!(
         local.as_std_path().to_str().unwrap(),
-        "/Users/chris/dev/project/file.txt"
+        "/Users/username/dev/project/file.txt"
     );
 }
 
@@ -352,7 +352,7 @@ fn local_path_non_mirror_mount() {
 #[test]
 fn local_path_to_canonical_identity() {
     let m = MountMap::identity();
-    let cp = CanonicalPath::from_user_input("/Users/chris/dev").unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/dev").unwrap();
     let local = LocalPath::from_canonical(&cp, &m).unwrap();
     let back = local.to_canonical(&m).unwrap();
     assert_eq!(cp, back);
@@ -360,8 +360,8 @@ fn local_path_to_canonical_identity() {
 
 #[test]
 fn local_path_to_canonical_non_mirror() {
-    let m = MountMap::new(vec![("/Users/chris".to_string(), "/home/user".to_string())]).unwrap();
-    let cp = CanonicalPath::from_user_input("/Users/chris/project/file.txt").unwrap();
+    let m = MountMap::new(vec![("/Users/username".to_string(), "/home/user".to_string())]).unwrap();
+    let cp = CanonicalPath::from_user_input("/Users/username/project/file.txt").unwrap();
     let local = LocalPath::from_canonical(&cp, &m).unwrap();
     let back = local.to_canonical(&m).unwrap();
     assert_eq!(cp, back);
@@ -425,7 +425,7 @@ proptest! {
     fn non_mirror_roundtrip(
         suffix in prop::collection::vec("[a-zA-Z0-9_-]{1,8}", 1..5),
     ) {
-        let host_root = "/Users/chris/dev";
+        let host_root = "/Users/username/dev";
         let container_root = "/mnt/dev";
         let m = MountMap::new(vec![(
             host_root.to_string(),

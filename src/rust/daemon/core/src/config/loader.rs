@@ -218,8 +218,8 @@ mod tests {
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
             YamlMountEntry {
-                host: "/Users/chris/dev".to_string(),
-                container: "/Users/chris/dev".to_string(),
+                host: "/Users/username/dev".to_string(),
+                container: "/Users/username/dev".to_string(),
             },
             YamlMountEntry {
                 host: "/Volumes/External/books".to_string(),

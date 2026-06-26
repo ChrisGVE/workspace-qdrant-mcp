@@ -6,7 +6,7 @@
 //! on this machine.
 //!
 //! Run:
-//!   ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//!   ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!     cargo run --release --manifest-path src/rust/Cargo.toml \
 //!     --package workspace-qdrant-core --example fastembed_bench
 

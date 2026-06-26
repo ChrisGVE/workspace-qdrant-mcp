@@ -23,7 +23,7 @@
 //! ## Running
 //!
 //! ```bash
-//! ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//! ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!   cargo test --manifest-path src/rust/Cargo.toml \
 //!              --package workspace-qdrant-core \
 //!              --features ladybug \

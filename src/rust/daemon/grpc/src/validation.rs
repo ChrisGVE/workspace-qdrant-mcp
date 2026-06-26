@@ -241,10 +241,10 @@ mod tests {
 
     #[test]
     fn macro_extract_canonical_path_valid() {
-        let field = "/Users/chris/dev".to_string();
+        let field = "/Users/username/dev".to_string();
         let result = extract_canonical_path!(field, "path");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().as_str(), "/Users/chris/dev");
+        assert_eq!(result.unwrap().as_str(), "/Users/username/dev");
     }
 
     #[test]

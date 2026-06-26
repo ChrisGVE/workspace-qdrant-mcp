@@ -123,8 +123,8 @@ impl RelativePath {
     /// ```
     /// use wqm_common::paths::{CanonicalPath, RelativePath};
     ///
-    /// let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
-    /// let abs = CanonicalPath::from_user_input("/Users/chris/lib/cs/book.pdf").unwrap();
+    /// let root = CanonicalPath::from_user_input("/Users/username/lib").unwrap();
+    /// let abs = CanonicalPath::from_user_input("/Users/username/lib/cs/book.pdf").unwrap();
     /// let rel = RelativePath::from_absolute_and_root(&abs, &root).unwrap();
     /// assert_eq!(rel.as_str(), "cs/book.pdf");
     /// ```
@@ -467,10 +467,10 @@ mod tests {
 
     #[test]
     fn to_absolute_joins_with_root() {
-        let root = CanonicalPath::from_user_input("/Users/chris/dev/project").unwrap();
+        let root = CanonicalPath::from_user_input("/Users/username/dev/project").unwrap();
         let rel = RelativePath::from_user_input("src/main.rs").unwrap();
         let abs = rel.to_absolute(&root);
-        assert_eq!(abs.as_str(), "/Users/chris/dev/project/src/main.rs");
+        assert_eq!(abs.as_str(), "/Users/username/dev/project/src/main.rs");
     }
 
     #[test]
@@ -489,8 +489,8 @@ mod tests {
 
     #[test]
     fn from_absolute_and_root_strips_root_prefix() {
-        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
-        let abs = CanonicalPath::from_user_input("/Users/chris/lib/cs/book.pdf").unwrap();
+        let root = CanonicalPath::from_user_input("/Users/username/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/username/lib/cs/book.pdf").unwrap();
         let rel = RelativePath::from_absolute_and_root(&abs, &root).unwrap();
         assert_eq!(rel.as_str(), "cs/book.pdf");
     }
@@ -505,8 +505,8 @@ mod tests {
 
     #[test]
     fn from_absolute_and_root_rejects_path_outside_root() {
-        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
-        let abs = CanonicalPath::from_user_input("/Users/chris/other/doc.pdf").unwrap();
+        let root = CanonicalPath::from_user_input("/Users/username/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/username/other/doc.pdf").unwrap();
         let err = RelativePath::from_absolute_and_root(&abs, &root).unwrap_err();
         assert!(matches!(err, RelativePathError::NotUnderRoot { .. }));
     }
@@ -514,8 +514,8 @@ mod tests {
     #[test]
     fn from_absolute_and_root_rejects_root_equals_path() {
         // Root and absolute path are identical; stripped suffix is empty.
-        let root = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
-        let abs = CanonicalPath::from_user_input("/Users/chris/lib").unwrap();
+        let root = CanonicalPath::from_user_input("/Users/username/lib").unwrap();
+        let abs = CanonicalPath::from_user_input("/Users/username/lib").unwrap();
         let err = RelativePath::from_absolute_and_root(&abs, &root).unwrap_err();
         assert!(matches!(err, RelativePathError::Empty));
     }

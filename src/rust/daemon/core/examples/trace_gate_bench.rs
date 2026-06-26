@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! ```text
-//! ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//! ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!   cargo run --release --example trace_gate_bench -p workspace-qdrant-core
 //! ```
 //!

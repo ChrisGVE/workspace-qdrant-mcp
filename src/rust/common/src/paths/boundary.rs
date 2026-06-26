@@ -33,8 +33,8 @@ use std::path::Path;
 /// use std::path::Path;
 /// use wqm_common::paths::is_within_boundary;
 ///
-/// let root = Path::new("/Users/chris/project");
-/// let file = Path::new("/Users/chris/project/src/main.rs");
+/// let root = Path::new("/Users/username/project");
+/// let file = Path::new("/Users/username/project/src/main.rs");
 /// assert!(is_within_boundary(file, root));
 ///
 /// let outside = Path::new("/etc/passwd");

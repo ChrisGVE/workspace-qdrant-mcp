@@ -16,7 +16,7 @@
 //!   model inference); see task3_phrase_cache for the proxy measurement.
 //!
 //! Run with:
-//!   ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//!   ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!   cargo bench --manifest-path src/rust/Cargo.toml \
 //!               --package workspace-qdrant-core \
 //!               --bench perf_extract_comparison

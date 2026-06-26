@@ -9,7 +9,7 @@
 //! - Task 5: IDF drift correction — IDF math throughput
 //!
 //! Run with:
-//!   ORT_LIB_LOCATION=/Users/chris/.onnxruntime-static/lib \
+//!   ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib \
 //!   cargo bench --manifest-path src/rust/Cargo.toml \
 //!               --package workspace-qdrant-core \
 //!               --bench perf_extract_benchmarks

@@ -253,7 +253,7 @@ mod tests {
 
         let request = Request::new(AddLibraryRequest {
             tag: "test-lib".to_string(),
-            path: "/Users/chris/../escape".to_string(),
+            path: "/Users/username/../escape".to_string(),
             mode: "full".to_string(),
         });
 

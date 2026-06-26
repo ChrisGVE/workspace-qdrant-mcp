@@ -410,13 +410,13 @@ qdrant:
 performance:
   max_concurrent_tasks: 4
 mounts:
-  - host: /Users/chris/dev
-    container: /Users/chris/dev
+  - host: /Users/username/dev
+    container: /Users/username/dev
 control_port: 8800
 "#;
         let cfg = parse_relevant_config(raw).unwrap();
         assert_eq!(cfg.mounts.len(), 1);
-        assert_eq!(cfg.mounts[0].host, "/Users/chris/dev");
+        assert_eq!(cfg.mounts[0].host, "/Users/username/dev");
         assert_eq!(cfg.control_port, Some(8800));
     }
 
@@ -429,7 +429,7 @@ control_port: 8800
 
     #[test]
     fn render_override_contains_hash_header_and_mandatory_port() {
-        let cfg = cfg_with_mounts(vec![("/Users/chris/dev", "/Users/chris/dev")]);
+        let cfg = cfg_with_mounts(vec![("/Users/username/dev", "/Users/username/dev")]);
         let rendered = render_override_yaml(
             &cfg,
             Path::new("/etc/wqm/config.yaml"),
@@ -438,7 +438,7 @@ control_port: 8800
         .unwrap();
         assert!(rendered.starts_with("# wqm-config-hash: "));
         assert!(rendered.contains("127.0.0.1:7799:7799"));
-        assert!(rendered.contains("/Users/chris/dev:/Users/chris/dev"));
+        assert!(rendered.contains("/Users/username/dev:/Users/username/dev"));
     }
 
     #[test]
@@ -541,7 +541,7 @@ control_port: 8800
     #[test]
     fn rendered_yaml_round_trips_through_yaml_parser() {
         let cfg = cfg_with_mounts(vec![
-            ("/Users/chris/dev", "/Users/chris/dev"),
+            ("/Users/username/dev", "/Users/username/dev"),
             ("/Volumes/External/books", "/mnt/books"),
         ]);
         let rendered = render_override_yaml(

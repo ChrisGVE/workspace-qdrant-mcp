@@ -231,7 +231,7 @@ mod tests {
 
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
-            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("/Users/username/dev", "/Users/username/dev"),
             mk_mount("~/reference", "/mnt/reference"),
         ];
 
@@ -251,8 +251,8 @@ mod tests {
         // T3.12: overlap (one entry's host is a prefix of another) is allowed.
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
-            mk_mount("/Users/chris", "/mnt/user"),
-            mk_mount("/Users/chris/dev", "/mnt/dev"),
+            mk_mount("/Users/username", "/mnt/user"),
+            mk_mount("/Users/username/dev", "/mnt/dev"),
         ];
         let map = cfg.build_mount_map().expect("overlap must be allowed");
         assert_eq!(map.len(), 2);
@@ -264,8 +264,8 @@ mod tests {
         // T3.13: two entries with identical canonical host → reject.
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
-            mk_mount("/Users/chris", "/mnt/a"),
-            mk_mount("/Users/chris", "/mnt/b"),
+            mk_mount("/Users/username", "/mnt/a"),
+            mk_mount("/Users/username", "/mnt/b"),
         ];
         let err = cfg
             .build_mount_map()
@@ -282,8 +282,8 @@ mod tests {
         // T3.14: duplicate container canonical form → reject.
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
-            mk_mount("/Users/chris/a", "/mnt/shared"),
-            mk_mount("/Users/chris/b", "/mnt/shared"),
+            mk_mount("/Users/username/a", "/mnt/shared"),
+            mk_mount("/Users/username/b", "/mnt/shared"),
         ];
         let err = cfg
             .build_mount_map()
@@ -308,7 +308,7 @@ mod tests {
     fn mounts_relative_container_path_rejected() {
         // T3.16: a relative container path is rejected.
         let mut cfg = DaemonConfig::default();
-        cfg.mounts = vec![mk_mount("/Users/chris/dev", "relative/container")];
+        cfg.mounts = vec![mk_mount("/Users/username/dev", "relative/container")];
         assert!(cfg.build_mount_map().is_err());
         assert!(cfg.validate_mounts().is_err());
     }
@@ -317,11 +317,11 @@ mod tests {
     fn mounts_parent_dir_segment_rejected() {
         // Spec §3.1 rule 4: `..` in either host or container is rejected.
         let mut cfg_host = DaemonConfig::default();
-        cfg_host.mounts = vec![mk_mount("/Users/chris/../other", "/mnt/x")];
+        cfg_host.mounts = vec![mk_mount("/Users/username/../other", "/mnt/x")];
         assert!(cfg_host.build_mount_map().is_err());
 
         let mut cfg_container = DaemonConfig::default();
-        cfg_container.mounts = vec![mk_mount("/Users/chris/dev", "/mnt/../other")];
+        cfg_container.mounts = vec![mk_mount("/Users/username/dev", "/mnt/../other")];
         assert!(cfg_container.build_mount_map().is_err());
     }
 
@@ -346,7 +346,7 @@ mod tests {
         // section without loss.
         let mut original = DaemonConfig::default();
         original.mounts = vec![
-            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("/Users/username/dev", "/Users/username/dev"),
             mk_mount("/Volumes/External/books", "/mnt/external-books"),
         ];
         let yaml = serde_yaml_ng::to_string(&original).expect("serialise");
@@ -382,7 +382,7 @@ mod tests {
 
         // 3. Mirror mount — identical host and container.
         let mut cfg = DaemonConfig::default();
-        cfg.mounts = vec![mk_mount("/Users/chris/dev", "/Users/chris/dev")];
+        cfg.mounts = vec![mk_mount("/Users/username/dev", "/Users/username/dev")];
         let map = cfg.build_mount_map().expect("mirror is valid");
         assert_eq!(map.len(), 1);
         assert!(!map.is_identity(), "mirror is not the identity map");
@@ -390,9 +390,9 @@ mod tests {
         // 4. Three-entry mount set survives end-to-end validate().
         let mut cfg = DaemonConfig::default();
         cfg.mounts = vec![
-            mk_mount("/Users/chris/dev", "/Users/chris/dev"),
+            mk_mount("/Users/username/dev", "/Users/username/dev"),
             mk_mount("/Volumes/External/books", "/mnt/external-books"),
-            mk_mount("/Users/chris/reference", "/mnt/reference"),
+            mk_mount("/Users/username/reference", "/mnt/reference"),
         ];
         assert!(cfg.validate().is_ok());
     }

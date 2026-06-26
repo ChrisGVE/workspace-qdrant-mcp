@@ -49,8 +49,8 @@ fn generate_emits_valid_yaml_with_hash_and_port_publish() {
         &tmp,
         r#"
 mounts:
-  - host: /Users/chris/dev
-    container: /Users/chris/dev
+  - host: /Users/username/dev
+    container: /Users/username/dev
   - host: /Volumes/External/books
     container: /mnt/books
   - host: ~/reference
@@ -84,7 +84,7 @@ mounts:
     );
 
     // All three mounts emitted in declaration order.
-    assert!(body.contains("/Users/chris/dev:/Users/chris/dev"));
+    assert!(body.contains("/Users/username/dev:/Users/username/dev"));
     assert!(body.contains("/Volumes/External/books:/mnt/books"));
     assert!(body.contains("~/reference:/mnt/reference"));
 

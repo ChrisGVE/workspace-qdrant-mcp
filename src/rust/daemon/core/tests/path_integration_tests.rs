@@ -156,7 +156,7 @@ async fn case_1_ingest_host_query_host() {
     let pool = setup_pool().await;
 
     // Register a project watch folder with a canonical absolute path.
-    let root = "/Users/chris/dev/my-project";
+    let root = "/Users/username/dev/my-project";
     let tenant = "tenant-abc";
     let watch_id = "wf-001";
 
@@ -205,7 +205,7 @@ async fn case_1_ingest_host_query_host() {
     // 4. Reconstruction: root + "/" + relative_path must equal the expected
     //    absolute path.
     let reconstructed = format!("{root}/{stored_rel}");
-    assert_eq!(reconstructed, "/Users/chris/dev/my-project/src/main.rs");
+    assert_eq!(reconstructed, "/Users/username/dev/my-project/src/main.rs");
 
     // 5. The qdrant_chunks row references the correct file_id.
     let chunk_fid: i64 =
@@ -285,7 +285,7 @@ async fn case_6_external_volume_mount() {
 async fn case_7_cross_store_consistency() {
     let pool = setup_pool().await;
 
-    let root = "/Users/chris/projects/workspace-qdrant-mcp";
+    let root = "/Users/username/projects/workspace-qdrant-mcp";
     let tenant = "tenant-xyz";
     let watch_id = "wf-007";
     let branch = "main";
@@ -589,7 +589,7 @@ async fn canonical_path_roundtrip_through_sqlite() {
     let pool = setup_pool().await;
 
     let cases = &[
-        "/Users/chris/dev/project",
+        "/Users/username/dev/project",
         "/home/user/workspace",
         "/mnt/data/repos/my-repo",
     ];
@@ -644,7 +644,7 @@ async fn relative_path_rejects_canonical_construction() {
 #[tokio::test]
 async fn parent_dir_traversal_rejected() {
     let attack_paths = &[
-        "/Users/chris/../etc/passwd",
+        "/Users/username/../etc/passwd",
         "/home/user/project/../../secret",
     ];
 

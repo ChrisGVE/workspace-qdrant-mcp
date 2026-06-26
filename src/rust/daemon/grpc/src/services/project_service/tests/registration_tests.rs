@@ -296,7 +296,7 @@ async fn test_reconcile_moved_path_updates_registration() {
         Some(remote),
         None,
     );
-    let old_path = "/Users/chris/dev/business";
+    let old_path = "/Users/username/dev/business";
     create_test_watch_folder_with_remote(&pool, &tenant_id, old_path, remote).await;
 
     // The new location exists on disk (a real temp dir).

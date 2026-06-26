@@ -40,9 +40,9 @@ impl LocalPath {
     /// use wqm_common::paths::{CanonicalPath, LocalPath, MountMap};
     ///
     /// // Identity map: pass-through.
-    /// let cp = CanonicalPath::from_user_input("/Users/chris/dev").unwrap();
+    /// let cp = CanonicalPath::from_user_input("/Users/username/dev").unwrap();
     /// let local = LocalPath::from_canonical(&cp, &MountMap::identity()).unwrap();
-    /// assert_eq!(local.as_std_path().to_str().unwrap(), "/Users/chris/dev");
+    /// assert_eq!(local.as_std_path().to_str().unwrap(), "/Users/username/dev");
     ///
     /// // Non-mirror mount swaps the host prefix for the container prefix.
     /// let m = MountMap::new(vec![
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn swap_prefix_simple() {
         assert_eq!(
-            swap_prefix("/Users/chris/dev/x", "/Users/chris/dev", "/mnt/dev"),
+            swap_prefix("/Users/username/dev/x", "/Users/username/dev", "/mnt/dev"),
             "/mnt/dev/x"
         );
     }
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn swap_prefix_exact_match() {
         assert_eq!(
-            swap_prefix("/Users/chris/dev", "/Users/chris/dev", "/mnt/dev"),
+            swap_prefix("/Users/username/dev", "/Users/username/dev", "/mnt/dev"),
             "/mnt/dev"
         );
     }
@@ -163,8 +163,8 @@ mod tests {
     #[test]
     fn swap_prefix_mirror() {
         assert_eq!(
-            swap_prefix("/Users/chris/dev/x", "/Users/chris/dev", "/Users/chris/dev",),
-            "/Users/chris/dev/x"
+            swap_prefix("/Users/username/dev/x", "/Users/username/dev", "/Users/username/dev",),
+            "/Users/username/dev/x"
         );
     }
 }

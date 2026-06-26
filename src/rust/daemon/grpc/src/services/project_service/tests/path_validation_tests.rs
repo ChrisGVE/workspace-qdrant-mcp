@@ -38,7 +38,7 @@ async fn test_register_parent_dir_path_rejected() {
     let service = ProjectServiceImpl::new(pool);
 
     let request = Request::new(RegisterProjectRequest {
-        path: "/Users/chris/../other".to_string(),
+        path: "/Users/username/../other".to_string(),
         project_id: "abcd12345678".to_string(),
         name: None,
         git_remote: None,
@@ -87,7 +87,7 @@ async fn test_deprioritize_parent_dir_watch_path_rejected() {
 
     let request = Request::new(DeprioritizeProjectRequest {
         project_id: "abcd12345678".to_string(),
-        watch_path: Some("/Users/chris/../escape".to_string()),
+        watch_path: Some("/Users/username/../escape".to_string()),
     });
 
     let result = service.deprioritize_project(request).await;

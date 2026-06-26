@@ -66,7 +66,7 @@ impl MountMap {
     ///
     /// // Multiple non-overlapping mounts.
     /// let m = MountMap::new(vec![
-    ///     ("/Users/chris/dev".to_string(), "/Users/chris/dev".to_string()),
+    ///     ("/Users/username/dev".to_string(), "/Users/username/dev".to_string()),
     ///     ("/Volumes/External/books".to_string(), "/mnt/books".to_string()),
     /// ]).unwrap();
     /// assert_eq!(m.len(), 2);
@@ -74,8 +74,8 @@ impl MountMap {
     ///
     /// // Duplicate host prefix is rejected.
     /// assert!(MountMap::new(vec![
-    ///     ("/Users/chris".to_string(), "/mnt/a".to_string()),
-    ///     ("/Users/chris".to_string(), "/mnt/b".to_string()),
+    ///     ("/Users/username".to_string(), "/mnt/a".to_string()),
+    ///     ("/Users/username".to_string(), "/mnt/b".to_string()),
     /// ]).is_err());
     /// ```
     pub fn new(raw_entries: Vec<(String, String)>) -> Result<Self, PathError> {
@@ -126,8 +126,8 @@ impl MountMap {
     /// use wqm_common::yaml_defaults::YamlMountEntry;
     ///
     /// let m = MountMap::from_yaml_entries(&[YamlMountEntry {
-    ///     host: "/Users/chris/dev".to_string(),
-    ///     container: "/Users/chris/dev".to_string(),
+    ///     host: "/Users/username/dev".to_string(),
+    ///     container: "/Users/username/dev".to_string(),
     /// }])
     /// .unwrap();
     /// assert_eq!(m.len(), 1);
@@ -145,8 +145,8 @@ impl MountMap {
     /// Find the mount entry whose `host` is the longest prefix of the
     /// canonical path, with component-aware matching.
     ///
-    /// `/Users/chris/dev` matches `/Users/chris/dev/foo` but **not**
-    /// `/Users/chris/development`. The match boundary is a `/` separator,
+    /// `/Users/username/dev` matches `/Users/username/dev/foo` but **not**
+    /// `/Users/username/development`. The match boundary is a `/` separator,
     /// not a raw substring.
     ///
     /// Returns `None` when no entry covers the canonical path.
