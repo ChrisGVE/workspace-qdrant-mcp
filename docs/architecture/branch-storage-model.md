@@ -736,7 +736,7 @@ sequenceDiagram
     Note over MCP: Latency budget (scope=project): resolve_keep ≤5ms; per-Qdrant-query ≤80ms;<br/>storedb enrich ≤20ms; total p95 target ≤200ms. FTS5 path: storedb only, ≤50ms.
     Qdrant-->>MCP: chunk point_ids + scores (dense and sparse, two result sets)
 
-    MCP->>SQLite: SELECT enrichment for point_ids via storedb:<br/>chunks.symbol_name, chunks.start_line, chunks.end_line,<br/>chunk_text.raw_text (snippet), files.relative_path<br/>JOIN blobs ON blobs.content_key = chunks.content_key<br/>JOIN membership ON membership.content_key = blobs.content_key<br/>JOIN files ON files.file_id = membership.file_id<br/>WHERE membership.branch_id = ? AND chunks.point_id IN (...)
+    MCP->>SQLite: SELECT enrichment for point_ids via storedb:<br/>chunks.symbol_name, chunks.start_line, chunks.end_line,<br/>chunk_text.raw_text (snippet), f.relative_path OR lib.virtual_path + lib.title<br/>FROM chunks c JOIN chunk_text ct ON ct.point_id = c.point_id<br/>LEFT JOIN membership m ON m.content_key = c.content_key AND m.branch_id = :branch_id<br/>LEFT JOIN files f ON f.file_id = m.file_id<br/>LEFT JOIN libraries lib ON lib.content_key = c.content_key<br/>  AND (lib.branch_id = :branch_id OR lib.branch_id IS NULL)<br/>WHERE c.point_id IN (:point_ids)<br/>Result location = Code{f.relative_path} when f IS NOT NULL; else Library{lib.virtual_path, lib.title}.<br/>For a shared content_key (file + library doc on same branch) prefer Code location.<br/>Every returned point matches at least one arm (Qdrant pre-filtered on keep_id + branch_id ANY [target]).
     SQLite-->>MCP: enriched results (xrefs fetched separately if needed)
 
     MCP-->>Claude: ranked results with full metadata
@@ -915,18 +915,23 @@ corrects state drift from crashes or missed events.
    `git for-each-ref` + reflog to find branches whose heads are no longer present,
    then run §4.3 delete for each confirmed-deleted branch.
 4. **FTS drift** — two sub-cases:
-   a. **fts_code drift** (`membership` has a `(branch_id, content_key)` row but
-      `fts_code` lacks the corresponding chunk_text rows): crash after `membership`
-      write but before the `chunk_text_ai` trigger fired. Fix: for every
-      `content_key` in `membership`, verify that `chunk_text` rows exist and
-      re-insert missing `fts_code` entries via the `chunk_text_ai` trigger. Incremental
-      scan scoped to rows newer than the last reconcile timestamp.
+   a. **fts_code drift** (`membership` or `libraries` has a `(branch_id, content_key)` row
+      but `fts_code` lacks the corresponding chunk_text rows): crash after `membership` or
+      `libraries` write but before the `chunk_text_ai` trigger fired. Fix: for every
+      `content_key` in `membership` UNION every `content_key` in `libraries` (same branch
+      predicate: `branch_id = :b OR branch_id IS NULL`), verify that `chunk_text` rows exist
+      and re-insert missing `fts_code` entries via the `chunk_text_ai` trigger. Library-doc
+      chunks use the same `chunk_text` / `fts_code` write path as file chunks and are covered
+      by this UNION scan. Incremental scan scoped to rows newer than the last reconcile
+      timestamp.
    b. **fts_grep drift** (a chunk point exists in `chunks` and `chunk_text` but
       the corresponding `fts_grep_map` rows are absent): crash after chunk_text INSERT
       before fts_grep write path completed. Fix: for each `point_id` in `chunks` whose
       `fts_grep_map` row count = 0, re-run the owned-line iteration (owned_start_line..
       owned_end_line) from `chunk_text.raw_text` and populate `fts_grep` + `fts_grep_map`
-      rows (same write path as §4.1 miss path, idempotent on retry).
+      rows (same write path as §4.1 miss path, idempotent on retry). NOTE: case 4b iterates
+      ALL `point_id`s in `chunks` regardless of which referrer ledger owns them; it is
+      already ledger-agnostic and covers library-doc chunks without a separate arm.
 5. **keep_id mismatch** (a Qdrant point whose payload `keep_id` disagrees with its
    owning storedb `blobs.keep_id`): crash mid-keep-migration (copy-then-delete pattern
    — write destination row → Qdrant payload PUT → delete source row LAST).
@@ -1401,7 +1406,8 @@ alive, which is correct.
 -- Full-text search over chunk raw_text. External-content on chunk_text table.
 -- content_rowid maps to chunk_text.ct_id (INTEGER PRIMARY KEY AUTOINCREMENT —
 -- the stable surrogate rowid on chunk_text; see chunk_text DDL above).
--- Branch-scoped queries: JOIN membership on content_key, filter on branch_id.
+-- Branch-scoped queries: UNION of membership arm (files, ResultLocation::Code) and
+-- libraries arm (embedded library docs, ResultLocation::Library) on content_key.
 CREATE VIRTUAL TABLE fts_code USING fts5 (
     raw_text,
     content="chunk_text",
@@ -1428,15 +1434,32 @@ CREATE TABLE fts_grep_map (
 );
 CREATE INDEX idx_fts_grep_map_point ON fts_grep_map(point_id);
 
--- Branch-scoped grep query pattern (storedb — fts_grep is self-storing, not external-content):
+-- Branch-scoped grep query pattern (storedb — fts_grep is self-storing, not external-content).
+-- UNION reach: membership (files, ResultLocation::Code) + libraries (embedded docs, ResultLocation::Library).
+-- File-chunk lines (Code):
 -- SELECT fg.line_content, gm.point_id, gm.line_offset, c.owned_start_line,
---        f.relative_path
+--        f.relative_path, NULL AS virtual_path, NULL AS title
 -- FROM fts_grep fg
 -- JOIN fts_grep_map gm ON gm.rowid = fg.rowid
 -- JOIN chunks c ON c.point_id = gm.point_id AND c.keep_id = ?
 -- JOIN membership m ON m.content_key = c.content_key AND m.branch_id = ?
 -- JOIN files f ON f.file_id = m.file_id
--- WHERE fg MATCH ? LIMIT ?;
+-- WHERE fg MATCH ?
+-- UNION ALL
+-- Library-doc lines (Library):
+-- SELECT fg.line_content, gm.point_id, gm.line_offset, c.owned_start_line,
+--        NULL AS relative_path, lib.virtual_path, lib.title
+-- FROM fts_grep fg
+-- JOIN fts_grep_map gm ON gm.rowid = fg.rowid
+-- JOIN chunks c ON c.point_id = gm.point_id AND c.keep_id = ?
+-- JOIN libraries lib ON lib.content_key = c.content_key
+--   AND (lib.branch_id = ? OR lib.branch_id IS NULL)
+-- WHERE fg MATCH ?
+--   AND c.content_key NOT IN (SELECT m2.content_key FROM membership m2 WHERE m2.branch_id = ?)
+-- LIMIT ?;
+-- Caller maps: relative_path IS NOT NULL -> ResultLocation::Code; virtual_path IS NOT NULL -> ResultLocation::Library.
+-- ORDERING: like fts_search (§7.4), the UNION ALL Code arm has LIMIT precedence — library-doc
+-- lines fill only the remainder of k. Intentional; grep over prose docs is the lower-priority case.
 ```
 
 **Triggers to keep FTS5 in sync (external-content + self-storing requirements):**
@@ -2246,7 +2269,9 @@ pub trait ReadStoreFacade: Send + Sync {
     ) -> Result<Vec<SearchResult>, StorageError>;
 
     /// Full-text (FTS5) search scoped to one branch.
-    /// Pure storedb query (fts_code JOIN membership) — does not touch Qdrant.
+    /// Pure storedb query (fts_code MATCH with membership union libraries reach) — does not touch Qdrant.
+    /// File chunks are reached via fts_code JOIN membership JOIN files (ResultLocation::Code);
+    /// library-doc chunks are reached via a UNION arm JOIN libraries (ResultLocation::Library).
     async fn fts_search(
         &self,
         keep_id: &str,
@@ -2256,7 +2281,9 @@ pub trait ReadStoreFacade: Send + Sync {
     ) -> Result<Vec<FtsResult>, StorageError>;
 
     /// Line-level grep search scoped to one branch.
-    /// Uses fts_grep (self-storing FTS5) + fts_grep_map JOIN chunks JOIN membership.
+    /// Uses fts_grep (self-storing FTS5) + fts_grep_map JOIN chunks with membership union libraries reach.
+    /// File-chunk lines are reached via membership JOIN files (ResultLocation::Code);
+    /// library-doc lines are reached via a UNION arm JOIN libraries (ResultLocation::Library).
     /// keep_id + branch_id filters applied inside the JOIN; never crosses keep boundaries.
     /// query string is sanitized to SAFE mode (phrase-wrap) before binding (§6.5).
     async fn grep_search(
@@ -2657,15 +2684,34 @@ junction) share the same connection pool as the relational tables, enabling
 branch-scoped FTS5 queries in a single SQL query:
 
 ```sql
--- Branch-scoped FTS5 query pattern
-SELECT c.point_id, ct.raw_text, f.relative_path, c.chunk_type
+-- Branch-scoped FTS5 query pattern (membership + libraries UNION reach).
+-- BOTH arms MUST carry `c.keep_id = ?`: fts_code is a storedb-WIDE FTS5 index spanning all
+-- keeps, so the keep_id filter is the security-critical isolation boundary (the membership
+-- JOIN alone is keep-safe only by branch-UUID uniqueness; the libraries arm has no such
+-- implicit scoping and WOULD leak cross-keep library docs without it).
+-- File chunks (ResultLocation::Code):
+SELECT c.point_id, ct.raw_text, f.relative_path, NULL AS virtual_path, NULL AS title, c.chunk_type
 FROM fts_code
 JOIN chunk_text ct ON ct.rowid = fts_code.rowid
-JOIN chunks c ON c.point_id = ct.point_id
+JOIN chunks c ON c.point_id = ct.point_id AND c.keep_id = ?
 JOIN membership m ON m.content_key = c.content_key AND m.branch_id = ?
 JOIN files f ON f.file_id = m.file_id AND f.branch_id = ?
 WHERE fts_code MATCH ?
+UNION ALL
+-- Library-doc chunks (ResultLocation::Library): reached via libraries, not membership.
+SELECT c.point_id, ct.raw_text, NULL AS relative_path, lib.virtual_path, lib.title, c.chunk_type
+FROM fts_code
+JOIN chunk_text ct ON ct.rowid = fts_code.rowid
+JOIN chunks c ON c.point_id = ct.point_id AND c.keep_id = ?
+JOIN libraries lib ON lib.content_key = c.content_key
+  AND (lib.branch_id = ? OR lib.branch_id IS NULL)
+WHERE fts_code MATCH ?
+  AND c.content_key NOT IN (SELECT m2.content_key FROM membership m2 WHERE m2.branch_id = ?)
 LIMIT ?;
+-- Caller maps: relative_path IS NOT NULL -> ResultLocation::Code; virtual_path IS NOT NULL -> ResultLocation::Library.
+-- ORDERING: UNION ALL evaluates Code arm first, so with no rank ORDER BY the LIMIT gives Code
+-- matches PRECEDENCE — library-doc matches fill only the remainder of k. This is intentional
+-- (source code is the primary corpus); relevance re-ranking across arms is a caller concern.
 ```
 
 External-content tables REQUIRE co-location with the content table (`chunk_text`)
@@ -3269,7 +3315,16 @@ src/rust/storage/
     ├── types.rs            (~350 lines)  — KeepId(String); InstanceId(String); BranchId(String);
     │                                       ContentKey(String); PointId(String);
     │                                       KeepBinding { keep_id, instance_id, branch_id };
-    │                                       SearchResult; FtsResult; GrepResult; FileEntry;
+    │                                       ResultLocation — enum: Code { relative_path: String } |
+    │                                         Library { virtual_path: String, title: Option<String> }.
+    │                                         Code = point reached via files+membership row;
+    │                                         Library = point reached via libraries row.
+    │                                       SearchResult { location: ResultLocation, ... };
+    │                                       FtsResult   { location: ResultLocation, ... };
+    │                                       GrepResult  { location: ResultLocation, ... };
+    │                                       (location replaces the bare relative_path field on all
+    │                                       three types; all other fields unchanged.)
+    │                                       FileEntry;
     │                                       SearchQuery { text, dense_weight, sparse_weight, filters };
     │                                       IngestOutcome; BranchOnboardStats; BranchDeleteStats;
     │                                       DeleteKeepStats { qdrant_points_deleted, blobs_deleted,
@@ -3284,7 +3339,9 @@ src/rust/storage/
     │       ├── mod.rs      (~80 lines)   — ReadStoreFacade impl dispatch; search_scoped +
     │       │                               assemble_merged_hits (multi-keep RRF aggregation).
     │       ├── search.rs   (~320 lines)  — hybrid search: Qdrant query (keep_id+branch_id filter)
-    │       │                               + storedb enrich (chunks JOIN chunk_text JOIN files) + RRF
+    │       │                               + storedb enrich (LEFT JOIN membership+files and LEFT JOIN
+    │       │                               libraries dual-arm; returns ResultLocation::Code or
+    │       │                               ResultLocation::Library per result) + RRF
     │       ├── fanout.rs   (~280 lines)  — FanoutConfig (max_concurrent, cliff_keeps);
     │       │                               run_bounded (semaphore-bounded N-query fan-out, one
     │       │                               dense+sparse pair per keep); compute_cliff (selectivity
@@ -3296,9 +3353,11 @@ src/rust/storage/
     │                                       delegates to keep/resolver.rs
     ├── fts/
     │   ├── mod.rs          (~50 lines)
-    │   └── search.rs       (~320 lines)  — SOLE FTS5 module: fts_code MATCH + membership JOIN +
-    │                                       keep_id filter + sanitize; called by fts_search.
-    │                                       (FP-2: one FTS5 module; no duplicate path.)
+    │   └── search.rs       (~320 lines)  — SOLE FTS5 module: fts_code MATCH with membership +
+    │                                       libraries UNION reach; keep_id filter + sanitize;
+    │                                       called by fts_search. Returns ResultLocation::Code
+    │                                       for file chunks, ResultLocation::Library for
+    │                                       embedded library-doc chunks. (FP-2: one FTS5 module.)
     ├── keep/
     │   ├── mod.rs          (~50 lines)
     │   └── resolver.rs     (~240 lines)  — CWD→KeepBinding walk-up: git context extraction
