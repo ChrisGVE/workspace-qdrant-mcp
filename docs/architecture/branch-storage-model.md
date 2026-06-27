@@ -2081,10 +2081,15 @@ and the old-project_id → new-keep_id mapping for crash-resume. The journal is
 cleared after step 5 completes and verified.
 
 **Rollback:** `wqm restore --full` from the step P4 backup restores all old per-project
-store.db files + statedb. The old Qdrant collection is NOT backed up (Qdrant is
-rebuildable from store.db — this was true pre-migration too). On rollback, the old
-Qdrant collection must be rebuilt from old store.db. This is acceptable because the
-pre-migration schema also supports `rebuild_qdrant` (§4.5).
+store.db files + statedb AND a Qdrant snapshot of the deployed collection. The
+pre-migration backup MUST include that Qdrant snapshot: the deployed pre-branch model's
+vectors live only in Qdrant (step 2 scrolls them as the PRIMARY vector-reuse source) and
+the old per-project store.db holds no vectors, so the old Qdrant collection is NOT
+rebuildable from store.db without a full multi-hour re-embed. Backing up Qdrant in this
+mode is therefore required for a recoverable rollback, which is exactly what the §7.7 full
+backup already bundles. The "rebuildable, so it need not be backed up" reasoning applies
+only to the keep-model, whose vectors live in the `chunk_vector` sidecar inside storedb
+(§7.7); it does not apply to the deployed pre-branch model being migrated from.
 
 Detailed runbook (exact file paths, backup naming, partial-resume logic, rollback
 procedure) belongs in the PRD. This section establishes the approach and the
