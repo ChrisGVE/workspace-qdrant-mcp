@@ -1900,14 +1900,17 @@ P4. **Full backup (F20).** Run `wqm backup --full` AFTER the daemon is down. Rec
    miss, INSERT all storedb tables. FTS5 triggers fire automatically. `extract_edges`
    runs for each new file.
 
-   **Vector reuse (no re-embed) — priority path:** For each file, check whether the
-   old per-project store.db has chunk vectors for this file's chunks. In the pre-keep-
-   model schema (round-7), vectors live on the `blobs` table as two BLOB columns:
-   `blobs.dense_vec` (f32[] LE) and `blobs.sparse_vec` ((u32,f32)[] pairs LE) — confirmed
-   at `src/rust/storage-write/src/schema/blobs.rs:36-37`. Read the old blob row by
-   matching on raw_text fingerprint; translate to the new `chunk_vector(point_id, dense,
-   sparse)` sidecar row. Re-embedding is a FALLBACK only for chunks whose old vector is
-   absent (e.g. pre-F2 store.db files that never populated blobs.dense_vec).
+   **Vector reuse (no re-embed) — priority path:** the DEPLOYED source is the
+   pre-branch-storage model, whose vectors live in the live Qdrant collections (the
+   round-7 chunk-grain store.db was built but never deployed, so it holds no field data).
+   **PRIMARY:** scroll the deployed Qdrant collection(s) to recover each point's dense +
+   sparse vectors (batch >= 1000 per scroll page, paginated by point id), and translate
+   into the new `chunk_vector(point_id, dense, sparse)` sidecar. **SECONDARY** (only when
+   migrating from a round-7 `store.db`, which production never ran): vectors live on the
+   `blobs` table as two BLOB columns `blobs.dense_vec` (f32[] LE) / `blobs.sparse_vec`
+   ((u32,f32)[] pairs LE) — confirmed at `src/rust/storage-write/src/schema/blobs.rs:36-37`.
+   Re-embedding is the FINAL FALLBACK only for points whose vector cannot be recovered
+   from either source.
 
 3. **Qdrant collection rebuild.** After storedb is fully populated:
    - DELETE old Qdrant `projects` collection (old chunk points carried `tenant_id`,
