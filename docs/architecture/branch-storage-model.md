@@ -1298,15 +1298,18 @@ CREATE INDEX idx_rules_keep ON rules(keep_id);
 CREATE TABLE libraries (
     lib_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     keep_id        TEXT NOT NULL REFERENCES keeps(keep_id),
+    branch_id      TEXT REFERENCES branches(branch_id),  -- branch-discriminated for
+                                   -- project-attached docs; NULL for a standalone/GLOBAL
+                                   -- library keep (kind='library', not branch-scoped)
     virtual_path   TEXT NOT NULL,
     title          TEXT,
     source_path    TEXT,            -- physical path at ingestion time (for re-ingestion)
     content        TEXT NOT NULL,
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL,
-    UNIQUE (keep_id, virtual_path)
+    UNIQUE (keep_id, branch_id, virtual_path)
 );
-CREATE INDEX idx_libraries_keep ON libraries(keep_id);
+CREATE INDEX idx_libraries_keep ON libraries(keep_id, branch_id);
 ```
 
 **FTS5 tables (both in storedb — external-content MUST share DB with content table):**
@@ -1446,10 +1449,12 @@ PRAGMA wal_autocheckpoint = 1000;  -- PASSIVE checkpoint after 1000 WAL pages.
                                    -- to force WAL truncation when no readers hold
                                    -- long transactions.
 PRAGMA busy_timeout = 5000;        -- 5s retry window for WAL lock contention.
-PRAGMA user_version = 2;           -- storedb schema epoch; read at startup to gate
-                                   -- migration runner in schema/migrations.rs.
-                                   -- Version 1 = round-7 chunk-grain per-project;
-                                   -- Version 2 = keep-model file-grain single storedb.
+-- NOTE: user_version is READ here at open (not written) to gate the migration runner
+-- in schema/migrations.rs. It is WRITTEN only by the migration runner, AFTER it has
+-- applied the migrations for that epoch -- never unconditionally at connection-open,
+-- or a v1 (round-7 chunk-grain) DB would be stamped v2 and silently skip migration.
+-- Epochs: Version 1 = round-7 chunk-grain per-project; Version 2 = keep-model
+-- file-grain single storedb.
 ```
 
 Read-only connections (MCP server, CLI) open with `SQLITE_OPEN_READONLY` flag and
