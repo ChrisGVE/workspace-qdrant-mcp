@@ -67,6 +67,14 @@ referrer count reaches zero, the blob and its chunks are garbage-collected.
   global rules, and global scratchpad. The bare word `"global"` in user-facing
   inputs resolves to this keep; composed names (`"global-notes"`) are ordinary user
   names that do not collide.
+- **BRANCH_NONE_ID** — a reserved well-known constant: `UUIDv5(KEEP_NS, "branch-none")`,
+  pinned once in `wqm-common`, identical across all installs. It is the `branch_id[]`
+  Qdrant payload token for branch-agnostic content — embedded library docs that belong
+  to a standalone library keep or `GLOBAL_KEEP_ID` and have no git branch dimension
+  (`libraries.branch_id IS NULL`). It is a PAYLOAD value only: it is NOT a row in the
+  `branches` table and is never an FK target. Because minted `branch_id` values are
+  UUIDv4 (random), this UUIDv5 constant cannot collide with a real branch. A query that
+  scopes to branch-agnostic library content filters on `branch_id ANY [BRANCH_NONE_ID]`.
 - **instance_id** — minted per REPOSITORY (per `.git`), survives folder moves.
   A clone (separate `.git`, same remote/root-commit) = same keep_id, new instance_id.
   A worktree (shared `.git`) = same instance.
@@ -316,7 +324,7 @@ graph TB
         FileSymbols["file_symbols table<br/>file-level rollup junction:<br/>(file_id, symbol_fqn, relation)"]
         FTS_Code["fts_code FTS5 table<br/>external-content on chunk_text;<br/>branch-scoped via membership join"]
         FTS_Grep["fts_grep FTS5 table<br/>line-level grep index;<br/>canonical line → (point_id, offset)"]
-        Membership["membership table<br/>(branch_id, file_id) → content_key<br/>GC refcount = COUNT(*) WHERE content_key=?"]
+        Membership["membership table<br/>(branch_id, file_id) → content_key<br/>file referrer ledger; GC refcount unions membership + libraries (§5.3)"]
         Scratchpad["scratchpad table<br/>virtual-path hierarchy, LLM-organized"]
         Rules["rules table<br/>virtual-path hierarchy, human-requested/LLM-written"]
         Libraries["libraries table<br/>virtual-path hierarchy, user-organized"]
@@ -477,8 +485,11 @@ what projects were registered and the recovery path (`wqm restore --full` then
 **Qdrant chunk point store** — One Qdrant collection (`projects`). Each Qdrant point
 represents one CHUNK (one `chunks` row). Payload fields are pre-filter metadata ONLY:
 `keep_id` (keyword, indexed), `branch_id[]` (keyword array, indexed). NO raw text, NO
-paths. GC refcount is computed from `SELECT COUNT(*) FROM membership WHERE content_key = ?`
-in storedb (GP-3 — storedb is the truth for GC decisions). Qdrant is rebuildable from
+paths. GC refcount is computed from storedb (GP-3 — storedb is the truth for GC
+decisions) as the count of BOTH referrer classes: `(SELECT COUNT(*) FROM membership
+WHERE content_key = ?) + (SELECT COUNT(*) FROM libraries WHERE content_key = ?)` — the
+`libraries` term keeps a blob referenced only by an embedded library doc from being GC'd
+as an orphan (§5.3, §5.5). Qdrant is rebuildable from
 storedb cold sidecars (`chunk_vector`) without re-embedding. Collection creation must
 specify: named dense vector (`"dense"`, Cosine distance, 768-dim), named sparse vector
 (`"sparse"`, dot-product), and payload indexes on `keep_id` and `branch_id` before
@@ -555,8 +566,9 @@ When a previously unknown branch is first seen (new branch created, worktree
 added, git checkout detected):
 
 **Membership write path — ONE path only:** `branch_id[]` for each chunk point is
-ALWAYS the full set derived from storedb (`SELECT DISTINCT branch_id FROM membership
-WHERE content_key = ?`), written via `overwrite_payload` (PUT — full payload
+ALWAYS the full set derived from storedb via `compute_membership(content_key)` (§5.3 —
+the UNION of the `membership` and `libraries` referrers; the `membership` arm alone for a
+pure source-file key), written via `overwrite_payload` (PUT — full payload
 replacement) under the per-content_key ContentKeyLock. This single pattern applies
 to BOTH the ADD path (existing blob gains a new branch) and the REMOVE path (branch
 delete). No `set_payload` array-append. Both the new-blob path (upsert with
@@ -633,7 +645,7 @@ sequenceDiagram
     Facade->>SQLite: SELECT DISTINCT content_key FROM membership WHERE branch_id=?
     Note over Facade: Step 1: hold all content_key candidates in memory.
 
-    Note over Facade: Step 2: batched GROUP BY orphan scan (≤1000 content_keys per call):<br/>  SELECT content_key FROM membership WHERE content_key IN (candidate_window)<br/>  GROUP BY content_key<br/>  HAVING SUM(CASE WHEN branch_id != :deleted_branch_id THEN 1 ELSE 0 END) = 0<br/>Result: content_keys whose ONLY referrer is the deleted branch = orphan candidates.<br/>NOTE: do NOT add WHERE branch_id != :deleted before the GROUP BY — that eliminates<br/>the rows that define an orphan.
+    Note over Facade: Step 2: batched GROUP BY orphan scan (≤1000 content_keys per call):<br/>  SELECT content_key FROM membership WHERE content_key IN (candidate_window)<br/>  GROUP BY content_key<br/>  HAVING SUM(CASE WHEN branch_id != :deleted_branch_id THEN 1 ELSE 0 END) = 0<br/>Result: content_keys whose ONLY membership referrer is the deleted branch.<br/>SUBTRACT any content_key with a libraries referrer (SELECT 1 FROM libraries WHERE<br/>content_key = ? — an embedded borrowed-doc blob is NOT an orphan even with zero<br/>surviving membership rows; deleting it would destroy library vectors and roll back the<br/>blobs DELETE on the libraries.content_key FK). Remaining = true orphan candidates.<br/>NOTE: do NOT add WHERE branch_id != :deleted before the GROUP BY — that eliminates<br/>the rows that define an orphan.
     Facade->>SQLite: batched GROUP BY orphan scan (≤1000 candidates per call)
 
     loop orphaned content_keys (batched ≥1000)
@@ -654,13 +666,13 @@ sequenceDiagram
 
     loop step 5 — per batch of ≤1000 orphan candidates
         Facade->>SQLite: BEGIN IMMEDIATE
-        Facade->>SQLite: SELECT content_key FROM membership<br/>WHERE content_key IN (candidate_window_1000) — ABA survivors (still referenced)
-        Note over Facade: confirmed_orphan_batch = candidate_window MINUS survivors.<br/>DELETE chunks (cascade → chunk_text, chunk_vector), blobs, xrefs, file_symbols,<br/>symbol_signatures, signature_params.
+        Facade->>SQLite: survivors = SELECT content_key FROM membership WHERE content_key IN (candidate_window_1000)<br/>UNION SELECT content_key FROM libraries WHERE content_key IN (candidate_window_1000) — ABA survivors (still referenced by EITHER ledger)
+        Note over Facade: confirmed_orphan_batch = candidate_window MINUS survivors.<br/>The libraries arm of the survivor set is mandatory: a shared content_key (borrowed<br/>library doc whose bytes equal a repo file) keeps a libraries referrer after the<br/>branch's membership rows are gone — it must NOT be confirmed orphan.<br/>DELETE chunks (cascade → chunk_text, chunk_vector), blobs, xrefs, file_symbols,<br/>symbol_signatures, signature_params.
         Facade->>SQLite: DELETE chunks/blobs/xrefs/file_symbols/symbol_signatures/signature_params for confirmed_orphan_batch<br/>  (subselect idiom; ≤1000 content_keys per batch; FTS5 trigger fires per chunk_text row)
         Facade->>SQLite: COMMIT
     end
 
-    Note over Facade: Step 6: for each still-referenced content_key (Step 1 set MINUS confirmed orphans),<br/>collect point_ids from chunks, recompute branch_id[] via:<br/>  compute_membership(content_key) = SELECT DISTINCT branch_id FROM membership WHERE content_key = ?<br/>(deleted branch absent from membership after Step 4; returns correct reduced set).<br/>For each point_id: overwrite_payload (PUT, {keep_id, branch_id: recomputed_set[]})<br/>SYNCHRONOUSLY under per-content_key ContentKeyLock (immediacy choice — equally correct<br/>if enqueued via qdrant_pending; synchronous avoids an extra pending-set cycle here).
+    Note over Facade: Step 6: for each still-referenced content_key (Step 1 set MINUS confirmed orphans),<br/>collect point_ids from chunks, recompute branch_id[] via:<br/>  compute_membership(content_key) (§5.3 — generalized UNION of membership + libraries referrers)<br/>(deleted branch absent from membership after Step 4; a shared content_key keeps its<br/>libraries branch token, so the reduced payload stays correct).<br/>For each point_id: overwrite_payload (PUT, {keep_id, branch_id: recomputed_set[]})<br/>SYNCHRONOUSLY under per-content_key ContentKeyLock (immediacy choice — equally correct<br/>if enqueued via qdrant_pending; synchronous avoids an extra pending-set cycle here).
 
     loop step 6 — still-referenced content_keys (batched ≥1000 chunk points)
         Note over Facade,Qdrant: acquire ContentKeyLock → compute_membership(content_key) →<br/>overwrite_payload (PUT per chunk point_id) → release. Synchronous.
@@ -688,10 +700,13 @@ FP-1 physical-delete order, scoped to `(branch_id, file_id)`:
    `membership` (read-only).
 2. `BEGIN IMMEDIATE`; delete this file's `membership` and `files` rows for this
    branch; `COMMIT`.
-3. For the `content_key`, re-test remaining referrer count in `membership`: count 0
+3. For the `content_key`, re-test the remaining referrer count across BOTH ledgers
+   (§5.3): `COUNT(membership) + COUNT(libraries)` for the content_key. Total 0
    → orphan (delete Qdrant chunk points, then delete blobs/chunks/xrefs rows under
-   `BEGIN IMMEDIATE` with ABA re-verify); count > 0 → recompute `branch_id[]` and
-   `overwrite_payload` (PUT per chunk point) under ContentKeyLock.
+   `BEGIN IMMEDIATE` with ABA re-verify); total > 0 → recompute `branch_id[]` via the
+   generalized `compute_membership` and `overwrite_payload` (PUT per chunk point) under
+   ContentKeyLock. The `libraries` term prevents destroying a shared content_key's
+   vectors (and the FK rollback that would follow) when the file is also a borrowed doc.
 
 A rename (§4.6) is `ingest_file(new_path)` FIRST, then `delete_file_from_branch(old_path)`
 — ingest-before-delete so a blob shared between the old and new path never transiently
@@ -851,8 +866,10 @@ corrects state drift from crashes or missed events.
    collapses to 'overwrite' — an existing blob whose membership changed, for which a
    payload-only update is correct and cheaper.) For each deduplicated row:
    a. Acquire `ContentKeyLock(content_key)`.
-   b. Run `compute_membership(content_key)` = `SELECT DISTINCT branch_id FROM membership
-      WHERE content_key = ?`.
+   b. Run `compute_membership(content_key)` (§5.3 — the generalized UNION of the
+      `membership` and `libraries` referrers; this path serves library-doc ingest
+      entries too, so the membership-only form would wrongly return empty for an
+      embedded library doc and trigger the step-(d) prune).
    c. If the result set is non-empty: read `op_type` from the deduped row.
       If `op_type = 'upsert'`: fetch dense+sparse vectors from `chunk_vector` for each
       `point_id` of this `content_key`; call `upsert_points({point_id, dense_vec,
@@ -875,11 +892,16 @@ corrects state drift from crashes or missed events.
    Idempotent: a crashed drain restarts from surviving rows; `op_type` is durable in
    the row, so the correct Qdrant operation is always recoverable without any
    in-memory state or Qdrant probe.
-2. **Stale Qdrant point (Qdrant has chunk point X; storedb `membership` shows zero
-   referrers):** crash after §4.3 Step 3 (Qdrant delete failed) but the chunks row
-   survived. Fix: delete orphan Qdrant chunk point (verify `membership COUNT = 0`
-   inside a transaction before deleting, ABA guard). Similarly prune orphan `blobs`
-   and `chunks` rows where `membership COUNT = 0`. Conversely, if an ABA-survivor
+2. **Stale Qdrant point (Qdrant has chunk point X; storedb shows zero referrers):**
+   crash after §4.3 Step 3 (Qdrant delete failed) but the chunks row survived. Fix:
+   delete orphan Qdrant chunk point (verify the content_key is TRULY orphaned —
+   `COUNT(membership) + COUNT(libraries) = 0` for the content_key, §5.3 — inside a
+   transaction before deleting, ABA guard). The `libraries` term is mandatory: a blob
+   referenced only by an embedded library doc has zero `membership` rows but is NOT an
+   orphan; deleting its points would destroy library vectors AND the subsequent `blobs`
+   DELETE would roll back on the `libraries.content_key` FK, leaving the points gone with
+   no recovery. Similarly prune orphan `blobs` and `chunks` rows only where both counts
+   are zero. Conversely, if an ABA-survivor
    concurrent ingest hits the same orphan-candidate between orphan scan (Step 2) and
    point-delete (Step 5), chunks rows may exist with a valid storedb referrer but a
    missing Qdrant point; reconcile detects this and re-upserts from `chunk_vector`
@@ -1167,10 +1189,14 @@ CREATE TABLE chunk_vector (
 );
 
 -- Branch membership: which file (files.file_id, via content_key) is present on
--- which branch. This is the referrer ledger: GC refcount = COUNT(*) WHERE content_key = ?.
+-- which branch. This is the FILE referrer ledger. Embedded library docs are the OTHER
+-- referrer class, tracked by libraries.content_key (§5.2); GC refcount and
+-- compute_membership union BOTH ledgers (§5.3): a blob is alive while EITHER a membership
+-- row or a libraries row references its content_key.
 -- Multiple branches sharing the same file content → multiple membership rows
 -- pointing at the same content_key (the file-grain dedup model).
--- Also drives the Qdrant branch_id[] payload on chunk points.
+-- Also drives the Qdrant branch_id[] payload on chunk points (file referrers only;
+-- library referrers contribute their branch_id or BRANCH_NONE_ID via compute_membership).
 -- Crash recovery uses the qdrant_pending table (§5.2 below) — no per-row write_seq
 -- watermark is needed. Every membership mutation atomically INSERTs the affected
 -- content_key(s) into qdrant_pending(content_key, op_type) in the same transaction;
@@ -1295,22 +1321,72 @@ CREATE INDEX idx_rules_keep ON rules(keep_id);
 -- A standalone named library = a keep of kind='library'. The GLOBAL library = GLOBAL_KEEP_ID.
 -- Project-attached library docs have the PROJECT keep_id and are branch-discriminated.
 -- All share this one table, discriminated by keep_id.
+-- branch_id: the real branch_id for a project-attached (borrowed) doc; NULL for a
+--   standalone/GLOBAL library keep (no git branch dimension). On the Qdrant payload a
+--   NULL branch_id is carried as the reserved BRANCH_NONE_ID token (see compute_membership,
+--   §5.3 / §5.5) — never NULL in the payload, so the drain never produces an empty
+--   branch set for an embedded library doc.
+-- content_key: links the doc to its embedded blob (and thus its chunks / chunk_vector /
+--   chunk_text / FTS rows), shared with the file-grain dedup machinery. NULL until the
+--   doc is embedded; set in the same transaction as the qdrant_pending enqueue (§5.5,
+--   "Library document ingest and embedding"). Library docs are NOT in `membership` —
+--   `membership.branch_id` stays NOT NULL (correct for files); a library doc's branch
+--   set is carried by THIS table and unioned into compute_membership.
 CREATE TABLE libraries (
     lib_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     keep_id        TEXT NOT NULL REFERENCES keeps(keep_id),
-    branch_id      TEXT REFERENCES branches(branch_id),  -- branch-discriminated for
-                                   -- project-attached docs; NULL for a standalone/GLOBAL
-                                   -- library keep (kind='library', not branch-scoped)
+    branch_id      TEXT REFERENCES branches(branch_id),
+    content_key    TEXT REFERENCES blobs(content_key),  -- embedded-content link; NULL if not embedded
     virtual_path   TEXT NOT NULL,
     title          TEXT,
     source_path    TEXT,            -- physical path at ingestion time (for re-ingestion)
     content        TEXT NOT NULL,
     created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL,
-    UNIQUE (keep_id, branch_id, virtual_path)
+    updated_at     TEXT NOT NULL
 );
-CREATE INDEX idx_libraries_keep ON libraries(keep_id, branch_id);
+-- Idempotent-upsert key. A plain UNIQUE(keep_id, branch_id, virtual_path) is WRONG here:
+-- SQLite treats every NULL as DISTINCT in a UNIQUE constraint, so two standalone/GLOBAL
+-- docs (branch_id NULL) at the same virtual_path would BOTH insert, defeating dedup. The
+-- expression index folds NULL to '' so the NULL-branch case dedupes correctly. (libraries
+-- is the only table with a nullable column in a uniqueness rule; all others use NOT NULL
+-- columns and are unaffected.)
+CREATE UNIQUE INDEX idx_libraries_uniq ON libraries(keep_id, IFNULL(branch_id, ''), virtual_path);
+CREATE INDEX idx_libraries_keep        ON libraries(keep_id, branch_id);
+CREATE INDEX idx_libraries_content_key ON libraries(content_key);
 ```
+
+**Library document ingest and embedding (the embedded-library path):**
+
+A library doc is embedded through the SAME file-grain machinery as a source file, with
+the `libraries` row standing in for the `files`/`membership` pair. Ingest of one doc:
+
+1. `file_hash = hex(SHA256(doc_content_bytes))`; `content_key = content_key(keep_id,
+   file_hash)` (§5.4) — the doc's owning keep is its `keep_id` (a standalone library
+   keep, `GLOBAL_KEEP_ID`, or the borrowing project's keep).
+2. Blob dedup exactly as §4.1: if a `blobs` row for `content_key` exists, reuse it (no
+   re-parse, no re-embed); otherwise parse → chunks → `chunk_text` / `chunk_vector` /
+   `fts_code` / `fts_grep` rows, and INSERT the `blobs` row.
+3. In ONE transaction: UPSERT the `libraries` row (carrying `content_key`) keyed by
+   `idx_libraries_uniq`, AND `INSERT INTO qdrant_pending(content_key, op_type)` —
+   `'upsert'` on the new-blob path, `'overwrite'` on the existing-blob path (DR GP-3:
+   the cross-store work is durable in the same commit as the truth write).
+4. The flusher drains `qdrant_pending` with the unchanged single code path (§5.5): it
+   runs `compute_membership(content_key)` — generalized below to union the `libraries`
+   referrers — and calls `upsert_points` / `overwrite_payload`. For a branch-agnostic
+   doc the resulting `branch_id[]` payload is `[BRANCH_NONE_ID]`; for a project-borrowed
+   doc it is the borrowing `branch_id` (a project's borrowed library docs are
+   branch-discriminated: visible on the branch that borrowed them).
+
+There is no separate library drain, no separate pending set, and no path that bypasses
+`qdrant_pending` — so a crash between the `libraries` INSERT and the Qdrant upsert is
+recovered by the same startup re-drain as any file (§4.8 case 1). Because library docs
+are not in `membership`, `membership.branch_id` stays `NOT NULL`; the library branch set
+is carried by `libraries.branch_id` (NULL → `BRANCH_NONE_ID`) and folded into
+`compute_membership` and the GC refcount (§5.3, §5.5). A doc whose bytes are identical to
+a source file in the same keep shares one `content_key`, one blob, and one chunk-point
+set; its payload `branch_id[]` is the UNION of the file's branches and the library's
+branch token, and its GC refcount counts both referrers — both keep the shared points
+alive, which is correct.
 
 **FTS5 tables (both in storedb — external-content MUST share DB with content table):**
 
@@ -1534,8 +1610,15 @@ Qdrant payload because it is a stable file-grain attribute (not a pre-filter key
 - `branch_id[]`: keyword array indexed in Qdrant (`MatchAny` condition:
   `branch_id ANY [target_branch_id]`). Maintained by the daemon (GP-9, single-writer
   invariant). ADD and REMOVE both use ONE unified producer:
-  `compute_membership(content_key) = SELECT DISTINCT branch_id FROM membership
-  WHERE content_key = ?` → `upsert_points` (new blob: vectors + full payload) or
+  `compute_membership(content_key)`, defined as the UNION of the file referrers and the
+  embedded-library referrers of the `content_key`:
+  `SELECT DISTINCT branch_id FROM membership WHERE content_key = ?`
+  `UNION SELECT COALESCE(branch_id, :branch_none_id) FROM libraries WHERE content_key = ?`
+  (`:branch_none_id` is the bound `BRANCH_NONE_ID` UUID constant, NOT a literal string;
+  the library arm maps a NULL `libraries.branch_id` to the `BRANCH_NONE_ID` token so an
+  embedded branch-agnostic doc yields a non-empty set — never a spurious REMOVE; for a
+  pure source-file `content_key` the library arm returns no rows and the result is exactly
+  the `membership` set, unchanged) → `upsert_points` (new blob: vectors + full payload) or
   `overwrite_payload` (existing blob: PUT — full payload replacement) under the
   per-`content_key` ContentKeyLockManager lock, acquired at FLUSH TIME ONLY via the
   `qdrant_pending` drain (§4.8 case 1, §5.2). The two cases differ in WHEN they run
@@ -1566,11 +1649,22 @@ Qdrant payload because it is a stable file-grain attribute (not a pre-filter key
       Orphaned content_keys (no remaining membership rows after step 4) get a Qdrant
       chunk point DELETE — no empty-array PUT.
 
+This generalized union is the single authoritative definition of `compute_membership`.
+The §4 file-ingest and branch-delete flows (and their sequence-diagram notes) write the
+shorthand `SELECT DISTINCT branch_id FROM membership WHERE content_key = ?` because those
+flows touch only source files, where the `libraries` arm is always empty and the two forms
+coincide; the union form above governs wherever a `content_key` may belong to an embedded
+library doc — chiefly the `qdrant_pending` drain (§6.3), which serves both classes.
+
 No `collection_id` field. The single `projects` collection covers all keeps. No
-`referrer_list` in payload. GC refcount is `SELECT COUNT(*) FROM membership WHERE
-content_key = ?` in storedb (SQLite is truth, per FP-1). Storing a mutable referrer
-array in Qdrant would create a dual source of truth, diverge after any crash, and
-grow unbounded on hot content_keys.
+`referrer_list` in payload. GC refcount counts BOTH referrer classes of a `content_key`:
+`(SELECT COUNT(*) FROM membership WHERE content_key = ?) + (SELECT COUNT(*) FROM
+libraries WHERE content_key = ?)` in storedb (SQLite is truth, per FP-1). The `libraries`
+term is required so a blob referenced only by an embedded library doc (no `membership`
+row) is NOT GC'd as an orphan — the refcount and `compute_membership` stay consistent
+(both union the same two referrer classes). Storing a mutable referrer array in Qdrant
+would create a dual source of truth, diverge after any crash, and grow unbounded on hot
+content_keys.
 
 `set_payload` (POST) is NEVER used for `branch_id[]` — it appends or merges
 depending on Qdrant version, not idempotently replaces. Always use the full-payload
@@ -1785,7 +1879,12 @@ sequenced AFTER the `membership` DELETE so storedb truth is correct at recompute
    branch. Correct query shape (batched GROUP BY, <= 1000 per batch, OUTSIDE the
    transaction): `GROUP BY content_key HAVING SUM(CASE WHEN branch_id != :deleted
    THEN 1 ELSE 0 END) = 0`. A `WHERE branch_id != :deleted` predicate before the
-   GROUP BY eliminates the rows that DEFINE an orphan and MUST NOT be used.
+   GROUP BY eliminates the rows that DEFINE an orphan and MUST NOT be used. THEN
+   subtract any content_key present in `libraries` (`SELECT content_key FROM libraries
+   WHERE content_key IN (window)`): an embedded library-doc referrer keeps the blob
+   alive even with zero surviving `membership` rows (§5.3) — failing to subtract it
+   destroys library vectors and rolls back the step-5 `blobs` DELETE on the
+   `libraries.content_key` FK.
 3. For each orphan content_key: collect `point_id` values from `chunks` table.
    Qdrant: DELETE all orphan chunk points (data product before truth row).
    Batch at >= 1000 point_ids per delete call.
@@ -1797,8 +1896,9 @@ sequenced AFTER the `membership` DELETE so storedb truth is correct at recompute
    (DDL §5.2) — no explicit delete of `file_symbols` needed in step 5.
 5. storedb: Re-verify orphan set in batches of <= 1000 candidates inside individual
    `BEGIN IMMEDIATE ... COMMIT` cycles (ABA guard — see §4.3): per batch, select
-   still-referenced content_keys from the candidate window (COUNT from `membership`),
-   then DELETE confirmed-orphan `blobs` rows. The `ON DELETE CASCADE` on
+   still-referenced content_keys from the candidate window — referenced by EITHER
+   ledger (`SELECT content_key FROM membership ... UNION SELECT content_key FROM
+   libraries ...`, §5.3) — then DELETE only the confirmed-orphan `blobs` rows. The `ON DELETE CASCADE` on
    `chunks.content_key → blobs.content_key` (§5.2 DDL) propagates: `blobs` DELETE
    cascades to `chunks`, which cascades via `chunk_text.point_id → chunks.point_id`
    to `chunk_text` (the `chunk_text_ad` trigger fires per row, removing from
@@ -1811,9 +1911,10 @@ sequenced AFTER the `membership` DELETE so storedb truth is correct at recompute
    fire automatically; no explicit deletes of child tables needed. Chunked to avoid
    `SQLITE_MAX_VARIABLE_NUMBER` and unbounded write-stall.
 6. Qdrant: for each still-referenced content_key (step 1 set MINUS confirmed orphans),
-   recompute `branch_id[]` via `compute_membership(content_key) = SELECT DISTINCT
-   branch_id FROM membership WHERE content_key = ?` (now excludes deleted branch —
-   `membership` rows deleted in step 4) → `overwrite_payload` (PUT, full payload
+   recompute `branch_id[]` via `compute_membership(content_key)` (§5.3 — the generalized
+   UNION of `membership` and `libraries` referrers; now excludes the deleted branch since
+   its `membership` rows were deleted in step 4, while a shared content_key retains its
+   `libraries` branch token) → `overwrite_payload` (PUT, full payload
    replacement, `{keep_id, branch_id: recomputed_set[]}`) for EACH of the N chunk
    points of this content_key, SYNCHRONOUSLY under per-content_key ContentKeyLock
    (immediacy choice — under flush-time recompute, enqueuing via `qdrant_pending`
@@ -1979,6 +2080,23 @@ pub trait WriteStoreFacade: ReadStoreFacade {
         file: &IngestFileRequest,
     ) -> Result<IngestOutcome, StorageError>;
 
+    /// Ingest one library document into storedb for a given keep (§5.5, "Library
+    /// document ingest and embedding"). `branch_id` is `Some(b)` for a project-borrowed
+    /// doc (branch-discriminated: visible on the branch that borrowed it) and `None` for a standalone or
+    /// GLOBAL library keep (carried on the Qdrant payload as BRANCH_NONE_ID). Runs the
+    /// SAME file-grain dedup ladder as `ingest_file`: content_key = content_key(keep_id,
+    /// SHA256(content)); hit reuses the blob (no re-embed), miss parses+chunks+embeds.
+    /// In one transaction it UPSERTs the `libraries` row (carrying content_key, keyed by
+    /// idx_libraries_uniq) and INSERTs the qdrant_pending entry. The doc is NOT written to
+    /// `membership` — its branch set is the `libraries` arm of compute_membership (§5.3).
+    /// This is the canonical write module for F18 embedded library docs.
+    async fn ingest_library_doc(
+        &self,
+        keep_id: &str,
+        branch_id: Option<&str>,
+        doc: &IngestLibraryDocRequest,
+    ) -> Result<IngestOutcome, StorageError>;
+
     /// Onboard a previously unknown branch: register it (mint branch_id) and ingest
     /// the files that differ from the prior state (§4.2).
     async fn branch_onboard(
@@ -2039,13 +2157,23 @@ pub trait WriteStoreFacade: ReadStoreFacade {
     ) -> Result<(), StorageError>;
 
     /// Permanently delete ALL data for a keep: Qdrant chunk points, storedb
-    /// blobs/chunks/files/membership/branches/instances/resolution_keys/keeps rows.
+    /// blobs/chunks/files/membership/libraries/scratchpad/rules/branches/instances/
+    /// resolution_keys/keeps rows.
     /// FK sub-order enforced with `foreign_keys=ON` (§5.2 connection protocol):
     ///   Step 1: DELETE all Qdrant chunk points for every content_key of this keep.
+    ///           "Every content_key of this keep" = SELECT content_key FROM blobs WHERE
+    ///           keep_id=? — this set covers BOTH source-file blobs (referenced via
+    ///           membership) AND embedded-library-doc blobs (referenced via
+    ///           libraries.content_key), since both share the keep's keep_id.
     ///   Step 2: DELETE membership WHERE file_id IN (SELECT file_id FROM files WHERE
     ///           keep_id=?) — membership has no keep_id column; scope via files.
     ///           Cascades file_symbols (file_id ON DELETE CASCADE).
     ///           Then DELETE files WHERE keep_id=?.
+    ///           Then DELETE libraries WHERE keep_id=?, scratchpad WHERE keep_id=?,
+    ///           rules WHERE keep_id=? — the pseudo-fs tables (a library keep has its
+    ///           ENTIRE corpus here and no files/membership rows). This drops the
+    ///           libraries referrers BEFORE the blobs delete so the library-doc blobs
+    ///           are unreferenced when GC'd.
     ///           Then DELETE blobs WHERE keep_id=? — cascades chunks → chunk_text
     ///           (FTS5 trigger fires per row) + chunk_vector + xrefs +
     ///           symbol_signatures + signature_params.
@@ -2206,8 +2334,13 @@ recovery-drain):
    blob's vectors are never lost to a coalesced payload-only PUT; see §4.8 case 1.)
   Per deduplicated content_key:
     acquire lock(content_key) →
-    compute_membership(content_key) = SELECT DISTINCT branch_id FROM membership
-      WHERE content_key = ? →
+    compute_membership(content_key) (§5.3, generalized: the UNION of
+      SELECT DISTINCT branch_id FROM membership WHERE content_key = ?  and
+      SELECT COALESCE(branch_id, :branch_none_id) FROM libraries WHERE content_key = ?
+      (:branch_none_id = the bound BRANCH_NONE_ID UUID constant, not a literal string)
+      — the library arm keeps an embedded branch-agnostic doc's set non-empty so the
+      drain never issues a spurious REMOVE; for a pure source-file key it returns the
+      membership set unchanged) →
     read op_type from the deduped row:
       'upsert': fetch vectors from chunk_vector; call upsert_points (vectors+payload).
       'overwrite': call overwrite_payload (payload-only PUT {keep_id, branch_id: full_set[]}).
@@ -2229,8 +2362,9 @@ the blobs+chunks present and takes the membership-update path.
 **Qdrant membership updates — ONE unified producer (compute_membership → upsert_points or overwrite_payload):**
 
 All paths (ADD new-blob, ADD existing-blob, REMOVE) derive `branch_id[]` from storedb
-truth via `compute_membership(content_key) = SELECT DISTINCT branch_id FROM membership
-WHERE content_key = ?` and write to Qdrant with `ALL payload fields supplied`
+truth via `compute_membership(content_key)` (§5.3 — the generalized union of the
+`membership` and `libraries` referrers; the `membership` arm alone for a pure source-file
+key) and write to Qdrant with `ALL payload fields supplied`
 (`keep_id`, `branch_id: full_set[]`) — omitting either silently drops it from the
 point. `get_points` is NEVER called; Qdrant is never a source of membership truth.
 The Qdrant operation differs by path:
@@ -2259,8 +2393,9 @@ authoritative post-mutation state:
 - **Ingest-path ADD (new blob):** storedb INSERT fires first (blobs+chunks+membership
   + qdrant_pending in one transaction — durable pending entry). AT FLUSH TIME the
   flusher acquires ContentKeyLock(content_key), runs
-  `compute_membership(content_key)` = `SELECT DISTINCT branch_id FROM membership WHERE
-  content_key = ?`, fetches dense+sparse vectors from `chunk_vector` for each
+  `compute_membership(content_key)` (§5.3; this is a source-file ingest sub-path, so the
+  `libraries` arm is empty and the result is the `membership` set), fetches dense+sparse
+  vectors from `chunk_vector` for each
   `point_id` of this content_key, and calls `upsert_points` with
   `{point_id, dense_vec, sparse_vec, payload: {keep_id, branch_id: full_set[]}}` for
   each chunk point. `overwrite_payload` MUST NOT be used here — it is payload-only and
@@ -3210,13 +3345,28 @@ src/rust/storage-write/
     │   │                                   Feeds all four storedb sinks + optional LadybugDB KG.
     │   │                                   NO second extraction pass (FP-2). Retires
     │   │                                   daemon/core/src/graph/extractor/mod.rs extract_edges*.
-    │   └── gc.rs           (~320 lines)  — GC sweep: chunked membership DELETE + orphan
-    │                                       re-verify (ABA guard) + cascade DELETE blobs →
-    │                                       chunks (CASCADE) + Qdrant chunk point DELETE.
+    │   ├── gc.rs           (~320 lines)  — GC sweep: chunked membership DELETE + orphan
+    │   │                                   re-verify (ABA guard) + cascade DELETE blobs →
+    │   │                                   chunks (CASCADE) + Qdrant chunk point DELETE.
+    │   │                                   Refcount unions BOTH referrer ledgers (§5.3):
+    │   │                                   COUNT(membership) + COUNT(libraries) per content_key
+    │   │                                   — a library-only blob is not a false orphan.
+    │   └── library.rs      (~160 lines)  — ingest_library_doc: the embedded-library write path
+    │                                       (§5.5). Defines IngestLibraryDocRequest { virtual_path,
+    │                                       title, source_path, content }. Reuses the dedup ladder
+    │                                       (dedup.rs) for content_key/blob/chunk, then UPSERTs the
+    │                                       libraries row (content_key, branch_id|NULL) + enqueues
+    │                                       qdrant_pending in one transaction. No membership write.
     ├── membership/
     │   └── compute.rs      (~240 lines)  — CANONICAL SQL producer: compute_membership(content_key)
-    │                                       = SELECT DISTINCT branch_id FROM membership WHERE
-    │                                       content_key = ? (ONE producer for ADD and REMOVE).
+    │                                       = (SELECT DISTINCT branch_id FROM membership WHERE
+    │                                       content_key = ?) UNION (SELECT COALESCE(branch_id,
+    │                                       BRANCH_NONE_ID) FROM libraries WHERE content_key = ?)
+    │                                       — the generalized union over file + embedded-library
+    │                                       referrers (§5.3); the library arm keeps an embedded
+    │                                       branch-agnostic doc's set non-empty (no spurious
+    │                                       REMOVE) and is empty for a pure source-file key.
+    │                                       ONE producer for ADD and REMOVE.
     │                                       CALLED BY qdrant/membership.rs for both paths;
     │                                       no other module may run this SQL directly (FP-2).
     │                                       ADD: called after membership INSERT, result enqueued
