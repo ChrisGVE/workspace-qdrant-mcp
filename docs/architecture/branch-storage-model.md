@@ -640,12 +640,12 @@ sequenceDiagram
 
     Note over Facade: GP-4 — Deletion truth table check (above).<br/>Any ambiguity or error → DEFER, do NOT proceed.
 
-    Note over Facade: FP-1 physical-delete ordering (data products first, truth last):<br/>Step 1: pre-select all content_keys for this branch from membership (read-only).<br/>Step 2: compute orphan candidates (content_keys with NO other branch in membership).<br/>Step 3: delete orphaned Qdrant points for all chunks of orphan content_keys.<br/>Step 4: DELETE membership + files rows for this branch (truth rows).<br/>Step 5: re-verify orphan set AFTER membership deletion; delete confirmed orphaned<br/>         blobs + their chunks + chunk_text + chunk_vector + xrefs + file_symbols +<br/>         symbol_signatures + signature_params (see §8 for all four extract_edges sinks).<br/>Step 6: for each still-referenced content_key, recompute branch_id[] from storedb<br/>         → overwrite_payload (PUT) per chunk point under ContentKeyLock.<br/>Step 7: delete branches row (crash-recovery anchor, last).<br/>NOTE: membership PUT (Step 6) fires AFTER membership DELETE (Step 4) so the storedb<br/>recompute correctly excludes the deleted branch. Orphaned blobs get chunk point DELETEs.
+    Note over Facade: FP-1 physical-delete ordering (data products first, truth last):<br/>Step 1: pre-select all content_keys for this branch from membership AND from this branch's<br/>        borrowed libraries rows (read-only).<br/>Step 2: compute orphan candidates (content_keys with NO surviving referrer in either ledger).<br/>Step 3: delete orphaned Qdrant points for all chunks of orphan content_keys.<br/>Step 4: DELETE membership + files + this branch's borrowed libraries rows (truth rows).<br/>Step 5: re-verify orphan set AFTER truth deletion; delete confirmed orphaned<br/>         blobs + their chunks + chunk_text + chunk_vector + xrefs + file_symbols +<br/>         symbol_signatures + signature_params (see §8 for all four extract_edges sinks).<br/>Step 6: for each still-referenced content_key, recompute branch_id[] from storedb<br/>         → overwrite_payload (PUT) per chunk point under ContentKeyLock.<br/>Step 7: delete branches row (crash-recovery anchor, last).<br/>NOTE: membership PUT (Step 6) fires AFTER membership DELETE (Step 4) so the storedb<br/>recompute correctly excludes the deleted branch. Orphaned blobs get chunk point DELETEs.
 
-    Facade->>SQLite: SELECT DISTINCT content_key FROM membership WHERE branch_id=?
-    Note over Facade: Step 1: hold all content_key candidates in memory.
+    Facade->>SQLite: SELECT DISTINCT content_key FROM membership WHERE branch_id=?<br/>UNION SELECT content_key FROM libraries WHERE branch_id=? AND content_key IS NOT NULL
+    Note over Facade: Step 1: hold all content_key candidates in memory. The libraries arm<br/>brings this branch's project-borrowed library docs (libraries.branch_id=B) into the<br/>candidate set so their blobs are GC'd when the branch is deleted (they are never in<br/>membership). Branch-agnostic docs (branch_id NULL) are untouched by a branch delete.
 
-    Note over Facade: Step 2: batched GROUP BY orphan scan (≤1000 content_keys per call):<br/>  SELECT content_key FROM membership WHERE content_key IN (candidate_window)<br/>  GROUP BY content_key<br/>  HAVING SUM(CASE WHEN branch_id != :deleted_branch_id THEN 1 ELSE 0 END) = 0<br/>Result: content_keys whose ONLY membership referrer is the deleted branch.<br/>SUBTRACT any content_key with a libraries referrer (SELECT 1 FROM libraries WHERE<br/>content_key = ? — an embedded borrowed-doc blob is NOT an orphan even with zero<br/>surviving membership rows; deleting it would destroy library vectors and roll back the<br/>blobs DELETE on the libraries.content_key FK). Remaining = true orphan candidates.<br/>NOTE: do NOT add WHERE branch_id != :deleted before the GROUP BY — that eliminates<br/>the rows that define an orphan.
+    Note over Facade: Step 2: batched orphan scan (≤1000 content_keys per call). Raw orphan<br/>candidates = the UNION of TWO arms — a content_key may enter via either ledger:<br/>  -- Arm 1 (file orphans): content_keys whose ONLY membership referrer is the deleted branch.<br/>  SELECT content_key FROM membership WHERE content_key IN (candidate_window)<br/>  GROUP BY content_key<br/>  HAVING SUM(CASE WHEN branch_id != :deleted_branch_id THEN 1 ELSE 0 END) = 0<br/>  UNION<br/>  -- Arm 2 (library-only orphans): borrowed docs on this branch that have NO membership row<br/>  -- at all — the membership GROUP BY above emits NOTHING for them (empty group → no HAVING<br/>  -- row), so without this arm they would leak (not GC'd until §4.8 reconcile).<br/>  SELECT l.content_key FROM libraries l<br/>  WHERE l.branch_id = :deleted_branch_id AND l.content_key IN (candidate_window)<br/>    AND l.content_key NOT IN (SELECT content_key FROM membership WHERE content_key IN (candidate_window))<br/>THEN SUBTRACT any content_key with a SURVIVING libraries referrer — a libraries row whose<br/>branch_id != :deleted_branch_id OR branch_id IS NULL (SELECT 1 FROM libraries WHERE<br/>content_key = ? AND (branch_id != :deleted OR branch_id IS NULL)). Such a blob is still<br/>referenced after this branch goes (another branch's borrow or a branch-agnostic doc) and is<br/>NOT an orphan; deleting it would destroy library vectors and roll back the blobs DELETE on<br/>the libraries.content_key FK. A borrowed doc whose ONLY libraries referrer is the deleted<br/>branch survives the subtraction and correctly stays an orphan candidate.<br/>Remaining = true orphan candidates.<br/>NOTE: do NOT add WHERE branch_id != :deleted before the membership GROUP BY — that<br/>eliminates the rows that define an orphan.
     Facade->>SQLite: batched GROUP BY orphan scan (≤1000 candidates per call)
 
     loop orphaned content_keys (batched ≥1000)
@@ -659,6 +659,7 @@ sequenceDiagram
         Facade->>SQLite: BEGIN IMMEDIATE
         Facade->>SQLite: DELETE FROM membership WHERE rowid IN<br/>  (SELECT rowid FROM membership WHERE branch_id=? LIMIT 10000) — Step 4a
         Facade->>SQLite: DELETE FROM files WHERE rowid IN<br/>  (SELECT rowid FROM files WHERE branch_id=? LIMIT 10000) — Step 4b
+        Facade->>SQLite: DELETE FROM libraries WHERE rowid IN<br/>  (SELECT rowid FROM libraries WHERE branch_id=? LIMIT 10000) — Step 4c<br/>(removes this branch's borrowed library docs as truth rows; their now-orphaned blobs are<br/>GC'd in Step 5. The libraries.branch_id ON DELETE CASCADE is a backstop only — this<br/>explicit delete runs first so Step 5's orphan re-verify sees the post-deletion state.)
         Facade->>SQLite: COMMIT — releases RESERVED lock; ingest may interleave
     end
 
@@ -667,7 +668,7 @@ sequenceDiagram
     loop step 5 — per batch of ≤1000 orphan candidates
         Facade->>SQLite: BEGIN IMMEDIATE
         Facade->>SQLite: survivors = SELECT content_key FROM membership WHERE content_key IN (candidate_window_1000)<br/>UNION SELECT content_key FROM libraries WHERE content_key IN (candidate_window_1000) — ABA survivors (still referenced by EITHER ledger)
-        Note over Facade: confirmed_orphan_batch = candidate_window MINUS survivors.<br/>The libraries arm of the survivor set is mandatory: a shared content_key (borrowed<br/>library doc whose bytes equal a repo file) keeps a libraries referrer after the<br/>branch's membership rows are gone — it must NOT be confirmed orphan.<br/>DELETE chunks (cascade → chunk_text, chunk_vector), blobs, xrefs, file_symbols,<br/>symbol_signatures, signature_params.
+        Note over Facade: confirmed_orphan_batch = candidate_window MINUS survivors.<br/>The libraries arm of the survivor set is mandatory and runs AFTER Step 4c deleted this<br/>branch's libraries rows: a content_key still referenced by ANOTHER branch's borrow or a<br/>branch-agnostic (NULL) doc survives and is preserved; a content_key whose only libraries<br/>referrer was the deleted branch (now gone) has no survivor and is correctly confirmed<br/>orphan. This also covers the shared case (a borrowed doc whose bytes equal a repo file).<br/>DELETE chunks (cascade → chunk_text, chunk_vector), blobs, xrefs, file_symbols,<br/>symbol_signatures, signature_params.
         Facade->>SQLite: DELETE chunks/blobs/xrefs/file_symbols/symbol_signatures/signature_params for confirmed_orphan_batch<br/>  (subselect idiom; ≤1000 content_keys per batch; FTS5 trigger fires per chunk_text row)
         Facade->>SQLite: COMMIT
     end
@@ -690,7 +691,11 @@ recovery, GP-3). A crash after Step 4 (membership deleted) but before Step 6
 (membership PUT) leaves Qdrant stale with the deleted branch still present; §4.8
 detects the storedb/Qdrant mismatch and removes it. A crash after Step 3 but
 before Step 5 (blobs/chunks deleted) leaves orphan `blobs` rows; §4.8 prunes them.
-At no point is a storedb-truth-referenced blob GC'd.
+A crash mid-Step-4 that completes 4a/4b (membership/files gone) but not 4c (this branch's
+borrowed `libraries` rows still present) is safe: the surviving `libraries` referrer keeps
+the blob storedb-referenced, so §4.8 reconcile re-upserts its (now reduced) Qdrant payload
+rather than treating it as an orphan — the borrowed doc simply persists until the branch
+delete is retried. At no point is a storedb-truth-referenced blob GC'd.
 
 **Single-file delete variant (`delete_file_from_branch(branch_id, file_id)`):**
 Retracts ONE file from ONE branch without tearing down the whole branch. Same
@@ -761,8 +766,8 @@ sequenceDiagram
 
     Op->>Facade: rebuild_qdrant(keep_id)
     Note over Facade: Collection creation (idempotent): create_collection if not exists;<br/>create_payload_index(branch_id, keyword);<br/>create_payload_index(keep_id, keyword).<br/>Named vectors: dense (Cosine, 768-dim) + sparse (dot-product).
-    Facade->>SQLite: streaming cursor (keyset pagination, batch size ≥1000):<br/>SELECT c.point_id, cv.dense, cv.sparse,<br/>json_group_array(DISTINCT m.branch_id) AS branch_ids_json,<br/>c.keep_id<br/>FROM chunks c<br/>JOIN chunk_vector cv ON cv.point_id = c.point_id<br/>JOIN membership m ON m.content_key = c.content_key<br/>WHERE c.keep_id = ? AND c.point_id > ? -- keyset cursor on denormalized keep_id<br/>GROUP BY c.point_id ORDER BY c.point_id LIMIT 1000
-    Note over Facade: branch_ids_json is a JSON string (e.g. '["uuid1","uuid2"]');<br/>deserialize via serde_json::from_str before sending to Qdrant.<br/>Cursor advances c.point_id per batch; avoids O(total_chunks) scan.
+    Facade->>SQLite: streaming cursor (keyset pagination, batch size ≥1000):<br/>SELECT c.point_id, cv.dense, cv.sparse,<br/>(SELECT json_group_array(b) FROM (<br/>   SELECT DISTINCT branch_id AS b FROM membership WHERE content_key = c.content_key<br/>   UNION SELECT COALESCE(branch_id, :branch_none_id) FROM libraries WHERE content_key = c.content_key<br/>)) AS branch_ids_json,<br/>c.keep_id<br/>FROM chunks c<br/>JOIN chunk_vector cv ON cv.point_id = c.point_id<br/>WHERE c.keep_id = ? AND c.point_id > ? -- keyset cursor on denormalized keep_id<br/>  AND (EXISTS (SELECT 1 FROM membership WHERE content_key = c.content_key)<br/>       OR EXISTS (SELECT 1 FROM libraries WHERE content_key = c.content_key))<br/>ORDER BY c.point_id LIMIT 1000
+    Note over Facade: branch set per point = the GENERALIZED compute_membership union (§5.3):<br/>membership referrers UNION libraries referrers (NULL → BRANCH_NONE_ID). The old<br/>INNER JOIN membership silently DROPPED library-only blobs (zero membership rows) —<br/>GLOBAL/standalone library docs would be unsearchable after a rebuild (DR GP-2 violation).<br/>The correlated subquery aggregates per point, so no GROUP BY and every chunk (file OR<br/>library) is rebuilt. The referrer-EXISTS guard skips zero-referrer orphaned chunks (a<br/>possible partial-corruption state §4.8 has not yet pruned) so branch_ids_json is never NULL<br/>— matching the old INNER JOIN's exclusion of unreferenced rows.<br/>branch_ids_json is a JSON string (e.g. '["uuid1","uuid2"]');<br/>deserialize via serde_json::from_str before sending to Qdrant.<br/>Cursor advances c.point_id per batch; avoids O(total_chunks) scan.
     loop batches of ≥1000 (streaming, not all-at-once)
         Facade->>Qdrant: upsert chunk points (vectors + payload={keep_id, branch_id[]})
     end
@@ -1335,7 +1340,9 @@ CREATE INDEX idx_rules_keep ON rules(keep_id);
 CREATE TABLE libraries (
     lib_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     keep_id        TEXT NOT NULL REFERENCES keeps(keep_id),
-    branch_id      TEXT REFERENCES branches(branch_id),
+    branch_id      TEXT REFERENCES branches(branch_id) ON DELETE CASCADE,  -- borrowed-doc rows
+                                   -- die with their branch (FK-safety backstop); branch_delete (§4.3)
+                                   -- ALSO deletes them explicitly so the blob GC runs synchronously
     content_key    TEXT REFERENCES blobs(content_key),  -- embedded-content link; NULL if not embedded
     virtual_path   TEXT NOT NULL,
     title          TEXT,
@@ -1874,26 +1881,38 @@ Per FP-1 "delete data products first, truth rows last" with membership update
 sequenced AFTER the `membership` DELETE so storedb truth is correct at recompute time:
 
 1. Pre-select candidate content_keys: `SELECT DISTINCT content_key FROM membership
-   WHERE branch_id = ?` — hold in memory before any delete.
-2. Pre-select orphan content_keys: content_keys whose ONLY referrer is the deleted
-   branch. Correct query shape (batched GROUP BY, <= 1000 per batch, OUTSIDE the
-   transaction): `GROUP BY content_key HAVING SUM(CASE WHEN branch_id != :deleted
-   THEN 1 ELSE 0 END) = 0`. A `WHERE branch_id != :deleted` predicate before the
-   GROUP BY eliminates the rows that DEFINE an orphan and MUST NOT be used. THEN
-   subtract any content_key present in `libraries` (`SELECT content_key FROM libraries
-   WHERE content_key IN (window)`): an embedded library-doc referrer keeps the blob
-   alive even with zero surviving `membership` rows (§5.3) — failing to subtract it
-   destroys library vectors and rolls back the step-5 `blobs` DELETE on the
-   `libraries.content_key` FK.
+   WHERE branch_id = ?` UNION `SELECT content_key FROM libraries WHERE branch_id = ?
+   AND content_key IS NOT NULL` — hold in memory before any delete. The libraries arm
+   brings this branch's project-borrowed library docs (never in `membership`) into the
+   candidate set so their blobs are GC'd when the branch is deleted.
+2. Pre-select orphan content_keys: raw candidates = the UNION of two arms (a content_key
+   may enter via either ledger). Arm 1 (file orphans, batched GROUP BY, <= 1000 per batch,
+   OUTSIDE the transaction): `GROUP BY content_key HAVING SUM(CASE WHEN branch_id !=
+   :deleted THEN 1 ELSE 0 END) = 0` over `membership`. A `WHERE branch_id != :deleted`
+   predicate before the GROUP BY eliminates the rows that DEFINE an orphan and MUST NOT be
+   used. Arm 2 (library-only orphans): `SELECT content_key FROM libraries WHERE branch_id =
+   :deleted AND content_key IN (window) AND content_key NOT IN (SELECT content_key FROM
+   membership WHERE content_key IN (window))` — borrowed docs with NO membership row, for
+   which the Arm-1 GROUP BY emits nothing (empty group → no HAVING row); without Arm 2 they
+   would leak until §4.8 reconcile. THEN subtract any content_key with a SURVIVING
+   `libraries` referrer (`SELECT content_key FROM libraries WHERE content_key IN (window)
+   AND (branch_id != :deleted OR branch_id IS NULL)`): a doc still borrowed by another
+   branch or a branch-agnostic (NULL) doc keeps the blob alive (§5.3) — failing to subtract
+   it destroys library vectors and rolls back the step-5 `blobs` DELETE on the
+   `libraries.content_key` FK. A borrowed doc whose ONLY libraries referrer is the deleted
+   branch survives the subtraction and correctly stays an orphan candidate.
 3. For each orphan content_key: collect `point_id` values from `chunks` table.
    Qdrant: DELETE all orphan chunk points (data product before truth row).
    Batch at >= 1000 point_ids per delete call.
 4. storedb: DELETE `membership` rows WHERE `branch_id = ?` using chunked-delete
    idiom: `WHERE rowid IN (SELECT rowid FROM membership WHERE branch_id=? LIMIT 10000)`
    looped until 0 rows, committing per batch (releases RESERVED lock so ingest can
-   interleave). `files` rows WHERE `branch_id = ?` deleted in the same loop.
-   `file_symbols` cascade-deletes automatically from `files.file_id ON DELETE CASCADE`
-   (DDL §5.2) — no explicit delete of `file_symbols` needed in step 5.
+   interleave). `files` rows WHERE `branch_id = ?` deleted in the same loop. `libraries`
+   rows WHERE `branch_id = ?` (this branch's borrowed docs) ALSO deleted in the same loop
+   so step-5's orphan re-verify sees the post-deletion state; the `libraries.branch_id
+   ON DELETE CASCADE` is only a backstop. `file_symbols` cascade-deletes automatically
+   from `files.file_id ON DELETE CASCADE` (DDL §5.2) — no explicit delete of
+   `file_symbols` needed in step 5.
 5. storedb: Re-verify orphan set in batches of <= 1000 candidates inside individual
    `BEGIN IMMEDIATE ... COMMIT` cycles (ABA guard — see §4.3): per batch, select
    still-referenced content_keys from the candidate window — referenced by EITHER
@@ -2017,8 +2036,10 @@ P4. **Full backup (F20).** Run `wqm backup --full` AFTER the daemon is down. Rec
    - DELETE old Qdrant `projects` collection (old chunk points carried `tenant_id`,
      `collection_id`, derived `branch_id` UUIDs — incompatible with keep-model).
    - CREATE new `projects` collection per §5.3.
-   - Upsert all chunk points from storedb `chunks JOIN chunk_vector JOIN membership`
-     streaming cursor. Batch at >= 1000 per call. Payload: `{keep_id, branch_id[]}`.
+   - Upsert all chunk points using the §4.5 `rebuild_qdrant` cursor (the generalized
+     compute_membership union for the branch_id[] payload — NOT a bare `JOIN membership`,
+     which would drop embedded library-doc chunks). Batch at >= 1000 per call. Payload:
+     `{keep_id, branch_id[]}`.
    - Create payload indexes (`branch_id`, `keep_id`).
 
 4. **statedb cleanup.** DROP old `projects` + `project_locations` tables from
@@ -2118,6 +2139,9 @@ pub trait WriteStoreFacade: ReadStoreFacade {
 
     /// Rebuild the Qdrant index for a keep from storedb durable vectors.
     /// No embedding API calls. Used for recovery and operator-driven rebuild.
+    /// Covers EVERY chunk: the §4.5 cursor derives each point's branch_id[] from the
+    /// generalized compute_membership union (membership AND libraries referrers), so
+    /// embedded library docs (file-less, no membership row) are rebuilt too (DR GP-2).
     async fn rebuild_qdrant(
         &self,
         keep_id: &str,
@@ -3433,8 +3457,10 @@ src/rust/storage-write/
     │   │                                   Budget: ~300-320 lines; within 500-line ceiling.
     │   ├── collection.rs   (~150 lines)  — CREATE collection + payload indexes (keep_id, branch_id);
     │   │                                   idempotent; called at daemon startup + after rebuild.
-    │   └── recover.rs      (~260 lines)  — rebuild_qdrant: streaming cursor
-    │                                       (chunks JOIN chunk_vector JOIN membership) → batch upsert.
+    │   └── recover.rs      (~260 lines)  — rebuild_qdrant: streaming cursor over
+    │                                       chunks JOIN chunk_vector, branch_id[] per point via the
+    │                                       generalized compute_membership union (membership + libraries,
+    │                                       §5.3 — NOT a bare JOIN membership) → batch upsert.
     ├── lock.rs             (~200 lines)  — ContentKeyLockManager (DashMap-backed, FILE-grain,
     │                                       eviction-bounded, §6.3); write-crate only.
     └── testing/
