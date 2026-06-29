@@ -10,6 +10,14 @@
 
 Project-scoped vector database for AI assistants, providing hybrid semantic + keyword search with automatic project detection.
 
+> ### 🚧 v0.2.0 rebuild in progress
+>
+> **workspace-qdrant-mcp is being rebuilt from the ground up in preparation for v0.2.0** —
+> a unified storage model, better search quality, more reliable file watching, and a cleaner
+> architecture, with a no-re-index migration for existing users. Once the design is locked
+> (targeted early July) we'll open the work to outside contributors. See the
+> **[Roadmap](ROADMAP.md)** for the top-line plan.
+
 ## Features
 
 - **Hybrid Search** - Combines semantic similarity with keyword matching using Reciprocal Rank Fusion
