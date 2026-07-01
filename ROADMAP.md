@@ -25,14 +25,14 @@ contributors.
 
 ## Development phases
 
-### Phase 0 — Audit the current system ✅ *(complete)*
+### Phase 0 — Audit the current system *(complete)*
 
 - **Goal:** map exactly how 0.1.x behaves today — every storage path, every quirk, every
   known failure — before changing a line.
 - **Benefit:** the rebuild is grounded in evidence, not guesswork. Nothing that works today
   gets lost, and every past rough edge is on the record so we don't reintroduce it.
 
-### Phase 1 — Design the foundation 🔨 *(in progress)*
+### Phase 1 — Design the foundation *(in progress)*
 
 - **Goal:** lock the core design — the unified storage model, the change-detection /
   file-watching model, and the overall code architecture.
