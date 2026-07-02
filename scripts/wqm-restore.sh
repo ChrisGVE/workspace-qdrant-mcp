@@ -21,6 +21,9 @@
 #
 set -euo pipefail
 
+# Scheduled/minimal-env launchers omit Homebrew from PATH; ensure brew tools resolve.
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 # ---- configuration ---------------------------------------------------------
 DATA_DIR="${WQM_DATA_DIR:-$HOME/.local/share/workspace-qdrant}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"

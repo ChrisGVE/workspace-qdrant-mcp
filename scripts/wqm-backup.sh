@@ -28,6 +28,10 @@
 #
 set -euo pipefail
 
+# Scheduled launchers (Keyboard Maestro, launchd, cron) run with a minimal PATH
+# that omits Homebrew; make sure brew-installed tools (zstd/jq/curl) resolve.
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 # ---- configuration ---------------------------------------------------------
 DATA_DIR="${WQM_DATA_DIR:-$HOME/.local/share/workspace-qdrant}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
