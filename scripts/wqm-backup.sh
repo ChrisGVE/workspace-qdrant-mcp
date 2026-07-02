@@ -127,8 +127,9 @@ done
 {
 	echo "wqm backup manifest"
 	echo "created:       $(date -u +%Y-%m-%dT%H:%M:%SZ) (UTC)"
-	echo "host:          $(hostname)"
-	echo "data_dir:      $DATA_DIR"
+	# Home-relativized + no hostname: the manifest must not carry the operator's
+	# absolute paths or machine name inside a backup that may travel off-machine.
+	echo "data_dir:      ${DATA_DIR/#$HOME/\~}"
 	echo "qdrant_url:    $QDRANT_URL"
 	echo "qdrant_version: $(qcurl "$QDRANT_URL/" | jq -r '.version' 2>/dev/null || echo unknown)"
 	echo "collections:   ${collections[*]}"
