@@ -1,5 +1,0 @@
-target/
-.bsp/
-.scala-build/
-.metals/
-*.class

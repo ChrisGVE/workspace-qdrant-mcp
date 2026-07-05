@@ -1,5 +1,0 @@
-./src/rust/daemon/core/tests/grammar_chunking_test.rs:46:         .canonicalize()
-./src/rust/daemon/core/tests/grammar_pipeline_diagnostic.rs:72:         .canonicalize()
-./src/rust/daemon/core/tests/branch_worktree_audit.rs:76:     let expected = fx.main_path.canonicalize().unwrap();
-./src/rust/daemon/core/tests/cross_platform_safety_tests/platform_tests.rs:166:         let resolved = relative_path.canonicalize()?;
-./src/rust/daemon/shared-test-utils/src/git_fixtures/tests.rs:99:         .map(|p| p.canonicalize().unwrap())

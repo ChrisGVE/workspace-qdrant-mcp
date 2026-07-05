@@ -1,3 +1,0 @@
-{:paths ["src"]
- :deps {}
- :aliases {:run {:main-opts ["-m" "bookshelf.core"]}}}

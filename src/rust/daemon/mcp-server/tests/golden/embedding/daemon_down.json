@@ -1,4 +1,0 @@
-{
-  "success": false,
-  "error": "Failed to fetch embedding provider status: connection refused"
-}
