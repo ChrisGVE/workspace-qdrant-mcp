@@ -1,0 +1,18 @@
+# wqm-common -- the infra floor (ARCH §9.1): N8 names, N9 errors, N23 path-canon,
+# N35 profiles + field-family registry, N51 access-capability registry, N7 config,
+# N3 identity value objects + fts_key, N40 types, N12 envelope types, the N44 port
+# trait, the DisambiguationStrategy port + RulesWriteCap type, the Secret type.
+# No wqm-crate dependencies -- this is the bottom of the DAG. Contents grow per
+# phase; Phase 0 declares the crate (F-01+ fill it).
+[package]
+name = "wqm-common"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

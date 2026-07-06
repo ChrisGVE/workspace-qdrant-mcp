@@ -1,23 +1,21 @@
-# Continuous Integration for workspace-qdrant-mcp
-# Runs on push to main/dev, pull requests, and manual dispatch
-
+# Continuous Integration -- wqm-0.2 rebuild workspace (src/rust).
+#
+# Grow-per-phase (PRD F-00): this workflow targets `cargo build/test --workspace`
+# against the currently-declared member set, so it stays green at every merge as
+# crates are added phase by phase. Platform toolchain deps (protobuf for wqm-proto
+# codegen, ONNX Runtime for wqm-embed-native) are added to the relevant jobs when
+# those crates land -- Phase 0 needs none.
 name: CI
 
 on:
   push:
-    branches: [main, dev]
     paths:
-      - 'src/rust/**'
-      - 'tests/**'
-      - 'assets/**'
-      - '.github/workflows/ci.yml'
+      - "src/rust/**"
+      - ".github/workflows/ci.yml"
   pull_request:
-    branches: [main, dev]
     paths:
-      - 'src/rust/**'
-      - 'tests/**'
-      - 'assets/**'
-      - '.github/workflows/ci.yml'
+      - "src/rust/**"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 env:
@@ -25,9 +23,8 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Rust formatting check (fast, runs once)
   fmt:
-    name: Rust formatting
+    name: rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,139 +35,19 @@ jobs:
         working-directory: src/rust
         run: cargo fmt --all -- --check
 
-  # Guard against new hardcoded ~/.claude paths creeping back into the hooks
-  # module. All path resolution must go through settings::get_claude_config_dir
-  # so CLAUDE_CONFIG_DIR (Claude Code Enterprise / custom installs) is honored.
-  hooks-claude-path-audit:
-    name: Hooks — no hardcoded .claude paths
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Scan hooks module
-        run: |
-          set -euo pipefail
-          hits=$(grep -rn '\.claude' src/rust/cli/src/commands/hooks/ --include='*.rs' \
-            | grep -v 'CLAUDE_CONFIG_DIR' \
-            | grep -Ev "^[^:]+:[0-9]+:\s*(//|///|\*)" \
-            | grep -v 'settings.rs' \
-            || true)
-          if [ -n "$hits" ]; then
-            echo "::error::Found hardcoded .claude paths outside settings.rs (use get_claude_config_dir):"
-            echo "$hits"
-            exit 1
-          fi
-
-  # Path abstraction discipline guards (spec 16 §4.3).
-  # Enforce that canonical paths are properly typed and canonicalize() calls
-  # are either removed (T6) or explicitly marked as Category B (process-local).
-  path-discipline:
-    name: Path discipline (struct fields)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check path-named struct fields
-        run: bash scripts/ci/path-discipline.sh
-
-  forbid-canonicalize:
-    name: Path discipline (canonicalize markers)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check for unmarked canonicalize() calls
-        run: bash scripts/ci/forbid_canonicalize.sh
-
-  # Single-writer discipline (#82): the CLI performs no direct Qdrant/graph
-  # writes — only daemon gRPC write RPCs + SQLite reads/UPDATEs.
-  cli-no-writes:
-    name: CLI write-ownership (#82 WI-f5)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Self-test the guard
-        run: SELFTEST=1 bash scripts/ci/cli-no-writes.sh
-      - name: Scan CLI for direct write surface
-        run: bash scripts/ci/cli-no-writes.sh
-
-  # Crate-DAG discipline (#82): the DEFAULT wqm-cli build links no
-  # workspace-qdrant-core (clients talk to the daemon over gRPC); core is a
-  # dev-only `bench`-feature edge.
-  cli-no-core:
-    name: CLI core-isolation (#82 WI-e3)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install protobuf
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev
-      - name: Check CLI does not link core in the default build
-        run: bash scripts/ci/cli-no-core.sh
-
-
-  # Branch-storage read/write boundary guards (arch §9, F1).
-  # Guard 1: wqm-storage-write absent from mcp-server's feature closure.
-  # Guard 3: no Qdrant-mutating symbol in the mcp-server/wqm-cli release binaries.
-  # (Guard 2 — the trybuild compile-fail — runs in the `rust` test job.)
-  storage-boundary:
-    name: Storage read/write boundary (Guards 1+3)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/rust/target
-          key: ubuntu-latest-cargo-storage-boundary-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-latest-cargo-
-
-      - name: Run storage boundary guards
-        run: bash scripts/ci/storage-guards.sh
-
-  # Rust build, lint, and test
-  rust:
-    name: Rust (${{ matrix.os }})
+  build-test:
+    name: build + test + clippy (${{ matrix.os }})
     needs: fmt
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
-
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: brew install cmake protobuf
-
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -178,89 +55,38 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src/rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src/rust/**/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-
-      # ort crate auto-downloads static ONNX Runtime for ARM Mac and Linux x64
-      # No manual ORT_LIB_LOCATION needed for these platforms
-
-      # A0.6/A0.7 INVARIANT: the per-PR lane is SQLite-only so it never pays the
-      # ~86-min Kuzu C++ build that the default `ladybug` feature (on memexd)
-      # pulls in. memexd is excluded from the workspace commands (so no member
-      # pulls ladybug via feature unification) and built/tested separately with
-      # `--no-default-features --features sqlite`. Other members keep their own
-      # default features (e.g. wqm-cli's `tui`), so a blanket workspace-wide
-      # --no-default-features is deliberately NOT used. The full --features
-      # ladybug build runs only on the scheduled lane in release.yml.
-      - name: Clippy
+      - name: Clippy (warnings are errors)
         working-directory: src/rust
-        run: cargo clippy --workspace --exclude memexd --lib --bins --tests -- -D warnings
-
-      - name: Clippy (memexd, SQLite-only)
-        working-directory: src/rust
-        run: cargo clippy --package memexd --no-default-features --features sqlite --lib --bins --tests -- -D warnings
-
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build
         working-directory: src/rust
-        run: |
-          cargo build --release --workspace --exclude memexd
-          cargo build --release --package memexd --no-default-features --features sqlite
-
+        run: cargo build --workspace
       - name: Test
         working-directory: src/rust
-        # Exclude workspace-qdrant-grpc integration tests (require running Qdrant).
-        # memexd is tested SQLite-only (see invariant above).
-        run: |
-          cargo test --release --workspace --exclude workspace-qdrant-grpc --exclude memexd
-          cargo test --release --package memexd --no-default-features --features sqlite
+        run: cargo test --workspace
 
-  # memexd control-port discipline (spec 16 §10.1).
-  # Verifies the cross-process single-instance lock primitive in
-  # isolation: builds the example holder, runs the unit + cross-process
-  # integration tests serially (they touch process-shared ports).
-  control-port:
-    name: memexd control-port (spec 16 §10.1)
+  guards:
+    name: CI guards (link-closure, registries, tests)
     needs: fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake liblzma-dev
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/rust/target
-          key: ubuntu-latest-cargo-control-port-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-latest-cargo-
-
-      # SQLite-only (--no-default-features --features sqlite): the control-port
-      # primitive is backend-agnostic, so this lane skips the Kuzu C++ build that
-      # memexd's default `ladybug` feature would otherwise pull in (A0.6/A0.7).
-      - name: Build example holder
+      - name: Run guards
         working-directory: src/rust
-        run: cargo build --package memexd --no-default-features --features sqlite --examples
+        run: bash ci/run_guards.sh
 
-      - name: Clippy (memexd, all targets, -D warnings)
+  codesize:
+    name: codesize report (non-gating)
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tokei
+        run: cargo install tokei --locked || true
+      - name: Report
         working-directory: src/rust
-        run: cargo clippy --package memexd --no-default-features --features sqlite --all-targets -- -D warnings
-
-      - name: Unit tests (control_port module)
-        working-directory: src/rust
-        run: cargo test --package memexd --no-default-features --features sqlite --lib control_port -- --test-threads=1
-
-      - name: Integration tests (cross-process double-bind, identity stamp)
-        working-directory: src/rust
-        run: cargo test --package memexd --no-default-features --features sqlite --test control_port_cross_process -- --test-threads=1
+        run: bash ci/codesize.sh

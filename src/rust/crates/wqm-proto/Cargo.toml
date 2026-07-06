@@ -1,0 +1,16 @@
+# wqm-proto -- N24 gRPC contract: the proto SoT + generated code + the `Address`
+# enum (ARCH §9.1). Generated code only, no wqm-crate dependencies, so it stays
+# linkable by every surface. Phase 0 declares the crate; the .proto services and
+# tonic/prost codegen arrive at F-13 (N13 proto definitions).
+[package]
+name = "wqm-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

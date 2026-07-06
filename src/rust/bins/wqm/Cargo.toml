@@ -1,0 +1,26 @@
+# wqm -- the S3 CLI binary (ARCH §9.1). The human command surface; reads via
+# N49 -> N50 and runs the proxied write/destructive chains. The S4 TUI (N42) rides
+# behind a `tui` feature on this same binary. Phase 0 ships a minimal-but-real CLI:
+# real subcommand parsing for the known command groups, each returning a typed
+# not-yet-available decline that later phases replace with real logic.
+[package]
+name = "wqm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "wqm"
+path = "src/main.rs"
+
+[features]
+# The TUI surface (S4/N42) is compiled in behind this feature in a later phase.
+tui = []
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true }

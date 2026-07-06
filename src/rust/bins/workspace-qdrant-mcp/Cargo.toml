@@ -1,0 +1,22 @@
+# workspace-qdrant-mcp -- the S2 MCP server binary (ARCH §9.1). It exposes the 7
+# JSON-RPC tools over stdio and reads in-process via N49 -> N50, proxying writes.
+# Phase 0 ships a minimal-but-real binary: arg parsing, version, and a typed
+# not-yet-available decline. The N43 adapter and N33 rules injection arrive with
+# the MCP surface phase (F-50).
+[package]
+name = "workspace-qdrant-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "workspace-qdrant-mcp"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true }

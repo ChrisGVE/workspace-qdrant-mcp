@@ -1,0 +1,25 @@
+# wqm-0.2 workspace root (rebuild). Grow-per-phase: members are globbed, so each
+# phase adds its own crate directory and `cargo build --workspace` stays green
+# against the currently-declared set (PRD F-00 AC1; DR GP-3). ARCH rev08 §9.1 is
+# the authoritative crate map; the 16 libs + 3 bins arrive phase by phase.
+[workspace]
+resolver = "2"
+members = ["crates/*", "bins/*"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.79"
+license = "Apache-2.0"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+# Shared dependency versions. Crates opt in via `dep.workspace = true`.
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+
+# Warnings are errors across the workspace (project mandate: fix root cause, never
+# silence). Applied here so local builds and CI agree; CI additionally runs
+# `clippy -- -D warnings` and `rustfmt --check`.
+[workspace.lints.rust]
+warnings = "deny"

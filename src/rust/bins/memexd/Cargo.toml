@@ -1,0 +1,22 @@
+# memexd -- the S1 daemon binary (ARCH §9.1). It is the sole writer of persistent
+# state and serves N50 over gRPC via N48. Phase 0 ships a minimal-but-real binary:
+# it parses args, reports its version, and declines to run with a typed
+# not-yet-available exit. The serve loop, host runtime, and kernel wiring arrive
+# across Phases 0-7 as their crates land.
+[package]
+name = "memexd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "memexd"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true }
