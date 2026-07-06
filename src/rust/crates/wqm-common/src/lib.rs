@@ -10,3 +10,9 @@
 //!
 //! Per the grow-per-phase model (PRD F-00), Phase 0 only declares the crate; the
 //! contents arrive feature by feature starting at F-01 (N8 name registry).
+
+/// N8 -- the canonical name registry: the single owner of the workspace's literal
+/// identifier strings (collection names, environment keys, the N51
+/// operation-class and consumer vocabularies). See [`names`] for the
+/// single-producer rule and the grow-per-phase contract.
+pub mod names;
