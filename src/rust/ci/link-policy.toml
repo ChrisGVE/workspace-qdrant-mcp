@@ -1,5 +1,5 @@
 # N51 access-capability policy seed -- the declarative input to the N14 link-closure
-# guard (ARCH rev08 §3.3, §9.1). This is the Phase-0 seed of what becomes the N51
+# guard (ARCH rev10 §3.3, §9.1). This is the Phase-0 seed of what becomes the N51
 # const table in wqm-common (F-14+). The guard is DEFAULT-DENY: any bin not listed
 # under [grants].s1_bins is treated as a client and must not link any crate in
 # [s1_only].crates.
@@ -15,7 +15,7 @@
 # link-closure proof).
 crates = [
   "wqm-store-write",
-  "wqm-facade-write",
+  "wqm-facade",
   "wqm-ingest",
   "wqm-intel",
   "wqm-graph",
@@ -28,6 +28,7 @@ crates = [
 # Bins granted the S1 (full-engine) class -- allowed to link the s1_only set.
 s1_bins = ["memexd"]
 # Every other bin (workspace-qdrant-mcp, wqm, and any future bin) is default-deny:
-# it may link only the client closure { wqm-client, wqm-facade-read, wqm-search,
-# wqm-store-read, wqm-proto, wqm-secrets, wqm-common } (+ wqm-service-install for
-# the CLI). Absence from this list IS the denial.
+# it may link only the client closure { wqm-client, wqm-search, wqm-store,
+# wqm-proto, wqm-secrets, wqm-common } (+ wqm-service-install for the CLI).
+# Decision (B): the client embeds the N38 read pipeline over wqm-store directly;
+# it links NO facade (wqm-facade is S1-only). Absence from this list IS the denial.
