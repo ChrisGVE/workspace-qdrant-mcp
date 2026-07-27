@@ -624,9 +624,6 @@ Extract figures/graphs embedded in PDFs and ingest them into the `images` collec
 | Document                                                           | Purpose                          |
 | ------------------------------------------------------------------ | -------------------------------- |
 | [FIRST-PRINCIPLES.md](../../FIRST-PRINCIPLES.md)                    | Architectural philosophy         |
-| [ADR-001](../adr/ADR-001-canonical-collection-architecture.md)      | Collection architecture decision |
-| [ADR-002](../adr/ADR-002-daemon-only-write-policy.md)               | Write policy decision            |
-| [ADR-003](../adr/ADR-003-daemon-owns-sqlite.md)                     | SQLite ownership decision        |
 | [docs/ARCHITECTURE.md](../ARCHITECTURE.md)                          | Visual architecture diagrams     |
 | [docs/LSP_INTEGRATION.md](../LSP_INTEGRATION.md)                    | LSP integration guide            |
 | [README.md](../../README.md)                                        | User documentation               |

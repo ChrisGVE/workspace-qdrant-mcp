@@ -26,7 +26,7 @@ See [FIRST-PRINCIPLES.md](../../FIRST-PRINCIPLES.md) for the complete architectu
 - **Test Driven Development**: Unit tests written immediately after code
 - **Rules-Driven Behavioral Persistence**: Rules stored in rules collection
 - **Project-Scoped Semantic Context**: Automatic project detection and filtering
-- **Daemon-Only Writes**: Single writer to Qdrant for consistency (see [ADR-002](../adr/ADR-002-daemon-only-write-policy.md))
-- **Four Collections Only**: Exactly `projects`, `libraries`, `rules`, `scratchpad` (see [ADR-001](../adr/ADR-001-canonical-collection-architecture.md))
+- **Daemon-Only Writes**: Single writer to Qdrant for consistency (see ADR-002)
+- **Four Collections Only**: Exactly `projects`, `libraries`, `rules`, `scratchpad` (see ADR-001)
 
 ---

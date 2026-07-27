@@ -484,7 +484,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Path:** `~/.local/share/workspace-qdrant/state.db` (XDG `$XDG_DATA_HOME`)
 
-**Owner:** Rust daemon (memexd) - see [ADR-003](../adr/ADR-003-daemon-owns-sqlite.md)
+**Owner:** Rust daemon (memexd) - see ADR-003
 
 **state.db Core Tables (17):**
 

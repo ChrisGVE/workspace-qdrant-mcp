@@ -1,6 +1,6 @@
 # Collection Types Documentation
 
-> **DEPRECATED**: This documentation describes the legacy collection architecture which has been superseded by [ADR-001: Canonical Collection Architecture](../adr/ADR-001-canonical-collection-architecture.md).
+> **DEPRECATED**: This documentation describes the legacy collection architecture which has been superseded by ADR-001: Canonical Collection Architecture.
 >
 > **Current Architecture (ADR-001):**
 > - Exactly 4 collections: `projects`, `libraries`, `rules`, `scratchpad`
@@ -9,7 +9,7 @@
 >
 > **See:**
 > - [docs/specs/02-collection-architecture.md](../../docs/specs/02-collection-architecture.md) - Collection architecture specification
-> - [ADR-001](../adr/ADR-001-canonical-collection-architecture.md) - Collection architecture decision
+> - ADR-001 - Collection architecture decision
 >
 > This documentation is retained for reference during migration from legacy systems.
 

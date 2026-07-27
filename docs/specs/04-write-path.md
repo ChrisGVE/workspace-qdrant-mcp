@@ -1,6 +1,6 @@
 ## Write Path Architecture
 
-**Reference:** [ADR-002](../adr/ADR-002-daemon-only-write-policy.md)
+**Reference:** ADR-002
 
 ### Core Rules
 

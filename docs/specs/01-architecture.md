@@ -85,7 +85,7 @@ The MCP SDK provides lifecycle callbacks via `Server`:
 
 ### SQLite Database Ownership
 
-**Reference:** [ADR-003](../adr/ADR-003-daemon-owns-sqlite.md)
+**Reference:** ADR-003
 
 **The Rust daemon (memexd) is the sole owner of the SQLite database.**
 

@@ -1,6 +1,6 @@
 ## Collection Architecture
 
-**Reference:** [ADR-001](../adr/ADR-001-canonical-collection-architecture.md)
+**Reference:** ADR-001
 
 ### Canonical Collections
 

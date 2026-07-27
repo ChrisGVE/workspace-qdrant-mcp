@@ -135,7 +135,7 @@ Qdrant upsert (daemon only)
 
 Four fixed collections with no underscore prefix: `projects`, `libraries`, `rules`, `scratchpad`. Multi-tenant isolation is achieved with payload field filtering (`tenant_id`, `library_name`), not per-tenant collections. This keeps Qdrant index count constant regardless of how many projects are indexed.
 
-Reference: [docs/adr/ADR-001-canonical-collection-architecture.md](../adr/ADR-001-canonical-collection-architecture.md)
+Reference: ADR-001
 
 ### ADR-002 — Daemon-Only Qdrant Writes
 
@@ -145,13 +145,13 @@ This ensures: consistent metadata across all documents, single embedding model, 
 
 Session management messages (`RegisterProject`, `DeprioritizeProject`) bypass the queue and go directly to the daemon via gRPC — these are lifecycle signals, not content writes.
 
-Reference: [docs/adr/ADR-002-daemon-only-write-policy.md](../adr/ADR-002-daemon-only-write-policy.md)
+Reference: ADR-002
 
 ### ADR-003 — Daemon Owns SQLite
 
 The daemon creates the database file (`~/.local/share/workspace-qdrant/state.db`), all tables, and all schema migrations. The MCP server and CLI may read from and write to tables, but must not create tables or run migrations. If a table does not exist, components return degraded responses rather than attempting to create it.
 
-Reference: [docs/adr/ADR-003-daemon-owns-sqlite.md](../adr/ADR-003-daemon-owns-sqlite.md)
+Reference: ADR-003
 
 ---
 

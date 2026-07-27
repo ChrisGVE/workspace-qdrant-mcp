@@ -45,14 +45,6 @@ Technical specifications for developers and contributors.
 | [Error Handling](specs/18-error-handling-resilience.md) | Error handling and resilience patterns |
 | [Branch/Worktree Audit](specs/19-branch-worktree-audit.md) | Branch lifecycle and worktree management |
 
-## Architecture Decision Records
-
-| Document | Description |
-|----------|-------------|
-| [ADR-001](adr/ADR-001-canonical-collection-architecture.md) | Canonical collection names |
-| [ADR-002](adr/ADR-002-daemon-only-write-policy.md) | Daemon-only Qdrant writes |
-| [ADR-003](adr/ADR-003-daemon-owns-sqlite.md) | Daemon owns SQLite |
-
 ## Reading Paths
 
 **New user:** [Quick Start](quick-start.md) → [User Manual](user-manual.md) → [LLM Integration](reference/mcp-best-practices.md)
