@@ -146,6 +146,46 @@ CASES = [
         True,
         "links test-support",
     ),
+    (
+        # The other half of the boundary, added at P04-GT001-WO013. A harness a
+        # shipped crate's TESTS use is not in the shipped graph, and check 4's own
+        # premise -- "it is not part of the shipped graph" -- stays true. Without
+        # this case the guard forbade the harness's whole purpose for every library
+        # crate while permitting the identical edge on a bin, which is one
+        # relationship with two verdicts.
+        "4: a DEV-dependency on the harness is legal -- it ships nothing",
+        {
+            "wqm-common": [],
+            "wqm-test-harness": ["wqm-common"],
+            "wqm-search": ["wqm-common", "dev:wqm-test-harness"],
+        },
+        False,
+        "no shipped crate",
+    ),
+    (
+        # And the converse still bites, so the case above is a narrowing rather
+        # than a hole: same crates, same names, normal edge instead of a dev one.
+        "4: the same edge as a NORMAL dependency still fails",
+        {
+            "wqm-common": [],
+            "wqm-test-harness": ["wqm-common"],
+            "wqm-search": ["wqm-common", "wqm-test-harness"],
+        },
+        True,
+        "links test-support",
+    ),
+    (
+        # Cargo permits dev-dependency cycles precisely because they are outside
+        # the build graph. Check 3 must agree, or the guard forbids what the
+        # toolchain allows and the workspace cannot express a harness at all.
+        "3: a dev-dependency CYCLE is acyclic in the shipped graph",
+        {
+            "wqm-common": ["dev:wqm-store"],
+            "wqm-store": ["wqm-common"],
+        },
+        False,
+        "is acyclic",
+    ),
 ]
 
 

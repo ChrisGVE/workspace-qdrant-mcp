@@ -1,0 +1,39 @@
+# wqm-search -- N56 (the planner) and N38 (the executor) of the planner/executor
+# split (CONTRACTS.md S2.17, :1021-1060 and :2337-2356). Stratum 2 in ARCH rev15
+# §9.1: its wqm dependencies are `wqm-store` (s1) and `wqm-common` (s0), and as a
+# KERNEL crate it may never link `wqm-conventions` -- it reads collection profiles
+# through the injected `wqm-common` READ trait, which is what makes the N28
+# injection a build-time fact rather than a convention.
+#
+# The client links this crate directly: decision (B) in §9.1 embeds the N38 read
+# pipeline over `wqm-store` in the client, with no facade (`wqm-facade` is S1-only).
+#
+# Seeded at `P04-GT001-WO013` with the narrowed read leg -- one grammar subset, one
+# planned leg, no fusion and no embedding. The rest of the algebra (graph
+# expansion, rerank, the taxonomy broadening, pagination) arrives with N56's and
+# N38's own slices.
+[package]
+name = "wqm-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+wqm-common = { path = "../wqm-common" }
+# The read leg the executor runs. N41's PORT, not a concrete: this crate names
+# `DerivedIndex` and never an adapter, so which index answers is the composition
+# root's choice.
+wqm-store = { path = "../wqm-store" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The executor's paging behaviour is proven against a REAL derived index, not a
+# stub: the one thing a stub cannot tell you is whether the index agrees with the
+# assumption the executor makes about it.
+wqm-test-harness = { path = "../wqm-test-harness" }

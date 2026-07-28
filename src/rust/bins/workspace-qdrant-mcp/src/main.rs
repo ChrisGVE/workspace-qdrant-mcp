@@ -11,6 +11,8 @@
 //! class the surface redesign exists to end.
 
 mod mcp;
+mod profiles;
+mod query;
 mod status;
 
 use std::io::{BufReader, BufWriter};
@@ -41,6 +43,14 @@ struct Cli {
     /// supply the real one.
     #[arg(long, value_name = "PATH")]
     daemon_socket: Option<PathBuf>,
+
+    /// The SQLite store the read leg queries. Undefaulted for the same reason as
+    /// `--daemon-socket`: N7 (`P04-GT013`) owns the derivation from
+    /// `DEPLOYMENT_DIR`, and a guessed path is either wrong or -- worse -- right
+    /// about production. Absent, `query` reports `backend_unavailable` naming the
+    /// argument; the server still starts and `status` still answers.
+    #[arg(long, value_name = "PATH")]
+    store: Option<PathBuf>,
 }
 
 fn main() -> std::process::ExitCode {
@@ -75,11 +85,16 @@ fn main() -> std::process::ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
+    let surfaces = mcp::Surfaces {
+        client: &client,
+        runtime: &runtime,
+        store: cli.store.as_deref(),
+    };
+
     match mcp::serve(
         BufReader::new(stdin.lock()),
         BufWriter::new(stdout.lock()),
-        &client,
-        &runtime,
+        &surfaces,
     ) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {

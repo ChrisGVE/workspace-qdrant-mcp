@@ -71,10 +71,12 @@ fn status_answers_that_the_daemon_is_absent_rather_than_failing() {
     // Absent, not zero-filled: this build has no index subsystem, and reporting
     // `files_tracked: 0` would be indistinguishable from an empty index.
     assert_eq!(envelope["data"]["index"], Value::Null);
-    // The tool this build serves is named, and no other is claimed.
+    // The tools this build serves are named, and no other is claimed. The list
+    // grew from one to two at `WO013`; the sealed inventory is still eight, and
+    // the gap between two and eight is what this assertion protects.
     assert_eq!(
         envelope["data"]["capabilities"]["tools"],
-        json!(["status"]),
+        json!(["status", "query"]),
         "the surface may not advertise what it cannot serve"
     );
 }

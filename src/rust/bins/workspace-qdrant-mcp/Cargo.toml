@@ -33,8 +33,14 @@ clap = { workspace = true }
 wqm-client = { path = "../../crates/wqm-client" }
 wqm-common = { path = "../../crates/wqm-common" }
 wqm-proto = { path = "../../crates/wqm-proto" }
+# The read pipeline, embedded in-process (ARCH rev15 §9.1 decision B): the planner
+# and executor, and N41's read leg under them. No facade -- `wqm-facade` is
+# S1-only and guard_link_closure.py enforces that from the other side.
+wqm-search = { path = "../../crates/wqm-search" }
+wqm-store = { path = "../../crates/wqm-store" }
 tokio = { workspace = true, features = ["rt", "macros"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 # The round-trip test drives the real binaries as subprocesses, so it needs no

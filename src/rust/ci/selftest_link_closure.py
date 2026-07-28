@@ -57,19 +57,30 @@ wqm-store-write = ["wqm-search", "wqm-store", "wqm-common"]
 
 
 def write_crate(root: Path, name: str, deps: list[str], is_bin: bool) -> None:
-    """Emit a minimal crate with the given workspace-path dependencies."""
+    """Emit a minimal crate with the given workspace-path dependencies.
+
+    A dependency spelled `dev:<name>` becomes a **dev-dependency**, which is how a
+    case expresses an edge that exists for `cargo test` and not for `cargo build`.
+    The guards read the shipped graph only (`is_shipped_edge`), so the two kinds
+    have to be expressible here or that distinction has no test.
+    """
     sub = "bins" if is_bin else "crates"
     d = root / sub / name
     (d / "src").mkdir(parents=True)
-    dep_lines = "\n".join(
-        '%s = { path = "../../crates/%s" }' % (dep, dep) for dep in deps
-    )
+
+    def line(dep: str) -> str:
+        return '%s = { path = "../../crates/%s" }' % (dep, dep)
+
+    normal = [line(dep) for dep in deps if not dep.startswith("dev:")]
+    dev = [line(dep.removeprefix("dev:")) for dep in deps if dep.startswith("dev:")]
+
     (d / "Cargo.toml").write_text(
         "[package]\n"
         f'name = "{name}"\n'
         'version = "0.0.0"\n'
         'edition = "2021"\n\n'
-        "[dependencies]\n" + dep_lines + "\n"
+        "[dependencies]\n" + "\n".join(normal) + "\n\n"
+        "[dev-dependencies]\n" + "\n".join(dev) + "\n"
     )
     (d / "src" / ("main.rs" if is_bin else "lib.rs")).write_text(
         "fn main() {}\n" if is_bin else ""
@@ -250,6 +261,36 @@ CASES = [
         {},
         False,
         "Exact closures enforced",
+    ),
+    (
+        # Every rule in this file is about what a SHIPPED artifact links, and a
+        # dev-dependency is compiled only by `cargo test` (P04-GT001-WO013). A
+        # client bin whose integration test drives an S1 binary as a subprocess is
+        # the concrete case: nothing S1-only enters the shipped executable.
+        "A: a DEV-dependency on an S1-only crate is not a shipped link",
+        {"wqm-common": [], "wqm-store-write": ["wqm-common"]},
+        {"workspace-qdrant-mcp": ["wqm-common", "dev:wqm-store-write"]},
+        False,
+        "respect their closures",
+    ),
+    (
+        # The converse, so the case above is a narrowing and not a hole.
+        "A: the same crate as a NORMAL dependency still fails",
+        {"wqm-common": [], "wqm-store-write": ["wqm-common"]},
+        {"workspace-qdrant-mcp": ["wqm-common", "wqm-store-write"]},
+        True,
+        "links S1-only crate(s)",
+    ),
+    (
+        "B: a kernel crate's DEV-dependency on wqm-conventions is not a link",
+        {
+            "wqm-common": [],
+            "wqm-conventions": ["wqm-common"],
+            "wqm-store": ["wqm-common", "dev:wqm-conventions"],
+        },
+        {},
+        False,
+        "PASS",
     ),
 ]
 

@@ -25,3 +25,13 @@ pub mod names;
 /// sealed seven-key shape (MCP-SURFACE.md §3.1); the per-tool `data` shapes live
 /// with the tools that produce them.
 pub mod envelope;
+
+/// N56's plan types (`CONTRACTS.md`:2346 homes them here, not in the planner).
+/// Seeded at `P04-GT001-WO013` with the ECHO side -- what a `query` response
+/// carries back (MCP-SURFACE.md §3.4).
+pub mod plan;
+
+/// N35 -- the injected collection-profile READ face, at the three axes the
+/// narrowed read leg consults (`P04-GT001-WO013`). The table itself belongs to the
+/// glue side no kernel crate may link.
+pub mod profile;

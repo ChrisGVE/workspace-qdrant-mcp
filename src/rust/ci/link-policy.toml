@@ -43,6 +43,14 @@
 # engagement earlier than the derivation predicted -- which is exactly the
 # "earliest-possible, not certain" limit stated below, observed rather than
 # theorised. Both are now live and passing on real edges, not vacuous.
+#
+# UPDATED AGAIN at P04-GT001-WO013: `wqm-search` landed for the same reason, so the
+# kernel-crate set is now non-empty (`wqm-search`, `wqm-store`) a whole engagement
+# before the derivation predicted. `kernel_purity` stays vacuous only because
+# `wqm-conventions` is still absent -- which is the check reporting the honest
+# reason rather than a stale one. Three of the four derivations have now been
+# overtaken by the same cause: a walking skeleton pulls forward whatever it needs
+# to walk through, and the derivation measures where a crate is first NAMED.
 client_direction = "P04-GT001"      # bit at WO011: wqm-serve landed, and two client bins are checked against it
 kernel_purity = "P04-GT002"
 sensor_agnosticism = "P04-GT002"

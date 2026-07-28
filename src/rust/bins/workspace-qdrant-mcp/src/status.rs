@@ -100,17 +100,81 @@ fn index_block(report: &DaemonReport) -> Value {
     }
 }
 
-/// What this build can actually do.
+/// What this build can actually do (§5.4's capability manifest).
 ///
-/// §5.4's full capability manifest -- the `core`/`gated` clause partition and the
-/// twenty-two schema names -- arrives with the surface slice. What must be true
-/// *now* is that this block never over-claims: it lists the one tool this build
-/// serves, and declares the clause vocabularies empty because it executes none.
+/// # Every value here is read from the code that enforces it
+///
+/// §5.4's law is that "every conforming build executes every member of `core`",
+/// asserted by the conformance suite. Until that suite exists, the cheapest way
+/// not to publish a `core` the build does not execute is to publish the constants
+/// the executor and planner are already built from: [`crate::mcp::SERVED_TOOLS`],
+/// [`crate::query::SERVED_SOURCES`], and `wqm_search`'s `MAX_LIMIT`. A manifest
+/// transcribed beside the code is a second rendering, and §7.3a's restatement rule
+/// is the standing warning about exactly that.
+///
+/// # Why `core` is this narrow
+///
+/// One mode, one field, one operator, one shape. `from_optional` is **false**
+/// because resolving "the project containing your working directory" needs project
+/// detection this build does not have, and a default scope that cannot be resolved
+/// is the silent-wrong-answer class. Everything absent from `core` is refused by
+/// name with this manifest's key attached, so an agent that reads this never meets
+/// a surprise and an agent that does not gets a correction rather than a zero.
+///
+/// # Why `empty_diagnosis` is `off`
+///
+/// §4.2's procedure re-runs the plan with its predicates dropped and counts what
+/// is left. This build's only predicate is the retrieval text itself -- dropping it
+/// leaves no query for a text index to run -- and N41's sealed read face
+/// (`query`/`available`) exposes no count primitive to run it with. §4.2 provides
+/// for exactly this: declare `off` and let the agent read the declaration rather
+/// than guess. Filed as a finding against the contract rather than worked around
+/// silently (`SCAFFOLD.md` §7).
 fn capabilities() -> Value {
     json!({
-        "tools": ["status"],
-        "core": [],
-        "gated": [],
+        "tools": crate::mcp::SERVED_TOOLS,
+        "grammar_version": "1",
+        "core": {
+            "modes": ["text"],
+            // The objects addressable at the served sources' granularity. `note`
+            // is what a scratchpad row is; `document` and `rule` are the other
+            // document-level objects the planner admits.
+            "objects": ["note", "document", "rule"],
+            "sources": served_sources(),
+            "fields": ["q"],
+            "ops": ["MATCH"],
+            "order_by": [],
+            "shapes": ["compact"],
+            "from_optional": false,
+        },
+        "gated": {
+            "path_match": Value::Null,
+            "graph_source": false,
+            "graph_predicates": [],
+            "subquery": false,
+            "aggregate": [],
+            "join": "deferred",
+            "vector_operator": false,
+            "objects_extra": [],
+            "export_formats": [],
+        },
+        "empty_diagnosis": "off",
+        "max_limit": wqm_search::executor::MAX_LIMIT,
+        // No byte budget is enforced by this build, and a number here would be a
+        // promise about truncation behaviour that nothing implements.
+        "response_byte_budget": Value::Null,
+        // The on-demand schema channel (§2.9) is not served, so the enumeration
+        // that makes it discoverable is empty rather than listing names that
+        // cannot be fetched -- §5.4 calls a listed-but-unfetchable name a
+        // conformance failure.
         "schemas": [],
     })
+}
+
+/// The sources `query` serves, from the constant the planner's scope check uses.
+fn served_sources() -> Vec<&'static str> {
+    crate::query::SERVED_SOURCES
+        .iter()
+        .map(|c| c.name())
+        .collect()
 }

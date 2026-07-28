@@ -17,6 +17,17 @@ impl Fts5Index {
         Fts5Index { conn }
     }
 
+    /// Open an index over the database at `path`.
+    ///
+    /// This exists so a *consumer* -- the S2 bin, which composes the read pipeline
+    /// in-process -- does not have to link SQLite itself. How a derived index is
+    /// opened is the index's own business, and a client that linked `rusqlite`
+    /// directly would be one refactor away from issuing its own SQL against the
+    /// SoT, which is the boundary this crate's module note exists to hold.
+    pub fn open_path(path: &std::path::Path) -> Result<Self, StoreError> {
+        Ok(Fts5Index::open(Connection::open(path)?))
+    }
+
     /// The connection, for callers that own the database's lifecycle (schema
     /// creation, fixtures). The read leg itself never mutates.
     pub fn connection(&self) -> &Connection {

@@ -94,3 +94,16 @@ pub fn in_memory() -> rusqlite::Result<Connection> {
     install_schema(&conn)?;
     Ok(conn)
 }
+
+/// A file-backed store with the schema installed.
+///
+/// A subprocess cannot share an in-memory database, so any test that drives a real
+/// binary needs the store on disk. Providing it here rather than in each such test
+/// keeps the schema single-homed: a test that opened its own connection and ran
+/// its own DDL would be a second copy of `wqm_store::schema`, and the copy that
+/// drifts is always the one nothing reads.
+pub fn at_path(path: &std::path::Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open(path)?;
+    install_schema(&conn)?;
+    Ok(conn)
+}

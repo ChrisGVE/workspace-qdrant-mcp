@@ -61,8 +61,45 @@ def cargo_metadata(root: Path) -> dict:
     return json.loads(out.stdout)
 
 
-def build_indexes(meta: dict):
-    """Return (id->name, id->kinds, name->id, id->dep_ids)."""
+def is_shipped_edge(dep: dict) -> bool:
+    """Whether a resolved dependency edge is part of the SHIPPED graph.
+
+    Cargo classifies each edge as normal, `dev` or `build` (`dep_kinds[].kind`,
+    where a normal edge carries `null`). Only normal and build edges end up in what
+    `cargo build` produces; a dev-dependency is compiled solely for `cargo test`.
+
+    The distinction is load-bearing for every check in this file, and it was
+    MISSING until `P04-GT001-WO013`. Each rule here is about what a shipped
+    artifact links -- an S1-only crate inside a client binary, the conventions
+    crate inside the kernel, a test harness inside a product crate. A dev-only edge
+    is none of those, and Cargo agrees so completely that it permits dev-dependency
+    CYCLES, which the acyclicity rule this guard's sibling enforces would otherwise
+    have to forbid.
+
+    The evidence that the omission was an oversight rather than a policy is that
+    the guards already disagreed with each other about it: `guard_stratification`
+    check 4 fired on a library crate's dev-dependency on the test harness while the
+    identical relationship on a *bin* was invisible, because bins are outside that
+    check's subject. One relationship, two verdicts, decided by which target
+    happened to declare it. Under the shipped-graph reading both are legal, and
+    they are legal for the same reason.
+
+    An edge with no `dep_kinds` (older metadata) is treated as shipped: unknown
+    provenance defaults to the stricter answer.
+    """
+    kinds = dep.get("dep_kinds")
+    if not kinds:
+        return True
+    return any(k.get("kind") in (None, "build") for k in kinds)
+
+
+def build_indexes(meta: dict, *, include_dev: bool = False):
+    """Return (id->name, id->kinds, name->id, id->dep_ids).
+
+    `include_dev=True` walks every edge, which is what a check about the *test*
+    graph would want. No check wants it today; the flag exists so that asking for
+    the other graph is a choice with a name rather than a second index builder.
+    """
     id_name, id_kinds, name_id = {}, {}, {}
     for pkg in meta["packages"]:
         id_name[pkg["id"]] = pkg["name"]
@@ -70,7 +107,9 @@ def build_indexes(meta: dict):
         id_kinds[pkg["id"]] = {k for t in pkg["targets"] for k in t["kind"]}
     dep_ids = {}
     for node in meta["resolve"]["nodes"]:
-        dep_ids[node["id"]] = [d["pkg"] for d in node["deps"]]
+        dep_ids[node["id"]] = [
+            d["pkg"] for d in node["deps"] if include_dev or is_shipped_edge(d)
+        ]
     return id_name, id_kinds, name_id, dep_ids
 
 
