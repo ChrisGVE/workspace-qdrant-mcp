@@ -1,0 +1,40 @@
+# wqm-store -- the READ leg of N41's derived-index port family (ARCH rev15 §9.1,
+# CONTRACTS.md:1114-1125). Stratum 1: its only wqm dependency is `wqm-common`
+# (s0), and as a KERNEL crate it may never link `wqm-conventions` -- it reads
+# product-convention data through `wqm-common` traits, N28-injected.
+#
+# The trait BIFURCATES across the store seam (CONTRACTS.md:1120-1125): the read
+# leg (`query` / `available`) lives here and is client-linked; the write leg
+# `rebuild_from_sot` is homed SOLELY in the S1-only `wqm-store-write` rebuild
+# driver and is deliberately ABSENT from this crate, so the S1-only rebuild
+# boundary is a build-time fact rather than a runtime convention.
+#
+# Seeded at `P04-GT001-WO012` with one concrete -- FTS5 -- because the narrowed
+# slice reads a single leg. Qdrant-read, grep and KG-CTE arrive with the slices
+# that need them (SCAFFOLD.md §7.1: the write half moved to P04-GT002).
+[package]
+name = "wqm-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+wqm-common = { path = "../wqm-common" }
+
+# SQLite is NOT a derived-index adapter -- it is the GT002 §A SoT that every
+# derived index rebuilds *from* (CONTRACTS.md:1116). This dependency is how the
+# FTS5 concrete reaches both: the SoT table it filters against, and the FTS5
+# virtual table that is the derived index proper.
+#
+# `bundled` compiles SQLite from source rather than linking the platform's, which
+# is what makes the FTS5 availability a property of this build instead of of the
+# machine. rusqlite exposes no `fts5` feature flag, so availability is PROVEN by
+# `available()` probing the module at runtime and by a test that asserts a real
+# MATCH query works -- never assumed from the feature list.
+rusqlite = { version = "0.40", features = ["bundled"] }
+thiserror = { workspace = true }

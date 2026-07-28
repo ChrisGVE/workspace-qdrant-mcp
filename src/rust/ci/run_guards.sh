@@ -27,6 +27,7 @@ guards=(
 	"selftest_stratification.py"   # 10 cases -- up-edges, same-level edges, exemption
 	"selftest_codesize.py"         # 9 cases -- both limits, and the literal stripping
 	"selftest_no_skipped_tests.py" # 9 cases -- and that PROSE about the ban is legal
+	"selftest_name_registry.py"    # 12 cases -- and that PROSE quoting a name is legal
 )
 
 failed=0

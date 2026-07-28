@@ -12,10 +12,28 @@ Scope choices:
 - Only high-value, distinctive literals are guarded (collection names, env keys).
   The N51 operation-class/consumer names ("read", "daemon", ...) are common English
   words that would trip on unrelated code; they are not guarded here.
-- Each literal is matched only as a Rust string literal (`"projects"`), so prose in
-  doc comments and identifiers do not trip the guard.
+- Each literal is matched only as a Rust string literal (`"projects"`), and only
+  OUTSIDE comments -- see below.
 - Only `src/` is scanned: `tests/` trees legitimately assert against the literal
   values, and the N8 module itself is the one legal producer.
+
+Comments are stripped before matching, and that was a DEFECT FIX (`P04-GT001-WO012`).
+This docstring previously claimed "prose in doc comments and identifiers do not trip
+the guard" -- a claim that was simply untrue, because prose quoting a guarded name
+(``a bare `"scratchpad"` would slip in unnoticed``) contains the very literal the
+pattern looks for. It fired on a doc comment explaining why the write chokepoint
+must not be bypassed.
+
+This is the same defect `guard_no_skipped_tests` carried at `P04-GT001-WO007`, where
+`#[ignore]` matched inside doc comments, and the same law applies: **a guard that
+cannot be written about does not enforce a rule, it shapes prose** -- the natural
+"fix" is to stop explaining the rule, which is worse than the guard's absence. The
+cure there was matching over a stripped view while reporting the original line; the
+cure was never swept to this sibling. It is now.
+
+Note the asymmetry: this guard needs `literals=False`. A re-spelled name IS a string
+literal, so blanking literals would blank the only thing it looks for. It strips
+comments and keeps literals -- the exact opposite half of the same scan.
 
 The guarded-literal list is the guard's own concern (what to police); extend it
 when N8 grows (service/RPC names, table/column names, payload keys).
@@ -28,6 +46,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+from guard_codesize import strip_literals
 
 RUST_ROOT = Path(__file__).resolve().parent.parent
 N8_DIR = RUST_ROOT / "crates" / "wqm-common" / "src" / "names"
@@ -63,15 +83,28 @@ def policed_sources():
         yield path
 
 
-def main() -> int:
+def scan(src: str) -> list[tuple[int, str]]:
+    """Return `(lineno, original_line)` for every guarded literal outside a comment.
+
+    Matching runs over the comment-stripped view; REPORTING uses the original line,
+    so a developer sees the code they wrote rather than a blanked skeleton. The
+    stripper preserves newlines and byte offsets, so the two stay aligned.
+    """
     pattern = guarded_pattern()
+    stripped = strip_literals(src, literals=False).splitlines()
+    original = src.splitlines()
+    return [
+        (lineno, original[lineno - 1])
+        for lineno, line in enumerate(stripped, start=1)
+        if pattern.search(line)
+    ]
+
+
+def main() -> int:
     hits: list[str] = []
     for path in policed_sources():
-        for lineno, line in enumerate(
-            path.read_text(errors="replace").splitlines(), start=1
-        ):
-            if pattern.search(line):
-                hits.append(f"{path.relative_to(RUST_ROOT)}:{lineno}: {line.strip()}")
+        for lineno, line in scan(path.read_text(errors="replace")):
+            hits.append(f"{path.relative_to(RUST_ROOT)}:{lineno}: {line.strip()}")
 
     if hits:
         sys.stderr.write(

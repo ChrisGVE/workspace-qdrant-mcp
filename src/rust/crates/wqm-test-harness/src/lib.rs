@@ -96,6 +96,12 @@ mod endpoint;
 mod env;
 mod skip;
 
+/// The committed scratchpad fixture (`P04-GT001-WO012`) -- seeds the SoT that
+/// N41's FTS5 concrete reads, without crossing the ingest pipeline. It is the
+/// seam CHARTER §5A.1's narrowing buys, and it writes through the axis-D
+/// [`WriteTarget`](wqm_common::names::WriteTarget) rather than around it.
+pub mod scratchpad_fixture;
+
 pub use endpoint::{Ephemeral, StoreEndpoint};
 pub use env::HermeticEnv;
 // `announce_skip` joins the re-exports at P04-GT001-WO011: the store-shaped

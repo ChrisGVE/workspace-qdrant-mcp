@@ -31,6 +31,15 @@ workspace = true
 # first draft doing so. A test-support crate may depend on shipped crates; the
 # converse is what guard_stratification.py check 4 forbids.
 wqm-common = { path = "../wqm-common" }
+
+# The scratchpad fixture seeds the SoT that `wqm-store`'s FTS5 concrete reads, so
+# it must use that crate's schema rather than a second copy of it -- one shape,
+# one owner. Depending on a shipped crate is the permitted direction; the converse
+# is what guard_stratification.py check 4 forbids.
+wqm-store = { path = "../wqm-store" }
+# Same SQLite build as the crate under test. A fixture linking a different SQLite
+# than the reader would be testing two libraries and reporting on one.
+rusqlite = { version = "0.40", features = ["bundled"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 

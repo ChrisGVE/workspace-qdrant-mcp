@@ -39,29 +39,48 @@ FN_LIMIT = 80
 FN_START = re.compile(r"\bfn\s+[A-Za-z_][A-Za-z0-9_]*")
 
 
-def strip_literals(src: str) -> str:
-    """Return `src` with comments and literals blanked, newlines preserved.
+def strip_literals(src: str, *, comments: bool = True, literals: bool = True) -> str:
+    """Return `src` with comments and/or literals blanked, newlines preserved.
 
     Every stripped character becomes a space so byte offsets -- and therefore line
     numbers -- stay identical to the original. Handles nested block comments, raw
     strings with any hash count, byte strings, and the `'a` lifetime vs `'a'` char
     ambiguity (a quote is a char literal only if a closing quote follows within the
     escape-aware window).
+
+    The two flags exist because the guards want opposite halves of one scan, and a
+    second parser would be a second set of bugs:
+
+    - `guard_codesize` / `guard_no_skipped_tests` want BOTH gone -- they count
+      braces and match attributes, and a `{` in either a comment or a string is
+      noise.
+    - `guard_name_registry` wants `literals=False`: a re-spelled name is BY
+      DEFINITION a string literal, so blanking literals would blank the only thing
+      it looks for, while leaving comments in place is what made it fire on prose
+      that merely *quoted* a guarded name (`P04-GT001-WO012`).
+
+    Regardless of the flags the scanner still walks every construct, so a `//`
+    inside a string is never mistaken for a comment.
     """
     out = list(src)
     i, n = 0, len(src)
 
-    def blank(start: int, end: int) -> None:
+    def blank_range(start: int, end: int, enabled: bool) -> None:
+        if not enabled:
+            return
         for k in range(start, min(end, n)):
             if out[k] != "\n":
                 out[k] = " "
+
+    def blank(start: int, end: int) -> None:
+        blank_range(start, end, literals)
 
     while i < n:
         ch = src[i]
         if ch == "/" and i + 1 < n and src[i + 1] == "/":
             j = src.find("\n", i)
             j = n if j < 0 else j
-            blank(i, j)
+            blank_range(i, j, comments)
             i = j
             continue
         if ch == "/" and i + 1 < n and src[i + 1] == "*":
@@ -75,7 +94,7 @@ def strip_literals(src: str) -> str:
                     j += 2
                 else:
                     j += 1
-            blank(i, j)
+            blank_range(i, j, comments)
             i = j
             continue
         # Raw / byte strings: r"..", r#".."#, b"..", br#".."#
