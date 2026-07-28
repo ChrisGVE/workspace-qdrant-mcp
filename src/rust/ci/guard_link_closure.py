@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""N14 link-closure guard (default-deny) -- ARCH rev14 §3.3/§9.1, N14 row §7.
+"""N14 link-closure guard (default-deny) -- ARCH rev15 §3.3/§9.1, N14 row §7.
 
 Read/write separation is only enforceable at crate granularity because Cargo links
 whole crate closures. This guard walks the real dependency graph from `cargo
@@ -11,7 +11,7 @@ independent checks, each reporting its own PASS / PASS (vacuous) / FAIL:
   A. Client direction -- no client bin's transitive workspace-crate closure may
      intersect the S1-only set. Default-deny: a bin absent from every [grants]
      list is a client. The restore maintenance binary is the one declared
-     exception (ARCH rev14 §3.4): it is NOT default-denied, and its closure is
+     exception (ARCH rev15 §3.4): it is NOT default-denied, and its closure is
      checked against its own declared allow-list instead.
   B. Kernel purity -- no KERNEL crate's closure may contain `wqm-conventions`.
      The kernel reads product-convention data through `wqm-common` traits,
@@ -21,6 +21,11 @@ independent checks, each reporting its own PASS / PASS (vacuous) / FAIL:
      among wqm crates. Product-agnosticism as a link fact (§3.4 boundary card).
      External crates (notify, notify-debouncer-full, the branch-mgmt lib) are not
      constrained.
+  D. The storage/algorithm seam (§8.2, DP-7) -- no storage crate's closure may
+     contain an algorithm/engine crate, and `wqm-store-write`'s closure is exactly
+     the four crates §9.1 enumerates. §8.2 asserted "the N14 guard covers this
+     direction too"; measured at P04-GT001-WO006, it did not. This check is that
+     sentence made true.
 
 Each check is vacuous only while the crates it governs are absent, and says so --
 a green run never hides an inert check. Exit 0 = every check clean, exit 1 = any
@@ -98,6 +103,16 @@ class Ctx:
         return (reached & self.workspace_names) - {crate}
 
 
+def biting(policy: dict, key: str) -> str:
+    """The engagement at which a vacuous check activates (`[biting]` in the policy).
+
+    Charter §2.2: a vacuous check must name where it starts biting, not only the
+    condition. Absent from the policy, say so rather than inventing an engagement --
+    an unknown answer is information, a guessed one is not.
+    """
+    return policy.get("biting", {}).get(key, "an engagement the policy does not record")
+
+
 def check_clients(ctx: Ctx, policy: dict) -> tuple[bool, str]:
     """A. No client bin's closure may intersect the S1-only set."""
     s1_only = set(policy["s1_only"]["crates"])
@@ -111,7 +126,8 @@ def check_clients(ctx: Ctx, policy: dict) -> tuple[bool, str]:
         return True, (
             "PASS (vacuous) -- no S1-only crate is present in the workspace yet; "
             "nothing for a client bin to illegally link. Bites when the first of "
-            f"{sorted(s1_only)} lands. Forward-declared by P04-GT001-WO002."
+            f"{sorted(s1_only)} lands, expected at {biting(policy, 'client_direction')}. "
+            "Forward-declared by P04-GT001-WO002."
         )
 
     bins = [i for i in ctx.workspace_ids if "bin" in ctx.id_kinds.get(i, set())]
@@ -142,7 +158,7 @@ def check_clients(ctx: Ctx, policy: dict) -> tuple[bool, str]:
         return False, (
             "FAIL -- the write closure leaked into a client:\n"
             + "\n".join(violations)
-            + "\n(ARCH rev14 §9.1: a client bin's closure must be disjoint from the "
+            + "\n(ARCH rev15 §9.1: a client bin's closure must be disjoint from the "
             "S1-only set. Fix the offending dependency, or grant the bin the S1 "
             "class in ci/link-policy.toml only if it is truly a daemon.)"
         )
@@ -165,8 +181,9 @@ def check_kernel_purity(ctx: Ctx, policy: dict) -> tuple[bool, str]:
             "PASS (vacuous) -- the kernel/conventions pair is not both present yet "
             f"(kernel crates present: {sorted(kernel_present) or 'none'}; forbidden "
             f"present: {sorted(forbidden_present) or 'none'}). Bites when a kernel "
-            f"crate and one of {sorted(forbidden)} coexist. Added by "
-            "P04-GT001-WO005 (AGP-11 second direction)."
+            f"crate and one of {sorted(forbidden)} coexist, expected at "
+            f"{biting(policy, 'kernel_purity')}. Added by P04-GT001-WO005 "
+            "(AGP-11 second direction)."
         )
 
     violations = []
@@ -179,7 +196,7 @@ def check_kernel_purity(ctx: Ctx, policy: dict) -> tuple[bool, str]:
         return False, (
             "FAIL -- a kernel crate reaches product-convention data by link:\n"
             + "\n".join(violations)
-            + "\n(ARCH rev14 AGP-11: the kernel reads convention data through "
+            + "\n(ARCH rev15 AGP-11: the kernel reads convention data through "
             "`wqm-common` traits, N28-injected -- never by depending on "
             "`wqm-conventions`.)"
         )
@@ -198,25 +215,86 @@ def check_sensor(ctx: Ctx, policy: dict) -> tuple[bool, str]:
     if not crate or crate not in ctx.workspace_names:
         return True, (
             f"PASS (vacuous) -- `{crate or 'wqm-sensor'}` is not in the workspace "
-            "yet. Bites when it lands (its slice is P04-GT003's abstraction plane "
-            "onward). Added by P04-GT001-WO005."
+            f"yet. Bites when it lands, expected at "
+            f"{biting(policy, 'sensor_agnosticism')}. Added by P04-GT001-WO005."
         )
 
     bad = ctx.wqm_closure(crate) - allowed
     if bad:
         return False, (
             f"FAIL -- `{crate}` links wqm crate(s) outside its declared closure: "
-            f"{sorted(bad)}\n(ARCH rev14 §3.4 boundary card: the sensor is "
+            f"{sorted(bad)}\n(ARCH rev15 §3.4 boundary card: the sensor is "
             f"product-agnostic as a LINK FACT; its wqm closure is exactly "
             f"{sorted(allowed)} plus external crates.)"
         )
     return True, f"PASS -- `{crate}`'s wqm closure is within {sorted(allowed)}."
 
 
+def check_storage_algorithm(ctx: Ctx, policy: dict) -> tuple[bool, str]:
+    """D. No storage crate may reach an algorithm crate (§8.2, DP-7).
+
+    Two assertions from the same §8.2/§9.1 storage-seam paragraph: the general
+    direction rule, and `wqm-store-write`'s exactly-enumerated closure. The exact
+    form has teeth the disjointness form lacks -- it also rejects a storage edge to
+    a crate that is neither an algorithm crate nor in the enumeration.
+    """
+    section = policy.get("dp7", {})
+    storage = set(section.get("storage_crates", []))
+    algorithms = set(section.get("algorithm_crates", []))
+    exact = section.get("exact_closures", {})
+
+    storage_present = storage & ctx.workspace_names
+    if not storage_present:
+        return True, (
+            "PASS (vacuous) -- no storage crate is present in the workspace yet "
+            f"(awaiting {sorted(storage)}). Bites when the first one lands, expected "
+            f"at {biting(policy, 'storage_algorithm')}. Added by P04-GT001-WO006: "
+            "§8.2 claimed the N14 guard already walked this direction; it did not."
+        )
+
+    violations, checked = [], []
+    for crate in sorted(storage_present):
+        reached = ctx.wqm_closure(crate)
+        checked.append(crate)
+        bad = reached & algorithms
+        if bad:
+            violations.append(
+                f"  storage crate `{crate}` links algorithm crate(s): {sorted(bad)}"
+            )
+        declared = exact.get(crate)
+        if declared is not None:
+            surplus = reached - set(declared)
+            if surplus:
+                violations.append(
+                    f"  storage crate `{crate}` exceeds its §9.1 exact closure "
+                    f"{sorted(declared)} by {sorted(surplus)}"
+                )
+
+    if violations:
+        return False, (
+            "FAIL -- the storage/algorithm seam is crossed the wrong way:\n"
+            + "\n".join(violations)
+            + "\n(ARCH rev15 §8.2/DP-7: an algorithm crate may depend on its "
+            "storage owner's contract; nothing in the storage owner may depend on "
+            "an algorithm crate. Cross-seam invocations are injected ports whose "
+            "traits live in `wqm-common` -- never links.)"
+        )
+    exact_note = (
+        f" Exact closures enforced for {sorted(set(exact) & storage_present)}."
+        if set(exact) & storage_present
+        else ""
+    )
+    return True, (
+        f"PASS -- storage crates {sorted(checked)} reach no algorithm crate "
+        f"{sorted(algorithms)}.{exact_note}"
+    )
+
+
 CHECKS = (
     ("A client-direction (S1-only disjointness)", check_clients),
     ("B kernel purity (AGP-11)", check_kernel_purity),
     ("C sensor agnosticism", check_sensor),
+    ("D storage/algorithm direction (§8.2, DP-7)", check_storage_algorithm),
 )
 
 

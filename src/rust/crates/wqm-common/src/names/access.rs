@@ -2,13 +2,13 @@
 //! registry grants over.
 //!
 //! N51 (`P04-GT025`) owns the per-consumer grant *table*; N8 owns the two name sets
-//! it is indexed by. [`OpClass`] is the engine's operation-class axis (ARCH rev14
-//! §3.1 N51); [`Consumer`] is the closed consumer set (ARCH rev14 §7, the access-
+//! it is indexed by. [`OpClass`] is the engine's operation-class axis (ARCH rev15
+//! §3.1 N51); [`Consumer`] is the closed consumer set (ARCH rev15 §7, the access-
 //! grants row: "The consumer set is closed (4 surfaces + the restore binary)").
 
 /// An engine operation class. `Read` folds in query; `ProxiedRead` is a pure-read
 /// op that crosses the daemon socket by design; `Schedule` is a compute- or
-/// write-inducing background-work request (ARCH rev14 §3.1 N51, R2/alpha).
+/// write-inducing background-work request (ARCH rev15 §3.1 N51, R2/alpha).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpClass {
     /// A read (query folded in): served in-process via the N50 kernel facade.
@@ -50,9 +50,9 @@ impl OpClass {
 }
 
 /// A consumer of the engine -- the axis N51's grant table is keyed by. The set is
-/// closed: **four surfaces plus the restore binary** (ARCH rev14 §7, access-grants
+/// closed: **four surfaces plus the restore binary** (ARCH rev15 §7, access-grants
 /// row). [`Consumer::Restore`] is deliberately not a *surface*: the restore binary
-/// links no serving surface and has no client seam (ARCH rev14 §3.4). It is here
+/// links no serving surface and has no client seam (ARCH rev15 §3.4). It is here
 /// because this enum's contract is "the closed set N51 is indexed by", and rev11
 /// gave the restore binary its own grant row -- C/U/D under the exclusive storage
 /// lock, everything else denied.
@@ -68,7 +68,7 @@ pub enum Consumer {
     Tui,
     /// The offline `wqm-restore` maintenance binary. Not a surface; runs only
     /// while the daemon is down, holding the same exclusive storage lock S1 holds
-    /// when live (the one-live-writer relaxation, ARCH rev14 §8.3 / N14 row).
+    /// when live (the one-live-writer relaxation, ARCH rev15 §8.3 / N14 row).
     Restore,
 }
 

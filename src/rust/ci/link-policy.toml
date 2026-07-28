@@ -1,5 +1,5 @@
 # N51 access-capability policy -- the declarative input to the N14 link-closure
-# guard (ARCH rev14 §3.3, §9.1). This is the seed of what becomes the N51 const
+# guard (ARCH rev15 §3.3, §9.1). This is the seed of what becomes the N51 const
 # table in `wqm-conventions` (rev11 re-home, S2.8; the grant TYPES live in
 # `wqm-common`). The guard is DEFAULT-DENY: any bin not listed under a [grants]
 # key is treated as a client and must not link any crate in [s1_only].crates.
@@ -9,9 +9,43 @@
 # workspace manifest, so it passes vacuously today and bites the moment an S1-only
 # crate lands and a client bin grows an illegal edge to it.
 
+[biting]
+# WHERE each vacuous check starts biting, as data rather than as prose repeated
+# across message strings. Charter §2.2's success test for the guard axis is not
+# guard count -- it is that no check passes vacuously for a reason other than "the
+# thing it guards is not built yet", and that every vacuous check names the
+# engagement at which it activates. A check that says only "bites when crate X
+# lands" leaves the reader to work out when that is.
+#
+# DERIVED, not assigned (P04-GT001-WO006). For each guarded crate, the earliest P04
+# engagement whose work orders name it, over the tracker that is the program's sole
+# task SoT:
+#
+#   sqlite3 mesh/program.db "select id, gt, mesh_ref, shell_ref, acceptance
+#                            from program_wo"
+#   # then, per crate, min(gt) over the rows whose text contains the crate name
+#
+# Result at 20260728: `wqm-store`, `wqm-store-write`, `wqm-ingest`, `wqm-intel`,
+# `wqm-embed-native`, `wqm-host`, `wqm-lsp`, `wqm-sensor` and `wqm-conventions` all
+# first appear in P04-GT002's work orders; `wqm-graph` at GT028, `wqm-facade` at
+# GT045, `wqm-serve` at GT054, `wqm-service-install` at GT056. Every direction below
+# therefore activates at GT002 -- the shared-kernel engagement is where this whole
+# guard set stops being theoretical.
+#
+# HONEST LIMIT: a WO *naming* a crate is not a declaration that the crate is created
+# there, so these are earliest-possible rather than certain. They are a reader's
+# signpost, never an authorisation to skip a check -- what actually triggers each
+# check remains its own condition: the crate being present in the workspace manifest.
+client_direction = "P04-GT002"
+kernel_purity = "P04-GT002"
+sensor_agnosticism = "P04-GT002"
+storage_algorithm = "P04-GT002"
+stratification_edges = "P04-GT002"
+unstratified_crate = "P04-GT056"
+
 [s1_only]
 # Crates that carry the write closure or an S1-exclusive engine. A client's
-# transitive cargo dependency closure must be disjoint from this set (ARCH rev14
+# transitive cargo dependency closure must be disjoint from this set (ARCH rev15
 # §9.1, the client link-closure proof and its closing enumeration at the
 # "No S1-only crate ... appears in either closure" paragraph).
 #
@@ -34,7 +68,7 @@ crates = [
 # Bins granted the S1 (full-engine) class -- allowed to link the s1_only set.
 s1_bins = ["memexd"]
 
-# The ONE non-S1 bin whose grant row admits `wqm-store-write` (ARCH rev14 §3.4,
+# The ONE non-S1 bin whose grant row admits `wqm-store-write` (ARCH rev15 §3.4,
 # §9.1 bins row): the offline restore maintenance binary. It runs only while the
 # daemon is down, holding the same exclusive storage lock S1 holds when live (the
 # one-live-writer relaxation), and its N51 row is C/U/D under that lock with
@@ -55,7 +89,7 @@ restore_allowed = ["wqm-store-write", "wqm-store", "wqm-host", "wqm-conventions"
 # above IS the denial.
 
 [kernel_purity]
-# The rev11 SECOND guard direction (AGP-11, ARCH rev14 §9.1 and the N14 row at
+# The rev11 SECOND guard direction (AGP-11, ARCH rev15 §9.1 and the N14 row at
 # §7): the closure check runs BOTH ways. Previously only the client direction was
 # walked (P04-GT001-WO005, drift D3).
 #
@@ -80,3 +114,66 @@ forbidden_in_kernel = ["wqm-conventions"]
 [kernel_purity.sensor]
 crate = "wqm-sensor"
 allowed_wqm_deps = ["wqm-common"]
+
+[dp7]
+# The THIRD guard direction (ARCH rev15 §8.2, the storage/algorithm seam; DP-7).
+#
+# §8.2 states the rule and then states that it is already guarded: "an algorithm
+# crate may depend on its storage owner's contract and nothing in the storage
+# owner may depend on any algorithm crate (the N14 guard covers this direction
+# too -- the seam is a DAG edge-direction rule, same machinery)".
+#
+# MEASURED at P04-GT001-WO006: the guard did NOT cover it. Directions A/B/C are
+# client-disjointness, kernel purity and sensor agnosticism; none walks the
+# storage->algorithm edge. The sealed claim was an aspiration wearing the grammar
+# of a fact. This section makes it a fact.
+#
+# `wqm-search` is deliberately NOT an algorithm crate here: §9.1 puts it at
+# stratum 2 and admits `wqm-store-write` -> `wqm-search` as the LEGAL N45 reembed
+# driver's use of the N17 trait. The forbidden set is the stratum-4 engine group
+# minus `wqm-host` (glue, not an algorithm), exactly the crates §9.1 names when it
+# says "`wqm-store-write` therefore declares NO dependency on
+# `wqm-graph`/`wqm-intel`/`wqm-lsp`".
+storage_crates = ["wqm-store", "wqm-store-write"]
+algorithm_crates = ["wqm-graph", "wqm-intel", "wqm-lsp", "wqm-embed-native"]
+
+# §9.1 states `wqm-store-write`'s closure EXACTLY, not just as a disjointness:
+# "its own wqm-closure is exactly {`wqm-search`, `wqm-store`, `wqm-proto`,
+# `wqm-common`}". Enforced as stated -- the disjointness rule above would admit
+# `wqm-store-write` -> `wqm-secrets`, which the exact claim forbids. A legitimate
+# future edge here is an ARCH revision, i.e. a CR, not a policy edit.
+[dp7.exact_closures]
+wqm-store-write = ["wqm-search", "wqm-store", "wqm-proto", "wqm-common"]
+
+[strata]
+# The ARCH rev15 §9.1 whole-workspace crate-graph acyclicity stratification,
+# transcribed from its fenced block (the "stratum 0 .. stratum 6" listing that
+# follows "The stratification:"). Input to `guard_stratification.py`, which
+# enforces the block's own closing claim: "Every workspace crate's wqm-crate
+# dependencies point strictly DOWN this stratification, so the crate graph is
+# acyclic and the workspace Cargo-buildable as specified."
+#
+# *Stratum* is a Cargo-graph depth, NOT the §1.1 five-value Layer taxonomy --
+# §9.1 says so explicitly (rev14, R3-N-4: `wqm-sensor` is Layer SEN yet stratum 1).
+#
+# Bins are absent by design: the stratification covers library crates, and bin
+# closures are governed by the [grants] rules above (direction A).
+s0 = ["wqm-common", "wqm-proto"]
+s1 = ["wqm-store", "wqm-secrets", "wqm-conventions", "wqm-sensor"]
+s2 = ["wqm-search"]
+s3 = ["wqm-store-write", "wqm-ingest"]
+s4 = ["wqm-graph", "wqm-intel", "wqm-lsp", "wqm-embed-native", "wqm-host"]
+s5 = ["wqm-facade"]
+s6 = ["wqm-serve", "wqm-client"]
+
+# `wqm-service-install` is the 18th crate-map row and the stratification block
+# names 17 -- verified mechanically at P04-GT001-WO006 by extracting both lists
+# from ARCHITECTURE.md rather than reading them. The block's closing claim is
+# whole-workspace, so a 17-of-18 table under-covers its own claim. Assigning a
+# stratum is a P02 decision, not a local one (CHARTER §3: contradictions against a
+# sealed owner are CRs) -- filed as CR-023. Until it resolves, the crate is
+# declared UNSTRATIFIED: the guard passes while it is absent and FAILS loudly the
+# moment it lands, naming the CR. That is the honest state -- not a guessed
+# stratum that would launder an open question into an enforced fact.
+unstratified = ["wqm-service-install"]
+unstratified_reason = "CR-023 -- ARCH rev15 §9.1's stratification omits it (17 of 18 crate-map rows are stratified); its stratum is P02's to assign."

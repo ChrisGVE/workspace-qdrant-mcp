@@ -46,6 +46,13 @@ forbidden_in_kernel = ["wqm-conventions"]
 [kernel_purity.sensor]
 crate = "wqm-sensor"
 allowed_wqm_deps = ["wqm-common"]
+
+[dp7]
+storage_crates = ["wqm-store", "wqm-store-write"]
+algorithm_crates = ["wqm-graph", "wqm-intel"]
+
+[dp7.exact_closures]
+wqm-store-write = ["wqm-search", "wqm-store", "wqm-common"]
 """
 
 
@@ -186,6 +193,63 @@ CASES = [
         {},
         False,
         "wqm closure is within",
+    ),
+    (
+        "D: a storage crate links an algorithm crate (DP-7 wrong direction)",
+        {
+            "wqm-common": [],
+            "wqm-graph": ["wqm-common"],
+            "wqm-store": ["wqm-graph"],
+        },
+        {},
+        True,
+        "links algorithm crate(s): ['wqm-graph']",
+    ),
+    (
+        "D: transitively, too -- the seam is a closure rule, not an edge rule",
+        {
+            "wqm-common": [],
+            "wqm-intel": ["wqm-common"],
+            "wqm-search": ["wqm-intel"],
+            "wqm-store": ["wqm-search"],
+        },
+        {},
+        True,
+        "links algorithm crate(s): ['wqm-intel']",
+    ),
+    (
+        "D: the LEGAL direction passes -- an algorithm crate may link its storage owner",
+        {
+            "wqm-common": [],
+            "wqm-store": ["wqm-common"],
+            "wqm-graph": ["wqm-store"],
+        },
+        {},
+        False,
+        "reach no algorithm crate",
+    ),
+    (
+        "D: wqm-store-write may not exceed its §9.1 exact closure",
+        {
+            "wqm-common": [],
+            "wqm-secrets": ["wqm-common"],
+            "wqm-store-write": ["wqm-secrets"],
+        },
+        {},
+        True,
+        "exceeds its §9.1 exact closure",
+    ),
+    (
+        "D: wqm-store-write within its exact closure passes",
+        {
+            "wqm-common": [],
+            "wqm-store": ["wqm-common"],
+            "wqm-search": ["wqm-store"],
+            "wqm-store-write": ["wqm-search"],
+        },
+        {},
+        False,
+        "Exact closures enforced",
     ),
 ]
 

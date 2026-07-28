@@ -9,7 +9,9 @@ cd "$(dirname "$0")/.." || exit 2
 here="ci"
 
 guards=(
-	"guard_link_closure.py"           # N14 link-closure, all 3 directions (default-deny)
+	"guard_link_closure.py"           # N14 link-closure, all 4 directions (default-deny)
+	"guard_stratification.py"         # §9.1 stratification + whole-workspace acyclicity
+	"guard_codesize.py"               # §9 limits: 500 lines/file, 80 lines/function
 	"guard_name_registry.py"          # N8 name-registry single producer
 	"guard_field_family.py"           # N35 field-family completeness
 	"guard_dedash_single_producer.py" # N3 fts_key single producer
@@ -20,7 +22,9 @@ guards=(
 	# fixtures. A guard that has never failed is indistinguishable from one that
 	# cannot fail -- and most guards above are still vacuous on this workspace,
 	# so their PASS lines rest entirely on these (P04-GT001-WO005).
-	"selftest_link_closure.py" # 9 cases over the N14 guard's 3 directions
+	"selftest_link_closure.py"   # 14 cases over the N14 guard's 4 directions
+	"selftest_stratification.py" # 7 cases -- up-edges and same-level edges bite
+	"selftest_codesize.py"       # 9 cases -- both limits, and the literal stripping
 )
 
 failed=0

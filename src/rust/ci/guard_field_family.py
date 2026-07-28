@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field-family completeness guard -- ARCH rev14 §5.4, N35.
+"""Field-family completeness guard -- ARCH rev15 §5.4, N35.
 
 Every persisted field family (ARCH §5.3) must have exactly one row in the N35
 field-family registry declaring its {metadata_tier, migration_disposition}. A

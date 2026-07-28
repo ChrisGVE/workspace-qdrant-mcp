@@ -1,7 +1,7 @@
-# workspace-qdrant-mcp -- the S2 MCP server binary (ARCH rev14 §9.1). It exposes
+# workspace-qdrant-mcp -- the S2 MCP server binary (ARCH rev15 §9.1). It exposes
 # the eight-tool agent surface sealed by P01-GT004 (MCP-SURFACE.md §1.2) over
 # stdio. Reads are served IN-PROCESS through N49, which embeds the kernel read
-# subset directly over wqm-store -- a client links NO facade (rev14 decision B);
+# subset directly over wqm-store -- a client links NO facade (decision B, §9.1);
 # writes are proxied. P04-GT001 ships a minimal-but-real binary: arg parsing,
 # version, and a typed not-yet-available decline, plus the walking-skeleton
 # slice. The N43 adapter and the N33 rules-injection half arrive with N43's

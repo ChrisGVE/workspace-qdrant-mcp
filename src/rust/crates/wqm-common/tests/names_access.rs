@@ -87,7 +87,7 @@ fn consumer_all_enumerates_four_surfaces_plus_the_restore_binary_in_order() {
     );
 }
 
-/// ARCH rev14 closes the consumer set at "4 surfaces + the restore binary", and
+/// ARCH rev15 closes the consumer set at "4 surfaces + the restore binary", and
 /// the restore binary is explicitly NOT a surface -- it links no serving surface
 /// and has no client seam (§3.4). Widening `Consumer` to carry N51's grant axis
 /// must not silently promote it to a fifth surface.

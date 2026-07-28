@@ -115,4 +115,10 @@ affected_commits.txt
 
 # Local dev config override (contains machine-specific paths)
 config.dev.yaml
+
+# Python bytecode. The CI guards in src/rust/ci import each other (the link-closure
+# guard exports the resolved-graph context the stratification guard reuses), so
+# running them locally writes __pycache__ next to the sources.
+__pycache__/
+*.pyc
 project-notes/

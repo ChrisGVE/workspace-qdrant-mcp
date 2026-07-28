@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Name-registry single-producer guard -- N8 (ARCH rev14 §6.2).
+"""Name-registry single-producer guard -- N8 (ARCH rev15 §6.2).
 
 N8 (crates/wqm-common/src/names/) is the single owner of the workspace's literal
 identifier strings -- the four collection names and the five environment-variable

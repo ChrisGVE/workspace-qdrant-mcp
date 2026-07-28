@@ -2,7 +2,7 @@
 # its own crate directory and `cargo build --workspace` stays green against the
 # currently-declared set.
 #
-# ARCH rev14 §9.1 is the authoritative crate map: 18 library-crate rows, in table
+# ARCH rev15 §9.1 is the authoritative crate map: 18 library-crate rows, in table
 # order -- wqm-common, wqm-conventions, wqm-sensor, wqm-proto, wqm-store,
 # wqm-store-write, wqm-search, wqm-embed-native, wqm-ingest, wqm-intel, wqm-lsp,
 # wqm-graph, wqm-facade, wqm-secrets, wqm-host, wqm-service-install, wqm-client,
@@ -15,6 +15,14 @@
 # The prior comment here cited "ARCH rev08 ... 16 libs + 3 bins", which predates
 # rev11's wqm-conventions/wqm-sensor/wqm-lsp, ARCH-01's wqm-service-install split,
 # and the wqm-restore bin (P04-GT001-WO001, drift D1).
+#
+# Every "ARCH rev14" citation in this workspace was corrected to rev15 at
+# P04-GT001-WO006 (drift D7): the architecture's frontmatter reads `revision: 15`,
+# extracted rather than recalled. Substance is unaffected -- r15 is a three-clause
+# micro-pass in §2 AGP-4, §8.1, and a mesh-verdicts currency note, and no section
+# this workspace cites is among them (verified: the body carries no rev15 marker).
+# The stale number came from restating rev14 instead of extracting it, the same
+# error class §7.3a's restatement rule exists to catch.
 [workspace]
 resolver = "2"
 members = ["crates/*", "bins/*"]

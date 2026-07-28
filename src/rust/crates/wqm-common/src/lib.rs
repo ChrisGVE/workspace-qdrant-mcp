@@ -1,6 +1,6 @@
 //! wqm-common -- the infra floor of the wqm-0.2 workspace.
 //!
-//! This crate is the bottom of the dependency DAG (ARCH rev14 §3.3, §9.1): it has
+//! This crate is the bottom of the dependency DAG (ARCH rev15 §3.3, §9.1): it has
 //! no wqm-crate dependencies and every other crate may link it. It will own the
 //! declarative registries and value objects that the whole system keys on -- N8
 //! canonical names, N9 error taxonomy, N23 path canonicalization, N35 collection

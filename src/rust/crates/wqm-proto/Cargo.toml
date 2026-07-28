@@ -3,7 +3,7 @@
 # linkable by every surface. P04-GT001 declares the crate; the .proto services
 # and tonic/prost codegen arrive with N24's slice, P04-GT011. (The prior comment
 # credited these to "N13 proto definitions" -- N13 is observability; N24 owns the
-# proto SoT, ARCH rev14 §9.1.)
+# proto SoT, ARCH rev15 §9.1.)
 [package]
 name = "wqm-proto"
 version.workspace = true

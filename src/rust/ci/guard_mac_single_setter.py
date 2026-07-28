@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MAC-marker single-setter guard -- ARCH rev14 §6.2 N5.
+"""MAC-marker single-setter guard -- ARCH rev15 §6.2 N5.
 
 The rules drain-marker MAC (HMAC-SHA256 over the length-prefixed marker input) must
 be written from exactly ONE site. A second setter would let a forged or

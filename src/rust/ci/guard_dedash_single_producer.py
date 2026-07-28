@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""De-dash single-producer guard -- ARCH rev14 §6.2 N3.
+"""De-dash single-producer guard -- ARCH rev15 §6.2 N3.
 
 The `fts_key(key) -> DedashedToken` de-dash transform must have exactly ONE
 definition: it is called by N2 on the write side and N41's FTS5 query concrete on

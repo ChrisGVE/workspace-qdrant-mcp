@@ -69,7 +69,10 @@ jobs:
         run: cargo test --workspace
 
   guards:
-    name: CI guards (link-closure, registries, tests)
+    # Codesize used to run here as its own non-gating "report" job. It is now
+    # `guard_codesize.py` inside run_guards.sh -- gating, and measuring the
+    # function limit the old report never looked at (P04-GT001-WO006).
+    name: CI guards (link-closure, stratification, codesize, registries, tests)
     needs: fmt
     runs-on: ubuntu-latest
     steps:
@@ -78,15 +81,3 @@ jobs:
       - name: Run guards
         working-directory: src/rust
         run: bash ci/run_guards.sh
-
-  codesize:
-    name: codesize report (non-gating)
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install tokei
-        run: cargo install tokei --locked || true
-      - name: Report
-        working-directory: src/rust
-        run: bash ci/codesize.sh

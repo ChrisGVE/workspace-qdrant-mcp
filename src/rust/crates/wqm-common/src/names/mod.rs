@@ -1,4 +1,4 @@
-//! N8 -- the canonical name registry (ARCH rev14 nexus N8; P02-GT005 CONTRACTS N8).
+//! N8 -- the canonical name registry (ARCH rev15 nexus N8; P02-GT005 CONTRACTS N8).
 //!
 //! N8 is the single owner of the literal identifier *strings* the whole workspace
 //! keys on -- collection names, environment-variable keys, and the operation-class
