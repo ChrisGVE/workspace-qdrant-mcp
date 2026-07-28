@@ -48,6 +48,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # `wqm-proto` generates its Rust from `.proto` at BUILD time (N24 is the
+      # single producer, so nothing generated is committed). That makes protoc a
+      # build-time toolchain dependency from P04-GT001-WO011 onward -- on both
+      # runners, since the matrix builds macOS too.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Cache cargo
         uses: actions/cache@v4
         with:
