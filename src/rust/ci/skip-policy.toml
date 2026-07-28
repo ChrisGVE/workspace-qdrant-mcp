@@ -1,0 +1,52 @@
+# The declared skip set -- CR-007 defect (b)'s recovery floor, as data.
+#
+# `crates/wqm-test-harness/src/skip.rs` classifies defect (b) honestly: "a test that
+# cannot run its assertions must FAIL or SKIP, never pass" cannot be made structural,
+# because `cargo test` has no skip primitive and an early return returns `Ok`. What it
+# builds instead is a machine-readable announcement (`WQM-TEST-SKIP`, appended to
+# `WQM_TEST_SKIP_LOG`), and it names the floor that announcement exists for:
+#
+#   The floor is CI gating on the *set* of announced skips rather than on a green run.
+#   The defect this cures is not one skipped test -- it is a suite drifting into
+#   asserting nothing while staying green, and only a set comparison catches that.
+#
+# This file is that set. `ci/gate_skips.py` compares it against what a run actually
+# announced. A skip not declared here fails CI; a skip declared `expected` on a runner
+# and NOT announced there also fails CI, for the reason in §2 below.
+#
+# ## 1. Every entry publishes the local command
+#
+# CHARTER §2.6 (axis F) requires that anything needing a live backend "either runs
+# containerized in CI or SKIPs audibly with the local command published -- never a
+# silent pass". `run_locally` is where that command is published, and it is published
+# HERE rather than in a comment in the workflow so that the declaration a human reads
+# and the declaration CI enforces are the same line.
+#
+# ## 2. `expected` versus `allowed`, and why the distinction is not pedantry
+#
+# A gate that only checks "no unexpected skip appeared" passes vacuously when the log
+# is empty -- and an empty log is exactly what a BROKEN SINK produces. Zero skips and
+# a harness that lost its ability to announce them are the same green.
+#
+# So one runner carries a POSITIVE CONTROL. GitHub's hosted macOS runner ships no
+# container runtime, so the containerized store test must skip there, every time. That
+# turns each macOS CI run into live end-to-end proof that the announcement path works:
+# harness -> `WQM_TEST_SKIP_LOG` -> gate.
+#
+# If GitHub ever adds a container runtime to the macOS runners, this gate goes RED and
+# the message says so. That is the intended failure: the alternative is a green run in
+# which nobody can tell whether the skip stopped happening or the sink stopped writing.
+# The fix is one line here, and the red is what causes anyone to make it.
+
+[[skip]]
+test = "an_ephemeral_store_is_reachable_and_answers_readiness"
+condition = "no container runtime -- the hosted macOS runner has no Docker daemon"
+expected_on = ["macos-latest"]
+allowed_on = []
+run_locally = "cd src/rust && cargo test -p wqm-test-harness --test container_round_trip"
+
+# `status_crosses_the_whole_pipe_when_a_daemon_is_listening` skips when `memexd-v2` is
+# not built beside the binary under test. It is DELIBERATELY absent from this file:
+# every CI job builds the workspace before testing, so that skip must never fire in
+# CI. Its absence here is the assertion -- if it ever announces, the gate fails and
+# names it, which is the whole point of a default-deny set.

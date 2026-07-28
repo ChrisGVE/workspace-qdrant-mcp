@@ -28,7 +28,15 @@ guards=(
 	"selftest_codesize.py"         # 9 cases -- both limits, and the literal stripping
 	"selftest_no_skipped_tests.py" # 9 cases -- and that PROSE about the ban is legal
 	"selftest_name_registry.py"    # 12 cases -- and that PROSE quoting a name is legal
+	"selftest_gate_skips.py"       # 9 cases over the skip-set gate, both directions
 )
+
+# `gate_skips.py` itself is NOT in the list above, and the omission is deliberate.
+# It reads a `WQM_TEST_SKIP_LOG` produced by a test run and a runner label, so it is
+# a CI-workflow step (ci.yml) rather than a static guard -- running it here would
+# either need a log this script does not produce or pass vacuously against an absent
+# one. Its selftest IS here, so the gate is proven locally even though the gate runs
+# only in CI (P04-GT001-WO014).
 
 failed=0
 for g in "${guards[@]}"; do

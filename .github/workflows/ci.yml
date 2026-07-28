@@ -72,9 +72,44 @@ jobs:
       - name: Build
         working-directory: src/rust
         run: cargo build --workspace
+      # The walking-skeleton slice, run as a SLICE. CHARTER §2.6 (axis F) is that
+      # `ci.yml` already ran the right commands and this axis makes it a *gate*:
+      # a slice that breaks must be identifiable as the slice breaking, not as one
+      # of ~100 tests in a wall of output. Both halves drive the real binaries as
+      # subprocesses -- `status` across the daemon seam (WO011), `query` through
+      # the planner/executor/read-leg path (WO013).
+      - name: The walking-skeleton slice
+        working-directory: src/rust
+        env:
+          WQM_TEST_SKIP_LOG: ${{ runner.temp }}/wqm-skips.log
+        run: |
+          cargo test -p workspace-qdrant-mcp --test status_round_trip --test query_round_trip
       - name: Test
         working-directory: src/rust
+        env:
+          # The seam the skip-set gate stands on. The harness appends every
+          # `WQM-TEST-SKIP` announcement here; the next step compares the SET
+          # against `ci/skip-policy.toml`.
+          WQM_TEST_SKIP_LOG: ${{ runner.temp }}/wqm-skips.log
         run: cargo test --workspace
+      # CR-007 defect (b)'s recovery floor. The structural half -- a skip cannot be
+      # dropped silently, because `SkipReason` is `#[must_use]` under a
+      # warnings-denied workspace -- lives in the harness. This is the other half:
+      # gating on the SET, so a suite drifting into asserting nothing while staying
+      # green fails here.
+      #
+      # Deliberately NOT `if: always()`. On a run whose build or tests already
+      # failed there is no log, and the gate's positive-control branch would report
+      # "the sink is broken" on top of a failure that has nothing to do with the
+      # sink -- a second, misleading red beside a real one. The condition this gate
+      # exists for is a run that would otherwise be GREEN, and that is exactly when
+      # this step is reached.
+      - name: Gate the announced skip set
+        working-directory: src/rust
+        run: |
+          python3 ci/gate_skips.py \
+            --log "${{ runner.temp }}/wqm-skips.log" \
+            --runner "${{ matrix.os }}"
 
   guards:
     # Codesize used to run here as its own non-gating "report" job. It is now
