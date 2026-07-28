@@ -27,3 +27,17 @@ workspace = true
 
 [dependencies]
 clap = { workspace = true }
+# A client bin's whole declared closure: the client seam and the shared floor
+# (ARCH rev15 §9.1, the three client-bin closures). No serving crate, no
+# s1_only crate -- guard_link_closure.py enforces that from the other side.
+wqm-client = { path = "../../crates/wqm-client" }
+wqm-common = { path = "../../crates/wqm-common" }
+wqm-proto = { path = "../../crates/wqm-proto" }
+tokio = { workspace = true, features = ["rt", "macros"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# The round-trip test drives the real binaries as subprocesses, so it needs no
+# server crate -- only the harness's skip vocabulary, so that "the daemon binary
+# is not built" is an ANNOUNCED skip and never a silent pass (CR-007 defect 2).
+wqm-test-harness = { path = "../../crates/wqm-test-harness" }

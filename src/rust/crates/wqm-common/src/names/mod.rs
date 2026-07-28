@@ -36,6 +36,7 @@ mod access;
 mod collections;
 mod deployment;
 mod env;
+mod protocol;
 
 pub use access::{Consumer, OpClass};
 pub use collections::{collection_name, Collection, RESERVED_IMAGES_COLLECTION};
@@ -44,3 +45,4 @@ pub use deployment::{
     IS_PARALLEL_DEPLOYMENT, SERVICE_LABEL,
 };
 pub use env::EnvVar;
+pub use protocol::{negotiate, Negotiated, PREFERRED_PROTOCOL, SUPPORTED_PROTOCOLS};

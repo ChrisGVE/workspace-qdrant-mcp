@@ -1,0 +1,32 @@
+# wqm-serve -- N48: the daemon's serving surface (ARCH rev15 §9.1). Services, the
+# serve loop, the interceptor, supervision, slow-burn, token mint, and the
+# daemon-side N33 mint half. S1-only: it is in ci/link-policy.toml [s1_only], so
+# no client bin may link it, and `memexd` is the one bin granted it.
+#
+# P04-GT001-WO011 seeds it with the serve loop and the one service the walking
+# skeleton crosses; the rest arrives with N48's own slice (P04-GT054).
+[package]
+name = "wqm-serve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Only N24's wire so far. `wqm-common` is deliberately NOT declared: this crate
+# does not yet touch a name, a config value or an envelope, and a dependency
+# declared "because it will be needed" is one the link guards must reason about
+# for no gain.
+wqm-proto = { path = "../wqm-proto" }
+
+# `server` is the half of tonic this crate needs; a serving crate has no business
+# carrying the channel/client code, and saying so here rather than taking the
+# default keeps that visible.
+tonic = { workspace = true, features = ["server", "codegen", "router"] }
+tokio = { workspace = true, features = ["rt", "net", "macros"] }
+tokio-stream = { workspace = true, features = ["net"] }
+thiserror = { workspace = true }

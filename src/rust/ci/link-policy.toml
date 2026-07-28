@@ -36,11 +36,18 @@
 # there, so these are earliest-possible rather than certain. They are a reader's
 # signpost, never an authorisation to skip a check -- what actually triggers each
 # check remains its own condition: the crate being present in the workspace manifest.
-client_direction = "P04-GT002"
+#
+# UPDATED at P04-GT001-WO011, and the update is the point of recording these as
+# data. The walking skeleton needed `wqm-serve` (S1-only) and `wqm-client` to exist
+# NOW rather than at their own slices, so two checks started biting a whole
+# engagement earlier than the derivation predicted -- which is exactly the
+# "earliest-possible, not certain" limit stated below, observed rather than
+# theorised. Both are now live and passing on real edges, not vacuous.
+client_direction = "P04-GT001"      # bit at WO011: wqm-serve landed, and two client bins are checked against it
 kernel_purity = "P04-GT002"
 sensor_agnosticism = "P04-GT002"
 storage_algorithm = "P04-GT002"
-stratification_edges = "P04-GT002"
+stratification_edges = "P04-GT001"  # bit at WO011: the first inter-crate edges (bins -> s6 -> s0)
 unstratified_crate = "P04-GT056"
 
 [s1_only]

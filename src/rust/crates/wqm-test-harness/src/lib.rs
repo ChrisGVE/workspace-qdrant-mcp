@@ -98,4 +98,10 @@ mod skip;
 
 pub use endpoint::{Ephemeral, StoreEndpoint};
 pub use env::HermeticEnv;
-pub use skip::{with_store, SkipReason, StoreAvailability};
+// `announce_skip` joins the re-exports at P04-GT001-WO011: the store-shaped
+// `with_store` covers a test that needs a store, and the round-trip test needs the
+// same announced-skip vocabulary for a precondition that is not a store (a
+// sibling binary that has not been built). One skip format, one producer -- the
+// alternative was a second hand-rolled `WQM-TEST-SKIP` line, which is how a
+// marker CI gates on drifts.
+pub use skip::{announce_skip, with_store, SkipReason, StoreAvailability};

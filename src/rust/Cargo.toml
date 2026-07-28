@@ -30,7 +30,16 @@ members = ["crates/*", "bins/*"]
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.79"
+# MSRV. `1.79` was an artifact of the retired F-00 track and pinned nothing real
+# (ARCH declares no MSRV). `P04-GT001-WO011` did not choose 1.88 either -- it
+# MEASURED it: the architecture mandates gRPC (N24), gRPC means `tonic`, and
+# `tonic` 0.14.6 declares `rust-version = "1.88"`. The floor is therefore set by
+# the architecture through its transport, not by a taste. The harness's
+# crate-local 1.88 (added at WO007 for `testcontainers`) is now redundant and
+# removed. What remains open is the *promise* -- how far back the product commits
+# to compile -- which is still Chris's, and is unchanged by this floor being
+# observed rather than declared.
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 
@@ -43,6 +52,27 @@ thiserror = "1"
 # too (the S2 bin crosses N49 -> N24 gRPC -> N48's serve loop, all async). Features
 # are chosen per crate rather than enabled wholesale here.
 tokio = { version = "1", default-features = false }
+
+# N24's transport. `tonic` 0.14 splits the prost codec out of the core crate, so a
+# gRPC crate needs `tonic` + `tonic-prost` at runtime and `tonic-prost-build` at
+# build time. This is where the workspace MSRV of 1.88 comes from (tonic 0.14.6).
+tonic = { version = "0.14", default-features = false }
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+prost = "0.14"
+
+# The UDS dial path: tonic's generic connector takes a `tower` service, and
+# `hyper-util`'s TokioIo adapts a tokio UnixStream to hyper's IO traits. Only the
+# client seam (N49) needs them.
+tower = { version = "0.5", default-features = false }
+tokio-stream = { version = "0.1", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
+
+# The MCP wire is JSON-RPC over stdio, and the sealed envelope (MCP-SURFACE.md
+# §3.1) is a JSON object with an exact key set -- so the envelope types serialize
+# with serde rather than being formatted by hand.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # Warnings are errors across the workspace (project mandate: fix root cause, never
 # silence). Applied here so local builds and CI agree; CI additionally runs

@@ -17,3 +17,8 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# N12's envelope is a JSON object with a sealed key set (MCP-SURFACE.md §3.1), so
+# it is serialized by serde rather than formatted by hand -- the shape is enforced
+# by the types, and the wire spelling by the attributes.
+serde = { workspace = true }
+serde_json = { workspace = true }

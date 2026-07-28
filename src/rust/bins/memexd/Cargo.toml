@@ -25,3 +25,8 @@ workspace = true
 
 [dependencies]
 clap = { workspace = true }
+# S1 links the serving surface -- it is the one bin granted the s1_only set
+# (ci/link-policy.toml [grants].s1_bins).
+wqm-serve = { path = "../../crates/wqm-serve" }
+wqm-proto = { path = "../../crates/wqm-proto" }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal", "macros"] }

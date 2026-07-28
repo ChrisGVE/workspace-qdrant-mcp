@@ -8,17 +8,16 @@
 # guard_stratification.py check 4 FAILS if any shipped crate ever links it.
 # The exemption comes with an enforced obligation rather than being a hole.
 #
-# MSRV: this crate alone declares 1.88, because `testcontainers` 0.27 requires it.
-# The shipped crates keep the workspace's 1.79. Cargo's rust-version is per
-# package, so a test-only toolchain floor costs the product nothing -- and the
-# product's real MSRV is a compatibility promise nobody has decided yet (ARCH pins
-# no MSRV; 1.79 came from the retired F-00 track). Deciding it here, as a side
-# effect of choosing a dev dependency, would be deciding it by accident.
+# MSRV: this crate carried a crate-local 1.88 (for `testcontainers` 0.27) while the
+# workspace declared 1.79, so that a dev dependency could not decide the product's
+# compatibility promise by accident. That override is now redundant: `P04-GT001-WO011`
+# measured the same 1.88 floor coming from `tonic`, which the architecture mandates
+# through N24 -- so the workspace declares it and this crate inherits.
 [package]
 name = "wqm-test-harness"
 version.workspace = true
 edition.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false

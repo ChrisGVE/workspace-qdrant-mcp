@@ -1,0 +1,74 @@
+// N24's wire contract between wqm's product processes (ARCH rev15 §9.1: this
+// crate is the proto source of truth).
+//
+// P04-GT001's walking skeleton needs exactly one RPC: the daemon reporting what it
+// can currently do. The eight-tool agent surface is NOT modelled here -- that is
+// an MCP concern served by the S2 bin (MCP-SURFACE.md); this is the process-to-
+// process wire underneath it, and the two vocabularies are deliberately distinct.
+//
+// Field numbers are permanent. Blocks the skeleton daemon cannot yet report are
+// ABSENT rather than zero-filled: proto3 message fields carry presence, so a
+// missing `index` means "this build has no index subsystem", which is a different
+// claim from `files_tracked: 0`. Reporting a zero would be the kind of lie
+// P04-GT001-WO011's acceptance forbids.
+
+syntax = "proto3";
+
+package wqm.v1;
+
+// The daemon's own report about itself. S1 serves it; every client surface
+// (S2 MCP, S3 CLI, S4 TUI) reads it through N49.
+service SystemService {
+  // What can this daemon currently do, and what is degraded.
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+message StatusRequest {
+  // Actively probe the subsystems rather than reporting cached state. The
+  // skeleton daemon has no subsystems to probe and answers identically either
+  // way; the field exists because MCP-SURFACE.md §2.9 exposes it to agents and a
+  // wire that cannot carry the request cannot serve it later.
+  bool probe = 1;
+}
+
+message StatusResponse {
+  // Always present: a daemon that answers can always describe itself.
+  DaemonHealth daemon = 1;
+
+  // Absent while no index subsystem exists (arrives with the store slices).
+  optional IndexState index = 2;
+}
+
+message DaemonHealth {
+  // The condition vocabulary is OWED BY CR-010 (MCP-SURFACE.md §3.5): the
+  // queue-failure engagement produces the `state`/`detail` taxonomy, and this
+  // enum carries only the two members the skeleton can truthfully assert.
+  // Members are added, never renumbered.
+  enum State {
+    // Unset -- a client that sees this is talking to a daemon older than the
+    // field, and must not read it as a health claim.
+    STATE_UNSPECIFIED = 0;
+    // Serving, with nothing known to be wrong.
+    STATE_OK = 1;
+  }
+
+  State state = 1;
+
+  // An open string keyed by `state` (MCP-SURFACE.md §3.5). Empty when `state`
+  // needs no qualification.
+  string detail = 2;
+
+  // When the daemon entered this state, as a Unix timestamp in seconds. The
+  // skeleton reports process start. Zero means unknown.
+  int64 since_unix_seconds = 3;
+
+  // The daemon binary's version, so a client can tell which build answered.
+  string version = 4;
+}
+
+message IndexState {
+  uint64 files_tracked = 1;
+  uint64 queue_pending = 2;
+  bool complete = 3;
+  uint64 lag_seconds = 4;
+}

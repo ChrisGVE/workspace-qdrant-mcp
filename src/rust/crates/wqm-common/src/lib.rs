@@ -19,3 +19,9 @@
 /// operation-class and consumer vocabularies). See [`names`] for the
 /// single-producer rule and the grow-per-phase contract.
 pub mod names;
+
+/// N12 -- the response envelope every MCP tool answers in, with §4.3's error
+/// vocabulary and §4.4's notice vocabulary. Seeded at `P04-GT001-WO011` with the
+/// sealed seven-key shape (MCP-SURFACE.md §3.1); the per-tool `data` shapes live
+/// with the tools that produce them.
+pub mod envelope;

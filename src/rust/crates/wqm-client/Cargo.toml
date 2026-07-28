@@ -1,0 +1,41 @@
+# wqm-client -- N49: the client seam every non-daemon surface reads through
+# (ARCH rev15 §9.1). S2/S3/S4 link it; it is NOT S1-only, and its full closure
+# (decision B: it embeds the kernel read subset and links NO facade) arrives with
+# the read slices.
+#
+# P04-GT001-WO011 seeds it with the daemon-status leg the walking skeleton
+# crosses -- dial N24, ask, and turn "the daemon is not there" into an answer
+# rather than an error.
+[package]
+name = "wqm-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+wqm-proto = { path = "../wqm-proto" }
+
+# `channel` is the client half of tonic's transport; a client crate has no
+# business carrying the server.
+tonic = { workspace = true, features = ["channel", "codegen"] }
+tokio = { workspace = true, features = ["rt", "net", "time"] }
+# The UDS dial path: tonic's connector takes a tower service, and hyper-util's
+# TokioIo adapts a tokio UnixStream to hyper's IO traits.
+tower = { workspace = true, features = ["util"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Deliberately NOT `wqm-serve`. It is S1-only and sits in the same stratum (s6),
+# so a dev-dependency would be both a same-level edge and an s1_only crate inside
+# a client's dependency graph -- `cargo metadata`'s resolve makes no kind
+# distinction, so the link and stratification guards would see it, and they would
+# be right to. The client's own tests need no server: unreachability is what this
+# crate must get right, and that is tested by dialing a socket nobody serves.
+# The two-process proof lives with the binaries, in bins/*/tests.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

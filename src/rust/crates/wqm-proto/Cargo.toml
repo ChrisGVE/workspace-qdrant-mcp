@@ -1,9 +1,12 @@
 # wqm-proto -- N24 gRPC contract: the proto SoT + generated code + the `Address`
 # enum (ARCH §9.1). Generated code only, no wqm-crate dependencies, so it stays
-# linkable by every surface. P04-GT001 declares the crate; the .proto services
-# and tonic/prost codegen arrive with N24's slice, P04-GT011. (The prior comment
-# credited these to "N13 proto definitions" -- N13 is observability; N24 owns the
-# proto SoT, ARCH rev15 §9.1.)
+# linkable by every surface. (An earlier comment credited these to "N13 proto
+# definitions" -- N13 is observability; N24 owns the proto SoT, ARCH rev15 §9.1.)
+#
+# P04-GT001-WO011 brings forward the one service the walking skeleton crosses;
+# N24's own slice (P04-GT011) adds the rest. Codegen runs at build time from
+# `proto/` into OUT_DIR -- nothing generated is committed, so the `.proto` cannot
+# be out of step with the Rust.
 [package]
 name = "wqm-proto"
 version.workspace = true
@@ -16,3 +19,17 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# The gRPC runtime and the prost codec the generated code is built against. Both
+# are the transport N24 names; neither is a wqm crate, so the "no wqm-crate
+# dependencies" rule above is untouched.
+# The generated module contains BOTH halves of the service -- the server trait and
+# the client stub -- so this crate needs tonic's full `transport` (server +
+# channel), even though any single consumer uses only one half. Splitting the
+# codegen per side would buy a smaller feature set at the cost of two generated
+# modules for one contract; N24 is the single producer, so one module wins.
+tonic = { workspace = true, features = ["transport", "codegen"] }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
