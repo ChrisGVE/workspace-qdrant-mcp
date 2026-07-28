@@ -27,14 +27,20 @@
 //!
 //! Collection names are ALSO where the `-v2` parallel-deployment suffix must enter
 //! (`PROJECT_LOGISTICS.md`: one knob, not N literals; v0.2 writes only to `-v2`
-//! collections). [`collection_name`] is that chokepoint. It does not carry
-//! the suffix yet -- `P04-GT001-WO008`/`WO009` add the knob and the refusal, and
-//! **no slice may write through this module before they land.**
+//! collections). The `deployment` module owns that knob: [`DEPLOYMENT_SUFFIX`] is
+//! spelled once, `Collection::deployed_name` applies it, and [`WriteTarget`] is
+//! the structural refusal -- a write path typed on it cannot address a collection
+//! outside this deployment (`P04-GT001-WO008`/`WO009`).
 
 mod access;
 mod collections;
+mod deployment;
 mod env;
 
 pub use access::{Consumer, OpClass};
 pub use collections::{collection_name, Collection, RESERVED_IMAGES_COLLECTION};
+pub use deployment::{
+    dir_base, WriteGuardError, WriteTarget, DEPLOYMENT_DIR, DEPLOYMENT_SUFFIX,
+    IS_PARALLEL_DEPLOYMENT, SERVICE_LABEL,
+};
 pub use env::EnvVar;
