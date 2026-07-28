@@ -5,10 +5,17 @@
 //! N48's serve loop in the daemon -- and answers *especially* when the daemon is
 //! not there, which is the condition it exists to report (MCP-SURFACE.md §4.3).
 //!
-//! The other seven tools of the sealed inventory (§1.2), the N43 adapter proper
-//! and the N33 rules-injection half arrive with `P04-GT061`. Until then this bin
-//! advertises one tool, because advertising eight and serving one is the failure
-//! class the surface redesign exists to end.
+//! `P04-GT001-WO013` adds the second: `query` reads the fixture-seeded scratchpad
+//! store in-process, through the planner and executor, and answers in the same
+//! envelope with the daemon down.
+//!
+//! The other six tools of the sealed inventory (§1.2), the N43 adapter proper and
+//! the N33 rules-injection half arrive with `P04-GT061`. Until then this bin
+//! advertises **two** tools, because advertising eight and serving two is the
+//! failure class the surface redesign exists to end -- and that sentence is why
+//! this count is maintained here rather than rounded off (`P04-GT001-WO004`, the
+//! §1.3 surface staleness: this module note read "7 JSON-RPC tools" against a
+//! sealed inventory of eight).
 
 mod mcp;
 mod profiles;

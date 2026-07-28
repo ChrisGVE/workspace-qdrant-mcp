@@ -56,6 +56,11 @@ impl OpClass {
 /// because this enum's contract is "the closed set N51 is indexed by", and rev11
 /// gave the restore binary its own grant row -- C/U/D under the exclusive storage
 /// lock, everything else denied.
+///
+/// (`P04-GT001-WO003`, drift D5: this enum was a closed 4-set citing "ARCH rev08
+/// §6.2" while rev14 already stated the set as four surfaces plus the restore
+/// binary. It was WIDENED rather than having its comment corrected, because the
+/// fifth member has a real grant row.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Consumer {
     /// S1 -- the `memexd` daemon (the only *live* writer).
