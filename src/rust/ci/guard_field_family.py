@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field-family completeness guard -- ARCH §5.4, PRD F-05/F-11.
+"""Field-family completeness guard -- ARCH rev14 §5.4, N35.
 
 Every persisted field family (ARCH §5.3) must have exactly one row in the N35
 field-family registry declaring its {metadata_tier, migration_disposition}. A
@@ -7,11 +7,11 @@ missing row would let a family migrate under an unstated (defaulted) disposition
 the class of silent data loss this rebuild exists to prevent, so the registry is
 DEFAULT-DENY: no row, no migration.
 
-The registry is a compile-time-exhaustive Rust table (F-05); its match-exhaustive
+The registry is a compile-time-exhaustive Rust table (N35's slice P04-GT055); its match-exhaustive
 coverage of the `Collection`/family enums is enforced by rustc. This CI guard is
 the second line: it confirms the registry module exists and is wired once the
 families land. On the Phase-0 skeleton the registry is not present yet, so the
-guard passes vacuously and says so. When F-05 lands, extend `REGISTRY_MARKER`
+guard passes vacuously and says so. When P04-GT055 lands, extend `REGISTRY_MARKER`
 detection to compare declared families against §5.3.
 
 Exit 0 = clean, exit 1 = registry present but incomplete.
@@ -25,7 +25,7 @@ from pathlib import Path
 RUST_ROOT = Path(__file__).resolve().parent.parent
 COMMON_SRC = RUST_ROOT / "crates" / "wqm-common" / "src"
 # The registry's presence is detected by this anchor, placed on the field-family
-# table when F-05 lands.
+# table when P04-GT055 lands.
 REGISTRY_MARKER = "wqm-guard: field-family-registry"
 
 
@@ -43,14 +43,14 @@ def main() -> int:
     if not marker_sites:
         print(
             "guard_field_family: PASS (vacuous) -- the N35 field-family registry "
-            "is not present yet (arrives at F-05; anchor its table with "
+            "is not present yet (arrives at P04-GT055; anchor its table with "
             "`// wqm-guard: field-family-registry`)."
         )
         return 0
 
-    # Registry present: rustc already enforces match-exhaustiveness (F-05 AC1).
+    # Registry present: rustc already enforces match-exhaustiveness.
     # This guard confirms the registry is single-sited; deeper §5.3 coverage
-    # comparison is added alongside the registry data at F-05/F-11.
+    # comparison is added alongside the registry data at P04-GT055.
     if len(marker_sites) > 1:
         sys.stderr.write(
             "guard_field_family: FAIL -- the field-family registry is declared at "

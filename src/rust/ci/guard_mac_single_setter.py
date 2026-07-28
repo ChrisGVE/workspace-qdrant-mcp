@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""MAC-marker single-setter guard -- ARCH §6.2 N5, PRD F-19.
+"""MAC-marker single-setter guard -- ARCH rev14 §6.2 N5.
 
 The rules drain-marker MAC (HMAC-SHA256 over the length-prefixed marker input) must
 be written from exactly ONE site. A second setter would let a forged or
 inconsistent marker pass the drain check. Because the setter's concrete name is not
-fixed until F-19, the single legitimate site is tagged with a stable guard anchor
+fixed until N5's slice P04-GT044, the single legitimate site is tagged with a stable guard anchor
 comment:
 
     // wqm-guard: mac-marker-setter
 
 This guard counts those anchors and fails if more than one exists. Zero (Phase 0,
-before F-19) is a pass, logged as such. Exit 0 = clean, exit 1 = duplicate setter.
+before P04-GT044) is a pass, logged as such. Exit 0 = clean, exit 1 = duplicate setter.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def main() -> int:
     if not hits:
         print(
             "guard_mac_single_setter: PASS (vacuous) -- no MAC-marker setter yet "
-            "(arrives at F-19; tag its one site with `// wqm-guard: "
+            "(arrives at P04-GT044; tag its one site with `// wqm-guard: "
             "mac-marker-setter`)."
         )
     else:

@@ -1,18 +1,22 @@
-# N51 access-capability policy seed -- the declarative input to the N14 link-closure
-# guard (ARCH rev10 §3.3, §9.1). This is the Phase-0 seed of what becomes the N51
-# const table in wqm-common (F-14+). The guard is DEFAULT-DENY: any bin not listed
-# under [grants].s1_bins is treated as a client and must not link any crate in
-# [s1_only].crates.
+# N51 access-capability policy -- the declarative input to the N14 link-closure
+# guard (ARCH rev14 §3.3, §9.1). This is the seed of what becomes the N51 const
+# table in `wqm-conventions` (rev11 re-home, S2.8; the grant TYPES live in
+# `wqm-common`). The guard is DEFAULT-DENY: any bin not listed under a [grants]
+# key is treated as a client and must not link any crate in [s1_only].crates.
 #
-# The s1_only set is forward-declared in full (crates that arrive in later phases
+# The s1_only set is forward-declared in full (crates that arrive in later slices
 # are listed now); the guard intersects it with the crates actually present in the
 # workspace manifest, so it passes vacuously today and bites the moment an S1-only
 # crate lands and a client bin grows an illegal edge to it.
 
 [s1_only]
-# Crates that carry the write closure or S1-exclusive engine. A client's transitive
-# cargo dependency closure must be disjoint from this set (ARCH §9.1 client
-# link-closure proof).
+# Crates that carry the write closure or an S1-exclusive engine. A client's
+# transitive cargo dependency closure must be disjoint from this set (ARCH rev14
+# §9.1, the client link-closure proof and its closing enumeration at the
+# "No S1-only crate ... appears in either closure" paragraph).
+#
+# rev11 added `wqm-lsp` and `wqm-sensor` to this enumeration; the set is 10, not
+# the 8 this file carried while it tracked rev10 (P04-GT001-WO002, drift D2).
 crates = [
   "wqm-store-write",
   "wqm-facade",
@@ -22,13 +26,57 @@ crates = [
   "wqm-embed-native",
   "wqm-host",
   "wqm-serve",
+  "wqm-lsp",
+  "wqm-sensor",
 ]
 
 [grants]
 # Bins granted the S1 (full-engine) class -- allowed to link the s1_only set.
 s1_bins = ["memexd"]
+
+# The ONE non-S1 bin whose grant row admits `wqm-store-write` (ARCH rev14 §3.4,
+# §9.1 bins row): the offline restore maintenance binary. It runs only while the
+# daemon is down, holding the same exclusive storage lock S1 holds when live (the
+# one-live-writer relaxation), and its N51 row is C/U/D under that lock with
+# everything else denied. It links NO serving surface and has no client seam.
+#
+# Declared, not default-denied -- N14 "knows the binary". Its full declared
+# closure is wqm-store-write + wqm-store + wqm-host + wqm-conventions +
+# wqm-common; no algorithm crate may enter it transitively.
+# (P04-GT001-WO002, drift D4.)
+restore_bins = ["wqm-restore"]
+restore_allowed = ["wqm-store-write", "wqm-store", "wqm-host", "wqm-conventions", "wqm-common"]
+
 # Every other bin (workspace-qdrant-mcp, wqm, and any future bin) is default-deny:
-# it may link only the client closure { wqm-client, wqm-search, wqm-store,
-# wqm-proto, wqm-secrets, wqm-common } (+ wqm-service-install for the CLI).
-# Decision (B): the client embeds the N38 read pipeline over wqm-store directly;
-# it links NO facade (wqm-facade is S1-only). Absence from this list IS the denial.
+# it may link only the client closure { wqm-client, wqm-conventions, wqm-search,
+# wqm-store, wqm-proto, wqm-secrets, wqm-common } (+ wqm-service-install for the
+# CLI). Decision (B): the client embeds the N38 read pipeline over wqm-store
+# directly; it links NO facade (wqm-facade is S1-only). Absence from every list
+# above IS the denial.
+
+[kernel_purity]
+# The rev11 SECOND guard direction (AGP-11, ARCH rev14 §9.1 and the N14 row at
+# §7): the closure check runs BOTH ways. Previously only the client direction was
+# walked (P04-GT001-WO005, drift D3).
+#
+# (a) No KERNEL crate's closure may contain `wqm-conventions` -- the kernel reads
+#     product-convention data through `wqm-common` traits, N28-injected.
+kernel_crates = [
+  "wqm-store",
+  "wqm-store-write",
+  "wqm-search",
+  "wqm-ingest",
+  "wqm-intel",
+  "wqm-graph",
+  "wqm-lsp",
+  "wqm-embed-native",
+]
+forbidden_in_kernel = ["wqm-conventions"]
+
+# (b) `wqm-sensor`'s closure may contain ONLY `wqm-common` among wqm crates --
+#     product-agnosticism as a link fact (§3.4 boundary card). Its external deps
+#     (notify / notify-debouncer-full / the standalone branch-mgmt lib) are not
+#     wqm crates and are not constrained here.
+[kernel_purity.sensor]
+crate = "wqm-sensor"
+allowed_wqm_deps = ["wqm-common"]

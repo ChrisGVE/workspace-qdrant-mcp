@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""De-dash single-producer guard -- ARCH §6.2 N3, PRD F-04 AC3 / F-12.
+"""De-dash single-producer guard -- ARCH rev14 §6.2 N3.
 
 The `fts_key(key) -> DedashedToken` de-dash transform must have exactly ONE
 definition: it is called by N2 on the write side and N41's FTS5 query concrete on
@@ -7,7 +7,7 @@ the read side, and two divergent implementations would silently split the index
 key space (the FP-2 "one producer" rule). This guard counts `fn fts_key`
 definitions across the workspace source and fails if there is more than one.
 
-Zero definitions (Phase 0, before F-04) is a pass, logged as such. Exit 0 = clean,
+Zero definitions (before N3's slice P04-GT032) is a pass, logged as such. Exit 0 = clean,
 exit 1 = duplicate producer.
 """
 
@@ -50,7 +50,7 @@ def main() -> int:
     if not hits:
         print(
             "guard_dedash_single_producer: PASS (vacuous) -- `fts_key` is not "
-            "defined yet (arrives at F-04)."
+            "defined yet (arrives at P04-GT032)."
         )
     else:
         print(f"guard_dedash_single_producer: PASS -- single producer at {hits[0]}.")

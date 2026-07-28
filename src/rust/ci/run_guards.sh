@@ -9,12 +9,18 @@ cd "$(dirname "$0")/.." || exit 2
 here="ci"
 
 guards=(
-	"guard_link_closure.py"           # N14 link-closure (default-deny)
+	"guard_link_closure.py"           # N14 link-closure, all 3 directions (default-deny)
 	"guard_name_registry.py"          # N8 name-registry single producer
 	"guard_field_family.py"           # N35 field-family completeness
 	"guard_dedash_single_producer.py" # N3 fts_key single producer
 	"guard_mac_single_setter.py"      # N5 MAC-marker single setter
 	"guard_no_skipped_tests.py"       # TDD charter: no disabled tests
+
+	# Selftests: prove a guard FAILS where it claims to, against throwaway
+	# fixtures. A guard that has never failed is indistinguishable from one that
+	# cannot fail -- and most guards above are still vacuous on this workspace,
+	# so their PASS lines rest entirely on these (P04-GT001-WO005).
+	"selftest_link_closure.py" # 9 cases over the N14 guard's 3 directions
 )
 
 failed=0
