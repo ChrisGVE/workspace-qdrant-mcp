@@ -1,0 +1,46 @@
+# wqm-test-harness -- the hermetic test harness (CR-007, P04-GT001-WO007).
+#
+# NOT a shipped crate. It is absent from ARCH rev15 §9.1's 18-row crate map by
+# intent: the map enumerates the crates that make up the product, and §9.1's
+# acyclicity proof is a claim about that shipped graph. A dev-only harness is
+# outside the proof's subject -- but only as long as that stays TRUE, so it is
+# declared in ci/link-policy.toml [strata].test_support and
+# guard_stratification.py check 4 FAILS if any shipped crate ever links it.
+# The exemption comes with an enforced obligation rather than being a hole.
+#
+# MSRV: this crate alone declares 1.88, because `testcontainers` 0.27 requires it.
+# The shipped crates keep the workspace's 1.79. Cargo's rust-version is per
+# package, so a test-only toolchain floor costs the product nothing -- and the
+# product's real MSRV is a compatibility promise nobody has decided yet (ARCH pins
+# no MSRV; 1.79 came from the retired F-00 track). Deciding it here, as a side
+# effect of choosing a dev dependency, would be deciding it by accident.
+[package]
+name = "wqm-test-harness"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# N8's name registry. The harness overrides the configuration env keys and must not
+# re-spell them (FP-2 / N8 single producer) -- guard_name_registry.py caught the
+# first draft doing so. A test-support crate may depend on shipped crates; the
+# converse is what guard_stratification.py check 4 forbids.
+wqm-common = { path = "../wqm-common" }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+# Container lifecycle. Chosen over hand-rolling `docker run` because the hard part
+# of an ephemeral container is not starting it -- it is guaranteeing removal when
+# the test panics or the harness is killed, which testcontainers solves with a
+# reaper. Reinventing that is the wheel FP2 forbids. The v0.1 tree used 0.25; this
+# is 0.27, current as of 2026-04-15.
+testcontainers = "0.27"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }

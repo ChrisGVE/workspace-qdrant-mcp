@@ -39,6 +39,11 @@ repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
 
+# Async runtime. Arrives at P04-GT001-WO007 for the test harness; the slice needs it
+# too (the S2 bin crosses N49 -> N24 gRPC -> N48's serve loop, all async). Features
+# are chosen per crate rather than enabled wholesale here.
+tokio = { version = "1", default-features = false }
+
 # Warnings are errors across the workspace (project mandate: fix root cause, never
 # silence). Applied here so local builds and CI agree; CI additionally runs
 # `clippy -- -D warnings` and `rustfmt --check`.

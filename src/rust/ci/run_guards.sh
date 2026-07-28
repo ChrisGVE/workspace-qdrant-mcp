@@ -22,9 +22,10 @@ guards=(
 	# fixtures. A guard that has never failed is indistinguishable from one that
 	# cannot fail -- and most guards above are still vacuous on this workspace,
 	# so their PASS lines rest entirely on these (P04-GT001-WO005).
-	"selftest_link_closure.py"   # 14 cases over the N14 guard's 4 directions
-	"selftest_stratification.py" # 7 cases -- up-edges and same-level edges bite
-	"selftest_codesize.py"       # 9 cases -- both limits, and the literal stripping
+	"selftest_link_closure.py"     # 14 cases over the N14 guard's 4 directions
+	"selftest_stratification.py"   # 10 cases -- up-edges, same-level edges, exemption
+	"selftest_codesize.py"         # 9 cases -- both limits, and the literal stripping
+	"selftest_no_skipped_tests.py" # 9 cases -- and that PROSE about the ban is legal
 )
 
 failed=0

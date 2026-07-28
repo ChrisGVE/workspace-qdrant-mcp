@@ -13,7 +13,7 @@ level is acyclic and still forbidden: it is exactly the shape round 2 of the
 architecture loop found twice (R2-MF-B, the two literal Cargo-rejected cycles), and
 the reason the stratification exists rather than a bare "no cycles" rule.
 
-Three checks, each reporting its own line:
+Four checks, each reporting its own line:
 
   1. Coverage -- every library crate present in the workspace carries a declared
      stratum. A crate nobody stratified is a crate outside the proof, and the proof
@@ -27,6 +27,10 @@ Three checks, each reporting its own line:
      Redundant with (2) while (2) is clean, and deliberately so: it is the claim
      §9.1 actually makes, and it keeps reporting if the stratum table is ever
      loosened.
+  4. Test-support isolation -- no shipped crate may depend on a crate declared
+     test-support. Those crates are excused from the stratification because they are
+     not part of the shipped graph §9.1 proves acyclic; this check is what keeps that
+     premise true, so the exemption is a boundary rather than a hole.
 
 Exit 0 = every check clean, exit 1 = any violation or tooling failure.
 """
@@ -45,6 +49,11 @@ POLICY = RUST_ROOT / "ci" / "link-policy.toml"
 
 # The stratification is published as seven levels; the policy names them s0..s6.
 STRATUM_KEYS = ("s0", "s1", "s2", "s3", "s4", "s5", "s6")
+
+
+def test_support(policy: dict) -> set[str]:
+    """Crates that are in the workspace but deliberately outside §9.1's map."""
+    return set(policy.get("strata", {}).get("test_support", []))
 
 
 def load_strata(policy: dict) -> tuple[dict[str, int], dict[str, str]]:
@@ -78,8 +87,9 @@ def check_coverage(
 ) -> tuple[bool, str]:
     present = library_names(ctx)
     declared = set(strata)
+    exempt = test_support(policy)
     blocked = sorted(present & set(unstratified))
-    unknown = sorted(present - declared - set(unstratified))
+    unknown = sorted(present - declared - set(unstratified) - exempt)
 
     problems = []
     if blocked:
@@ -97,6 +107,13 @@ def check_coverage(
             + "\n(ARCH rev15 §9.1's closing claim is whole-workspace. A crate outside "
             "the table is outside the proof.)"
         )
+    exempt_present = sorted(exempt & present)
+    exempt_note = (
+        f" {exempt_present} are test-support, outside §9.1's shipped-crate map by "
+        "declaration -- check 4 enforces that no shipped crate links them."
+        if exempt_present
+        else ""
+    )
     pending = sorted(set(unstratified) - present)
     note = (
         f" {pending} is unstratified pending a CR and will FAIL on arrival "
@@ -107,7 +124,7 @@ def check_coverage(
     return True, (
         f"PASS -- all {len(present)} library crate(s) present "
         f"({sorted(present)}) carry a declared stratum; "
-        f"{len(declared - present)} more are forward-declared.{note}"
+        f"{len(declared - present)} more are forward-declared.{exempt_note}{note}"
     )
 
 
@@ -195,6 +212,46 @@ def check_acyclic(ctx: Ctx) -> tuple[bool, str]:
     )
 
 
+def check_test_support_isolation(
+    ctx: Ctx, strata: dict[str, int], policy: dict
+) -> tuple[bool, str]:
+    """4. No shipped crate may depend on a test-support crate.
+
+    This is what makes the [strata].test_support exemption a boundary rather than a
+    hole. A test harness is excused from the acyclicity proof because it is not part
+    of the shipped graph -- the moment a shipped crate links it, that premise is
+    false and the exemption has to be re-argued, not silently extended.
+    """
+    exempt = test_support(policy)
+    present = library_names(ctx) & set(strata)
+    exempt_present = exempt & ctx.workspace_names
+
+    if not exempt_present:
+        return True, (
+            f"PASS (vacuous) -- no test-support crate is present (declared: "
+            f"{sorted(exempt) or 'none'}). Bites when one lands."
+        )
+
+    violations = []
+    for crate in sorted(present):
+        bad = ctx.wqm_closure(crate) & exempt_present
+        if bad:
+            violations.append(f"  shipped crate `{crate}` links test-support {sorted(bad)}")
+
+    if violations:
+        return False, (
+            "FAIL -- a shipped crate depends on test-support code:\n"
+            + "\n".join(violations)
+            + "\n(A test-support crate is exempt from §9.1's stratification only "
+            "because nothing shipped links it. Move the shared code into a stratified "
+            "crate, or bring the harness into the map via a CR to P02.)"
+        )
+    return True, (
+        f"PASS -- no shipped crate among {sorted(present)} links test-support "
+        f"{sorted(exempt_present)}."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="§9.1 stratification / acyclicity guard")
     ap.add_argument("--workspace", type=Path, default=RUST_ROOT)
@@ -209,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
         ("1 coverage", check_coverage(ctx, strata, unstratified, policy)),
         ("2 strictly-down direction", check_direction(ctx, strata, policy)),
         ("3 acyclicity", check_acyclic(ctx)),
+        (
+            "4 test-support isolation",
+            check_test_support_isolation(ctx, strata, policy),
+        ),
     )
 
     failed = False

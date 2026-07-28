@@ -37,6 +37,7 @@ s3 = ["wqm-store-write"]
 s4 = ["wqm-graph"]
 unstratified = ["wqm-service-install"]
 unstratified_reason = "CR-023 -- ARCH rev15 §9.1's stratification omits it."
+test_support = ["wqm-test-harness"]
 """
 
 
@@ -117,6 +118,33 @@ CASES = [
         {"wqm-common": [], "wqm-store": ["wqm-common"]},
         False,
         "is acyclic",
+    ),
+    (
+        "4: a test-support crate does NOT trip the coverage check",
+        {"wqm-common": [], "wqm-test-harness": ["wqm-common"]},
+        False,
+        "are test-support",
+    ),
+    (
+        "4: but a shipped crate linking it does -- the exemption's obligation",
+        {
+            "wqm-common": [],
+            "wqm-test-harness": ["wqm-common"],
+            "wqm-store": ["wqm-test-harness"],
+        },
+        True,
+        "links test-support",
+    ),
+    (
+        "4: transitively, too",
+        {
+            "wqm-common": [],
+            "wqm-test-harness": ["wqm-common"],
+            "wqm-search": ["wqm-test-harness"],
+            "wqm-store": ["wqm-common"],
+        },
+        True,
+        "links test-support",
     ),
 ]
 

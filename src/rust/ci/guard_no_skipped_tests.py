@@ -16,6 +16,12 @@ belongs behind an explicit feature gate that CI still runs, not behind `#[ignore
 Changing this policy is a charter amendment (coder + one auditor sign-off), not a
 per-test override.
 
+Matching runs over a comment- and literal-stripped view of each file. Without that,
+this guard fires on any file that merely *discusses* `#[ignore]` -- which the test
+harness's own documentation of the ban does (found at P04-GT001-WO007, by exactly
+that route). A guard that cannot be written about is a guard that shapes prose
+instead of code.
+
 Exit 0 = clean, exit 1 = a disabled test was found.
 """
 
@@ -24,6 +30,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+from guard_codesize import strip_literals
 
 RUST_ROOT = Path(__file__).resolve().parent.parent
 PATTERNS = [
@@ -43,13 +51,19 @@ def rust_sources():
 def main() -> int:
     hits: list[str] = []
     for path in rust_sources():
-        for lineno, line in enumerate(
-            path.read_text(errors="replace").splitlines(), start=1
-        ):
+        source = path.read_text(errors="replace")
+        # Match against the stripped view so prose about `#[ignore]` cannot trip the
+        # ban, but REPORT the original line -- a diagnosis quoting blanked-out text
+        # would be unreadable. `strip_literals` preserves newlines, so the two views
+        # stay line-aligned.
+        original = source.splitlines()
+        stripped = strip_literals(source).splitlines()
+        for lineno, line in enumerate(stripped, start=1):
             for pattern, label in PATTERNS:
                 if pattern.search(line):
                     rel = path.relative_to(RUST_ROOT)
-                    hits.append(f"  {rel}:{lineno}: {label}  ->  {line.strip()}")
+                    shown = original[lineno - 1].strip()
+                    hits.append(f"  {rel}:{lineno}: {label}  ->  {shown}")
 
     if hits:
         sys.stderr.write(

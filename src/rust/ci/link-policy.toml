@@ -175,5 +175,18 @@ s6 = ["wqm-serve", "wqm-client"]
 # declared UNSTRATIFIED: the guard passes while it is absent and FAILS loudly the
 # moment it lands, naming the CR. That is the honest state -- not a guessed
 # stratum that would launder an open question into an enforced fact.
+# Test-support crates: in the workspace, deliberately NOT in §9.1's crate map.
+test_support = ["wqm-test-harness"]
+
+# §9.1's map enumerates the crates that make up the PRODUCT, and its acyclicity
+# proof is a claim about that shipped graph. A dev-only harness is outside the
+# proof's subject -- so it takes no stratum rather than being given an invented one.
+#
+# That is only sound while it stays true, so the exemption carries an obligation:
+# check 4 FAILS if any stratified (shipped) crate depends on a test-support crate.
+# An exemption with an enforced converse is a boundary; one without is a hole.
+#
+# Test-support crates may depend on anything, which is why they are not stratified:
+# they sit above the whole ordering by construction. (P04-GT001-WO007.)
 unstratified = ["wqm-service-install"]
 unstratified_reason = "CR-023 -- ARCH rev15 §9.1's stratification omits it (17 of 18 crate-map rows are stratified); its stratum is P02's to assign."
