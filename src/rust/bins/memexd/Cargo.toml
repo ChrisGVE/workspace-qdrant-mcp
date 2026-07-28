@@ -11,8 +11,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# The PACKAGE is `memexd` (ARCH rev15 §9.1's row); the physical FILENAME carries
+# the `-v2` deployment suffix, because installing a bare `memexd` would overwrite
+# production's. Binaries are the knob's declared exception (CHARTER §2.4): a
+# manifest is data, so this cannot be built by `concat!` -- cutover is a one-token
+# edit here, gated by ci/guard_bin_suffix.py (P04-GT001-WO010).
 [[bin]]
-name = "memexd"
+name = "memexd-v2"
 path = "src/main.rs"
 
 [lints]

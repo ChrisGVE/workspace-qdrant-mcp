@@ -11,8 +11,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Package `wqm` (ARCH rev15 §9.1); filename carries the `-v2` suffix so it never
+# overwrites production's `wqm`. See bins/memexd/Cargo.toml for the full rationale
+# and ci/guard_bin_suffix.py for the gate (P04-GT001-WO010).
 [[bin]]
-name = "wqm"
+name = "wqm-v2"
 path = "src/main.rs"
 
 [features]

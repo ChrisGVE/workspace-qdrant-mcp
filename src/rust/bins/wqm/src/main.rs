@@ -19,7 +19,13 @@ const EXIT_NOT_YET_AVAILABLE: i32 = 3;
 
 /// The wqm-0.2 CLI: manage the daemon, collections, queue, projects, and graph.
 #[derive(Debug, Parser)]
-#[command(name = "wqm", version, about = "workspace-qdrant CLI (wqm-0.2)")]
+// `CARGO_BIN_NAME` rather than a literal: the binary carries the `-v2` deployment
+// suffix (bins/wqm/Cargo.toml), so `--help` names what the user actually invoked.
+#[command(
+    name = env!("CARGO_BIN_NAME"),
+    version,
+    about = "workspace-qdrant CLI (wqm-0.2)"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -64,8 +70,9 @@ impl Command {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     eprintln!(
-        "wqm {}: {} is not yet available in this build. The CLI surface is wired \
+        "{} {}: {} is not yet available in this build. The CLI surface is wired \
          to the daemon across the wqm-0.2 P04 build slices.",
+        env!("CARGO_BIN_NAME"),
         env!("CARGO_PKG_VERSION"),
         cli.command.subsystem()
     );

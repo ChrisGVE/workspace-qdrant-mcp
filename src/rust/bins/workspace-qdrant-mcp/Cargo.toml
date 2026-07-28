@@ -14,8 +14,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Package `workspace-qdrant-mcp` (ARCH rev15 §9.1); filename carries the `-v2`
+# suffix so it never overwrites production's MCP server -- and so the parallel-period
+# MCP registration names a distinct executable. See bins/memexd/Cargo.toml for the
+# rationale, ci/guard_bin_suffix.py for the gate (P04-GT001-WO010).
 [[bin]]
-name = "workspace-qdrant-mcp"
+name = "workspace-qdrant-mcp-v2"
 path = "src/main.rs"
 
 [lints]

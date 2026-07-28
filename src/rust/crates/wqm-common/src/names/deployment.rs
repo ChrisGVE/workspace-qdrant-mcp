@@ -21,10 +21,20 @@
 //! macro below, because `concat!` needs a literal to build the deployed names at
 //! compile time. Cutover is a one-token edit of that macro body to `""`.
 //!
-//! Ports are deliberately NOT derived here. `PROJECT_LOGISTICS.md`'s checklist
-//! asks whether they are configurable or hardcoded; if configurable, the `-v2`
-//! config directory simply declares different ones and no code changes. That
-//! question is answered with evidence in `P04-GT001-WO010`, not assumed here.
+//! Ports are still NOT derived here, but no longer for the reason this comment
+//! first gave. `P04-GT001-WO010` measured the checklist's premise -- "configurable
+//! ⇒ the `-v2` config dir just declares different ones, no code change" -- against
+//! v0.1 at ref `46f5df66b` and **refuted it**: the serving side is overridable, but
+//! several consumers hardcode the address outright (`http://127.0.0.1:6337/metrics`
+//! in two CLI/TUI sites, `DEFAULT_GRPC_ADDR = "127.0.0.1:50051"`), and every default
+//! is re-spelled per site. Worse, two defaulted daemons collide on the control port
+//! (`7799`) -- the bind whose entire purpose is single-writer mutual exclusion.
+//!
+//! So ports are a knob concern, not a config-file concern, and the *values* are
+//! Chris's to set. This workspace serves nothing yet (all three bins decline), so
+//! nothing is decided prematurely: the requirement and its evidence live in
+//! `SCAFFOLD.md` §5, routed to N7 (`P04-GT013`), which is where the first port is
+//! bound and therefore where the derivation must exist before it binds.
 //!
 //! # How the refusal is enforced (DP-8)
 //!
@@ -69,16 +79,24 @@ pub const DEPLOYMENT_SUFFIX: &str = deployment_suffix!();
 /// write refusal below into a no-op without deleting the machinery.
 pub const IS_PARALLEL_DEPLOYMENT: bool = !DEPLOYMENT_SUFFIX.is_empty();
 
+/// The product's base name, spelled ONCE, for the same `concat!` reason as the
+/// suffix above: every deployed name below is built from it at compile time.
+macro_rules! dir_base {
+    () => {
+        "workspace-qdrant"
+    };
+}
+
 /// The base name the XDG-style directories are derived from.
-const DIR_BASE: &str = "workspace-qdrant";
+const DIR_BASE: &str = dir_base!();
 
 /// The deployed config/cache/data directory name -- `workspace-qdrant-v2` while
 /// running in parallel. N7 joins this to the platform's XDG roots.
-pub const DEPLOYMENT_DIR: &str = concat!("workspace-qdrant", deployment_suffix!());
+pub const DEPLOYMENT_DIR: &str = concat!(dir_base!(), deployment_suffix!());
 
 /// The deployed service label (launchd / systemd unit name), derived from the
 /// same knob so the parallel daemon never collides with production's.
-pub const SERVICE_LABEL: &str = concat!("com.workspace-qdrant.memexd", deployment_suffix!());
+pub const SERVICE_LABEL: &str = concat!("com.", dir_base!(), ".memexd", deployment_suffix!());
 
 impl Collection {
     /// The DEPLOYED collection name -- the logical name plus the deployment

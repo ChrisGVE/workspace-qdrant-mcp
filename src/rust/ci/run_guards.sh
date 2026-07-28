@@ -17,6 +17,7 @@ guards=(
 	"guard_dedash_single_producer.py" # N3 fts_key single producer
 	"guard_mac_single_setter.py"      # N5 MAC-marker single setter
 	"guard_no_skipped_tests.py"       # TDD charter: no disabled tests
+	"guard_bin_suffix.py"             # -v2 parallel deployment: bin filenames differ
 
 	# Selftests: prove a guard FAILS where it claims to, against throwaway
 	# fixtures. A guard that has never failed is indistinguishable from one that
