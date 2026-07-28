@@ -1,11 +1,11 @@
 //! Environment-variable keys (N8).
 //!
 //! The five keys the daemon, CLI, and MCP server read runtime configuration from.
-//! N7 (F-07) owns the *resolution* of these into a typed config; N8 owns only the
+//! N7 (`P04-GT013`) owns the *resolution* into a typed config; N8 owns only the
 //! key each is spelled with, so a rename is a one-site edit.
 
 /// A configuration environment variable. The set is the one documented in the
-/// project README; N7 (F-07) resolves these into the typed config.
+/// project README; N7 (`P04-GT013`) resolves these into the typed config.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnvVar {
     /// Qdrant server URL (`QDRANT_URL`).

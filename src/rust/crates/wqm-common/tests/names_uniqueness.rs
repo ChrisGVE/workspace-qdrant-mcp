@@ -1,4 +1,4 @@
-//! N8 name-uniqueness tests (PRD F-01 AC3). Within each vocabulary every canonical
+//! N8 name-uniqueness tests. Within each vocabulary every canonical
 //! name is distinct, so the registry never produces a colliding identifier.
 
 use std::collections::HashSet;

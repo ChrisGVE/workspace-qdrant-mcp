@@ -1,4 +1,4 @@
-//! N8 environment-key tests (PRD F-01). One positive assertion per key plus the
+//! N8 environment-key tests. One positive assertion per key plus the
 //! enumeration contract.
 
 use wqm_common::names::EnvVar;

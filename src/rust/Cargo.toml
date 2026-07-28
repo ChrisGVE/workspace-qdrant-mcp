@@ -1,7 +1,20 @@
-# wqm-0.2 workspace root (rebuild). Grow-per-phase: members are globbed, so each
-# phase adds its own crate directory and `cargo build --workspace` stays green
-# against the currently-declared set (PRD F-00 AC1; DR GP-3). ARCH rev08 §9.1 is
-# the authoritative crate map; the 16 libs + 3 bins arrive phase by phase.
+# wqm-0.2 workspace root (rebuild). Members are globbed, so each work order adds
+# its own crate directory and `cargo build --workspace` stays green against the
+# currently-declared set.
+#
+# ARCH rev14 §9.1 is the authoritative crate map: 18 library-crate rows, in table
+# order -- wqm-common, wqm-conventions, wqm-sensor, wqm-proto, wqm-store,
+# wqm-store-write, wqm-search, wqm-embed-native, wqm-ingest, wqm-intel, wqm-lsp,
+# wqm-graph, wqm-facade, wqm-secrets, wqm-host, wqm-service-install, wqm-client,
+# wqm-serve -- plus FOUR bins: memexd (S1), workspace-qdrant-mcp (S2), wqm
+# (S3+S4), and wqm-restore, the offline maintenance binary added at rev11.
+# A possible 19th crate is deliberately undecided: §9.1 note 3 leaves N13/N31 in
+# wqm-common "or a small wqm-obs crate (P02 call)". They arrive slice by slice;
+# the tracker is mesh/program.db.
+#
+# The prior comment here cited "ARCH rev08 ... 16 libs + 3 bins", which predates
+# rev11's wqm-conventions/wqm-sensor/wqm-lsp, ARCH-01's wqm-service-install split,
+# and the wqm-restore bin (P04-GT001-WO001, drift D1).
 [workspace]
 resolver = "2"
 members = ["crates/*", "bins/*"]

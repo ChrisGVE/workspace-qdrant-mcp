@@ -1,10 +1,16 @@
 //! wqm -- the wqm-0.2 command-line surface (surface S3).
 //!
-//! Phase 0 scaffold: real subcommand parsing for the known command groups, each
-//! returning a typed not-yet-available decline. The command groups are declared
-//! now so `wqm --help` is honest about the eventual surface; their handlers are
-//! filled in as the client library and services land (F-49..F-53). Grow-per-phase
-//! contract (PRD F-00): minimal but real, never a silent stub.
+//! `P04-GT001` scaffold: real subcommand parsing for the known command groups,
+//! each returning a typed not-yet-available decline. The command groups are
+//! declared now so `wqm --help` is honest about the eventual surface; their
+//! handlers are filled in as the client library and services land (N32's slice
+//! `P04-GT059`, with the TUI N42 at `P04-GT060` behind the `tui` feature).
+//! Minimal but real, never a silent stub.
+//!
+//! **The verb tree here predates P01 and is NOT the designed CLI.** P01-GT001/2/3
+//! own the human surfaces and are PARKED (Chris, 20260727), so these groups are
+//! the v0.1-shaped placeholder they were seeded as. `P04-GT059` replaces them
+//! with the P01 design; nothing should be built against this shape meanwhile.
 
 use clap::{Parser, Subcommand};
 
@@ -59,7 +65,7 @@ fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     eprintln!(
         "wqm {}: {} is not yet available in this build. The CLI surface is wired \
-         to the daemon across the wqm-0.2 rebuild phases (F-49..F-53).",
+         to the daemon across the wqm-0.2 P04 build slices.",
         env!("CARGO_PKG_VERSION"),
         cli.command.subsystem()
     );

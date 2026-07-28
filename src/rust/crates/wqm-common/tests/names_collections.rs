@@ -1,4 +1,4 @@
-//! N8 collection-name tests (PRD F-01). One positive assertion per canonical name
+//! N8 collection-name tests. One positive assertion per canonical name
 //! plus the reserved name and the enumeration contract.
 
 use wqm_common::names::{collection_name, Collection, RESERVED_IMAGES_COLLECTION};

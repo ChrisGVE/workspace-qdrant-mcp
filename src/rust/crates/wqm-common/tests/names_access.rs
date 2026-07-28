@@ -1,5 +1,5 @@
-//! N8 access-vocabulary tests (PRD F-01): the N51 operation-class and consumer
-//! name sets. One positive assertion per name plus the enumeration contracts.
+//! N8 access-vocabulary tests: the N51 operation-class and consumer name sets.
+//! One positive assertion per name plus the enumeration contracts.
 
 use wqm_common::names::{Consumer, OpClass};
 
@@ -69,7 +69,12 @@ fn consumer_tui_name() {
 }
 
 #[test]
-fn consumer_all_enumerates_the_four_surfaces_in_order() {
+fn consumer_restore_name() {
+    assert_eq!(Consumer::Restore.name(), "restore");
+}
+
+#[test]
+fn consumer_all_enumerates_four_surfaces_plus_the_restore_binary_in_order() {
     assert_eq!(
         Consumer::ALL,
         [
@@ -77,6 +82,25 @@ fn consumer_all_enumerates_the_four_surfaces_in_order() {
             Consumer::Mcp,
             Consumer::Cli,
             Consumer::Tui,
+            Consumer::Restore,
         ]
+    );
+}
+
+/// ARCH rev14 closes the consumer set at "4 surfaces + the restore binary", and
+/// the restore binary is explicitly NOT a surface -- it links no serving surface
+/// and has no client seam (§3.4). Widening `Consumer` to carry N51's grant axis
+/// must not silently promote it to a fifth surface.
+#[test]
+fn restore_is_the_only_consumer_that_is_not_a_surface() {
+    let non_surfaces: Vec<Consumer> = Consumer::ALL
+        .into_iter()
+        .filter(|c| !c.is_surface())
+        .collect();
+    assert_eq!(non_surfaces, vec![Consumer::Restore]);
+    assert_eq!(
+        Consumer::ALL.iter().filter(|c| c.is_surface()).count(),
+        4,
+        "exactly four serving surfaces"
     );
 }

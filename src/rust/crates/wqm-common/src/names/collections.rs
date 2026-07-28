@@ -5,7 +5,7 @@
 //! else may take it, but not yet an active [`Collection`] variant (the image
 //! pipeline arrives in a later phase).
 
-/// A canonical Qdrant collection. The set is closed (ADR-001); N35 (F-05) attaches
+/// A canonical Qdrant collection. The set is closed (ADR-001); N35 (`P04-GT055`) attaches
 /// the per-collection behavioural profile keyed by this discriminant, while N8 owns
 /// only the name each variant is spelled with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

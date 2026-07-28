@@ -3,7 +3,8 @@
 # N3 identity value objects + fts_key, N40 types, N12 envelope types, the N44 port
 # trait, the DisambiguationStrategy port + RulesWriteCap type, the Secret type.
 # No wqm-crate dependencies -- this is the bottom of the DAG. Contents grow per
-# phase; Phase 0 declares the crate (F-01+ fill it).
+# work order; P04-GT001 declares the crate and seeds N8, and each later nexus
+# arrives with the slice that realizes it (see mesh/program.db).
 [package]
 name = "wqm-common"
 version.workspace = true

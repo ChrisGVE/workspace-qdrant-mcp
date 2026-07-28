@@ -1,14 +1,14 @@
 //! Operation-class and consumer vocabularies (N8) that the N51 access-capability
 //! registry grants over.
 //!
-//! N51 (F-06) owns the per-consumer grant *table*; N8 owns the two closed name sets
-//! it is indexed by. [`OpClass`] is the engine's operation-class axis (ARCH rev08
-//! §3.1 N51); [`Consumer`] is the closed set of four surfaces (ARCH rev08 §6.2:
-//! "the consumer set is closed -- 4 surfaces").
+//! N51 (`P04-GT025`) owns the per-consumer grant *table*; N8 owns the two name sets
+//! it is indexed by. [`OpClass`] is the engine's operation-class axis (ARCH rev14
+//! §3.1 N51); [`Consumer`] is the closed consumer set (ARCH rev14 §7, the access-
+//! grants row: "The consumer set is closed (4 surfaces + the restore binary)").
 
 /// An engine operation class. `Read` folds in query; `ProxiedRead` is a pure-read
 /// op that crosses the daemon socket by design; `Schedule` is a compute- or
-/// write-inducing background-work request (ARCH rev08 §3.1 N51, R2/alpha).
+/// write-inducing background-work request (ARCH rev14 §3.1 N51, R2/alpha).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpClass {
     /// A read (query folded in): served in-process via the N50 kernel facade.
@@ -49,11 +49,16 @@ impl OpClass {
     }
 }
 
-/// A surface that consumes the engine. The set is closed (ARCH rev08 §6.2); N51
-/// declares what each consumer may do, keyed by this discriminant.
+/// A consumer of the engine -- the axis N51's grant table is keyed by. The set is
+/// closed: **four surfaces plus the restore binary** (ARCH rev14 §7, access-grants
+/// row). [`Consumer::Restore`] is deliberately not a *surface*: the restore binary
+/// links no serving surface and has no client seam (ARCH rev14 §3.4). It is here
+/// because this enum's contract is "the closed set N51 is indexed by", and rev11
+/// gave the restore binary its own grant row -- C/U/D under the exclusive storage
+/// lock, everything else denied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Consumer {
-    /// S1 -- the `memexd` daemon (the only writer).
+    /// S1 -- the `memexd` daemon (the only *live* writer).
     Daemon,
     /// S2 -- the MCP server.
     Mcp,
@@ -61,24 +66,37 @@ pub enum Consumer {
     Cli,
     /// S4 -- the terminal UI.
     Tui,
+    /// The offline `wqm-restore` maintenance binary. Not a surface; runs only
+    /// while the daemon is down, holding the same exclusive storage lock S1 holds
+    /// when live (the one-live-writer relaxation, ARCH rev14 §8.3 / N14 row).
+    Restore,
 }
 
 impl Consumer {
-    /// Every consumer surface, in declaration order.
-    pub const ALL: [Consumer; 4] = [
+    /// Every consumer, in declaration order.
+    pub const ALL: [Consumer; 5] = [
         Consumer::Daemon,
         Consumer::Mcp,
         Consumer::Cli,
         Consumer::Tui,
+        Consumer::Restore,
     ];
 
-    /// The canonical name of this consumer surface.
+    /// The canonical name of this consumer.
     pub const fn name(self) -> &'static str {
         match self {
             Consumer::Daemon => "daemon",
             Consumer::Mcp => "mcp",
             Consumer::Cli => "cli",
             Consumer::Tui => "tui",
+            Consumer::Restore => "restore",
         }
+    }
+
+    /// Whether this consumer is a *serving surface*. False for
+    /// [`Consumer::Restore`], which links no serving surface and exposes no
+    /// socket -- the distinction the widened set must not blur.
+    pub const fn is_surface(self) -> bool {
+        !matches!(self, Consumer::Restore)
     }
 }

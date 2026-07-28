@@ -1,9 +1,10 @@
 //! memexd -- the wqm-0.2 daemon (surface S1).
 //!
-//! Phase 0 scaffold: real argument parsing and version reporting, but the daemon
-//! declines to run because its engine (host runtime, gRPC serve loop, queue
-//! processor, product sync) is added in later phases. This is the grow-per-phase
-//! contract from PRD F-00 -- minimal but real, never a silent stub.
+//! `P04-GT001` scaffold: real argument parsing and version reporting, but the
+//! daemon declines to run because its engine (host runtime N46 at `P04-GT056`,
+//! gRPC serve loop N48 at `P04-GT062`, queue processor, product sync) arrives
+//! with those slices. Minimal but real, never a silent stub (DELIVERABLES: "No
+//! stubs, no silent loss").
 
 use clap::Parser;
 
@@ -23,7 +24,7 @@ fn main() -> std::process::ExitCode {
     let _cli = Cli::parse();
     eprintln!(
         "memexd {}: the daemon runtime is not yet available in this build. \
-         It is assembled across the wqm-0.2 rebuild phases (F-52).",
+         It is assembled across the wqm-0.2 P04 build slices.",
         env!("CARGO_PKG_VERSION")
     );
     std::process::ExitCode::from(EXIT_NOT_YET_AVAILABLE as u8)
