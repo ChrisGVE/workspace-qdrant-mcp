@@ -1820,6 +1820,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "termprofile"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82a39c8a8d0a92aede29ec52cbd3fc9020d019259984d00e8cc1205e0e00d084"
+
+[[package]]
 name = "termwiz"
 version = "0.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2485,6 +2491,7 @@ dependencies = [
  "serde",
  "serde_json",
  "soft_ratatui",
+ "termprofile",
  "tui-pantry",
  "wqm-client",
  "wqm-common",

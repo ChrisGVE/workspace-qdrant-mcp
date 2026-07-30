@@ -37,12 +37,21 @@
 //!    layer fills and the cursor tint sink into the base rather than floating above it.
 //!
 //! [`Palette::Derived`] answers both, at the price named on the variant.
+//!
+//! # A palette is a preference; what the terminal can emit is not
+//!
+//! [`Palette`] is only half the question. It says where a colour comes *from*; it cannot say
+//! whether the stream can carry it. That second axis lives in [`crate::encoding`], is probed
+//! rather than chosen, and caps this one: every token below resolves through [`family()`],
+//! which is the lesser of the two. So `Derived` on a 16-colour login shell renders the
+//! authored 16-colour ladder — not an approximation of the derived one.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::RwLock;
 
 use ratatui::style::{Color, Modifier, Style};
 
+use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
 
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
@@ -143,22 +152,67 @@ impl Palette {
     pub fn set(palette: Palette) {
         ACTIVE.store(palette as u8, Ordering::Relaxed);
     }
+
+    /// The family this source *wants* to be emitted in. What it actually gets is
+    /// [`family()`], which is this capped by the encoding.
+    pub const fn family(self) -> Family {
+        match self {
+            Palette::Theme => Family::Slots,
+            Palette::Indexed => Family::Ramp,
+            Palette::Derived => Family::Rgb,
+        }
+    }
+}
+
+/// How every token below is emitted: **the lesser of what the source wants and what the
+/// encoding permits**.
+///
+/// This one comparison is the whole Source × Encoding split. A preference cannot exceed a
+/// capability, and a capability never dictates a preference below it — asking for
+/// [`Palette::Theme`] on a truecolor terminal still gets theme slots, because slots are what
+/// was asked for.
+///
+/// Degradation drops to the next family's **own** ladder rather than approximating the one
+/// above it; [`crate::encoding`] carries the measurement that forced that rule.
+pub fn family() -> Family {
+    Palette::current()
+        .family()
+        .min(Encoding::current().family())
+}
+
+/// A reserved hue, or nothing if the encoding refuses colour.
+///
+/// The design anticipates this: r02 §3 asks for a structural signature first with colour
+/// reserved, and [`Health::glyph`] already carries state as shape. So dropping the hue costs
+/// emphasis, not information.
+fn hue(color: Color) -> Color {
+    match family() {
+        Family::None => Color::Reset,
+        _ => color,
+    }
 }
 
 /// A neutral, named by the luminance percentage r02 specifies for it.
 ///
-/// Under [`Palette::Indexed`] the percentage picks the nearest step on the xterm greyscale
-/// ramp, whose steps run 8, 18, … 238 at indices 232–255. Under [`Palette::Theme`] it
-/// collapses onto the nearest of the four available slots.
+/// The percentage is the authored value; [`family()`] decides which ladder it is read off.
+/// [`Family::Ramp`] picks the nearest step on the xterm greyscale ramp, whose steps run
+/// 8, 18, … 238 at indices 232–255; [`Family::Slots`] collapses onto the nearest of the four
+/// available slots; [`Family::None`] emits nothing, leaving the cell to whatever the terminal
+/// is already painting.
+///
+/// Note what this does *not* do: it never converts one family's answer into another's. A
+/// rung is always computed from its percentage, so degrading is choosing a different ladder
+/// rather than approximating the one above — see [`crate::encoding`] for the measurement.
 fn neutral(percent: u8) -> Color {
-    match Palette::current() {
-        Palette::Theme => match percent {
+    match family() {
+        Family::None => Color::Reset,
+        Family::Slots => match percent {
             0..=24 => Color::Black,
             25..=55 => Color::DarkGray,
             56..=92 => Color::Gray,
             _ => Color::White,
         },
-        Palette::Indexed => {
+        Family::Ramp => {
             let target = percent as u16 * 255 / 100;
             match target {
                 // Below the ramp's first step and above its last, the cube's true black
@@ -171,7 +225,7 @@ fn neutral(percent: u8) -> Color {
                 }
             }
         }
-        Palette::Derived => {
+        Family::Rgb => {
             let Endpoints {
                 background,
                 foreground,
@@ -242,8 +296,8 @@ pub fn muted() -> Color {
 /// the one rung not derived from the theme. Under the slot-sourced palettes there is
 /// nothing better to reach for, so they keep `Reset`.
 pub fn normal() -> Color {
-    match Palette::current() {
-        Palette::Derived => neutral(NORMAL_RUNG),
+    match family() {
+        Family::Rgb => neutral(NORMAL_RUNG),
         _ => Color::Reset,
     }
 }
@@ -261,8 +315,12 @@ pub fn normal() -> Color {
 /// [`Palette::Derived`] can do better, because it is not picking from a fixed set: it
 /// extrapolates past the foreground and gets a rung that is genuinely above `normal`.
 pub fn strong() -> Color {
-    match Palette::current() {
-        Palette::Derived => neutral(100),
+    match family() {
+        Family::Rgb => neutral(100),
+        // Nothing brighter than slot 15 exists to reach for, and under `None` the bold
+        // modifier in `strong_style` is the entire signal — which r02 says it mostly is
+        // anyway ("weight does the work").
+        Family::None => Color::Reset,
         _ => Color::White,
     }
 }
@@ -287,9 +345,27 @@ pub fn header() -> Color {
 /// The reserved selector hue. Cyan appears in NOTHING else: if it is a cyan block, it is
 /// what you have selected. A theme slot, so a user who has retuned cyan retunes the
 /// selector with it.
-pub const SELECTOR: Color = Color::Cyan;
+pub fn selector() -> Color {
+    hue(Color::Cyan)
+}
 /// Text sitting inside an inverted selector block.
-pub const SELECTOR_FG: Color = Color::Black;
+pub fn selector_fg() -> Color {
+    hue(Color::Black)
+}
+
+/// An inverted highlight block — a hue fill with dark text on it.
+///
+/// Where the encoding refuses colour, this becomes reverse video, which is what an inverted
+/// block structurally *is*: the selector survives as a swapped foreground and background
+/// rather than disappearing. Without it, `fill` and the text on it both resolve to
+/// `Color::Reset` and a selected row becomes indistinguishable from an unselected one —
+/// which is the same class of failure as [`Palette::Theme`]'s invisible cursor row.
+pub fn inverted(fill: Color) -> Style {
+    match family() {
+        Family::None => Style::default().add_modifier(Modifier::REVERSED),
+        _ => Style::default().fg(selector_fg()).bg(fill),
+    }
+}
 /// The data cursor's row tint — a subtle darker fill, deliberately not an inverse block.
 pub fn cursor_bg() -> Color {
     neutral(19)
@@ -306,9 +382,15 @@ pub fn edit_bg() -> Color {
 // --- §4 health ----------------------------------------------------------------------
 // Only the glyph carries colour; the surrounding label stays muted.
 
-pub const HEALTHY: Color = Color::Green;
-pub const DEGRADED: Color = Color::Yellow;
-pub const OFFLINE: Color = Color::Red;
+pub fn healthy() -> Color {
+    hue(Color::Green)
+}
+pub fn degraded() -> Color {
+    hue(Color::Yellow)
+}
+pub fn offline() -> Color {
+    hue(Color::Red)
+}
 
 // --- §6 layers ----------------------------------------------------------------------
 
@@ -341,11 +423,13 @@ impl Health {
         }
     }
 
-    pub const fn color(self) -> Color {
+    /// The hue for this state, or nothing where the encoding refuses colour — in which case
+    /// [`Health::glyph`] is carrying the state on its own, as §4 always intended it could.
+    pub fn color(self) -> Color {
         match self {
-            Health::Healthy => HEALTHY,
-            Health::Degraded => DEGRADED,
-            Health::Offline => OFFLINE,
+            Health::Healthy => healthy(),
+            Health::Degraded => degraded(),
+            Health::Offline => offline(),
         }
     }
 }
@@ -362,4 +446,126 @@ pub fn normal_style() -> Style {
 }
 pub fn strong_style() -> Style {
     Style::default().fg(strong()).add_modifier(Modifier::BOLD)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Puts the globals back however the test ends, so a failure does not cascade into every
+    /// later test as a wrong palette.
+    struct Restore(Palette, Encoding);
+
+    impl Restore {
+        fn set(palette: Palette, encoding: Encoding) -> Self {
+            let restore = Restore(Palette::current(), Encoding::current());
+            Palette::set(palette);
+            Encoding::set(encoding);
+            restore
+        }
+    }
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            Palette::set(self.0);
+            Encoding::set(self.1);
+        }
+    }
+
+    #[test]
+    fn a_rung_is_emitted_in_the_lesser_of_source_and_encoding() {
+        let _serial = crate::global_state_lock();
+        // The whole Source x Encoding rule, stated as a table so a change to either axis has
+        // to come past it.
+        let cases = [
+            (Palette::Derived, Encoding::TrueColor, Family::Rgb),
+            (Palette::Derived, Encoding::Ansi256, Family::Ramp),
+            (Palette::Derived, Encoding::Ansi16, Family::Slots),
+            (Palette::Derived, Encoding::NoColor, Family::None),
+            (Palette::Derived, Encoding::NoTty, Family::None),
+            // A capable encoding never promotes a source: asking for theme slots on a
+            // truecolor terminal still gets theme slots.
+            (Palette::Theme, Encoding::TrueColor, Family::Slots),
+            (Palette::Indexed, Encoding::TrueColor, Family::Ramp),
+            (Palette::Indexed, Encoding::Ansi16, Family::Slots),
+        ];
+        for (palette, encoding, expected) in cases {
+            let _restore = Restore::set(palette, encoding);
+            assert_eq!(family(), expected, "{palette:?} under {encoding:?}");
+        }
+    }
+
+    #[test]
+    fn degrading_picks_the_lower_ladder_rather_than_quantising_the_higher_one() {
+        let _serial = crate::global_state_lock();
+        // The measured rule from `crate::encoding`: per-rung quantisation of the tinted
+        // ladder into the 256 palette collided `faint` and `rule_frame` on one index. Under
+        // the ramp family each rung is recomputed from its own percentage, so the eleven
+        // rungs that survive under `Indexed` survive here too.
+        let ramp_rungs = |palette| {
+            let _restore = Restore::set(palette, Encoding::Ansi256);
+            [15u8, 19, 23, 30, 35, 50, 54, 62, 70].map(neutral_at)
+        };
+        assert_eq!(
+            ramp_rungs(Palette::Derived),
+            ramp_rungs(Palette::Indexed),
+            "a degraded derived ladder must be the authored 256 ladder, not an approximation"
+        );
+
+        let _restore = Restore::set(Palette::Derived, Encoding::Ansi256);
+        assert_ne!(
+            neutral_at(50),
+            neutral_at(54),
+            "faint and rule_frame collided — the rejected per-rung quantisation is back"
+        );
+    }
+
+    #[test]
+    fn no_colour_leaves_shape_and_weight_carrying_the_state() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Derived, Encoding::NoColor);
+
+        // Every hue and every neutral goes quiet...
+        for colour in [
+            selector(),
+            selector_fg(),
+            Health::Healthy.color(),
+            Health::Degraded.color(),
+            Health::Offline.color(),
+            faint(),
+            muted(),
+            normal(),
+            strong(),
+            cursor_bg(),
+            layer1_bg(),
+        ] {
+            assert_eq!(colour, Color::Reset, "a colour survived NoColor");
+        }
+
+        // ...but the two channels r02 reserves for exactly this case do not.
+        assert!(strong_style().add_modifier.contains(Modifier::BOLD));
+        assert!(
+            inverted(selector()).add_modifier.contains(Modifier::REVERSED),
+            "an inverted block must survive as reverse video or the selector vanishes"
+        );
+        assert_ne!(Health::Healthy.glyph(), Health::Offline.glyph());
+    }
+
+    #[test]
+    fn the_derived_baseline_is_the_foreground_it_was_given() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Derived, Encoding::TrueColor);
+        let previous = endpoints();
+        set_endpoints(Endpoints {
+            background: Rgb::new(0x1e, 0x1e, 0x2e),
+            foreground: Rgb::new(0xcd, 0xd6, 0xf4),
+        });
+
+        // NORMAL_RUNG exists so that the 85% rung lands exactly on the foreground endpoint.
+        // If it drifts, every rung below it is compressed and nothing else notices.
+        assert_eq!(normal(), Color::Rgb(0xcd, 0xd6, 0xf4));
+        assert_eq!(neutral_at(0), Color::Rgb(0x1e, 0x1e, 0x2e));
+
+        set_endpoints(previous);
+    }
 }

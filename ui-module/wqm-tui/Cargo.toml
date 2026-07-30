@@ -8,6 +8,12 @@ ratatui = { workspace = true }
 libc = { workspace = true }
 tui-pantry = { version = "0.4.0", optional = true }
 
+# The Encoding axis (`src/encoding.rs`): what the output stream can actually emit. Detection
+# only — the crate's `adapt_color` quantisation is deliberately NOT used, see the module docs.
+# No features are enabled, and every one of this crate's own dependencies is optional, so it
+# costs nothing transitively. MSRV 1.88.0, which is exactly `src/rust`'s `rust-version`.
+termprofile = "0.2.4"
+
 # Headless pixel capture (`src/capture.rs`), optional so the shipping crate carries neither.
 # `soft_ratatui` is a pure-software ratatui backend — no GPU, no terminal, no window server
 # and no OS permission — which is what makes a PNG of a frame producible from an agent.

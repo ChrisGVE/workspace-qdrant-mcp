@@ -7,9 +7,15 @@ judged, so an absent section means *not yet evaluated*, never *nothing found*.
 Every verdict here answers the six pass-2 questions from `CRATE-INVENTORY.md`, and question 0
 (ratatui 0.30.2) is already settled for anything that reached this document.
 
-**Status:** `RB` and `CAP` are done. `A` (theming, 33), `B` (tabs/containers), `ST`
-(statusline / keymap / which-key), `C`, `D`, `E`, `F`, `G`, `H`, `I` are **not started** —
-`PASS1-SCREEN.md` §5 still describes what each of them is.
+**Status:** `RB` and `CAP` are done, and **both are now built and wired**. `A` (theming, 33),
+`B` (tabs/containers), `ST` (statusline / keymap / which-key), `C`, `D`, `E`, `F`, `G`, `H`,
+`I` are **not started** — `PASS1-SCREEN.md` §5 still describes what each of them is.
+
+> **Standing instruction (Chris, 20260730):** the crates selected here — and what each is
+> *for* — get **reviewed with Chris jointly** before more are adopted. Evaluation continues
+> solo and produces recommendations; adoption does not. Two crates are already in
+> `wqm-tui/Cargo.toml` and are the first items on that review: `soft_ratatui` (§RB) and
+> `termprofile` (§CAP).
 
 ---
 
@@ -174,6 +180,57 @@ which authored ladder applies rather than deriving one.
 
 So: adopt it for **which encoding are we in**, and keep authorship of **what each rung is in that
 encoding**.
+
+### Built 20260730 — `src/encoding.rs`, and the rule turned out to be one comparison
+
+The Encoding axis is now real, which closes the implemented half of **workspace-qdrant-mcp#249**.
+The shape it settled into is smaller than the design anticipated:
+
+- `Family` (`None` < `Slots` < `Ramp` < `Rgb`) is *how* a colour is emitted, and it is **ordered**.
+- `Palette` (the Source) says which family it *wants*; `Encoding` (the capability) says which it
+  *permits*.
+- `tokens::family()` is `min` of the two. That single comparison is the whole Source × Encoding
+  split, and it makes §12's rule — *the encoder chooses a family once, never per rung* —
+  structural rather than a discipline: there is no code path that could quantise per rung,
+  because a rung is always recomputed from its own percentage in whichever family won.
+
+Degradation therefore **drops to the lower ladder's own values** rather than approximating the
+one above. `tokens::degrading_picks_the_lower_ladder_rather_than_quantising_the_higher_one`
+pins it by asserting that `Derived` under `Ansi256` is byte-identical to `Indexed`, and that
+`faint` and `rule_frame` do not collide — the specific defect the rejected `adapt_color` path
+produced.
+
+**Cost: zero transitive dependencies.** Every one of `termprofile`'s seven dependencies is
+optional and no features are enabled, because detection needs none of them.
+
+**Three rows the design did not have, now rendered rather than argued about.** `Palette
+Reference` gained `Encoding: ANSI 256`, `Encoding: ANSI 16` and `Encoding: No Color`, all with
+`Derived` as the source, so what a user on a weaker terminal receives of the authored frames is
+a frame rather than a claim. Measured from those dumps: ANSI 16 collapses **6 of the 11 rungs**,
+which is exactly the count §12 predicted from a different direction.
+
+#### Two findings from wiring it
+
+1. **`CLICOLOR_FORCE` outranks `NO_COLOR` in `termprofile`, and that is user-visible.** The
+   two standards contradict each other — no-color.org says colour is disabled, bixense's
+   CLICOLOR spec says forced colour applies "no matter what" — and the crate resolves it in
+   favour of forcing. This was found by a test asserting the opposite and failing. It is now
+   pinned (`forcing_outranks_no_color_and_that_is_measured_not_assumed`) rather than worked
+   around: the precedence is inherited behaviour, and if upstream changes it, we should notice
+   in a test rather than in a frame. **Method note, again:** the assertion was written from the
+   *specs* and the specs disagree; only running it produced the answer.
+2. **The tab bar carries an alarm in hue alone.** r02 §3 asks for a structural signature first
+   with colour reserved, and `Health::glyph` is that signature everywhere else — the tab bar has
+   no glyph, so under `No Color` an alarming tab renders identically to a calm one
+   (`CLICOLOR_FORCE=no_color cargo pantry dump "Tab Bar"`, *Alarm, Unselected* vs *Default*).
+   The gap is not new; the encoding axis only made it observable. Recorded as an open decision
+   in `handover.md` §7 — adding a glyph to a tab label is a visual-language change.
+
+One thing that had to be forced rather than documented: `capture()` now forces
+`Encoding::TrueColor` alongside `Palette::Derived`. Because a rung is emitted in the *lesser* of
+the two, a process that had probed a 16-colour terminal would have degraded a capture's ladder
+back onto the slots `soft_ratatui` mis-resolves — and forcing the palette alone looks correct in
+every test that never touches the encoding.
 
 ---
 

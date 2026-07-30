@@ -23,6 +23,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+use crate::encoding::Encoding;
 use crate::tokens::{self, Palette};
 
 /// The sixteen slots a terminal theme can redefine, with the role that claims each.
@@ -112,21 +113,38 @@ impl Widget for AnsiSlots {
 /// Every neutral rung under one palette, with the value it resolved to.
 pub struct NeutralRungs {
     palette: Palette,
+    encoding: Encoding,
 }
 
 impl NeutralRungs {
+    /// The ladder as the current encoding renders it — what the reader is actually looking
+    /// at in this terminal.
     pub fn new(palette: Palette) -> Self {
-        Self { palette }
+        Self::under(palette, Encoding::current())
+    }
+
+    /// The ladder under a *forced* encoding, which is how a degradation is judged from a
+    /// frame instead of from an argument. [`tokens::family`] takes the lesser of the two, so
+    /// a weak encoding is visible here as the source's ladder being replaced wholesale
+    /// rather than approximated.
+    pub fn under(palette: Palette, encoding: Encoding) -> Self {
+        Self { palette, encoding }
     }
 }
 
 impl Widget for NeutralRungs {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let previous = Palette::current();
+        let previous = (Palette::current(), Encoding::current());
         Palette::set(self.palette);
+        Encoding::set(self.encoding);
 
         let mut lines = vec![Line::from(vec![Span::styled(
-            format!("PALETTE: {}", self.palette.label()),
+            format!(
+                "PALETTE: {}   ENCODING: {}   emitted as: {:?}",
+                self.palette.label(),
+                self.encoding.label(),
+                tokens::family()
+            ),
             Style::default()
                 .fg(tokens::rule_frame())
                 .add_modifier(Modifier::BOLD),
@@ -138,7 +156,11 @@ impl Widget for NeutralRungs {
         let mut previous_value: Option<Color> = None;
         for (percent, role, spec) in RUNGS {
             let colour = resolve(percent);
-            let collides = previous_value == Some(colour);
+            // Under an encoding that emits no colour every rung is `Reset`, so flagging each
+            // as a collision would report the design's own fallback as eleven defects. The
+            // header already says the family is `None`; that is the finding.
+            let collides =
+                previous_value == Some(colour) && tokens::family() != crate::encoding::Family::None;
             previous_value = Some(colour);
 
             lines.push(Line::from(vec![
@@ -148,7 +170,7 @@ impl Widget for NeutralRungs {
                 Span::styled(format!("{role:<14}"), tokens::muted_style()),
                 Span::styled(format!("{:<20}", format!("{colour:?}")), {
                     if collides {
-                        Style::default().fg(tokens::DEGRADED)
+                        Style::default().fg(tokens::degraded())
                     } else {
                         tokens::faint_style()
                     }
@@ -160,7 +182,7 @@ impl Widget for NeutralRungs {
                         spec
                     },
                     if collides {
-                        Style::default().fg(tokens::DEGRADED)
+                        Style::default().fg(tokens::degraded())
                     } else {
                         tokens::faint_style()
                     },
@@ -169,7 +191,9 @@ impl Widget for NeutralRungs {
         }
 
         Paragraph::new(lines).render(area, buf);
-        Palette::set(previous);
+        let (palette, encoding) = previous;
+        Palette::set(palette);
+        Encoding::set(encoding);
     }
 }
 
@@ -236,12 +260,44 @@ pub mod ingredient {
         }
     }
 
+    /// The authored ladder under a forced encoding — the degradation story, rendered.
+    ///
+    /// All three use [`Palette::Derived`] as the source, because that is the mode the
+    /// storyboard is authored in: what these entries show is what a *user on a weaker
+    /// terminal* sees of the frames Chris is judging, which is the question the encoding axis
+    /// exists to answer.
+    struct Degraded(Encoding, &'static str);
+
+    impl Ingredient for Degraded {
+        fn group(&self) -> &str {
+            "Palette Reference"
+        }
+        fn name(&self) -> &str {
+            self.1
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::encoding"
+        }
+        fn description(&self) -> &str {
+            "The authored ladder as a weaker terminal receives it — the encoding is forced, not probed"
+        }
+        fn props(&self) -> &[PropInfo] {
+            NO_PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            NeutralRungs::under(Palette::Derived, self.0).render(area, buf);
+        }
+    }
+
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
             Box::new(Slots),
             Box::new(Rungs(Palette::Theme, "Rungs: Theme")),
             Box::new(Rungs(Palette::Indexed, "Rungs: Indexed")),
             Box::new(Rungs(Palette::Derived, "Rungs: Derived")),
+            Box::new(Degraded(Encoding::Ansi256, "Encoding: ANSI 256")),
+            Box::new(Degraded(Encoding::Ansi16, "Encoding: ANSI 16")),
+            Box::new(Degraded(Encoding::NoColor, "Encoding: No Color")),
         ]
     }
 }

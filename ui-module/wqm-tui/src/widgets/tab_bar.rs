@@ -66,12 +66,24 @@ impl Tab {
     fn selected_bg(&self) -> Color {
         match self.alarm {
             Some(health) => health.color(),
-            None => tokens::SELECTOR,
+            None => tokens::selector(),
         }
     }
 
     /// The hue this tab carries when unselected. An alarm still shows; otherwise the tab
     /// recedes to muted.
+    ///
+    /// # An alarm here is carried by hue alone, and that is now visibly a gap
+    ///
+    /// r02 §3 asks for a structural signature first with colour reserved, and
+    /// [`Health::glyph`] is that signature everywhere else. This surface has no glyph, so
+    /// under an encoding that emits no colour ([`crate::encoding`]) an alarming tab is
+    /// indistinguishable from a calm one — measured, not reasoned: `CLICOLOR_FORCE=no_color
+    /// cargo pantry dump "Tab Bar"` renders *Alarm, Unselected* identically to *Default*.
+    ///
+    /// The gap is not new; the encoding axis only made it observable. Adding a glyph to a tab
+    /// label changes the visual language, so it is recorded as an open decision in
+    /// `handover.md` §7 rather than fixed here.
     fn unselected_fg(&self) -> Color {
         match self.alarm {
             Some(health) => health.color(),
@@ -122,9 +134,7 @@ impl Widget for TabBar {
                 ));
                 spans.push(Span::styled(
                     format!(" {} ", tab.label),
-                    Style::default()
-                        .fg(tokens::SELECTOR_FG)
-                        .bg(tab.selected_bg()),
+                    tokens::inverted(tab.selected_bg()),
                 ));
             } else {
                 spans.push(Span::styled(

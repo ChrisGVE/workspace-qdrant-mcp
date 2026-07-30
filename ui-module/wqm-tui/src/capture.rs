@@ -43,9 +43,13 @@
 //! colour and would render as a cyan ramp; [`Palette::Theme`] would paint the reserved
 //! selector hue blue, and cyan-means-selected is the one hue rule VISUAL-LANGUAGE §3 has.
 //!
-//! So [`capture`] **forces `Derived` and restores the previous palette afterwards.** A PNG
-//! that silently depicted the wrong palette is precisely the class of artifact §1 exists to
-//! stop producing — the earlier one at least failed visibly, by not rendering bold.
+//! So [`capture`] **forces `Derived` — and `Encoding::TrueColor` with it — and restores both
+//! afterwards.** A PNG that silently depicted the wrong palette is precisely the class of
+//! artifact §1 exists to stop producing; the earlier one at least failed visibly, by not
+//! rendering bold. The encoding has to be forced alongside the palette because a rung is
+//! emitted in the lesser of the two ([`crate::tokens::family`]), so a process that had probed
+//! a 16-colour terminal would degrade this capture's ladder back onto the slots the backend
+//! mis-resolves.
 //!
 //! The hues still are not the user's: health green comes out `#006400` and yellow `#ffd700`,
 //! because those are named slots too. Read a capture for *layout, weight, glyph and
@@ -60,6 +64,7 @@ use soft_ratatui::embedded_graphics_unicodefonts::{
 };
 use soft_ratatui::{EmbeddedGraphics, SoftBackend};
 
+use crate::encoding::Encoding;
 use crate::tokens::{self, Palette};
 
 /// Discards an error that cannot exist.
@@ -94,31 +99,41 @@ pub const CELL: (usize, usize) = (8, 13);
 /// exactly the shape a pantry that captured from a worker thread would hit.
 static PALETTE_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Holds [`Palette::Derived`] in force, and puts back what it found — on the way out of the
-/// scope, so a panicking `draw` closure cannot leave the process in the capture palette.
-struct DerivedPalette {
-    previous: Palette,
+/// Holds RGB output in force, and puts back what it found — on the way out of the scope, so
+/// a panicking `draw` closure cannot leave the process in the capture palette.
+///
+/// **Both** globals have to be forced, not just the palette. A rung is emitted in the lesser
+/// of the source and the encoding ([`crate::tokens::family`]), so an application that had
+/// probed a 16-colour terminal would still degrade this capture's `Derived` ladder to theme
+/// slots — which is the one thing the backend renders wrongly. Forcing the palette alone
+/// would look correct in every test that never touched the encoding.
+struct RgbOnly {
+    palette: Palette,
+    encoding: Encoding,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
-impl DerivedPalette {
+impl RgbOnly {
     fn force() -> Self {
         // A panic inside a capture poisons the lock but leaves nothing inconsistent behind,
         // since the Drop below still ran. Recovering the guard keeps one bad frame from
         // disabling capture for the rest of the process.
         let lock = PALETTE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        let previous = Palette::current();
-        Palette::set(Palette::Derived);
-        Self {
-            previous,
+        let forced = Self {
+            palette: Palette::current(),
+            encoding: Encoding::current(),
             _lock: lock,
-        }
+        };
+        Palette::set(Palette::Derived);
+        Encoding::set(Encoding::TrueColor);
+        forced
     }
 }
 
-impl Drop for DerivedPalette {
+impl Drop for RgbOnly {
     fn drop(&mut self) {
-        Palette::set(self.previous);
+        Palette::set(self.palette);
+        Encoding::set(self.encoding);
     }
 }
 
@@ -134,7 +149,7 @@ where
     F: FnOnce(&mut Frame),
 {
     let (width, height, rgba) = {
-        let _palette = DerivedPalette::force();
+        let _rgb_only = RgbOnly::force();
         render_rgba(cols, rows, draw)
     };
 
@@ -207,7 +222,8 @@ mod tests {
     /// something other than a PNG fails here instead of downstream in an image viewer.
     const PNG_MAGIC: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
-    /// Serialises the tests in this module against each other.
+    /// Serialises the tests in this module against each other, and against every other test
+    /// that touches the process-global palette or encoding.
     ///
     /// [`PALETTE_GUARD`] makes each individual capture atomic, which is what a caller needs,
     /// but it cannot cover a *test* that sets the palette, captures, and then asserts —
@@ -215,10 +231,8 @@ mod tests {
     /// property of the test, not of [`capture`], so it is fixed here rather than by widening
     /// the lock in the module. Always taken before [`PALETTE_GUARD`], so the order is
     /// consistent and cannot deadlock.
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn serial() -> std::sync::MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+        crate::global_state_lock()
     }
 
     #[test]
@@ -262,18 +276,58 @@ mod tests {
     }
 
     #[test]
-    fn capture_restores_the_palette_it_found() {
+    fn capture_restores_the_palette_and_encoding_it_found() {
         let _serial = serial();
         // The forcing in `capture` is a guard, not a mode switch: a pantry session that
-        // captured a frame must not find its palette changed underneath it.
+        // captured a frame must not find its palette or its probed encoding changed
+        // underneath it.
         for palette in Palette::ALL {
-            Palette::set(palette);
-            let _ = capture(4, 1, |f| {
-                f.render_widget(Paragraph::new("x"), f.area());
-            })
-            .expect("capture");
-            assert_eq!(Palette::current(), palette, "{palette:?} was not restored");
+            for encoding in Encoding::ALL {
+                Palette::set(palette);
+                Encoding::set(encoding);
+                let _ = capture(4, 1, |f| {
+                    f.render_widget(Paragraph::new("x"), f.area());
+                })
+                .expect("capture");
+                assert_eq!(Palette::current(), palette, "{palette:?} was not restored");
+                assert_eq!(
+                    Encoding::current(),
+                    encoding,
+                    "{encoding:?} was not restored"
+                );
+            }
         }
+        Palette::set(Palette::Theme);
+        Encoding::set(Encoding::TrueColor);
+    }
+
+    #[test]
+    fn a_probed_sixteen_colour_terminal_does_not_reach_the_capture() {
+        let _serial = serial();
+        // The defect this catches is invisible without it: forcing only the palette leaves
+        // `family()` at the encoding's ceiling, so an application that had probed a login
+        // shell would capture the slot ladder — which `soft_ratatui` resolves by arithmetic
+        // on the index rather than by lookup. The two captures must agree.
+        let frame = || {
+            capture(24, 1, |f| {
+                f.render_widget(
+                    Paragraph::new(Span::styled("neutral", tokens::muted_style())),
+                    f.area(),
+                )
+            })
+            .expect("capture")
+        };
+
+        Encoding::set(Encoding::TrueColor);
+        let truecolor = frame();
+        Encoding::set(Encoding::Ansi16);
+        let sixteen = frame();
+        Encoding::set(Encoding::TrueColor);
+
+        assert_eq!(
+            truecolor, sixteen,
+            "the ambient encoding leaked into a capture"
+        );
     }
 
     #[test]

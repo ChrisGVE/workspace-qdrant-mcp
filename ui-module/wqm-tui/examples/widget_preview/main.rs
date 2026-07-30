@@ -10,10 +10,32 @@
 //! the black-to-white ladder r02 was authored against rather than this terminal's.
 //! `WQM_TUI_TERM_BG` / `WQM_TUI_TERM_FG` override both, which is how a derived frame is
 //! captured reproducibly with no terminal to ask.
+//!
+//! # The encoding is probed here too, with one deliberate exception
+//!
+//! `encoding::detect` reports what stdout can carry, and a rung is then emitted in the lesser
+//! of that and the palette. The exception is `NoTty`: `cargo pantry dump` writes ANSI *into a
+//! pipe on purpose* — the escape sequences are the artifact, not an accident of rendering to
+//! a terminal — so a probe that correctly reports "not a terminal" would strip exactly what
+//! the caller asked for. This is the instrument, so the pipe keeps its colour and every other
+//! row of the probe is honoured.
+//!
+//! To see a degradation rather than reason about one, force it:
+//! `CLICOLOR_FORCE=ansi16 cargo pantry dump …`, or open the `Palette Reference` entries,
+//! which render the encodings side by side.
+
+use wqm_tui::encoding::{self, Encoding};
 
 fn main() -> std::io::Result<()> {
     if let Some(endpoints) = wqm_tui::terminal::detect() {
         wqm_tui::tokens::set_endpoints(endpoints);
     }
+
+    Encoding::set(match encoding::detect() {
+        // See the module docs: for a dump, the escape sequences are the whole output.
+        Encoding::NoTty => Encoding::TrueColor,
+        probed => probed,
+    });
+
     tui_pantry::run!()
 }
