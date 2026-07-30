@@ -121,4 +121,13 @@ config.dev.yaml
 # running them locally writes __pycache__ next to the sources.
 __pycache__/
 *.pyc
+# Working material, not shipped source. Three related things:
+#   project-notes/  the encrypted vault opened for editing — the committed artefact is the
+#                   adjacent .age blob, never this tree
+#   design-notes    per-crate symlinks pointing into that vault (ui-module/*/design-notes),
+#                   which `project-notes/` does not cover because the link lives elsewhere
+#   .remember/      session history the remember plugin writes into whatever directory it
+#                   runs in; nothing else ignores it, so a broad `git add` would publish it
 project-notes/
+design-notes
+.remember/
