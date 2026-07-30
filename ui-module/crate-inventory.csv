@@ -1,0 +1,509 @@
+rank,name,max_version,downloads,recent_downloads,depends_on_ratatui,updated_at,created_at,repository,description
+1,crossterm,0.29.0,166137327,40215615,False,2025-04-05,2018-01-18,https://github.com/crossterm-rs/crossterm,A crossplatform terminal library for manipulating terminals.
+2,ratatui,0.30.2,40754202,15216077,False,2026-06-19,2023-02-08,https://github.com/ratatui/ratatui,A library that's all about cooking up terminal user interfaces
+3,ratatui-core,0.1.2,13007614,8728087,False,2026-06-19,2024-09-27,https://github.com/ratatui/ratatui,Core types and traits for the Ratatui Terminal UI library.     Widget libraries should use this crate. Applications should use the main Ratatui crate.
+4,ratatui-widgets,0.3.2,11958210,8526743,False,2026-06-19,2024-01-19,https://github.com/ratatui/ratatui,A collection of Ratatui widgets for building terminal user interfaces using Ratatui.
+5,ratatui-crossterm,0.1.2,11869898,8484157,False,2026-06-19,2024-09-27,https://github.com/ratatui/ratatui,Crossterm backend for the Ratatui Terminal UI library.
+6,ratatui-macros,0.7.2,10468431,7129943,False,2026-06-19,2024-01-05,https://github.com/ratatui/ratatui,Macros for Ratatui
+7,ratatui-termwiz,0.1.2,8947585,6536343,False,2026-06-19,2024-09-27,https://github.com/ratatui/ratatui,Termwiz backend for the Ratatui Terminal UI library.
+8,russh,0.62.4,5243918,2295836,True,2026-07-22,2022-03-13,https://github.com/warp-tech/russh,A client and server SSH library.
+9,ansi-to-tui,8.0.1,3996473,1367859,False,2026-01-10,2021-04-30,https://github.com/ratatui/ansi-to-tui,Convert ANSI color and style codes into Ratatui Text
+10,tui-textarea,0.7.0,2199004,729078,True,2024-10-22,2022-06-19,https://github.com/rhysd/tui-textarea,tui-textarea is a simple yet powerful text editor widget for ratatui and tui-rs. Multi-line text editor can be easily put as part of your TUI application.
+11,tui-logger,0.18.3,2194762,507375,True,2026-07-04,2018-05-19,https://github.com/gin66/tui-logger,Logger with smart widget for the `ratatui` crate
+12,tui-input,0.15.3,1720976,458732,True,2026-04-18,2021-11-04,https://github.com/sayanarijit/tui-input,TUI input library supporting multiple backends
+13,cursive,0.21.1,1642047,324443,False,2024-08-03,2016-06-25,https://github.com/gyscos/cursive,A TUI (Text User Interface) library focused on ease-of-use.
+14,ratatui-termina,0.1.0,1470865,1470865,False,2026-06-19,2026-06-19,https://github.com/ratatui/ratatui,Termina backend for the Ratatui Terminal UI library.
+15,burn-tensor,0.21.0,1190319,390760,False,2026-07-29,2022-07-27,https://github.com/tracel-ai/burn/tree/main/crates/burn-tensor,Tensor library with user-friendly APIs and automatic differentiation support
+16,burn-derive,0.21.0,1163684,377971,False,2026-07-29,2022-09-04,https://github.com/tracel-ai/burn/tree/main/crates/burn-derive,Derive crate for the Burn framework
+17,burn-core,0.21.0,1162449,378167,False,2026-07-29,2023-02-12,https://github.com/tracel-ai/burn/tree/main/crates/burn-core,Flexible and Comprehensive Deep Learning Framework in Rust
+18,burn,0.21.0,1162050,372879,False,2026-07-29,2022-07-27,https://github.com/tracel-ai/burn,Flexible and Comprehensive Deep Learning Framework in Rust
+19,burn-ndarray,0.21.0,1130392,369921,False,2026-07-29,2022-11-20,https://github.com/tracel-ai/burn/tree/main/crates/burn-ndarray,Ndarray backend for the Burn framework
+20,tui-term,0.3.4,1088050,266048,True,2026-04-07,2023-05-17,https://github.com/a-kenji/tui-term,A pseudoterminal widget for ratatui
+21,tui-scrollbar,0.2.7,1084311,204479,True,2026-06-14,2025-12-28,https://github.com/ratatui/tui-widgets,A Ratatui scrollbar widget with fractional thumb rendering
+22,burn-autodiff,0.21.0,1077810,344043,False,2026-07-29,2022-11-20,https://github.com/tracel-ai/burn/tree/main/crates/burn-autodiff,Automatic differentiation backend for the Burn framework
+23,burn-wgpu,0.21.0,1043167,338420,False,2026-07-29,2023-07-25,https://github.com/tracel-ai/burn/tree/main/crates/burn-wgpu,WGPU backend for the Burn framework
+24,burn-candle,0.21.0,960633,307784,False,2026-07-29,2023-10-24,https://github.com/tracel-ai/burn/tree/main/crates/burn-candle,"[Deprecated] Candle backend for the Burn framework - use burn-cubecl, burn-ndarray, or burn-tch instead"
+25,tui-tree-widget,0.24.0,939131,301068,True,2026-01-09,2020-10-31,https://github.com/EdJoPaTo/tui-rs-tree-widget,Tree Widget for ratatui
+26,burn-common,0.19.1,924820,226577,False,2025-11-24,2023-03-21,https://github.com/tracel-ai/burn/tree/main/crates/burn-common,Common crate for the Burn framework
+27,burn-cuda,0.21.0,812639,308185,False,2026-07-29,2024-08-27,https://github.com/tracel-ai/burn/tree/main/crates/burn-cuda,CUDA backend for the Burn framework
+28,throbber-widgets-tui,0.11.1,785017,207840,True,2026-06-19,2022-10-09,https://github.com/arkbig/throbber-widgets-tui,This is a ratatui widget that displays throbber.
+29,burn-ir,0.21.0,782188,333545,False,2026-07-29,2025-04-23,https://github.com/tracel-ai/burn/tree/main/crates/burn-ir,Intermediate representation for the Burn framework
+30,burn-dataset,0.21.0,778344,209142,False,2026-07-29,2022-09-04,https://github.com/tracel-ai/burn/tree/main/crates/burn-dataset,Library with simple dataset APIs for creating ML data pipelines
+31,burn-fusion,0.21.0,777510,266772,False,2026-07-29,2023-12-01,https://github.com/tracel-ai/burn/tree/main/crates/burn-fusion,Kernel fusion backend decorator for the Burn framework
+32,burn-train,0.21.0,761077,205928,True,2026-07-29,2023-02-12,https://github.com/tracel-ai/burn/tree/main/crates/burn-train,Training crate for the Burn framework
+33,burn-router,0.21.0,749500,297443,False,2026-07-29,2025-01-14,https://github.com/tracel-ai/burn/tree/main/crates/burn-router,Multi-backend router decorator for the Burn framework
+34,burn-cubecl,0.21.0,706820,297868,False,2026-07-29,2025-04-23,https://github.com/tracel-ai/burn/tree/main/crates/burn-cubecl,Generic backend that can be compiled just-in-time to any shader language target
+35,burn-rocm,0.21.0,649163,269114,False,2026-07-29,2025-04-23,https://github.com/tracel-ai/burn/tree/main/crates/burn-rocm,ROCm HIP backend for the Burn framework
+36,ratatui-image,11.0.6,617090,253950,True,2026-06-25,2023-09-17,https://github.com/ratatui/ratatui-image,"An image widget for ratatui, supporting sixels, kitty, iterm2, and unicode-halfblocks"
+37,ratatui-termion,0.1.2,587705,401218,False,2026-06-19,2024-09-27,https://github.com/ratatui/ratatui,Termion backend for the Ratatui Terminal UI library.
+38,burn-tch,0.21.0,518983,157668,False,2026-07-29,2022-11-20,https://github.com/tracel-ai/burn/tree/main/crates/burn-tch,LibTorch backend for the Burn framework using the tch bindings.
+39,burn-cubecl-fusion,0.21.0,514488,229632,False,2026-07-29,2025-04-23,https://github.com/tracel-ai/burn/tree/main/crates/burn-cubecl-fusion,Provide optimizations that can be used with cubecl based backends.
+40,maliput,0.36.0,458107,150205,True,2026-07-17,2024-04-08,https://github.com/maliput/maliput-rs,Rust API for maliput
+41,tui-big-text,0.8.8,452992,89169,True,2026-06-18,2023-09-05,https://github.com/ratatui/tui-widgets,A Ratatui widget for displaying big text in the terminal
+42,tui-scrollview,0.6.7,409573,71909,True,2026-06-14,2024-01-18,https://github.com/ratatui/tui-widgets,A simple scrollable view for Ratatui
+43,tui-react,0.24.0,397432,46742,True,2026-01-08,2019-06-05,https://github.com/Byron/tui-crates,"TUI widgets using a react-like paradigm, allowing mutable component state and render properties."
+44,tui-markdown,0.3.9,384667,117297,True,2026-07-23,2024-02-27,https://github.com/joshka/tui-markdown,A simple library for converting markdown to a Ratatui Text value
+45,burn-nn,0.21.0,359604,203373,False,2026-07-29,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-nn,Neural network building blocks for the Burn deep learning framework
+46,burn-optim,0.21.0,355343,200059,False,2026-07-29,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-optim,Optimizer building blocks for the Burn deep learning framework
+47,ratzilla,0.3.1,327337,188951,True,2026-06-08,2025-01-09,https://github.com/ratatui/ratzilla,Build terminal-themed web applications with Ratatui and WebAssembly
+48,ratatui-textarea,0.9.2,318682,243322,False,2026-06-12,2023-09-15,https://github.com/ratatui/ratatui-textarea,ratatui-textarea is a simple yet powerful text editor widget for ratatui. Multi-line text editor can be easily put as part of your TUI application.
+49,burn-store,0.21.0,301534,171731,False,2026-07-29,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-store,Storage and serialization infrastructure for Burn
+50,beamterm-data,1.0.0,276995,163348,False,2026-03-30,2025-06-06,https://github.com/junkdog/beamterm,Core data structures and binary serialization for the beamterm WebGL terminal renderer
+51,beamterm-renderer,1.0.0,276044,163027,False,2026-03-30,2025-06-06,https://github.com/junkdog/beamterm,"High-performance WebGL2 terminal renderer for beamterm, targeting sub-millisecond render times in web browsers"
+52,tachyonfx,0.25.1,268005,164459,True,2026-07-05,2024-06-20,https://github.com/ratatui/tachyonfx,A ratatui library for creating shader-like effects in TUIs.
+53,burn-jit,0.16.1,258549,40517,False,2025-04-03,2024-04-12,https://github.com/tracel-ai/burn/tree/main/crates/burn-jit,Generic backend that can be compiled just-in-time to any shader language target
+54,burn-std,0.21.0,256369,165541,False,2026-07-29,2025-12-01,https://github.com/tracel-ai/burn/tree/main/crates/burn-std,Core types and utilities shared across the Burn ecosystem.
+55,burn-backend,0.21.0,256185,165512,False,2026-07-29,2025-12-01,https://github.com/tracel-ai/burn/tree/main/crates/burn-backend,Core backend interfaces and data structures for executing tensor operations in Burn.
+56,tui-popup,0.7.6,235728,113155,True,2026-06-14,2023-12-31,https://github.com/ratatui/tui-widgets,A simple popup for ratatui
+57,burn-cpu,0.21.0,232984,132290,False,2026-07-29,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-cpu,MLIR based CPU backend for the Burn framework
+58,edtui,0.11.6,228200,95122,True,2026-07-18,2023-11-28,https://github.com/preiter93/edtui,A TUI based vim inspired editor
+59,tui-widget-list,0.15.3,224981,74429,True,2026-07-18,2023-04-30,https://github.com/preiter93/tui-widget-list,Widget List for TUI/Ratatui
+60,terminput,0.5.15,223893,168793,False,2026-07-18,2025-01-22,https://github.com/aschey/terminput,TUI input parser/encoder and abstraction over input backends
+61,tuirealm,4.1.0,214407,31251,True,2026-05-02,2021-04-20,https://github.com/veeso/tui-realm,"A tui-rs framework to build tui interfaces, inspired by React and Elm."
+62,burn-remote,0.21.0,174400,78008,False,2026-07-29,2025-01-14,https://github.com/tracel-ai/burn/tree/main/crates/burn-router-remote,Backend router decorator over the network.
+63,burn-compute,0.13.2,170151,6328,False,2024-05-03,2023-10-24,https://github.com/tracel-ai/burn/tree/main/burn-compute,Compute crate that helps creating high performance async backends.
+64,tui-prompts,0.6.7,169870,40549,True,2026-06-18,2023-07-11,https://github.com/ratatui/tui-widgets,A library for building interactive prompts for ratatui.
+65,iocraft,0.8.4,145323,45804,False,2026-07-13,2024-09-23,https://github.com/ccbrown/iocraft,Create beautifully crafted CLI programs and text output with a declarative React-like Rust API.
+66,oha,1.15.0,141000,4256,True,2026-07-11,2020-03-08,https://github.com/hatoo/oha,"Ohayou(おはよう), HTTP load generator, inspired by rakyll/hey with tui animation."
+67,burn-hip,0.16.1,139676,32876,False,2025-04-03,2024-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-hip,ROCm HIP backend for the Burn framework
+68,jkconfig,0.2.5,135948,113142,True,2026-06-15,2025-10-24,https://github.com/drivercraft/ostool,A Ratatui-based TUI component library for JSON Schema configuration
+69,ostool,0.26.0,129447,59423,True,2026-07-27,2024-10-23,https://github.com/drivercraft/ostool,A tool for operating system development
+70,ratatui-explorer,0.3.0,129439,60084,True,2026-03-06,2024-02-19,https://github.com/tatounee/ratatui-explorer.git,"ratatui-explorer is a small, but highly customizable, file explorer widget for ratatui."
+71,rich_rust,0.2.2,114455,66492,False,2026-06-13,2026-01-19,https://github.com/Dicklesworthstone/rich_rust,A Rust port of Python's Rich library for beautiful terminal output
+72,vdash,0.20.0,108997,284,True,2025-02-27,2020-09-11,https://github.com/happybeing/vdash,Autonomi node Dashboard
+73,pulldown-cmark-mdcat,2.14.0,96819,5206,True,2026-07-27,2023-04-15,https://github.com/BIRSAx2/mdcat,Render pulldown-cmark events to TTY
+74,catppuccin,2.8.0,92245,14188,True,2026-04-26,2022-10-22,https://github.com/catppuccin/rust,🦀 Soothing pastel theme for Rust.
+75,burn-tensor-testgen,0.21.0,89317,2202,False,2026-05-07,2022-11-20,https://github.com/tracel-ai/burn/tree/main/crates/burn-tensor-testgen,Test generation crate for burn-tensor
+76,spotify_player,0.24.1,87285,3642,True,2026-07-20,2021-08-15,https://github.com/aome510/spotify-player,A Spotify player in the terminal with full feature parity
+77,tui-textarea-2,0.12.1,85005,58373,True,2026-07-10,2026-02-18,https://github.com/srothgan/tui-textarea,tui-textarea is a simple yet powerful text editor widget for ratatui. Multi-line text editor can be easily put as part of your TUI application.
+78,tui-framework-experiment,0.4.0,78486,16175,True,2025-11-29,2024-10-19,https://github.com/joshka/tui-framework-experiment,An set of harmonious Ratatui widgets with a goal of building a proper widget framework.
+79,mdstream,0.3.0,78142,45935,False,2026-07-07,2025-12-23,https://github.com/Latias94/mdstream,"Streaming-first Markdown middleware for LLM output (committed + pending blocks, render-agnostic)."
+80,terminput-crossterm,0.4.11,77588,31176,False,2026-07-18,2025-03-25,https://github.com/aschey/terminput,crossterm adapter for terminput
+81,burn-communication,0.21.0,76902,39203,False,2026-07-29,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-communication,Abstractions for network communication for Burn
+82,burn-collective,0.21.0,76231,38958,False,2026-05-07,2025-10-28,https://github.com/tracel-ai/burn/tree/main/crates/burn-collective,Backend extension for collective calculations.
+83,ttyper,1.6.0,74829,1260,True,2024-08-12,2021-02-15,https://github.com/max-niederman/ttyper.git,Terminal-based typing test.
+84,navipod,1.2.5,74124,291,True,2026-06-18,2023-11-05,https://github.com/navicore/navipod,A cli tool for inspecting containers in Kubernetes
+85,burn-dispatch,0.21.0,72149,65675,False,2026-07-29,2026-03-02,https://github.com/tracel-ai/burn/tree/main/crates/burn-dispatch,Backend dispatch for the Burn framework
+86,rat-event,2.1.0,70609,8113,False,2026-03-08,2024-05-08,https://github.com/thscharler/rat-salsa,ratatui event handler trait for widgets
+87,schemaui,0.12.3,69868,68928,True,2026-07-10,2025-11-07,https://github.com/yuniqueunic/schemaui,A Rust library for generating TUI and Web UIs from JSON Schemas for configuration management.
+88,beamterm-core,1.0.0,67748,67075,False,2026-03-30,2026-02-26,https://github.com/junkdog/beamterm,Platform-agnostic OpenGL terminal renderer using glow
+89,beamterm-unicode,1.0.0,66935,66829,False,2026-03-30,2026-03-30,https://github.com/junkdog/beamterm,Unicode character classification utilities for beamterm
+90,kdash,2.1.1,66493,689,True,2026-07-22,2021-04-17,https://github.com/kdash-rs/kdash,A fast and simple dashboard for Kubernetes
+91,tui-widgets,0.7.10,66161,13916,False,2026-06-18,2024-07-24,https://github.com/ratatui/tui-widgets,A collection of useful widgets for building terminal user interfaces using Ratatui
+92,ratatui-splash-screen,0.1.5,65930,4131,True,2026-02-25,2024-03-14,https://github.com/orhun/ratatui-splash-screen,A Ratatui widget to turn any image to a splash screen in your terminal
+93,television,0.15.9,64424,1517,True,2026-06-14,2024-09-11,https://github.com/alexpasmantier/television,"A very fast, portable and hackable fuzzy finder for the terminal"
+94,syntect-tui,3.0.6,61024,19595,True,2025-05-09,2022-12-26,,A lightweight translation layer between syntect.rs and Ratatui style types
+95,bevy_ratatui,0.11.1,59763,5888,True,2026-02-18,2024-02-27,https://github.com/ratatui/bevy_ratatui,A Bevy plugin for building terminal user interfaces with Ratatui
+96,rat-focus,2.1.1,59450,8055,False,2026-03-10,2024-05-18,https://github.com/thscharler/rat-salsa,focus handling for ratatui widgets
+97,fzf-make,0.73.0,59408,387,True,2026-07-26,2023-10-07,https://github.com/kyu08/fzf-make,"A command line tool that executes commands using fuzzy finder with preview window for make, pnpm, yarn, just, and task."
+98,procmon-oprs,0.43.0,56423,226,True,2026-02-14,2020-05-20,,A process monitor for Linux
+99,burn-flex,0.21.0,53833,53039,False,2026-07-29,2026-03-25,https://github.com/tracel-ai/burn/tree/main/crates/burn-flex,"A fast, portable CPU backend for the Burn framework"
+100,rat-ftable,2.2.0,53263,3535,False,2026-03-08,2024-05-13,https://github.com/thscharler/rat-salsa,ratatui table widget for large data
+101,machine_setup,2.4.2,50208,207,True,2026-05-29,2022-03-31,,A CLI tool with TUI for automating machine configuration and setup tasks
+102,oxker,0.13.3,50200,1174,True,2026-07-24,2022-07-23,https://github.com/mrjackwills/oxker,A simple tui to view & control docker containers
+103,rat-text,3.1.0,50013,7263,False,2026-03-08,2024-08-25,https://github.com/thscharler/rat-salsa,ratatui text input widgets
+104,rat-scrolled,2.0.2,49125,7422,False,2026-03-08,2024-05-18,https://github.com/thscharler/rat-salsa,ratatui scroll widget and traits
+105,termscp,1.1.1,48411,580,False,2026-06-08,2020-12-06,https://github.com/veeso/termscp,termscp is a feature rich terminal file transfer and explorer with support for SCP/SFTP/FTP/Kube/S3/WebDAV
+106,kmon,1.7.1,47923,307,True,2024-12-15,2020-01-31,https://github.com/orhun/kmon,Linux kernel manager and activity monitor
+107,burn-vision,0.21.0,45538,37358,False,2026-07-29,2025-04-23,https://github.com/tracel-ai/burn/tree/main/crates/burn-vision,Vision processing operations for burn tensors
+108,modalkit,0.0.25,45112,1791,False,2026-04-07,2021-08-25,https://github.com/ulyssa/modalkit,A library for building applications that use modal editing
+109,animate-core,0.4.1,44830,38026,True,2026-05-08,2026-04-14,https://github.com/vyfor/animate,Animation library for Ratatui
+110,rat-widget,3.2.1,44643,3493,False,2026-03-09,2024-05-20,https://github.com/thscharler/rat-salsa,ratatui widgets extended edition
+111,animate-macros,0.4.1,44642,37837,False,2026-05-08,2026-04-14,https://github.com/vyfor/animate,Animation library for Ratatui
+112,animate,0.4.1,44640,37795,True,2026-05-08,2026-04-14,https://github.com/vyfor/animate,Animation library for Ratatui
+113,tui-journal,0.17.0,44617,375,True,2026-07-10,2023-05-15,https://github.com/ammarabouzor/tui-journal,Tui app allows writing and managing journals/notes from within the terminal With different local back-ends
+114,cargo-e,0.3.2,43728,268,True,2025-10-12,2025-03-09,https://github.com/davehorner/cargo-e,"e is for Example. A command-line tool for running and exploring source, examples, and binaries from Rust projects. It will run the first example, if no options are given."
+115,rainfrog,0.4.2,43464,767,True,2026-07-28,2024-08-06,https://github.com/achristmascarl/rainfrog,a database management tui
+116,tui-qrcode,0.2.6,42308,14046,True,2026-06-14,2025-01-23,https://github.com/ratatui/tui-widgets,A Ratatui widget for displaying QR codes in the terminal
+117,ascii-forge,2.1.5,42023,383,False,2025-10-23,2024-02-20,https://github.com/TheEmeraldBee/ascii-forge,A Minimal TUI Ascii Application Engine that simplifies the use of crossterm
+118,lp_parser_rs,4.1.0,41602,306,False,2026-07-09,2023-11-13,https://github.com/dandxy89/lp_parser_rs,A Rust parser for the LP file format.
+119,tui-menu,0.3.1,41000,10524,True,2025-12-30,2022-11-29,https://github.com/shuoli84/tui-menu,A menu widget for Ratatui
+120,trippy,0.13.0,40577,2166,False,2025-05-05,2022-03-28,https://github.com/fujiapple852/trippy,A network diagnostic tool
+121,tui-bar-graph,0.3.5,39719,14297,True,2026-06-14,2025-03-04,https://github.com/ratatui/tui-widgets,A Ratatui widget for rendering pretty bar graphs in the terminal
+122,wiki-tui,0.9.2,38758,307,True,2025-12-08,2021-10-16,https://github.com/builditluc/wiki-tui,A simple and easy to use Wikipedia Text User Interface
+123,rat-reloc,2.0.2,36646,7413,False,2026-01-06,2024-11-01,https://github.com/thscharler/rat-salsa,relocate widgets after rendering
+124,netscanner,0.6.43,36262,533,True,2026-07-06,2023-12-11,https://github.com/Chleba/netscanner,Network Scanner
+125,color-to-tui,0.3.0,36070,544,True,2023-04-03,2021-11-06,https://git.uttarayan.me/uttarayan/color-to-tui,Parse colors and convert them to ratatui::style::Colors
+126,rat-cursor,2.0.0,35518,7262,False,2025-12-27,2024-09-12,https://github.com/thscharler/rat-salsa,ratatui trait to communicate the cursor position across widgets
+127,tui-cards,0.3.5,34309,10179,True,2026-06-18,2024-09-21,https://github.com/ratatui/tui-widgets,A playing card widget for Ratatui
+128,s2protocol,3.5.6,34171,374,True,2026-07-01,2023-02-12,https://github.com/sebosp/s2protocol-rs,"A parser for Starcraft II - Replay format, exports to different target formats"
+129,stu,0.7.6,33936,420,True,2026-01-31,2023-03-04,https://github.com/lusingander/stu,TUI application for AWS S3 written in Rust using ratatui
+130,ratatui-interact,0.5.3,33932,27511,True,2026-04-02,2026-01-19,https://github.com/Brainwires/ratatui-interact,Interactive TUI components for ratatui with focus management and mouse support
+131,trippy-core,0.13.0,33366,8667,False,2025-05-05,2024-08-09,https://github.com/fujiapple852/trippy,A network tracing library
+132,trippy-privilege,0.13.0,33308,8651,False,2025-05-05,2024-08-09,https://github.com/fujiapple852/trippy,Discover platform privileges
+133,trippy-packet,0.13.0,33186,8731,False,2025-05-05,2024-08-09,https://github.com/fujiapple852/trippy,Network packets for Trippy
+134,tui-box-text,0.3.4,32818,10164,True,2026-06-14,2024-10-17,https://github.com/ratatui/tui-widgets,A Ratatui widget for displaying text using the box drawing characters
+135,egui_ratatui,2.2.0,32368,1877,False,2026-04-16,2024-06-02,https://github.com/gold-silver-copper/egui_ratatui,WASM ratatui with egui works with bevy and macroquad and eframe
+136,cascade-cli,0.1.152,32310,381,True,2026-03-02,2025-06-28,https://github.com/JAManfredi/cascade-cli,Stacked diffs CLI for Bitbucket Server
+137,systemctl-tui,0.7.0,31918,502,True,2026-07-19,2023-08-21,https://github.com/rgwood/systemctl-tui,A simple TUI for interacting with systemd services and their logs
+138,presenterm,0.16.1,30781,728,False,2026-02-20,2023-10-08,https://github.com/mfontanini/presenterm,A terminal slideshow presentation tool
+139,rat-salsa,4.0.3,30363,1033,False,2026-03-08,2024-06-10,https://github.com/thscharler/rat-salsa,ratatui widgets and a crossterm event-loop
+140,crates-tui,0.1.25,30092,172,True,2025-02-05,2024-02-08,https://github.com/ratatui-org/crates-tui,A TUI for crates.io
+141,heh,0.6.3,30065,2213,True,2026-01-16,2022-08-07,https://github.com/ndd7xv/heh,A cross-platform terminal UI used for modifying file data in hex or ASCII.
+142,atac,0.23.0,29242,327,True,2026-02-08,2024-04-15,https://github.com/Julien-cpsn/ATAC,"Arguably a Terminal API Client. Feature-full, free, open-source, offline and account-less."
+143,llmsim,0.5.1,29121,12040,True,2026-06-28,2026-01-10,https://github.com/chaliy/llmsim,"LLM Traffic Simulator - A lightweight, high-performance LLM API simulator"
+144,tui_confirm_dialog,0.4.1,28167,1457,True,2026-01-07,2024-01-16,https://github.com/sephiroth74/tui-confirm-dialog,Ratatui dialogs
+145,markdown-reader,0.1.29,27180,197,True,2026-07-23,2024-02-27,https://github.com/joshka/tui-markdown,A simple markdown reader that uses ratatui to render markdown files.
+146,tuigui,0.23.0,26917,234,False,2024-11-30,2024-08-23,https://gitlab.com/oglo-crates/tuigui,"An easy-to-use, highly extensible, and speedy TUI library."
+147,thoth-cli,0.1.87,26557,114,True,2025-10-25,2024-07-27,https://github.com/jooaf/thoth,A terminal scratchpad akin to Heynote
+148,tanu-tui,0.21.0,25712,3508,True,2026-06-17,2025-01-30,https://github.com/tanu-rs/tanu,TUI frontend for tanu
+149,synd-term,0.4.0,25702,108,True,2026-07-29,2024-02-12,https://github.com/ymgyt/syndicationd,Terminal application library for syndicationd
+150,ducker,0.6.5,25054,587,True,2026-03-21,2024-06-27,https://github.com/robertpsoane/ducker,A slightly quackers Docker TUI based on k9s 🦆
+151,ratframe,2.0.1,24898,86,True,2024-06-02,2024-04-19,https://github.com/gold-silver-copper/egui_ratatui,DEPRECATED GO TO 'egui_ratatui
+152,rat-menu,3.1.1,24147,3525,False,2026-03-08,2024-10-08,https://github.com/thscharler/rat-salsa,menu widgets for ratatui
+153,rat-input,0.17.0,24089,148,True,2024-07-03,2024-05-03,https://github.com/thscharler/rat-input,ratatui data input widgets
+154,dnote-tui,0.5.10,23918,56,True,2024-10-07,2023-08-20,https://github.com/deepanchal/dnote-tui,TUI for dnote
+155,eddacraft-tui,0.4.1,23716,16544,True,2026-06-22,2026-04-10,https://github.com/eddacraft/eddacraft-tui,Shared Ratatui component library for the eddacraft product family
+156,rat-popup,3.0.2,23693,3536,False,2026-03-08,2024-10-13,https://github.com/thscharler/rat-salsa,ratatui popup semi-window widget
+157,jwt-ui,1.3.0,23407,106,True,2024-12-06,2023-10-24,https://github.com/jwt-rs/jwt-ui,A Terminal UI for decoding/encoding JSON Web Tokens
+158,clipboard-history-tui,0.17.0,23024,167,True,2026-06-22,2024-01-18,https://github.com/SUPERCILEX/clipboard-history,Ringboard ratatui client application.
+159,bevy_ratatui_render,0.7.0,22579,421,True,2024-12-05,2024-06-02,https://github.com/cxreiff/bevy_ratatui_render,A bevy plugin for rendering your bevy app to the terminal using ratatui.
+160,rattles,0.3.1,21511,15961,True,2026-04-14,2026-04-11,https://github.com/vyfor/rattles,Minimal terminal spinners for Rust
+161,ftui-core,0.5.0,21458,12390,False,2026-07-05,2026-02-04,https://github.com/Dicklesworthstone/frankentui,"Terminal lifecycle, capabilities, and event parsing for FrankenTUI."
+162,kbt,2.1.0,21284,165,True,2024-01-06,2023-07-23,https://github.com/bloznelis/kbt,Keyboard tester in terminal
+163,chess-tui,2.7.1,21252,710,True,2026-05-21,2023-12-01,https://github.com/thomas-mauran/chess-tui,"Play chess in the terminal. Rust TUI, Stockfish, Lichess."
+164,ftui-render,0.5.0,21213,12275,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,"Render kernel: cells, buffers, diffs, and ANSI presentation."
+165,widgetui,0.7.1,21167,225,True,2024-10-27,2023-09-21,https://github.com/TheEmeraldBee/widgetui,A bevy like widget system for ratatui and crossterm
+166,rat-theme,0.31.2,21165,220,False,2025-12-27,2024-06-15,https://github.com/thscharler/rat-salsa,ratatui widgets extended edition
+167,ftui-style,0.5.0,20948,12122,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,"Style, theme, and color primitives for FrankenTUI."
+168,eye_declare,0.6.4,20927,14076,False,2026-07-29,2026-03-24,https://github.com/atuinsh/eye-declare,"Inline terminal UIs for Rust: timeline-first, Elm-shaped, built on Ratatui"
+169,soft_ratatui,0.2.0,20924,10535,True,2026-04-22,2025-05-01,https://github.com/gold-silver-copper/soft_ratatui,Software rendering for ratatui. TUI everywhere.
+170,serie,0.8.1,20770,1839,True,2026-07-19,2024-07-28,https://github.com/lusingander/serie,"A rich git commit graph in your terminal, like magic"
+171,ftui-layout,0.5.1,20762,12009,False,2026-07-05,2026-02-04,https://github.com/Dicklesworthstone/frankentui,Flex and grid layout solvers for FrankenTUI.
+172,ftui-text,0.5.0,20641,11946,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,"Text layout, wrapping, and grapheme width for FrankenTUI."
+173,modalkit-ratatui,0.0.25,20473,1574,True,2026-04-07,2024-02-01,https://github.com/ulyssa/modalkit,A library for building TUI applications that use modal editing
+174,managarr,0.7.3,20418,152,True,2026-06-25,2024-10-30,https://github.com/Dark-Alex-17/managarr,A TUI and CLI to manage your Servarrs
+175,ftui-widgets,0.5.0,20397,11821,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,Widget library built on FrankenTUI render and layout.
+176,carch,5.2.6,20097,118,True,2025-07-31,2025-03-02,https://github.com/harilvfs/carch,A simple CLI tool to automate Linux system setup 🧩
+177,rusty-krab-manager,2.0.0,19557,62,True,2026-07-08,2020-01-24,https://github.com/aryakaul/rusty-krab-manager,Time management TUI inspired by the pomodoro technique as described by Francesco Cirillo
+178,trippy-dns,0.13.0,19404,2316,False,2025-05-05,2024-08-09,https://github.com/fujiapple852/trippy,A lazy DNS resolver for Trippy
+179,television-fuzzy,0.0.23,19371,186,False,2025-01-20,2024-11-09,https://github.com/alexpasmantier/television,The revolution will be televised.
+180,ftui-backend,0.5.0,19187,11738,False,2026-07-05,2026-02-15,https://github.com/Dicklesworthstone/frankentui,"Backend traits for FrankenTUI: platform abstraction for input, presentation, and time."
+181,mischef,0.1.16,18537,87,True,2023-12-02,2023-11-04,,Framework using ratatui
+182,spoify,0.2.17,18500,151,True,2026-07-02,2024-06-04,https://github.com/slyeet03/spoify,a spotify client inside your terminal
+183,burn-rl,0.21.0,18039,16623,False,2026-07-29,2026-02-09,https://github.com/tracel-ai/burn/tree/main/crates/burn-rl,RL crate for the Burn framework
+184,television-utils,0.0.23,17932,181,False,2025-01-20,2024-11-10,https://github.com/alexpasmantier/television,The revolution will be televised.
+185,trippy-tui,0.13.0,17903,1987,True,2025-05-05,2024-08-09,https://github.com/fujiapple852/trippy,A network diagnostic tool
+186,rex-tui,0.2.9,17900,135,True,2026-07-04,2023-04-26,https://github.com/TheRustyPickle/Rex,A TUI app for managing Incomes and Expenses
+187,television-channels,0.0.23,17739,147,False,2025-01-20,2024-11-10,https://github.com/alexpasmantier/television,The revolution will be televised.
+188,edtui-papier,0.3.2,17688,87,True,2024-05-09,2024-03-03,https://github.com/preiter93/edtui,A TUI based vim inspired editor
+189,openstack_tui,0.13.7,17552,227,True,2026-06-02,2024-08-23,https://github.com/gtema/openstack,OpenStack Terminal User interface
+190,vortex-tui,0.83.0,17507,526,True,2026-07-24,2025-01-30,https://github.com/spiraldb/vortex,a small but mighty tool for working with Vortex files
+191,crashdump_viewer_cli,0.5.0,17493,20,True,2025-04-29,2025-04-13,https://github.com/WhatsApp/crashdump_viewer_cli/,A CLI tool to parse Erlang crashdumps.
+192,television-previewers,0.0.23,17491,109,True,2025-01-20,2024-11-10,https://github.com/alexpasmantier/television,The revolution will be televised.
+193,glues-core,0.8.1,16934,250,False,2025-09-30,2024-08-13,https://github.com/gluesql/glues,Headless state management module for Glues Notes
+194,glues,0.8.1,16669,130,False,2025-09-30,2024-08-13,https://github.com/gluesql/glues,Unified CLI entry point for the Glues toolkit
+195,qmassa,2.1.1,16547,1122,True,2026-07-25,2024-11-11,https://github.com/ulissesf/qmassa,Terminal-based tool for displaying GPUs usage stats on Linux.
+196,ftui-extras,0.5.0,16445,9028,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,"Feature-gated extras for FrankenTUI (markdown, charts, clipboard, themes)."
+197,nnli,0.0.19,16317,48,True,2023-11-25,2023-11-20,,🔭 interactively explore `onnx` networks in your CLI.
+198,mdfried,0.22.4,16282,947,True,2026-06-21,2024-12-14,https://github.com/benjajaja/mdfried,A markdown viewer for the terminal that renders images and big headers
+199,lazyjj,0.5.0,15766,256,True,2025-02-18,2024-05-21,https://github.com/Cretezy/lazyjj,TUI for Jujutsu/jj
+200,joshuto,0.9.9,15369,178,True,2025-05-20,2021-11-20,https://github.com/kamiyaa/joshuto,Terminal file manager inspired by ranger
+201,ftui-i18n,0.5.0,15258,8622,False,2026-07-05,2026-02-04,https://github.com/Dicklesworthstone/frankentui,Localization catalog and interpolation utilities for FrankenTUI.
+202,ftui-runtime,0.5.0,15161,8575,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,Elm-style runtime loop and subscriptions for FrankenTUI.
+203,tui-equalizer,0.2.3,14844,8678,True,2026-06-18,2025-02-11,https://github.com/ratatui/tui-widgets,An equalizer widget for Ratatui with multiple frequency bands.
+204,ratatui-wgpu,0.5.0,14727,4255,True,2026-03-07,2024-08-17,https://github.com/Jesterhearts/ratatui-wgpu,A wgpu based backend for ratatui.
+205,laurier,0.3.0,14644,3770,False,2025-12-29,2024-12-12,https://github.com/lusingander/laurier,ratatui helper library
+206,flowrs-tui,0.13.3,14172,524,True,2026-07-28,2024-11-16,https://github.com/jvanbuel/flowrs,Flowrs is a Terminal User Interface (TUI) for Apache Airflow
+207,lifecycler,0.2.9,14112,56,True,2024-10-16,2024-07-29,https://github.com/cxreiff/lifecycler,"Bevy Game Jam #5 submission, terminal aquarium"
+208,ttysvr,0.3.4,13834,78,True,2024-11-27,2024-08-15,https://github.com/cxreiff/ttysvr,Screensavers for your terminal
+209,plotters-ratatui-backend,0.3.0,13517,170,True,2025-04-05,2023-11-05,https://github.com/SOF3/plotters-ratatui-backend,Ratatui widget to draw a plotters chart
+210,mtrack,0.15.0,13447,183,True,2026-07-20,2024-03-26,https://github.com/mdwn/mtrack,A multitrack audio and MIDI player for live performances.
+211,frankenterm-core,0.2.0,13380,6491,False,2026-02-15,2026-02-15,https://github.com/Dicklesworthstone/frankentui,"Host-agnostic VT/ANSI terminal engine: grid, parser, cursor, and scrollback."
+212,ratatui-base16,0.3.7,13380,175,True,2024-12-21,2024-05-10,https://github.com/kdheepak/ratatui-base16,A base16 palette for ratatui
+213,bevy_ratatui_camera,0.16.0,12877,1052,True,2025-11-26,2024-12-23,https://github.com/cxreiff/bevy_ratatui_camera,A bevy plugin for rendering your bevy app to the terminal using ratatui.
+214,ftui,0.5.0,12764,7364,False,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,FrankenTUI public facade and prelude.
+215,ringboard-tui,0.17.0,12304,141,True,2026-06-22,2024-08-20,https://github.com/SUPERCILEX/clipboard-history,Ringboard ratatui client application.
+216,cargo-selector,0.10.1,12215,68,True,2026-03-22,2024-04-11,https://github.com/lusingander/cargo-selector,Cargo subcommand to select and execute binary/example targets
+217,tui-markup,0.6.0,12111,217,True,2026-06-27,2022-08-13,https://github.com/7sDream/tui-markup,markup language for terminal styled text
+218,hjkl-engine,0.39.0,11976,10847,False,2026-07-27,2026-04-25,https://github.com/kryptic-sh/hjkl,"Vim FSM, motion grammar, and ex commands. Pre-1.0 churn."
+219,manga-tui,0.10.0,11919,447,True,2025-11-13,2024-08-04,https://github.com/josueBarretogit/manga-tui,Terminal-based manga reader and downloader with image rendering support
+220,deep_quokka,0.1.17,11865,59,False,2025-04-13,2025-03-29,,Unofficial deep learning library
+221,wireman,0.3.8,11762,135,True,2026-07-18,2024-08-17,https://github.com/preiter93/wireman,A TUI based gRPC client
+222,focusable-derive,0.2.9,11691,137,False,2025-11-29,2024-07-01,https://github.com/joshka/focusable,Derive macro for the focusable crate
+223,hjkl-buffer,0.39.0,11667,10490,False,2026-07-27,2026-04-25,https://github.com/kryptic-sh/hjkl,Rope-backed text buffer with cursor and edits. Pre-1.0 churn.
+224,focusable,0.2.9,11420,100,True,2025-11-29,2024-07-01,https://github.com/joshka/focusable,A trait for types that can be focused
+225,opaline,0.4.1,11394,10365,True,2026-05-20,2026-02-25,https://github.com/hyperb1iss/opaline,A token-based theme engine for Rust applications
+226,piratebay,0.4.1,11283,165,True,2026-07-11,2022-08-22,https://github.com/tsirysndr/piratebay,Rust library and CLI for The Pirate Bay
+227,ratatui-themes,0.2.0,11258,5830,True,2026-02-23,2026-02-05,https://github.com/ricardodantas/ratatui-themes,A collection of popular color themes for ratatui terminal UI applications
+228,mdedit,2.0.1,11100,92,True,2025-12-27,2025-01-29,https://github.com/thscharler/mdedit,markdown editor with ratatui and rat-salsa
+229,yozefu-tui,0.0.30,10902,241,True,2026-06-15,2024-12-10,https://github.com/MAIF/yozefu,library for rendering the TUI of Yozefu
+230,fiadtui,0.9.0,10736,32,True,2023-10-30,2023-10-26,https://github.com/fiadliel/fiadtui,Simple TUI event loop for ratatui with tokio and crossterm
+231,tuifeed,0.4.2,10696,72,False,2025-03-30,2021-11-15,https://github.com/veeso/tuifeed,A terminal feed reader with a fancy ui
+232,tukai,0.2.3,10639,129,True,2025-08-09,2024-11-07,https://github.com/hlsxx/tukai,"The app provides an interactive typing experience with switchable templates, designed to help users improve their typing speed and accuracy."
+233,toprs,0.7.2,10565,71,True,2026-05-25,2023-01-31,https://github.com/griccardos/toprs/,Cross platform memory focused top
+234,pkgx,2.11.0,10504,111,False,2026-07-22,2025-01-14,https://github.com/pkgxdev/pkgx,Run anything
+235,yozefu-command,0.0.30,10502,205,False,2026-06-15,2024-12-10,https://github.com/MAIF/yozefu,Clap commands of Yozefu
+236,thag_rs,1.0.1,10306,131,True,2026-05-12,2024-08-22,https://github.com/durbanlegend/thag_rs,"A versatile cross-platform playground for Rust snippets, expressions and programs. Accepts a script file or dynamic options."
+237,zim-studio,1.5.1,10096,189,True,2026-07-10,2025-07-07,,A Terminal-Based Audio Project Scaffold and Metadata System
+238,tui-shimmer,0.1.3,10009,8672,True,2026-02-08,2026-01-28,https://github.com/vinhnx/tui-shimmer,Shimmer text effect for terminal UIs.
+239,nitidus,0.1.8,9999,32,True,2025-11-29,2023-12-07,https://github.com/joshka/nitidus,A TUI email client
+240,async-callback-manager,0.1.1,9977,726,True,2026-05-16,2024-11-18,https://github.com/nick42d/youtui,Library that provides an interface to create and manage asynchronous callbacks in Rust. Dependency of `youtui` music player.
+241,cgol-tui,0.6.10,9946,54,True,2026-06-23,2024-02-29,https://github.com/jarjk/cgol-tui-rs,Conway's Game of Life implementation with a TUI
+242,rsfrac,1.1.2,9871,58,True,2025-03-23,2024-11-09,https://github.com/SkwalExe/rsfrac,"The Terminal-Based Fractal Explorer. Rsfrac is your terminal gateway to Mandelbrot, Burning Ship, and Julia."
+243,yafsm,0.3.6,9859,40,True,2025-05-15,2023-12-12,,System usage monitor inspired by glances.
+244,yozefu,0.0.30,9852,162,False,2026-06-15,2024-12-10,https://github.com/MAIF/yozefu,Yozefu is a CLI tool for Apache kafka. It allows you to navigate topics and search Kafka records.
+245,fumble,0.6.1,9339,36,True,2024-08-21,2024-07-31,https://github.com/bornacvitanic/fumble,"an oxidized implementation of the original clumsy tool, designed to simulate adverse network conditions on Windows systems."
+246,tgames,0.3.3,9294,36,True,2026-01-22,2024-04-28,https://github.com/enfmarinho/tgames.git,A collection of little terminal games
+247,typetw,0.2.1,9276,30,True,2023-10-06,2023-09-07,https://github.com/soulrrrrr/typetw/,A terminal-based bopomofo typing gadget
+248,television-screen,0.0.23,9198,45,True,2025-01-20,2024-12-15,https://github.com/alexpasmantier/television,The revolution will be televised.
+249,ratatui-kit,0.10.3,8987,942,True,2026-07-16,2025-06-09,https://github.com/yexiyue/ratatui-kit,A framework for building interactive terminal user interfaces with ratatui
+250,mot,0.3.3,8598,64,True,2025-05-19,2025-04-15,https://github.com/Tuurlijk/mot,A terminal user interface (TUI) tool for moneybird
+251,rucola-notes,0.10.0,8554,138,True,2026-06-24,2024-07-21,https://github.com/Linus-Mussmaecher/rucola,Terminal-based markdown note manager.
+252,rjmatrix,1.0.7,8345,48,True,2026-06-02,2024-05-05,https://github.com/RoastBeefer00/rmatrix,"Creates the matrix in the terminal. Use `c` to cycle colors, `0-9` to change speed, and `q` to quit."
+253,j-cli,12.10.44,8335,3317,True,2026-05-09,2026-02-13,https://github.com/LingoJack/jcli,"A fast CLI tool for alias management, daily reports, and productivity"
+254,ratskin,0.3.1,8323,1505,True,2026-01-19,2025-01-25,https://github.com/benjajaja/mdfried/tree/master/ratskin,A wrapper around termimad that produces ratatui widgets from markdown
+255,sb,0.3.12,8169,99,True,2025-08-13,2025-08-10,https://github.com/dirvine/sb,"Terminal Markdown Browser/Editor with Git integration, syntax highlighting, and media support"
+256,ait,0.6.0,8123,72,True,2026-05-27,2024-08-02,https://github.com/wilswer/ait,AIT is a terminal based chat interface for interacting with large language models from various providers.
+257,bevy_terminal_display,0.7.0,8039,28,True,2025-04-02,2024-07-24,https://git.soaos.dev/soaos/bevy_terminal_display,A plugin for the Bevy game engine which enables rendering to a terminal using unicode braille characters.
+258,ftui-a11y,0.5.0,7993,6938,False,2026-07-05,2026-04-12,https://github.com/Dicklesworthstone/frankentui,Accessibility layer for FrankenTUI
+259,tui-syntax-highlight,0.2.0,7943,3374,True,2025-12-26,2025-10-27,https://github.com/aschey/tui-syntax-highlight,A syntax highlighter for Ratatui apps
+260,tui-piechart,1.0.1,7940,3990,True,2026-07-16,2025-11-08,https://github.com/sorinirimies/tui-piechart,A customizable pie chart widget for Ratatui TUI applications
+261,s3tui,0.5.0,7921,120,True,2026-02-24,2024-05-20,https://github.com/softberries/s3tui,Simple TUI application for multiple s3 account operations
+262,teng,0.5.0,7894,47,False,2025-03-08,2025-02-17,https://github.com/skius/teng,A basic game engine for the terminal
+263,inori,0.3.0,7892,67,True,2026-03-06,2024-08-27,https://github.com/eshrh/inori,mpd client
+264,ratatui-hypertile,0.4.1,7820,5842,True,2026-07-24,2026-03-06,https://github.com/nikolic-milos/ratatui-hypertile,Tiling layout engine for Ratatui
+265,rustubble,0.1.4,7819,73,True,2024-08-31,2024-04-24,https://github.com/warpy-ai/rustubble,A brief description of what your crate does.
+266,ai-agents,1.0.0-rc.16,7807,189,False,2026-07-04,2024-03-15,https://github.com/geminik23/ai-agents,A Rust framework for building AI agents from YAML specifications with trait-based extensibility
+267,basilk,0.2.1,7775,55,True,2025-03-23,2024-08-19,https://github.com/GabAlpha/basilk,A Terminal User Interface (TUI) to manage your tasks with minimal kanban logic
+268,tui-file-explorer,1.1.11,7774,5935,True,2026-07-17,2026-02-25,https://github.com/sorinirimies/tui-file-explorer,"A self-contained, keyboard-driven file-browser widget for Ratatui"
+269,ac-qu-ai-nt-tui-ratatui,0.0.7,7760,65,False,2024-10-18,2024-10-06,https://github.com/babichjacob/ac-qu-ai-nt,A TUI (written with Ratatui) for ac-qu-ai-nt
+270,tui-tabs,0.1.1,7662,6826,True,2026-03-23,2026-03-22,https://github.com/jharsono/tui-tabs,A tab navigation widget for Ratatui with bordered boxes and rounded corners
+271,terminput-termwiz,0.4.11,7656,253,False,2026-07-18,2025-03-25,https://github.com/aschey/terminput,termwiz adapter for terminput
+272,spltui,0.2.7,7582,50,True,2025-05-24,2025-05-08,https://github.com/lordpaijo/spltui,Sebuah Kalkulator Sistem Persamaan Linear (degan) Variabel Berbasis Terminal User Interface.
+273,systemd-manager-tui,1.2.4,7577,277,True,2026-02-25,2025-06-14,https://github.com/matheus-git/systemd-manager-tui,TUI for managing systemd services
+274,ralertsinua-models,0.5.2,7560,60,False,2024-05-20,2024-05-05,https://github.com/voiceapiai/ralertsinua,Data Transfer Object for alerts.in.ua
+275,ratatui-hypertile-extras,0.4.1,7509,5658,True,2026-07-24,2026-03-06,https://github.com/nikolic-milos/ratatui-hypertile,Optional runtime helpers for ratatui-hypertile
+276,lazyactions,0.6.3,7493,27,True,2025-07-07,2025-06-10,,TUI to monitor GitHub Actions
+277,bsky_tui,0.0.10,7459,36,True,2026-01-15,2023-08-11,https://github.com/ksk001100/bsky_tui,Bluesky TUI Client
+278,ac-qu-ai-nt-core,0.0.7,7425,25,False,2024-10-18,2024-10-06,https://github.com/babichjacob/ac-qu-ai-nt,"The core library of ac-qu-ai-nt. If you're looking for the application, see cli-clap or gui-eframe or tui-ratatui or the multibinary"
+279,timr-tui,1.11.0,7353,460,True,2026-06-25,2025-01-02,https://github.com/sectore/timr-tui,"TUI to organize your time: Pomodoro, Tabata, Countdown, Timer, Event."
+280,ck-search,0.7.11,7267,676,True,2026-05-24,2025-09-06,https://github.com/BeaconBay/ck,"Semantic grep by embedding - find code by meaning, not just keywords"
+281,ralertsinua-http,0.5.2,7206,23,False,2024-05-20,2024-05-05,https://github.com/voiceapiai/ralertsinua,HTTP compatibility layer for alerts.in.ua
+282,ralertsinua-geo,0.5.2,7178,23,True,2024-05-20,2024-05-05,https://github.com/voiceapiai/ralertsinua,Geo compatibility layer for alerts.in.ua
+283,terminput-termion,0.3.11,7067,93,False,2026-07-18,2025-03-25,https://github.com/aschey/terminput,termion adapter for terminput
+284,e_midi,0.1.13,7054,261,True,2025-10-26,2025-06-20,https://github.com/davehorner/e_midi/,"An interactive/CLI/library MIDI player with advanced playback options, looping, and scan modes."
+285,gadd,0.6.0,6884,51,True,2026-05-16,2023-04-20,https://github.com/hermannm/gadd,Command-line utility for staging changes to Git (alternative to git-add's interactive mode).
+286,antop,0.2.2,6869,38,True,2025-04-07,2025-04-06,,"A TUI application for monitoring antnode instances. Discovers nodes via log files, fetches metrics (resource usage, peers, bandwidth, etc.), calculates network speeds, and displays the information in a terminal dashboard with sparklines."
+287,tui-slider,0.3.2,6855,5415,True,2026-03-11,2025-11-12,https://github.com/sorinirimies/tui-slider,A simple TUI slider component library for ratatui
+288,rust-tui-manager,0.1.9,6797,30,True,2025-01-28,2024-12-27,https://github.com/psanchezg/rust-tui-manager,"Una aplicación TUI para gestionar notas, snippets y búsquedas en múltiples fuentes para desarrolladores Rust"
+289,editor-types,0.0.2,6789,1516,False,2025-07-04,2025-06-17,https://github.com/ulyssa/modalkit,A library for working with defunctionalized editor types
+290,bracket_ratatui,0.1.3,6775,14,True,2024-03-02,2024-03-02,,Ratatui in bracket-lib !! See examples .
+291,terminput-egui,0.7.0,6758,108,False,2026-07-18,2025-03-25,https://github.com/aschey/terminput,egui adapter for terminput
+292,wordl,0.3.0,6654,30,True,2024-03-16,2024-02-01,https://github.com/palerdot/wordl-rs,Terminal Wordle game. Web like with keyboard hints and slow reveal animations.
+293,sxtetris,1.4.0,6648,28,True,2025-08-23,2024-06-22,https://github.com/shixinhuang99/sxtetris,A terminal Tetris game
+294,matetui,0.3.4,6646,106,True,2024-09-26,2024-09-23,https://github.com/lucodear/matetui,🧉 matetui » utilities for building Terminal User Interfaces
+295,mousefood,0.5.2,6558,1543,True,2026-06-22,2025-03-18,https://github.com/ratatui/mousefood,embedded-graphics backend for Ratatui
+296,radicle-tui,0.7.0,6530,36,True,2026-01-22,2024-06-10,https://app.radicle.xyz/nodes/seed.radicle.xyz/rad:z39mP9rQAaGmERfUMPULfPUi473tY,Radicle terminal user interface
+297,passepartui,0.1.7,6504,52,True,2025-01-16,2024-11-15,https://github.com/kardwen/passepartui,A TUI for pass
+298,rat-markdown,0.7.3,6454,170,False,2026-03-08,2025-01-27,https://github.com/thscharler/rat-salsa,markdown support for rat-text
+299,mvgfahrinfo,1.2.0,6355,22,True,2024-10-23,2023-11-03,https://github.com/FaisalBinAhmed/MVGFahrinfo,Get up-to-date departure times for Munich public transport in your terminal.
+300,ract,0.2.0,6256,32,True,2025-05-19,2025-01-24,https://github.com/Privoce/ract,"Ract is a conversational CLI tool written in Rust, providing an all-in-one solution for integrating dependencies, setting up environments, generating project templates, running, and packaging projects with frameworks like GenUI and Makepad. Simplify your development workflow with minimal arguments and intuitive dialogs. 🚀"
+301,ttypr,0.3.6,6250,69,True,2026-01-16,2025-06-21,https://github.com/hotellogical05/ttypr,terminal typing practice
+302,bbml,0.2.0,6230,56,True,2024-02-28,2024-02-10,https://github.com/tcmal/learn-tui,Renders BbML (a subset of HTML) to ratatui text
+303,ratatui-toaster,0.1.4,6038,3378,True,2026-06-28,2026-02-22,https://github.com/jayanaxhf/gitv/,An extremely lightweight toast engine for ratatui
+304,rummy,0.2.0,6019,22,True,2025-09-26,2024-06-18,https://github.com/mhbka/rummy-rs,a crate for the card game Rummy
+305,tui-pattern-highlighter,0.3.3,6008,111,True,2025-08-17,2024-05-27,https://github.com/0watcher/tui-pattern-highlighter,a dead simple search pattern highlighter for ratatui
+306,juicerss,1.1.0,5975,21,True,2024-11-12,2024-10-29,https://github.com/tulilirockz/juicerss,Read-only RSS feed reader
+307,klok,0.3.0,5940,55,True,2026-05-07,2024-07-08,https://github.com/amatagonsk/klok,simple terminal clock.
+308,nvidia,0.1.13,5933,32,True,2024-09-25,2024-09-07,,A Rust utility to retrieve information about NVIDIA GPUs installed in your system.
+309,qlora-paste,1.0.21,5920,3804,False,2026-07-24,2026-01-11,https://github.com/tzervas/qlora-paste,Macros for all your token pasting needs - Maintained fork of paste
+310,tui-shader,0.0.10,5873,86,True,2026-04-10,2025-02-17,https://github.com/pemattern/tui-shader,A ratatui widget that renders a fragment shader in the terminal
+311,edlearn_client,0.2.0,5872,55,False,2024-02-28,2024-02-10,https://github.com/tcmal/learn-tui,A client for Edinburgh Uni's Learn API
+312,ansi-to-tui-forked,3.0.0-ratatui,5845,24,True,2023-03-19,2022-05-04,https://github.com/uttarayan21/ansi-to-tui,A library to convert ansi color coded text into ratatui::text::Text type from ratatui library
+313,ratatui-kit-macros,0.6.2,5716,825,False,2026-07-06,2025-06-09,https://github.com/yexiyue/ratatui-kit,ratatui-kit macros
+314,tui-rain,1.0.1,5715,265,True,2024-11-29,2024-11-29,https://github.com/levilutz/tui-rain,tui-rain is a simple widget to generate various rain effects for ratatui
+315,ftui-tty,0.5.0,5646,4033,False,2026-07-05,2026-02-15,https://github.com/Dicklesworthstone/frankentui,Native Unix terminal backend for FrankenTUI (replaces Crossterm).
+316,rush-sync-server,0.3.9,5555,60,True,2026-03-03,2025-07-27,https://github.com/LEVOGNE/rush.sync.server,Modern asynchronous TUI application with i18n and modular command system
+317,MeiliFinder,1.0.6,5549,23,True,2024-04-10,2024-03-17,https://github.com/FaisalBinAhmed/MeiliFinder,The ultimate Meilisearch client for your terminal
+318,shelgon,0.2.2,5501,20,True,2025-08-22,2025-02-13,https://github.com/nishantjoshi00/shelgon,A robust framework for building interactive REPL applications and custom shells in Rust
+319,edlearn_tui,0.2.0,5492,16,True,2024-02-28,2024-02-10,https://github.com/tcmal/learn-tui,A TUI for Edinburgh Uni's Learn
+320,md-to-tui,0.1.2,5492,48,True,2023-06-29,2023-06-29,,simple parser from markdown to ratatui types
+321,tui-slides,0.1.4,5491,26,True,2024-09-12,2024-06-08,,Slides presentation in terminal
+322,CuTE-tui,0.1.2,5465,25,True,2024-04-05,2023-10-30,https://github.com/PThorpe92/CuTE,A (ratatui) TUI for HTTP requests with request + API key management
+323,rustui,0.3.7,5388,57,False,2026-03-12,2025-08-09,https://github.com/broccolingual/rustui,Terminal UI library for Linux and Unix-like systems
+324,netrunner_cli,2.0.4,5384,180,True,2026-07-17,2025-05-30,https://github.com/sorinirimies/netrunner,A feature-rich Rust-based CLI to test and analyze your internet connection
+325,bob,1.0.0,5332,266,True,2026-06-12,2020-03-23,https://github.com/jperkin/bob,"Fast, robust, powerful, user-friendly pkgsrc package builder"
+326,ratatui_inputs,0.3.1,5262,50,True,2024-11-10,2024-10-03,,ratatui library to process sineptic text input format
+327,dreg,0.2.2,5256,25,False,2024-10-18,2024-08-07,https://github.com/rtthw/dreg,A simple text-based user interface library
+328,rustnet-monitor,1.5.0,5237,1512,True,2026-07-21,2025-09-12,https://github.com/domcyrus/rustnet,A cross-platform network monitoring terminal UI tool built with Rust
+329,zellij_widgets,0.1.3,5212,61,False,2024-05-19,2024-04-08,https://github.com/Kangaxx-0/zellij_widgets,A wiget library for zellij
+330,tusistor,0.7.1,5157,27,True,2025-03-28,2025-01-13,https://github.com/dawedawe/tusistor,This is a Ratatui app to calculate the color code and specs of electrical resistors.
+331,ratatui_input,0.1.3,5132,84,True,2024-05-14,2024-05-14,https://github.com/VidVrbnjak/ratatui_input,Simple to use input widget for ratatui
+332,nviwatch,0.2.1,5105,136,True,2025-08-21,2024-09-10,https://github.com/msminhas93/nviwatch,A blazingly fast Rust-based TUI for managing and monitoring NVIDIA GPU processes
+333,twozero48,1.1.0,5029,138,True,2026-05-28,2021-07-10,https://github.com/de-sh/twozero48,"A CLI implementation of 2048, in rust"
+334,todotxt-tui,0.3.0,5012,73,True,2026-03-29,2024-06-01,https://github.com/Fanteria/todotxt-tui,Todo.txt TUI is a highly customizable terminal-based application for managing your todo tasks. It follows the todo.txt format and offers a wide range of configuration options to suit your needs.
+335,ssm-tui,0.1.6,5002,42,True,2026-05-26,2024-08-19,https://github.com/sandeshgrangdan/ssm-tui,A TUI for interacting with AWS SSM
+336,process-terminal,0.1.7,4975,28,True,2025-05-05,2025-02-22,https://github.com/Rhaki/process-terminal,Terminal manager for displaying outputs/errors of processes launched from rust code.
+337,plastic_tui,0.3.5,4909,41,True,2025-11-26,2024-10-19,https://github.com/Amjad50/plastic,A NES emulator with terminal interface (TUI)
+338,pantry-rs,0.0.4,4891,20,False,2023-10-13,2023-08-09,https://github.com/JuliaMerz/pantry-rs,"Rust API for working with the pantry project, found in https://github.com/JuliaMerz/pantry"
+339,file-organizer,0.7.3,4869,34,True,2025-03-16,2025-03-16,https://github.com/yourusername/file-organizer,"A powerful, cross-platform file organization tool"
+340,hyperrat,0.1.3,4842,2553,False,2026-06-28,2026-02-19,https://github.com/jayanaxhf/gitv/,An OSC 8 link widget for ratatui that doesn't break your UI
+341,rustime,0.1.5,4788,19,False,2025-09-21,2024-09-03,https://github.com/arjunomray/rustime,A pomodoro time in rust
+342,ascii-gen,1.1.0,4722,12,True,2023-11-20,2023-11-19,https://github.com/thed24/ascii-gen,A command line tool to generate ascii art from images
+343,issloc,0.1.6,4689,15,True,2024-06-18,2024-06-18,https://github.com/CheetahCyberBoi/issloc,A crate that tracks the International Space Station.
+344,typeman,1.0.1,4685,101,True,2025-11-15,2025-08-28,https://github.com/mzums/typeman,"Typing speed test with practice mode in GUI, TUI and CLI"
+345,spotatui,0.40.2,4653,1876,True,2026-07-10,2025-12-05,https://github.com/LargeModGames/spotatui,"A Spotify client for the terminal written in Rust, powered by Ratatui"
+346,hjkl-form,0.39.0,4624,4473,False,2026-07-27,2026-04-27,https://github.com/kryptic-sh/hjkl,Vim-modal forms for hjkl-based apps.
+347,commandfs,0.1.3,4624,13,False,2024-06-16,2024-06-16,https://github.com/unknownK19/CommandFS,Panicless File operation API
+348,strustle,0.3.1,4622,58,True,2026-06-20,2024-04-21,https://github.com/stoykotolev/rustle,A wordle clone to play in the terminal
+349,pmdaemon,0.1.4,4609,1081,False,2025-05-30,2025-05-25,https://github.com/entrepeneur4lyf/pmdaemon,"PMDaemon - A high-performance, cross-platform process manager built in Rust with advanced port management and monitoring capabilities"
+350,hjkl-splash,0.39.0,4602,4602,False,2026-07-27,2026-05-05,https://github.com/kryptic-sh/hjkl,Rendering-agnostic splash-screen animation for kryptic-sh projects.
+351,whathaveidone,0.6.2,4564,88,True,2026-06-05,2025-04-17,https://github.com/heroheman/whathaveidone,CLI tool for daily standups with Git and Ratatui
+352,helix-calc,1.5.1,4536,53,True,2026-04-21,2025-03-05,https://github.com/chbug/hc,Reverse Polish Notation calculator in a terminal app.
+353,explore,0.0.3,4525,15,True,2024-08-02,2024-07-31,https://github.com/nathanroark/explore,terminal file explorer
+354,clever,0.1.8,4521,19,True,2025-01-26,2024-12-28,https://github.com/hackinghieser/clevertui,TUI to search through clef logs
+355,minitel,0.3.2,4482,21,True,2025-03-21,2025-01-04,https://github.com/plule/minitel,Minitel interaction library
+356,ttop,2.0.0,4466,2397,False,2026-04-02,2026-01-05,https://github.com/paiml/trueno-viz,"Terminal Top: 10X better than btop - Pure Rust system monitor with GPU support (NVIDIA/AMD/Apple), sovereign stack, zero-allocation rendering"
+357,pantry,1.0.2,4446,22,False,2020-12-08,2020-10-28,https://github.com/rhymu8354/Pantry.git,Temporary storage for reusing values that may decay
+358,mntime,0.3.0,4410,12,True,2024-03-05,2022-11-10,https://github.com/arkbig/mntime,"Execute ""m"" commands ""n"" times to calculate mean of usage time and memory. As an alternative to ""time"", ""gnu-time"" is used internally."
+359,tuwi,0.1.3,4404,17,True,2024-07-26,2024-07-26,https://github.com/tascord/tuwi,Ratatui extended terminal widgets!
+360,perspt,0.6.2,4348,100,False,2026-06-22,2025-06-02,https://github.com/eonseed/perspt,Your Terminal's Window to the AI World - A high-performance CLI for LLMs with chat and autonomous agent modes
+361,ratatui-eventInput,0.2.0,4342,34,True,2025-02-24,2024-12-25,https://github.com/Earthgames/ratatui-input,Unify input from diffrent ratatui backends
+362,tui-textbox,0.4.0,4295,26,True,2024-12-31,2024-04-24,https://github.com/zchira/tui-textbox,ratatui stateful widget
+363,entrust-dialog,0.6.0,4286,74,True,2026-03-21,2024-10-28,https://github.com/hepptho/entrust,Interactive terminal dialogs for entrust
+364,xapian-rs,0.3.0,4269,67,False,2024-12-25,2024-07-10,https://github.com/torrancew/xapian-rs,Rust bindings for the Xapian search engine
+365,managarr-tree-widget,0.25.0,4252,513,True,2026-01-08,2024-11-18,https://github.com/Dark-Alex-17/managarr-tree-widget,Tree Widget for Managarr
+366,discovery-rs,0.1.3,4229,27,True,2025-08-21,2024-05-28,https://github.com/JustPretender/discovery-rs,mDNS-SD TUI browser
+367,parley_ratatui,0.3.4,4191,4165,True,2026-06-20,2026-04-24,,Render Ratatui buffers through Parley and Vello into WGPU textures.
+368,reformy,0.1.7,4188,70,True,2026-02-20,2025-04-14,,Derive ratatui form widgets from structs or enums
+369,tundra,0.3.0,4179,16,True,2024-07-07,2024-02-15,https://github.com/user-simon/tundra,A framework for building interactive applications for the terminal using Ratatui.
+370,mltop,0.6.3,4136,33,True,2026-02-23,2025-02-23,https://github.com/kikefdezl/mltop,Resource monitor for ML engineers written in Rust
+371,ftui-harness,0.5.0,4116,1376,True,2026-07-05,2026-02-05,https://github.com/Dicklesworthstone/frankentui,Test harness and reference fixtures for FrankenTUI.
+372,crepuscularity-core,0.4.25,4061,3960,False,2026-07-15,2026-04-09,https://github.com/tschk/crepuscularity,"Parser, AST, and expression evaluation for the Crepuscularity .crepus DSL (UNSTABLE; in active development)."
+373,ratatui-bracket-terminal,0.2.0,4040,15,True,2025-11-20,2024-02-08,https://github.com/theq629/ratatui-bracket-terminal,Ratatui backends for Bracket Terminal
+374,bili-live,0.1.8,4026,37,True,2026-01-09,2024-07-13,https://github.com/HellOwhatAs/bili-live,"A TUI / GUI tool for starting and stopping live streams on bilibili.com, capable of providing the RTMP address and stream key for streaming software such as OBS."
+375,tameta,0.2.2,4022,17,False,2024-10-15,2024-09-05,,"pomodoro is Italian for tomato, and tameta is Gujarati for tomato"
+376,yeehaw,0.1.0,4006,91,True,2025-01-04,2024-03-27,https://github.com/bogzbonny/yeehaw,Batteries Included Text Based Application Framework
+377,trusty-common,0.26.2,3987,3987,True,2026-07-26,2026-05-11,https://github.com/bobmatnyc/trusty-tools,"Shared utilities and provider-agnostic streaming chat (ChatProvider, OllamaProvider, OpenRouter, tool-use) for trusty-* projects"
+378,jk,0.2.7,3979,211,True,2026-06-24,2022-10-03,https://github.com/joshka/jk,A jj-native terminal UI for Jujutsu
+379,superseedr,1.0.12,3954,673,True,2026-07-15,2025-10-22,https://github.com/Jagalite/superseedr,A BitTorrent Client in your Terminal.
+380,terminusdm,1.0.2,3953,37,True,2024-04-10,2024-04-03,https://github.com/sumoduduk/terminusdm,"Terminus Download Manager. Download files, resume interrupted downloads, and keep a history of your downloads - within terminal UI."
+381,Raijin,0.1.8,3933,109,True,2025-07-03,2025-07-02,https://github.com/MasonStooksbury/Raijin,"A free, simple weather TUI that pulls data without the need for an API key, account, or subscription"
+382,hire-david-parker,1.0.4,3929,13,True,2025-03-21,2025-03-20,https://github.com/davidparkercodes/hire-david-parker,Interactive terminal-based resume application with a TUI interface
+383,hyperi-rustlib,2.8.15,3911,1295,True,2026-06-22,2026-02-17,https://github.com/hyperi-io/hyperi-rustlib,"There's plenty of sage advice out there about how to run Rust services in production at scale — config cascades, structured logging, masking secrets, multi-backend secrets management, Prometheus, OpenTelemetry, Kafka transports, tiered disk-spillover sinks, adaptive worker pools, graceful shutdown — but almost none of it as code you can just install and use.  This is that code.  Opinionated, drop-in, working out of the box. The patterns from blog posts, watercooler chats and beers with your Google mates as actual library — not a framework you assemble from twenty crates and 8 weeks of munging."
+384,tui_document,0.9.25,3891,30,True,2025-06-01,2025-05-26,https://github.com/killrpenguin/tui_document,A Ratatui widget wrapping the Ropey crate.
+385,tui-tree-widget-table,0.2.0,3890,57,True,2025-02-02,2023-09-19,https://github.com/gnaaman-dn/tui-rs-tree-widget-table,Tree Widget for ratatui with table
+386,pkgbob,0.7.0,3889,45,True,2026-01-30,2024-10-11,https://github.com/jperkin/bob,A pkgsrc package builder
+387,termprofile,0.2.4,3854,1043,True,2026-05-02,2025-10-03,https://github.com/aschey/termprofile,A library to detect and handle terminal color/styling support
+388,rat-dialog,2.0.2,3842,159,False,2026-03-08,2025-02-10,https://github.com/thscharler/rat-salsa,stacked dialog windows and application windows
+389,arkanoid-tui,0.1.2,3840,8,True,2024-08-15,2024-06-23,https://github.com/JustPretender/arkanoid-tui,Arkanoid built with Ratatui
+390,rfui,0.1.9,3823,34,True,2025-07-09,2025-07-07,https://github.com/dylan0804/rfd,"A fast, interactive file finder with live preview built in Rust"
+391,rustmaton,0.3.0,3813,16,True,2026-01-04,2023-02-07,https://github.com/deweyjose/rustling,A text editor for Conway's Game of Life
+392,tui-dashboard,0.1.2,3801,14,True,2024-02-08,2024-02-07,https://github.com/jedsek/tui-dashboard,A dashboard widget for ratatui (WIP)
+393,material,0.1.1,3795,117,True,2024-01-18,2022-08-09,https://github.com/azorng/material,A material design color palette for the terminal
+394,jsonrpc-debugger,0.1.9,3791,37,True,2025-11-13,2025-06-03,https://github.com/shanejonas/jsonrpc-debugger,A terminal-based JSON-RPC debugger with interception capabilities
+395,ichoose,0.3.0,3760,63,True,2026-04-04,2024-07-12,https://github.com/nanocryk/iforgor,Interactive terminal list selection (lib+bin)
+396,terminput-web-sys,0.2.11,3754,74,False,2026-07-18,2025-07-13,https://github.com/aschey/terminput,web-sys adapter for terminput
+397,ratatui-statusbar,0.2.1,3752,19,True,2024-04-19,2024-04-17,https://github.com/kdheepak/ratatui-statusbar,A statusbar widget for ratatui
+398,myip-tui,0.2.2,3733,26,True,2025-05-09,2025-03-22,https://github.com/supakornn/myip-tui,A clean terminal UI for network interface information
+399,quetty-server,0.1.9,3719,92,False,2025-08-04,2025-08-03,https://github.com/dawidpereira/quetty,Core Azure Service Bus client library for Quetty terminal application
+400,scarab-nav-protocol,0.1.0,3718,98,False,2025-12-02,2025-12-02,https://github.com/raibid-labs/scarab-nav-protocol,Protocol definitions for Scarab Navigation System - enabling keyboard-driven navigation for TUI applications
+401,ratatui-cheese,0.7.0,3694,3415,True,2026-04-28,2026-03-24,https://github.com/shashanktomar/ratatui-cheese,Bubbletea-inspired widgets for Ratatui
+402,conway-game-life-ratatui,1.3.0,3653,19,True,2025-04-29,2025-03-09,https://github.com/LuMarans30/conway-game-life-ratatui,Conway's Game of Life in the CLI using ratatui
+403,nvl-cli,0.1.4,3631,18,False,2025-02-02,2024-09-24,https://codeberg.org/paulollivier/nvl,A program to download webnovels
+404,fpicker,0.1.4,3621,129,True,2024-11-20,2024-11-20,https://github.com/confucianfighter/ratatui-file-picker.git,ratatui-file-picker allows you to select multiple files from a tree and add their content or paths to clipboard. It also returns the absolute paths of selected files on exit.
+405,yadb,0.3.5,3595,54,True,2025-11-09,2025-06-20,https://github.com/izya4ka/yadb,Yet Another Directory Buster
+406,seqsizzle,0.5.0,3580,44,True,2026-06-18,2024-03-12,https://github.com/ChangqingW/SeqSizzle,"A pager for viewing FASTQ and FASTA files with fuzzy matching, allowing different adaptors to be colored differently."
+407,graphix-stdlib,0.3.1,3553,57,False,2026-01-28,2025-07-29,https://github.com/graphix-lang/graphix-stdlib,"A dataflow language for UIs and network programming, standard library"
+408,jocalsend,1.6.18033988,3537,137,True,2025-09-22,2025-08-10,https://git.kittencollective.com/nebkor/joecalsend,A TUI for LocalSend
+409,netrain,0.2.8,3523,35,True,2025-07-02,2025-07-01,https://github.com/marcuspat/netrain,"Matrix-style network packet monitor with IP tracking, threat detection and real-time visualization"
+410,ratatui-calloop,0.2.0,3518,13,True,2025-11-29,2024-06-21,https://github.com/joshka/ratatui-calloop,A small library for building calloop EventLoop based Ratatui applications
+411,flerp,0.5.1,3494,54,True,2026-06-07,2025-06-04,https://github.com/Huseynteymurzade28/flerp,"A terminal UI for exploring and analyzing text files, PDFs, and images"
+412,csvs,1.2.0,3482,17,False,2025-04-11,2025-01-07,https://github.com/koma-private/csvs,csvs (CSV Sql) is a command-line tool that simplifies working with CSV or TSV files by enabling SQL queries through an embedded SQLite engine.
+413,terminal-toys,0.7.0,3454,75,True,2026-03-01,2025-03-18,https://github.com/Seebass22/terminal-toys,terminal-toys is a collection of screensavers for the terminal.
+414,quickswitch,0.2.3,3428,37,True,2026-03-05,2025-07-08,https://github.com/luodeb/quickswitch.git,A terminal-based tool for quickly switching between directories and files.
+415,superlighttui,0.22.2,3412,1618,False,2026-06-27,2026-03-12,https://github.com/subinium/SuperLightTUI,"Super Light TUI - A lightweight, ergonomic terminal UI library"
+416,ascii-webcam,0.1.3,3395,15,True,2025-11-24,2024-09-18,https://github.com/nubilfi/ascii-webcam,A webcam that visualizes its output as ASCII art directly in the terminal
+417,vtcode-tui,0.123.10,3391,1785,True,2026-06-09,2026-02-28,https://github.com/vinhnx/vtcode,Reusable TUI primitives and session API for VT Code-style terminal interfaces
+418,ratty,0.5.0,3381,2731,True,2026-07-05,2025-04-11,https://github.com/orhun/ratty,A GPU-rendered terminal emulator that supports inline 3D graphics
+419,awsom,0.17.1,3373,86,True,2026-04-30,2025-10-12,https://github.com/oleksiimorozenko/awsom,k9s-like TUI for AWS SSO sessions
+420,rst-traverse,2.0.1,3362,13,True,2023-08-28,2023-08-28,,A terminal based file manager.
+421,ratatui-testlib,0.1.0,3343,594,True,2025-12-01,2025-12-01,https://github.com/raibid-labs/ratatui-testlib,Integration testing library for terminal user interface applications with Sixel and Bevy support
+422,webatui,0.1.1,3335,157,True,2024-02-26,2024-02-07,https://github.com/TylerBloom/webatui,Run your TUI apps in the broswer!
+423,verses,0.9.2,3261,13,True,2023-09-09,2023-09-09,https://github.com/Maxuss/verses,TUI for viewing synchronized Spotify lyrics
+424,lazy-etherscan,0.1.1,3256,13,True,2024-01-11,2023-12-03,https://github.com/woxjro/lazy-etherscan,Simple Terminal UI for the Ethereum Blockchain Explorer
+425,vim-line,7.7.1,3233,1510,False,2026-07-03,2025-12-31,https://git.navicore.tech/navicore/patch-seq,A line-oriented vim motions library for TUI applications
+426,tui-checkbox,0.4.6,3214,1042,True,2026-07-10,2025-10-23,https://github.com/sorinirimies/tui-checkbox,A customizable checkbox widget for Ratatui TUI applications
+427,ratatui-code-editor,0.0.6,3171,2361,True,2026-07-07,2025-10-16,https://github.com/vipmax/ratatui-code-editor.git,"ratatui-code-editor is A code editor widget for ratatui, built with syntax highlighting powered by Tree-sitter."
+428,basalt-widgets,0.1.1,3152,12,True,2025-04-20,2025-03-01,https://github.com/erikjuhani/basalt,Provides the custom ratatui widgets for Basalt TUI application
+429,soundscope,1.9.2,3140,186,True,2026-06-11,2025-09-06,https://github.com/bananaofhappiness/soundscope,"A command-line tool for analyzing audio files and real-time input (FFT, LUFS)"
+430,plastic_core,0.3.2,3130,183,False,2025-11-26,2024-10-19,https://github.com/Amjad50/plastic,An accurate NES emulator. The backend emulation for plastic and plastic-tui
+431,envex,0.6.2,3123,105,True,2025-09-19,2025-08-27,https://github.com/mikeleppane/envx,"A modern, cross-platform environment variable manager with TUI and CLI interfaces"
+432,plastic,0.3.5,3073,34,False,2025-11-26,2024-10-19,https://github.com/Amjad50/plastic,A NES emulator with GUI and TUI
+433,blockpedia,0.1.9,3070,988,True,2026-05-13,2025-07-07,https://github.com/Nano112/blockpedia,A comprehensive Rust library for Minecraft block data with advanced color analysis and palette generation
+434,concord,2.4.8,3055,3055,True,2026-07-28,2026-05-08,https://github.com/chojs23/concord,A terminal user interface client for Discord
+435,bookokrat,0.3.12,3043,907,True,2026-06-06,2025-10-28,https://github.com/bugzmanov/bookokrat,A terminal-based EPUB/PDF Books reader
+436,todotxt-tui-macros,0.2.1,3038,98,False,2026-03-10,2024-10-22,https://github.com/Fanteria/todotxt-tui,"Todo.txt TUI uses Rust macros to provide a customizable terminal-based app for managing tasks in the todo.txt format, making configuration simple and flexible."
+437,rlvgl,0.2.5,3033,241,False,2026-07-14,2025-07-28,https://github.com/softoboros/rlvgl,"A modular, idiomatic Rust reimplementation of the LVGL graphics library for embedded and simulator use."
+438,voynich,0.1.1,3007,20,True,2024-03-18,2024-03-14,,"Library for creating anonymous, end-to-end encrypted and authenticated chat applications"
+439,tuiwindow,0.1.1,3007,13,True,2024-03-02,2024-02-29,https://github.com/untitled-/tuiwindow,A minimal window and focus manager for Ratatui+Crossterm TUI applications
+440,rat-theme2,1.6.1,2999,43,False,2025-12-27,2025-01-31,https://github.com/thscharler/rat-salsa,dark theme and color-schemes
+441,kanban-tui,0.7.2,2989,494,True,2026-06-10,2025-10-12,https://github.com/fulsomenko/kanban,Terminal user interface for the kanban project management tool
+442,inkhaven,1.10.0,2952,2952,True,2026-07-30,2026-05-20,https://github.com/vulogov/blackInkhaven,Inkhaven — TUI literary work editor for Typst books
+443,crepuscularity_macros,0.5.11,2941,2867,False,2026-07-15,2026-04-09,https://github.com/tschk/crepuscularity,Compile-time view! macro for Crepuscularity templates (UNSTABLE; in active development).
+444,zc2,0.0.16,2922,87,True,2026-05-03,2023-04-01,https://github.com/zakuro-ai/zc,"P2P compute broker with credit-based billing, WAL, and broker mesh support"
+445,markdown-tui-explorer,1.34.75,2884,1203,True,2026-07-21,2026-04-08,https://github.com/leboiko/markdown-reader,"A terminal-based markdown file browser and viewer with search, syntax highlighting, and live reload"
+446,iotop,0.2.4,2856,53,True,2025-10-16,2025-10-08,https://github.com/AndPuQing/iotop,A Rust implementation of iotop - display I/O usage of processes
+447,revue,2.74.0,2786,571,False,2026-07-04,2026-01-02,https://github.com/hawk90/revue,A Vue-style TUI framework for Rust with CSS styling
+448,ai-code-buddy,0.4.20,2773,33,True,2025-08-29,2025-07-31,https://github.com/edgarhsanchez/ai_code_buddy,An AI-powered code review tool with elegant Bevy-based TUI
+449,cookcli,0.32.1,2764,287,False,2026-06-26,2025-05-21,https://github.com/cooklang/cookcli,A command-line interface for managing and working with Cooklang recipes
+450,bmm,0.3.1,2753,79,True,2026-05-16,2025-02-20,https://github.com/dhth/bmm,bmm lets you get to your bookmarks in a flash
+451,ratatu-image,1.0.0,2747,20,True,2023-09-17,2023-08-28,https://github.com/benjajaja/ratatui-image,Renamed to ratatui-image
+452,fetchatui,0.1.1,2732,12,True,2023-12-08,2023-12-08,,A real time system information command written in Ratatui
+453,pkcore,0.3.2,2727,1919,False,2026-07-21,2026-03-22,https://github.com/ImperialBower/pkcore.git,Prototype core poker library.
+454,treemd,0.6.0,2713,549,True,2026-07-23,2025-11-08,https://github.com/epistates/treemd,A markdown navigator with tree-based structural navigation and syntax highlighting
+455,fm-cli,0.1.1,2696,11,True,2023-08-11,2023-05-29,https://github.com/gteditor99/fm,cross-platform Rust command-line tool for browsing your filesystem
+456,flashkraft,1.2.2,2686,207,False,2026-05-04,2025-10-24,https://github.com/sorinirimies/flashkraft,FlashKraft — OS image writer desktop application (Iced GUI)
+457,kanash,0.1.4,2686,25,True,2025-05-04,2025-04-16,https://github.com/benoitlx/kanash,Learn Hiragana and Katakana in a terminal !
+458,tray-tui,0.3.3,2686,44,True,2026-02-17,2025-02-26,https://github.com/Levizor/tray-tui,System tray in your terminal
+459,pantry_client,0.1.1,2682,9,False,2024-03-16,2024-03-16,,A client for the Pantry API
+460,the-other-tui-markdown,0.1.0,2673,1597,True,2026-03-16,2026-03-16,https://github.com/christo-auer/the-other-tui-markdown,Convert Markdown to ratatui Text with configurable theming and per-element rendering
+461,lyrics-next,0.2.1,2672,29,True,2026-03-01,2025-04-16,https://github.com/erasin/lyrics-next,在终端下为 mpd/mpris 提供歌词.
+462,simvar_harness,0.4.0,2657,1866,True,2026-07-04,2025-05-08,https://github.com/MoosicBox/MoosicBox,Simulator Harness package
+463,pola,0.1.3,2657,13,True,2025-02-27,2025-02-20,https://github.com/sethispr/pola,"Silent Assassin TUI for searching skins, checking values, and finding owners!"
+464,fsel,3.6.0-kiwicrab,2656,336,True,2026-07-20,2025-10-09,https://github.com/Mjoyufull/fsel,Fast TUI app launcher and fuzzy finder for GNU/Linux and *BSD
+465,blockrs,0.4.0,2652,16,True,2025-03-31,2025-03-14,https://github.com/sergerad/blockrs,TUI for tailing chain data
+466,ratbaseconfig,0.1.1,2647,10,True,2024-01-11,2024-01-11,https://github.com/nobel-von-it/ratbaseconf,lib with base ratatui config for my (mb your) apps
+467,ratata,0.1.1,2633,12,True,2024-04-07,2024-04-07,https://github.com/david-d-h/ratata,A tiny application builder for ratatui that includes everything you need to get started.
+468,oli-tui,0.1.3,2626,22,True,2025-03-25,2025-03-18,https://github.com/amrit110/oli,"A simple, blazingly fast TUI based AI coding assistant"
+469,traceview,2.1.1,2623,42,True,2026-06-03,2025-02-20,https://github.com/javaLux/traceview,Tracing and viewing your files and resource landscape
+470,octotype,0.8.0,2577,97,True,2025-11-03,2025-09-14,https://github.com/mahlquistj/octotype,A typing trainer for your terminal
+471,blogr-themes,0.5.1,2534,91,True,2026-04-03,2025-09-20,https://github.com/bahdotsh/blogr,Theme system for Blogr static site generator
+472,tui-spinner,0.4.0,2522,2405,True,2026-07-10,2026-04-29,https://github.com/sorinirimies/tui-spinner,"Customizable animated spinner widgets for Ratatui — braille arcs, bouncing bars, rotating glyphs, and symbol styles"
+473,h3xup,0.2.1,2461,29,False,2025-07-20,2025-07-03,https://github.com/h3x4d3c1m4l/h3xUpdtr,A file-level updater tool for (primarily) Windows applications.
+474,rat-theme3,2.6.1,2452,427,False,2025-12-27,2025-09-30,https://github.com/thscharler/rat-salsa,dark theme and color-schemes
+475,stategine,0.3.1,2435,20,True,2025-08-02,2025-05-21,https://github.com/TheEmeraldBee/stategine,An application engine for handling function systems that run based on states and conditions
+476,netbook,0.2.7,2431,34,True,2025-10-01,2025-10-01,https://github.com/jonaylor89/netbook,A lightweight TUI request collection manager and runner - a Postman alternative for the terminal
+477,minitel-stum,0.1.1,2418,121,False,2025-01-04,2025-01-04,https://github.com/plule/minitel,Spécifications Techniques d'Utilisation du Minitel
+478,lazygh,0.5.0,2417,13,True,2024-09-16,2024-09-16,https://github.com/kmj-007/lazygh,A Terminal User Interface (TUI) application for managing multiple GitHub accounts easily
+479,gatherbrained,0.3.0,2416,14,True,2025-08-14,2024-02-25,https://github.com/rescrv/gatherbrained,gatherbrained is an AI writing agent
+480,doxx,0.1.4,2411,301,True,2026-06-02,2025-08-22,https://github.com/bgreenwell/doxx,Terminal document viewer for .docx files
+481,tui-gradient-block,0.1.3,2405,104,True,2025-04-07,2025-02-28,https://github.com/F-77777/tui-gradient-block,a pretty extension to the block widget using colorgrad
+482,tcolour,0.1.3,2388,27,True,2025-03-27,2025-03-26,https://github.com/KingPEPSALT/tcolour,A colour library aimed at use with Ratatui.
+483,keifu,0.6.0,2387,440,True,2026-07-30,2025-12-20,https://github.com/trasta298/keifu,A TUI tool to visualize Git commit graphs with branch genealogy
+484,glim-tui,0.2.1,2384,55,True,2025-07-21,2024-10-05,https://github.com/junkdog/glim,A TUI for monitoring GitLab CI/CD pipelines and projects
+485,inirs,0.1.6,2384,10,False,2024-06-20,2024-06-20,https://github.com/nobel-von-it/inirs.git,A simple command line task manager
+486,monitetoring,0.3.3,2382,70,True,2026-05-30,2025-06-16,https://github.com/superapple8x/monitetoring,"A real-time per-process network bandwidth monitoring tool for Linux, inspired by nethogs. Built with Rust and featuring a terminal UI powered by ratatui."
+487,dartboard-core,0.1.4,2381,2106,False,2026-04-23,2026-04-21,https://github.com/mevanlc/dartboard,"Core canvas model, color types, client traits, and wire protocol for dartboard"
+488,ratcl,2.0.2,2379,23,True,2025-12-17,2025-06-24,https://codeberg.org/Android789515/ratcl,Create complex ratatui layouts with a simple API.
+489,qraw,0.1.1,2365,11,True,2024-11-10,2024-11-09,https://github.com/amatagonsk/qraw,simple terminal drawing canvas.
+490,elicitation,0.11.1,2359,1331,True,2026-06-03,2025-12-28,https://github.com/crumplecup/elicitation,Conversational elicitation of strongly-typed Rust values via MCP
+491,ratatui-markdown,0.3.6,2344,2344,True,2026-05-21,2026-05-14,https://github.com/celestia-island/ratatui-markdown,"Markdown rendering, syntax highlighting, collapsible trees, and rich scroll widgets for ratatui"
+492,lazytables,0.2.3,2328,34,True,2025-10-14,2025-08-15,https://github.com/yuyudhan/LazyTables,Terminal-based SQL database viewer and editor with vim-style navigation
+493,mcp-cli,0.3.0,2308,71,True,2025-06-30,2025-06-21,https://github.com/conikeec/mcp-probe,Interactive CLI debugger and TUI for MCP servers
+494,hjkl-buffer-tui,0.39.0,2307,2307,True,2026-07-27,2026-05-19,https://github.com/kryptic-sh/hjkl,Ratatui Widget adapter for hjkl-buffer — single-pass cell renderer for BufferView.
+495,feedr,0.7.0,2305,299,True,2026-03-31,2025-04-02,https://github.com/bahdotsh/feedr,Feedr is a feature-rich terminal-based RSS/Atom feed reader written in Rust.
+496,oxi-tui,0.62.0,2299,2299,True,2026-07-30,2026-05-03,https://github.com/a7garden/oxi,"Terminal UI widgets and theme system for oxi, built on ratatui"
+497,flashy,0.1.0,2295,13,True,2024-08-13,2024-07-30,https://gitlab.com/haasal/flashy-rs,A TUI to write and use flashcards
+498,cargo-seek,0.2.0,2292,363,True,2026-07-08,2025-04-30,https://github.com/tareqimbasher/cargo-seek,"A terminal user interface for searching, adding and installing cargo crates."
+499,fcd,1.0.1,2258,15,True,2025-01-17,2024-09-13,https://github.com/bugnano/fcd,The FCD File Manager (FranCommanDer) - a text based file manager that combines the best features of Midnight Commander and Ranger
+500,hjkl-engine-tui,0.39.0,2248,2248,True,2026-07-27,2026-05-19,https://github.com/kryptic-sh/hjkl,Ratatui adapters for hjkl-engine — Style conversion + Editor extension methods for ratatui-flavoured input.
+501,rat-theme4,4.5.3,2247,657,False,2026-03-08,2025-11-06,https://github.com/thscharler/rat-salsa,dark theme and color-schemes
+502,librius,0.5.1,2231,40,False,2025-11-12,2025-10-12,https://github.com/umpire274/librius,A personal library manager CLI written in Rust.
+503,fx-torrent,0.9.1,2211,1722,True,2026-05-10,2025-12-27,https://github.com/yoep/fx-torrent,"FX Torrent is a feature rich Bittorrent protocol implementation written in rust supporting Linux, MacOS and Windows."
+504,tui-skeleton,0.3.0,782,542,True,2026-03-31,2026-03-27,https://github.com/jharsono/tui-skeleton,Animated skeleton loading widgets for Ratatui
+505,tui-pantry-macros,0.4.0,539,389,False,2026-04-15,2026-03-17,https://github.com/taho-inc/tui-pantry,Proc macros for tui-pantry — not intended for direct use
+506,tui-pantry,0.4.0,470,352,True,2026-04-15,2026-03-17,https://github.com/taho-inc/tui-pantry,Preview harness for developing Ratatui widgets in isolation
+507,pantry-tui,0.2.1,67,30,True,2026-06-12,2026-04-14,https://github.com/jamestjw/pantry,A TUI cookbook for managing and executing reusable shell snippets
+508,codensity,0.4.0,50,50,False,2026-07-29,2026-07-29,https://github.com/LIghtJUNction/codensity,Language-independent source-code information density analysis
