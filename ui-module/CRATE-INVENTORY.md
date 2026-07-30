@@ -5,6 +5,13 @@ built, or judged — download counts and self-descriptions are all that is recor
 are the only facts a search returns. Every "?" is a question for an evaluator, not a gap in the
 search.
 
+> **Pass 1 has since run — read `PASS1-SCREEN.md` first.** It screened 5285 crates (not 508) and
+> corrected two claims made below: §2's "expect bespoke" for tab containers and §3's "no
+> library-grade candidate found" are both **refuted**, and the compatibility gate was being asked
+> against the wrong crate. `crate-screen.csv` carries a verdict and a reason for every row. The
+> tables below are left as written, because what they got wrong is the point of §"the fourth
+> partial set" in that document.
+
 ## The enumeration, and why the first pass was wrong
 
 The first pass used the `cratesio` MCP, which shows **ten** results per query and exposes no
@@ -41,6 +48,13 @@ Two consequences worth stating plainly:
   evidence. All 5083 are now fetched, so `False` means what it says. A partial set silently
   standing in for a complete one is the same failure as the ten-result search above; it is worth
   assuming there is a third instance somewhere and looking for it.
+
+  **There was, and it is this table.** The 5083 dependents were fetched to compute a *column*,
+  never to add *rows* — so the CSV is the top 500 of one search, floored at 2,211 downloads, and
+  **4745 dependents were never screened**. `False` in that column also still means "does not
+  depend on the `ratatui` facade", which is not the same as "does not depend on ratatui": the org
+  tells widget libraries to depend on `ratatui-core` instead. Both corrections, and what fell out
+  of them, are in `PASS1-SCREEN.md` §§1–2.
 
 Freshness across the 508: 305 last updated in 2026, 121 in 2025, 67 in 2024, 15 older. Roughly
 one in six has not moved in over a year, which is an uplift-risk signal available before anyone
@@ -115,18 +129,30 @@ the adapter could be replaced while the model is kept. `tui-tabs` describes bord
 corners, which VISUAL-LANGUAGE §6 explicitly rejects ("**NO frame border**", zones divided by
 rules, boxes only for modals) — so it is likely a style mismatch rather than a candidate.
 
-**No crate found for tab *containers* or *permanent cross-tab headers*.** Expect bespoke.
+~~**No crate found for tab *containers* or *permanent cross-tab headers*.** Expect bespoke.~~
+**REFUTED by pass 1.** Nine of the ten tab/container candidates sit below this document's
+download floor and were never searched. `ratatui-zonekit` is *"named zones, plugin-owned panes"*
+— recognisably the zone model VISUAL-LANGUAGE §6 specifies — and `panes` + `panes-ratatui` is a
+renderer-agnostic layout engine with a ratatui adapter, the same model/renderer split used here.
+Also on the list: `ratatui-tabs`, `ratatui-comfy-tabs`, `hjkl-tabs-tui`, `tui_pane`, `tuicore`,
+`turtletap`. See `PASS1-SCREEN.md` §3.
 
 ## 3. Status bar, help modals, keybindings
 
-**No library-grade candidate found.** Every hit for "status bar keybindings help" was an
-*application* with one (kanban-tui, zeph-tui, fpv, bridgio…), not a reusable widget.
+~~**No library-grade candidate found.** Every hit for "status bar keybindings help" was an
+*application* with one (kanban-tui, zeph-tui, fpv, bridgio…), not a reusable widget.~~
 
-This is a real finding rather than a search failure: a reactive status bar whose content is
-contextual to the focused element, and a help modal generated from the *same* keymap, are both
-tightly coupled to an application's own key-dispatch model — which is probably why nobody ships
-one. Two consequences: (a) the keymap becomes an SSOT worth designing deliberately, since both
-surfaces derive from it, and (b) `terminput` (§8) is the closest thing to a foundation.
+~~This is a real finding rather than a search failure~~ — **it was a search failure, and pass 1
+refutes it.** Six candidates exist, all but one below this document's download floor:
+`hjkl-statusline-tui` (a *renderer-agnostic statusline model* plus a ratatui adapter — the exact
+split used here), `ratatui-which-key` and `hjkl-which-key-tui` (a help popup derived from the
+keymap, which is this section's second surface), `tui_pane` (keymap + status bar + panes),
+`monitrs-tui` (reducer + keymap + layout), `gx-tui` (a keybind engine), and above the floor
+`scarab-nav-protocol`. See `PASS1-SCREEN.md` §3.
+
+The *reasoning* below survives even though the conclusion did not — both surfaces derive from one
+key table, so: (a) the keymap becomes an SSOT worth designing deliberately, since both surfaces
+derive from it, and (b) `terminput` (§8) is the closest thing to a foundation.
 
 ### The status half now has a hard constraint
 
@@ -207,7 +233,11 @@ TUI needs a layout pass first, which is a separate problem from displaying the r
 | **`edtui`** | 0.11.6 | 228.2K / 95.1K | "A TUI based **vim inspired** editor" | T2 |
 
 Three live forks of one widget is a maintenance signal the evaluation must untangle: which
-tracks ratatui 0.30, which is actually maintained, and what the forks diverged over. `edtui` is
+tracks ratatui 0.30, which is actually maintained, and what the forks diverged over. **Pass 1
+answers the first:** `tui-textarea` — the 2.2M-download original — is **DROP-VERSION**, its
+current release pinned to `^0.29.0`; the ratatui-org fork `ratatui-textarea` and the
+higher-versioned `tui-textarea-2` both pass the gate. So the surviving question is *why the org
+forked*, not *which of three*. `edtui` is
 the only one advertising vim modality, which the design needs in both editing surfaces (§3 of
 VISUAL-LANGUAGE specifies insert `▏` and normal `[reverse]c` carets, so vim modality is already
 a locked design commitment, not a preference).
@@ -309,7 +339,15 @@ passes, and the expensive pass only sees what survives the cheap one. The input 
 `crate-inventory.csv` in rank order, **not** the thematic sections above — those exist to give
 an evaluator context, and §4 records what happens when they are trusted as the list.
 
-### Pass 1 — screen (21 agents × ~25 crates, metadata only)
+### Pass 1 — screen — **DONE 2026-07-30, see `PASS1-SCREEN.md`**
+
+It did not need 21 agents. Most of the screen turned out to be a data join: crates.io's
+reverse-dependency endpoint returns each dependent's *version requirement* plus `has_lib`,
+`bin_names` and `license`, which settles DROP-VERSION and half of DROP-APP mechanically for the
+whole ecosystem at once. The plan as written is preserved below; what it got wrong was the size
+of the input, not the shape of the verdicts.
+
+### Pass 1 as planned (21 agents × ~25 crates, metadata only)
 
 Cheap and mechanical: crates.io metadata and docs.rs, no repository checkouts. Each crate gets
 exactly one verdict, and the reason is recorded even for drops so the next person does not
@@ -367,6 +405,12 @@ bespoke and `tachyonfx` disproved it within one full enumeration. So these four 
 for bespoke work *pending* pass 1 finishing: a screen over all 508 rows is exactly the instrument
 that would surface a crate whose author describes the same job in different words. Only after
 the screen returns empty for an area is "no candidate exists" a measurement rather than a guess.
+
+**The screen has run, and three of the four fell.** Cross-tab headers/containers
+(`ratatui-zonekit`, `panes`), the reactive status bar (`hjkl-statusline-tui`, `tui_pane`) and the
+keymap-derived help modal (`ratatui-which-key`) all have candidates — every one of them below the
+download floor this document's CSV stops at, which is why they read as absent. **Breadcrumb
+navigation is the only one that survives**, and it is now a measurement rather than a guess.
 
 Partially covered already, so scope them as gaps rather than greenfield: motion has `tachyonfx`
 (§4), markdown rendering has `tui-markdown` and only the *editing* half is missing (§6).
