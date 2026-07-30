@@ -128,6 +128,33 @@ tightly coupled to an application's own key-dispatch model — which is probably
 one. Two consequences: (a) the keymap becomes an SSOT worth designing deliberately, since both
 surfaces derive from it, and (b) `terminput` (§8) is the closest thing to a foundation.
 
+### The status half now has a hard constraint
+
+`../HEALTH-MONITORING.md` (commissioned by Chris, binding decision `CR-035`, owner `N49`) sets
+the shape before this surface is built. Chris's requirement: **a stable value that can be
+observed** — if it changes, alert; if it does not, nothing happens. v0.1 instead polls, driving
+a pair of live Qdrant round-trips every ~3 s for as long as anyone is looking, and filling 84% of
+the busiest minute's log with one unconditional success line.
+
+Two evaluation criteria follow, and the first is disqualifying rather than advisory:
+
+- **Rendering must never trigger work.** A status widget that probes, refreshes, or ticks on
+  draw reproduces the v0.1 shape regardless of transport, and is out on that basis alone.
+- **Settled transitions must coalesce.** A flapping value pushing one event per flap reproduces
+  the volume this exists to remove — so a candidate needs debounce-to-settled, or a seam where
+  we supply it.
+
+The brief also notes the trap for the obvious fix: a watch changes *who initiates*, not *what a
+read costs*, and with N subscribers a naive watch is **worse** than polling. That part is
+daemon-side and not something a TUI crate can solve — worth knowing so an evaluator does not
+credit a crate for fixing it.
+
+**This adds an area the thematic sections missed: observable-state plumbing** — a watch channel
+carrying the whole report, with debounce on settled change. Likely `tokio::sync::watch` plus a
+debouncer rather than a TUI crate at all, but pass 1 should tag anything in that space, because
+"alert on change" also makes this the **shared trigger with toasts (§7)** — the two surfaces
+consume the same signal and should not be evaluated as if they were independent.
+
 ## 4. Modals, overlays, drill-down navigation, animation
 
 | Crate | Ver | Downloads | Self-description | Tier |
