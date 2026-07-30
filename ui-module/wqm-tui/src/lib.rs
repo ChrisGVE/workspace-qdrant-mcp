@@ -7,6 +7,8 @@
 //! real ratatui renderer rather than approximated, and so each frame can be browsed and
 //! compared in `cargo pantry`.
 
+#[cfg(feature = "png-capture")]
+pub mod capture;
 pub mod names;
 pub mod terminal;
 pub mod tokens;

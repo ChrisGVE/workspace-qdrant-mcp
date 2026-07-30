@@ -224,10 +224,28 @@ pub fn muted() -> Color {
 }
 /// Body text of the focused zone; the baseline.
 ///
-/// This rung is the terminal's own foreground in both modes. The baseline is precisely
-/// the text that should look like everything else the user reads in that window.
+/// This rung is the terminal's own foreground in every mode. The baseline is precisely the
+/// text that should look like everything else the user reads in that window.
+///
+/// # Under `Derived` it says so explicitly, and that is not a change of intent
+///
+/// `Color::Reset` asks the terminal for its foreground. [`Palette::Derived`] has already
+/// *been told* the foreground — that is what [`crate::terminal::detect`] read — and
+/// [`NORMAL_RUNG`] is defined so that `neutral(NORMAL_RUNG)` interpolates to exactly that
+/// endpoint. So the two are the same colour by construction, and emitting it directly only
+/// makes this rung consistent with the other ten, which are already baked RGB.
+///
+/// It buys a real property: a renderer with no terminal to ask cannot resolve `Reset`, and
+/// invents something instead. `soft_ratatui` resolves a `Reset` foreground to a fixed
+/// `#ccccff` — near enough to be invisible against a dark theme and badly wrong against a
+/// light one — so before this, [`crate::capture`] produced frames whose baseline text was
+/// the one rung not derived from the theme. Under the slot-sourced palettes there is
+/// nothing better to reach for, so they keep `Reset`.
 pub fn normal() -> Color {
-    Color::Reset
+    match Palette::current() {
+        Palette::Derived => neutral(NORMAL_RUNG),
+        _ => Color::Reset,
+    }
 }
 /// Primary figures, and any value that differs from its default. Weight does the work;
 /// the colour only stops it receding.
