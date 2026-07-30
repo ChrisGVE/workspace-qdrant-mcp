@@ -7,6 +7,7 @@
 //! real ratatui renderer rather than approximated, and so each frame can be browsed and
 //! compared in `cargo pantry`.
 
+pub mod names;
 pub mod terminal;
 pub mod tokens;
 pub mod widgets;

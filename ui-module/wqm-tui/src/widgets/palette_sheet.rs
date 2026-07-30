@@ -31,6 +31,9 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+use wqm_common::names::Collection;
+
+use crate::names;
 use crate::tokens::{self, Health, Palette};
 use crate::widgets::{
     store_health::{StoreHealth, StoreRow},
@@ -202,8 +205,10 @@ fn alarm_tabs(active: usize) -> TabBar {
     TabBar::new(
         vec![
             Tab::new(1, "Dashboard"),
-            Tab::new(2, "Library"),
-            Tab::alarming(3, "Rules", Health::Degraded),
+            Tab::for_collection(2, Collection::Libraries),
+            // Labelled from the registry like any collection tab (`CR-038`); the alarm is
+            // a separate axis and does not change where the word comes from.
+            Tab::alarming(3, names::display(Collection::Rules), Health::Degraded),
             Tab::alarming(4, "Service", Health::Offline),
         ],
         active,
@@ -213,21 +218,9 @@ fn alarm_tabs(active: usize) -> TabBar {
 /// The store rows, one per health state, so §4's glyph hues sit next to §3's selector.
 fn health_rows() -> StoreHealth {
     StoreHealth::new(vec![
-        StoreRow {
-            role: "daemon",
-            binding: "memexd",
-            health: Health::Healthy,
-        },
-        StoreRow {
-            role: "graph",
-            binding: "ladybug",
-            health: Health::Degraded,
-        },
-        StoreRow {
-            role: "vector",
-            binding: "qdrant",
-            health: Health::Offline,
-        },
+        StoreRow::bound("daemon", "memexd", Health::Healthy),
+        StoreRow::bound("graph", "ladybug", Health::Degraded),
+        StoreRow::bound("vector", "qdrant", Health::Offline),
     ])
 }
 

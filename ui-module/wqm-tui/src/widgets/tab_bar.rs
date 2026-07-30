@@ -7,6 +7,14 @@
 //! §4's must-see rule overrides the hue but not the mechanism: a tab owning a degraded or
 //! offline store is recoloured, and it keeps that colour *under* inversion — so a selected
 //! error tab is a coloured inverse block, never a cyan one.
+//!
+//! # A tab that names a collection derives its label
+//!
+//! Tabs that stand for an N8 collection are built with [`Tab::for_collection`], which reads
+//! the label out of [`crate::names::display`] rather than spelling one beside the registry.
+//! That is `CR-038`'s invariant, and it is why this tab now says *Libraries* where it used
+//! to say *Library*. `Dashboard`, `Service` and `Config` name no collection, so they carry
+//! UI-only labels and always will.
 
 use ratatui::{
     buffer::Buffer,
@@ -15,29 +23,40 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
+use wqm_common::names::Collection;
 
-use crate::tokens::{self, Health};
+use crate::{
+    names,
+    tokens::{self, Health},
+};
 
 pub struct Tab {
     pub number: u8,
-    pub label: &'static str,
+    /// Owned, because a derived label is computed rather than written — see the module
+    /// docs. A UI-only tab still passes a literal, and `impl Into<String>` takes both.
+    pub label: String,
     /// Set when this tab owns a store in trouble; drives the §4 recolour.
     pub alarm: Option<Health>,
 }
 
 impl Tab {
-    pub fn new(number: u8, label: &'static str) -> Self {
+    pub fn new(number: u8, label: impl Into<String>) -> Self {
         Self {
             number,
-            label,
+            label: label.into(),
             alarm: None,
         }
     }
 
-    pub fn alarming(number: u8, label: &'static str, health: Health) -> Self {
+    /// A tab standing for an N8 collection, labelled from the registry.
+    pub fn for_collection(number: u8, collection: Collection) -> Self {
+        Self::new(number, names::display(collection))
+    }
+
+    pub fn alarming(number: u8, label: impl Into<String>, health: Health) -> Self {
         Self {
             number,
-            label,
+            label: label.into(),
             alarm: Some(health),
         }
     }
@@ -76,8 +95,8 @@ impl TabBar {
         Self::new(
             vec![
                 Tab::new(1, "Dashboard"),
-                Tab::new(2, "Library"),
-                Tab::new(3, "Rules"),
+                Tab::for_collection(2, Collection::Libraries),
+                Tab::for_collection(3, Collection::Rules),
                 Tab::new(4, "Service"),
                 Tab::new(5, "Config"),
             ],
@@ -185,8 +204,8 @@ pub mod ingredient {
         TabBar::new(
             vec![
                 Tab::new(1, "Dashboard"),
-                Tab::new(2, "Library"),
-                Tab::new(3, "Rules"),
+                Tab::for_collection(2, Collection::Libraries),
+                Tab::for_collection(3, Collection::Rules),
                 Tab::alarming(4, "Service", Health::Offline),
                 Tab::new(5, "Config"),
             ],
@@ -201,8 +220,8 @@ pub mod ingredient {
         TabBar::new(
             vec![
                 Tab::new(1, "Dashboard"),
-                Tab::new(2, "Library"),
-                Tab::new(3, "Rules"),
+                Tab::for_collection(2, Collection::Libraries),
+                Tab::for_collection(3, Collection::Rules),
                 Tab::alarming(4, "Service", Health::Offline),
                 Tab::new(5, "Config"),
             ],
@@ -217,8 +236,8 @@ pub mod ingredient {
         TabBar::new(
             vec![
                 Tab::new(1, "Dashboard"),
-                Tab::new(2, "Library"),
-                Tab::new(3, "Rules"),
+                Tab::for_collection(2, Collection::Libraries),
+                Tab::for_collection(3, Collection::Rules),
                 Tab::alarming(4, "Service", Health::Degraded),
                 Tab::new(5, "Config"),
             ],
