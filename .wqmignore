@@ -1,3 +1,19 @@
 project-notes.age
 !project-notes/
 !project-notes/**
+
+# The handovers and the ui-module <-> corpus channel are deliberately never committed (private
+# working material in a public repo, excluded via `.git/info/exclude`), but they carry the live
+# project state and the UIQ -> CR decision trail, so they MUST stay wqm-searchable. Same intent as
+# the `project-notes/` negation above: hidden from git, visible to recall.
+#
+# These are inert TODAY and REQUIRED in v0.2. v0.1 does not read `.git/info/exclude` at all
+# (#233), so these files are currently indexed by accident rather than by intent. **v0.2 will
+# comply with `.git/info/exclude` unless `.wqmignore` reverses it** (Chris, 20260730) -- so on the
+# day v0.2 ships, these four lines are the only thing standing between the live project state plus
+# the whole UIQ -> CR decision trail and silently vanishing from recall. Do not remove them when
+# tidying: they will look redundant right up until the moment they are not.
+!handover.md
+!ui-module/handover.md
+!ui-module/TO-CORPUS.md
+!ui-module/FROM-CORPUS.md
