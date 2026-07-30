@@ -158,3 +158,18 @@ For whoever builds the status zone, in rough priority:
 Until those are settled, the status zone can be built against `DaemonReport` as it stands: a
 one-shot `status()` render path is correct today, and gains a subscription later without the widget
 changing shape — which is the point of holding the seam steady.
+
+---
+
+## Maintenance
+
+This brief is **registered and actively maintained**, not a one-off drop. It is listed in the brief
+register in the repo-root `handover.md`, and every change-set to the main corpus walks that register
+before sealing: if the change touched one of this brief's named sources — `CR-035`, `MCP-SURFACE.md`
+§4.3, `wqm-client`'s dial behaviour, `system.proto`'s `Status` RPC, or the `DaemonReport` variants —
+this file is updated in the same change-set. The rule is `BEHAVIORS.md` §3.1 (standing, Chris
+20260730).
+
+So it is safe to build against. What is **not** safe is to treat it as the authority: `CR-035` is,
+and if the two ever disagree the brief is the defect. If you find a disagreement, say so rather than
+working around it — that is the signal the maintenance loop missed a hop.
