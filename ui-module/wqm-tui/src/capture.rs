@@ -1,5 +1,13 @@
 //! Headless pixel capture — a ratatui frame to a PNG, with no terminal at all.
 //!
+//! # This is the agent's instrument, not the normal output
+//!
+//! Chris, 20260730: **the PNG path is mostly for the agent.** `cargo pantry dump` and
+//! `palette.sh` produce ANSI in a real terminal, and that is the normal output and the
+//! surface a human reads. A capture exists so a session with no eyes can still judge a
+//! frame — it does not replace them, and it is the less honest of the two about hue (see
+//! below). When both are available, produce the ANSI.
+//!
 //! # What this closes
 //!
 //! §1 of `handover.md` exists because the `.mock` → `freeze` pipeline could not render
