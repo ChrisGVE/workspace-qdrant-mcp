@@ -1,0 +1,34 @@
+# The UI module — the surfaces a human touches, developed against the real contracts but
+# outside the daemon's workspace.
+#
+# `wqm-tui` is here now; `wqm-cli` joins it as a sibling. They share a workspace so the
+# two surfaces resolve one dependency graph and one `target/`: a CLI and a TUI that
+# disagreed about which ratatui or which wqm-common they were built against would be a
+# source of differences that look like design differences.
+#
+# This is deliberately NOT part of the `src/rust` workspace. These crates are design
+# instruments first — they render the storyboard through the real renderer — and keeping
+# them out means the daemon's build is never slowed or constrained by them. The cost is
+# that the N8 name guard (`src/rust/ci/guard_name_registry.py`) does not police this tree;
+# see wqm-tui/HANDOVER.md, which tracks the literals that would fail it.
+[workspace]
+resolver = "3"
+members = ["wqm-tui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# Pinned once here so both surfaces agree. ratatui 0.30 is what tui-pantry 0.4 builds
+# against; a mismatch produces two incompatible `Widget` traits and confusing errors.
+ratatui = "0.30.2"
+# Only for the termios calls behind the OSC 11/10 colour query (wqm-tui/src/terminal.rs).
+# There is no portable way to ask a terminal what it is painting with, and raw mode is the
+# precondition for reading the reply at all.
+libc = "0.2"
+serde = "1"
+serde_json = "1"
+wqm-common = { path = "../src/rust/crates/wqm-common" }
+wqm-client = { path = "../src/rust/crates/wqm-client" }
+wqm-proto = { path = "../src/rust/crates/wqm-proto" }

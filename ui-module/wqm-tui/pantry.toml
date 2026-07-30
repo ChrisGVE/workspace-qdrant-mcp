@@ -1,0 +1,64 @@
+[config]
+theme = "dark"
+style_source = "wqm_tui::tokens"
+
+# Storyboard layers (VISUAL-LANGUAGE §6). Cycle with `b` to check a widget against the
+# surface it will actually sit on: layer 0 keeps the terminal background, a modal floats
+# above it, and a modal over a modal is lighter still.
+[pantry.preview_backgrounds]
+layer0 = "#000000"
+layer1 = "#262626"
+layer2 = "#3B3B3B"
+
+# IMPORTANT: nothing wqm renders is absolute RGB. Every colour below is an ANSI slot or a
+# 256-table index resolved by the terminal, so what these swatches paint is the *theme's*
+# answer, not a fixed value. The named entries use ratatui colour names so the swatch and
+# the widget resolve through the same path; the numeric families are xterm indices.
+
+# §3/§4 hues — always the 16 theme slots, in both palette modes. These are exactly the
+# colours a theme redefines, so a retuned cyan retunes the selector with it.
+[colors.hue]
+selector = "Cyan"
+selector_fg = "Black"
+healthy = "Green"
+degraded = "Yellow"
+offline = "Red"
+
+# §2 emphasis under Palette::Theme — the whole neutral vocabulary the 16 slots can offer.
+# Four slots for the eleven rungs r02 specifies: this family IS the shortfall, visible.
+[colors.neutral_theme]
+faint = "DarkGray"
+muted = "Gray"
+strong = "White"
+# The `normal` rung is deliberately absent: it is Color::Reset, the terminal's own
+# foreground, which the stylesheet parser cannot express (it rejects "Reset"). A swatch
+# would have to name some concrete colour and would therefore misstate the rung.
+
+# §2/§6 neutrals under Palette::Indexed — the xterm greyscale ramp. Numeric keys render as
+# a gradient strip, which is what the emphasis ladder is: one axis, deepening.
+[colors.neutral_indexed]
+236 = "#303030"
+239 = "#4E4E4E"
+240 = "#585858"
+244 = "#808080"
+245 = "#8A8A8A"
+247 = "#9E9E9E"
+252 = "#D0D0D0"
+
+[typography]
+faint = { color = "DarkGray", description = "grey50 — default-column values, secondary counts" }
+muted = { color = "Gray", description = "grey62 — inactive tabs, unfocused bodies, key hints" }
+normal = { color = "Gray", description = "SWATCH APPROXIMATE — the real rung is Color::Reset, the terminal's own foreground" }
+strong = { color = "White", description = "bold — the one datum that must be seen" }
+
+[ingredients]
+source = "wqm_tui"
+modules = [
+    "widgets::collections",
+    "widgets::daemon_status",
+    "widgets::envelope",
+    "widgets::palette_reference",
+    "widgets::palette_sheet",
+    "widgets::store_health",
+    "widgets::tab_bar",
+]

@@ -1,0 +1,39 @@
+[package]
+name = "wqm-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ratatui = { workspace = true }
+libc = { workspace = true }
+tui-pantry = { version = "0.4.0", optional = true }
+
+# The real contracts, inherited from the ui-module workspace so this crate and its future
+# sibling `wqm-cli` cannot drift onto different versions of them. Binding these means the
+# storyboard renders the system's own types rather than mock-ups: a frame that depicts a
+# state the contract cannot express will not compile, and a contract that grows a new
+# state breaks the frames that ignore it.
+#
+# N8 names + N12 the response envelope.
+wqm-common = { workspace = true }
+# N49 the client seam: DaemonReport, whose Unreachable variant is UX-F021 in type form.
+wqm-client = { workspace = true }
+# N24 the wire contract, for `Address` — what the TUI shows when it says where it looked.
+wqm-proto = { workspace = true }
+
+# The closed N12 vocabularies spell themselves through serde (snake_case rename), so the
+# storyboard reads the wire spelling out of the type rather than re-typing it.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+tui-pantry = ["dep:tui-pantry"]
+
+# The pantry entry point cannot build without the feature that provides `tui_pantry`.
+# Declaring that here is what lets a bare `cargo test` succeed: without it cargo tries to
+# compile the example unconditionally and fails on an unresolved crate, so the crate had no
+# runnable test command that did not also need `--features tui-pantry`.
+[[example]]
+name = "widget_preview"
+path = "examples/widget_preview/main.rs"
+required-features = ["tui-pantry"]
