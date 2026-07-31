@@ -16,9 +16,9 @@
 //!
 //! # What a view is allowed to invent: nothing
 //!
-//! A view composes built widgets and the chrome in [`chrome`]. If a screen needs an element
-//! that does not exist, that element is a widget and belongs in [`crate::widgets`] — a view
-//! that grows its own rendering is how two screens end up drawing the same thing twice.
+//! A view composes built widgets, screen chrome included ([`crate::widgets::chrome`]). If a
+//! screen needs an element that does not exist, that element is a widget and belongs in
+//! [`crate::widgets`] — a view that grows its own rendering is how two screens end up drawing
+//! the same thing twice.
 
-pub mod chrome;
 pub mod service;

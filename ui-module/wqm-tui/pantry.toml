@@ -73,6 +73,14 @@ layer2_bg = "#4D5064"
 [ingredients]
 source = "wqm_tui"
 modules = [
+    # The screen chrome (§16). Atomic elements like any other widget — they were unbrowsable
+    # while they lived inside `views::chrome`, which is the one thing a design instrument
+    # must never make of an element it renders.
+    "widgets::chrome::pane_selector",
+    "widgets::chrome::rule",
+    "widgets::chrome::status_line",
+    "widgets::chrome::title_bar",
+    "widgets::chrome::zone_heading",
     "widgets::collections",
     "widgets::config_table",
     "widgets::daemon_status",

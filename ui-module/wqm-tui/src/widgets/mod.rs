@@ -6,7 +6,12 @@
 //! [`daemon_status`] on N49's client seam, [`envelope`] on N12's response envelope. A
 //! frame that cannot be built from the real type is a frame depicting a state the system
 //! cannot produce.
+//!
+//! [`chrome`] is the exception to "a widget is a zone's content": §16's composition model
+//! (Chris, 20260731) counts the screen furniture — title bar, status line, rules, selectors,
+//! headings — as widgets too, and it lives there as one family.
 
+pub mod chrome;
 pub mod collections;
 pub mod config_table;
 pub mod daemon_status;

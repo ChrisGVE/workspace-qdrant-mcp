@@ -55,8 +55,8 @@ use wqm_client::DaemonReport;
 
 use crate::health::{Component, Rollup, SystemHealth};
 use crate::tokens::{Condition, Health};
-use crate::views::chrome::{
-    self, Attention, Freshness, PaneSelector, Rule, StatusLine, TitleLine, ZoneHeading,
+use crate::widgets::chrome::{
+    self, Attention, Freshness, PaneSelector, Rule, StatusLine, TitleBar, ZoneHeading,
 };
 use crate::widgets::{
     config_table::ConfigTable,
@@ -269,7 +269,7 @@ impl Widget for ServiceView<'_> {
 
         tabs.render(inset(r.tabs), buf);
         Rule::frame().render(r.top_rule, buf);
-        TitleLine::new("Service")
+        TitleBar::new("Service")
             .freshness(self.freshness)
             .render(inset(r.title), buf);
 

@@ -619,7 +619,7 @@ const HINT_GAP: &str = "   ";
 /// §5 puts the available action *"on the bottom key-hint line"*, and §6's modal draws the
 /// same pair at the foot of its box. Two sites spelling the pair separately is how the two
 /// drift, so the idiom lives here with the rest of the visual vocabulary and both call it.
-/// Used by [`crate::views::chrome::StatusLine`] and `widgets::modal`.
+/// Used by [`crate::widgets::chrome::StatusLine`] and `widgets::modal`.
 pub fn key_hints<K: AsRef<str>, L: AsRef<str>>(hints: &[(K, L)]) -> Vec<Span<'static>> {
     let mut spans = Vec::with_capacity(hints.len() * 3);
     for (i, (key, label)) in hints.iter().enumerate() {
