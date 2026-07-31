@@ -12,8 +12,10 @@ is done and **adopts nothing**; `ST` (statusline / keymap / which-key) is done a
 **one recommendation for Chris's review list** (`ratatui-input-manager`) and nothing adopted;
 `F` (toasts), `D` (images / graph feed) and `C` (modals, overlays) are done — `C` produces a
 second recommendation, `tui-popup`. `G` (scrolling / input / focus / mouse) is done and adopts
-nothing; `E` (editing) is done and produces a third recommendation, `tui-input`. `A` (theming,
-33), `H`, `I` are **not started** — `PASS1-SCREEN.md` §5 still describes what each of them is.
+nothing; `E` (editing) is done and produces a third recommendation, `tui-input`; `H` (T4
+frameworks) and `I` (`tui-pantry` itself) are done and adopt nothing. **`A` (theming, 33) is the
+only area left, and it is deliberately last** — it waits on the `OSC 4` decision, which is
+Chris's (`handover.md` priority 1).
 
 **§F answers the factual half of area A's first question**, since both reservations carry the
 same boilerplate: there is **no public design** behind `ratatui-theme` 0.0.0 or `ratatui-toast`
@@ -994,6 +996,138 @@ edits it. The gap is real and narrow: rendering is available, only the editing h
 
 ---
 
+## H — T4 frameworks. **Answered: do not adopt, as expected — but one idea is worth taking and one licence problem is worth knowing.**
+
+Thirty-three `FW`-tagged KEEPs. The default verdict was decided before pass 2 started: adopting a
+framework means leaving ratatui, and `project-notes/tui-designer.md` already killed the framework
+trade for the design-tooling question. Nothing here disturbs that. The area's value is what it
+records.
+
+### The headline lead is retired — by our own code, not by evaluation
+
+`PASS1-SCREEN.md` §4 singled out **FrankenTUI** because `ftui-core` advertises *"terminal
+lifecycle and **capabilities**"*, which it called "precisely the capability-probe our #249 is
+missing". That is no longer missing: **`src/encoding.rs` is built** (§CAP, §13), on `termprofile`
+for detection only, at zero transitive cost. The lead closed while it was still on the list.
+
+Worth stating because it is the pattern: **an evaluation running alongside implementation has to
+re-check its own leads against what shipped**, or it recommends a solution to a solved problem.
+
+### The licence problem, and it is worse than §B's
+
+The eleven `ftui-*` crates all declare `license = "LicenseRef-MIT-OpenAI-Anthropic-Rider"` and
+their README says *"MIT License (with OpenAI/Anthropic Rider) © 2026 Jeffrey Emanuel. See
+`LICENSE`."*
+
+**No `LICENSE` file ships in the package.** Checked in both `ftui-core` 0.5.0 (71 files) and
+`ftui-a11y` 0.5.0 — no licence file at any path. A `LicenseRef-` SPDX expression means "the terms
+are in a file"; the file is not in the artifact. So the licence terms of the whole family are
+**not obtainable from what crates.io distributes**, and a rider that singles out two AI companies
+by name is exactly the kind of term one would need to read before depending on it.
+
+This sharpens §B: there the CSV had not *captured* the licence; here the crate does not *ship*
+it. Both end at the same rule — **read the licence from the artifact, never from a column** —
+but this instance is unresolvable without going to the upstream repository, which a dependency
+audit cannot rely on.
+
+### The one idea worth taking: `ftui-a11y`
+
+Pass 1's own note — *"accessibility layer — nothing in our stack has one"* — is correct and the
+crate shows what one looks like: an ARIA-shaped semantic tree *beside* the render tree.
+`A11yRole::{Window, Dialog, Button, TextInput, List, Table, Tab, TabPanel, ProgressBar,
+Separator, Group, Presentation, …}`, plus `LiveRegion::{Polite, Assertive}`, `MotionProfile` and
+`ContrastProfile`.
+
+Two of those land directly on open items here, which is why the idea is worth carrying even
+though the crate is not adoptable:
+
+- **`LiveRegion` is the structural answer to §7.6.** The tab bar's alarm is hue-only, so a
+  `NO_COLOR` user gets nothing (§13, measured). A semantic announcement is a channel that does not
+  depend on colour *or* on a glyph — a third option beside the two §7.6 currently offers Chris.
+- **`ContrastProfile` is the second independent sighting of the missing instrument.** §14 already
+  noted `karet-theme` does WCAG contrast checking, and defect §8.5 — `strong()` resolving *below*
+  `normal` — is a contrast measurement nothing in this crate performs. Two crates in two areas
+  have it; we have none.
+
+### The rest, in one table
+
+| crate | why not |
+|---|---|
+| `cursive` 0.21.1 (1.65M) | retained-mode, not ratatui, **last release 2024-08-03** |
+| `tuirealm` 4.1.0 (215K), `tui-react` 0.24.0 (397K), `iocraft` (145K), `reratui`, `ratatui-tea`, `eye_declare`, `ratatui-kit`, `tabitha` | Elm/React/Bubble-Tea runtimes. Each would decide the app's whole control flow, which is `src/rust/bins/wqm`'s decision and not a widget crate's |
+| `textual-rs` 0.3.16 | a Rust port of Textual with CSS styling. The *idea* — style sheets external to the code — is real but collides head-on with `tokens.rs` being the single colour authority (§ST) |
+| `tuika` 0.6.0, `tui-lipan` 0.1.0 (MPL-2.0), `plurimus`, `bobatea`, `santui-core`, `tuicore` | small frameworks; `tuicore` was already rejected in §B for pulling `reqwest` and `rig` |
+| `rich_rust` (114K), `rat-salsa` 4.0.3 | a Rich port and the `rat-*` app framework — both the whole-stack commitment this area exists to decline |
+| ~~`hotl-tui`~~ | **AGPL-3.0-or-later** (§B), and its author disclaims semver |
+| `vtcode-ui` 0.141.8 | tagged `ART` too — one product's design system, published. Worth *reading* for how it drew the seam, which is what the `ART` tag is for; not a candidate |
+
+---
+
+## I — `tui-pantry` itself. **Answered: the convention exists, ours differs from it in two ways, and the four defects have no alternative harness to escape to.**
+
+### There is no competitor, which settles the defect question
+
+`CRATE-INVENTORY.md` §11 recorded that searching "pantry" surfaced no alternative preview
+harness. The full 5285-crate screen does not change that: `tui-pantry` 0.4.0 (472 downloads) and
+`tui-pantry-macros` 0.4.0, both `taho-inc`, MIT OR Apache-2.0, last released 2026-04-15. So
+`handover.md` §8's four third-party defects are **report-or-work-around**, with no migration
+available — and all four are currently worked around. That is a stable position rather than a
+comfortable one: the harness is a single-author crate at 472 downloads on which every storyboard
+frame depends.
+
+### The publishing convention exists, and it is not the one we use
+
+§11 asked: *is there a documented pattern for shipping a widget with its pantry ingredients?*
+Measured against `tui-skeleton` 0.3.0 and `tui-splitflap` 0.1.0 (both `jharsono`, MIT OR
+Apache-2.0), the answer is yes, and it differs from ours on two points:
+
+| | `tui-skeleton` | `wqm-tui` |
+|---|---|---|
+| feature name | `pantry` | `tui-pantry` |
+| ingredient location | a **sibling file** per widget — `braille_bar.rs` + `braille_bar.ingredient.rs` | an inline `#[cfg(feature = "tui-pantry")] pub mod ingredient` inside the widget file |
+| layout helper | `tui_pantry::layout::render_centered` | hand-placed |
+
+Neither difference is a defect. Both are worth a decision rather than a drift:
+
+- The **sibling-file** split keeps the widget file to the widget, which matters here because
+  `tab_bar.rs` is 267 lines of which roughly 100 are ingredient boilerplate, and the project has a
+  file-size discipline. It also makes the "two touches to add a widget" gotcha (§9) into three,
+  so it is a trade rather than a win.
+- The **feature name** is cosmetic, but a crate that ends up under `src/rust/crates/` alongside
+  others gains from matching the ecosystem's spelling.
+- `tui-skeleton` also ships a `use_cases.ingredient.rs` — an 18 KB pantry entry that is *only*
+  use cases, separate from the per-widget variants. That is a convention idea worth stealing: the
+  storyboard's composed frames are exactly that shape, and they currently have nowhere to live
+  except `palette_sheet.rs`.
+
+### The loading-state question carried from §C, and the finding that closes this pass
+
+`tui-skeleton` is genuinely skeleton-loading widgets — pulse, sweep and shimmer placeholders for
+data in flight — which is the r02 vocabulary gap §C flagged: a search in flight has no defined
+appearance. Not adoptable as-is (it brings its own animation model, and animation is not
+storyboarded), but its README states the design property that makes it interesting:
+
+> *"All widgets are stateless — pass `elapsed_ms` from your event loop and the animation state is
+> computed purely from the timestamp."*
+
+**That is the third independent sighting of the same discipline in this pass**, from three
+unrelated authors:
+
+| crate | area | how it takes time |
+|---|---|---|
+| `hjkl-which-key` | §ST | `should_show(pending_at, delay, enabled, **now**)` |
+| `hjkl-holler` | §F | `active(**now**)`, `is_expired(**now**)`, `is_fading(**now**)` |
+| `tui-skeleton` | §I | animation state computed purely from a caller-supplied `elapsed_ms` |
+
+Three crates, three authors, one rule: **a widget never reads the clock — the caller passes time
+in.** `HEALTH-MONITORING.md` arrives at the same place from the opposite direction ("rendering
+must never trigger work") for reasons about daemon load rather than testability. When a design
+constraint and an ecosystem convention converge from unrelated motives, it is worth promoting
+from an observation to a rule for our own widgets — and it is the most portable thing this whole
+evaluation found.
+
+---
+
 ## Review agenda — for the joint session with Chris (20260730)
 
 Written so the review does not have to start by reconstructing what was picked and why. Nothing
@@ -1020,9 +1154,31 @@ same standard as a shipping one (both of these end up inside `wqm` under §11), 
 | `tui-input` 0.15.3 | **single-line editing** — the search field and any inline edit (§E) | **two dependencies, both `unicode-*`**; no ratatui, no input backend | 1.73M downloads and it does not render at all, so r02's `▏` insert caret stays ours to draw — which matters because no textarea crate can express it |
 | `tui-popup` 0.7.6 | the **layer-1 modal** — storyboard item 3, and the one surface r02 §6 allows a box (§C) | three proc-macro dependencies, no runtime weight; ratatui-org, 249K downloads | border and fill are fully ours (`Borders::NONE` works, measured), but its **default clears to `Color::Reset` — i.e. to layer 0**, so a wrapper must set the layer-1 fill rather than each call site remembering. The alternative is `tui-overlay`, purer and much smaller but a single-author 0.1.2; that choice follows from the modal's shape, which is not drawn yet |
 
-Two areas produced **no** recommendation at all — `B` (tabs and containers) and the status-*value*
-half of `ST`. That is a result, not a gap: §B and §ST say what was measured and why nothing
-earned adoption.
+Five areas produced **no** recommendation at all — `B` (tabs and containers), the status-*value*
+half of `ST`, `D`, `F`, `G`, `H` and `I`. That is a result, not a gap: each section says what was
+measured and why nothing earned adoption. Three of them (`D`, the animation third of `C`, and the
+graph surface) were declined as **premature** rather than as unsuitable — nothing in
+`handover.md` §10's backlog needs them, and choosing a dependency for an undrawn surface is the
+trade §12 already refused for theming.
+
+### One rule to take, independent of any adoption
+
+Three unrelated crates in three different areas arrived at the same discipline: **a widget never
+reads the clock — the caller passes time in.** `hjkl-which-key::should_show(…, now)` (§ST),
+`hjkl-holler::active(now)` (§F), `tui-skeleton`'s animation computed purely from a caller-supplied
+`elapsed_ms` (§I). `HEALTH-MONITORING.md` reaches the same place from an unrelated motive —
+"rendering must never trigger work", argued from daemon load rather than testability. A constraint
+and a convention converging from different directions is worth promoting to a rule for our own
+widgets, and it costs nothing to adopt.
+
+### Two things the review should decide that are not crates
+
+- **Is a toast a modal?** r02 §6 reserves boxes for modals, and every toast implementation draws a
+  floating box (§F). The answer gates the toast surface before any crate is chosen.
+- **Is `LiveRegion` a third option for §7.6?** The tab-bar alarm is hue-only, and §7.6 currently
+  offers Chris two choices — add a glyph, or accept that a `NO_COLOR` user does not get it.
+  `ftui-a11y` shows a third: a semantic announcement that depends on neither colour nor glyph
+  (§H).
 
 ### Not yet evaluated — the areas, and what pass 1 left pointing at each
 
@@ -1036,8 +1192,8 @@ earned adoption.
 | ~~**E** editing~~ | **DONE (§E) — `tui-input` recommended for the single-line case.** The fork question dissolves: the original went 20 months without a release, so the org's fork is a maintenance rescue, not a design split. The sharper finding is that **no textarea crate can draw r02's `▏` insert caret** — they all express the cursor as a style on a space |
 | ~~**F** toasts~~ | **DONE (§F) — adopt nothing.** The placeholder has no design; `hjkl-holler` is the shape to copy, not a dependency; and the coalescing `CR-035` needs **cannot come from a toast crate** — measured: it collapses repetition, not flapping |
 | ~~**G** scrolling, input, focus, mouse~~ | **DONE (§G) — adopt nothing.** `wqm-tui` reads no input at all (measured), focus is already in the ladder as muted-vs-normal plus an `Option<usize>` cursor, and nothing is storyboarded that scrolls. `tui-scrollbar` is the known answer for when something does | — |
-| **H** T4 frameworks | read for ideas; default verdict is do-not-adopt | `CRATE-INVENTORY.md` §10 |
-| **I** `tui-pantry` itself | conventions, and the three open defects in `handover.md` §8 | **plus `tui-skeleton` and `tui-splitflap` carried over from C** — both ship as pantry components, and the loading-state question they raise has no r02 vocabulary yet |
+| ~~**H** T4 frameworks~~ | **DONE (§H) — do not adopt, as expected.** Its headline lead retired itself: `ftui-core`'s capability probe is what `src/encoding.rs` now is. One idea carried (`ftui-a11y`'s `LiveRegion` is a third option for §7.6) and one warning: the eleven `ftui-*` crates declare a custom licence whose file **does not ship in the package** | — |
+| ~~**I** `tui-pantry` itself~~ | **DONE (§I).** No alternative harness exists in 5285 crates, so §8's defects are report-or-work-around. The publishing convention does exist and differs from ours — sibling `*.ingredient.rs` files, a `pantry` feature name, and a use-cases-only entry worth stealing | — |
 
 **A should be read after the `OSC 4` decision** (`handover.md` priority 1): querying the
 terminal's sixteen slots changes what a theming crate would have to supply, and possibly whether
