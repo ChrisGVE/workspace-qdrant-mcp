@@ -313,14 +313,14 @@ pub struct ToastStack<'a> {
     now: Instant,
 }
 
-/// Columns kept clear between the stack and the right edge — **the screen's own content
-/// margin** (Chris, 20260731: *"flushed against the margin"*).
+/// Columns between the stack and the right edge: **none** (Chris, 20260731, on seeing it —
+/// *"its right frame in the same column as the last column of the screen"*).
 ///
-/// It used to be one column, which put the toast one cell further right than everything else
-/// on the screen: close enough to read as a mistake rather than as a margin. Lining it up with
-/// the content means the toast's right edge sits under the tab row's, the store list's and the
-/// status line's.
-const MARGIN_X: u16 = 2;
+/// Two earlier readings were wrong. One column read as a mistake rather than as a margin; two
+/// columns lined the box up with the screen's *content* margin, which is not what "flushed"
+/// meant either. The border sits in the last column, so the toast is welded to the corner and
+/// the corner is the screen's, not the content's.
+const MARGIN_X: u16 = 0;
 
 /// Rows kept clear below the stack. **One, not two**: a terminal cell is about twice as tall
 /// as it is wide, so one row and two columns are the same amount of visual quiet, and matching
@@ -338,6 +338,30 @@ const MAX_TEXT_LINES: usize = 3;
 impl<'a> ToastStack<'a> {
     pub fn new(deck: &'a ToastDeck, now: Instant) -> Self {
         Self { deck, now }
+    }
+}
+
+/// Take away the symbols a box covers and **leave their background exactly as it was**.
+///
+/// `Clear` was the obvious thing and it is the wrong one for a fill-less box: it resets the
+/// background too. On a screen that happens to look right — layer 0 is the terminal's default
+/// and so is a cleared cell — but it is right by coincidence, and the coincidence breaks
+/// wherever the surface behind the toast is *not* the default: a pantry preview pane, which
+/// paints its own background, and the §9 condition wash, which the toast has no business
+/// punching a hole in.
+///
+/// A toast with no fill has to inherit the background it is laid on. Removing the symbols is
+/// the whole of what occlusion means here (#252); changing the colour underneath was never
+/// part of it.
+fn blank_keeping_background(rect: Rect, buf: &mut Buffer) {
+    for y in rect.top()..rect.bottom() {
+        for x in rect.left()..rect.right() {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                let background = cell.bg;
+                cell.reset();
+                cell.set_bg(background);
+            }
+        }
     }
 }
 
@@ -408,11 +432,8 @@ impl Widget for ToastStack<'_> {
                 })
                 .collect();
 
-            // Occlusion and fill are two different things, and only the first is needed.
-            // `Clear` resets the cells the box covers, so the screen's text cannot run through
-            // it; without that a `Block` background merely restyles what is underneath and
-            // leaves the symbols standing (#252).
-            ratatui::widgets::Clear.render(rect, buf);
+            // Occlusion and fill are two different things, and only the first is wanted.
+            blank_keeping_background(rect, buf);
 
             // **No fill** (Chris, 20260731: *"without background, but with the frame"*). The
             // toast used to wear the layer-1 background, which was the one thing making it
@@ -757,11 +778,18 @@ mod tests {
         let mut deck = ToastDeck::new();
         deck.push(toast(Health::Healthy, Health::Offline, "vector offline"), now);
 
+        // The surface behind the toast is given BOTH a symbol and a background that are not
+        // the defaults. The background is the half `Clear` would have destroyed, and a buffer
+        // left at its defaults cannot tell the difference — which is exactly how the first fix
+        // for #252 shipped a toast that punched a hole in whatever it was laid on.
+        let behind = ratatui::style::Color::Rgb(0x2a, 0x00, 0x40);
         let area = Rect::new(0, 0, 60, 12);
         let mut buf = Buffer::empty(area);
         for y in 0..area.height {
             for x in 0..area.width {
-                buf.cell_mut((x, y)).expect("cell in area").set_symbol("x");
+                let cell = buf.cell_mut((x, y)).expect("cell in area");
+                cell.set_symbol("x");
+                cell.set_bg(behind);
             }
         }
         ToastStack::new(&deck, now).render(area, &mut buf);
@@ -783,6 +811,16 @@ mod tests {
             "the screen is showing through the toast: {inside:?}"
         );
         assert_eq!(symbol(&buf, 0, text_row), "x");
+
+        // …and the toast has no background of its own, so every cell it covers — border,
+        // padding and text alike — still carries the one it was laid on.
+        for x in left as u16..=right as u16 {
+            assert_eq!(
+                buf.cell((x, text_row)).expect("cell in area").bg,
+                behind,
+                "column {x} lost the background the toast was laid on"
+            );
+        }
     }
 
     #[test]
