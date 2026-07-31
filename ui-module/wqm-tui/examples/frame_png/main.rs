@@ -26,17 +26,40 @@ use wqm_tui::tokens;
 use wqm_tui::widgets::{
     collections::Collections,
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
-    modal::{Fill, Modal},
-    theme_sheet::{semantic, ThemeGallery, ThemeSheet},
     daemon_status::DaemonPanel,
+    modal::{Fill, Modal},
     store_health::{StoreHealth, StoreRow},
     surface::{ConditionBand, Surface},
     tab_bar::TabBar,
+    theme_sheet::{semantic, ThemeSheet},
     toast::{Toast, ToastDeck, ToastStack},
 };
 
 /// One capture: its file stem, the cell grid it is drawn into, and how to draw it.
 type Frame = (&'static str, u16, u16, Box<dyn Fn(&mut ratatui::Frame)>);
+
+/// The gallery enumerates `ratatui-themes`' own closed set, so it exists only when that
+/// optional dependency does.
+///
+/// This example is gated on `png-capture` alone, and it used to name `ThemeGallery`
+/// unconditionally — so `--features png-capture` on its own did not compile. A feature that
+/// is required must be declared or be optional in the code; it cannot be assumed.
+#[cfg(feature = "themes-preview")]
+fn gallery_frames() -> Vec<Frame> {
+    vec![(
+        "theme-gallery",
+        112,
+        22,
+        Box::new(|f: &mut ratatui::Frame| {
+            f.render_widget(wqm_tui::widgets::theme_sheet::ThemeGallery, f.area())
+        }),
+    )]
+}
+
+#[cfg(not(feature = "themes-preview"))]
+fn gallery_frames() -> Vec<Frame> {
+    Vec::new()
+}
 
 /// A whole screen under a stated condition — the Service tab, with the stores below it.
 ///
@@ -401,13 +424,8 @@ fn main() {
                 )
             }),
         ),
-        (
-            "theme-gallery",
-            112,
-            22,
-            Box::new(|f: &mut ratatui::Frame| f.render_widget(ThemeGallery, f.area())),
-        ),
     ];
+    let frames: Vec<Frame> = frames.into_iter().chain(gallery_frames()).collect();
 
     for (name, cols, rows, draw) in frames {
         let png = match capture(cols, rows, |f| draw(f)) {

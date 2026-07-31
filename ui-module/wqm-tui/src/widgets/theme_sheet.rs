@@ -26,9 +26,9 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::themes::{self, Scheme, Variant};
-use crate::widgets::config_table::fit;
+use crate::themes::{Scheme, Variant};
 use crate::tokens;
+use crate::widgets::config_table::fit;
 
 /// A colour as `#rrggbb`, or `—` for anything that is not RGB. Nothing in either source
 /// should produce a non-RGB colour; if this ever renders a dash, that is the finding.
@@ -242,11 +242,16 @@ pub mod semantic {
         "warning"    0xffb86c "Warnings, pending (typically yellow/orange)",
         "success"    0x50fa7b "Success, additions (typically green)",
         "info"       0x8be9fd "Information, links (typically blue/cyan)",
-    ];}
+    ];
+}
 
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient {
     use super::*;
+    // The module path is used only by the preview constructors below, so it is imported
+    // here rather than at file scope — where a bare build, which compiles neither this
+    // module nor its callers, would see it unused.
+    use crate::themes;
     use tui_pantry::{Ingredient, PropInfo};
 
     const PROPS: &[PropInfo] = &[
@@ -381,7 +386,10 @@ mod themes_preview {
             ];
             for ((field, colour, _), (name, actual)) in expected.iter().zip(live) {
                 assert_eq!(*field, name);
-                assert_eq!(*colour, actual, "{theme:?} {name} drifted from ratatui-themes");
+                assert_eq!(
+                    *colour, actual,
+                    "{theme:?} {name} drifted from ratatui-themes"
+                );
             }
         }
     }
@@ -398,33 +406,6 @@ mod themes_preview {
             !base16.slots.iter().any(|s| s.colour == muted),
             "if this ever fails, ratatui-themes switched to the base16 subset"
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_slot_is_labelled_with_the_name_its_own_source_gives_it() {
-        // The sheet's whole purpose: a swatch with no name attached settles nothing.
-        let area = Rect::new(0, 0, 104, 40);
-        let mut buf = Buffer::empty(area);
-        ThemeSheet::new(themes::catppuccin_mocha())
-            .with_semantic(semantic::CATPPUCCIN_MOCHA)
-            .render(area, &mut buf);
-
-        let text: String = (0..area.height)
-            .flat_map(|y| (0..area.width).map(move |x| (x, y)))
-            .map(|(x, y)| buf.cell((x, y)).expect("in area").symbol().to_string())
-            .collect();
-
-        // base16's positional name, the scheme's own name, and our role for the same slot.
-        assert!(text.contains("base08"));
-        assert!(text.contains("red"));
-        assert!(text.contains("offline"));
-        // …and the semantic source's field name for what is arguably the same colour.
-        assert!(text.contains("error"));
     }
 }
 
@@ -467,10 +448,7 @@ impl Widget for ThemeGallery {
                 Span::styled(fit("THEME", 20), Style::default().fg(tokens::header())),
                 Span::styled(fit("VAR", 7), Style::default().fg(tokens::header())),
                 Span::styled(
-                    FIELDS
-                        .iter()
-                        .map(|f| format!("{f:<8}"))
-                        .collect::<String>(),
+                    FIELDS.iter().map(|f| format!("{f:<8}")).collect::<String>(),
                     Style::default().fg(tokens::header()),
                 ),
             ]),
@@ -514,5 +492,33 @@ impl Widget for ThemeGallery {
         )));
 
         Paragraph::new(lines).render(area, buf);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::themes;
+
+    #[test]
+    fn every_slot_is_labelled_with_the_name_its_own_source_gives_it() {
+        // The sheet's whole purpose: a swatch with no name attached settles nothing.
+        let area = Rect::new(0, 0, 104, 40);
+        let mut buf = Buffer::empty(area);
+        ThemeSheet::new(themes::catppuccin_mocha())
+            .with_semantic(semantic::CATPPUCCIN_MOCHA)
+            .render(area, &mut buf);
+
+        let text: String = (0..area.height)
+            .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+            .map(|(x, y)| buf.cell((x, y)).expect("in area").symbol().to_string())
+            .collect();
+
+        // base16's positional name, the scheme's own name, and our role for the same slot.
+        assert!(text.contains("base08"));
+        assert!(text.contains("red"));
+        assert!(text.contains("offline"));
+        // …and the semantic source's field name for what is arguably the same colour.
+        assert!(text.contains("error"));
     }
 }
