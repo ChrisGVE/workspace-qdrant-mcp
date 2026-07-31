@@ -271,7 +271,7 @@ fn header_line() -> Line<'static> {
 /// is what §3 relies on to say "this cell, not that one", so the column wins and the text
 /// yields; the canonical dotted id is shown in full in the detail pane, so nothing said here
 /// is the only place it is said.
-fn fit(text: &str, width: usize) -> String {
+pub(crate) fn fit(text: &str, width: usize) -> String {
     let count = text.chars().count();
     if count <= width {
         return format!("{text:<width$}");

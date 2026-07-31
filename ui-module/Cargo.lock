@@ -1451,6 +1451,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ratatui-themes"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd1a71b2897e290f5e18ba55138074b4ceb1a765ba0d7219e55fef5459497d5f"
+dependencies = [
+ "ratatui",
+]
+
+[[package]]
 name = "ratatui-widgets"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2488,6 +2497,7 @@ dependencies = [
  "libc",
  "png",
  "ratatui",
+ "ratatui-themes",
  "serde",
  "serde_json",
  "soft_ratatui",

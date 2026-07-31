@@ -17,4 +17,5 @@ pub mod palette_sheet;
 pub mod store_health;
 pub mod surface;
 pub mod tab_bar;
+pub mod theme_sheet;
 pub mod toast;
