@@ -46,10 +46,11 @@
 //! which is the lesser of the two. So `Derived` on a 16-colour login shell renders the
 //! authored 16-colour ladder — not an approximation of the derived one.
 
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::RwLock;
 
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::Span;
 
 use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
@@ -523,7 +524,12 @@ pub fn layer2_bg() -> Color {
 }
 
 /// The three store states, role-first per §7.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// **The declaration order is the severity order, and `Ord` says so.** A screen that rolls
+/// several components up into one dot has to answer "which of these is worst", and deriving
+/// that from the ordering keeps the answer in one place — see [`crate::health::SystemHealth::rollup`].
+/// Without the ordering every caller writes its own `match`, and the third one disagrees.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Health {
     Healthy,
     Degraded,
@@ -564,6 +570,36 @@ pub fn normal_style() -> Style {
 }
 pub fn strong_style() -> Style {
     Style::default().fg(strong()).add_modifier(Modifier::BOLD)
+}
+
+/// The separator between one key hint and the next. Wide enough that a hint reads as one
+/// unit rather than as a run of words.
+const HINT_GAP: &str = "   ";
+
+/// A row of `key label` hints: the key at the normal rung, what it does muted.
+///
+/// §5 puts the available action *"on the bottom key-hint line"*, and §6's modal draws the
+/// same pair at the foot of its box. Two sites spelling the pair separately is how the two
+/// drift, so the idiom lives here with the rest of the visual vocabulary and both call it.
+/// Used by [`crate::views::chrome::StatusLine`] and `widgets::modal`.
+pub fn key_hints<K: AsRef<str>, L: AsRef<str>>(hints: &[(K, L)]) -> Vec<Span<'static>> {
+    let mut spans = Vec::with_capacity(hints.len() * 3);
+    for (i, (key, label)) in hints.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(HINT_GAP, muted_style()));
+        }
+        spans.push(Span::styled(key.as_ref().to_string(), normal_style()));
+        spans.push(Span::styled(format!(" {}", label.as_ref()), muted_style()));
+    }
+    spans
+}
+
+/// The display width [`key_hints`] will occupy, for a caller that has to right-align it.
+pub fn key_hints_width<K: AsRef<str>, L: AsRef<str>>(hints: &[(K, L)]) -> usize {
+    key_hints(hints)
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum()
 }
 
 #[cfg(test)]

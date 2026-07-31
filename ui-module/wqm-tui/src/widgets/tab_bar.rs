@@ -102,7 +102,30 @@ impl TabBar {
         Self { tabs, active }
     }
 
-    /// The five top-level tabs the storyboard works with.
+    /// STORYBOARD §4.1's actual tab row, in its order.
+    ///
+    /// `Dashboard · Queue · Projects · Libraries · Rules · Scratchpad · Search · Graph ·
+    /// Tags · Service` — ten, of which four name an N8 collection and therefore derive their
+    /// label rather than spelling one (`CR-038`). This is what a **screen** draws;
+    /// [`TabBar::standard`] is the abbreviated set the widget previews use, which exists so a
+    /// tab-bar variant fits in a preview cell.
+    pub fn storyboard_tabs() -> Vec<Tab> {
+        vec![
+            Tab::new(1, "Dashboard"),
+            Tab::new(2, "Queue"),
+            Tab::for_collection(3, Collection::Projects),
+            Tab::for_collection(4, Collection::Libraries),
+            Tab::for_collection(5, Collection::Rules),
+            Tab::for_collection(6, Collection::Scratchpad),
+            Tab::new(7, "Search"),
+            Tab::new(8, "Graph"),
+            Tab::new(9, "Tags"),
+            Tab::new(10, "Service"),
+        ]
+    }
+
+    /// The abbreviated tab row the widget previews use — see [`TabBar::storyboard_tabs`] for
+    /// the row a screen draws.
     pub fn standard(active: usize) -> Self {
         Self::new(
             vec![

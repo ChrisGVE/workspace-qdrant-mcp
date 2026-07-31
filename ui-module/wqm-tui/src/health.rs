@@ -113,12 +113,69 @@ impl SystemHealth {
         }
     }
 
+    /// The one dot the bottom status line carries (VISUAL-LANGUAGE §7) — `● healthy`,
+    /// `▲ 1 degraded`.
+    ///
+    /// **Derived from the same components the Service zone lists**, so the summary and the
+    /// detail cannot disagree: a screen showing a yellow store row under a green rollup is
+    /// not a state this type can produce.
+    ///
+    /// # An unreachable daemon rolls up as itself, not as a count
+    ///
+    /// §6.19's rule — the liveness master silences its subordinates — applies to the summary
+    /// exactly as it applies to the alarms. When the daemon is not answering, the component
+    /// readings are *unknown* rather than bad, so counting them would report a number the
+    /// system does not know. The rollup says what is actually true, in N49's own words.
+    pub fn rollup(&self) -> Rollup {
+        if self.daemon == Health::Offline {
+            return Rollup {
+                health: Health::Offline,
+                label: daemon_offline_label(),
+            };
+        }
+
+        let worst = self
+            .components
+            .iter()
+            .map(|c| c.health)
+            .chain(std::iter::once(self.daemon))
+            .max()
+            .unwrap_or(Health::Healthy);
+
+        if worst == Health::Healthy {
+            return Rollup {
+                health: Health::Healthy,
+                label: "healthy".to_string(),
+            };
+        }
+
+        let count = self
+            .components
+            .iter()
+            .map(|c| c.health)
+            .chain(std::iter::once(self.daemon))
+            .filter(|h| *h == worst)
+            .count();
+
+        Rollup {
+            health: worst,
+            label: format!("{count} {}", verb(worst)),
+        }
+    }
+
     fn component(&self, role: &str) -> Option<Health> {
         self.components
             .iter()
             .find(|c| c.role == role)
             .map(|c| c.health)
     }
+}
+
+/// The status line's single dot and the words beside it — [`SystemHealth::rollup`]'s answer.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Rollup {
+    pub health: Health,
+    pub label: String,
 }
 
 /// The word for arriving at a state. `Healthy` is *recovered* rather than *healthy* because a
