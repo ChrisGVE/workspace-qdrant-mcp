@@ -434,7 +434,23 @@ impl Condition {
 ///
 /// Judge it, do not argue it: `cargo pantry dump "Surface" --variant "Wash Strengths"` puts
 /// the candidates side by side with real text on them.
-pub const WASH_MIX: f32 = 0.10;
+///
+/// # Why 0.14 and not the 0.10 that looked right
+///
+/// Chris chose it *"to be consistent for both"* (20260731) — for the wash as it is today and
+/// for the wash after `OSC 4`. Today the tint is mixed toward **pure** red; once the terminal's
+/// own sixteen slots can be queried it mixes toward the **theme's** red, which is a gentler
+/// move from the same background. Measured as CIE76 distance from the base:
+///
+/// | | 0.10 | 0.14 |
+/// |---|---|---|
+/// | toward pure red (today) | ΔE 11–14 | ΔE 16–19 |
+/// | toward the theme's red (after `OSC 4`) | ΔE 8–10 | **ΔE 11–14** |
+///
+/// So 0.14 after `OSC 4` is what 0.10 is now, and the constant does not move when that decision
+/// lands. The cost is paid in the interim: until then the wash is one step louder than the
+/// value that was called perfect.
+pub const WASH_MIX: f32 = 0.14;
 
 /// Layer 0's background: [`None`] normally — §6 says a full screen keeps the terminal's own
 /// and is never repainted — and the wash while the daemon is unreachable.

@@ -583,10 +583,11 @@ mod tests {
             };
 
             let distance = delta_e(bg, (r, g, b));
-            // Measured across all four at WASH_MIX = 0.10: 11.4–13.5. The band is deliberately
-            // wide — this pins "one constant works on both polarities", not the constant.
+            // Measured across all four: 11.4–13.5 at mix 0.10, 16.0–18.9 at 0.14. The band is
+            // deliberately wide and spans both — it pins "one constant works on both
+            // polarities", never the constant itself, which is Chris's and moves with `OSC 4`.
             assert!(
-                (8.0..=18.0).contains(&distance),
+                (8.0..=22.0).contains(&distance),
                 "{name}: wash is ΔE {distance:.1} from the base — the tint no longer carries \
                  the same weight on this polarity"
             );
