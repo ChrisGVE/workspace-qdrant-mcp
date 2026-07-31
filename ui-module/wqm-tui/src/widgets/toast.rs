@@ -313,9 +313,19 @@ pub struct ToastStack<'a> {
     now: Instant,
 }
 
-/// Cells kept clear between the stack and the two screen edges it sits against, so the
-/// rectangle reads as floating above the screen rather than welded to its corner.
-const MARGIN: u16 = 1;
+/// Columns kept clear between the stack and the right edge — **the screen's own content
+/// margin** (Chris, 20260731: *"flushed against the margin"*).
+///
+/// It used to be one column, which put the toast one cell further right than everything else
+/// on the screen: close enough to read as a mistake rather than as a margin. Lining it up with
+/// the content means the toast's right edge sits under the tab row's, the store list's and the
+/// status line's.
+const MARGIN_X: u16 = 2;
+
+/// Rows kept clear below the stack. **One, not two**: a terminal cell is about twice as tall
+/// as it is wide, so one row and two columns are the same amount of visual quiet, and matching
+/// the numbers rather than the appearance would push the toast visibly off the bottom corner.
+const MARGIN_Y: u16 = 1;
 
 /// The widest a toast's text may be before it wraps. Wide enough for a sentence, narrow
 /// enough that the stack never becomes the screen's main content.
@@ -338,14 +348,14 @@ impl Widget for ToastStack<'_> {
         const CHROME: u16 = 4;
         const GLYPH: u16 = 2;
 
-        if area.width <= MARGIN + CHROME + GLYPH || area.height <= MARGIN {
+        if area.width <= MARGIN_X + CHROME + GLYPH || area.height <= MARGIN_Y {
             return;
         }
 
-        let text_width = MAX_TEXT_WIDTH.min(area.width - MARGIN - CHROME - GLYPH);
+        let text_width = MAX_TEXT_WIDTH.min(area.width - MARGIN_X - CHROME - GLYPH);
         // Newest first: the stack grows upward from the corner, so the toast that just
         // arrived is always in the same place.
-        let mut bottom = area.bottom().saturating_sub(MARGIN);
+        let mut bottom = area.bottom().saturating_sub(MARGIN_Y);
 
         for live in self.deck.active(self.now).into_iter().rev() {
             let (glyph, glyph_style) = live.toast.marks();
@@ -373,12 +383,12 @@ impl Widget for ToastStack<'_> {
 
             // A toast that does not fit above the one below it is not drawn at all: half a
             // rectangle in the corner is a rendering artefact, not a notice.
-            if bottom < area.top() + height || width + MARGIN > area.width {
+            if bottom < area.top() + height || width + MARGIN_X > area.width {
                 break;
             }
 
             let rect = Rect {
-                x: area.right() - MARGIN - width,
+                x: area.right() - MARGIN_X - width,
                 y: bottom - height,
                 width,
                 height,
@@ -398,21 +408,25 @@ impl Widget for ToastStack<'_> {
                 })
                 .collect();
 
-            // Occlude first, for the same reason the modal does: a background fill restyles
-            // the cells it covers without clearing their symbols, so a toast raised over a
-            // populated screen would have the screen's text running through it.
+            // Occlusion and fill are two different things, and only the first is needed.
+            // `Clear` resets the cells the box covers, so the screen's text cannot run through
+            // it; without that a `Block` background merely restyles what is underneath and
+            // leaves the symbols standing (#252).
             ratatui::widgets::Clear.render(rect, buf);
 
-            // The fill is the §6 layer-1 background: a toast floats above the screen even
-            // though it takes no part in the modal stack.
+            // **No fill** (Chris, 20260731: *"without background, but with the frame"*). The
+            // toast used to wear the layer-1 background, which was the one thing making it
+            // look like a member of the §6 layer stack — and §6.13 says it sits *outside*
+            // that stack. Cleared to the terminal's own background and delimited by its
+            // border, it now reads as a notice laid on the screen rather than as a shallow
+            // modal, and the modal keeps the fill as the thing only a stack member has.
             let block = Block::bordered()
                 .padding(Padding::horizontal(1))
                 .border_style(if fading {
                     tokens::faint_style()
                 } else {
                     tokens::muted_style()
-                })
-                .style(Style::default().bg(tokens::layer1_bg()));
+                });
             Paragraph::new(lines).block(block).render(rect, buf);
 
             bottom = rect.y;
@@ -552,7 +566,7 @@ pub mod ingredient {
             toast(
                 Health::Healthy,
                 Health::Degraded,
-                "vector store degraded — qdrant slow past its SLA",
+                "vector degraded",
             ),
             Duration::ZERO,
             1,
@@ -567,7 +581,7 @@ pub mod ingredient {
             toast(
                 Health::Degraded,
                 Health::Offline,
-                "vector store offline — qdrant unreachable",
+                "vector offline",
             ),
             Duration::ZERO,
             1,
@@ -579,7 +593,7 @@ pub mod ingredient {
         "Recovery",
         "Back to green — the other half of what Chris kept. Does the all-clear read as relief, not alarm?",
         deck_at(&[(
-            toast(Health::Offline, Health::Healthy, "vector store recovered"),
+            toast(Health::Offline, Health::Healthy, "vector recovered"),
             Duration::ZERO,
             1,
         )])
@@ -591,17 +605,17 @@ pub mod ingredient {
         "Alarm then all-clear, the corner's budget. Newest is lowest; the arrival point never moves",
         deck_at(&[
             (
-                toast(Health::Healthy, Health::Offline, "vector store offline"),
+                toast(Health::Healthy, Health::Offline, "vector offline"),
                 Duration::from_millis(900),
                 1,
             ),
             (
-                toast(Health::Offline, Health::Degraded, "vector store degraded"),
+                toast(Health::Offline, Health::Degraded, "vector degraded"),
                 Duration::from_millis(400),
                 1,
             ),
             (
-                toast(Health::Degraded, Health::Healthy, "vector store recovered"),
+                toast(Health::Degraded, Health::Healthy, "vector recovered"),
                 Duration::ZERO,
                 1,
             ),
@@ -613,7 +627,7 @@ pub mod ingredient {
         "Repeated",
         "Eight identical reports, one rectangle: repetition collapses to a count — flapping does NOT (CR-035)",
         deck_at(&[(
-            toast(Health::Healthy, Health::Degraded, "vector store degraded"),
+            toast(Health::Healthy, Health::Degraded, "vector degraded"),
             Duration::ZERO,
             8,
         )])
@@ -775,7 +789,7 @@ mod tests {
     fn the_stack_is_anchored_to_the_lower_right_corner() {
         let now = Instant::now();
         let mut deck = ToastDeck::new();
-        deck.push(alarm("vector store degraded"), now);
+        deck.push(alarm("vector degraded"), now);
 
         let buf = render(&deck, now, 60, 20);
         let cells = painted(&buf);
@@ -785,12 +799,14 @@ mod tests {
         let bottom = cells.iter().map(|(_, y)| *y).max().unwrap();
         let left = cells.iter().map(|(x, _)| *x).min().unwrap();
 
-        // MARGIN clear cells against both edges, and nothing on the left half of a 60-column
-        // screen: this is a corner surface, not a footer.
-        assert_eq!(right, 60 - 1 - MARGIN, "not flush against the right margin");
+        // The margins are asymmetric on purpose (see MARGIN_X / MARGIN_Y): two columns
+        // because that is the screen's own content margin, one row because a cell is twice
+        // as tall as it is wide. Nothing on the left half of a 60-column screen either —
+        // this is a corner surface, not a footer.
+        assert_eq!(right, 60 - 1 - MARGIN_X, "not flush against the right margin");
         assert_eq!(
             bottom,
-            20 - 1 - MARGIN,
+            20 - 1 - MARGIN_Y,
             "not flush against the bottom margin"
         );
         assert!(

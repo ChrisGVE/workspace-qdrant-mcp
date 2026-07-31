@@ -86,28 +86,6 @@ const ZONE_CONFIG: usize = 1;
 /// The Service tab's number in §4.1's row, and therefore its index.
 const SERVICE_TAB: usize = 9;
 
-/// Which lower-right corner the toast is welded to — **an open question for Chris**, rendered
-/// rather than argued.
-///
-/// §8 says *the screen's* corner, with one clear cell against each edge, and that is
-/// [`ToastCorner::Screen`]. On a screen with a bottom frame rule it puts the box across that
-/// rule: the rule enters and leaves the box on the same row, which can read as floating over
-/// the screen or as a line drawn through the notice. [`ToastCorner::AboveChrome`] is the same
-/// toast anchored to the corner of the *content*, clearing the rule and the status line.
-///
-/// The trade is real in both directions. Screen-corner keeps §8's rule literally and keeps
-/// the toast always in the same place whatever chrome a screen has; above-chrome keeps the
-/// frame rules intact, and §6 gives those rules the specific job of underlining the screen's
-/// edge — a notice that covers the edge covers the thing that says where the screen is.
-/// Compare `Degraded + toast` with `Degraded + toast, above the chrome`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ToastCorner {
-    /// §8 as written: the screen's own lower-right corner.
-    Screen,
-    /// The content's lower-right corner — above the bottom frame rule and the status line.
-    AboveChrome,
-}
-
 /// The Service hub, composed.
 pub struct ServiceView<'a> {
     /// The federation's *backing* stores — not the daemon; see the module docs.
@@ -120,7 +98,6 @@ pub struct ServiceView<'a> {
     /// The deck and the moment it is being rendered at. A widget never reads the clock, and
     /// a screen is no exception — the frame is a still, so the time in it is an input.
     toasts: Option<(&'a ToastDeck, Instant)>,
-    toast_corner: ToastCorner,
 }
 
 impl<'a> ServiceView<'a> {
@@ -138,7 +115,6 @@ impl<'a> ServiceView<'a> {
             attention: Attention::None,
             modal: None,
             toasts: None,
-            toast_corner: ToastCorner::Screen,
         }
     }
 
@@ -154,12 +130,6 @@ impl<'a> ServiceView<'a> {
 
     pub fn toasts(mut self, deck: &'a ToastDeck, now: Instant) -> Self {
         self.toasts = Some((deck, now));
-        self
-    }
-
-    /// Which corner the toast is welded to — see [`ToastCorner`], which is an open question.
-    pub fn toast_corner(mut self, corner: ToastCorner) -> Self {
-        self.toast_corner = corner;
         self
     }
 
@@ -355,14 +325,10 @@ impl Widget for ServiceView<'_> {
             modal.render(body, buf);
         }
         if let Some((deck, now)) = self.toasts {
-            let corner = match self.toast_corner {
-                ToastCorner::Screen => body,
-                ToastCorner::AboveChrome => Rect {
-                    height: r.bottom_rule.y.saturating_sub(body.y),
-                    ..body
-                },
-            };
-            crate::widgets::toast::ToastStack::new(deck, now).render(corner, buf);
+            // The SCREEN's corner, over the chrome (Chris, 20260731) — the toast keeps the
+            // same arrival point whatever furniture a screen carries, and its own margins put
+            // it flush with the content's.
+            crate::widgets::toast::ToastStack::new(deck, now).render(body, buf);
         }
 
         // Last of all, over nothing (§6.18) — the structural half of the condition.
@@ -383,7 +349,6 @@ impl Widget for ServiceView<'_> {
 mod frames {
     use super::*;
     use crate::widgets::config_table::{Edit, Entry, Focus, Row, UNSET};
-    use crate::widgets::toast::Toast;
     use std::time::Duration;
     use wqm_client::{DaemonState, DaemonStatus, IndexState, UnreachableReason};
     use wqm_proto::Address;
@@ -493,18 +458,35 @@ mod frames {
     }
 
     /// One store degraded: the rollup, the tab colour and the toast all follow from it.
+    ///
+    /// **The toast is produced by `health::transitions`, not written here.** The first cut
+    /// carried a hand-written sentence — *"vector store degraded — qdrant slow past its
+    /// SLA"* — which is both redundant (Chris, 20260731) and a message the system cannot
+    /// actually emit: the producer says `role verb`, so the real string is *"vector
+    /// degraded"*. A frame whose text was invented is a frame of a screen that does not
+    /// exist, which is the same rule the Logs pane is missing for.
     pub fn degraded_deck() -> (ToastDeck, Instant) {
         let now = Instant::now();
-        let mut deck = ToastDeck::new();
-        deck.push(
-            Toast::transition(
-                Health::Healthy,
-                Health::Degraded,
-                "vector store degraded — qdrant slow past its SLA",
-            )
-            .expect("a change of state"),
-            now,
+        let before = SystemHealth::new(
+            Health::Healthy,
+            stores(Health::Healthy)
+                .iter()
+                .map(|row| Component::new(row.role.clone(), row.health))
+                .collect(),
         );
+        let after = SystemHealth::new(
+            Health::Healthy,
+            stores(Health::Degraded)
+                .iter()
+                .map(|row| Component::new(row.role.clone(), row.health))
+                .collect(),
+        );
+
+        let mut deck = ToastDeck::new();
+        for toast in crate::health::transitions(&before, &after) {
+            deck.push(toast, now);
+        }
+        assert!(!deck.is_empty(), "the frame's own transition raised nothing");
         (deck, now)
     }
 
@@ -607,16 +589,6 @@ pub mod ingredient {
                 |buf, area| {
                     let (deck, now) = frames::degraded_deck();
                     frames::degraded(&deck, now).render(area, buf);
-                },
-            )),
-            Box::new(Variant(
-                "Degraded + toast, above the chrome",
-                "The same toast anchored to the CONTENT's corner instead of the screen's — the open question in `ToastCorner`",
-                |buf, area| {
-                    let (deck, now) = frames::degraded_deck();
-                    frames::degraded(&deck, now)
-                        .toast_corner(ToastCorner::AboveChrome)
-                        .render(area, buf);
                 },
             )),
             Box::new(Variant(
@@ -845,7 +817,7 @@ mod tests {
 
         let (deck, now) = frames::degraded_deck();
         let toasted = render(frames::degraded(&deck, now));
-        let (toast_x, toast_y) = find(&toasted, "vector store degraded").expect("the toast");
+        let (toast_x, toast_y) = find(&toasted, "vector degraded").expect("the toast");
         assert!(
             toast_x > AREA.width / 2 && toast_y > AREA.height / 2,
             "a toast is welded to the lower-right corner: ({toast_x}, {toast_y})"
