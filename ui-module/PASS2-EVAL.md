@@ -234,6 +234,46 @@ every test that never touches the encoding.
 
 ---
 
+## Review agenda — for the joint session with Chris (20260730)
+
+Written so the review does not have to start by reconstructing what was picked and why. Nothing
+here is new research: the adopted rows are §RB and §CAP above, and the pending rows are pass 1's
+leads, which are **candidates, not verdicts** — an area with a lead is an area someone still has
+to judge.
+
+### Adopted, in `Cargo.toml` today
+
+| crate | purpose | cost | reversibility |
+|---|---|---|---|
+| `soft_ratatui` 0.2.0 | render a ratatui frame to pixels headlessly, so a session with no eyes can judge a frame | `rustc-hash`, `embedded-graphics`, a bitmap font atlas, plus `png`. Behind `png-capture`, so a shipping build carries none of it | one feature and one module (`capture.rs`); the ANSI surfaces do not depend on it |
+| `termprofile` 0.2.4 | probe what the output stream can emit — the Encoding axis | **nothing**: no features enabled, all its dependencies optional | detection sits behind `encoding::detect`; the `Family`/`min` rule is ours and would survive replacing it |
+
+The two questions worth putting to them: is a **design instrument's** dependency judged by the
+same standard as a shipping one (both of these end up inside `wqm` under §11), and is
+"feature-gated" enough to make the first one a non-commitment.
+
+### Not yet evaluated — the areas, and what pass 1 left pointing at each
+
+| area | question | pass-1 leads |
+|---|---|---|
+| **A** theming (33) | is there a public design behind the `ratatui-theme` v0.0.0 reservation? | `ratatui-theme` (org placeholder), `karet-theme` (**does WCAG contrast checking** — the instrument defect §8.5 needs), `tui-theme-builder`, `ratatui-themekit`, `ratatui-style-presets` |
+| **B** tabs, containers | the zone/container surface, written off in the first pass and refuted | `ratatui-zonekit` ("named zones, plugin-owned panes"), `panes` / `panes-ratatui`, `hjkl-tabs` |
+| **ST** statusline, keymap, which-key | judged together because they share a keymap SSOT — and against `HEALTH-MONITORING.md`'s disqualifier, that **rendering must never trigger work** | `hjkl-statusline-tui`, `ratatui-which-key`, `hjkl-which-key-tui`, `tui_pane`, `monitrs-tui`, `scarab-nav-protocol` |
+| **C** modals, overlays | plus the `tui-widgets` umbrella | `tui-widgets` (the org's own), `tachyonfx` (animation, 268K downloads) |
+| **D** images, graph feed | how a graph window reaches the terminal | `ratatui-image`, `viuer` |
+| **E** editing | untangle the fork situation: `tui-textarea` is DROP-VERSION on `^0.29` while the org fork passes | `ratatui-textarea`, `tui-textarea-2`, `edtui` (vim modality), `tui-input` (single line, 1.72M) |
+| **F** toasts | plus the `ratatui-toast` v0.0.0 placeholder question — and **Chris's "if it changes, alert" ties this to the status area** | `ratatui-toast`, `ratatui-comfy-toaster` |
+| **G** scrolling, input, focus, mouse | — | `CRATE-INVENTORY.md` §8 |
+| **H** T4 frameworks | read for ideas; default verdict is do-not-adopt | `CRATE-INVENTORY.md` §10 |
+| **I** `tui-pantry` itself | conventions, and the three open defects in `handover.md` §8 | — |
+
+**A should be read after the `OSC 4` decision** (`handover.md` priority 1): querying the
+terminal's sixteen slots changes what a theming crate would have to supply, and possibly whether
+one is wanted at all.
+
+**Breadcrumbs remain the one surface with no candidate**, and after a 5285-crate screen that is
+a measurement rather than a guess.
+
 ## Method note
 
 Both verdicts above were reached by *measuring the candidate*, not by reading its description —
