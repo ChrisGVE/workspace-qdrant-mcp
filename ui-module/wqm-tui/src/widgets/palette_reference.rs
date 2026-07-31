@@ -217,6 +217,12 @@ pub mod ingredient {
     struct Slots;
 
     impl Ingredient for Slots {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Palette Reference"
         }
@@ -240,6 +246,12 @@ pub mod ingredient {
     struct Rungs(Palette, &'static str);
 
     impl Ingredient for Rungs {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Palette Reference"
         }
@@ -269,6 +281,12 @@ pub mod ingredient {
     struct Degraded(Encoding, &'static str);
 
     impl Ingredient for Degraded {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Palette Reference"
         }

@@ -273,6 +273,12 @@ pub mod ingredient {
 
     #[cfg(feature = "themes-preview")]
     impl Ingredient for GalleryEntry {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Theme Sources"
         }
@@ -296,6 +302,12 @@ pub mod ingredient {
     struct Variant_(&'static str, &'static str, fn() -> ThemeSheet);
 
     impl Ingredient for Variant_ {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Theme Sources"
         }

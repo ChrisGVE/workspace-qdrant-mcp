@@ -24,3 +24,65 @@ pub mod surface;
 pub mod tab_bar;
 pub mod theme_sheet;
 pub mod toast;
+
+/// The tier every module claims, checked against §16.
+///
+/// `Ingredient::tab()` defaults to `"Widgets"`, so a module that belongs anywhere else is one
+/// forgotten method away from silently landing in the wrong tab and *looking like* a widget.
+/// There is no error to see and no frame to judge — the entry is simply filed under the wrong
+/// idea of what it is. The default tier needs no test; every departure from it does.
+#[cfg(all(test, feature = "tui-pantry"))]
+mod tier {
+    use tui_pantry::Ingredient;
+
+    fn tiers(ingredients: Vec<Box<dyn Ingredient>>) -> Vec<(String, Option<String>)> {
+        ingredients
+            .iter()
+            .map(|i| (i.tab().to_string(), i.section().map(str::to_string)))
+            .collect()
+    }
+
+    fn assert_every(
+        ingredients: Vec<Box<dyn Ingredient>>,
+        tab: &str,
+        section: Option<&str>,
+        why: &str,
+    ) {
+        let want = (tab.to_string(), section.map(str::to_string));
+        let got = tiers(ingredients);
+        assert!(!got.is_empty(), "a module with no ingredients is unbrowsable");
+        assert!(got.iter().all(|t| *t == want), "{why}: {got:?} != {want:?}");
+    }
+
+    #[test]
+    fn a_zone_is_a_pane_and_an_instrument_is_not_product() {
+        assert_every(
+            super::collections::ingredient::ingredients(),
+            "Panes",
+            None,
+            "§16 lists the collections list among the PANES — a list that fills a tab's body is a zone",
+        );
+
+        // §16: the instruments are how *we* judge the language, not part of the surface, and
+        // the Styles tab is where the vocabulary already lives.
+        for module in [
+            super::palette_reference::ingredient::ingredients(),
+            super::palette_sheet::ingredient::ingredients(),
+            super::theme_sheet::ingredient::ingredients(),
+        ] {
+            assert_every(
+                module,
+                "Styles",
+                Some("Instruments"),
+                "an instrument is sectioned off the product tabs",
+            );
+        }
+
+        assert_every(
+            crate::views::service::ingredient::ingredients(),
+            "Views",
+            None,
+            "a full screen is a view",
+        );
+    }
+}

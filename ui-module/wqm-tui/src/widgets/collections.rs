@@ -128,6 +128,9 @@ pub mod ingredient {
         ($ty:ident, $name:literal, $desc:literal, $build:expr) => {
             struct $ty;
             impl Ingredient for $ty {
+                fn tab(&self) -> &str {
+                    "Panes"
+                }
                 fn group(&self) -> &str {
                     "Collections"
                 }
@@ -178,6 +181,9 @@ pub mod ingredient {
     struct PaletteVariant(tokens::Palette, &'static str, &'static str);
 
     impl Ingredient for PaletteVariant {
+        fn tab(&self) -> &str {
+            "Panes"
+        }
         fn group(&self) -> &str {
             "Collections"
         }

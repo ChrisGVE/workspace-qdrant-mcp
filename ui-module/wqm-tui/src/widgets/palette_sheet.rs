@@ -336,6 +336,12 @@ pub mod ingredient {
     struct Sheet(&'static str, &'static str, fn() -> PaletteSheet);
 
     impl Ingredient for Sheet {
+        fn tab(&self) -> &str {
+            "Styles"
+        }
+        fn section(&self) -> Option<&str> {
+            Some("Instruments")
+        }
         fn group(&self) -> &str {
             "Palette Sheet"
         }
