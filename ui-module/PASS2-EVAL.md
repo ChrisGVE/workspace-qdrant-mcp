@@ -9,9 +9,14 @@ Every verdict here answers the six pass-2 questions from `CRATE-INVENTORY.md`, a
 
 **Status:** `RB` and `CAP` are done, and **both are now built and wired**. `B` (tabs/containers)
 is done and **adopts nothing**; `ST` (statusline / keymap / which-key) is done and produces
-**one recommendation for Chris's review list** (`ratatui-input-manager`) and nothing adopted.
-`A` (theming, 33), `C`, `D`, `E`, `F`, `G`, `H`, `I` are **not started** — `PASS1-SCREEN.md` §5
-still describes what each of them is.
+**one recommendation for Chris's review list** (`ratatui-input-manager`) and nothing adopted;
+`F` (toasts), `D` (images / graph feed) and `C` (modals, overlays) are done — `C` produces a
+second recommendation, `tui-popup`. `A` (theming, 33), `E`, `G`, `H`, `I` are **not started** —
+`PASS1-SCREEN.md` §5 still describes what each of them is.
+
+**§F answers the factual half of area A's first question**, since both reservations carry the
+same boilerplate: there is **no public design** behind `ratatui-theme` 0.0.0 or `ratatui-toast`
+0.0.0. That does not touch the `OSC 4` decision, which stays Chris's.
 
 **Two findings from §B bind every area that follows, so read them before starting one:** question
 6 (licence) is **not** answered by `crate-screen.csv` — a blank field means "not captured" and
@@ -592,6 +597,221 @@ screen, not a verdict, and every hit it produced had to be read before it could 
 
 ---
 
+## F — toasts. **Answered: `hjkl-holler` is the bus to copy, and the debounce CR-035 needs cannot come from this area at all.**
+
+Five `TO`-tagged KEEPs, one of which §B removed on licence, plus the `ratatui-toast` placeholder
+and `hjkl-holler` — the **fourth** model crate missing from the CSV (§B).
+
+### The placeholder question, answered by reading it
+
+**`ratatui-toast` 0.0.0 — there is no public design behind the reservation.** Its entire `lib.rs`
+is `#![doc = include_str!("../README.md")]`, and the README says so in as many words:
+
+> *"This crate is a Ratatui namespace reservation for future work in the dialogs and feedback
+> area. It intentionally exposes no public API yet. A future release **may** replace this
+> reservation with a real implementation when the design is ready."*
+
+No RFC, no linked issue, no timeline — it points at the main ratatui repository. So "wait for
+first-party" is waiting on nothing observable. **The same is true of `ratatui-theme` 0.0.0**,
+which carries the identical boilerplate for the styling area. That answers the factual half of
+area **A**'s first question — *is there a public design behind the reservation?* **No** — without
+touching the `OSC 4` decision that is Chris's.
+
+This also settles `handover.md` §12's asymmetry in the theming case: the argument for waiting was
+that a theme is a *format* and formats are what one waits on. That still holds in principle, but
+there is no candidate format to wait for — only a reserved name.
+
+### The criterion, and why no toast crate can satisfy it
+
+Chris's *"if it changes, alert"* ties toasts to the status area, and `HEALTH-MONITORING.md`
+property 3 requires that **a flapping probe coalesce to one event per settled change** — or the
+log volume this whole exercise exists to remove returns as toasts. `hjkl-holler` looked like it
+answered that, so it was measured:
+
+```
+[holler] 8x identical      active=["8x Warn \"store degraded\""]     history entries: 1
+[holler] 4x flapping pair  active=[8 separate entries]               history entries: 8
+```
+
+**It collapses repetition, not flapping.** `push` merges into the last entry only when body *and*
+severity match the immediately preceding one, so `degraded → healthy → degraded → healthy` yields
+four toasts, not one. A settled-change detector has to sit **upstream** of any bus, daemon-side,
+exactly where `CR-035` puts it. Recorded because the near-miss is the trap: a bus that dedups
+repeats *looks* like it debounces, and would pass a casual review of property 3.
+
+### `hjkl-holler` 0.39.1 — REJECT as a dependency, ADOPT as the shape
+
+| question | answer |
+|---|---|
+| maintained | 0.39.1, released 2026-07-30, MIT |
+| dependencies | **zero** |
+| clock | `is_expired(now)`, `is_fading(now)`, `active(now)` — **the caller owns the clock on every read**. `push` reads it once, which is correct: pushing is an event, reading is a render |
+| model | severity-keyed default TTLs (Info 2 s / Warn 4 s / Error 6 s), a ring-buffer history with a cap, `dismiss(id)`, and a `count` on collapsed repeats |
+| the adapter | `hjkl-holler-tui::render_active` draws *"a floating bordered box"* per toast and takes `&mut Frame`, so it needs a Terminal and cannot be composed into a `Buffer` — the same seam limit as `hjkl-tabs-tui::render` (§B) |
+
+The bus is the second crate in this evaluation (after `hjkl-which-key::should_show`, §ST) whose
+render path takes `now` as a parameter rather than reading the clock. Two independent authors
+arriving at the same discipline is worth more than either instance: **make it a rule for our own
+widgets.** The reason not to depend on it is the same as §ST's — the family's value is 60 lines of
+well-judged model, and taking it drags a vocabulary and, one crate over, a colour authority.
+
+One design question this raises for Chris, flagged not answered: **a toast is a floating box, and
+r02 §6 reserves boxes for modals.** Whether a transient overlay counts as a modal for that rule is
+a visual-language call, and it has to be made before any toast surface is built — it is the same
+class of question as §7.6.
+
+### The rest of the area
+
+| crate | verdict |
+|---|---|
+| `ratatui-toaster` 0.1.4 (6.0K downloads, Unlicense OR MIT) | the most-used option, and it is single-toast: `has_toast()`/`hide_toast()`, one `ToastEngine<A>` with an optional `tokio::sync::mpsc::Sender<A>` for actions. A severity **stack** is what the status surface implies, so this is the wrong shape before the tokio question is even reached |
+| `ratatui-notifications` 0.1.0 | `tick(delta)` is caller-driven, which is right — but `render(&mut self, frame, area)` takes `&mut self` and a `&mut Frame`, so drawing mutates and needs a Terminal. Pulls `chrono` + `crossterm` + `log` |
+| `tui-overlay` 0.1.2 | **carried to area C**, where it belongs: two dependencies (`ratatui-core`, `ratatui-widgets`) and one crate covering drawers, modals, popovers *and* toasts, with `resolve_rect` as pure geometry and easing/slide state the caller ticks. Judge it against the modal surface, which is storyboarded, rather than the toast surface, which is not |
+| ~~`ratatui-comfy-toaster`~~ | SA-PS:DA, not open-source (§B) |
+
+---
+
+## D — images and the graph feed. **Answered: premature, and the framing was wrong. Facts recorded so it is not re-derived.**
+
+Four `IM`-tagged KEEPs plus `viuer`, which is not in the CSV because it is not a ratatui widget.
+
+**Nothing here should be adopted, because there is nothing to put it in.** `handover.md` §10's
+storyboard backlog is the data-cursor row, the editing cell, the layer-1 modal, and a Views tab
+composing them. No graph window is storyboarded. Evaluating image transports now would be
+choosing a dependency for a surface whose shape is unknown — and §12 already refused that trade
+for theming, on the same grounds.
+
+What *is* worth recording is that the area's framing does not survive contact.
+`CRATE-INVENTORY.md` §5 assumed the open question was *"rendering a graph to a raster inside the
+TUI needs a layout pass first"* — i.e. graph → image → sixel. Two crates say the raster is
+optional:
+
+- **`ratatui-flow` 0.1.1** (MIT, 3 dependencies) — `NodeGraph` with `calculate()`, `positions()`,
+  `split(area) -> Vec<Rect>`, `split_named()` and `hit_test(area, x, y)`. It is a **layout engine
+  that yields rects**, so the caller renders its own widgets into the node boxes. It draws the
+  connections in cells, with `├`/`┬` port glyphs.
+- **`gen-tui` 0.2.1** (Apache-2.0) — a full text-cell graph system: `gen-sugiyama` for layered
+  layout, `petgraph`, `rstar` for spatial indexing, its own edge router, viewport and cursor. It
+  is also 500 KB of source across 22 files, pulls `tachyonfx`, and is explicitly "for Gen" — one
+  application's internals, at 221 downloads.
+
+So the real question for the graph surface, when it is storyboarded, is not *which image
+protocol* but **cells or pixels** — and the cell answer needs no image dependency, no terminal
+capability negotiation, and no interaction with the Encoding axis (§13). That is a design
+question for Chris, and it should be asked before any of this area is re-opened.
+
+`ratatui-image` 11.0.6 remains the answer for the pixel branch if it is ever chosen: 620K
+downloads, MIT, sixel/kitty/iTerm2/halfblocks. Its cost is the part to remember — **9 required
+dependencies** including `image`, `icy_sixel`, `rustix`, `windows` and `rand`, which is a large
+addition to something that ships inside `wqm` for one optional view. `viuer` (1.09M downloads) is
+not a ratatui widget and would need an adapter, so it is behind `ratatui-image` on every axis.
+
+`tuika-mermaid` 0.1.1 renders Mermaid fenced blocks and belongs with markdown, not here; it is
+bound to the `tuika` markdown crate, so it is not usable standalone.
+
+---
+
+## C — modals, overlays, the `tui-widgets` umbrella. **Answered: the bucket is two questions. The modal primitive has a good answer (`tui-popup`); animation is not storyboarded.**
+
+Thirty-three `MO`-tagged KEEPs, plus `tui-overlay` carried over from §F. The tag is over-broad:
+roughly a third of it is **animation** (`tachyonfx`, `animate`, `animato`, `cellophane`,
+`mixed-signals`, `tui-shader`, `tui-shimmer`, `rattles`, `tui-spinner`, `throbber-widgets-tui`,
+`tui-skeleton`, `tui-splitflap`), which is a different question from the one the storyboard asks.
+
+**Only the modal half is live.** `handover.md` §10 item 3 is the **layer-1 modal**, and r02 §6
+makes it the one place a box is allowed. Nothing in the backlog animates.
+
+### The measurement that decides it
+
+r02 §6 gives the modal two properties a popup crate must not fight: the border must be **ours** to
+style or remove, and a modal **establishes a surface**, so it must paint its own background rather
+than let layer 0 show through. Both were measured by pre-filling a buffer with a layer-0 fill and
+reading back what survived.
+
+```
+--- tui-popup, defaults ---
+|······┌Confirm──────────────┐·····|
+|······│Delete 3 collections?│·····|
+|······└─────────────────────┘·····|
+box glyphs: {─ │ ┌ ┐ └ ┘}   bg it painted instead: {"Reset": 69}
+
+--- tui-popup, layer-1 fill + our border ---
+box glyphs: {─ │ ┌ ┐ └ ┘}   bg it painted instead: {"Rgb(49, 50, 68)": 69}
+
+--- tui-popup, Borders::NONE ---
+|·······Delete 3 collections?······|
+box glyphs: {}              bg it painted instead: {"Rgb(49, 50, 68)": 21}
+
+--- tui-overlay, centred 24×3, instant open ---
+|·····                        ·····|
+box glyphs: {}              bg it painted instead: {"Rgb(49, 50, 68)": 72}
+```
+
+**`tui-popup` 0.7.6 — the recommendation for the layer-1 modal, with one default to override.**
+
+| question | answer |
+|---|---|
+| maintained | ratatui-org, 249K downloads, last release 2026-06-14, MIT OR Apache-2.0 |
+| gate | `ratatui-core` + `ratatui-widgets`; builds against 0.30.2 |
+| imposes a look | **no.** `borders`, `border_set`, `border_style`, `style` and `title` are all public settable fields; `Borders::NONE` genuinely produces a borderless surface, measured above |
+| seam | it is a plain `Widget`/`StatefulWidget` over any body that is `KnownSize + Widget`. `KnownSize` is the only thing it asks of our widgets |
+| pulls in | `derive-getters`, `derive_setters`, `document-features` — proc macros, no runtime weight |
+
+**The default to override, and it is exactly the §6 property:** out of the box the popup paints
+`Color::Reset` across its 69 cells — it clears to the *terminal* background, which is layer 0. A
+modal that reverts to layer 0's colour is not a surface. Setting `.style(bg(layer1))` paints our
+RGB across the whole box including the border row, so the fix is one call — but it must be made,
+and a wrapper in `wqm-tui` should make it unforgettable rather than leaving it to each call site.
+This is the same class of finding as `tokens::normal()` (§6.7): a renderer with no opinion about
+the surface beneath it invents one.
+
+**`tui-overlay` 0.1.2 — the smaller, purer primitive, and the reason to keep it in view.** Two
+dependencies, and with no `Block` set it paints a bare centred rect of *our* colour and nothing
+else — 72 cells, zero glyphs. That is the layer-1 surface with no widget opinion at all, plus
+anchor/offset geometry (`resolve_rect`) and an `OverlayState` the caller ticks for open/close
+transitions (duration defaults to zero, so it is instant unless asked otherwise). Against it: 1.8K
+downloads, 0.1.2, last touched 2026-04-07, one author. Against `tui-popup`: it is not the org's.
+**If the modal needs only a surface and a body, `tui-overlay` is the closer fit; if it needs a
+titled box, `tui-popup` is the safer dependency.** That is a design call, and it follows from the
+modal's shape, which is not yet drawn.
+
+**`tui-widgets` 0.7.10 — the umbrella costs nothing, and this is worth knowing before area G.**
+Its only required dependencies are `document-features` and `ratatui-core`; `tui-popup`,
+`tui-scrollbar`, `tui-scrollview`, `tui-big-text`, `tui-prompts`, `tui-qrcode` and the rest are
+**optional features**. So it is a façade, not a bundle — depending on it and enabling one feature
+costs exactly what depending on that crate directly costs. Either form is defensible; the façade
+has the advantage that the org version-tracks the set as a whole.
+
+### Rejected, with reasons
+
+| crate | verdict |
+|---|---|
+| `rat-popup` 3.0.2 / `rat-dialog` 2.0.2 | each drags the `rat-*` family — `rat-focus`, `rat-event`, `rat-reloc`, `rat-cursor`, and for `rat-dialog` the whole `rat-widget` umbrella. That is an application framework's focus and event model, and adopting a popup should not decide those |
+| `ratada` 0.5.0 | "driver, modals, forms, pickers, theming in one toolkit" — pulls `clipboard-win`, `pulldown-cmark`, `chrono`, `nucleo-matcher`. A toolkit, and it brings a **theming** authority, which §ST says to check for |
+| `tui_confirm_dialog` 0.4.1 | 28K downloads and the TUI does have confirm modals, but it pulls `regex` **and `rand`** for a dialog. Its shape is also fixed (a two-button dialog) where `tui-popup` + our own body is not |
+| `hefesto-widgets` 0.7.3 | one dependency and a broad grab-bag (popups, lists, trees, inputs) at 405 downloads — the breadth is the problem: adopting it for a popup takes a position on four other surfaces |
+| `hjkl-*-tui` popups (completion, hover, info, menu) | same family verdict as §B/§ST — good models, an editor's vocabulary, and the theme coupling §ST measured |
+| ~~`tui-dialog`~~ | **AGPL-3.0-or-later** (§B) |
+
+### The animation half — not evaluated, and that is the verdict
+
+Nothing in the storyboard backlog animates, so choosing an animation library now is the trade §12
+refused for theming. Two facts recorded so the area does not start from zero:
+
+- **`tachyonfx` 0.25.1** is the one with mass — 271K downloads, `ratatui-core`, six dependencies,
+  MIT. It is also the crate `PASS1-SCREEN.md` §6 uses as its standing example of a search miss, so
+  it is already on the record.
+- **`animato` 1.7.2** is renderer-agnostic with **one** required dependency (`animato-core`) and
+  eighteen optional ones, so a TUI-only slice is cheap. Worth a look *if* animation is ever wanted.
+
+**One sub-question inside the animation bucket is live, and it is not animation.** A search in
+flight needs a *loading* state, and r02 has no vocabulary for one. `tui-skeleton` and
+`tui-splitflap` both ship as `tui-pantry` components, which makes them relevant to area **I** as
+much as here. Carried to **I**; the design question — what a pending result looks like — belongs
+to the storyboard, not to a crate screen.
+
+---
+
 ## Review agenda — for the joint session with Chris (20260730)
 
 Written so the review does not have to start by reconstructing what was picked and why. Nothing
@@ -615,6 +835,7 @@ same standard as a shipping one (both of these end up inside `wqm` under §11), 
 | crate | purpose | cost | why it is on the list |
 |---|---|---|---|
 | `ratatui-input-manager` 0.4.0 | the **keymap SSOT**: one `#[keymap]` declaration whose doc comments are the descriptions, from which the status-bar hints and the help modal both render (§ST) | the proc-macro derive plus `itertools`; `crossterm` is already ours, and `ratatui-core`/`ratatui-widgets` are optional features | it answers the design question `CRATE-INVENTORY.md` §3 posed, and it draws **no box-drawing glyphs by default** — measured, not read. The question for Chris is whether a compile-time `const KEYBINDS` is the right shape given the generic `Backend` parameter it propagates |
+| `tui-popup` 0.7.6 | the **layer-1 modal** — storyboard item 3, and the one surface r02 §6 allows a box (§C) | three proc-macro dependencies, no runtime weight; ratatui-org, 249K downloads | border and fill are fully ours (`Borders::NONE` works, measured), but its **default clears to `Color::Reset` — i.e. to layer 0**, so a wrapper must set the layer-1 fill rather than each call site remembering. The alternative is `tui-overlay`, purer and much smaller but a single-author 0.1.2; that choice follows from the modal's shape, which is not drawn yet |
 
 Two areas produced **no** recommendation at all — `B` (tabs and containers) and the status-*value*
 half of `ST`. That is a result, not a gap: §B and §ST say what was measured and why nothing
@@ -624,16 +845,16 @@ earned adoption.
 
 | area | question | pass-1 leads |
 |---|---|---|
-| **A** theming (33) | is there a public design behind the `ratatui-theme` v0.0.0 reservation? | `ratatui-theme` (org placeholder), `karet-theme` (**does WCAG contrast checking** — the instrument defect §8.5 needs), `tui-theme-builder`, `ratatui-themekit`, `ratatui-style-presets` |
+| **A** theming (33) | ~~is there a public design behind the `ratatui-theme` v0.0.0 reservation?~~ **ANSWERED IN §F: no** — the reservation exposes no API and links only to the main ratatui repo. What is left is the `OSC 4` decision, which is Chris's | `ratatui-theme` (org placeholder), `karet-theme` (**does WCAG contrast checking** — the instrument defect §8.5 needs), `tui-theme-builder`, `ratatui-themekit`, `ratatui-style-presets` |
 | ~~**B** tabs, containers~~ | **DONE — adopt nothing (§B).** The leads exist; none does wqm's job. `ratatui-zonekit` computes no geometry, `panes` returns ratatui's own answer plus `taffy`, `hjkl-tabs` is an editor's vocabulary. Overflow is worth writing, not depending on | — |
 | ~~**ST** statusline, keymap, which-key~~ | **DONE (§ST) — the area is two problems.** The keymap half has one recommendation, **`ratatui-input-manager`** (below). The status-*value* half has no candidate and cannot have one: it is daemon-side maintained state (`CR-035`/`N48`) | — |
-| **C** modals, overlays | plus the `tui-widgets` umbrella | `tui-widgets` (the org's own), `tachyonfx` (animation, 268K downloads) |
-| **D** images, graph feed | how a graph window reaches the terminal | `ratatui-image`, `viuer` |
+| ~~**C** modals, overlays~~ | **DONE (§C) — `tui-popup` recommended for the layer-1 modal**, with one default that must be overridden: it clears to `Color::Reset`, i.e. to layer 0. The animation third of the bucket is not storyboarded and was deliberately not evaluated | — |
+| ~~**D** images, graph feed~~ | **DONE (§D) — premature, and the framing was wrong.** No graph window is storyboarded, and the real question is **cells or pixels**, not which image protocol: `ratatui-flow` lays a graph out in text cells and yields rects. Facts recorded for when it is storyboarded | — |
 | **E** editing | untangle the fork situation: `tui-textarea` is DROP-VERSION on `^0.29` while the org fork passes | `ratatui-textarea`, `tui-textarea-2`, `edtui` (vim modality), `tui-input` (single line, 1.72M), **plus `hjkl-prompt-tui` carried over from ST** — it is the search/ex prompt bar, so it belongs with the single-line-input question |
-| **F** toasts | plus the `ratatui-toast` v0.0.0 placeholder question — and **Chris's "if it changes, alert" ties this to the status area** | `ratatui-toast`, ~~`ratatui-comfy-toaster`~~ (**SA-PS:DA, not open-source — §B**). The area starts with **one** lead, and it is a v0.0.0 placeholder |
-| **G** scrolling, input, focus, mouse | — | `CRATE-INVENTORY.md` §8 |
+| ~~**F** toasts~~ | **DONE (§F) — adopt nothing.** The placeholder has no design; `hjkl-holler` is the shape to copy, not a dependency; and the coalescing `CR-035` needs **cannot come from a toast crate** — measured: it collapses repetition, not flapping |
+| **G** scrolling, input, focus, mouse | — | `CRATE-INVENTORY.md` §8. **§C already established that `tui-widgets` is a façade, not a bundle** — its siblings are optional features, so `tui-scrollbar` (1.09M) costs the same either way |
 | **H** T4 frameworks | read for ideas; default verdict is do-not-adopt | `CRATE-INVENTORY.md` §10 |
-| **I** `tui-pantry` itself | conventions, and the three open defects in `handover.md` §8 | — |
+| **I** `tui-pantry` itself | conventions, and the three open defects in `handover.md` §8 | **plus `tui-skeleton` and `tui-splitflap` carried over from C** — both ship as pantry components, and the loading-state question they raise has no r02 vocabulary yet |
 
 **A should be read after the `OSC 4` decision** (`handover.md` priority 1): querying the
 terminal's sixteen slots changes what a theming crate would have to supply, and possibly whether
