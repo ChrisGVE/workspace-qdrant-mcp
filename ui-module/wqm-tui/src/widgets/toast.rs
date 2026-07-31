@@ -18,6 +18,24 @@
 //! | lifetime | dismissed by the user | expires on its own |
 //! | layer | the §6 stack (layer 1, then layer 2) | outside the stack — always painted last |
 //!
+//! # Two things toast, and nothing else (Chris, 20260731)
+//!
+//! *"I would not have too many of those. What matters are: errors and recovery — i.e. the
+//! system is degraded, or off, and the system returns to green. Providing too many alerts
+//! will reduce their impact, make them annoying, and the important ones will be missed."*
+//!
+//! So a toast reports a **settled change of system state**, never a fact about a request:
+//! falling out of green, and returning to it. That is why [`Toast::transition`] is the only
+//! constructor and why it takes *both* ends of the change — a state that did not change
+//! yields [`None`], so a repeated report cannot become an alert. Volume discipline is a type
+//! here rather than a habit.
+//!
+//! What deliberately does **not** toast, and where it goes instead: an N12 notice
+//! ([`crate::widgets::envelope::Notices`], the status zone) and a `ToolError` from an action
+//! the user just took ([`crate::widgets::envelope::ErrorPanel`], where it stays readable
+//! instead of expiring). Neither is a change of system state, and both would spend the
+//! corner's attention on things the user is already looking at.
+//!
 //! # The widget never reads the clock
 //!
 //! Every entry point that depends on time takes `now` as a parameter. This is the one rule
@@ -27,9 +45,10 @@
 //!
 //! # This deck collapses repetition, NOT flapping
 //!
-//! [`ToastDeck::push`] merges a toast into the live entry above it when both the trigger and
-//! the message match — so eight identical *"store degraded"* events are one toast with a
-//! `×8`. It does **not** coalesce `degraded → healthy → degraded → healthy`, which yields
+//! [`ToastDeck::push`] merges a toast into the live entry above it when both the state
+//! arrived at and the message match — so eight reports of the *same* transition are one
+//! toast with a `×8`. It does **not** coalesce `degraded → healthy → degraded → healthy`,
+//! which is four real transitions and therefore yields
 //! four toasts. That is deliberate and it is where `HEALTH-MONITORING.md` property 3 puts the
 //! fix: a settled-change detector belongs upstream, daemon-side, under `CR-035`. `hjkl-holler`
 //! was measured making exactly this distinction look like debouncing when it is not
@@ -55,6 +74,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::tokens::{self, Health};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -62,35 +82,19 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Padding, Paragraph, Widget},
 };
-use wqm_common::envelope::Severity;
 
-use crate::tokens::{self, Health};
-
-/// What raised a toast.
+/// Which sound the host plays. **Two**, because there are two things worth interrupting
+/// someone for: something broke, and it is fixed.
 ///
-/// Each variant carries the vocabulary of the contract that owns it — N12's [`Severity`] for
-/// a notice, §4's [`Health`] for a settled store transition. This module invents no severity
-/// of its own: three competing component vocabularies is the defect `store_health` already
-/// records (`handover.md` §5), and one more would be the fourth.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Trigger {
-    /// An N12 notice. `Severity` is `Info | Warn` and nothing else.
-    Notice(Severity),
-    /// An N12 tool error — the code and message are the toast's text.
-    Error,
-    /// A settled health transition (`CR-035`), reported by the daemon rather than observed
-    /// here.
-    Health(Health),
-}
-
-/// Which sound the host plays. One variant per trigger class, so the config surface can
-/// carry either one sound or one per class without this enum changing.
+/// A larger set was drafted (info / warn / error / health) and Chris cut it: more alert
+/// classes dilute all of them. If the config ever wants finer grain, `Alarm` can be split by
+/// the [`Toast::to`] state without this enum growing a class that has no event behind it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SoundEvent {
-    Info,
-    Warn,
-    Error,
-    Health,
+    /// The system left green — degraded, or off.
+    Alarm,
+    /// The system came back to green. The all-clear.
+    Recovery,
 }
 
 /// The shortest a toast stays up, however short its message.
@@ -113,34 +117,48 @@ pub const DWELL_CEILING: Duration = Duration::from_millis(8000);
 /// "ephemeral". Not a knob: it is a rendering property of the surface, not a preference.
 pub const FADE_TAIL: Duration = Duration::from_millis(600);
 
-/// A toast as it is raised: what triggered it and what it says.
+/// A settled change of system state, and what to say about it.
+///
+/// The fields are private and [`Toast::transition`] is the only constructor, which is what
+/// makes the admission rule structural: nothing in this crate can raise an alert for a state
+/// that did not change.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Toast {
-    pub trigger: Trigger,
-    pub message: String,
+    /// The state arrived at. [`Health::Healthy`] here *is* the recovery case — there is no
+    /// second field to disagree with it.
+    to: Health,
+    message: String,
 }
 
 impl Toast {
-    pub fn new(trigger: Trigger, message: impl Into<String>) -> Self {
-        Self {
-            trigger,
+    /// A toast for a settled transition from `from` to `to`, or [`None`] when the state did
+    /// not change.
+    ///
+    /// Taking both ends rather than only the new state is the whole discipline: a status
+    /// report that repeats itself is not an event, and an alert raised for one is the noise
+    /// Chris cut this surface down to avoid. The caller cannot get an alert by asking twice.
+    ///
+    /// It does **not** debounce flapping — that detector is daemon-side (`CR-035`); see the
+    /// module docs.
+    pub fn transition(from: Health, to: Health, message: impl Into<String>) -> Option<Self> {
+        (from != to).then(|| Self {
+            to,
             message: message.into(),
-        }
+        })
     }
 
-    /// An N12 notice at its own severity.
-    pub fn notice(severity: Severity, message: impl Into<String>) -> Self {
-        Self::new(Trigger::Notice(severity), message)
+    /// The state this toast announces. `Healthy` means recovery.
+    pub const fn to(&self) -> Health {
+        self.to
     }
 
-    /// A settled health transition.
-    pub fn health(health: Health, message: impl Into<String>) -> Self {
-        Self::new(Trigger::Health(health), message)
+    /// Whether this is the all-clear rather than an alarm.
+    pub fn is_recovery(&self) -> bool {
+        self.to == Health::Healthy
     }
 
-    /// An N12 tool error.
-    pub fn error(message: impl Into<String>) -> Self {
-        Self::new(Trigger::Error, message)
+    pub fn message(&self) -> &str {
+        &self.message
     }
 
     /// How long this toast stays up: reading time for its own length, held between the floor
@@ -150,30 +168,20 @@ impl Toast {
     }
 
     /// The sound class the host should play when this toast is raised.
-    pub const fn sound(&self) -> SoundEvent {
-        match self.trigger {
-            Trigger::Notice(Severity::Info) => SoundEvent::Info,
-            Trigger::Notice(Severity::Warn) => SoundEvent::Warn,
-            Trigger::Error => SoundEvent::Error,
-            Trigger::Health(_) => SoundEvent::Health,
+    pub fn sound(&self) -> SoundEvent {
+        if self.is_recovery() {
+            SoundEvent::Recovery
+        } else {
+            SoundEvent::Alarm
         }
     }
 
     /// §4's glyph vocabulary, reused rather than extended — the same choice `envelope.rs`
-    /// made for severity. Shape carries the state where the encoding refuses colour.
+    /// made for severity. Shape carries the state where the encoding refuses colour, which
+    /// matters more here than anywhere: an alarm and an all-clear must not read alike on a
+    /// terminal that emits no hue.
     fn marks(&self) -> (&'static str, Style) {
-        match self.trigger {
-            Trigger::Notice(Severity::Info) => ("·", tokens::faint_style()),
-            Trigger::Notice(Severity::Warn) => (
-                Health::Degraded.glyph(),
-                Style::default().fg(Health::Degraded.color()),
-            ),
-            Trigger::Error => (
-                Health::Offline.glyph(),
-                Style::default().fg(Health::Offline.color()),
-            ),
-            Trigger::Health(health) => (health.glyph(), Style::default().fg(health.color())),
-        }
+        (self.to.glyph(), Style::default().fg(self.to.color()))
     }
 }
 
@@ -348,7 +356,7 @@ impl Widget for ToastStack<'_> {
                 tokens::normal_style()
             };
 
-            let mut text = live.toast.message.clone();
+            let mut text = live.toast.message().to_string();
             if live.repeats > 1 {
                 text.push_str(&format!(" ×{}", live.repeats));
             }
@@ -525,23 +533,48 @@ pub mod ingredient {
         };
     }
 
+    /// The transition every frame below is built from, unwrapped: a preview whose toast is
+    /// `None` would be a preview of a bug.
+    fn toast(from: Health, to: Health, message: &str) -> Toast {
+        Toast::transition(from, to, message).expect("a preview transition must change state")
+    }
+
     variant!(
-        SingleNotice,
-        "Notice",
-        "One N12 info notice in the corner — the quiet case, and the whole surface at rest",
+        Degraded,
+        "Alarm — degraded",
+        "Green to degraded: the common alarm, and the one that must not read like the all-clear",
         deck_at(&[(
-            Toast::notice(Severity::Info, "indexed 12 files in projects"),
+            toast(
+                Health::Healthy,
+                Health::Degraded,
+                "vector store degraded — qdrant slow past its SLA",
+            ),
             Duration::ZERO,
             1,
         )])
     );
 
     variant!(
-        HealthChange,
-        "Health Change",
-        "A settled transition (CR-035): does the §4 glyph carry the state without a second vocabulary?",
+        Offline,
+        "Alarm — off",
+        "The loud one: a store went away. Same rectangle, §4's offline glyph and hue",
         deck_at(&[(
-            Toast::health(Health::Degraded, "vector store degraded"),
+            toast(
+                Health::Degraded,
+                Health::Offline,
+                "vector store offline — qdrant unreachable",
+            ),
+            Duration::ZERO,
+            1,
+        )])
+    );
+
+    variant!(
+        Recovery,
+        "Recovery",
+        "Back to green — the other half of what Chris kept. Does the all-clear read as relief, not alarm?",
+        deck_at(&[(
+            toast(Health::Offline, Health::Healthy, "vector store recovered"),
             Duration::ZERO,
             1,
         )])
@@ -550,28 +583,32 @@ pub mod ingredient {
     variant!(
         Stack,
         "Stack",
-        "Three at once — the corner's whole budget. Newest is lowest; the arrival point never moves",
+        "Alarm then all-clear, the corner's budget. Newest is lowest; the arrival point never moves",
         deck_at(&[
             (
-                Toast::notice(Severity::Info, "indexed 12 files in projects"),
+                toast(Health::Healthy, Health::Offline, "vector store offline"),
                 Duration::from_millis(900),
                 1,
             ),
             (
-                Toast::health(Health::Degraded, "vector store degraded"),
+                toast(Health::Offline, Health::Degraded, "vector store degraded"),
                 Duration::from_millis(400),
                 1,
             ),
-            (Toast::error("the write was refused"), Duration::ZERO, 1),
+            (
+                toast(Health::Degraded, Health::Healthy, "vector store recovered"),
+                Duration::ZERO,
+                1,
+            ),
         ])
     );
 
     variant!(
         Repeated,
         "Repeated",
-        "Eight identical events, one rectangle: repetition collapses to a count — flapping does NOT (CR-035)",
+        "Eight identical reports, one rectangle: repetition collapses to a count — flapping does NOT (CR-035)",
         deck_at(&[(
-            Toast::health(Health::Degraded, "vector store degraded"),
+            toast(Health::Healthy, Health::Degraded, "vector store degraded"),
             Duration::ZERO,
             8,
         )])
@@ -582,8 +619,17 @@ pub mod ingredient {
         "Fading",
         "The last 600 ms of the dwell: still readable, visibly going. The ephemeral half, held still",
         deck_at(&[(
-            Toast::notice(Severity::Warn, "the index is 96s behind its sources"),
-            Toast::notice(Severity::Warn, "the index is 96s behind its sources").dwell()
+            toast(
+                Health::Healthy,
+                Health::Degraded,
+                "the index is 96s behind its sources",
+            ),
+            toast(
+                Health::Healthy,
+                Health::Degraded,
+                "the index is 96s behind its sources",
+            )
+            .dwell()
                 - Duration::from_millis(300),
             1,
         )])
@@ -594,7 +640,9 @@ pub mod ingredient {
         "Long Message",
         "Wraps at 40 columns and truncates at three lines — a toast that scrolls is a panel",
         deck_at(&[(
-            Toast::error(
+            toast(
+                Health::Healthy,
+                Health::Offline,
                 "the index is 96 seconds behind its sources and the queue has not drained \
                  since the daemon last restarted on this host",
             ),
@@ -605,8 +653,9 @@ pub mod ingredient {
 
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
-            Box::new(SingleNotice),
-            Box::new(HealthChange),
+            Box::new(Degraded),
+            Box::new(Offline),
+            Box::new(Recovery),
             Box::new(Stack),
             Box::new(Repeated),
             Box::new(Fading),
@@ -641,11 +690,47 @@ mod tests {
             .collect()
     }
 
+    /// The only constructor, unwrapped — for the tests that are about something other than
+    /// the admission rule.
+    fn toast(from: Health, to: Health, message: &str) -> Toast {
+        Toast::transition(from, to, message).expect("a test transition must change state")
+    }
+
+    /// A plain alarm, for tests that only need *some* toast.
+    fn alarm(message: &str) -> Toast {
+        toast(Health::Healthy, Health::Degraded, message)
+    }
+
+    #[test]
+    fn only_a_change_of_state_can_raise_a_toast() {
+        // The volume rule, as a type. A status report that repeats itself is not an event,
+        // so no caller can turn one into an alert by asking twice.
+        for state in [Health::Healthy, Health::Degraded, Health::Offline] {
+            assert!(
+                Toast::transition(state, state, "nothing happened").is_none(),
+                "{state:?} to itself is not a transition"
+            );
+        }
+
+        // Both directions across the boundary are events, and the recovery is not an alarm.
+        let alarm = toast(Health::Healthy, Health::Offline, "store offline");
+        let recovery = toast(Health::Offline, Health::Healthy, "store recovered");
+        assert!(!alarm.is_recovery());
+        assert!(recovery.is_recovery());
+        assert_eq!(alarm.sound(), SoundEvent::Alarm);
+        assert_eq!(recovery.sound(), SoundEvent::Recovery);
+
+        // A move between two unhealthy states is still news, and still an alarm.
+        let partial = toast(Health::Offline, Health::Degraded, "store degraded");
+        assert!(!partial.is_recovery());
+        assert_eq!(partial.sound(), SoundEvent::Alarm);
+    }
+
     #[test]
     fn the_stack_is_anchored_to_the_lower_right_corner() {
         let now = Instant::now();
         let mut deck = ToastDeck::new();
-        deck.push(Toast::notice(Severity::Info, "indexed 12 files"), now);
+        deck.push(alarm("vector store degraded"), now);
 
         let buf = render(&deck, now, 60, 20);
         let cells = painted(&buf);
@@ -673,8 +758,8 @@ mod tests {
     fn the_newest_toast_is_the_one_nearest_the_corner() {
         let now = Instant::now();
         let mut deck = ToastDeck::new();
-        deck.push(Toast::notice(Severity::Info, "older"), now);
-        deck.push(Toast::notice(Severity::Info, "newer"), now);
+        deck.push(alarm("older"), now);
+        deck.push(alarm("newer"), now);
 
         let buf = render(&deck, now, 60, 20);
         let rows: Vec<String> = (0..20)
@@ -699,11 +784,8 @@ mod tests {
     fn a_widget_never_reads_the_clock() {
         let raised = Instant::now();
         let mut deck = ToastDeck::new();
-        deck.push(
-            Toast::notice(Severity::Info, "a message worth eight seconds"),
-            raised,
-        );
-        let dwell = Toast::notice(Severity::Info, "a message worth eight seconds").dwell();
+        deck.push(alarm("a message worth eight seconds"), raised);
+        let dwell = alarm("a message worth eight seconds").dwell();
 
         // Real time passing changes nothing; only the `now` the caller states does.
         std::thread::sleep(Duration::from_millis(20));
@@ -729,10 +811,10 @@ mod tests {
     #[test]
     fn the_last_tail_of_the_dwell_fades() {
         let raised = Instant::now();
-        let toast = Toast::notice(Severity::Info, "going");
-        let dwell = toast.dwell();
+        let going = alarm("going");
+        let dwell = going.dwell();
         let mut deck = ToastDeck::new();
-        deck.push(toast, raised);
+        deck.push(going, raised);
 
         let live = deck.active(raised)[0];
         assert_eq!(live.phase(raised), Phase::Live);
@@ -745,11 +827,11 @@ mod tests {
         let now = Instant::now();
         let mut deck = ToastDeck::new();
 
-        // Eight identical events — one toast, one sound, a count of 8.
+        // Eight reports of the same transition — one toast, one sound, a count of 8.
         for i in 0..8 {
-            let sound = deck.push(Toast::health(Health::Degraded, "store degraded"), now);
+            let sound = deck.push(alarm("store degraded"), now);
             if i == 0 {
-                assert_eq!(sound, Some(SoundEvent::Health), "the first raise is news");
+                assert_eq!(sound, Some(SoundEvent::Alarm), "the first raise is news");
             } else {
                 assert_eq!(sound, None, "a repeat is not news and must not sound");
             }
@@ -760,11 +842,18 @@ mod tests {
 
         // Flapping is NOT coalesced, and that is where CR-035 puts the fix: a settled-change
         // detector belongs upstream, daemon-side. Pinned so nobody reads the merge above as
-        // debouncing.
+        // debouncing — and it matters more now that the surface is only alarms and all-clears,
+        // because every one of these four carries a sound.
         let mut flapping = ToastDeck::with_cap(16);
         for _ in 0..2 {
-            flapping.push(Toast::health(Health::Degraded, "store degraded"), now);
-            flapping.push(Toast::health(Health::Healthy, "store healthy"), now);
+            flapping.push(
+                toast(Health::Healthy, Health::Degraded, "store degraded"),
+                now,
+            );
+            flapping.push(
+                toast(Health::Degraded, Health::Healthy, "store recovered"),
+                now,
+            );
         }
         assert_eq!(
             flapping.active(now).len(),
@@ -777,66 +866,51 @@ mod tests {
     fn the_cap_drops_the_oldest() {
         let now = Instant::now();
         let mut deck = ToastDeck::with_cap(2);
-        deck.push(Toast::notice(Severity::Info, "first"), now);
-        deck.push(Toast::notice(Severity::Info, "second"), now);
-        deck.push(Toast::notice(Severity::Info, "third"), now);
+        deck.push(alarm("first"), now);
+        deck.push(alarm("second"), now);
+        deck.push(alarm("third"), now);
 
-        let messages: Vec<&str> = deck
-            .active(now)
-            .iter()
-            .map(|l| l.toast.message.as_str())
-            .collect();
+        let messages: Vec<&str> = deck.active(now).iter().map(|l| l.toast.message()).collect();
         assert_eq!(messages, vec!["second", "third"]);
     }
 
     #[test]
     fn dwell_is_reading_time_held_between_a_floor_and_a_ceiling() {
-        assert_eq!(Toast::error("ok").dwell(), DWELL_FLOOR);
-        assert_eq!(Toast::error("x".repeat(400)).dwell(), DWELL_CEILING);
+        assert_eq!(alarm("ok").dwell(), DWELL_FLOOR);
+        assert_eq!(alarm(&"x".repeat(400)).dwell(), DWELL_CEILING);
 
-        let middling = Toast::error("x".repeat(100)).dwell();
+        let middling = alarm(&"x".repeat(100)).dwell();
         assert!(middling > DWELL_FLOOR && middling < DWELL_CEILING);
         assert!(
-            Toast::error("x".repeat(100)).dwell() > Toast::error("x".repeat(60)).dwell(),
+            alarm(&"x".repeat(100)).dwell() > alarm(&"x".repeat(60)).dwell(),
             "a longer message must be given longer to read"
         );
     }
 
     #[test]
-    fn every_trigger_maps_to_its_own_sound_and_its_own_glyph() {
-        let cases = [
-            (Toast::notice(Severity::Info, "m"), SoundEvent::Info),
-            (Toast::notice(Severity::Warn, "m"), SoundEvent::Warn),
-            (Toast::error("m"), SoundEvent::Error),
-            (Toast::health(Health::Offline, "m"), SoundEvent::Health),
-        ];
-        for (toast, expected) in &cases {
-            assert_eq!(toast.sound(), *expected, "{:?}", toast.trigger);
-        }
-    }
-
-    #[test]
-    fn severity_survives_an_encoding_that_refuses_colour() {
+    fn an_alarm_and_an_all_clear_differ_where_the_encoding_refuses_colour() {
         let _serial = crate::global_state_lock();
         let previous = (Palette::current(), Encoding::current());
         Palette::set(Palette::Derived);
         Encoding::set(Encoding::NoColor);
 
         let now = Instant::now();
-        let mut info = ToastDeck::new();
-        info.push(Toast::notice(Severity::Info, "quiet"), now);
-        let mut error = ToastDeck::new();
-        error.push(Toast::error("loud"), now);
+        let mut down = ToastDeck::new();
+        down.push(toast(Health::Healthy, Health::Offline, "store"), now);
+        let mut up = ToastDeck::new();
+        up.push(toast(Health::Offline, Health::Healthy, "store"), now);
 
-        let info_cells = render(&info, now, 40, 10);
-        let error_cells = render(&error, now, 40, 10);
+        let down_cells = render(&down, now, 40, 10);
+        let up_cells = render(&up, now, 40, 10);
+        // Same message, opposite meaning: with hue gone the §4 glyph is the entire signal,
+        // and mistaking an all-clear for an alarm is the worst failure this surface has.
         assert_ne!(
-            info_cells, error_cells,
-            "with no colour the glyph is the only signal left, and it must differ"
+            down_cells, up_cells,
+            "alarm and recovery rendered identically without colour"
         );
         // The rectangle itself must still be there — a border is structure, not colour.
         assert!(
-            painted(&info_cells).len() > 10,
+            painted(&down_cells).len() > 10,
             "the box vanished without colour"
         );
 
@@ -848,9 +922,9 @@ mod tests {
     fn a_toast_that_does_not_fit_is_dropped_rather_than_clipped() {
         let now = Instant::now();
         let mut deck = ToastDeck::new();
-        deck.push(Toast::notice(Severity::Info, "one"), now);
-        deck.push(Toast::notice(Severity::Info, "two"), now);
-        deck.push(Toast::notice(Severity::Info, "three"), now);
+        deck.push(alarm("one"), now);
+        deck.push(alarm("two"), now);
+        deck.push(alarm("three"), now);
 
         // Room for one rectangle and its margin, no more.
         let buf = render(&deck, now, 30, 4);

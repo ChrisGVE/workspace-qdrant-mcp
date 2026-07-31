@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ratatui::layout::{Constraint, Layout, Rect};
-use wqm_common::envelope::Severity;
 use wqm_tui::capture::capture;
 use wqm_tui::terminal;
 use wqm_tui::tokens;
@@ -130,15 +129,33 @@ fn main() {
                 let mut deck = ToastDeck::new();
                 // Pushed at stated past moments — the caller owns the clock, which is what lets
                 // a capture show a toast mid-life without waiting for one.
+                let transition = |from, to, message: &str| {
+                    Toast::transition(from, to, message).expect("a capture must show a change")
+                };
                 deck.push(
-                    Toast::notice(Severity::Info, "indexed 12 files in projects"),
+                    transition(
+                        tokens::Health::Healthy,
+                        tokens::Health::Offline,
+                        "vector store offline — qdrant unreachable",
+                    ),
                     now - Duration::from_millis(900),
                 );
                 deck.push(
-                    Toast::health(tokens::Health::Degraded, "vector store degraded"),
+                    transition(
+                        tokens::Health::Offline,
+                        tokens::Health::Degraded,
+                        "vector store degraded — rebuilding",
+                    ),
                     now - Duration::from_millis(400),
                 );
-                deck.push(Toast::error("the write was refused"), now);
+                deck.push(
+                    transition(
+                        tokens::Health::Degraded,
+                        tokens::Health::Healthy,
+                        "vector store recovered",
+                    ),
+                    now,
+                );
                 f.render_widget(TabBar::standard(0), Rect::new(0, 0, 62, 1));
                 f.render_widget(ToastStack::new(&deck, now), f.area());
             }),
