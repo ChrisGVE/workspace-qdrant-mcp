@@ -27,12 +27,49 @@ use wqm_tui::widgets::{
     collections::Collections,
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
+    surface::{ConditionBand, Surface},
     tab_bar::TabBar,
     toast::{Toast, ToastDeck, ToastStack},
 };
 
 /// One capture: its file stem, the cell grid it is drawn into, and how to draw it.
 type Frame = (&'static str, u16, u16, Box<dyn Fn(&mut ratatui::Frame)>);
+
+/// A whole screen under a stated condition — the Service tab, with the stores below it.
+///
+/// Under `DaemonUnreachable` the component readings are drawn as **unreadable** rather than
+/// healthy: seen through a dead daemon, every one of them is unknown, and four green dots
+/// under an unreachable banner would be a frame of a state the system cannot produce.
+fn unreachable_screen(f: &mut ratatui::Frame, condition: tokens::Condition) {
+    let area = f.area();
+    f.render_widget(Surface::with_condition(condition), area);
+    let [body, band] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(Surface::reserved_rows(condition)),
+    ])
+    .areas(area);
+    let [tabs, _gap, stores] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas(body);
+    f.render_widget(TabBar::standard(3), tabs);
+    match condition {
+        tokens::Condition::Nominal => f.render_widget(StoreHealth::nominal(), stores),
+        tokens::Condition::DaemonUnreachable => f.render_widget(
+            StoreHealth::new(vec![
+                StoreRow::unreadable("daemon"),
+                StoreRow::unreadable("vector"),
+                StoreRow::unreadable("graph"),
+                StoreRow::unreadable("relational"),
+            ]),
+            stores,
+        ),
+    }
+    // Last, over nothing.
+    f.render_widget(ConditionBand::with_condition(condition), band);
+}
 
 fn main() {
     let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".to_string()));
@@ -115,6 +152,23 @@ fn main() {
                 f.render_widget(TabBar::standard(3), tabs);
                 f.render_widget(DaemonPanel::nominal(), daemon);
                 f.render_widget(StoreHealth::nominal(), stores);
+            }),
+        ),
+        // The A/B Chris has to judge: the same screen, nominal and unreachable. A grid dump
+        // cannot show a background wash at all, so this pair is the only honest instrument for
+        // it — read for the wash's weight against the content, not for its exact hue.
+        (
+            "surface-nominal",
+            62,
+            10,
+            Box::new(|f: &mut ratatui::Frame| unreachable_screen(f, tokens::Condition::Nominal)),
+        ),
+        (
+            "surface-daemon-unreachable",
+            62,
+            10,
+            Box::new(|f: &mut ratatui::Frame| {
+                unreachable_screen(f, tokens::Condition::DaemonUnreachable)
             }),
         ),
         // The toast is the one element whose *placement* is the design (lower-right, one clear

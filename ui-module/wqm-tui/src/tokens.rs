@@ -46,8 +46,8 @@
 //! which is the lesser of the two. So `Derived` on a 16-colour login shell renders the
 //! authored 16-colour ladder — not an approximation of the derived one.
 
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -392,9 +392,89 @@ pub fn offline() -> Color {
     hue(Color::Red)
 }
 
-// --- §6 layers ----------------------------------------------------------------------
+// --- §6 layers, and the one condition that repaints layer 0 --------------------------
 
-/// Layer 0 keeps the terminal background and is never repainted, so it has no token.
+/// A screen-wide condition — the state of the *system*, not of a widget.
+///
+/// Chris, 20260731: **when the daemon is unreachable the whole TUI carries a red wash, on
+/// every tab, until it comes back.** That is a sustained condition, and it is exactly what a
+/// toast cannot express: a toast announces a transition and then expires, while "nothing you
+/// see is live" has to stay said for as long as it is true. The two are complementary — the
+/// transition toasts, the condition washes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Condition {
+    Nominal,
+    /// The liveness master is not answering (VISUAL-LANGUAGE §7). Every reading on screen is
+    /// stale by definition, which is why this is a whole-screen signal rather than one zone's.
+    DaemonUnreachable,
+}
+
+static CONDITION: AtomicU8 = AtomicU8::new(Condition::Nominal as u8);
+
+impl Condition {
+    pub fn current() -> Condition {
+        match CONDITION.load(Ordering::Relaxed) {
+            0 => Condition::Nominal,
+            _ => Condition::DaemonUnreachable,
+        }
+    }
+
+    pub fn set(condition: Condition) {
+        CONDITION.store(condition as u8, Ordering::Relaxed);
+    }
+}
+
+/// How far the wash pulls the terminal's own background toward red.
+///
+/// A *tolerance*, so provisional and Chris's to set (`UIQ-006` routed the others the same
+/// way). It has to clear two bars at once: visible at a glance on any theme, and still
+/// readable underneath — the wash sits behind every glyph on screen, so a strong tint costs
+/// contrast on the text the user needs in order to fix the problem.
+pub const WASH_MIX: f32 = 0.22;
+
+/// Layer 0's background: [`None`] normally — §6 says a full screen keeps the terminal's own
+/// and is never repainted — and the wash while the daemon is unreachable.
+///
+/// **The wash answers "dark or light red?" with "whichever the user's terminal is."** It is
+/// the terminal's *own* background pulled toward red by [`WASH_MIX`], so a dark theme gets a
+/// dark red and a light theme a light one, and the polarity the user chose is preserved
+/// rather than overridden.
+///
+/// # It needs RGB, and below that the wash is not attempted
+///
+/// Only [`Family::Rgb`] can express "this background, but redder". The slot and ramp families
+/// would have to substitute a *fixed* red — ANSI red as a full-screen fill is unreadable, and
+/// an indexed dark red assumes a polarity those families cannot know. So below RGB this
+/// returns [`None`] and the structural marker carries the condition alone, which is r02 §3's
+/// own rule: structure first, colour reserved. `crate::widgets::surface` draws both.
+pub fn layer0_bg() -> Option<Color> {
+    wash(Condition::current())
+}
+
+/// [`layer0_bg`] for a *stated* condition rather than the process-global one.
+///
+/// A frame has to be able to render the unreachable screen without the process being in that
+/// state — the pantry does exactly this, and so does a capture. The global exists so a widget
+/// deep in a render tree can ask without being handed a context; every renderer that takes a
+/// condition as a parameter must reach the token through this, or it renders one condition
+/// while asking about another. That failure is not hypothetical: it is what the surface tests
+/// caught the first time this was wired, and it is the same shape as the two-globals rule
+/// already recorded for `Palette` and `Encoding`.
+pub fn wash(condition: Condition) -> Option<Color> {
+    match (condition, family()) {
+        (Condition::Nominal, _) => None,
+        (Condition::DaemonUnreachable, Family::Rgb) => {
+            let bg = endpoints().background;
+            Some(Color::Rgb(
+                mix(bg.r, 255, WASH_MIX),
+                mix(bg.g, 0, WASH_MIX),
+                mix(bg.b, 0, WASH_MIX),
+            ))
+        }
+        (Condition::DaemonUnreachable, _) => None,
+    }
+}
+
 /// Layer 1 — a modal over a full screen: dark, but distinctly above the base.
 pub fn layer1_bg() -> Color {
     neutral(15)
@@ -545,7 +625,9 @@ mod tests {
         // ...but the two channels r02 reserves for exactly this case do not.
         assert!(strong_style().add_modifier.contains(Modifier::BOLD));
         assert!(
-            inverted(selector()).add_modifier.contains(Modifier::REVERSED),
+            inverted(selector())
+                .add_modifier
+                .contains(Modifier::REVERSED),
             "an inverted block must survive as reverse video or the selector vanishes"
         );
         assert_ne!(Health::Healthy.glyph(), Health::Offline.glyph());

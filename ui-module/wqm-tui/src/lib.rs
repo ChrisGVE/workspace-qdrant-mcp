@@ -10,6 +10,7 @@
 #[cfg(feature = "png-capture")]
 pub mod capture;
 pub mod encoding;
+pub mod health;
 pub mod names;
 pub mod terminal;
 pub mod tokens;
