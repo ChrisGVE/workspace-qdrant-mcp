@@ -321,11 +321,47 @@ pub mod ingredient {
         }
     }
 
+    /// The same strips with the terminal's own endpoints **swapped**.
+    ///
+    /// A light theme is not a second design, it is the same one with the polarity reversed —
+    /// so the cheapest honest test of "does this work on Latte?" is to run it against the
+    /// user's own colours, inverted, rather than to hardcode somebody's theme here. If the
+    /// wash is defined relatively it survives this frame unchanged in strength; if it was
+    /// tuned for dark terminals it falls apart here.
+    struct WashStrengthsInverted;
+    impl Ingredient for WashStrengthsInverted {
+        fn group(&self) -> &str {
+            "Surface"
+        }
+        fn name(&self) -> &str {
+            "Wash Strengths, polarity swapped"
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::tokens::wash_at"
+        }
+        fn description(&self) -> &str {
+            "The light-theme check, built from YOUR endpoints reversed — no theme is hardcoded here"
+        }
+        fn props(&self) -> &[PropInfo] {
+            PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            let previous = tokens::endpoints();
+            tokens::set_endpoints(crate::terminal::Endpoints {
+                background: previous.foreground,
+                foreground: previous.background,
+            });
+            WashStrengths.render(area, buf);
+            tokens::set_endpoints(previous);
+        }
+    }
+
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
             Box::new(Nominal),
             Box::new(Unreachable),
             Box::new(WashStrengths),
+            Box::new(WashStrengthsInverted),
         ]
     }
 }
@@ -479,6 +515,82 @@ mod tests {
             buf.cell((0, 0)).map(|c| c.bg),
             Some(ratatui::style::Color::Reset)
         );
+    }
+
+    /// CIE76 perceptual distance, implemented here rather than pulled in as a dependency: it
+    /// is fifteen lines and it exists to check one property of one constant.
+    fn delta_e(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
+        fn lab(c: (u8, u8, u8)) -> [f32; 3] {
+            let lin = |v: u8| {
+                let v = v as f32 / 255.0;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            let (r, g, b) = (lin(c.0), lin(c.1), lin(c.2));
+            let (x, y, z) = (
+                (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047,
+                0.2126 * r + 0.7152 * g + 0.0722 * b,
+                (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883,
+            );
+            let f = |t: f32| {
+                if t > 0.008856 {
+                    t.cbrt()
+                } else {
+                    7.787 * t + 16.0 / 116.0
+                }
+            };
+            let (fx, fy, fz) = (f(x), f(y), f(z));
+            [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+        }
+        let (a, b) = (lab(a), lab(b));
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    }
+
+    #[test]
+    fn the_wash_is_the_same_strength_on_a_light_theme_as_on_a_dark_one() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        // Two dark themes and two light ones. The point is that ONE constant serves both
+        // polarities: the wash is defined against the terminal's own background, so a light
+        // theme gets a pale tint that *darkens* while a dark theme gets one that *lightens* —
+        // the inversion is a consequence of the definition, not a second code path.
+        let themes: [(&str, (u8, u8, u8)); 4] = [
+            ("mocha", (0x1e, 0x1e, 0x2e)),
+            ("gruvbox dark", (0x28, 0x28, 0x28)),
+            ("latte", (0xef, 0xf1, 0xf5)),
+            ("solarized light", (0xfd, 0xf6, 0xe3)),
+        ];
+
+        for (name, bg) in themes {
+            tokens::set_endpoints(Endpoints {
+                background: Rgb::new(bg.0, bg.1, bg.2),
+                // The foreground is irrelevant to the wash; give each theme a plausible one so
+                // nothing else in the frame is nonsense.
+                foreground: if bg.0 > 0x80 {
+                    Rgb::new(0x4c, 0x4f, 0x69)
+                } else {
+                    Rgb::new(0xcd, 0xd6, 0xf4)
+                },
+            });
+            let Some(ratatui::style::Color::Rgb(r, g, b)) =
+                tokens::wash(Condition::DaemonUnreachable)
+            else {
+                panic!("{name}: no wash");
+            };
+
+            let distance = delta_e(bg, (r, g, b));
+            // Measured across all four at WASH_MIX = 0.10: 11.4–13.5. The band is deliberately
+            // wide — this pins "one constant works on both polarities", not the constant.
+            assert!(
+                (8.0..=18.0).contains(&distance),
+                "{name}: wash is ΔE {distance:.1} from the base — the tint no longer carries \
+                 the same weight on this polarity"
+            );
+        }
     }
 
     #[test]
