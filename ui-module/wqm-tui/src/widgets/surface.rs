@@ -82,15 +82,34 @@ impl Surface {
 
 impl Widget for Surface {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if self.condition == Condition::Nominal || area.is_empty() {
+        if area.is_empty() {
             return;
         }
 
-        // The colour half — absent below truecolor, by design (see the module docs).
-        if let Some(wash) = tokens::wash(self.condition) {
-            for y in area.top()..area.bottom() {
-                for x in area.left()..area.right() {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
+        // §15 (Chris, 20260731) supersedes the module docs above for the themed case: **full
+        // paint — the theme owns the background.** With no theme chosen this is `None` and the
+        // old rule stands, which is why every existing frame and test is unaffected.
+        //
+        // The wash goes on top of it rather than instead of it: they are two different claims
+        // (this is the screen's colour; this screen is not live), and the wash is a *mix*
+        // toward red, so it has to know what it is mixing from.
+        let base = tokens::screen_bg();
+        let wash = (self.condition != Condition::Nominal)
+            .then(|| tokens::wash(self.condition))
+            .flatten();
+
+        if base.is_none() && wash.is_none() {
+            return;
+        }
+
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    if let Some(base) = base {
+                        cell.set_bg(base);
+                    }
+                    // The colour half of a condition — absent below truecolor, by design.
+                    if let Some(wash) = wash {
                         cell.set_bg(wash);
                     }
                 }

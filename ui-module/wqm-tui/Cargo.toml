@@ -20,17 +20,23 @@ termprofile = "0.2.4"
 soft_ratatui = { version = "0.2.0", optional = true }
 png = { version = "0.17", optional = true }
 
-# Bundled-theme evaluation ONLY (`src/widgets/theme_sheet.rs`), optional so a shipping build
-# carries none of it. This is an INSTRUMENT, not an adoption: the standing instruction is
-# that crate selections and their purposes are reviewed with Chris before anything is taken
-# on, and this exists so that review can look at rendered frames instead of a table.
+# The bundled-theme SOURCE, adopted by §15 (Chris, 20260731) — no longer an instrument, and
+# therefore no longer optional. It ships: a bundled theme is where every colour on the screen
+# comes from once `Palette::Bundled` lands, so a build without it has no palette to paint.
+#
+# Cheap to carry: `default-features = false` drops its only optional dependency (serde), which
+# leaves ratatui — a dependency we already have — as its entire tree. MSRV 1.74.
+#
+# The `themes-preview` feature still exists and still gates `widgets/theme_sheet.rs`: that is
+# the EVALUATION instrument (the base16 comparison, the fifteen-theme gallery), which produced
+# the §15 decision and is not part of the surface.
 #
 # `ratatui-themes` is the SEMANTIC representation — ten non-optional fields per theme, and
 # its `Color` really is `ratatui::style::Color` because it tracks ratatui ^0.30 like we do.
 # (`ratatui-base16` exposes the raw slots but pins ^0.29, whose Color is a DIFFERENT type —
 # which is why the base16 half of the comparison is data in `src/themes.rs` rather than a
 # dependency. That is also the shipping route: MIT YAML, our own table.)
-ratatui-themes = { version = "0.2.0", optional = true, default-features = false }
+ratatui-themes = { version = "0.2.0", default-features = false }
 
 # The real contracts, inherited from the ui-module workspace so this crate and its future
 # sibling `wqm-cli` cannot drift onto different versions of them. Binding these means the
@@ -53,7 +59,7 @@ serde_json = { workspace = true }
 [features]
 tui-pantry = ["dep:tui-pantry"]
 png-capture = ["dep:soft_ratatui", "dep:png"]
-themes-preview = ["dep:ratatui-themes"]
+themes-preview = []
 
 # The pantry entry point cannot build without the feature that provides `tui_pantry`.
 # Declaring that here is what lets a bare `cargo test` succeed: without it cargo tries to

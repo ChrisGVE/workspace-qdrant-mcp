@@ -31,6 +31,12 @@ fn main() -> std::io::Result<()> {
         wqm_tui::tokens::set_endpoints(endpoints);
     }
 
+    // §15's bundled theme. Static here on purpose: which theme a user gets is an N7
+    // preference with nowhere to be written yet (`UIQ-009`/`UIQ-010`), and the pantry is not
+    // where that decision belongs. Mocha is the theme every measurement in this crate was
+    // taken against.
+    wqm_tui::tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
     Encoding::set(match encoding::detect() {
         // See the module docs: for a dump, the escape sequences are the whole output.
         Encoding::NoTty => Encoding::TrueColor,

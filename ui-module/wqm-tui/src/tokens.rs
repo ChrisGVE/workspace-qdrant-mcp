@@ -51,6 +51,7 @@ use std::sync::RwLock;
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
+use ratatui_themes::ThemePalette;
 
 use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
@@ -523,6 +524,43 @@ pub fn layer2_bg() -> Color {
     neutral(23)
 }
 
+/// The bundled theme in force, or [`None`] while nothing has chosen one.
+///
+/// A `RwLock` rather than an atomic because a [`ThemePalette`] is ten colours; it is written
+/// once at startup and read on every cell, which is what `RwLock` is for.
+static THEME: RwLock<Option<ThemePalette>> = RwLock::new(None);
+
+/// Choose the bundled theme every screen paints from.
+pub fn set_theme(palette: ThemePalette) {
+    *THEME.write().expect("theme lock") = Some(palette);
+}
+
+/// The bundled theme, if one has been chosen.
+pub fn theme() -> Option<ThemePalette> {
+    *THEME.read().expect("theme lock")
+}
+
+/// The colour a **full screen** paints under everything — §15's *"full paint: the theme owns
+/// the background"*, which supersedes r02 §6's *"layer 0 is never repainted"*.
+///
+/// [`None`] when no theme has been chosen, and then §6's old rule still applies: the screen
+/// keeps the terminal's own background and nothing is painted. That is what keeps every test
+/// and every widget preview rendering exactly as it did.
+///
+/// # ⚠ This is currently a PROBE, and it is deliberately the wrong colour
+///
+/// It returns the theme's **second anchor** (`selection`) rather than its first (`bg`), on
+/// Chris's instruction (20260731), to answer two questions a correct-looking screen cannot:
+/// **does the paint reach every cell**, and **what on screen is the pantry's chrome rather
+/// than ours?** A background that matches the terminal's answers neither — anything unpainted
+/// would be invisible. `selection` sits one step off the background in every bundled theme
+/// (measured: `theme_sheet::themes_preview`), so an unpainted cell shows up as a hole.
+///
+/// **Switch this to `palette.bg` when the probe has done its job.**
+pub fn screen_bg() -> Option<Color> {
+    theme().map(|palette| palette.selection)
+}
+
 /// The three store states, role-first per §7.
 ///
 /// **The declaration order is the severity order, and `Ord` says so.** A screen that rolls
@@ -725,3 +763,4 @@ mod tests {
         set_endpoints(previous);
     }
 }
+
