@@ -398,6 +398,11 @@ impl Widget for ToastStack<'_> {
                 })
                 .collect();
 
+            // Occlude first, for the same reason the modal does: a background fill restyles
+            // the cells it covers without clearing their symbols, so a toast raised over a
+            // populated screen would have the screen's text running through it.
+            ratatui::widgets::Clear.render(rect, buf);
+
             // The fill is the §6 layer-1 background: a toast floats above the screen even
             // though it takes no part in the modal stack.
             let block = Block::bordered()
@@ -724,6 +729,46 @@ mod tests {
         let partial = toast(Health::Offline, Health::Degraded, "store degraded");
         assert!(!partial.is_recovery());
         assert_eq!(partial.sound(), SoundEvent::Alarm);
+    }
+
+    #[test]
+    fn a_toast_covers_what_is_behind_it_rather_than_tinting_it() {
+        let _serial = crate::global_state_lock();
+
+        // Same defect and same blind spot as the modal's: a `Block`'s background style
+        // restyles the cells it covers without clearing their symbols, and a preview rendered
+        // onto an empty buffer cannot tell the difference. The screen is written first so the
+        // assertion has something to fail against.
+        let now = Instant::now();
+        let mut deck = ToastDeck::new();
+        deck.push(toast(Health::Healthy, Health::Offline, "vector offline"), now);
+
+        let area = Rect::new(0, 0, 60, 12);
+        let mut buf = Buffer::empty(area);
+        for y in 0..area.height {
+            for x in 0..area.width {
+                buf.cell_mut((x, y)).expect("cell in area").set_symbol("x");
+            }
+        }
+        ToastStack::new(&deck, now).render(area, &mut buf);
+
+        // The row under the toast's single line of text is its bottom border; the cells just
+        // inside the border on the text row must carry the message, not the screen.
+        let text_row = area.height - 3;
+        let line: String = (0..area.width).map(|x| symbol(&buf, x, text_row)).collect();
+        assert!(line.contains("vector offline"), "{line:?}");
+
+        // Only the cells INSIDE the border are the toast's. Outside them the screen is
+        // supposed to still be there, which is the other half of occluding correctly.
+        let chars: Vec<char> = line.chars().collect();
+        let left = chars.iter().position(|c| *c == '│').expect("left border");
+        let right = chars.iter().rposition(|c| *c == '│').expect("right border");
+        let inside: String = chars[left..=right].iter().collect();
+        assert!(
+            !inside.contains('x'),
+            "the screen is showing through the toast: {inside:?}"
+        );
+        assert_eq!(symbol(&buf, 0, text_row), "x");
     }
 
     #[test]

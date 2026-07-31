@@ -111,18 +111,14 @@ impl Modal {
     /// Every modal has one. A modal with no way out drawn on it is a modal the reader has
     /// to guess their way out of — and it is also, in a still frame, a toast.
     fn action_line(&self) -> Line<'static> {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (i, action) in self.actions.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled("   ", tokens::muted_style()));
-            }
-            spans.push(Span::styled(action.key.clone(), tokens::normal_style()));
-            spans.push(Span::styled(
-                format!(" {}", action.label),
-                tokens::muted_style(),
-            ));
-        }
-        Line::from(spans)
+        // The same `key label` idiom the bottom hint line draws, so the two cannot drift —
+        // one producer, in `tokens`.
+        let pairs: Vec<(&str, &str)> = self
+            .actions
+            .iter()
+            .map(|a| (a.key.as_str(), a.label.as_str()))
+            .collect();
+        Line::from(tokens::key_hints(&pairs))
     }
 
     /// The rectangle this modal wants, centred in `area`.
@@ -179,6 +175,13 @@ impl Widget for Modal {
             lines.push(Line::default());
             lines.push(self.action_line());
         }
+
+        // A floating box has to OCCLUDE, and a background fill is not occlusion: ratatui's
+        // `Block::style` restyles the cells it covers and leaves their symbols in place, so a
+        // modal's blank rows showed the screen's own text through them, wearing the modal's
+        // background. Invisible in an isolated preview — there is nothing behind a widget on
+        // an empty buffer — and obvious the moment the modal was put on a screen.
+        ratatui::widgets::Clear.render(rect, buf);
 
         // The title rides the top border, which is what makes the box a window rather than
         // a panel. A toast has no title — it has one sentence and no name for it.
@@ -462,6 +465,44 @@ mod tests {
                 .action("?", "close")
         };
         assert_eq!(render(help()), render(help()));
+    }
+
+    #[test]
+    fn a_modal_covers_what_is_behind_it_rather_than_tinting_it() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        // A background fill is not occlusion: ratatui's `Block::style` restyles the cells it
+        // covers and leaves their symbols standing. Every other test in this module renders
+        // onto an empty buffer, where an opaque box and a transparent one are identical — so
+        // the buffer is filled with text first, and the fill is what makes the assertion
+        // capable of failing.
+        let mut buf = Buffer::empty(AREA);
+        for y in 0..AREA.height {
+            for x in 0..AREA.width {
+                buf.cell_mut((x, y)).expect("cell in area").set_symbol("x");
+            }
+        }
+
+        let window = modal();
+        let rect = window.rect(AREA);
+        window.render(AREA, &mut buf);
+
+        // The row between the body and the actions is the modal's own blank row.
+        let gap = rect.y + rect.height - 3;
+        let inside: String = (rect.x + 1..rect.right() - 1)
+            .map(|x| buf.cell((x, gap)).expect("cell in area").symbol())
+            .collect();
+        assert!(
+            inside.trim().is_empty(),
+            "the modal's blank row shows the screen through it: {inside:?}"
+        );
+        // …and the screen outside the modal is untouched, so the box occludes rather than
+        // clearing more than it owns.
+        assert_eq!(
+            buf.cell((rect.x - 1, gap)).expect("cell in area").symbol(),
+            "x"
+        );
     }
 
     #[test]
