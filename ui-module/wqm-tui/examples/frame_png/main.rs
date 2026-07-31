@@ -26,6 +26,7 @@ use wqm_tui::tokens;
 use wqm_tui::widgets::{
     collections::Collections,
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
+    modal::{Fill, Modal},
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
     surface::{ConditionBand, Surface},
@@ -313,6 +314,65 @@ fn main() {
                         .focus(Focus::Editing(DEBOUNCE, Edit::normal("2000", 1))),
                     f.area(),
                 )
+            }),
+        ),
+        (
+            "modal-layer1",
+            70,
+            12,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    Modal::new(
+                        "Discard changes?",
+                        "watcher.debounce_ms has been edited and not saved.",
+                    )
+                    .action("↵", "discard")
+                    .action("Esc", "keep editing"),
+                    f.area(),
+                )
+            }),
+        ),
+        (
+            // The one frame that judges all three against each other: a modal, a modal on
+            // top of it, and a toast over both. If the stack does not read as three
+            // surfaces here, the depth model has failed regardless of what the tokens say.
+            "modal-stack-with-toast",
+            70,
+            14,
+            Box::new(|f: &mut ratatui::Frame| {
+                let now = Instant::now();
+                let mut deck = ToastDeck::new();
+                deck.push(
+                    Toast::transition(
+                        tokens::Health::Healthy,
+                        tokens::Health::Offline,
+                        "vector store offline",
+                    )
+                    .expect("a change of state"),
+                    now,
+                );
+                let area = f.area();
+                f.render_widget(
+                    Modal::with_body(
+                        "Discard changes?",
+                        vec!["watcher.debounce_ms has been edited and not saved.".into()],
+                    )
+                    .action("↵", "discard")
+                    .action("Esc", "keep editing"),
+                    Rect {
+                        y: area.y + 1,
+                        height: area.height - 4,
+                        ..area
+                    },
+                );
+                f.render_widget(
+                    Modal::new("Really discard?", "This cannot be undone.")
+                        .fill(Fill::Layer2)
+                        .action("y", "yes")
+                        .action("n", "no"),
+                    area,
+                );
+                f.render_widget(ToastStack::new(&deck, now), area);
             }),
         ),
     ];

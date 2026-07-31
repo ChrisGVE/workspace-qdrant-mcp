@@ -11,6 +11,7 @@ pub mod collections;
 pub mod config_table;
 pub mod daemon_status;
 pub mod envelope;
+pub mod modal;
 pub mod palette_reference;
 pub mod palette_sheet;
 pub mod store_health;
