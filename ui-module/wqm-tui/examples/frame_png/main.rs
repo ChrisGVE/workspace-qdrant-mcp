@@ -27,6 +27,7 @@ use wqm_tui::widgets::{
     collections::Collections,
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
     modal::{Fill, Modal},
+    theme_sheet::{semantic, ThemeSheet},
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
     surface::{ConditionBand, Surface},
@@ -373,6 +374,31 @@ fn main() {
                     area,
                 );
                 f.render_widget(ToastStack::new(&deck, now), area);
+            }),
+        ),
+        (
+            // Honest for hue, unusually: every swatch here is a literal Color::Rgb from
+            // theme data, which is the one thing this backend resolves byte-exactly (§12).
+            "theme-catppuccin-mocha",
+            112,
+            34,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    ThemeSheet::new(wqm_tui::themes::catppuccin_mocha())
+                        .with_semantic(semantic::CATPPUCCIN_MOCHA),
+                    f.area(),
+                )
+            }),
+        ),
+        (
+            "theme-catppuccin-latte",
+            112,
+            34,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    ThemeSheet::new(wqm_tui::themes::catppuccin_latte()),
+                    f.area(),
+                )
             }),
         ),
     ];
