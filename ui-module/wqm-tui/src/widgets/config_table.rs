@@ -310,6 +310,16 @@ impl ConfigTable {
     /// Returns the spans and the cells they occupy — **measured from the spans rather than
     /// computed from the value's length**, because the two carets are different widths and a
     /// formula that assumed one of them would silently misalign the DEFAULT column.
+    ///
+    /// # The fill has no leading pad, and the reviewed frame did
+    ///
+    /// A pad on both sides makes the lighter fill read as a *cell* rather than as coloured
+    /// text, which is why the r06 frame had one. It also pushed the value one column right of
+    /// the ACTUAL header, and nothing inside this widget could see that: it takes a full
+    /// screen, with the header directly above the row, for a one-column shift to be visible
+    /// as a shift rather than as spacing. §6.23 already ruled this case — the column wins and
+    /// the text yields — so the fill begins where the column begins and keeps its trailing
+    /// cell. The value no longer moves when a row goes into edit.
     fn edit_cell(&self, edit: &Edit, default: &str) -> (Vec<Span<'static>>, usize) {
         let chars: Vec<char> = edit.value.chars().collect();
         let before: String = chars[..edit.caret].iter().collect();
@@ -320,7 +330,7 @@ impl ConfigTable {
             style = style.add_modifier(Modifier::UNDERLINED);
         }
 
-        let mut spans = vec![Span::styled(" ", style), Span::styled(before, style)];
+        let mut spans = vec![Span::styled(before, style)];
         match edit.mode {
             // A bar between two characters — vim insert.
             EditMode::Insert => {
@@ -669,7 +679,10 @@ mod tests {
         );
         let y = FIRST_CONTENT_ROW + 1;
 
-        // The value cell carries the edit fill …
+        // The value cell carries the edit fill, and it begins exactly where the ACTUAL
+        // column begins — the fill marks a cell of the grid rather than sitting one inside
+        // it and pushing the value out.
+        assert_eq!(cell_bg(&buf, (MARGIN + W_KEY) as u16, y), tokens::edit_bg());
         assert_eq!(
             cell_bg(&buf, (MARGIN + W_KEY + 1) as u16, y),
             tokens::edit_bg()
@@ -707,7 +720,10 @@ mod tests {
             !row_text(&normal, y).contains('▏'),
             "normal mode has no bar — the block IS the caret"
         );
-        let on_char = (MARGIN + W_KEY + 1) as u16;
+        // Caret 0 is the first character of the value, and the value starts at the ACTUAL
+        // column. This constant used to carry a `+ 1` — the fill's leading pad, which was
+        // also the one-column shift the screen exposed.
+        let on_char = (MARGIN + W_KEY) as u16;
         assert!(
             normal
                 .cell((on_char, y))
@@ -748,6 +764,41 @@ mod tests {
             assert!(
                 at.is_ascii_digit(),
                 "the DEFAULT column must start at the same cell on every row, found {at:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_that_goes_into_edit_keeps_its_value_under_the_actual_header() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        // The relation is between the row and its OWN header, one row apart on the same
+        // grid — which is why this was invisible until the table was rendered on a screen.
+        // The header is read out of the buffer rather than computed, so a change to the
+        // column arithmetic cannot make both sides agree on a wrong answer.
+        let header = row_text(&render(ConfigTable::new(rows()), 80, 8), 0);
+        let actual_col = header.find("ACTUAL").expect("the column header") as u16;
+        let y = FIRST_CONTENT_ROW + 1;
+
+        let quiet = row_text(
+            &render(ConfigTable::new(rows()).focus(Focus::Cursor(0)), 80, 8),
+            y,
+        );
+        let editing = row_text(
+            &render(
+                ConfigTable::new(rows()).focus(Focus::Editing(0, Edit::insert("2000"))),
+                80,
+                8,
+            ),
+            y,
+        );
+
+        for (label, text) in [("cursor", &quiet), ("editing", &editing)] {
+            assert_eq!(
+                text.chars().nth(actual_col as usize),
+                Some('2'),
+                "the {label} row's value starts under ACTUAL: {text:?}"
             );
         }
     }
