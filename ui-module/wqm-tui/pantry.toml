@@ -55,6 +55,7 @@ strong = { color = "White", description = "bold — the one datum that must be s
 source = "wqm_tui"
 modules = [
     "widgets::collections",
+    "widgets::config_table",
     "widgets::daemon_status",
     "widgets::envelope",
     "widgets::palette_reference",

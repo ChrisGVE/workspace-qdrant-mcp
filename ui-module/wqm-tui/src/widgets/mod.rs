@@ -8,6 +8,7 @@
 //! cannot produce.
 
 pub mod collections;
+pub mod config_table;
 pub mod daemon_status;
 pub mod envelope;
 pub mod palette_reference;

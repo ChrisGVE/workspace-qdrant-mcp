@@ -25,6 +25,7 @@ use wqm_tui::terminal;
 use wqm_tui::tokens;
 use wqm_tui::widgets::{
     collections::Collections,
+    config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
     surface::{ConditionBand, Surface},
@@ -70,6 +71,25 @@ fn unreachable_screen(f: &mut ratatui::Frame, condition: tokens::Condition) {
     // Last, over nothing.
     f.render_widget(ConditionBand::with_condition(condition), band);
 }
+
+/// The config screen's keys, as the r06 frame spells them. One producer for every
+/// config-table capture below, so three frames cannot disagree about what is on screen.
+fn config_rows() -> Vec<Row> {
+    vec![
+        Row::Group("qdrant".into()),
+        Row::Entry(Entry::new(
+            "URL",
+            "http://localhost:6333",
+            "http://localhost:6333",
+        )),
+        Row::Entry(Entry::new("API key", UNSET, UNSET)),
+        Row::Group("watcher".into()),
+        Row::Entry(Entry::new("Debounce [ms]", "2000", "1500")),
+    ]
+}
+
+/// The entry index of `watcher / Debounce [ms]` — the key the frame edits.
+const DEBOUNCE: usize = 2;
 
 fn main() {
     let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".to_string()));
@@ -258,6 +278,41 @@ fn main() {
                 );
                 f.render_widget(TabBar::standard(0), Rect::new(0, 0, 62, 1));
                 f.render_widget(ToastStack::new(&deck, now), f.area());
+            }),
+        ),
+        (
+            "config-cursor",
+            70,
+            6,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    ConfigTable::new(config_rows()).focus(Focus::Cursor(DEBOUNCE)),
+                    f.area(),
+                )
+            }),
+        ),
+        (
+            "config-editing-insert",
+            70,
+            6,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    ConfigTable::new(config_rows())
+                        .focus(Focus::Editing(DEBOUNCE, Edit::insert("2000"))),
+                    f.area(),
+                )
+            }),
+        ),
+        (
+            "config-editing-normal",
+            70,
+            6,
+            Box::new(|f: &mut ratatui::Frame| {
+                f.render_widget(
+                    ConfigTable::new(config_rows())
+                        .focus(Focus::Editing(DEBOUNCE, Edit::normal("2000", 1))),
+                    f.area(),
+                )
             }),
         ),
     ];
