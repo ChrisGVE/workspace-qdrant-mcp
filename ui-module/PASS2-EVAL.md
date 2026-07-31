@@ -11,8 +11,9 @@ Every verdict here answers the six pass-2 questions from `CRATE-INVENTORY.md`, a
 is done and **adopts nothing**; `ST` (statusline / keymap / which-key) is done and produces
 **one recommendation for Chris's review list** (`ratatui-input-manager`) and nothing adopted;
 `F` (toasts), `D` (images / graph feed) and `C` (modals, overlays) are done — `C` produces a
-second recommendation, `tui-popup`. `A` (theming, 33), `E`, `G`, `H`, `I` are **not started** —
-`PASS1-SCREEN.md` §5 still describes what each of them is.
+second recommendation, `tui-popup`. `G` (scrolling / input / focus / mouse) is done and adopts
+nothing; `E` (editing) is done and produces a third recommendation, `tui-input`. `A` (theming,
+33), `H`, `I` are **not started** — `PASS1-SCREEN.md` §5 still describes what each of them is.
 
 **§F answers the factual half of area A's first question**, since both reservations carry the
 same boilerplate: there is **no public design** behind `ratatui-theme` 0.0.0 or `ratatui-toast`
@@ -812,6 +813,187 @@ to the storyboard, not to a crate screen.
 
 ---
 
+## G — scrolling, input, focus, mouse. **Answered: adopt nothing, because three of the four are not this crate's problem and the fourth already works.**
+
+Seventeen `SC`-tagged KEEPs. `CRATE-INVENTORY.md` §8 framed the area around focus — *"focus
+management is the harder half, and it is the thing a keyboard-first design needs anyway, with
+mouse falling out of it."* That framing is right about the design and wrong about the boundary.
+
+### Input: `wqm-tui` does not read it
+
+Measured on our own source: **`grep -rn "KeyEvent\|MouseEvent\|crossterm" src/` returns nothing.**
+The crate renders; the pantry harness and, later, the `wqm` binary read input. So `terminput`,
+`ratatui-input-manager`'s event half, `focusable-derive` and `monio` are all decisions for the
+binary in `src/rust/bins/wqm`, not for this crate — and taking any of them here would put an input
+backend in a widget library's dependency tree.
+
+Recorded for that later decision, because it is the cleanest thing in the area: **`terminput`
+0.5.15 has exactly one required dependency (`bitflags`)**, 229K downloads, MIT OR Apache-2.0, with
+each backend adapter as a separate crate (`terminput-crossterm`, `-termion`, `-termwiz`). Its
+licence is **not** blank, as the CSV records (§B). It is the same model/adapter split this project
+uses, done at the input layer.
+
+### Focus: already in the visual language, and already rendered correctly
+
+This is the finding, and it nearly went the other way. A first pass at `grep -rn focus src/`
+returns four hits and reads like an absence. Reading what it returned says the opposite —
+**r02 encodes focus in the neutral ladder, and `tokens.rs` documents it in place**:
+
+```rust
+/// Inactive tabs, unfocused zone bodies, timestamps, paths, key hints.
+pub fn muted() -> Color { neutral(62) }
+/// Body text of the focused zone; the baseline.
+pub fn normal() -> Color { … }
+```
+
+and the widget API already carries it: `Collections::new(None)` is the pantry variant *"The
+unfocused zone: no row carries the cursor, so nothing competes for the eye"*, against
+`Collections::new(Some(0))` for the focused one. **Focus is an `Option<usize>` — the cursor
+position, absent when the zone does not have focus** — plus the muted/normal split on body text.
+That is a complete rendering answer for a widget crate.
+
+What is left is focus *management*: which zone has it, how Tab moves it, what a modal does to it.
+That is host state, exactly as layout was in §B, and it arrives with the shell rather than with a
+widget. So:
+
+| crate | verdict |
+|---|---|
+| `rat-focus` 2.1.1 | 60K downloads and a real focus model, but it pulls `rat-event` **and `ratatui-crossterm`** — adopting focus would decide the event model and the input backend at the same time. Wrong order |
+| `ratatui-interact` 0.5.3 | the only crate naming focus *and* mouse together, which is why §8 singled it out. It pulls `crossterm`, `regex`, `thiserror` and `unicode-width` — again an input backend, plus a regex engine, inside a widget crate |
+| `focusable-derive` 0.2.9 | a derive macro for focus; MIT OR Apache-2.0, not blank as the CSV records (§B). Nothing to adopt until there is a focus model to derive |
+
+### Scrolling: the answer is known, and there is nothing to scroll yet
+
+**`tui-scrollbar` 0.2.7 is the default answer** — 1.08M downloads, two dependencies
+(`document-features`, `ratatui-core`), ratatui-org, MIT OR Apache-2.0, fractional thumb. §C
+already established that reaching it through the `tui-widgets` façade costs the same as depending
+on it directly, so that is a style choice rather than a trade-off.
+
+It is not needed yet. `Collections` renders four rows; nothing in the storyboard backlog scrolls.
+When a result list does, this is the crate — and `tui-scrollview` (410K) is its companion for a
+scrollable *viewport* rather than a bar.
+
+`tui-widget-list` 0.15.3 (227K, two ratatui deps) is the other shape: a list that owns its own
+scrolling. Judge it against `Collections` when the result list is storyboarded — the question will
+be whether variable-height rows are needed, since that is what it buys over a plain list.
+
+### Mouse: the interesting idea, and it is one crate not five
+
+Mouse needs hit-testing, and hit-testing needs to know where a widget *ended up* after render —
+which ratatui does not record. Two crates solve it, and both are worth knowing:
+
+- **`rat-reloc` 2.0.2 — standalone, one dependency (`ratatui-core`), 37K downloads.** Unusually for
+  the `rat-*` family it drags nothing else: a `RelocatableState` trait plus `relocate_area` /
+  `relocate_position` helpers that shift and clip stored rects after the fact. The *idea* — a
+  widget's state remembers its own rect so a later mouse event can be resolved against it — is
+  reusable whether or not the crate is.
+- **`ratatui-sectioned-list` 0.3.0 — zero required dependencies, `ratatui` itself optional.** It
+  does layout, focus, scroll *and* hit-test for sectioned variable-height lists, as a pure model.
+  It is the model/renderer split done properly, which §B says the screen is structurally blind to
+  — and it is here only because someone tagged it by hand. Against it: 214 downloads, Apache-2.0,
+  one author. Worth a real look when the result list is designed; too early to adopt.
+
+`tui-panel-select` 0.1.5 (mouse text selection plus clipboard, via `libc` and `base64`) and
+`monio` 0.1.1 (OS-level input monitoring through `objc2`/`windows`/`x11`) are both out of scope for
+a widget crate by a wide margin.
+
+### Method note
+
+The focus finding is the §B lesson inverted. There, a crate's *description* promised something its
+behaviour did not have. Here, our own `grep` promised an absence that our own source did not have —
+four hits looked like "focus is unaddressed" until the hits were read, at which point they turned
+out to be the design, documented in place. **Both directions have the same remedy: read what the
+instrument returned, do not summarise its shape.**
+
+---
+
+## E — editing. **Answered: the fork question dissolves, `tui-input` is the recommendation for the single-line case, and r02's modal caret is only half-expressible by any textarea crate.**
+
+Thirty-two `ED`-tagged KEEPs. This area is live — the **editing cell** is storyboard item 2, and
+VISUAL-LANGUAGE §3 already commits to vim modality by specifying two carets: `▏` for insert and a
+reverse block for normal.
+
+### Why the org forked — dates answer it, no archaeology needed
+
+| crate | last release | ratatui dependency | repository |
+|---|---|---|---|
+| `tui-textarea` (rhysd, the 2.2M original) | **2024-10-22** | optional, `^0.29` — hence pass 1's `DROP-VERSION` | `rhysd/tui-textarea` |
+| `ratatui-textarea` 0.9.2 (the org) | 2026-06-12 | `ratatui-core ^0.1.1` + `ratatui-widgets ^0.3.1` | `ratatui/ratatui-textarea` |
+| `tui-textarea-2` 0.12.1 (srothgan) | 2026-07-10 | none required — backends optional, as the original | `srothgan/tui-textarea` |
+
+The org's README says it plainly: *"This project is a Ratatui fork of tui-textarea and maintained
+independently."* The original had gone ~20 months without a release and was pinned behind the 0.30
+`ratatui-core`/`ratatui-widgets` split. **The fork is a maintenance rescue, not a design
+disagreement** — which is why `PASS1-SCREEN.md` §5's reframing ("why did the org fork" rather than
+"which of three") has a boring answer, and that is the useful outcome: there is no divergence to
+adjudicate. `tui-textarea-2` is a second, independent rescue of the same crate.
+
+One thing to notice before treating the org fork as the safe default: its built-in keymap is
+**Emacs-like** (`C-n`/`C-p`/`C-f`/`C-b`, `M-f`/`M-b`, `C-a`/`C-e`, `C-k`), which is the opposite
+modality from the one §3 commits to. Separable — the crate takes `Input`/`Key` values rather than
+owning the event loop — but it means adopting it as-shipped would contradict the design.
+
+### The finding that matters more than the fork: the caret
+
+r02 §3 specifies the caret as a **glyph** in insert mode (`▏`) and a **style** in normal mode
+(reverse block). Measured across both serious textarea candidates:
+
+- `ratatui-textarea` renders the cursor as `Span::styled(" ", cursor_style)` — a styled **space**
+  (`src/highlight.rs:224,259`).
+- `edtui` exposes `EditorTheme::cursor_style` and `hide_cursor()`, defaulting to `bg(WHITE)
+  fg(BLACK)`.
+- **Neither exposes a cursor symbol.** `grep -rn "cursor_symbol\|cursor_char\|set_symbol"` across
+  both crates' sources returns nothing relevant.
+
+So a reverse block is expressible by either and **`▏` is expressible by neither**. And `edtui`'s
+cursor style is not mode-dependent — nothing in its view layer branches on `EditorMode` for the
+caret — so even the modal *switch* between the two carets would be ours to add.
+
+That is a real constraint on this area, and it is the kind that only shows up by looking: any
+textarea crate adopted here needs a patch or a wrapper to draw §3's insert caret, and the crates'
+own theming stops at styles.
+
+### Recommendations
+
+**`tui-input` 0.15.3 — recommended for the single-line case, which is the one the storyboard
+reaches first.** `CRATE-INVENTORY.md` §6 already suspected this and the suspicion holds:
+
+| question | answer |
+|---|---|
+| maintained | 1.73M downloads, last release 2026-04-18, MIT |
+| dependencies | **two, both `unicode-*`** — no ratatui, no input backend. The backends are behind features |
+| imposes a look | **nothing at all — it does not render.** `Input` is a model: `value()`, `cursor()`, `visual_cursor()`, `visual_scroll(width)`, and `handle(InputRequest)` |
+| seam | the caret is entirely ours, which is exactly what the `▏`-versus-block problem above requires |
+
+It is the same shape as `tokens.rs`: a model with no widget dependency. The one caveat is that it
+is *only* a model — grapheme handling, scrolling arithmetic and the request vocabulary come free,
+rendering does not.
+
+**For the multi-line cell: nothing yet, and the reason is the caret.** If a block editor is needed,
+`ratatui-textarea` is the safer dependency (org-maintained, 324K downloads, four `unicode`/ratatui
+deps) and `edtui` is the one that already has vim modality (`EditorMode::Normal`/`Insert`,
+229K downloads) at the cost of a required `crossterm` — an input backend inside a widget crate,
+which §G says belongs to the binary. Both need caret work. **Decide this when the editing cell is
+drawn**, since what the frame needs will settle which compromise is cheaper.
+
+### Rejected
+
+| crate | verdict |
+|---|---|
+| `tui-textarea` 0.7.0 | unmaintained since 2024-10-22 and behind the 0.30 split. The 2.2M downloads are history, not health |
+| `modalkit` 0.0.25 | the vim FSM as a library, renderer-agnostic — and **fourteen** required dependencies including `nom`, `regex`, `ropey`, `intervaltree`, `radix_trie`. An application framework |
+| `rat-text` 3.1.0 | **nineteen** required dependencies: the whole `rat-*` family plus `chrono`, `pure-rust-locales`, `regex-cursor`, `ropey`. Same objection as §C/§G — adopting a text widget would decide focus, events and locales |
+| `tui-prompts` 0.6.7 | part of `tui-widgets`, but it requires `crossterm` — the input-backend objection again. Revisit from the binary side |
+| `hjkl-engine` / `hjkl-buffer` / `hjkl-vim` (+ `-tui` adapters) | the family verdict from §B/§ST/§C. `hjkl-prompt-tui`, carried here from §ST, lands the same way |
+| `vix-editor` / `vix-editor-core` | quintuple-licensed including **GPL-2.0-only and GPL-3.0-only** (§B), and an editor *host* rather than a widget |
+| `ratatui-code-editor`, `karet-editor`, `lumis`, `tuika-codeformatters`, `vimltui`, `scm-record`, `json-tree-editor`, `tui-canvas`, `ratin`, `tui-line-editor` | all whole editors, viewers or app-specific components. `tui-line-editor` deserves one line because its name suggests otherwise: 71 downloads, published from an application repo (`paperboy-tui`) |
+
+**Markdown-aware block editing still has no candidate**, exactly as the inventory records, and
+nothing in the full 32 changes that. `tui-markdown` renders markdown *to* ratatui text; nothing
+edits it. The gap is real and narrow: rendering is available, only the editing half is missing.
+
+---
+
 ## Review agenda — for the joint session with Chris (20260730)
 
 Written so the review does not have to start by reconstructing what was picked and why. Nothing
@@ -835,6 +1017,7 @@ same standard as a shipping one (both of these end up inside `wqm` under §11), 
 | crate | purpose | cost | why it is on the list |
 |---|---|---|---|
 | `ratatui-input-manager` 0.4.0 | the **keymap SSOT**: one `#[keymap]` declaration whose doc comments are the descriptions, from which the status-bar hints and the help modal both render (§ST) | the proc-macro derive plus `itertools`; `crossterm` is already ours, and `ratatui-core`/`ratatui-widgets` are optional features | it answers the design question `CRATE-INVENTORY.md` §3 posed, and it draws **no box-drawing glyphs by default** — measured, not read. The question for Chris is whether a compile-time `const KEYBINDS` is the right shape given the generic `Backend` parameter it propagates |
+| `tui-input` 0.15.3 | **single-line editing** — the search field and any inline edit (§E) | **two dependencies, both `unicode-*`**; no ratatui, no input backend | 1.73M downloads and it does not render at all, so r02's `▏` insert caret stays ours to draw — which matters because no textarea crate can express it |
 | `tui-popup` 0.7.6 | the **layer-1 modal** — storyboard item 3, and the one surface r02 §6 allows a box (§C) | three proc-macro dependencies, no runtime weight; ratatui-org, 249K downloads | border and fill are fully ours (`Borders::NONE` works, measured), but its **default clears to `Color::Reset` — i.e. to layer 0**, so a wrapper must set the layer-1 fill rather than each call site remembering. The alternative is `tui-overlay`, purer and much smaller but a single-author 0.1.2; that choice follows from the modal's shape, which is not drawn yet |
 
 Two areas produced **no** recommendation at all — `B` (tabs and containers) and the status-*value*
@@ -850,9 +1033,9 @@ earned adoption.
 | ~~**ST** statusline, keymap, which-key~~ | **DONE (§ST) — the area is two problems.** The keymap half has one recommendation, **`ratatui-input-manager`** (below). The status-*value* half has no candidate and cannot have one: it is daemon-side maintained state (`CR-035`/`N48`) | — |
 | ~~**C** modals, overlays~~ | **DONE (§C) — `tui-popup` recommended for the layer-1 modal**, with one default that must be overridden: it clears to `Color::Reset`, i.e. to layer 0. The animation third of the bucket is not storyboarded and was deliberately not evaluated | — |
 | ~~**D** images, graph feed~~ | **DONE (§D) — premature, and the framing was wrong.** No graph window is storyboarded, and the real question is **cells or pixels**, not which image protocol: `ratatui-flow` lays a graph out in text cells and yields rects. Facts recorded for when it is storyboarded | — |
-| **E** editing | untangle the fork situation: `tui-textarea` is DROP-VERSION on `^0.29` while the org fork passes | `ratatui-textarea`, `tui-textarea-2`, `edtui` (vim modality), `tui-input` (single line, 1.72M), **plus `hjkl-prompt-tui` carried over from ST** — it is the search/ex prompt bar, so it belongs with the single-line-input question |
+| ~~**E** editing~~ | **DONE (§E) — `tui-input` recommended for the single-line case.** The fork question dissolves: the original went 20 months without a release, so the org's fork is a maintenance rescue, not a design split. The sharper finding is that **no textarea crate can draw r02's `▏` insert caret** — they all express the cursor as a style on a space |
 | ~~**F** toasts~~ | **DONE (§F) — adopt nothing.** The placeholder has no design; `hjkl-holler` is the shape to copy, not a dependency; and the coalescing `CR-035` needs **cannot come from a toast crate** — measured: it collapses repetition, not flapping |
-| **G** scrolling, input, focus, mouse | — | `CRATE-INVENTORY.md` §8. **§C already established that `tui-widgets` is a façade, not a bundle** — its siblings are optional features, so `tui-scrollbar` (1.09M) costs the same either way |
+| ~~**G** scrolling, input, focus, mouse~~ | **DONE (§G) — adopt nothing.** `wqm-tui` reads no input at all (measured), focus is already in the ladder as muted-vs-normal plus an `Option<usize>` cursor, and nothing is storyboarded that scrolls. `tui-scrollbar` is the known answer for when something does | — |
 | **H** T4 frameworks | read for ideas; default verdict is do-not-adopt | `CRATE-INVENTORY.md` §10 |
 | **I** `tui-pantry` itself | conventions, and the three open defects in `handover.md` §8 | **plus `tui-skeleton` and `tui-splitflap` carried over from C** — both ship as pantry components, and the loading-state question they raise has no r02 vocabulary yet |
 
