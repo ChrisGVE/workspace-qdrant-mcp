@@ -262,6 +262,32 @@ pub mod ingredient {
         },
     ];
 
+    /// The whole set on one screen — the gallery entry, distinct from the per-theme sheets.
+    #[cfg(feature = "themes-preview")]
+    struct GalleryEntry;
+
+    #[cfg(feature = "themes-preview")]
+    impl Ingredient for GalleryEntry {
+        fn group(&self) -> &str {
+            "Theme Sources"
+        }
+        fn name(&self) -> &str {
+            "Gallery — all 15"
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::widgets::theme_sheet::ThemeGallery"
+        }
+        fn description(&self) -> &str {
+            "Every theme ratatui-themes carries, ten fields each — choose by looking, not by name"
+        }
+        fn props(&self) -> &[PropInfo] {
+            PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            super::ThemeGallery.render(area, buf);
+        }
+    }
+
     struct Variant_(&'static str, &'static str, fn() -> ThemeSheet);
 
     impl Ingredient for Variant_ {
@@ -287,6 +313,8 @@ pub mod ingredient {
 
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
+            #[cfg(feature = "themes-preview")]
+            Box::new(GalleryEntry),
             Box::new(Variant_(
                 "Catppuccin Mocha",
                 "Both representations of the theme Chris runs. The only scheme here that names all sixteen slots",
@@ -397,5 +425,94 @@ mod tests {
         assert!(text.contains("offline"));
         // …and the semantic source's field name for what is arguably the same colour.
         assert!(text.contains("error"));
+    }
+}
+
+/// Every theme `ratatui-themes` carries, one row each — the gallery `palette.sh` is to the
+/// palette work: the whole set on one screen, so a choice is made by looking rather than by
+/// reading names.
+///
+/// Gated on the optional dependency because it enumerates the crate's own closed set.
+#[cfg(feature = "themes-preview")]
+pub struct ThemeGallery;
+
+#[cfg(feature = "themes-preview")]
+impl ThemeGallery {
+    /// The crate's set, in its own order. `ThemeName` is a **closed enum**: this list cannot
+    /// be extended from outside, which is the finding that decides whether we own the
+    /// registry — see the module docs on `ThemePicker`.
+    pub fn themes() -> Vec<ratatui_themes::ThemeName> {
+        ratatui_themes::ThemeName::all().to_vec()
+    }
+}
+
+#[cfg(feature = "themes-preview")]
+impl Widget for ThemeGallery {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        const FIELDS: [&str; 10] = [
+            "accent", "second", "bg", "fg", "muted", "select", "error", "warn", "ok", "info",
+        ];
+
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "ratatui-themes — every theme it carries, and every field of each",
+                tokens::normal_style().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "ThemeName is a CLOSED enum: this set cannot be extended from outside.",
+                tokens::faint_style(),
+            )),
+            Line::default(),
+            Line::from(vec![
+                Span::styled(fit("THEME", 20), Style::default().fg(tokens::header())),
+                Span::styled(fit("VAR", 7), Style::default().fg(tokens::header())),
+                Span::styled(
+                    FIELDS
+                        .iter()
+                        .map(|f| format!("{f:<8}"))
+                        .collect::<String>(),
+                    Style::default().fg(tokens::header()),
+                ),
+            ]),
+        ];
+
+        for name in Self::themes() {
+            let theme = ratatui_themes::Theme::new(name);
+            let p = theme.palette();
+            let mut spans = vec![
+                Span::styled(fit(&format!("{name:?}"), 20), tokens::normal_style()),
+                Span::styled(
+                    fit(if theme.is_dark() { "dark" } else { "light" }, 7),
+                    tokens::muted_style(),
+                ),
+            ];
+            for colour in [
+                p.accent,
+                p.secondary,
+                p.bg,
+                p.fg,
+                p.muted,
+                p.selection,
+                p.error,
+                p.warning,
+                p.success,
+                p.info,
+            ] {
+                // Four cells of colour and four of gap: wide enough to judge a hue, narrow
+                // enough that all ten fit beside the name.
+                spans.push(Span::styled("    ", Style::default().bg(colour)));
+                spans.push(Span::raw("    "));
+            }
+            lines.push(Line::from(spans));
+        }
+
+        lines.push(Line::default());
+        lines.push(Line::from(Span::styled(
+            "Every field is non-Option, so every theme has all ten — but the hue is only \
+             \"typically\" the one the name suggests.",
+            tokens::faint_style(),
+        )));
+
+        Paragraph::new(lines).render(area, buf);
     }
 }

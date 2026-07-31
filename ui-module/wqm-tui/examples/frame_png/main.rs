@@ -27,7 +27,7 @@ use wqm_tui::widgets::{
     collections::Collections,
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
     modal::{Fill, Modal},
-    theme_sheet::{semantic, ThemeSheet},
+    theme_sheet::{semantic, ThemeGallery, ThemeSheet},
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
     surface::{ConditionBand, Surface},
@@ -400,6 +400,12 @@ fn main() {
                     f.area(),
                 )
             }),
+        ),
+        (
+            "theme-gallery",
+            112,
+            22,
+            Box::new(|f: &mut ratatui::Frame| f.render_widget(ThemeGallery, f.area())),
         ),
     ];
 
