@@ -359,6 +359,72 @@ pub mod ingredient {
 mod themes_preview {
     use super::*;
 
+    /// The invariant `Palette::Bundled` will be built on, checked against all fifteen themes.
+    ///
+    /// §15 chose the semantic source knowing it names **four** neutrals against r02's eleven
+    /// rungs, so the ladder has to be interpolated from theme data the way `Derived`
+    /// interpolates it from `OSC 11`/`OSC 10`. That only works if the four are *ordered* —
+    /// `bg` and `fg` as the endpoints, `selection` and `muted` as interior anchors. Nothing in
+    /// `ThemePalette`'s type says so: all ten fields are plain `Color`, and a theme whose
+    /// `muted` sat outside `[bg, fg]` would silently fold two rungs together.
+    ///
+    /// It also checks that no theme collapses two roles onto one value, which is what
+    /// `Palette::Theme` does with the sixteen ANSI slots (§8.5, six rungs lost) and is the
+    /// failure this source was chosen to avoid.
+    ///
+    /// Both halves hold on every theme today, on **both polarities** — three of the fifteen
+    /// are light themes, where the whole ordering inverts and the betweenness does not.
+    #[test]
+    fn every_theme_gives_ten_distinct_roles_and_four_ordered_neutrals() {
+        fn luma(colour: Color) -> f32 {
+            match colour {
+                Color::Rgb(r, g, b) => 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32,
+                other => panic!("a bundled theme must be RGB, got {other:?}"),
+            }
+        }
+
+        for name in ratatui_themes::ThemeName::all() {
+            let p = name.palette();
+            let roles = [
+                p.accent,
+                p.secondary,
+                p.bg,
+                p.fg,
+                p.muted,
+                p.selection,
+                p.error,
+                p.warning,
+                p.success,
+                p.info,
+            ];
+            let mut distinct: Vec<String> = roles.iter().map(|c| hex(*c)).collect();
+            distinct.sort();
+            distinct.dedup();
+            assert_eq!(
+                distinct.len(),
+                roles.len(),
+                "{name:?} spends one colour on two roles: {distinct:?}"
+            );
+
+            // The interior anchors sit strictly between the endpoints — in that order, and
+            // whichever way round the polarity puts them.
+            let (bg, fg) = (luma(p.bg), luma(p.fg));
+            let (low, high) = (bg.min(fg), bg.max(fg));
+            for (field, value) in [("selection", luma(p.selection)), ("muted", luma(p.muted))] {
+                assert!(
+                    value > low && value < high,
+                    "{name:?}: {field} at luma {value:.0} is outside [{low:.0}, {high:.0}], \
+                     so the ladder cannot anchor on it"
+                );
+            }
+            assert!(
+                (luma(p.selection) - bg).abs() < (luma(p.muted) - bg).abs(),
+                "{name:?}: selection must be the anchor NEARER the background — it is the \
+                 cursor tint, and muted is a text rung"
+            );
+        }
+    }
+
     #[test]
     fn the_hand_written_semantic_table_matches_the_crate() {
         // This check earned its place on its first run: `secondary` had been guessed as
