@@ -61,4 +61,5 @@ modules = [
     "widgets::palette_sheet",
     "widgets::store_health",
     "widgets::tab_bar",
+    "widgets::toast",
 ]

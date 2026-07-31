@@ -17,8 +17,10 @@
 //! `wqm_tui::capture`'s module docs give the measured reason.
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
+use wqm_common::envelope::Severity;
 use wqm_tui::capture::capture;
 use wqm_tui::terminal;
 use wqm_tui::tokens;
@@ -27,7 +29,11 @@ use wqm_tui::widgets::{
     daemon_status::DaemonPanel,
     store_health::{StoreHealth, StoreRow},
     tab_bar::TabBar,
+    toast::{Toast, ToastDeck, ToastStack},
 };
+
+/// One capture: its file stem, the cell grid it is drawn into, and how to draw it.
+type Frame = (&'static str, u16, u16, Box<dyn Fn(&mut ratatui::Frame)>);
 
 fn main() {
     let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".to_string()));
@@ -57,7 +63,7 @@ fn main() {
         ),
     }
 
-    let frames: Vec<(&str, u16, u16, Box<dyn Fn(&mut ratatui::Frame)>)> = vec![
+    let frames: Vec<Frame> = vec![
         (
             "tab-bar",
             62,
@@ -110,6 +116,31 @@ fn main() {
                 f.render_widget(TabBar::standard(3), tabs);
                 f.render_widget(DaemonPanel::nominal(), daemon);
                 f.render_widget(StoreHealth::nominal(), stores);
+            }),
+        ),
+        // The toast is the one element whose *placement* is the design (lower-right, one clear
+        // cell from each edge), and placement is exactly what a grid dump of a widget-sized area
+        // cannot show. Captured screen-sized for that reason.
+        (
+            "toast-stack",
+            62,
+            14,
+            Box::new(|f: &mut ratatui::Frame| {
+                let now = Instant::now();
+                let mut deck = ToastDeck::new();
+                // Pushed at stated past moments — the caller owns the clock, which is what lets
+                // a capture show a toast mid-life without waiting for one.
+                deck.push(
+                    Toast::notice(Severity::Info, "indexed 12 files in projects"),
+                    now - Duration::from_millis(900),
+                );
+                deck.push(
+                    Toast::health(tokens::Health::Degraded, "vector store degraded"),
+                    now - Duration::from_millis(400),
+                );
+                deck.push(Toast::error("the write was refused"), now);
+                f.render_widget(TabBar::standard(0), Rect::new(0, 0, 62, 1));
+                f.render_widget(ToastStack::new(&deck, now), f.area());
             }),
         ),
     ];

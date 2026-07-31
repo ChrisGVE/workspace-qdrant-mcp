@@ -663,6 +663,15 @@ r02 §6 reserves boxes for modals.** Whether a transient overlay counts as a mod
 a visual-language call, and it has to be made before any toast surface is built — it is the same
 class of question as §7.6.
 
+> **ANSWERED 20260731 (Chris) — and it did not arrive as a ruling on the rule.** He specified the
+> surface: *"a small ephemeral (but long enough to read) rectangle on the lower right corner with an
+> audible (configurable) sound"*. So a toast **is** a box and is **not** a modal, and
+> VISUAL-LANGUAGE §6 was amended to say what a box *means* — position and lifetime separate the two
+> — with §8 added for the surface. This area's verdict held under it: the toast surface was built in
+> `wqm-tui/src/widgets/toast.rs` with **no crate adopted**, `hjkl-holler`'s caller-owns-the-clock
+> discipline copied rather than depended on, and the flapping limit measured here pinned by a test.
+> The configurable half is `UIQ-006` — the knobs are N7's, not this module's to invent.
+
 ### The rest of the area
 
 | crate | verdict |

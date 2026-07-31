@@ -14,3 +14,4 @@ pub mod palette_reference;
 pub mod palette_sheet;
 pub mod store_health;
 pub mod tab_bar;
+pub mod toast;
