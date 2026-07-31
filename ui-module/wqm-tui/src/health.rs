@@ -20,9 +20,24 @@
 //! down to avoid. One alarm fires: the daemon's. While it stays down, nothing else does.
 //!
 //! On the way back the balance flips: the daemon's recovery is one all-clear, and a component
-//! that returns **unhealthy** raises its own alarm, because that genuinely is news the
-//! all-clear would otherwise hide. A component that returns healthy raises nothing — the
-//! daemon's all-clear already said so.
+//! that is **still unhealthy once things have settled** raises its own alarm, because that
+//! genuinely is news the all-clear would otherwise hide. A component that comes back healthy
+//! raises nothing — the daemon's all-clear already said so.
+//!
+//! # A returning daemon gets a settling window (Chris, 20260731)
+//!
+//! *"When the daemon is back, it would require some time to ascertain the state of all its
+//! resources."* A daemon that has just come up has not finished probing Qdrant, the graph
+//! engine or its queue — its first readings describe **its own startup**, not the system. So
+//! [`HealthWatch`] withholds component alarms for [`SETTLE_AFTER_RECOVERY`] after a recovery,
+//! and when the window closes it judges the **state**, not the churn: whatever is still
+//! unhealthy alarms once, and a component that broke and healed inside the window never
+//! happened as far as the user is concerned.
+//!
+//! This is the one debounce that lives on this side. General flapping stays daemon-side under
+//! `CR-035` (`HEALTH-MONITORING.md` property 3) and always will — the difference is that this
+//! window is not trying to detect a settled change, it is declining to trust a source that has
+//! told us it is not ready.
 //!
 //! # The sustained half is not a toast
 //!
@@ -30,6 +45,8 @@
 //! for as long as it is true, which is [`crate::tokens::Condition`] and the red wash
 //! ([`crate::widgets::surface`]). [`SystemHealth::condition`] is where the one state becomes
 //! the other, so the wash and the toast can never disagree about whether the daemon is up.
+
+use std::time::{Duration, Instant};
 
 use wqm_client::{DaemonReport, DaemonState, UnreachableReason};
 
@@ -129,11 +146,148 @@ fn daemon_message(to: Health) -> String {
     }
 }
 
+/// How long after the daemon returns component alarms are withheld.
+///
+/// Chris, 20260731: *"when the daemon is back, it would require some time to ascertain the
+/// state of all its resources."* A daemon that has just come up has not finished probing
+/// Qdrant, the graph engine or its queue, so its first reports are provisional — alarming on
+/// them announces the daemon's own startup rather than anything wrong with the system.
+///
+/// A *tolerance*, so provisional and not this module's to set: requested as an N7 knob in
+/// `UIQ-008`, and named here with the same word the request uses.
+pub const SETTLE_AFTER_RECOVERY: Duration = Duration::from_secs(5);
+
+/// The alert policy with memory: the diff below, plus the settling window the diff cannot
+/// express.
+///
+/// [`transitions`] is a pure function of two observations, which is what makes it testable —
+/// but "wait a few seconds before believing this" is a property of *time*, not of a pair of
+/// states. So the window lives here, and, per the rule the whole surface is built on, this
+/// type never reads the clock either: [`HealthWatch::observe`] takes `now`.
+#[derive(Clone, Debug)]
+pub struct HealthWatch {
+    last: Option<SystemHealth>,
+    settling_until: Option<Instant>,
+    settle_window: Duration,
+}
+
+impl Default for HealthWatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HealthWatch {
+    pub fn new() -> Self {
+        Self::with_settle_window(SETTLE_AFTER_RECOVERY)
+    }
+
+    pub fn with_settle_window(settle_window: Duration) -> Self {
+        Self {
+            last: None,
+            settling_until: None,
+            settle_window,
+        }
+    }
+
+    /// The condition the last observation implies — [`Condition::Nominal`] before anything has
+    /// been observed, because an unobserved daemon is not a failed one.
+    pub fn condition(&self) -> Condition {
+        self.last
+            .as_ref()
+            .map(SystemHealth::condition)
+            .unwrap_or(Condition::Nominal)
+    }
+
+    /// Whether component alarms are currently being withheld.
+    pub fn is_settling(&self, now: Instant) -> bool {
+        self.settling_until.is_some_and(|until| now < until)
+    }
+
+    /// Take an observation and return the toasts it is allowed to raise.
+    ///
+    /// Four behaviours worth stating plainly, because each one is a deliberate silence:
+    ///
+    /// 1. **The first observation says nothing.** It is a baseline, not a change — a TUI opened
+    ///    onto an already-degraded system announces nothing, it *shows* it.
+    /// 2. **A daemon outage silences its components**, exactly as [`transitions`] does.
+    /// 3. **The window after a recovery withholds component alarms.** During it, component
+    ///    churn is tracked and never announced.
+    /// 4. **When the window closes, the state is judged, not the churn.** Whatever is still
+    ///    unhealthy alarms once, at that moment. A component that broke and healed inside the
+    ///    window never existed as far as the user is concerned.
+    ///
+    /// The window closes on the first observation *after* it expires — this type has no timer
+    /// of its own, and a status stream that stopped arriving has a bigger problem than a late
+    /// toast.
+    pub fn observe(&mut self, next: SystemHealth, now: Instant) -> Vec<Toast> {
+        let Some(before) = self.last.replace(next.clone()) else {
+            // Baseline. A first look is not news.
+            return Vec::new();
+        };
+
+        let mut toasts = Vec::new();
+        if before.daemon != next.daemon {
+            toasts.extend(Toast::transition(
+                before.daemon,
+                next.daemon,
+                daemon_message(next.daemon),
+            ));
+        }
+
+        if next.daemon == Health::Offline {
+            // A fresh outage ends any settling: there is nothing to settle toward.
+            self.settling_until = None;
+            return toasts;
+        }
+
+        if before.daemon == Health::Offline {
+            // Just back. The all-clear goes out now; the components get their grace.
+            self.settling_until = Some(now + self.settle_window);
+            return toasts;
+        }
+
+        match self.settling_until {
+            Some(until) if now < until => toasts,
+            Some(_) => {
+                self.settling_until = None;
+                // The state at the end of the window is the claim worth making. Comparing
+                // against `before` here would announce whatever the daemon's last provisional
+                // reading happened to be, which is the noise the window exists to remove.
+                toasts.extend(unhealthy_alarms(&next));
+                toasts
+            }
+            None => {
+                toasts.extend(component_transitions(&before, &next));
+                toasts
+            }
+        }
+    }
+}
+
+/// One alarm per component that is not healthy, as a statement about *now* rather than about a
+/// change. Used only when the settling window closes.
+fn unhealthy_alarms(state: &SystemHealth) -> Vec<Toast> {
+    state
+        .components
+        .iter()
+        .filter(|component| component.health != Health::Healthy)
+        .filter_map(|component| {
+            Toast::transition(
+                Health::Healthy,
+                component.health,
+                format!("{} {}", component.role, verb(component.health)),
+            )
+        })
+        .collect()
+}
+
 /// Every toast that a move from `before` to `after` is allowed to raise, in the order they
 /// should be pushed.
 ///
-/// This is the whole alert policy, and it is deliberately the only way toasts are produced
-/// from health: a caller that pushed its own would be able to bypass the silencing rules.
+/// The diff half of the policy. [`HealthWatch`] is the entry point a screen uses — it wraps
+/// this with the settling window — and a caller that pushed its own toasts instead would be
+/// able to bypass both.
 pub fn transitions(before: &SystemHealth, after: &SystemHealth) -> Vec<Toast> {
     let mut toasts = Vec::new();
 
@@ -153,48 +307,48 @@ pub fn transitions(before: &SystemHealth, after: &SystemHealth) -> Vec<Toast> {
         return toasts;
     }
 
-    for component in &after.components {
-        let previous = before.component(&component.role);
+    if before.daemon == Health::Offline {
+        // Coming back, with no clock available here: report what is unhealthy right away.
+        // [`HealthWatch`] is the version that waits first, and it is what a screen uses —
+        // this branch is what "the diff alone would have said".
+        toasts.extend(unhealthy_alarms(after));
+        return toasts;
+    }
 
-        let raise = if before.daemon == Health::Offline {
-            // Coming back: an unhealthy component is news the daemon's all-clear would hide.
-            // A healthy one is not — the all-clear already said it.
-            component.health != Health::Healthy
-        } else {
-            match previous {
+    toasts.extend(component_transitions(before, after));
+    toasts
+}
+
+/// The component half, with both observations taken through a live daemon.
+///
+/// A component that disappeared from the report says nothing: its absence is not a state, and
+/// `store_health` already shows a vanished row as unreadable rather than dropping it.
+fn component_transitions(before: &SystemHealth, after: &SystemHealth) -> Vec<Toast> {
+    after
+        .components
+        .iter()
+        .filter_map(|component| {
+            let previous = before.component(&component.role);
+            let raise = match previous {
                 // A component that was already known: only a real change speaks.
                 Some(was) => was != component.health,
                 // One that has just appeared: news only if it arrives in trouble.
                 None => component.health != Health::Healthy,
+            };
+            if !raise {
+                return None;
             }
-        };
 
-        if !raise {
-            continue;
-        }
-
-        let from = previous
-            .filter(|_| before.daemon != Health::Offline)
-            // A component with no previous reading — new, or seen through a daemon that was
-            // down — is treated as having been healthy, so `transition` still describes a
-            // change and cannot be handed the same state twice.
-            .unwrap_or(Health::Healthy);
-        let from = if from == component.health {
-            Health::Healthy
-        } else {
-            from
-        };
-
-        toasts.extend(Toast::transition(
-            from,
-            component.health,
-            format!("{} {}", component.role, verb(component.health)),
-        ));
-    }
-
-    // A component that disappeared from the report says nothing: its absence is not a state,
-    // and `store_health` already shows a vanished row as unreadable rather than dropping it.
-    toasts
+            // A component with no previous reading is treated as having been healthy, so
+            // `transition` still describes a change and cannot be handed the same state twice.
+            let from = previous.unwrap_or(Health::Healthy);
+            Toast::transition(
+                from,
+                component.health,
+                format!("{} {}", component.role, verb(component.health)),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -355,6 +509,136 @@ mod tests {
             transitions(&before, &after).is_empty(),
             "an absent reading is not a state, and CR-036(a) puts the unreadable case in the row"
         );
+    }
+
+    #[test]
+    fn a_first_observation_is_a_baseline_and_never_news() {
+        let now = Instant::now();
+        let mut watch = HealthWatch::new();
+        // A TUI opened onto an already-degraded system shows it; it does not announce it.
+        let toasts = watch.observe(
+            system(Health::Healthy, &[("vector", Health::Degraded)]),
+            now,
+        );
+        assert!(toasts.is_empty());
+        assert_eq!(watch.condition(), Condition::Nominal);
+    }
+
+    #[test]
+    fn a_returning_daemon_gets_a_settling_window_before_its_components_may_alarm() {
+        let start = Instant::now();
+        let window = Duration::from_secs(5);
+        let mut watch = HealthWatch::with_settle_window(window);
+
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+        let down = watch.observe(system(Health::Offline, &[]), start);
+        assert_eq!(messages(&down), vec!["daemon unreachable"]);
+
+        // Back, with a store still reporting trouble in the first breath. The all-clear goes
+        // out; the store does not, because the daemon has not finished probing it.
+        let back = watch.observe(
+            system(
+                Health::Healthy,
+                &[("vector", Health::Offline), ("graph", Health::Healthy)],
+            ),
+            start,
+        );
+        assert_eq!(messages(&back), vec!["daemon recovered"]);
+        assert!(watch.is_settling(start));
+
+        // Mid-window churn is tracked and stays silent — this is the noise the window removes.
+        let mid = watch.observe(
+            system(
+                Health::Healthy,
+                &[("vector", Health::Degraded), ("graph", Health::Degraded)],
+            ),
+            start + Duration::from_secs(2),
+        );
+        assert!(mid.is_empty(), "the window leaked: {:?}", messages(&mid));
+    }
+
+    #[test]
+    fn when_the_window_closes_the_state_is_judged_not_the_churn() {
+        let start = Instant::now();
+        let window = Duration::from_secs(5);
+        let mut watch = HealthWatch::with_settle_window(window);
+
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+        watch.observe(system(Health::Offline, &[]), start);
+        watch.observe(
+            system(
+                Health::Healthy,
+                &[("vector", Health::Offline), ("graph", Health::Offline)],
+            ),
+            start,
+        );
+
+        // `graph` broke and healed inside the window: as far as the user is concerned it never
+        // happened. `vector` is still down when the window closes, so it alarms — once.
+        let settled = watch.observe(
+            system(
+                Health::Healthy,
+                &[("vector", Health::Degraded), ("graph", Health::Healthy)],
+            ),
+            start + window,
+        );
+        assert_eq!(messages(&settled), vec!["vector degraded"]);
+        assert!(!watch.is_settling(start + window));
+
+        // And afterwards the ordinary diff is back in force: no repeat for an unchanged state.
+        let steady = watch.observe(
+            system(
+                Health::Healthy,
+                &[("vector", Health::Degraded), ("graph", Health::Healthy)],
+            ),
+            start + window + Duration::from_secs(1),
+        );
+        assert!(steady.is_empty());
+    }
+
+    #[test]
+    fn a_system_that_comes_back_clean_says_only_the_all_clear() {
+        let start = Instant::now();
+        let window = Duration::from_secs(5);
+        let mut watch = HealthWatch::with_settle_window(window);
+
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+        watch.observe(system(Health::Offline, &[]), start);
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+
+        let settled = watch.observe(system(Health::Healthy, &NOMINAL), start + window);
+        assert!(
+            settled.is_empty(),
+            "a clean recovery must not speak twice: {:?}",
+            messages(&settled)
+        );
+    }
+
+    #[test]
+    fn a_second_outage_during_the_window_cancels_it() {
+        let start = Instant::now();
+        let window = Duration::from_secs(5);
+        let mut watch = HealthWatch::with_settle_window(window);
+
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+        watch.observe(system(Health::Offline, &[]), start);
+        watch.observe(system(Health::Healthy, &NOMINAL), start);
+
+        // A flapping daemon: down again before its components ever settled.
+        let down_again =
+            watch.observe(system(Health::Offline, &[]), start + Duration::from_secs(1));
+        assert_eq!(messages(&down_again), vec!["daemon unreachable"]);
+        assert!(
+            !watch.is_settling(start + Duration::from_secs(2)),
+            "there is nothing to settle toward while it is down"
+        );
+
+        // ...and the next recovery starts a fresh window rather than inheriting the old one.
+        watch.observe(
+            system(Health::Healthy, &[("vector", Health::Degraded)]),
+            start + Duration::from_secs(3),
+        );
+        assert!(watch.is_settling(start + Duration::from_secs(7)));
     }
 
     #[test]

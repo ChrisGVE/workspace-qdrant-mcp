@@ -171,6 +171,52 @@ fn main() {
                 unreachable_screen(f, tokens::Condition::DaemonUnreachable)
             }),
         ),
+        // The tolerance, side by side. A capture is not honest about hue, so this is the
+        // *relative* instrument — the ANSI dump of `Surface / Wash Strengths` in a real
+        // terminal is what settles the value.
+        (
+            "wash-strengths",
+            74,
+            5,
+            Box::new(|f: &mut ratatui::Frame| {
+                let area = f.area();
+                for (i, mix) in [0.06f32, 0.10, 0.14, 0.18, 0.22].iter().enumerate() {
+                    let strip = Rect::new(area.x, area.y + i as u16, area.width, 1);
+                    if let Some(colour) =
+                        tokens::wash_at(tokens::Condition::DaemonUnreachable, *mix)
+                    {
+                        f.buffer_mut()
+                            .set_style(strip, ratatui::style::Style::default().bg(colour));
+                    }
+                    let current = if (*mix - tokens::WASH_MIX).abs() < f32::EPSILON {
+                        " ← current"
+                    } else {
+                        ""
+                    };
+                    f.render_widget(
+                        ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![
+                            ratatui::text::Span::styled(
+                                format!(" {mix:.2}  "),
+                                tokens::strong_style(),
+                            ),
+                            ratatui::text::Span::styled(
+                                "normal body text  ",
+                                tokens::normal_style(),
+                            ),
+                            ratatui::text::Span::styled("muted label  ", tokens::muted_style()),
+                            ratatui::text::Span::styled("faint default  ", tokens::faint_style()),
+                            ratatui::text::Span::styled(
+                                tokens::Health::Offline.glyph(),
+                                ratatui::style::Style::default()
+                                    .fg(tokens::Health::Offline.color()),
+                            ),
+                            ratatui::text::Span::styled(current, tokens::muted_style()),
+                        ])),
+                        strip,
+                    );
+                }
+            }),
+        ),
         // The toast is the one element whose *placement* is the design (lower-right, one clear
         // cell from each edge), and placement is exactly what a grid dump of a widget-sized area
         // cannot show. Captured screen-sized for that reason.

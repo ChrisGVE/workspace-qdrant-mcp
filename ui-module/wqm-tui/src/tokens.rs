@@ -426,11 +426,15 @@ impl Condition {
 
 /// How far the wash pulls the terminal's own background toward red.
 ///
-/// A *tolerance*, so provisional and Chris's to set (`UIQ-006` routed the others the same
-/// way). It has to clear two bars at once: visible at a glance on any theme, and still
-/// readable underneath — the wash sits behind every glyph on screen, so a strong tint costs
-/// contrast on the text the user needs in order to fix the problem.
-pub const WASH_MIX: f32 = 0.22;
+/// **Subtle, deliberately** (Chris, 20260731: *"it should be subtle as not destroy visibility
+/// across the window"*). The wash sits behind every glyph on screen, and the text under it is
+/// exactly the text the user needs in order to see what broke — so the tint's job is to be
+/// noticed peripherally, not to be looked at. The first cut was 0.22, which read as a red
+/// screen rather than a red-tinted one.
+///
+/// Judge it, do not argue it: `cargo pantry dump "Surface" --variant "Wash Strengths"` puts
+/// the candidates side by side with real text on them.
+pub const WASH_MIX: f32 = 0.10;
 
 /// Layer 0's background: [`None`] normally — §6 says a full screen keeps the terminal's own
 /// and is never repainted — and the wash while the daemon is unreachable.
@@ -461,14 +465,24 @@ pub fn layer0_bg() -> Option<Color> {
 /// caught the first time this was wired, and it is the same shape as the two-globals rule
 /// already recorded for `Palette` and `Encoding`.
 pub fn wash(condition: Condition) -> Option<Color> {
+    wash_at(condition, WASH_MIX)
+}
+
+/// [`wash`] at a stated strength, so candidate values can be put side by side in one frame
+/// rather than compared across two runs of the same binary.
+///
+/// The comparison is the point: "subtle" is not a number anyone can argue their way to, and a
+/// tint judged alone always looks reasonable.
+pub fn wash_at(condition: Condition, mix_toward_red: f32) -> Option<Color> {
     match (condition, family()) {
         (Condition::Nominal, _) => None,
         (Condition::DaemonUnreachable, Family::Rgb) => {
             let bg = endpoints().background;
+            let strength = mix_toward_red.clamp(0.0, 1.0);
             Some(Color::Rgb(
-                mix(bg.r, 255, WASH_MIX),
-                mix(bg.g, 0, WASH_MIX),
-                mix(bg.b, 0, WASH_MIX),
+                mix(bg.r, 255, strength),
+                mix(bg.g, 0, strength),
+                mix(bg.b, 0, strength),
             ))
         }
         (Condition::DaemonUnreachable, _) => None,

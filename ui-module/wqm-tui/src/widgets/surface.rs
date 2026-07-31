@@ -252,8 +252,81 @@ pub mod ingredient {
         }
     }
 
+    /// The candidate wash strengths, weakest first. The shipping value is
+    /// [`tokens::WASH_MIX`]; this list exists so it is chosen by comparison rather than by
+    /// argument.
+    const CANDIDATE_MIXES: [f32; 5] = [0.06, 0.10, 0.14, 0.18, 0.22];
+
+    struct WashStrengths;
+    impl Ingredient for WashStrengths {
+        fn group(&self) -> &str {
+            "Surface"
+        }
+        fn name(&self) -> &str {
+            "Wash Strengths"
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::tokens::wash_at"
+        }
+        fn description(&self) -> &str {
+            "The tolerance, side by side: each strip carries real text, because what the wash costs is contrast"
+        }
+        fn props(&self) -> &[PropInfo] {
+            PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            let previous = tokens::Palette::current();
+            tokens::Palette::set(tokens::Palette::Derived);
+
+            for (i, mix) in CANDIDATE_MIXES.iter().enumerate() {
+                let y = area.top() + i as u16;
+                if y >= area.bottom() {
+                    break;
+                }
+                let strip = Rect {
+                    x: area.left(),
+                    y,
+                    width: area.width,
+                    height: 1,
+                };
+                if let Some(colour) = tokens::wash_at(Condition::DaemonUnreachable, *mix) {
+                    for x in strip.left()..strip.right() {
+                        if let Some(cell) = buf.cell_mut((x, y)) {
+                            cell.set_bg(colour);
+                        }
+                    }
+                }
+                // The same three rungs every screen is mostly made of, plus the glyph that has
+                // to stay findable: if the wash costs anything, it costs it here.
+                let marker = if (*mix - tokens::WASH_MIX).abs() < f32::EPSILON {
+                    " ← current"
+                } else {
+                    ""
+                };
+                Paragraph::new(Line::from(vec![
+                    Span::styled(format!(" {mix:.2}  "), tokens::strong_style()),
+                    Span::styled("normal body text  ", tokens::normal_style()),
+                    Span::styled("muted label  ", tokens::muted_style()),
+                    Span::styled("faint default  ", tokens::faint_style()),
+                    Span::styled(
+                        Health::Offline.glyph(),
+                        ratatui::style::Style::default().fg(Health::Offline.color()),
+                    ),
+                    Span::styled(marker, tokens::muted_style()),
+                ]))
+                .render(strip, buf);
+            }
+
+            tokens::Palette::set(previous);
+        }
+    }
+
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
-        vec![Box::new(Nominal), Box::new(Unreachable)]
+        vec![
+            Box::new(Nominal),
+            Box::new(Unreachable),
+            Box::new(WashStrengths),
+        ]
     }
 }
 
