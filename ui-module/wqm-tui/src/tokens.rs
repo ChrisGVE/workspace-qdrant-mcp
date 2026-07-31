@@ -4,19 +4,22 @@
 //! spell a colour literal — they name a rung on the emphasis ladder or a highlight role,
 //! so a change here propagates to every frame and to the pantry's Styles tab.
 //!
-//! # Everything resolves through the terminal's palette
+//! # Where a colour comes from is a choice, and [`Palette`] is that choice
 //!
-//! No token emits absolute RGB. Every colour is an ANSI slot or a 256-table index, so the
-//! user's theme decides what is actually painted — a wqm screen sits inside the terminal
-//! the user configured rather than overriding it.
+//! This module opened on a stricter promise: *no token emits absolute RGB* — every colour an
+//! ANSI slot or a 256-table index, so a wqm screen sat inside the terminal the user configured
+//! rather than overriding it. Two of the four sources below now break it deliberately, and the
+//! reasoning that got there is the reason [`Palette`] exists as an enum rather than as a
+//! constant.
 //!
-//! That commitment costs something, and [`Palette`] is where the cost is made explicit.
+//! The promise costs something, and [`Palette`] is where the cost is made explicit.
 //! Hues (selector, health) are always the 16 theme slots: those are exactly the colours a
 //! theme redefines, so honouring the theme is both possible and correct. Neutrals are the
 //! problem — r02 asks for eleven distinguishable greys (four emphasis rungs, two
 //! structural rules, a header, two highlight fills, two layer backgrounds) and the 16-slot
-//! palette contains **four** (black, bright-black, white, bright-white). The three modes
-//! are the three honest answers to that shortfall; see each variant.
+//! palette contains **four** (black, bright-black, white, bright-white). The four modes are
+//! the four honest answers to that shortfall; see each variant. **[`Palette::Bundled`] is the
+//! default and what ships** (§15): the shortfall goes away when the colours arrive as data.
 //!
 //! # Two measured defects the modes answer to
 //!
@@ -36,7 +39,8 @@
 //!    resolves to `#262626`, which is *darker in blue* than Mocha's own background, so the
 //!    layer fills and the cursor tint sink into the base rather than floating above it.
 //!
-//! [`Palette::Derived`] answers both, at the price named on the variant.
+//! [`Palette::Derived`] answers both, at the price named on the variant, and
+//! [`Palette::Bundled`] answers them from a theme's own anchors instead of the terminal's.
 //!
 //! # A palette is a preference; what the terminal can emit is not
 //!
@@ -85,6 +89,24 @@ pub enum Palette {
     /// truecolor and a terminal that answers `OSC 11`/`OSC 10`; without both, falls back
     /// to [`ENDPOINT_FALLBACK`].
     Derived,
+    /// **§15's answer, and the default.** Everything comes from the bundled theme chosen with
+    /// [`set_theme`]: the neutrals interpolate between the theme's own `bg` and `fg`, and the
+    /// roles are the theme's own semantic fields rather than ANSI slots.
+    ///
+    /// This is [`Palette::Derived`] with the endpoints handed over as *data* instead of asked
+    /// of the terminal, which is why it needs no `OSC` round trip and works with no terminal
+    /// at all — a capture, a pipe, a CI run. It also answers the one thing `Derived` could
+    /// not: `Derived` knows the terminal's two endpoints and nothing else, so `healthy` stayed
+    /// an ANSI slot and could land anywhere the user had put green. A theme names all ten.
+    ///
+    /// It costs what `Derived` costs — absolute RGB — plus one thing more: the screen stops
+    /// being *the terminal's* and becomes the theme's. §15 accepts that explicitly (*"full
+    /// paint — the theme owns the background"*, superseding r02 §6), which is why
+    /// [`screen_bg`] paints under this source and under no other.
+    ///
+    /// With no theme chosen it is [`Palette::Derived`] exactly: the terminal's endpoints, the
+    /// slot hues, and layer 0 left alone. A default has to work before anyone configures it.
+    Bundled,
 }
 
 /// What [`Palette::Derived`] interpolates between when the terminal was never asked, or
@@ -125,7 +147,11 @@ pub fn endpoints() -> Endpoints {
     ENDPOINTS.read().map(|e| *e).unwrap_or(ENDPOINT_FALLBACK)
 }
 
-static ACTIVE: AtomicU8 = AtomicU8::new(Palette::Theme as u8);
+/// The source in force. **`Bundled` by default** (§15): the crate ships inside `wqm`, where a
+/// theme is always chosen, and the three older sources are now comparisons rather than the
+/// shipping answer. The default used to be [`Palette::Theme`], which meant every frame anyone
+/// judged in the pantry was rendered through the six-of-eleven rung collapse §8.5 measured.
+static ACTIVE: AtomicU8 = AtomicU8::new(Palette::Bundled as u8);
 
 impl Palette {
     /// The palette every token currently resolves against.
@@ -133,12 +159,18 @@ impl Palette {
         match ACTIVE.load(Ordering::Relaxed) {
             0 => Palette::Theme,
             1 => Palette::Indexed,
-            _ => Palette::Derived,
+            2 => Palette::Derived,
+            _ => Palette::Bundled,
         }
     }
 
     /// Every mode, in the order the sheet compares them.
-    pub const ALL: [Palette; 3] = [Palette::Theme, Palette::Indexed, Palette::Derived];
+    pub const ALL: [Palette; 4] = [
+        Palette::Theme,
+        Palette::Indexed,
+        Palette::Derived,
+        Palette::Bundled,
+    ];
 
     /// The name this mode is spelled with in the pantry and in VISUAL-LANGUAGE.md.
     pub const fn label(self) -> &'static str {
@@ -146,6 +178,7 @@ impl Palette {
             Palette::Theme => "Theme",
             Palette::Indexed => "Indexed",
             Palette::Derived => "Derived",
+            Palette::Bundled => "Bundled",
         }
     }
 
@@ -161,8 +194,38 @@ impl Palette {
         match self {
             Palette::Theme => Family::Slots,
             Palette::Indexed => Family::Ramp,
-            Palette::Derived => Family::Rgb,
+            Palette::Derived | Palette::Bundled => Family::Rgb,
         }
+    }
+}
+
+/// The two colours the neutral ladder is interpolated between — **the theme's when one is
+/// chosen and the source is [`Palette::Bundled`], the terminal's otherwise.**
+///
+/// One function rather than a branch at every call site: the ladder, the wash and the layer
+/// fills all read the base, and a base read from two different places is a base that can
+/// disagree with itself. It is also the whole of what `Bundled` changes about neutrals —
+/// `Derived`'s interpolation is reused verbatim, which is §15's *"nothing is thrown away"*.
+fn ladder_endpoints() -> Endpoints {
+    match (Palette::current(), theme()) {
+        (Palette::Bundled, Some(palette)) => Endpoints {
+            background: Rgb::from_color(palette.bg).unwrap_or_else(|| endpoints().background),
+            foreground: Rgb::from_color(palette.fg).unwrap_or_else(|| endpoints().foreground),
+        },
+        _ => endpoints(),
+    }
+}
+
+/// The bundled theme, but only where it is the thing being rendered from.
+///
+/// A theme that has been *chosen* is not the same as a theme that is *in force*: the pantry
+/// sets one at startup and then renders the palette comparisons, and a `Theme`-sourced frame
+/// that quietly picked up the bundled hues would make that comparison a lie. So every
+/// role below asks through here, and every source other than [`Palette::Bundled`] gets `None`.
+fn active_theme() -> Option<ThemePalette> {
+    match Palette::current() {
+        Palette::Bundled => theme(),
+        _ => None,
     }
 }
 
@@ -231,7 +294,7 @@ fn neutral(percent: u8) -> Color {
             let Endpoints {
                 background,
                 foreground,
-            } = endpoints();
+            } = ladder_endpoints();
             let t = percent.min(100) as f32 / NORMAL_RUNG as f32;
             Color::Rgb(
                 mix(background.r, foreground.r, t),
@@ -348,7 +411,14 @@ pub fn header() -> Color {
 /// what you have selected. A theme slot, so a user who has retuned cyan retunes the
 /// selector with it.
 pub fn selector() -> Color {
-    hue(Color::Cyan)
+    match active_theme() {
+        // §15 left this field to us: `accent` or `info`. `info` is measured blue/cyan in
+        // every bundled theme while `accent` swings purple→pink→cyan, and §3 reserves the
+        // selector ABSOLUTELY — a selector that lands on the theme's error hue breaks the one
+        // rule the whole highlight system rests on. `tokens::tests` measures the collision.
+        Some(palette) => hue(palette.info),
+        None => hue(Color::Cyan),
+    }
 }
 /// Text sitting inside an inverted selector block.
 pub fn selector_fg() -> Color {
@@ -384,14 +454,25 @@ pub fn edit_bg() -> Color {
 // --- §4 health ----------------------------------------------------------------------
 // Only the glyph carries colour; the surrounding label stays muted.
 
+// §15: a bundled theme names these directly, so they stop being a guess about where the user
+// put green. The mapping is role-for-role — our language asks for *offline*, never for red,
+// and `error`/`warning`/`success` are the theme's words for the same three ideas.
 pub fn healthy() -> Color {
-    hue(Color::Green)
+    role(|palette| palette.success, Color::Green)
 }
 pub fn degraded() -> Color {
-    hue(Color::Yellow)
+    role(|palette| palette.warning, Color::Yellow)
 }
 pub fn offline() -> Color {
-    hue(Color::Red)
+    role(|palette| palette.error, Color::Red)
+}
+
+/// A reserved hue from the theme when one is in force, and its ANSI slot otherwise.
+fn role(from_theme: fn(&ThemePalette) -> Color, slot: Color) -> Color {
+    match active_theme() {
+        Some(palette) => hue(from_theme(&palette)),
+        None => hue(slot),
+    }
 }
 
 // --- §6 layers, and the one condition that repaints layer 0 --------------------------
@@ -503,12 +584,18 @@ pub fn wash_at(condition: Condition, mix_toward_red: f32) -> Option<Color> {
     match (condition, family()) {
         (Condition::Nominal, _) => None,
         (Condition::DaemonUnreachable, Family::Rgb) => {
-            let bg = endpoints().background;
+            let bg = ladder_endpoints().background;
+            // §15 item 4: toward the THEME's error rather than toward pure red — a gentler
+            // move from the same base, which is what WASH_MIX 0.14 was chosen to survive.
+            // Pure red where no theme names one, which is the value r02 was measured against.
+            let red = active_theme()
+                .and_then(|palette| Rgb::from_color(palette.error))
+                .unwrap_or(Rgb::new(255, 0, 0));
             let strength = mix_toward_red.clamp(0.0, 1.0);
             Some(Color::Rgb(
-                mix(bg.r, 255, strength),
-                mix(bg.g, 0, strength),
-                mix(bg.b, 0, strength),
+                mix(bg.r, red.r, strength),
+                mix(bg.g, red.g, strength),
+                mix(bg.b, red.b, strength),
             ))
         }
         (Condition::DaemonUnreachable, _) => None,
@@ -543,22 +630,21 @@ pub fn theme() -> Option<ThemePalette> {
 /// The colour a **full screen** paints under everything — §15's *"full paint: the theme owns
 /// the background"*, which supersedes r02 §6's *"layer 0 is never repainted"*.
 ///
-/// [`None`] when no theme has been chosen, and then §6's old rule still applies: the screen
-/// keeps the terminal's own background and nothing is painted. That is what keeps every test
-/// and every widget preview rendering exactly as it did.
+/// [`None`] under every source but [`Palette::Bundled`], and under that one only once a theme
+/// has been chosen. Then §6's old rule still applies: the screen keeps the terminal's own
+/// background and nothing is painted, which is what keeps every widget preview and every
+/// slot-sourced frame rendering exactly as it did.
 ///
-/// # ⚠ This is currently a PROBE, and it is deliberately the wrong colour
+/// # The probe is over, and this is the first anchor now
 ///
-/// It returns the theme's **second anchor** (`selection`) rather than its first (`bg`), on
-/// Chris's instruction (20260731), to answer two questions a correct-looking screen cannot:
-/// **does the paint reach every cell**, and **what on screen is the pantry's chrome rather
-/// than ours?** A background that matches the terminal's answers neither — anything unpainted
-/// would be invisible. `selection` sits one step off the background in every bundled theme
-/// (measured: `theme_sheet::themes_preview`), so an unpainted cell shows up as a hole.
-///
-/// **Switch this to `palette.bg` when the probe has done its job.**
+/// It returned the theme's *second* anchor (`selection`) on Chris's instruction (20260731), so
+/// that any cell the paint failed to reach would show up as a hole rather than blend in. It
+/// did its job — measured on the Service view at 125×34, every cell painted, none left at the
+/// terminal's default — so the deliberate wrong colour is retired and this is `bg`.
+/// `views::service::tests` keeps the coverage claim as a test, which is what a one-off
+/// measurement has to become if it is going to keep being true.
 pub fn screen_bg() -> Option<Color> {
-    theme().map(|palette| palette.selection)
+    active_theme().map(|palette| palette.bg)
 }
 
 /// The three store states, role-first per §7.
@@ -762,5 +848,263 @@ mod tests {
 
         set_endpoints(previous);
     }
-}
 
+    /// Every bundled theme, so a claim about "the themes" is measured over all fifteen rather
+    /// than over the one this crate was authored against.
+    fn each_theme() -> impl Iterator<Item = (&'static str, ThemePalette)> {
+        ratatui_themes::ThemeName::all()
+            .iter()
+            .map(|name| (name.display_name(), name.palette()))
+    }
+
+    /// CIELAB, so a difference between two colours can be compared to a difference between
+    /// two others.
+    ///
+    /// sRGB byte distance cannot do that — it makes two dark colours look closer than two
+    /// light ones that are equally distinguishable — and it is the wrong unit for every number
+    /// on this page: `WASH_MIX`'s recorded 11–14 is CIE76 ΔE, and reading it as byte distance
+    /// is what made the first version of these tests assert a band the design never had.
+    fn lab(colour: Color) -> (f32, f32, f32) {
+        let (r, g, b) = match colour {
+            Color::Rgb(r, g, b) => (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0),
+            other => panic!("expected RGB, got {other:?}"),
+        };
+        let linear = |u: f32| {
+            if u <= 0.04045 {
+                u / 12.92
+            } else {
+                ((u + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (linear(r), linear(g), linear(b));
+        // sRGB → XYZ (D65), normalised by the white point.
+        let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+        let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+        let f = |t: f32| {
+            if t > 0.008856 {
+                t.cbrt()
+            } else {
+                7.787 * t + 16.0 / 116.0
+            }
+        };
+        let (fx, fy, fz) = (f(x), f(y), f(z));
+        (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+    }
+
+    /// CIE76 ΔE — the measure every colour distance in this module is recorded in.
+    fn delta_e(a: Color, b: Color) -> f32 {
+        let (l1, a1, b1) = lab(a);
+        let (l2, a2, b2) = lab(b);
+        ((l1 - l2).powi(2) + (a1 - a2).powi(2) + (b1 - b2).powi(2)).sqrt()
+    }
+
+    /// How close a colour comes to the nearest of the three health hues — the number that
+    /// decides whether a field can carry the reserved selector.
+    fn nearest_health(colour: Color, palette: &ThemePalette) -> f32 {
+        [palette.success, palette.warning, palette.error]
+            .iter()
+            .map(|hue| delta_e(colour, *hue))
+            .fold(f32::MAX, f32::min)
+    }
+
+    struct WithTheme(Option<ThemePalette>);
+
+    impl WithTheme {
+        fn set(palette: ThemePalette) -> Self {
+            let restore = WithTheme(theme());
+            set_theme(palette);
+            restore
+        }
+    }
+
+    impl Drop for WithTheme {
+        fn drop(&mut self) {
+            *THEME.write().expect("theme lock") = self.0;
+        }
+    }
+
+    #[test]
+    fn a_bundled_ladder_is_interpolated_from_the_theme_not_the_terminal() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+        let previous = endpoints();
+        // Deliberately nothing like any theme: if a rung came from here rather than from the
+        // theme, it says so in the assertion instead of coincidentally agreeing.
+        set_endpoints(Endpoints {
+            background: Rgb::new(0, 0, 0),
+            foreground: Rgb::new(255, 255, 255),
+        });
+
+        for (label, palette) in each_theme() {
+            let _theme = WithTheme::set(palette);
+            assert_eq!(
+                neutral_at(0),
+                palette.bg,
+                "{label}: 0% is the theme's own bg"
+            );
+            assert_eq!(
+                normal(),
+                palette.fg,
+                "{label}: the baseline is the theme's own fg"
+            );
+        }
+
+        set_endpoints(previous);
+    }
+
+    #[test]
+    fn a_bundled_role_is_the_themes_semantic_field_not_an_ansi_slot() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+
+        for (label, palette) in each_theme() {
+            let _theme = WithTheme::set(palette);
+            assert_eq!(Health::Healthy.color(), palette.success, "{label}");
+            assert_eq!(Health::Degraded.color(), palette.warning, "{label}");
+            assert_eq!(Health::Offline.color(), palette.error, "{label}");
+            assert_eq!(selector(), palette.info, "{label}");
+        }
+    }
+
+    #[test]
+    fn the_selector_is_info_because_it_keeps_the_most_distance_from_the_health_hues() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+
+        // §15 left this field to us: `accent` or `info`. §3 reserves the selector ABSOLUTELY
+        // — "if it is a cyan block, it is what you have selected" — so the field that carries
+        // it is the one that stays furthest from the three health hues in the WORST theme,
+        // not on average and not in the theme this crate happens to be authored against.
+        //
+        // Measured over all fifteen, as CIE76 ΔE to the nearest health hue:
+        //
+        //   worst `info`   — Catppuccin Mocha, 27.9
+        //   worst `accent` — Everforest,       14.7   (then Gruvbox 28.7, Rosé Pine 35.4)
+        //
+        // So `accent` does not *collide* anywhere; it simply comes twice as close, and a
+        // reserved hue is defended at its worst case. That is the entire argument, and this
+        // test is it — if a future theme set moves the two worst cases together, the choice
+        // was arbitrary and belongs back in front of Chris rather than in a comment.
+        let (mut worst_info, mut worst_accent) = (f32::MAX, f32::MAX);
+        let mut worst_theme = "";
+
+        for (label, palette) in each_theme() {
+            let _theme = WithTheme::set(palette);
+            let info = nearest_health(selector(), &palette);
+            assert_eq!(selector(), palette.info, "{label}");
+            if info < worst_info {
+                worst_info = info;
+                worst_theme = label;
+            }
+            worst_accent = worst_accent.min(nearest_health(palette.accent, &palette));
+        }
+
+        // A full-field hue and a glyph-sized one at ΔE 15 are the same colour at a glance,
+        // which is the failure §4 exists to forbid.
+        assert!(
+            worst_info > 20.0,
+            "{worst_theme}: the selector comes within ΔE {worst_info:.1} of a health hue"
+        );
+        assert!(
+            worst_info > worst_accent * 1.5,
+            "`info` no longer keeps meaningfully more distance than `accent` \
+             (worst case ΔE {worst_info:.1} vs {worst_accent:.1}) — re-open the choice"
+        );
+    }
+
+    #[test]
+    fn the_bundled_wash_pulls_the_themes_own_background_toward_its_own_error() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+
+        // §15 item 4: the wash mixes toward the theme's `error`, not toward pure red, and
+        // WASH_MIX 0.14 was chosen so that move lands where 0.10 toward pure red did.
+        // Re-measured here across all fifteen themes rather than asserted from that note.
+        let mut band = (f32::MAX, f32::MIN);
+        for (label, palette) in each_theme() {
+            let _theme = WithTheme::set(palette);
+            let base = screen_bg().expect("a bundled screen paints its own base");
+            let washed = wash(Condition::DaemonUnreachable).expect("RGB can express a wash");
+            assert_eq!(base, palette.bg, "{label}");
+
+            // Toward the theme's error, which is the direction; the distance is the strength.
+            let moved = delta_e(base, washed);
+            band = (band.0.min(moved), band.1.max(moved));
+            assert!(
+                delta_e(washed, palette.error) < delta_e(base, palette.error),
+                "{label}: the wash must move TOWARD the theme's error"
+            );
+        }
+
+        // Measured across the fifteen: **ΔE 7.2 (Nord) to 18.5 (Cyberpunk)**, against 12.4–19.7
+        // for the same constant mixed toward pure red. §15 predicted that softening — the
+        // theme's error is a shorter move from the theme's own background than pure red is —
+        // and 0.14 was chosen so the softened move lands where 0.10 toward pure red did.
+        //
+        // The band is a guard on the constant, not a fit to the data: below ΔE 5 a full-screen
+        // tint stops being noticed at all, and above 25 it reads as a red screen rather than a
+        // red-tinted one (the rejected first cut, 0.22 toward pure red, sat there).
+        //
+        // ⚠ Nord and Solarized Dark come in at 7.2 and 7.7 — just under the ΔE 8–10 Chris
+        // called right. Recorded rather than corrected: WASH_MIX is his number and is
+        // deliberately not a knob.
+        assert!(
+            band.0 >= 5.0 && band.1 <= 25.0,
+            "the wash left its band across the bundled themes: ΔE {:.1}–{:.1}",
+            band.0,
+            band.1
+        );
+    }
+
+    #[test]
+    fn only_a_bundled_screen_paints_its_own_layer_zero() {
+        let _serial = crate::global_state_lock();
+        let _theme = WithTheme::set(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+        {
+            let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+            assert_eq!(
+                screen_bg(),
+                Some(ratatui_themes::ThemeName::CatppuccinMocha.palette().bg),
+                "§15: the theme owns the background, and it is the FIRST anchor — the probe \
+                 that deliberately painted `selection` has done its job"
+            );
+        }
+
+        // Every other source keeps r02 §6's rule: layer 0 is the terminal's own and is never
+        // repainted. A theme being *available* is not a decision to paint with it.
+        for palette in [Palette::Theme, Palette::Indexed, Palette::Derived] {
+            let _restore = Restore::set(palette, Encoding::TrueColor);
+            assert_eq!(screen_bg(), None, "{palette:?} repainted layer 0");
+        }
+    }
+
+    #[test]
+    fn a_bundled_palette_with_no_theme_chosen_falls_back_rather_than_failing() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+        let _theme = WithTheme(theme());
+        *THEME.write().expect("theme lock") = None;
+
+        let previous = endpoints();
+        set_endpoints(Endpoints {
+            background: Rgb::new(0x1e, 0x1e, 0x2e),
+            foreground: Rgb::new(0xcd, 0xd6, 0xf4),
+        });
+
+        // With no theme there is nothing to source from, so the ladder is the terminal's —
+        // which is exactly `Derived`. The default palette is `Bundled`, so this path is what
+        // every caller that never chooses a theme gets, and it must be a working screen.
+        assert_eq!(neutral_at(0), Color::Rgb(0x1e, 0x1e, 0x2e));
+        assert_eq!(normal(), Color::Rgb(0xcd, 0xd6, 0xf4));
+        assert_eq!(
+            screen_bg(),
+            None,
+            "nothing to paint with, so nothing painted"
+        );
+        assert_eq!(Health::Offline.color(), Color::Red, "back to the slot hue");
+
+        set_endpoints(previous);
+    }
+}

@@ -14,18 +14,18 @@ layer2 = "#4D5064"
 
 # ─────────────────────────────────────────────────────────────────────────────────────────
 # This file is STATIC TOML and cannot call our code, so every value below is a transcription
-# and every transcription is a claim. They are all measured from `ratatui_themes`
-# CatppuccinMocha and from `tokens` under `Palette::Derived` with Mocha's endpoints — the
-# combination the whole crate has been measured against. **Pinned to one theme by
-# construction**: switch the theme and this tab is wrong until it is retranscribed.
+# and every transcription is a claim. They are all measured from `tokens` under
+# `Palette::Bundled` with `ratatui_themes` CatppuccinMocha — which is what ships, so the
+# vocabulary and the renderer now agree by construction rather than by coincidence.
+# **Pinned to one theme**: switch the theme and this tab is wrong until it is retranscribed.
 #
 # The live instruments are `Palette Sheet` and `Palette Reference`, which render through
 # `tokens` and therefore cannot drift. This tab is the vocabulary, not the truth.
 # ─────────────────────────────────────────────────────────────────────────────────────────
 
-# The theme's six hues, under the names the theme itself gives them (§15). Our roles map
-# onto these one-for-one: healthy→success, degraded→warning, offline→error, and the
-# reserved selector→accent (or info — the one UI call §15 left open).
+# The theme's six hues, under the names the theme itself gives them (§15). Four of them carry
+# one of our roles each; see `[colors.reserved]` below for the mapping and for why `secondary`
+# and `accent` carry none.
 [colors.role]
 accent = "#89B4FA"
 secondary = "#F5C2E7"
@@ -33,6 +33,23 @@ error = "#F38BA8"
 warning = "#F9E2AF"
 success = "#A6E3A1"
 info = "#94E2D5"
+
+# The four RESERVED hues under our own names — the vocabulary the design actually speaks. §4 asks
+# for *offline*, never for red, and until this group existed the Styles tab could only be read
+# by someone who already knew the mapping. `Palette::Bundled` is where it stops being a
+# mapping on paper: `offline()` returns the theme's `error`, so these are transcriptions of
+# what renders rather than of an intention.
+#
+# `selector` is `info` and not `accent` — §15 left that field to us, and `info` keeps roughly
+# twice `accent`'s worst-case distance from the three health hues across the fifteen bundled
+# themes (ΔE 27.9 against 14.7). §3 reserves the selector absolutely, so it is defended at its
+# worst case. The measurement is
+# `tokens::tests::the_selector_is_info_because_it_keeps_the_most_distance_from_the_health_hues`.
+[colors.reserved]
+healthy = "#A6E3A1"
+degraded = "#F9E2AF"
+offline = "#F38BA8"
+selector = "#94E2D5"
 
 # The theme's four neutral ANCHORS, in ladder order: background, the interior anchor nearest
 # it, the text anchor, and the foreground. Measured across all fifteen themes, `selection`
@@ -46,7 +63,7 @@ muted = "#6C7086"
 fg = "#CDD6F4"
 
 # The emphasis ladder, INTERPOLATED FROM THE THEME'S OWN fg AND bg rather than from white
-# (Chris, 20260731) — a ladder anchored on white is a grey ladder, and it stays grey on a
+# (Chris, 20260731) — which under `Bundled` is what the renderer literally does — a ladder anchored on white is a grey ladder, and it stays grey on a
 # theme whose foreground is not. Mocha's fg is blue-tinted and so is every rung here.
 #
 # ⚠ Weight is the other half of this axis and the Styles tab cannot show it: a typography

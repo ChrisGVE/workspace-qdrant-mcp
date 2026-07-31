@@ -664,6 +664,48 @@ mod tests {
     }
 
     #[test]
+    fn a_bundled_screen_paints_every_cell_it_owns() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+        let previous_theme = tokens::theme();
+        tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+        Palette::set(Palette::Bundled);
+
+        // §15's full paint, kept as a guard rather than as a remembered measurement. The
+        // probe that established it painted layer 0 with the theme's SECOND anchor so that an
+        // unpainted cell would show as a hole to the eye; the eye is not here every time this
+        // is built, and the claim it settled — the paint reaches every cell — is the one that
+        // has to keep being true once the colour is the theme's actual background.
+        //
+        // "Every cell has A background", not "every cell has THIS background": the cursor
+        // tint, the edit fill and a modal's layers are all deliberate departures from the
+        // base. What must not exist is a cell left at the terminal's own default, because
+        // that is the one colour the theme does not own.
+        let buf = render(frames::base());
+        let unpainted: Vec<(u16, u16)> = (0..AREA.height)
+            .flat_map(|y| (0..AREA.width).map(move |x| (x, y)))
+            .filter(|(x, y)| {
+                buf.cell((*x, *y))
+                    .expect("cell in area")
+                    .style()
+                    .bg
+                    .is_none_or(|bg| bg == Color::Reset)
+            })
+            .collect();
+        assert!(
+            unpainted.is_empty(),
+            "{} of {} cells kept the terminal's background, first at {:?}",
+            unpainted.len(),
+            AREA.width as usize * AREA.height as usize,
+            unpainted.first()
+        );
+
+        if let Some(theme) = previous_theme {
+            tokens::set_theme(theme);
+        }
+    }
+
+    #[test]
     fn the_zones_share_one_left_margin_across_three_widgets() {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();

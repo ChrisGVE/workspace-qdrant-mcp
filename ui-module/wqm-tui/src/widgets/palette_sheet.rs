@@ -63,21 +63,28 @@ pub enum Surface {
 }
 
 impl Surface {
-    /// The fill, or `None` for layer 0 — where "keep the terminal's background" means
-    /// painting nothing at all, not painting something that resembles it.
+    /// The fill: layer 0 is whatever the *source* says it is — the theme's own background
+    /// under `Bundled` (§15's full paint) and nothing at all under the others, where "keep the
+    /// terminal's background" means painting nothing rather than painting something that
+    /// resembles it.
     fn fill(self) -> Option<Color> {
         match self {
-            Surface::Layer0 => None,
+            Surface::Layer0 => tokens::screen_bg(),
             Surface::Layer1 => Some(tokens::layer1_bg()),
             Surface::Layer2 => Some(tokens::layer2_bg()),
         }
     }
 
-    fn label(self) -> &'static str {
+    /// What the caption says layer 0 is — read from the same place the fill is, so the sheet
+    /// cannot label a painted screen "terminal background".
+    fn label(self) -> String {
         match self {
-            Surface::Layer0 => "layer 0 — terminal background",
-            Surface::Layer1 => "layer 1 — modal",
-            Surface::Layer2 => "layer 2 — modal over modal",
+            Surface::Layer0 if tokens::screen_bg().is_some() => {
+                "layer 0 — the theme's background".to_string()
+            }
+            Surface::Layer0 => "layer 0 — terminal background".to_string(),
+            Surface::Layer1 => "layer 1 — modal".to_string(),
+            Surface::Layer2 => "layer 2 — modal over modal".to_string(),
         }
     }
 }
@@ -393,6 +400,11 @@ pub mod ingredient {
                 "Derived",
                 "Interpolated from the terminal's own background and foreground — rungs and hue both preserved",
                 || PaletteSheet::single(Palette::Derived),
+            )),
+            Box::new(Sheet(
+                "Bundled",
+                "§15, and what ships: the same interpolation fed from the THEME's own anchors, with the roles named rather than guessed",
+                || PaletteSheet::single(Palette::Bundled),
             )),
         ]
     }

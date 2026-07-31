@@ -313,6 +313,7 @@ pub mod ingredient {
             Box::new(Rungs(Palette::Theme, "Rungs: Theme")),
             Box::new(Rungs(Palette::Indexed, "Rungs: Indexed")),
             Box::new(Rungs(Palette::Derived, "Rungs: Derived")),
+            Box::new(Rungs(Palette::Bundled, "Rungs: Bundled")),
             Box::new(Degraded(Encoding::Ansi256, "Encoding: ANSI 256")),
             Box::new(Degraded(Encoding::Ansi16, "Encoding: ANSI 16")),
             Box::new(Degraded(Encoding::NoColor, "Encoding: No Color")),

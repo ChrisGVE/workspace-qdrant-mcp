@@ -26,6 +26,8 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{env, fs::File, io::Read, io::Write};
 
+use ratatui::style::Color;
+
 /// An 8-bit-per-channel colour, as the terminal reports it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Rgb {
@@ -47,6 +49,20 @@ impl Rgb {
         }
         let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
         Some(Self::new(byte(0)?, byte(2)?, byte(4)?))
+    }
+
+    /// The channels behind a [`Color`], or [`None`] where there are none to read.
+    ///
+    /// A slot or an index is a *reference* to a colour the terminal owns, not a colour — so
+    /// there is nothing here to interpolate between, and the caller has to say what it wants
+    /// done about that rather than being handed a plausible guess. Every bundled theme is RGB
+    /// (`theme_sheet::every_theme_gives_ten_distinct_roles_and_four_ordered_neutrals` asserts
+    /// it), so in practice this is `Some` for every theme that ships.
+    pub const fn from_color(color: Color) -> Option<Self> {
+        match color {
+            Color::Rgb(r, g, b) => Some(Self::new(r, g, b)),
+            _ => None,
+        }
     }
 }
 

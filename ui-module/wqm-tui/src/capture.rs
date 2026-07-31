@@ -43,7 +43,8 @@
 //! colour and would render as a cyan ramp; [`Palette::Theme`] would paint the reserved
 //! selector hue blue, and cyan-means-selected is the one hue rule VISUAL-LANGUAGE §3 has.
 //!
-//! So [`capture`] **forces `Derived` — and `Encoding::TrueColor` with it — and restores both
+//! So [`capture`] **forces an RGB source — `Derived` unless one is already in force, since
+//! §15's `Bundled` is RGB too — and `Encoding::TrueColor` with it, and restores both
 //! afterwards.** A PNG that silently depicted the wrong palette is precisely the class of
 //! artifact §1 exists to stop producing; the earlier one at least failed visibly, by not
 //! rendering bold. The encoding has to be forced alongside the palette because a rung is
@@ -64,7 +65,7 @@ use soft_ratatui::embedded_graphics_unicodefonts::{
 };
 use soft_ratatui::{EmbeddedGraphics, SoftBackend};
 
-use crate::encoding::Encoding;
+use crate::encoding::{Encoding, Family};
 use crate::tokens::{self, Palette};
 
 /// Discards an error that cannot exist.
@@ -124,7 +125,14 @@ impl RgbOnly {
             encoding: Encoding::current(),
             _lock: lock,
         };
-        Palette::set(Palette::Derived);
+        // An RGB source is the requirement; WHICH one is the caller's. Before §15 there was
+        // only one (`Derived`), so "force RGB" and "force Derived" were the same instruction —
+        // they stopped being the same the moment `Bundled` shipped, and forcing `Derived` from
+        // then on would have captured the terminal's colours for a screen painted in the
+        // theme's. So the RGB sources are left alone and only the others are overridden.
+        if Palette::current().family() != Family::Rgb {
+            Palette::set(Palette::Derived);
+        }
         Encoding::set(Encoding::TrueColor);
         forced
     }
@@ -139,7 +147,7 @@ impl Drop for RgbOnly {
 
 /// Renders `draw` into a `cols` × `rows` grid and returns the frame as PNG bytes.
 ///
-/// The palette is forced to [`Palette::Derived`] for the duration and restored after — see
+/// An RGB palette is forced for the duration and restored after — see
 /// the module docs for why that is a hard gate rather than a caller's choice. Concurrent
 /// captures are serialised for the same reason.
 ///
