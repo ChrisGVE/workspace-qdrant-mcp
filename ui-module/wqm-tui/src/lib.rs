@@ -15,6 +15,7 @@ pub mod names;
 pub mod terminal;
 pub mod themes;
 pub mod tokens;
+pub mod views;
 pub mod widgets;
 
 /// Serialises every test that touches process-global rendering state.
