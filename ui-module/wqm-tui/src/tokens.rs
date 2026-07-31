@@ -432,6 +432,14 @@ impl Condition {
 /// noticed peripherally, not to be looked at. The first cut was 0.22, which read as a red
 /// screen rather than a red-tinted one.
 ///
+/// # Not configurable (Chris, 20260731)
+///
+/// This is a **design constant, not a knob**, and it is the one number on this surface that is
+/// deliberately not going to N7. A user who can soften the wash can switch off the only signal
+/// that says *nothing on this screen is live* — and the moment it matters is exactly the moment
+/// they cannot be asked to have configured it correctly. The dwell, the sound and the settling
+/// window stay configurable (`UIQ-006`, `UIQ-007`, `UIQ-008`); this does not.
+///
 /// Judge it, do not argue it: `cargo pantry dump "Surface" --variant "Wash Strengths"` puts
 /// the candidates side by side with real text on them.
 ///
