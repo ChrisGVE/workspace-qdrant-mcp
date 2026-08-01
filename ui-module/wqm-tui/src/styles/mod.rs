@@ -27,12 +27,15 @@
 //! even where it is pinned to one theme. What is measured lives here; what is authored lives
 //! there, and the two are labelled so a reader knows which is which.
 //!
-//! # Where the instruments are
+//! # The instruments are here too, under a section
 //!
-//! `Palette Reference` and `Theme Sources` also declare `tab() = "Styles"`, but with
-//! `section() = "Instruments"` (§16: *the vocabulary, plus by section the instruments*), and
-//! they still live under `widgets/`. They are how *we* judge the language rather than part of
-//! it; nothing here is sectioned, which is what puts these entries beside the TOML groups.
+//! [`palette_reference`] and [`theme_sheet`] declare `tab() = "Styles"` with
+//! `section() = "Instruments"` — §16's own Styles row is *the vocabulary, plus by section the
+//! instruments*, and this directory is that row. They are how *we* judge the language rather
+//! than part of it, and the section is what keeps the two readings apart; [`palette`] and
+//! [`typography`] carry no section, which is what puts them beside the TOML groups.
 
 pub mod palette;
+pub mod palette_reference;
+pub mod theme_sheet;
 pub mod typography;

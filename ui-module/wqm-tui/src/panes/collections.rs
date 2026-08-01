@@ -138,7 +138,7 @@ pub mod ingredient {
                     $name
                 }
                 fn source(&self) -> &str {
-                    "wqm_tui::widgets::collections"
+                    "wqm_tui::panes::collections"
                 }
                 fn description(&self) -> &str {
                     $desc

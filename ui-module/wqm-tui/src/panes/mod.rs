@@ -25,6 +25,7 @@
 //! — the view says which zone is live, the pane decides what being live looks like for its own
 //! heading and its own contents.
 
+pub mod collections;
 pub mod config;
 pub mod status_band;
 

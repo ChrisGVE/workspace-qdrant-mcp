@@ -89,25 +89,25 @@ modules = [
     "widgets::chrome::status_line",
     "widgets::chrome::title_bar",
     "widgets::chrome::zone_heading",
-    "widgets::collections",
     "widgets::config_table",
     "widgets::daemon_status",
     "widgets::envelope",
     "widgets::modal",
-    "widgets::palette_reference",
     "widgets::store_health",
     "widgets::surface",
     "widgets::tab_bar",
-    "widgets::theme_sheet",
     "widgets::toast",
     # The Panes tab: zones of a screen (§16). Panes are the unit of design work from here —
     # the Dashboard is a 2 × 3 grid of them, each judged alone before being composed.
+    "panes::collections",
     "panes::config",
     "panes::status_band",
     # The Styles tab: the vocabulary, rendered live rather than transcribed. These two ask
     # `tokens` the same questions a screen asks, so they cannot drift from it — which is what
     # the `[colors.*]` tables above, being static TOML, always could.
     "styles::palette",
+    "styles::palette_reference",
+    "styles::theme_sheet",
     "styles::typography",
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.

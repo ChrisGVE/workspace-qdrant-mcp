@@ -23,8 +23,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use wqm_tui::capture::capture;
 use wqm_tui::terminal;
 use wqm_tui::tokens;
+use wqm_tui::panes::collections::Collections;
 use wqm_tui::widgets::{
-    collections::Collections,
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
     daemon_status::DaemonPanel,
     modal::{Fill, Modal},
@@ -50,7 +50,7 @@ fn gallery_frames() -> Vec<Frame> {
         112,
         22,
         Box::new(|f: &mut ratatui::Frame| {
-            f.render_widget(wqm_tui::widgets::theme_sheet::ThemeGallery, f.area())
+            f.render_widget(wqm_tui::styles::theme_sheet::ThemeGallery, f.area())
         }),
     )]
 }

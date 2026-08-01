@@ -21,7 +21,7 @@
 //!
 //! # These names are NOT yet N8-owned, and nothing downstream will catch that
 //!
-//! Unlike [`crate::widgets::collections`], which draws every name from
+//! Unlike [`crate::panes::collections`], which draws every name from
 //! `wqm_common::names`, the role and binding strings in the sample lists below are spelled
 //! locally. N8's Phase-0 vocabulary covers collections, environment keys, and the access
 //! sets — it does not yet spell the store roles (`vector`, `graph`, `relational`) or their

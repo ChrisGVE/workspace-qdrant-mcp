@@ -230,7 +230,7 @@ pub mod ingredient {
             "ANSI 16"
         }
         fn source(&self) -> &str {
-            "wqm_tui::widgets::palette_reference"
+            "wqm_tui::styles::palette_reference"
         }
         fn description(&self) -> &str {
             "The sixteen slots a theme can redefine, each as fill and as foreground, with the role that owns it"

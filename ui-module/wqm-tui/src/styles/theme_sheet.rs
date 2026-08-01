@@ -72,7 +72,7 @@ pub mod ingredient {
             "Gallery — all 15"
         }
         fn source(&self) -> &str {
-            "wqm_tui::widgets::theme_sheet"
+            "wqm_tui::styles::theme_sheet"
         }
         fn description(&self) -> &str {
             "Every theme ratatui-themes carries, ten fields each — choose by looking, not by name"
