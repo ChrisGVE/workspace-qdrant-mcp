@@ -2,86 +2,26 @@
 theme = "dark"
 style_source = "wqm_tui::tokens"
 
-# Storyboard layers (VISUAL-LANGUAGE §6). Cycle with `b` to check a widget against the
-# surface it will actually sit on. These are the CatppuccinMocha values the pantry paints
-# with, so a widget preview sits on the same colour a screen does — the old #000000 /
-# #262626 / #3B3B3B were absolute values that matched no theme and made the fill-less toast
-# look filled (§8.6).
+# Storyboard layers (VISUAL-LANGUAGE §6). Cycle with `b` to check a widget against the surface
+# it will actually sit on, so a widget preview sits on the same colour a screen does — the old
+# #000000 / #262626 / #3B3B3B were absolute values that matched no theme and made the fill-less
+# toast look filled (§8.6).
+#
+# ⚠ These are **Everforest** values, matching the theme `widget_preview` now sets. This is the
+# one transcription left in this file and it is pinned to that choice: change the theme in
+# `examples/widget_preview/main.rs` and these three are wrong until they are re-read from
+# `Colors/Palette`. Nothing will fail — which is exactly why `[colors.*]` is gone.
 [pantry.preview_backgrounds]
-layer0 = "#1E1E2E"
-layer1 = "#3D3E51"
-layer2 = "#4D5064"
+layer0 = "#2F3537"
+layer1 = "#465051"
+layer2 = "#535E5D"
 
-# ─────────────────────────────────────────────────────────────────────────────────────────
-# This file is STATIC TOML and cannot call our code, so every value below is a transcription
-# and every transcription is a claim. They are all measured from `tokens` under
-# `Palette::Bundled` with `ratatui_themes` CatppuccinMocha — which is what ships, so the
-# vocabulary and the renderer now agree by construction rather than by coincidence.
-# **Pinned to one theme**: switch the theme and this tab is wrong until it is retranscribed.
-#
-# The live instrument is `Palette Reference`, which renders through `tokens` and therefore
-# cannot drift. This tab is the vocabulary, not the truth.
-# ─────────────────────────────────────────────────────────────────────────────────────────
-
-# The theme's six hues, under the names the theme itself gives them (§15). Four of them carry
-# one of our roles each; see `[colors.reserved]` below for the mapping and for why `secondary`
-# and `accent` carry none.
-[colors.role]
-accent = "#89B4FA"
-secondary = "#F5C2E7"
-error = "#F38BA8"
-warning = "#F9E2AF"
-success = "#A6E3A1"
-info = "#94E2D5"
-
-# The four RESERVED hues under our own names — the vocabulary the design actually speaks. §4 asks
-# for *offline*, never for red, and until this group existed the Styles tab could only be read
-# by someone who already knew the mapping. `Palette::Bundled` is where it stops being a
-# mapping on paper: `offline()` returns the theme's `error`, so these are transcriptions of
-# what renders rather than of an intention.
-#
-# `selector` is `info` and not `accent` — §15 left that field to us, and `info` keeps roughly
-# twice `accent`'s worst-case distance from the three health hues across the fifteen bundled
-# themes (ΔE 27.9 against 14.7). §3 reserves the selector absolutely, so it is defended at its
-# worst case. The measurement is
-# `tokens::tests::the_selector_is_info_because_it_keeps_the_most_distance_from_the_health_hues`.
-[colors.reserved]
-healthy = "#A6E3A1"
-degraded = "#F9E2AF"
-offline = "#F38BA8"
-selector = "#94E2D5"
-
-# The theme's four neutral ANCHORS, in ladder order: background, the interior anchor nearest
-# it, the text anchor, and the foreground. Measured across all fifteen themes, `selection`
-# and `muted` always sit strictly inside `[bg, fg]` in that order — which is what makes the
-# eleven-rung ladder interpolable from four named colours
-# (`theme_sheet::every_theme_gives_ten_distinct_roles_and_four_ordered_neutrals`).
-[colors.anchor]
-bg = "#1E1E2E"
-selection = "#313244"
-muted = "#6C7086"
-fg = "#CDD6F4"
-
-# The emphasis ladder is NOT here. It moved to `styles::typography` (§17.1): Chris asked for
-# the four rungs at three weights, and a `[typography]` entry takes a colour and a description
-# and nothing else — the format has no field for weight. Rendering it from `tokens` also ended
-# the transcription, which was four hex values measured under one theme and pinned to it.
-
-# The structural greys and the fills, same source. These are the rungs r02 specifies that
-# are neither text nor hue, and the reason four named neutrals are not enough on their own.
-#
-# ⚠ `edit_bg` moved #666A80 -> #666A7F when the ladder became a curve through all four of the
-# theme's neutrals (20260801). Nothing failed — this table is static TOML and cannot notice. It
-# is the drift `Colors/Palette` was built to end, and the reason the live frame is the truth and
-# this block is the written vocabulary.
-[colors.structure]
-rule_frame = "#8D93AC"
-rule_internal = "#5C5F74"
-header = "#9EA4BE"
-cursor_bg = "#45475A"
-edit_bg = "#666A7F"
-layer1_bg = "#3D3E51"
-layer2_bg = "#4D5064"
+# The Styles tab's vocabulary is NOT here any more (Chris, 20260801: *"you can get rid of Role /
+# Reserved / Anchor / Structure — under the Colors style we only need this one"*). Every one of
+# those groups was a hand-transcription of `tokens` pinned to one theme, and `Colors/Palette`
+# renders the same vocabulary live from whichever theme is in force. Two of them had already
+# drifted. What is left in this file is what static TOML can honestly own: which theme the
+# harness paints with, and what its own preview backgrounds are.
 
 [ingredients]
 source = "wqm_tui"

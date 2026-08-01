@@ -62,9 +62,8 @@ mod tier {
             assert_every(module, "Panes", None, "a zone of a screen is a pane");
         }
 
-        // Styles, unsectioned — the vocabulary, beside the `[colors.*]` groups the stylesheet
-        // contributes, which is where a reader looking up "what does the design call this"
-        // already is.
+        // Styles, unsectioned — the vocabulary itself. `pantry.toml` no longer contributes any
+        // colour groups (Chris, 20260801), so these two ARE the Styles tab's product half.
         for module in [
             crate::styles::palette::ingredient::ingredients(),
             crate::styles::typography::ingredient::ingredients(),

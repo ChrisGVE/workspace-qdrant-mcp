@@ -194,18 +194,12 @@ impl Widget for PaletteFrame {
                 tokens::faint_style(),
             )),
             Line::default(),
-            heading("HUES — the theme's, and ours by adoption"),
-            header(),
+            heading("HUES — the theme's, and each one as a SURFACE"),
+            hue_header(),
         ];
 
         for (name, field, claim) in HUES {
-            lines.push(row(&Rung {
-                kind: Kind::Standard,
-                name: name.to_string(),
-                colour: field(&theme),
-                at: f32::NAN,
-                note: claim,
-            }));
+            lines.push(hue_row(name, field(&theme), theme.bg, claim));
         }
 
         lines.push(Line::default());
@@ -218,6 +212,11 @@ impl Widget for PaletteFrame {
         }
 
         lines.push(Line::default());
+        lines.push(Line::from(Span::styled(
+            "ON BG @14% is the hue mixed into the background at WASH_MIX — a tinted SURFACE \
+             rather than another grey.",
+            tokens::faint_style(),
+        )));
         lines.push(Line::from(Span::styled(
             "AT is the position on r02's scale, where the theme's background is 0 and its \
              foreground is 85. Every",
@@ -268,6 +267,58 @@ fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
             .then_with(|| (a.kind == Kind::Custom).cmp(&(b.kind == Kind::Custom)))
     });
     rungs
+}
+
+/// The hues' header — they have no ladder position, and they have a second swatch instead.
+fn hue_header() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("  {}", fit("", KIND)), tokens::faint_style()),
+        Span::styled(fit("NAME", NAME), tokens::muted_style()),
+        Span::styled(fit("", SWATCH), tokens::muted_style()),
+        Span::styled(fit("VALUE", VALUE), tokens::muted_style()),
+        Span::styled(fit("ON BG @14%", SWATCH), tokens::muted_style()),
+        Span::styled("WHAT IT IS FOR", tokens::muted_style()),
+    ])
+}
+
+/// One hue, and the same hue **mixed into the background** at the wash strength.
+///
+/// Chris, 20260801: *"I would keep the greys (just in case) and add bg hues in the hues
+/// category."* The second swatch is what a **surface** in that hue looks like — a modal fill, a
+/// zone tint — rather than what the hue looks like as a glyph. `WASH_MIX` is the strength the
+/// condition wash already uses (*"we need one for the 14% red anyway"*), so this shows the
+/// existing instance and the five hypothetical ones side by side, at one strength, on the
+/// theme's own background.
+///
+/// This does **not** adopt anything. It is the frame the "do we need so many greys" question is
+/// to be judged from: a tinted surface beside the grey ladder above it.
+fn hue_row(name: &str, hue: Color, bg: Color, claim: &'static str) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled(
+            format!("  {}", fit(Kind::Standard.label(), KIND)),
+            Kind::Standard.style(),
+        ),
+        Span::styled(fit(name, NAME), Kind::Standard.style()),
+    ];
+    spans.extend(swatch(hue));
+    spans.push(Span::styled(fit(&hex(hue), VALUE), tokens::muted_style()));
+    // The surface's own value is derivable and not the point — he needs to SEE it, not read it.
+    spans.extend(swatch(surface(bg, hue)));
+    spans.push(Span::styled(claim.to_string(), tokens::faint_style()));
+    Line::from(spans)
+}
+
+/// A background pulled toward a hue by [`tokens::WASH_MIX`] — the morph, not another grey.
+fn surface(bg: Color, hue: Color) -> Color {
+    let channels = |colour: Color| match colour {
+        Color::Rgb(r, g, b) => [r as f32, g as f32, b as f32],
+        _ => [0.0; 3],
+    };
+    let (base, toward) = (channels(bg), channels(hue));
+    let blend = |i: usize| {
+        (base[i] + (toward[i] - base[i]) * tokens::WASH_MIX).round().clamp(0.0, 255.0) as u8
+    };
+    Color::Rgb(blend(0), blend(1), blend(2))
 }
 
 /// The column header, repeated over each group so a long frame stays readable when scrolled.
@@ -404,13 +455,14 @@ pub mod ingredient {
 
     impl Ingredient for Palette {
         // Styles, and NO section: this is vocabulary rather than an instrument, so it belongs
-        // beside the `[colors.*]` groups the stylesheet contributes. `Instruments` is left to
-        // `Palette Reference` and `Theme Sources` (§16).
+        // with the vocabulary. `Instruments` is left to `Palette Reference` and `Theme Sources`
+        // (§16).
         fn tab(&self) -> &str {
             "Styles"
         }
-        // The group is `Colors` on purpose — Chris asked for this "in the Colors section", and
-        // `[colors.*]` is exactly what the stylesheet names that group. The entry joins them.
+        // The group is `Colors` because Chris asked for it "in the Colors section", and since
+        // 20260801 it is the ONLY entry there — the four TOML groups that used to share the name
+        // were transcriptions of what this frame renders live.
         fn group(&self) -> &str {
             "Colors"
         }
@@ -475,6 +527,51 @@ mod tests {
             10,
             "two fields resolve to one colour, so one is wired to the wrong accessor"
         );
+    }
+
+    /// A hue's surface is a nudge off the background, not a wash of colour.
+    ///
+    /// The whole proposition is that a tinted surface can replace a grey one *without shouting*
+    /// — Chris's *"some subtle tint for the background of our modal windows"*. So the guard is
+    /// two-sided: the surface must be visibly off the background (or it is just the background
+    /// and buys nothing) and must stay far nearer the background than the hue (or it is a block
+    /// of colour and the modal is shouting). Checked on every theme, because a hue that is
+    /// already close to the background — Everforest's `muted`-adjacent greens — is where the
+    /// first half fails.
+    #[test]
+    fn a_tinted_surface_reads_as_the_background_and_not_as_the_hue() {
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            for (label, hue) in [
+                ("accent", theme.accent),
+                ("error", theme.error),
+                ("info", theme.info),
+            ] {
+                let tinted = surface(theme.bg, hue);
+                let to_bg = distance(tinted, theme.bg);
+                let to_hue = distance(tinted, hue);
+                assert!(
+                    to_bg > 1.0,
+                    "{name:?}/{label}: the surface is {to_bg:.1} from the background — invisible"
+                );
+                assert!(
+                    to_bg * 3.0 < to_hue,
+                    "{name:?}/{label}: the surface is {to_bg:.1} from bg and {to_hue:.1} from \
+                     the hue — that is a coloured panel, not a tint"
+                );
+            }
+        }
+    }
+
+    /// Plain RGB distance — enough to say "nudge" from "shout"; the ΔE machinery lives in
+    /// `tokens::tests` and is not worth duplicating for a ratio test.
+    fn distance(a: Color, b: Color) -> f32 {
+        let ch = |c: Color| match c {
+            Color::Rgb(r, g, b) => [r as f32, g as f32, b as f32],
+            _ => [0.0; 3],
+        };
+        let (a, b) = (ch(a), ch(b));
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
     }
 
     /// The ladder is ordered by luminance, background first and `strong` last.

@@ -33,9 +33,18 @@ fn main() -> std::io::Result<()> {
 
     // §15's bundled theme. Static here on purpose: which theme a user gets is an N7
     // preference with nowhere to be written yet (`UIQ-009`/`UIQ-010`), and the pantry is not
-    // where that decision belongs. Mocha is the theme every measurement in this crate was
-    // taken against.
-    wqm_tui::tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+    // where that decision belongs.
+    //
+    // **Everforest, on Chris's instruction 20260801** — *"can you change the theme to Everforest
+    // so I can see with my own eyes"*. It is the adversarial case for tinting `strong` toward
+    // `accent`: Everforest's accent is `#83C178` and its `success` is `#A7C080`, both green, and
+    // the measured distance between a tinted `strong` and that reserved hue is the worst of the
+    // fifteen (ΔE 6.6 at k = 0.55). A theme chosen because it is where the idea is most likely
+    // to fail is worth more than one chosen because it looks good.
+    //
+    // Mocha remains the theme the crate's *tests* pin, so a measurement stays reproducible while
+    // the thing on screen is the one being judged.
+    wqm_tui::tokens::set_theme(ratatui_themes::ThemeName::Everforest.palette());
 
     Encoding::set(match encoding::detect() {
         // See the module docs: for a dump, the escape sequences are the whole output.

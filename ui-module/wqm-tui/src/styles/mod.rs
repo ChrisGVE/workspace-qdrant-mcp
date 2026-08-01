@@ -3,7 +3,7 @@
 //! §16 gives the surface four tiers, and three of them already had a home: [`crate::widgets`]
 //! for the atoms and the chrome, `widgets` again for the zones, [`crate::views`] for the
 //! screens. The fourth — Styles — had none, because until now its entries were **not code**:
-//! `pantry.toml` declares `[colors.*]` and `[typography]`, and `tui-pantry` turns those tables
+//! `pantry.toml` declared `[colors.*]` and `[typography]`, and `tui-pantry` turned those tables
 //! into swatch and text-sample ingredients on its own.
 //!
 //! # Why anything here is code at all
@@ -22,10 +22,13 @@
 //! rather than as a goal: these two entries cannot disagree with a screen, because they ask the
 //! same functions the screen asks.
 //!
-//! The `[colors.*]` groups stay in `pantry.toml`. They are the **written** vocabulary — the
-//! names the design uses and the reason each exists — and a written vocabulary is worth having
-//! even where it is pinned to one theme. What is measured lives here; what is authored lives
-//! there, and the two are labelled so a reader knows which is which.
+//! **Nothing colour-shaped is left in `pantry.toml`.** The four `[colors.*]` groups were kept
+//! for a while as the *written* vocabulary beside the measured one, and Chris ended that on
+//! 20260801: *"you can get rid of Role / Reserved / Anchor / Structure — under the Colors style
+//! we only need this one."* He was right and the evidence was already in the file — two of the
+//! four had silently drifted from what `tokens` paints, because static TOML cannot notice. A
+//! second vocabulary is only worth its keep while it says something the first cannot, and once
+//! `Colors/Palette` showed the theme's fields and our rungs on one scale, it did not.
 //!
 //! # The instruments are here too, under a section
 //!
