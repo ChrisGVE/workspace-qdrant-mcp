@@ -27,11 +27,24 @@
 //! so, because a reader who takes it as "here are eight more rungs you may use" has read it
 //! exactly backwards.
 //!
-//! # Italic is a terminal capability
+//! # Italic is a terminal capability, and there is no second knob
 //!
-//! SGR 3 is emitted; whether it arrives is the terminal's business. A terminal that ignores it
-//! renders the third section identically to the second, which is itself the answer to "can the
-//! design lean on italic" — and is a thing to *look* at rather than to assume either way.
+//! Chris asked whether we could distinguish *slanted* from *italic* — a fair question, since a
+//! terminal font family carries a real Italic face and nvim renders it properly in the same
+//! environment. **We cannot, and neither can nvim: there is one code.** SGR 3 is
+//! ECMA-48 "italicized" and no `oblique` counterpart exists; `ratatui`'s whole modifier set is
+//! bold / dim / italic / underlined / blink / reverse / hidden / crossed-out. Whether SGR 3
+//! lands on the font's Italic face or on a synthesised slant is the **terminal's font
+//! configuration**, not something the application can ask for or even observe.
+//!
+//! So this section emits byte-for-byte what nvim emits, and in a terminal configured with an
+//! italic face it gets the same real italic. A terminal that ignores SGR 3 renders the third
+//! section identically to the second — which is itself the answer to "can the design lean on
+//! italic", and a thing to *look* at rather than assume either way.
+//!
+//! One caveat that is ours rather than the terminal's: [`crate::capture`]'s PNG path renders
+//! through `soft_ratatui`, a software rasteriser with one face. **Judge italic from the ANSI
+//! dump in a real terminal, never from a capture.**
 
 use ratatui::{
     buffer::Buffer,
@@ -103,7 +116,7 @@ const WEIGHTS: [(&str, &str, Option<Modifier>, &str); 3] = [
         "ITALIC",
         "Italic",
         Some(Modifier::ITALIC),
-        "SGR 3 is emitted — a terminal that ignores it renders this identically to the section above",
+        "SGR 3 — the same code nvim emits. Which face it lands on is the terminal's font config; there is no separate oblique code to ask for",
     ),
 ];
 

@@ -13,18 +13,32 @@
 //! frame is ten swatches, then those four again in ladder order: one frame, two readings of the
 //! same ten colours, rather than fourteen swatches of which four are duplicates.
 //!
-//! # What the second reading is for, and the thing it makes visible
+//! # Why the second reading has two columns and not one
+//!
+//! Chris asked the obvious question — *"why do we have a column THE THEME'S and another for
+//! OURS? why wouldn't we use the same?"* — and the answer turned out to be measurable rather
+//! than a matter of taste.
 //!
 //! §15 says the ladder is interpolated *"from the theme's own bg and fg"*, and that is exactly
-//! what [`crate::tokens`] does — `ladder_endpoints` takes **two** of the four. `selection` and
-//! `muted` are checked to be *ordered* inside that span, so a ladder could anchor on them, but
-//! nothing does: our `cursor_bg` and `muted` rungs are interpolated to a percentage and land
-//! wherever that percentage lands. The theme's own `selection` and `muted` are its designer's
-//! answer to the same two questions.
+//! what [`crate::tokens`] does: `ladder_endpoints` takes **two** of the four neutrals. The
+//! other two, `selection` and `muted`, are checked to be *ordered* inside that span — so a
+//! ladder **could** anchor on them — and nothing does.
 //!
-//! **They need not agree, and until this frame there was nowhere to see whether they do.** That
-//! is the comparison worth having in front of anyone choosing which token an element reaches
-//! for, and it is why the second block draws both.
+//! It looks like an oversight, and using the theme's own values instead would look like exactly
+//! what §15 asked for. **It is not, because the two `muted`s are not the same thing.** r02's
+//! `muted` rung is *"the default posture of most of the screen"* — readable body text at 62% of
+//! the way to the foreground. A theme's `muted` field is the subtle-UI tint an editor paints
+//! comments and borders with: for Catppuccin it is `overlay0`, which sits at **38%** — below
+//! our `faint` rung. Substituting it would put most of a screen's text *below* the rung reserved
+//! for de-emphasised metadata, inverting the emphasis ladder.
+//!
+//! Measured over all fifteen bundled themes
+//! ([`tests::the_themes_own_neutrals_do_not_sit_where_r02_puts_its_rungs`]): the theme's
+//! `selection` lands in the layer band our `cursor_bg` occupies on **5 of 15**, and its `muted`
+//! lands in the text band on **2 of 15**. The names coincide; the positions do not.
+//!
+//! So both columns stay, and the frame prints **where on our ladder the theme's value falls**,
+//! which is the number that makes the divergence legible instead of merely visible.
 //!
 //! # The swatches are literal theme colours
 //!
@@ -49,6 +63,8 @@ const NAME: usize = 12;
 /// Width of one colour's swatch: fill, sample, resolved value. The second block draws two of
 /// them per row and heads each with a label of this width, so the two must agree.
 const SWATCH: usize = 17;
+/// Width of the "where does this fall on our ladder" column.
+const RUNG: usize = 9;
 
 /// The ten fields in the order that answers *"what may I reach for"*: the six hues first,
 /// four of which our design has already claimed, then the four neutrals.
@@ -108,28 +124,28 @@ const ANCHORS: [Anchor; 4] = [
         |p| p.bg,
         "tokens::screen_bg",
         || tokens::screen_bg().unwrap_or(Color::Reset),
-        "an endpoint — so these two always agree",
+        "an endpoint; equal by construction",
     ),
     (
         "selection",
         |p| p.selection,
         "tokens::cursor_bg",
         tokens::cursor_bg,
-        "ours is a rung; the theme's is its own",
+        "the same word, a different place",
     ),
     (
         "muted",
         |p| p.muted,
         "tokens::muted",
         tokens::muted,
-        "ours is a rung; the theme's is its own",
+        "the same word, a different place",
     ),
     (
         "fg",
         |p| p.fg,
         "tokens::normal",
         tokens::normal,
-        "an endpoint — so these two always agree",
+        "an endpoint; equal by construction",
     ),
 ];
 
@@ -171,6 +187,7 @@ impl Widget for PaletteFrame {
         lines.push(Line::from(vec![
             Span::styled(format!("  {}", fit("", NAME)), tokens::faint_style()),
             Span::styled(fit("THE THEME'S", SWATCH), tokens::muted_style()),
+            Span::styled(fit("ON OURS", RUNG), tokens::muted_style()),
             Span::styled(fit("OURS", SWATCH), tokens::muted_style()),
         ]));
 
@@ -179,7 +196,15 @@ impl Widget for PaletteFrame {
                 format!("  {}", fit(name, NAME)),
                 tokens::normal_style(),
             )];
-            spans.extend(swatch(field(&theme)));
+            let theirs = field(&theme);
+            spans.extend(swatch(theirs));
+            // Where the THEME's value falls on our ladder, in r02's own percentage units. This
+            // is the number that answers "why two columns": the two are not a disagreement
+            // about a colour, they are the same word at different places on the scale.
+            spans.push(Span::styled(
+                fit(&format!("{:.0}%", ladder_percent(theirs, &theme)), RUNG),
+                tokens::faint_style(),
+            ));
             spans.extend(swatch(rung()));
             spans.push(Span::styled(
                 format!("{token} — {note}"),
@@ -188,8 +213,43 @@ impl Widget for PaletteFrame {
             lines.push(Line::from(spans));
         }
 
+        // The number in ON OURS is the whole reason there are two columns, so it is explained
+        // where it is read rather than only in the module docs.
+        lines.push(Line::from(Span::styled(
+            "ON OURS = where the theme's value falls on r02's scale. cursor_bg is rung 19 and \
+             muted is rung 62;",
+            tokens::faint_style(),
+        )));
+        lines.push(Line::from(Span::styled(
+            "over all fifteen themes the theme's selection lands in that band 5 times and its \
+             muted 2 times.",
+            tokens::faint_style(),
+        )));
+
         Paragraph::new(lines).render(area, buf);
     }
+}
+
+/// Relative luminance, the measure r02 names its rungs in.
+fn luma(colour: Color) -> f32 {
+    match colour {
+        Color::Rgb(r, g, b) => 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32,
+        // Only reachable through the rung column under a weak encoding; the theme's own fields
+        // are always RGB (`theme_sheet` panics otherwise).
+        _ => f32::NAN,
+    }
+}
+
+/// Where a colour falls on **our** ladder, in r02's percentage units.
+///
+/// `NORMAL_RUNG` is 85 by construction — the percentage at which the ladder reaches the
+/// foreground — so `bg` is 0 and `fg` is 85, and anything between reads directly against the
+/// rung numbers `palette_reference` enumerates. Defined here rather than in `tokens` because it
+/// is the *inverse* of the ladder and only a comparison needs it; a widget reaching for a rung
+/// asks for the rung.
+fn ladder_percent(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
+    let (bg, fg) = (luma(theme.bg), luma(theme.fg));
+    85.0 * (luma(colour) - bg) / (fg - bg)
 }
 
 /// A block heading — the frame has two readings and they must not run together.
@@ -368,6 +428,47 @@ mod tests {
         }
 
         Palette::set(previous);
+    }
+
+    /// The theme's own interior neutrals do NOT sit where r02 puts the rungs of the same name.
+    ///
+    /// This is the evidence for keeping two columns, and it is the answer to *"why wouldn't we
+    /// use the same?"* — a question that reads as obviously right until the positions are
+    /// measured. r02's `muted` is *"the default posture of most of the screen"*, readable body
+    /// text at 62%. A theme's `muted` is the tint an editor paints comments and borders with,
+    /// and on most bundled themes it sits **below our `faint` rung** — adopting it would put
+    /// most of a screen's text under the rung reserved for de-emphasised metadata.
+    ///
+    /// The bands are the rungs each candidate would have to fall between to be substitutable:
+    /// `cursor_bg` (19) sits between `layer1_bg` (15) and `layer2_bg` (23); `muted` (62) sits
+    /// between `rule_frame` (54) and `cursor_mark` (70).
+    ///
+    /// **Asserted as a majority rather than as fifteen exact numbers**, because the finding is
+    /// "these are not interchangeable" and not "Dracula's selection is 12.1%". If a future
+    /// version of `ratatui-themes` moved its neutrals onto r02's rungs this test would fail,
+    /// and the decision it defends should genuinely be revisited then.
+    #[test]
+    fn the_themes_own_neutrals_do_not_sit_where_r02_puts_its_rungs() {
+        let (mut selection_fits, mut muted_fits, mut total) = (0, 0, 0);
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            let selection = ladder_percent(theme.selection, &theme);
+            let muted = ladder_percent(theme.muted, &theme);
+            selection_fits += (selection > 15.0 && selection < 23.0) as usize;
+            muted_fits += (muted > 54.0 && muted < 70.0) as usize;
+            total += 1;
+        }
+
+        assert!(
+            selection_fits * 2 < total,
+            "the theme's `selection` now lands in the layer band on {selection_fits}/{total} \
+             themes — it may be substitutable for `cursor_bg` after all"
+        );
+        assert!(
+            muted_fits * 2 < total,
+            "the theme's `muted` now lands in the text band on {muted_fits}/{total} themes — \
+             it may be substitutable for our `muted` rung after all"
+        );
     }
 
     /// The four anchors are the four neutrals, in ladder order.
