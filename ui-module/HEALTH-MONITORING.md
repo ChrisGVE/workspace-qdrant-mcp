@@ -154,6 +154,18 @@ For whoever builds the status zone, in rough priority:
 - Whether the subscription is a new `WatchStatus` RPC or a streaming variant of `Status`.
 - Whether the CLI ever subscribes, or only ever wants the one-shot call. It is one-shot by nature.
 - Where the maintained state lives on the daemon side.
+- **Whether an entry can be neither healthy nor unhealthy — `degraded` — and on which axis.**
+  Deferred by Chris and still open; `CR-035` §15 holds the two candidates, **freshness** and
+  **latency**, and the trap that any definition needing a measurement nobody was going to take
+  reintroduces the polling the CR removed. **Added 20260801 (`CR-035` r03 §15.1), because it now
+  bears directly on something built here:** your `health::SETTLE_AFTER_RECOVERY` window exists to
+  withhold component alarms for a guessed duration after the daemon returns, and it is guessed only
+  because a client cannot ask how *old* a reading is. Under the CR's own semantics — green means
+  "the last real use succeeded, at T", an observation record and not a liveness claim about this
+  instant — a component untouched since a restart has a **stale** reading rather than an unhealthy
+  one. If freshness is modelled daemon-side, that window is deleted rather than tuned. So treat the
+  5 s as provisional in the strong sense: not "a number awaiting Chris", but a field that may not
+  survive the axis being chosen. Nothing here decides it.
 
 Until those are settled, the status zone can be built against `DaemonReport` as it stands: a
 one-shot `status()` render path is correct today, and gains a subscription later without the widget
