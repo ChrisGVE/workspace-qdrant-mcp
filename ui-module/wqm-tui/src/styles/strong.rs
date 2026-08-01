@@ -79,11 +79,17 @@ enum Candidate {
 }
 
 impl Candidate {
+    /// Named for **what the rule does**, not for its status.
+    ///
+    /// The first cut labelled these `ships` / `accent .35` / `accent .55` / `adaptive` and Chris
+    /// read the table as four different tokens rather than four ways of computing one: *"I assume
+    /// that on the table what you call ships is Strong? What I don't understand is the role of
+    /// .35, .55 and adaptive."* Every column IS `strong`; a bare number names nothing.
     fn label(self) -> &'static str {
         match self {
-            Candidate::Extrapolate => "ships",
-            Candidate::Accent(k) if k < 0.45 => "accent .35",
-            Candidate::Accent(_) => "accent .55",
+            Candidate::Extrapolate => "now: past fg",
+            Candidate::Accent(k) if k < 0.45 => "35% accent",
+            Candidate::Accent(_) => "55% accent",
             Candidate::Adaptive => "adaptive",
         }
     }
@@ -179,17 +185,42 @@ impl Widget for StrongCandidates {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut lines = vec![
             Line::from(Span::styled(
-                "`strong` — four rules, fifteen themes. Read DOWN a column for the one with no bad row.",
+                "`strong` — four ways of choosing ONE colour, measured against all fifteen themes.",
                 tokens::strong_style(),
             )),
             Line::from(Span::styled(
-                "vs body = separation from the text it must beat (2.3 = just noticeable). \
-                 vs res = distance to the",
+                "EVERY COLUMN IS `strong`. They differ only in where its colour comes from:",
+                tokens::muted_style(),
+            )),
+            Line::from(Span::styled(
+                "  now: past fg   the grey ladder continued beyond the foreground — what the \
+                 code does today",
                 tokens::faint_style(),
             )),
             Line::from(Span::styled(
-                "nearest hue §3 reserves — health or selector. A rule that wins one column and \
-                 loses the other has not won.",
+                "  N% accent     the foreground mixed N of the way toward theme.accent \
+                 (0% = fg exactly, 100% = accent)",
+                tokens::faint_style(),
+            )),
+            Line::from(Span::styled(
+                "  adaptive      as much accent as clears the reserved hues — 55% on fourteen \
+                 themes, 35% on Everforest",
+                tokens::faint_style(),
+            )),
+            Line::default(),
+            Line::from(Span::styled(
+                "The two numbers under each swatch: vs body = separation from the text `strong` \
+                 must beat (2.3 = just",
+                tokens::faint_style(),
+            )),
+            Line::from(Span::styled(
+                "noticeable). vs res = distance to the nearest hue §3 reserves (health or \
+                 selector). A rule that wins one",
+                tokens::faint_style(),
+            )),
+            Line::from(Span::styled(
+                "and loses the other has not won — so read DOWN a column and find the one with \
+                 no bad row.",
                 tokens::faint_style(),
             )),
             Line::default(),
