@@ -48,35 +48,22 @@ use std::time::Instant;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    text::Line,
-    widgets::{Paragraph, Widget},
+    widgets::Widget,
 };
 use wqm_client::DaemonReport;
 
 use crate::health::{Component, Rollup, SystemHealth};
 use crate::tokens::{Condition, Health};
-use crate::widgets::chrome::{
-    self, Attention, Freshness, PaneSelector, Rule, StatusLine, TitleBar, ZoneHeading,
-};
+use crate::panes::{ConfigPane, StatusBand};
+use crate::widgets::chrome::{inset, Attention, Freshness, Rule, StatusLine, TitleBar};
 use crate::widgets::{
     config_table::ConfigTable,
-    daemon_status::DaemonPanel,
     modal::Modal,
-    store_health::{StoreHealth, StoreRow},
+    store_health::StoreRow,
     surface::{ConditionBand, Surface},
     tab_bar::{Tab, TabBar},
     toast::ToastDeck,
 };
-
-/// Columns of quiet at each edge. Every zone's content starts here — including the config
-/// table, which reaches it through its own margin rather than through this one, so the KEY
-/// column and the store roles line up without either widget knowing about the other.
-const MARGIN: u16 = 2;
-
-/// Rows the top band reserves. Four is what [`DaemonPanel`] emits at its longest (daemon,
-/// version, detail, index); the band never shrinks below it, so the internal rule under the
-/// band does not move when a daemon starts reporting a detail line.
-const BAND_ROWS: u16 = 4;
 
 /// Which zone of the screen is live. The lower band is `1`, so a screen laid out with more
 /// zones later keeps these two.
@@ -185,34 +172,36 @@ impl<'a> ServiceView<'a> {
 }
 
 /// Every row of the screen, in order, so the layout is read once rather than counted twice.
+///
+/// **Two of these are panes, not rows.** `band` and `config` are whole zones handed to
+/// [`StatusBand`] and [`ConfigPane`], which then lay out their own insides. That is §16's split:
+/// the view decides where a zone goes and which one is live; the zone decides everything
+/// within itself. The view no longer knows that the band is a heading over four rows, or that
+/// the config zone opens with a selector and a gap — and asking [`StatusBand::ROWS`] for the
+/// first of those is what keeps a change to the band from being a change in two files.
 struct Rows {
     tabs: Rect,
     top_rule: Rect,
     title: Rect,
-    status_heading: Rect,
     band: Rect,
     seam: Rect,
-    pane: Rect,
     config: Rect,
     bottom_rule: Rect,
     status_line: Rect,
 }
 
 fn rows(area: Rect) -> Rows {
-    let [tabs, top_rule, title, _, status_heading, band, _, seam, _, pane, _, config, bottom_rule, status_line] =
+    let [tabs, top_rule, title, _, band, _, seam, _, config, bottom_rule, status_line] =
         Layout::vertical([
             Constraint::Length(1), // tab row
             Constraint::Length(1), // the frame rule under it
             Constraint::Length(1), // title, with the freshness right-aligned
             Constraint::Length(1), // negative space — §6 divides with space, not boxes
-            Constraint::Length(1), // Status zone heading
-            Constraint::Length(BAND_ROWS),
+            Constraint::Length(StatusBand::ROWS),
             Constraint::Length(1),
             Constraint::Length(1), // the internal seam between the two bands
             Constraint::Length(1),
-            Constraint::Length(1), // Config ↔ Logs selector, where the heading would be
-            Constraint::Length(1),
-            Constraint::Min(0), // the config table takes what is left
+            Constraint::Min(0), // the config zone takes what is left
             Constraint::Length(1),
             Constraint::Length(1), // merged status + help
         ])
@@ -222,24 +211,11 @@ fn rows(area: Rect) -> Rows {
         tabs,
         top_rule,
         title,
-        status_heading,
         band,
         seam,
-        pane,
         config,
         bottom_rule,
         status_line,
-    }
-}
-
-/// A row inset by [`MARGIN`] on both sides — everything except the rules, which underline the
-/// whole screen and so run edge to edge.
-fn inset(area: Rect) -> Rect {
-    Rect {
-        x: area.x + MARGIN,
-        y: area.y,
-        width: area.width.saturating_sub(MARGIN * 2),
-        height: area.height,
     }
 }
 
@@ -273,44 +249,13 @@ impl Widget for ServiceView<'_> {
             .freshness(self.freshness)
             .render(inset(r.title), buf);
 
-        ZoneHeading::new("Status", ZONE_STATUS, self.attention)
-            .render(inset(r.status_heading), buf);
-
-        // The federation on the left, the liveness master on the right. Two columns rather
-        // than one list because they answer different questions — "what is behind this
-        // deployment" and "is the thing that knows answering" — and §7 makes the second one
-        // the master of the first.
-        let band = inset(r.band);
-        let [stores, daemon] =
-            Layout::horizontal([Constraint::Length(30), Constraint::Min(0)]).areas(band);
-        StoreHealth::new(self.stores).render(stores, buf);
-        DaemonPanel::new(self.daemon).render(daemon, buf);
+        // Two zones, each handed its area and told which one the screen says is live. What a
+        // band or a selector looks like from there is the pane's business (§16).
+        StatusBand::new(self.stores, self.daemon, ZONE_STATUS, self.attention).render(r.band, buf);
 
         Rule::internal().render(r.seam, buf);
 
-        // The lower band's heading is the sub-screen selector (§4.1), so the zone accent is
-        // drawn beside it rather than by a `ZoneHeading` of its own.
-        let pane = inset(r.pane);
-        let accent = chrome::accent(ZONE_CONFIG, self.attention);
-        let accent_width = accent
-            .as_ref()
-            .map(|span| span.content.chars().count() as u16)
-            .unwrap_or(0);
-        if let Some(accent) = accent {
-            Paragraph::new(Line::from(accent)).render(pane, buf);
-        }
-        PaneSelector::new(vec!["Config".into(), "Logs".into()], 0).render(
-            Rect {
-                x: pane.x + accent_width,
-                width: pane.width.saturating_sub(accent_width),
-                ..pane
-            },
-            buf,
-        );
-
-        // Not inset: the table carries its own margin, and letting it reach the same column
-        // through its own arithmetic is what keeps KEY under the store roles.
-        self.config.render(r.config, buf);
+        ConfigPane::new(self.config, ZONE_CONFIG, self.attention).render(r.config, buf);
 
         Rule::frame().render(r.bottom_rule, buf);
         let mut status = StatusLine::new(rollup).mode(mode);
@@ -346,7 +291,7 @@ impl Widget for ServiceView<'_> {
 }
 
 #[cfg(any(test, feature = "tui-pantry"))]
-mod frames {
+pub(crate) mod frames {
     use super::*;
     use crate::widgets::config_table::{Edit, Entry, Focus, Row, UNSET};
     use std::time::Duration;
@@ -720,7 +665,10 @@ mod tests {
         let (key, _) = find(&buf, "KEY").expect("the config header");
         assert_eq!(
             (tab, store, key),
-            (MARGIN, MARGIN, MARGIN),
+            {
+                let m = crate::widgets::chrome::MARGIN;
+                (m, m, m)
+            },
             "tabs, stores and the config table start in one column"
         );
     }

@@ -66,6 +66,18 @@ mod tier {
             "§16 lists the collections list among the PANES — a list that fills a tab's body is a zone",
         );
 
+        for module in [
+            crate::panes::status_band::ingredient::ingredients(),
+            crate::panes::config::ingredient::ingredients(),
+        ] {
+            assert_every(
+                module,
+                "Panes",
+                None,
+                "§16 names both Service zones panes — the status band and the config zone",
+            );
+        }
+
         // §16: the instruments are how *we* judge the language, not part of the surface, and
         // the Styles tab is where the vocabulary already lives.
         for module in [

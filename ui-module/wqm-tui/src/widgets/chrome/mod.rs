@@ -45,6 +45,30 @@ pub use status_line::StatusLine;
 pub use title_bar::{format_age, Freshness, TitleBar};
 pub use zone_heading::{accent, Attention, ZoneHeading};
 
+/// Columns of quiet at each edge of a screen.
+///
+/// Here rather than in a view, because a **pane** needs it too: [`crate::panes`] renders a
+/// zone's own heading and selector, and those start on the same column the title bar does. Two
+/// constants would be two numbers to keep equal, and the failure is silent — a zone indented
+/// one column further than the chrome above it reads as a wobble nobody can name.
+///
+/// [`crate::widgets::config_table`] keeps its own margin deliberately: it reaches this column
+/// through its own arithmetic, which is what lets its KEY column line up under the store roles
+/// without either widget knowing about the other.
+pub const MARGIN: u16 = 2;
+
+/// A row inset by [`MARGIN`] on both sides.
+///
+/// Everything except the rules, which underline the whole screen and so run edge to edge.
+pub fn inset(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    ratatui::layout::Rect {
+        x: area.x + MARGIN,
+        y: area.y,
+        width: area.width.saturating_sub(MARGIN * 2),
+        height: area.height,
+    }
+}
+
 /// The shared scaffolding every chrome test needs: a known palette, a known encoding and
 /// known endpoints, restored on drop.
 ///
