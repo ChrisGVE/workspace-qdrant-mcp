@@ -102,6 +102,7 @@ modules = [
     "panes::collections",
     "panes::config",
     "panes::status_band",
+    "panes::storage",
     # The Styles tab: the vocabulary, rendered live rather than transcribed. These two ask
     # `tokens` the same questions a screen asks, so they cannot drift from it — which is what
     # the `[colors.*]` tables above, being static TOML, always could.

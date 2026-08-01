@@ -317,6 +317,30 @@ pub(crate) mod frames {
         ]
     }
 
+    /// `CR-036`(a)'s arriving set: six components, one of them unreadable, none of which this
+    /// build was compiled knowing about.
+    ///
+    /// It is the *screen's* arriving set, so — like [`stores`] and for the same reason (§6.29,
+    /// the daemon is named once) — **the daemon is not in it**. `store_health`'s own `Arriving
+    /// Set` frame keeps its daemon row, because that frame is the widget alone rather than a
+    /// screen's backing federation. The two lists look alike and differ on purpose.
+    ///
+    /// The Dashboard's Storage cell needs it because its overflow row means nothing against a
+    /// federation that fits.
+    pub fn arriving_stores() -> Vec<StoreRow> {
+        vec![
+            StoreRow::bound("vector", "qdrant", Health::Healthy),
+            StoreRow::bound("graph", "ladybug", Health::Healthy),
+            StoreRow::bound("relational", "sqlite", Health::Healthy),
+            // Named by the report with no backend behind it: the faint column stays empty
+            // rather than being filled with an invented binding.
+            StoreRow::unbound("queue_processor", Health::Degraded),
+            StoreRow::unbound("embedding_provider", Health::Healthy),
+            // A long name proves the glyph column is computed, not assumed.
+            StoreRow::bound("language_registry", "bundled", Health::Healthy),
+        ]
+    }
+
     pub fn serving() -> DaemonReport {
         DaemonReport::Reachable(DaemonStatus {
             state: DaemonState::Ok,
@@ -362,14 +386,21 @@ pub(crate) mod frames {
     /// The debounce key — the one the reviewed frame edits — as an entry index.
     pub const DEBOUNCE: usize = 2;
 
-    /// The quiet screen: everything nominal, no zone focused, nothing floating above it.
-    pub fn base() -> ServiceView<'static> {
+    /// The hub with the vector store in a stated state — the screen a Dashboard cell drills
+    /// into, parameterised so a cell can be checked against *the same* screen rather than
+    /// against a second construction of it.
+    pub fn hub(vector: Health) -> ServiceView<'static> {
         ServiceView::new(
-            stores(Health::Healthy),
+            stores(vector),
             serving(),
             ConfigTable::new(config_rows()),
             freshness(),
         )
+    }
+
+    /// The quiet screen: everything nominal, no zone focused, nothing floating above it.
+    pub fn base() -> ServiceView<'static> {
+        hub(Health::Healthy)
     }
 
     /// An edit-in-place open in the lower band, which is therefore the live zone.
