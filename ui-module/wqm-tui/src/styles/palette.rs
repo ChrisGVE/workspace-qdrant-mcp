@@ -1,44 +1,41 @@
-//! The theme's ten fields in one frame, and the two of them the ladder is actually built on.
+//! Every colour the design can reach for, on one scale — the theme's ten and our eleven rungs.
 //!
 //! Chris, 20260801: *"in the Colors section I would like to have a section Palette which would
 //! show: the 10 roles and the 4 anchors, having them together will be helpful for visual
 //! comparisons and to reduce (hopefully) the number of iterations when we start designing the
 //! elements."*
 //!
-//! # The ten and the four overlap
+//! # One list, two vocabularies
 //!
-//! [`ThemePalette`] has exactly ten fields, and `bg` / `selection` / `muted` / `fg` are four of
-//! them — *"the ten roles and the four anchors"* is this crate's own phrasing for that
-//! (`theme_sheet::every_theme_gives_ten_distinct_roles_and_four_ordered_neutrals`). So the
-//! frame is ten swatches, then those four again in ladder order: one frame, two readings of the
-//! same ten colours, rather than fourteen swatches of which four are duplicates.
+//! Chris, 20260801, on the first cut's separate anchors block: *"since the four neutrals are also
+//! included in the ten roles we don't need a special section for them, what we need is just a
+//! distinction between custom roles and standard roles."* So there is no second block. There are
+//! two **kinds** — `STD`, a field the theme names, and `OURS`, a rung we derive from it — marked
+//! in a column, and the neutrals are ordered by luminance in one run *"starting by the background
+//! and finishing by the color we use for Strong"*.
 //!
-//! # Why the second reading has two columns and not one
+//! The ordering is what makes the two vocabularies legible against each other. `theme.selection`
+//! lands at 9% on Mocha and `theme.muted` at 38%, so they interleave with our rungs rather than
+//! coinciding with the two that share their names — `tokens::cursor_bg` at 19% and
+//! `tokens::muted` at 62%. Sorted into one list that is impossible to miss; drawn as two blocks
+//! it was invisible.
 //!
-//! Chris asked the obvious question — *"why do we have a column THE THEME'S and another for
-//! OURS? why wouldn't we use the same?"* — and the answer turned out to be measurable rather
-//! than a matter of taste.
+//! **Names are qualified for exactly that reason.** `muted` alone names two different colours at
+//! two different places on the scale, and the bare word is what let them be confused. Reach for
+//! `tokens::muted`; `theme.muted` is not ours to use.
 //!
-//! §15 says the ladder is interpolated *"from the theme's own bg and fg"*, and that is exactly
-//! what [`crate::tokens`] does: `ladder_endpoints` takes **two** of the four neutrals. The
-//! other two, `selection` and `muted`, are checked to be *ordered* inside that span — so a
-//! ladder **could** anchor on them — and nothing does.
+//! # Ours are derived from the theme, never neutral greys
 //!
-//! It looks like an oversight, and using the theme's own values instead would look like exactly
-//! what §15 asked for. **It is not, because the two `muted`s are not the same thing.** r02's
-//! `muted` rung is *"the default posture of most of the screen"* — readable body text at 62% of
-//! the way to the foreground. A theme's `muted` field is the subtle-UI tint an editor paints
-//! comments and borders with: for Catppuccin it is `overlay0`, which sits at **38%** — below
-//! our `faint` rung. Substituting it would put most of a screen's text *below* the rung reserved
-//! for de-emphasised metadata, inverting the emphasis ladder.
+//! Chris: *"I assume that those custom roles are derived from the theme equivalent colors … if
+//! not it's a must (again themes are rarely neutral)."* They are: `ladder_endpoints` interpolates
+//! every rung between the theme's own `bg` and `fg`, so each carries its tint —
+//! `tests::every_custom_rung_carries_the_themes_tint_and_none_is_grey` fails if the ladder ever
+//! regresses to black-to-white, which renders perfectly well and looks *almost* right.
 //!
-//! Measured over all fifteen bundled themes
-//! ([`tests::the_themes_own_neutrals_do_not_sit_where_r02_puts_its_rungs`]): the theme's
-//! `selection` lands in the layer band our `cursor_bg` occupies on **5 of 15**, and its `muted`
-//! lands in the text band on **2 of 15**. The names coincide; the positions do not.
-//!
-//! So both columns stay, and the frame prints **where on our ladder the theme's value falls**,
-//! which is the number that makes the divergence legible instead of merely visible.
+//! **They are not anchored on `selection` and `muted`, and that is deliberate**, not an
+//! oversight: those two sit at 9% and 38% rather than at r02's 19% and 62%, and a theme's `muted`
+//! is the tint an editor paints comments with, not body text. Substituting it would put most of a
+//! screen's text below our `faint` rung.
 //!
 //! # The swatches are literal theme colours
 //!
@@ -55,101 +52,129 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+use crate::styles::palette_reference::{resolve, RUNGS};
 use crate::tokens;
 use crate::widgets::config_table::fit;
 
-/// Width of the field-name column, so both blocks start their swatches on one column.
-const NAME: usize = 12;
-/// Width of one colour's swatch: fill, sample, resolved value. The second block draws two of
-/// them per row and heads each with a label of this width, so the two must agree.
-const SWATCH: usize = 17;
-/// Width of the "where does this fall on our ladder" column.
-const RUNG: usize = 9;
+/// Width of the STANDARD / CUSTOM marker.
+const KIND: usize = 8;
+/// Width of the name column. Names are **qualified** — `theme.muted` and `tokens::muted` are
+/// different colours at different places on the scale, and the leaf word alone is what let them
+/// be confused in the first place.
+const NAME: usize = 22;
+/// Width of the swatch: brackets, fill, sample. See [`swatch`] for why it is bracketed.
+/// Counted from what [`swatch`] BUILDS, not from the parts added up by eye — the first value
+/// here was 14 against a real 13, and the guard is what said so.
+const SWATCH: usize = 13;
+/// Width of the resolved value.
+const VALUE: usize = 9;
+/// Width of the ladder position.
+const AT: usize = 6;
 
-/// The ten fields in the order that answers *"what may I reach for"*: the six hues first,
-/// four of which our design has already claimed, then the four neutrals.
+/// Which vocabulary a colour belongs to.
 ///
-/// **Not the struct's field order**, and deliberately: `ThemePalette` interleaves them
-/// (`accent, secondary, bg, fg, muted, selection, error, warning, success, info`), which is
-/// fine for a gallery row and wrong for a lookup. The claims are the other half — a field with
-/// no claim is headroom, and §3 forbids two roles landing on one hue, so which are spoken for
-/// is the first thing to know.
-type Field = (
+/// This is the distinction Chris asked for (*"what we need is just a distinction between custom
+/// roles and standard roles"*), and it replaces the separate anchors block: the four neutrals
+/// were already among the ten, so drawing them twice said less than marking them once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    /// A field the **theme** names. Ten of them, and the whole of what a theme gives us.
+    Standard,
+    /// A rung **we** name, derived from the theme. r02 specifies eleven of these by luminance
+    /// percentage and the theme has no field for any of them.
+    Custom,
+}
+
+impl Kind {
+    fn label(self) -> &'static str {
+        match self {
+            Kind::Standard => "STD",
+            Kind::Custom => "OURS",
+        }
+    }
+
+    /// `STD` recedes and `OURS` does not: the custom rungs are the ones a widget reaches for, so
+    /// they are the ones that should catch the eye in a list where both appear.
+    fn style(self) -> Style {
+        match self {
+            Kind::Standard => tokens::faint_style(),
+            Kind::Custom => tokens::normal_style(),
+        }
+    }
+}
+
+/// The theme's six **hues** — the fields that are not part of the neutral ladder.
+///
+/// Kept as their own group because ordering hues by luminance says nothing: what matters about
+/// `error` is that it is the alarm, not that it is brighter than `accent`. The claims are the
+/// other half — a field with no claim is headroom, and §3 forbids two roles landing on one hue.
+type Hue = (
     &'static str,
     fn(&ratatui_themes::ThemePalette) -> Color,
     &'static str,
 );
 
-const FIELDS: [Field; 10] = [
-    ("accent", |p| p.accent, "unclaimed — headroom"),
-    ("secondary", |p| p.secondary, "unclaimed — headroom"),
-    ("error", |p| p.error, "offline ○"),
-    ("warning", |p| p.warning, "degraded ▲, and stale timings"),
-    ("success", |p| p.success, "healthy ●"),
+const HUES: [Hue; 6] = [
+    ("theme.accent", |p| p.accent, "unclaimed — headroom"),
+    ("theme.secondary", |p| p.secondary, "unclaimed — headroom"),
+    ("theme.error", |p| p.error, "offline ○"),
     (
-        "info",
+        "theme.warning",
+        |p| p.warning,
+        "degraded ▲, and stale timings",
+    ),
+    ("theme.success", |p| p.success, "healthy ●"),
+    (
+        "theme.info",
         |p| p.info,
-        "selector — reserved absolutely (§3), and chosen over accent for distance",
-    ),
-    (
-        "bg",
-        |p| p.bg,
-        "the screen's full paint (§15), and the ladder's low end",
-    ),
-    ("selection", |p| p.selection, "the theme's own cursor tint"),
-    ("muted", |p| p.muted, "the theme's own de-emphasis"),
-    (
-        "fg",
-        |p| p.fg,
-        "the ladder's high end — `normal` interpolates to exactly this",
+        "selector — reserved absolutely (§3), chosen over accent",
     ),
 ];
 
-/// The four neutrals in ladder order, each beside the rung our ladder puts in that place.
+/// The theme's four **neutrals**, with what each is for and whether we use it.
 ///
-/// The token is named rather than its percentage, because a percentage written here would be
-/// the transcription this module exists to remove — `palette_reference` enumerates the ladder
-/// by percentage and is the place for that.
-type Anchor = (
+/// Two of them anchor our ladder and two do not, and saying which is the point: `theme.selection`
+/// and `theme.muted` are a theme's answers to questions r02 also answers, at different places on
+/// the scale. They are listed so the divergence is visible, not so it is adopted.
+type Neutral = (
     &'static str,
     fn(&ratatui_themes::ThemePalette) -> Color,
     &'static str,
-    fn() -> Color,
-    &'static str,
 );
 
-const ANCHORS: [Anchor; 4] = [
+const NEUTRALS: [Neutral; 4] = [
     (
-        "bg",
+        "theme.bg",
         |p| p.bg,
-        "tokens::screen_bg",
-        || tokens::screen_bg().unwrap_or(Color::Reset),
-        "an endpoint; equal by construction",
+        "the screen's full paint (§15) — and the ladder's low end",
     ),
     (
-        "selection",
+        "theme.selection",
         |p| p.selection,
-        "tokens::cursor_bg",
-        tokens::cursor_bg,
-        "the same word, a different place",
+        "its cursor tint — NOT ours; cf tokens::cursor_bg",
     ),
     (
-        "muted",
+        "theme.muted",
         |p| p.muted,
-        "tokens::muted",
-        tokens::muted,
-        "the same word, a different place",
+        "its comment/border tint — NOT ours; cf tokens::muted",
     ),
     (
-        "fg",
+        "theme.fg",
         |p| p.fg,
-        "tokens::normal",
-        tokens::normal,
-        "an endpoint; equal by construction",
+        "the ladder's high end — tokens::normal lands exactly here",
     ),
 ];
 
-/// The whole palette, both readings.
+/// One row of the ladder, ready to be ordered.
+struct Rung {
+    kind: Kind,
+    name: String,
+    colour: Color,
+    at: f32,
+    note: &'static str,
+}
+
+/// The whole palette on one scale: the hues, then every neutral in luminance order.
 pub struct PaletteFrame;
 
 impl Widget for PaletteFrame {
@@ -161,68 +186,46 @@ impl Widget for PaletteFrame {
 
         let mut lines = vec![
             Line::from(Span::styled(
-                "The ten fields the theme names, and the two the ladder is built on.",
+                "Every colour the design can reach for — the theme's, and the ones we derive from it.",
                 tokens::strong_style(),
             )),
             Line::from(Span::styled(
-                "Live from tokens::active_theme() — this frame paints what a screen paints.",
+                "Live from tokens::active_theme(): this frame paints what a screen paints.",
                 tokens::faint_style(),
             )),
             Line::default(),
-            heading("THE TEN ROLES"),
+            heading("HUES — the theme's, and ours by adoption"),
+            header(),
         ];
 
-        for (name, field, claim) in FIELDS {
-            let mut spans = vec![Span::styled(
-                format!("  {}", fit(name, NAME)),
-                tokens::normal_style(),
-            )];
-            spans.extend(swatch(field(&theme)));
-            spans.push(Span::styled(claim, tokens::faint_style()));
-            lines.push(Line::from(spans));
+        for (name, field, claim) in HUES {
+            lines.push(row(&Rung {
+                kind: Kind::Standard,
+                name: name.to_string(),
+                colour: field(&theme),
+                at: f32::NAN,
+                note: claim,
+            }));
         }
 
         lines.push(Line::default());
-        lines.push(heading("THE FOUR NEUTRALS, IN LADDER ORDER"));
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {}", fit("", NAME)), tokens::faint_style()),
-            Span::styled(fit("THE THEME'S", SWATCH), tokens::muted_style()),
-            Span::styled(fit("ON OURS", RUNG), tokens::muted_style()),
-            Span::styled(fit("OURS", SWATCH), tokens::muted_style()),
-        ]));
-
-        for (name, field, token, rung, note) in ANCHORS {
-            let mut spans = vec![Span::styled(
-                format!("  {}", fit(name, NAME)),
-                tokens::normal_style(),
-            )];
-            let theirs = field(&theme);
-            spans.extend(swatch(theirs));
-            // Where the THEME's value falls on our ladder, in r02's own percentage units. This
-            // is the number that answers "why two columns": the two are not a disagreement
-            // about a colour, they are the same word at different places on the scale.
-            spans.push(Span::styled(
-                fit(&format!("{:.0}%", ladder_percent(theirs, &theme)), RUNG),
-                tokens::faint_style(),
-            ));
-            spans.extend(swatch(rung()));
-            spans.push(Span::styled(
-                format!("{token} — {note}"),
-                tokens::faint_style(),
-            ));
-            lines.push(Line::from(spans));
+        lines.push(heading(
+            "THE NEUTRAL LADDER — by luminance, background first, `strong` last",
+        ));
+        lines.push(header());
+        for rung in ladder(&theme) {
+            lines.push(row(&rung));
         }
 
-        // The number in ON OURS is the whole reason there are two columns, so it is explained
-        // where it is read rather than only in the module docs.
+        lines.push(Line::default());
         lines.push(Line::from(Span::styled(
-            "ON OURS = where the theme's value falls on r02's scale. cursor_bg is rung 19 and \
-             muted is rung 62;",
+            "AT is the position on r02's scale, where the theme's background is 0 and its \
+             foreground is 85. Every",
             tokens::faint_style(),
         )));
         lines.push(Line::from(Span::styled(
-            "over all fifteen themes the theme's selection lands in that band 5 times and its \
-             muted 2 times.",
+            "OURS rung is interpolated between those two, so it carries the theme's tint and is \
+             never a neutral grey.",
             tokens::faint_style(),
         )));
 
@@ -230,29 +233,82 @@ impl Widget for PaletteFrame {
     }
 }
 
-/// Relative luminance, the measure r02 names its rungs in.
-fn luma(colour: Color) -> f32 {
-    match colour {
-        Color::Rgb(r, g, b) => 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32,
-        // Only reachable through the rung column under a weak encoding; the theme's own fields
-        // are always RGB (`theme_sheet` panics otherwise).
-        _ => f32::NAN,
-    }
-}
-
-/// Where a colour falls on **our** ladder, in r02's percentage units.
+/// Every neutral, the theme's and ours, on one scale in luminance order.
 ///
-/// `NORMAL_RUNG` is 85 by construction — the percentage at which the ladder reaches the
-/// foreground — so `bg` is 0 and `fg` is 85, and anything between reads directly against the
-/// rung numbers `palette_reference` enumerates. Defined here rather than in `tokens` because it
-/// is the *inverse* of the ladder and only a comparison needs it; a widget reaching for a rung
-/// asks for the rung.
-fn ladder_percent(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
-    let (bg, fg) = (luma(theme.bg), luma(theme.fg));
-    85.0 * (luma(colour) - bg) / (fg - bg)
+/// The interleaving is the finding. `theme.selection` lands at 9% on Mocha and `theme.muted` at
+/// 38%, so they do not sit anywhere near the rungs that share their names — and a single ordered
+/// list is the only presentation that makes that impossible to miss. Ties break **STD first**,
+/// so `theme.fg` reads as the source and `tokens::normal` as the name we give it.
+fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
+    let mut rungs: Vec<Rung> = NEUTRALS
+        .iter()
+        .map(|(name, field, note)| {
+            let colour = field(theme);
+            Rung {
+                kind: Kind::Standard,
+                name: name.to_string(),
+                colour,
+                at: ladder_percent(colour, theme),
+                note,
+            }
+        })
+        .chain(RUNGS.iter().map(|(percent, name, spec)| Rung {
+            kind: Kind::Custom,
+            // Qualified, because `muted` alone names two different colours.
+            name: format!("tokens::{name}"),
+            colour: resolve(*percent),
+            at: *percent as f32,
+            note: spec,
+        }))
+        .collect();
+
+    rungs.sort_by(|a, b| {
+        a.at.partial_cmp(&b.at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| (a.kind == Kind::Custom).cmp(&(b.kind == Kind::Custom)))
+    });
+    rungs
 }
 
-/// A block heading — the frame has two readings and they must not run together.
+/// The column header, repeated over each group so a long frame stays readable when scrolled.
+fn header() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("  {}", fit("", KIND)), tokens::faint_style()),
+        Span::styled(fit("NAME", NAME), tokens::muted_style()),
+        Span::styled(fit("", SWATCH), tokens::muted_style()),
+        Span::styled(fit("VALUE", VALUE), tokens::muted_style()),
+        Span::styled(fit("AT", AT), tokens::muted_style()),
+        Span::styled("WHAT IT IS FOR", tokens::muted_style()),
+    ])
+}
+
+/// One row: kind, qualified name, swatch, value, ladder position, purpose.
+fn row(rung: &Rung) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled(format!("  {}", fit(rung.kind.label(), KIND)), rung.kind.style()),
+        Span::styled(fit(&rung.name, NAME), rung.kind.style()),
+    ];
+    spans.extend(swatch(rung.colour));
+    spans.push(Span::styled(
+        fit(&hex(rung.colour), VALUE),
+        tokens::muted_style(),
+    ));
+    spans.push(Span::styled(
+        fit(
+            &if rung.at.is_nan() {
+                "—".to_string()
+            } else {
+                format!("{:.0}%", rung.at)
+            },
+            AT,
+        ),
+        tokens::faint_style(),
+    ));
+    spans.push(Span::styled(rung.note.to_string(), tokens::faint_style()));
+    Line::from(spans)
+}
+
+/// A block heading — the frame has two groups and they must not run together.
 fn heading(text: &'static str) -> Line<'static> {
     Line::from(Span::styled(
         text,
@@ -262,34 +318,51 @@ fn heading(text: &'static str) -> Line<'static> {
     ))
 }
 
-/// One colour three ways: as a fill, as text, and as the value it resolved to.
+/// One colour as a **bracketed** fill plus a text sample.
 ///
-/// A hue has to work both ways round — as a block behind something and as glyphs on the
-/// screen's own background — and a swatch that only shows the fill answers half the question.
-/// The first version drew `Aa` *inside* the fill in a fixed dark foreground, which for `bg`
-/// meant near-black on near-black: the sample was there and could show nothing.
-///
-/// Exactly [`SWATCH`] columns wide, so the two-colour rows line up under their headings.
+/// The brackets are not decoration. Chris: *"the first one of OURS is hardly visible against the
+/// bg so this one is useless"* — and he was right about more than that one row: `theme.bg` **is**
+/// the screen's background, so its swatch paints background on background and shows nothing at
+/// all. Every dark rung near it has the same problem to a lesser degree. Delimiting the fill with
+/// `rule_internal` gives the swatch an edge that does not depend on its own contrast, so the
+/// bottom of the ladder is a visible extent rather than a gap.
 fn swatch(colour: Color) -> Vec<Span<'static>> {
+    let edge = Style::default().fg(tokens::rule_internal());
     vec![
-        Span::styled("    ", Style::default().bg(colour)),
+        Span::styled("▏", edge),
+        Span::styled("      ", Style::default().bg(colour)),
+        Span::styled("▕", edge),
         Span::styled(" Aa ", Style::default().fg(colour)),
-        Span::styled(format!("{}  ", fit(&hex(colour), 7)), tokens::muted_style()),
+        Span::raw(" "),
     ]
 }
 
-/// `#rrggbb`, or a dash where the colour is not an RGB triple.
-///
-/// Every bundled theme is RGB — `theme_sheet`'s test panics if one is not — so the dash is
-/// reachable only through the *rung* column, where a weak encoding replaces our ladder with
-/// indexed or reset values. That is a real state and the frame should say so rather than
-/// pretend a hex.
+/// `#rrggbb`, or the indexed/reset value where a weak encoding replaced our ladder.
 fn hex(colour: Color) -> String {
     match colour {
         Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
-        Color::Indexed(i) => format!("idx {i:<3}"),
+        Color::Indexed(i) => format!("idx {i}"),
         _ => format!("{colour:?}"),
     }
+}
+
+/// Relative luminance, the measure r02 names its rungs in.
+fn luma(colour: Color) -> f32 {
+    match colour {
+        Color::Rgb(r, g, b) => 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32,
+        _ => f32::NAN,
+    }
+}
+
+/// Where a colour falls on **our** ladder, in r02's percentage units.
+///
+/// `NORMAL_RUNG` is 85 by construction — the percentage at which the ladder reaches the
+/// foreground — so `bg` is 0 and `fg` is 85, and anything between reads directly against the rung
+/// numbers. Defined here rather than in `tokens` because it is the *inverse* of the ladder and
+/// only a comparison needs it; a widget reaching for a rung asks for the rung.
+fn ladder_percent(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
+    let (bg, fg) = (luma(theme.bg), luma(theme.fg));
+    85.0 * (luma(colour) - bg) / (fg - bg)
 }
 
 /// What to say when there is no theme in force.
@@ -348,7 +421,7 @@ pub mod ingredient {
             "wqm_tui::styles::palette"
         }
         fn description(&self) -> &str {
-            "The theme's ten fields and the four neutrals in ladder order — live, so it cannot drift"
+            "Every colour the design can reach for, standard and custom, on one luminance scale"
         }
         fn props(&self) -> &[PropInfo] {
             PROPS
@@ -368,62 +441,109 @@ mod tests {
     use super::*;
     use crate::tokens::Palette;
 
-    /// Every field of the theme reaches the frame.
-    ///
-    /// The list is hand-ordered (six hues, then four neutrals) rather than taken from the
-    /// struct, so a field added upstream — or one dropped from `FIELDS` in a reshuffle — would
-    /// leave the frame quietly incomplete. Ten is the number `ThemePalette` has and the number
-    /// Chris asked for, so it is worth asserting rather than counting by eye.
-    #[test]
-    fn all_ten_fields_are_present_and_none_is_shown_twice() {
-        let theme = ratatui_themes::ThemeName::CatppuccinMocha.palette();
-        let mut shown: Vec<String> = FIELDS.iter().map(|(name, _, _)| name.to_string()).collect();
-        shown.sort();
-        shown.dedup();
-        assert_eq!(shown.len(), 10, "ten fields, each once: {shown:?}");
+    fn mocha() -> ratatui_themes::ThemePalette {
+        ratatui_themes::ThemeName::CatppuccinMocha.palette()
+    }
 
-        let mut values: Vec<String> = FIELDS
+    /// Every field of the theme reaches the frame, exactly once, across the two groups.
+    ///
+    /// The lists are hand-ordered — six hues, four neutrals — rather than taken from the struct,
+    /// so a field added upstream, or one dropped in a reshuffle, would leave the frame quietly
+    /// incomplete. Ten is the number `ThemePalette` has; it is worth asserting rather than
+    /// counting by eye.
+    #[test]
+    fn all_ten_theme_fields_are_present_and_none_is_shown_twice() {
+        let theme = mocha();
+        let mut names: Vec<&str> = HUES
             .iter()
-            .map(|(_, field, _)| hex(field(&theme)))
+            .map(|(n, _, _)| *n)
+            .chain(NEUTRALS.iter().map(|(n, _, _)| *n))
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 10, "ten fields, each once: {names:?}");
+
+        let mut values: Vec<String> = HUES
+            .iter()
+            .map(|(_, f, _)| hex(f(&theme)))
+            .chain(NEUTRALS.iter().map(|(_, f, _)| hex(f(&theme))))
             .collect();
         values.sort();
         values.dedup();
         assert_eq!(
             values.len(),
             10,
-            "two of the ten resolve to one colour, so a field is wired to the wrong accessor"
+            "two fields resolve to one colour, so one is wired to the wrong accessor"
         );
     }
 
-    /// A swatch is exactly [`SWATCH`] columns, so the second block's two colours line up under
-    /// their headings.
+    /// The ladder is ordered by luminance, background first and `strong` last.
     ///
-    /// Counted in **characters, not bytes** — this crate has already reported a three-column
-    /// jitter that did not exist by measuring `▌` as three columns. The failure this guards is
-    /// a heading that says `OURS` over a column that is not ours: nothing errors, the frame
-    /// simply labels the wrong thing, and a hex read off the wrong column is exactly the kind
-    /// of wrong number this frame exists to prevent.
+    /// Chris asked for exactly this (*"put the grayish colors in order of luminance starting by
+    /// the background and finishing by the color we use for Strong"*), and it is the property
+    /// that makes the frame worth reading: the interleaving of STD and OURS is only legible if
+    /// the list is genuinely sorted. A frame that merely *looked* sorted — the theme's four, then
+    /// ours — would show the same rows and say nothing.
     #[test]
-    fn a_swatch_is_exactly_one_column_wide() {
+    fn the_ladder_runs_from_the_background_to_strong_in_luminance_order() {
         let _serial = crate::global_state_lock();
         let previous = Palette::current();
         Palette::set(Palette::Bundled);
-        tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+        tokens::set_theme(mocha());
 
-        // Both extremes of `hex`: an RGB theme colour, and the widest non-RGB value a rung can
-        // resolve to under a weaker encoding.
-        for colour in [
-            Color::Rgb(0x1e, 0x1e, 0x2e),
-            Color::Indexed(244),
-            Color::Reset,
-        ] {
-            let width: usize = swatch(colour)
+        let rungs = ladder(&mocha());
+        assert_eq!(rungs.first().map(|r| r.name.as_str()), Some("theme.bg"));
+        assert_eq!(
+            rungs.last().map(|r| r.name.as_str()),
+            Some("tokens::strong")
+        );
+        for pair in rungs.windows(2) {
+            assert!(
+                pair[0].at <= pair[1].at,
+                "{} at {:.1}% precedes {} at {:.1}%",
+                pair[0].name,
+                pair[0].at,
+                pair[1].name,
+                pair[1].at
+            );
+        }
+
+        Palette::set(previous);
+    }
+
+    /// The theme's two unused neutrals land BETWEEN our rungs rather than on them.
+    ///
+    /// This is the whole reason both vocabularies appear in one list. If `theme.selection` sat at
+    /// 19% and `theme.muted` at 62% they would be our rungs, the STD/OURS marking would be
+    /// pedantry, and the sensible thing would be to adopt them. They do not:
+    /// `the_themes_own_neutrals_do_not_sit_where_r02_puts_its_rungs` measures that across all
+    /// fifteen themes, and this one pins what it means for the *frame* — the interleaving is
+    /// real, so the ordering is telling the reader something.
+    #[test]
+    fn the_themes_unused_neutrals_interleave_with_our_rungs() {
+        let _serial = crate::global_state_lock();
+        let previous = Palette::current();
+        Palette::set(Palette::Bundled);
+        tokens::set_theme(mocha());
+
+        let rungs = ladder(&mocha());
+        let position = |name: &str| {
+            rungs
                 .iter()
-                .map(|span| span.content.chars().count())
-                .sum();
-            assert_eq!(
-                width, SWATCH,
-                "{colour:?} renders {width} columns, not {SWATCH}"
+                .position(|r| r.name == name)
+                .unwrap_or_else(|| panic!("{name} is missing from the ladder"))
+        };
+
+        // Neither is at an end, so each has one of our rungs on both sides of it.
+        for name in ["theme.selection", "theme.muted"] {
+            let at = position(name);
+            assert!(
+                at > 0 && at < rungs.len() - 1,
+                "{name} is at the edge of the ladder, so it interleaves with nothing"
+            );
+            assert!(
+                rungs[at - 1].kind == Kind::Custom || rungs[at + 1].kind == Kind::Custom,
+                "{name} has no OURS rung adjacent to it"
             );
         }
 
@@ -432,12 +552,12 @@ mod tests {
 
     /// The theme's own interior neutrals do NOT sit where r02 puts the rungs of the same name.
     ///
-    /// This is the evidence for keeping two columns, and it is the answer to *"why wouldn't we
-    /// use the same?"* — a question that reads as obviously right until the positions are
+    /// This is the evidence for keeping both vocabularies, and it is the answer to *"why wouldn't
+    /// we use the same?"* — a question that reads as obviously right until the positions are
     /// measured. r02's `muted` is *"the default posture of most of the screen"*, readable body
-    /// text at 62%. A theme's `muted` is the tint an editor paints comments and borders with,
-    /// and on most bundled themes it sits **below our `faint` rung** — adopting it would put
-    /// most of a screen's text under the rung reserved for de-emphasised metadata.
+    /// text at 62%. A theme's `muted` is the tint an editor paints comments and borders with, and
+    /// on most bundled themes it sits **below our `faint` rung** — adopting it would put most of
+    /// a screen's text under the rung reserved for de-emphasised metadata.
     ///
     /// The bands are the rungs each candidate would have to fall between to be substitutable:
     /// `cursor_bg` (19) sits between `layer1_bg` (15) and `layer2_bg` (23); `muted` (62) sits
@@ -445,8 +565,8 @@ mod tests {
     ///
     /// **Asserted as a majority rather than as fifteen exact numbers**, because the finding is
     /// "these are not interchangeable" and not "Dracula's selection is 12.1%". If a future
-    /// version of `ratatui-themes` moved its neutrals onto r02's rungs this test would fail,
-    /// and the decision it defends should genuinely be revisited then.
+    /// version of `ratatui-themes` moved its neutrals onto r02's rungs this test would fail, and
+    /// the decision it defends should genuinely be revisited then.
     #[test]
     fn the_themes_own_neutrals_do_not_sit_where_r02_puts_its_rungs() {
         let (mut selection_fits, mut muted_fits, mut total) = (0, 0, 0);
@@ -471,66 +591,104 @@ mod tests {
         );
     }
 
-    /// The four anchors are the four neutrals, in ladder order.
+    /// Every OURS rung is derived from the theme, so none of them is a neutral grey.
     ///
-    /// Order is the whole point of the second block — it is what makes it a *ladder* rather
-    /// than four more swatches — and it is the one property a reader cannot check from the
-    /// frame without already knowing the answer.
+    /// Chris: *"I assume that those custom roles are derived from the theme equivalent colors …
+    /// if not it's a must (again themes are rarely neutral)."* They are — `ladder_endpoints`
+    /// interpolates between the theme's own `bg` and `fg`, so every rung carries its tint. The
+    /// failure this guards is a regression to a black-to-white ladder, which renders perfectly
+    /// well and looks *almost* right against a tinted theme.
     #[test]
-    fn the_anchors_are_the_four_neutrals_in_ladder_order() {
-        let names: Vec<&str> = ANCHORS.iter().map(|(name, _, _, _, _)| *name).collect();
-        assert_eq!(names, ["bg", "selection", "muted", "fg"]);
-    }
-
-    /// The two endpoints agree with the ladder; the two interior anchors need not.
-    ///
-    /// This is the finding the second block exists to make visible, so it is asserted rather
-    /// than described: §15's *"interpolated from the theme's own bg and fg"* means `screen_bg`
-    /// and `normal` ARE the theme's endpoints, while `cursor_bg` and `muted` are percentages
-    /// that land where they land. If a later change made all four agree, the block would be
-    /// four identical pairs and would no longer be worth drawing — this test is what would
-    /// say so.
-    #[test]
-    fn the_endpoints_are_the_themes_own_and_the_middles_are_ours() {
+    fn every_custom_rung_carries_the_themes_tint_and_none_is_grey() {
         let _serial = crate::global_state_lock();
-        let theme = ratatui_themes::ThemeName::CatppuccinMocha.palette();
         let previous = Palette::current();
         Palette::set(Palette::Bundled);
-        tokens::set_theme(theme);
+        tokens::set_theme(mocha());
 
-        assert_eq!(
-            tokens::screen_bg(),
-            Some(theme.bg),
-            "the low end is the theme's background — §15's full paint"
-        );
-        assert_eq!(
-            tokens::normal(),
-            theme.fg,
-            "the high end is the theme's foreground — NORMAL_RUNG is defined so it lands there"
-        );
-        assert_ne!(
-            tokens::cursor_bg(),
-            theme.selection,
-            "if these agreed, the second block would be showing nothing"
-        );
-        assert_ne!(tokens::muted(), theme.muted, "likewise");
+        // Mocha's bg and fg are both blue-tinted, so every interpolation between them must be.
+        // A grey has r == g == b; the endpoints do not, so nothing between them may either.
+        for rung in ladder(&mocha()).iter().filter(|r| r.kind == Kind::Custom) {
+            let Color::Rgb(r, g, b) = rung.colour else {
+                panic!("{} is not RGB under Bundled: {:?}", rung.name, rung.colour)
+            };
+            assert!(
+                !(r == g && g == b),
+                "{} resolved to the grey {:?} — the ladder is no longer derived from the theme",
+                rung.name,
+                rung.colour
+            );
+        }
+
+        Palette::set(previous);
+    }
+
+    /// A swatch is exactly [`SWATCH`] columns, so the columns after it line up.
+    ///
+    /// Counted in **characters, not bytes** — `▏` and `▕` are three bytes and one column each,
+    /// and this crate has already reported a three-column jitter that did not exist by measuring
+    /// `▌` as three. The failure this guards is a header that labels the wrong column, and a
+    /// value read off the wrong column is exactly the kind of wrong number this frame exists to
+    /// prevent.
+    #[test]
+    fn a_swatch_is_exactly_one_column_wide() {
+        for colour in [
+            Color::Rgb(0x1e, 0x1e, 0x2e),
+            Color::Indexed(244),
+            Color::Reset,
+        ] {
+            let width: usize = swatch(colour)
+                .iter()
+                .map(|span| span.content.chars().count())
+                .sum();
+            assert_eq!(
+                width, SWATCH,
+                "{colour:?} renders {width} columns, not {SWATCH}"
+            );
+        }
+    }
+
+    /// The swatch has an edge that does not depend on its own contrast.
+    ///
+    /// `theme.bg` IS the screen's background, so an unbracketed swatch of it paints background on
+    /// background — Chris saw exactly that (*"hardly visible against the bg, so this one is
+    /// useless"*). The brackets are what make the bottom of the ladder a visible extent, and they
+    /// have to be drawn in something other than the swatch colour or they solve nothing.
+    #[test]
+    fn the_darkest_swatch_still_has_an_edge() {
+        let _serial = crate::global_state_lock();
+        let previous = Palette::current();
+        Palette::set(Palette::Bundled);
+        tokens::set_theme(mocha());
+
+        let spans = swatch(mocha().bg);
+        let edges: Vec<&Span> = spans
+            .iter()
+            .filter(|s| s.content == "▏" || s.content == "▕")
+            .collect();
+        assert_eq!(edges.len(), 2, "a swatch is delimited on both sides");
+        for edge in edges {
+            assert_ne!(
+                edge.style.fg,
+                Some(mocha().bg),
+                "the edge is drawn in the swatch's own colour, so it is invisible too"
+            );
+        }
 
         Palette::set(previous);
     }
 
     /// A frame with nothing to show says which source is in force.
     ///
-    /// The failure this guards is silence: an empty preview pane reads as a broken entry, and
-    /// the reader's next move is to go looking at the code rather than at the palette switch
-    /// that caused it.
+    /// The failure this guards is silence: an empty preview pane reads as a broken entry, and the
+    /// reader's next move is to go looking at the code rather than at the palette switch that
+    /// caused it.
     #[test]
     fn without_a_bundled_theme_the_frame_names_the_source_instead_of_going_blank() {
         let _serial = crate::global_state_lock();
         let previous = Palette::current();
         Palette::set(Palette::Derived);
 
-        let lines = unavailable();
-        let text: String = lines
+        let text: String = unavailable()
             .iter()
             .flat_map(|line| line.spans.iter())
             .map(|span| span.content.as_ref())

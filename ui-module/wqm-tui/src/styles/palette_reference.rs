@@ -68,7 +68,10 @@ const SLOTS: [(u8, &str, Option<&str>); 16] = [
 
 /// Every rung [`tokens::neutral`] is asked for, with the role that asks and the section of
 /// VISUAL-LANGUAGE.md that specifies it.
-const RUNGS: [(u8, &str, &str); 11] = [
+///
+/// `pub(crate)` because [`crate::styles::palette`] orders the theme's own neutrals against these
+/// eleven on one scale, and a second copy of the table is a second thing to keep true.
+pub(crate) const RUNGS: [Rung; 11] = [
     (15, "layer1_bg", "§6 modal over a full screen"),
     (19, "cursor_bg", "§3 data-cursor row fill"),
     (23, "layer2_bg", "§6 modal over a modal — must read lighter"),
@@ -81,6 +84,9 @@ const RUNGS: [(u8, &str, &str); 11] = [
     (85, "normal", "§2 baseline — the terminal's own foreground"),
     (100, "strong", "§2 the one datum that must be seen"),
 ];
+
+/// One rung: the luminance percentage r02 names it with, our name for it, and what asks for it.
+pub(crate) type Rung = (u8, &'static str, &'static str);
 
 /// The sixteen theme slots, each as a swatch beside the role that owns it.
 pub struct AnsiSlots;
@@ -199,7 +205,9 @@ impl Widget for NeutralRungs {
 
 /// The rung's colour, taking the two ends of the ladder from the tokens that own them
 /// rather than re-deriving them here.
-fn resolve(percent: u8) -> Color {
+///
+/// `pub(crate)` for the same reason [`RUNGS`] is: one place resolves a percentage to a colour.
+pub(crate) fn resolve(percent: u8) -> Color {
     match percent {
         85 => tokens::normal(),
         100 => tokens::strong(),
