@@ -40,5 +40,6 @@
 
 pub mod palette;
 pub mod palette_reference;
+pub mod strong;
 pub mod theme_sheet;
 pub mod typography;
