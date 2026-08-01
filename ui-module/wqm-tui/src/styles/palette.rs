@@ -244,6 +244,20 @@ impl PaletteFrame {
             return;
         };
 
+        // §15's *"full paint: the theme owns the background"*, applied to the frame itself.
+        //
+        // Chris, 20260801: *"you need to change the background to the corresponding theme, right
+        // now we have only the Evergreen background on each palette."* The harness paints its
+        // preview background from `pantry.toml`, which is static and pinned to one theme, so
+        // fifteen palettes were being judged on the sixteenth's background — and a background is
+        // not a neutral surface to judge colour against. It is the single biggest influence on
+        // how every swatch above it reads, which is the whole reason `Palette::Bundled` paints
+        // layer 0 at all.
+        //
+        // Painted here rather than left to the harness because only this frame knows which theme
+        // it was pinned to; `preview_backgrounds` cannot follow a per-entry choice.
+        buf.set_style(area, Style::default().bg(theme.bg));
+
         let mut lines = vec![
             Line::from(Span::styled(
                 "Every colour the design can reach for — the theme's, and the ones we derive from it.",
@@ -751,6 +765,47 @@ mod tests {
         }
 
         Palette::set(previous);
+    }
+
+    /// A pinned frame paints its OWN theme's background, not the harness's.
+    ///
+    /// The failure is silent and it is the worst kind for this crate: every frame renders, every
+    /// swatch is the right colour, and every one of them is being read against the wrong
+    /// backdrop. A palette judged on another theme's background is a judgement about a screen
+    /// nobody will ever see.
+    ///
+    /// Asserted on a theme that is NOT the one the harness sets, since that is the only case
+    /// where the two differ — a guard written against the harness's own theme would pass while
+    /// the other fourteen were wrong.
+    #[test]
+    fn a_pinned_frame_paints_its_own_background() {
+        let _serial = crate::global_state_lock();
+        let previous = (Palette::current(), tokens::theme());
+        Palette::set(Palette::Bundled);
+        tokens::set_theme(ratatui_themes::ThemeName::Everforest.palette());
+
+        let dracula = ratatui_themes::ThemeName::Dracula.palette();
+        // Wide enough that the right-hand columns are past every line the frame draws. The
+        // first version used 60x8 and read (59, 7), which lands INSIDE a hue's surface swatch —
+        // a tinted background, so the assertion failed against a colour that was correct. Read
+        // a cell that is provably empty, or the test is about something else.
+        let area = Rect::new(0, 0, 200, 30);
+        let mut buf = Buffer::empty(area);
+        PaletteFrame::pinned(ratatui_themes::ThemeName::Dracula).render(area, &mut buf);
+
+        // A corner no text reaches, so what is read is the fill and nothing else.
+        for row in [0, area.height / 2, area.height - 1] {
+            assert_eq!(
+                buf[(area.width - 1, row)].style().bg,
+                Some(dracula.bg),
+                "row {row} kept the harness's background instead of painting Dracula's"
+            );
+        }
+
+        Palette::set(previous.0);
+        if let Some(theme) = previous.1 {
+            tokens::set_theme(theme);
+        }
     }
 
     /// The theme's two unused neutrals land BETWEEN our rungs rather than on them.
