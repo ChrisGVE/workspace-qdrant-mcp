@@ -294,19 +294,180 @@ fn neutral(percent: u8) -> Color {
                 }
             }
         }
-        Family::Rgb => {
-            let Endpoints {
-                background,
-                foreground,
-            } = ladder_endpoints();
-            let t = percent.min(100) as f32 / NORMAL_RUNG as f32;
-            Color::Rgb(
-                mix(background.r, foreground.r, t),
-                mix(background.g, foreground.g, t),
-                mix(background.b, foreground.b, t),
-            )
-        }
+        Family::Rgb => match active_theme() {
+            // Four anchors when the theme names four; the chord when it names two.
+            Some(theme) => along_curve(percent, &theme),
+            None => along_chord(percent, ladder_endpoints()),
+        },
     }
+}
+
+
+/// The ladder as a **straight chord** between two endpoints.
+///
+/// What every source but [`Palette::Bundled`] gets, because two endpoints is all they have:
+/// [`crate::terminal::detect`] reads `OSC 11`/`OSC 10` and that is a background and a
+/// foreground, full stop.
+fn along_chord(percent: u8, endpoints: Endpoints) -> Color {
+    let Endpoints {
+        background,
+        foreground,
+    } = endpoints;
+    let t = percent as f32 / NORMAL_RUNG as f32;
+    let raw = [
+        lerp(background.r, foreground.r, t),
+        lerp(background.g, foreground.g, t),
+        lerp(background.b, foreground.b, t),
+    ];
+    into_gamut([background.r, background.g, background.b], raw)
+}
+
+/// The ladder as a **piecewise curve through all four neutrals the theme names**.
+///
+/// # Why a curve and not a chord (Chris, 20260801)
+///
+/// *"Why would they not be anchored on theme.bg/selection/muted/fg, either on two points or
+/// more if possible (though I can imagine that bg/selection/muted/fg is on a curve rather than
+/// a line)"* — and he is right on both counts. §15 adopted a source that names **four**
+/// neutrals and the ladder was using **two**, so a theme whose interior anchors sit off the
+/// chord had its own neutral character straightened out by us.
+///
+/// Measured as perpendicular distance from the chord in Lab: Catppuccin Mocha's anchors sit
+/// essentially *on* it (ΔE 0.1 and 0.6), which is why nothing looked wrong there — but
+/// Dracula's `muted` is **25.5** off it, Cyberpunk's `selection` **25.2**, Kanagawa's `muted`
+/// **15.5**. That is exactly the *"error some other palettes than catppuccin might surface"*.
+/// So this is a no-op where a theme is linear and a correction where it is not.
+///
+/// # The anchors keep their MEASURED positions, and the rungs keep r02's
+///
+/// An anchor sits where its luminance puts it — `selection` at 9% on Mocha, `muted` at 38% —
+/// and a rung stays at the percentage r02 names it with. The curve is the map between them, so
+/// this changes what colour a rung *is*, never where it sits. `neutral(NORMAL_RUNG)` still
+/// lands exactly on `fg` and `neutral(0)` still lands exactly on `bg`, which is what
+/// [`normal`] and [`screen_bg`] rest on.
+fn along_curve(percent: u8, theme: &ThemePalette) -> Color {
+    let anchors = anchors(theme);
+    let p = percent as f32;
+
+    // Past the last anchor there is nothing to interpolate toward, so `strong` continues along
+    // the ladder's overall axis — see `into_gamut` for what stops it from turning warm.
+    let (base, target, span_start, span_len) = match anchors
+        .windows(2)
+        .find(|w| p >= w[0].0 && p <= w[1].0)
+    {
+        Some(w) => (w[0].1, w[1].1, w[0].0, w[1].0 - w[0].0),
+        None => {
+            let first = anchors[0];
+            let last = anchors[anchors.len() - 1];
+            (first.1, last.1, first.0, last.0 - first.0)
+        }
+    };
+
+    let t = if span_len > 0.0 {
+        (p - span_start) / span_len
+    } else {
+        0.0
+    };
+    let raw = [
+        lerp(base[0], target[0], t),
+        lerp(base[1], target[1], t),
+        lerp(base[2], target[2], t),
+    ];
+    into_gamut(base, raw)
+}
+
+/// The theme's four neutrals as `(position on r02's scale, rgb)`, in ladder order.
+///
+/// Positions are **measured**, not assumed: `selection` and `muted` are wherever their
+/// luminance puts them, which differs per theme and is the whole reason the curve is not a
+/// chord. `theme_sheet::every_theme_gives_ten_distinct_roles_and_four_ordered_neutrals`
+/// guarantees they are strictly ordered inside `[bg, fg]`, so the windows below always bracket.
+fn anchors(theme: &ThemePalette) -> [(f32, [u8; 3]); 4] {
+    let channels = |colour: Color| match Rgb::from_color(colour) {
+        Some(rgb) => [rgb.r, rgb.g, rgb.b],
+        None => [0, 0, 0],
+    };
+    let at = |colour: Color| {
+        let (bg, fg) = (luminance(theme.bg), luminance(theme.fg));
+        if (fg - bg).abs() < f32::EPSILON {
+            0.0
+        } else {
+            NORMAL_RUNG as f32 * (luminance(colour) - bg) / (fg - bg)
+        }
+    };
+    [
+        (0.0, channels(theme.bg)),
+        (at(theme.selection), channels(theme.selection)),
+        (at(theme.muted), channels(theme.muted)),
+        (NORMAL_RUNG as f32, channels(theme.fg)),
+    ]
+}
+
+/// Relative luminance — the measure r02 names its rungs in.
+fn luminance(colour: Color) -> f32 {
+    match Rgb::from_color(colour) {
+        Some(rgb) => 0.2126 * rgb.r as f32 + 0.7152 * rgb.g as f32 + 0.0722 * rgb.b as f32,
+        None => 0.0,
+    }
+}
+
+/// Bring an extrapolated colour back into gamut **without turning it**.
+///
+/// # The defect this fixes, which Chris saw by eye
+///
+/// *"Even for catppuccin, the strong is clearly a tad warmer than all the other greys."* He was
+/// right, and the cause is exact: `strong` is rung 100 on a scale whose foreground is 85, so it
+/// is extrapolated *past* `fg`, and clamping each channel independently at 255 stops whichever
+/// channel saturates first while the others keep climbing. Mocha's foreground is blue-tinted,
+/// so **blue** hits the ceiling and red and green carry on — the loudest rung on the screen
+/// drifts warm exactly where it is most visible.
+///
+/// Measured over the fifteen bundled themes: **8 clamp at least one channel**, and on four of
+/// them the hue shift is plainly visible — Mocha ΔE 11.1, TokyoNight 12.5, RosePine 11.5,
+/// GruvboxDark 5.8 (2.3 is a just-noticeable difference).
+///
+/// The fix keeps the *direction* and gives up only distance: if any channel overshoots, the
+/// whole offset from the base is scaled back by the largest overshoot, so the result is the
+/// brightest colour still on that line and in gamut. A theme whose foreground is already near
+/// white loses almost nothing (Dracula ΔE 1.5); a tinted one keeps its tint.
+fn into_gamut(base: [u8; 3], raw: [f32; 3]) -> Color {
+    // How far each channel wanted to travel, and how far it *could* before hitting the wall it
+    // is heading for. The ratio of the two is how much this channel overreached; the largest
+    // of the three is how far back the whole offset has to be scaled.
+    //
+    // **The ratio is offset-to-headroom, not value-to-255**, and the difference is not
+    // academic: the first version of this divided by `raw / 255` and left Dracula's `strong`
+    // 3.1 units off the axis — a channel that starts at 40 and wants to reach 285 has
+    // overreached by 245/215, not by 285/255. `strong_stays_on_the_themes_own_axis…` is what
+    // said so, which is the whole reason it measures colinearity instead of eyeballing a hex.
+    let overreach = (0..3).fold(1.0f32, |worst, i| {
+        let (base, raw) = (base[i] as f32, raw[i]);
+        let headroom = if raw > 255.0 {
+            255.0 - base
+        } else if raw < 0.0 {
+            -base
+        } else {
+            return worst;
+        };
+        // A channel already at the wall cannot travel at all; nothing can be scaled to fit, so
+        // leave it to the final clamp rather than dividing by zero.
+        if headroom.abs() < f32::EPSILON {
+            worst
+        } else {
+            worst.max((raw - base) / headroom)
+        }
+    });
+
+    let scale = |base: u8, value: f32| {
+        (base as f32 + (value - base as f32) / overreach)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    Color::Rgb(
+        scale(base[0], raw[0]),
+        scale(base[1], raw[1]),
+        scale(base[2], raw[2]),
+    )
 }
 
 /// One channel of the derived ladder.
@@ -317,10 +478,17 @@ fn neutral(percent: u8) -> Color {
 /// luminance and lift the dark rungs far off the base: measured on Catppuccin Mocha it put
 /// `layer1_bg` at `#5a5e6f`, a mid-grey, where §6 asks for "dark but distinctly above the
 /// base". Byte-space keeps the authored spacing and only re-anchors its ends.
+fn lerp(from: u8, to: u8, t: f32) -> f32 {
+    from as f32 + (to as f32 - from as f32) * t
+}
+
+/// One channel of a plain two-colour blend, rounded into a byte.
+///
+/// The wash's mix, which never leaves the segment between its two ends and so cannot overshoot
+/// — unlike the ladder, whose top rung extrapolates past the foreground and needs
+/// [`into_gamut`] to come back without turning.
 fn mix(from: u8, to: u8, t: f32) -> u8 {
-    (from as f32 + (to as f32 - from as f32) * t)
-        .round()
-        .clamp(0.0, 255.0) as u8
+    lerp(from, to, t).round().clamp(0.0, 255.0) as u8
 }
 
 /// One rung of the ladder, by the luminance percentage r02 names it with.
@@ -894,6 +1062,154 @@ mod tests {
         };
         let (fx, fy, fz) = (f(x), f(y), f(z));
         (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+    }
+
+
+    /// Both ends of the ladder are the theme's own colours, exactly, on every theme.
+    ///
+    /// [`screen_bg`] returns `bg` and [`normal`] returns `fg`, and both are *documented* as
+    /// landing on the anchors by construction — `NORMAL_RUNG` exists for no other reason. That
+    /// was true of the chord and it has to stay true of the curve, because a rounding error at
+    /// either end would put the screen's full paint one byte off the theme's background and
+    /// nothing on screen would say so.
+    #[test]
+    fn the_ladder_still_begins_and_ends_exactly_on_the_themes_own_anchors() {
+        let _serial = crate::global_state_lock();
+        let restore = (Palette::current(), Encoding::current());
+        Palette::set(Palette::Bundled);
+        Encoding::set(Encoding::TrueColor);
+
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            set_theme(theme);
+            assert_eq!(neutral(0), theme.bg, "{name:?}: rung 0 is not the background");
+            assert_eq!(
+                neutral(NORMAL_RUNG),
+                theme.fg,
+                "{name:?}: rung {NORMAL_RUNG} is not the foreground"
+            );
+        }
+
+        Palette::set(restore.0);
+        Encoding::set(restore.1);
+    }
+
+    /// `strong` keeps the theme's tint instead of drifting warm — the defect Chris saw by eye.
+    ///
+    /// *"Even for catppuccin, the strong is clearly a tad warmer than all the other greys."* It
+    /// was: rung 100 extrapolates past the foreground, and clamping each channel independently
+    /// at 255 stopped whichever saturated first — blue, on a blue-tinted theme — while red and
+    /// green carried on. Mocha's `strong` was `#ecf6ff` against a hue-preserving `#dae4ff`,
+    /// **ΔE 11.1**, on the loudest rung the design has.
+    ///
+    /// The property asserted is the one [`into_gamut`] actually guarantees: `strong` stays on
+    /// the ray from the background through the foreground. Distance may be given up; direction
+    /// may not. Checked on every theme, because the eight that clamp are not the same eight on
+    /// any other palette.
+    #[test]
+    fn strong_stays_on_the_themes_own_axis_rather_than_clamping_toward_warm() {
+        let _serial = crate::global_state_lock();
+        let restore = (Palette::current(), Encoding::current());
+        Palette::set(Palette::Bundled);
+        Encoding::set(Encoding::TrueColor);
+
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            set_theme(theme);
+
+            let channels = |colour: Color| {
+                let rgb = Rgb::from_color(colour).expect("a bundled theme is RGB");
+                [rgb.r as f32, rgb.g as f32, rgb.b as f32]
+            };
+            let top = strong();
+            let (bg, fg, top_ch) = (channels(theme.bg), channels(theme.fg), channels(top));
+            let axis = [fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]];
+            let reached = [
+                top_ch[0] - bg[0],
+                top_ch[1] - bg[1],
+                top_ch[2] - bg[2],
+            ];
+
+            // Colinearity: the cross product of the two offsets is zero when `strong` lies on
+            // the axis. Scaled by the axis length so the tolerance means the same on a theme
+            // with a short ladder as on one with a long one.
+            let cross = [
+                axis[1] * reached[2] - axis[2] * reached[1],
+                axis[2] * reached[0] - axis[0] * reached[2],
+                axis[0] * reached[1] - axis[1] * reached[0],
+            ];
+            let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+            let off_axis =
+                (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt() / length;
+
+            // One byte of rounding per channel, no more. The clamped version was 20+ off here.
+            assert!(
+                off_axis < 2.0,
+                "{name:?}: strong is {off_axis:.1} off the bg->fg axis — it clamped and turned"
+            );
+            assert!(
+                delta_e(top, theme.fg) > 1.0,
+                "{name:?}: strong collapsed onto the foreground, so the top rung says nothing"
+            );
+        }
+
+        Palette::set(restore.0);
+        Encoding::set(restore.1);
+    }
+
+    /// The ladder follows the theme's own curve, not the chord between its ends.
+    ///
+    /// Chris, 20260801: *"why would they not be anchored on theme.bg/selection/muted/fg … I can
+    /// imagine that bg/selection/muted/fg is on a curve rather than a line."* They are, on some
+    /// themes: measured as perpendicular distance from the chord in Lab, Mocha's interior
+    /// anchors sit essentially *on* it (0.1 and 0.6) while **Dracula's `muted` is 25.5 off**.
+    ///
+    /// Dracula is therefore the theme this can be asserted on — on Mocha a curve and a chord
+    /// are the same thing and the test would pass without the feature existing, which is
+    /// exactly the shape of guard this crate keeps being bitten by. At `muted`'s own position
+    /// the curve must land on `muted`; the chord lands somewhere else entirely.
+    #[test]
+    fn a_rung_at_an_anchors_position_lands_on_that_anchor() {
+        let _serial = crate::global_state_lock();
+        let restore = (Palette::current(), Encoding::current());
+        Palette::set(Palette::Bundled);
+        Encoding::set(Encoding::TrueColor);
+
+        let theme = ratatui_themes::ThemeName::Dracula.palette();
+        set_theme(theme);
+
+        let at = |colour: Color| {
+            let (bg, fg) = (luminance(theme.bg), luminance(theme.fg));
+            NORMAL_RUNG as f32 * (luminance(colour) - bg) / (fg - bg)
+        };
+        let position = at(theme.muted).round() as u8;
+
+        let curved = neutral(position);
+        let chord = along_chord(
+            position,
+            Endpoints {
+                background: Rgb::from_color(theme.bg).expect("rgb"),
+                foreground: Rgb::from_color(theme.fg).expect("rgb"),
+            },
+        );
+
+        assert!(
+            delta_e(curved, theme.muted) < delta_e(chord, theme.muted),
+            "the curve ({:?}, ΔE {:.1}) is no nearer Dracula's muted than the chord ({:?}, ΔE \
+             {:.1}) — the anchors are not being used",
+            curved,
+            delta_e(curved, theme.muted),
+            chord,
+            delta_e(chord, theme.muted)
+        );
+        assert!(
+            delta_e(curved, theme.muted) < 3.0,
+            "at muted's own position the ladder should BE muted, not {curved:?} (ΔE {:.1})",
+            delta_e(curved, theme.muted)
+        );
+
+        Palette::set(restore.0);
+        Encoding::set(restore.1);
     }
 
     /// CIE76 ΔE — the measure every colour distance in this module is recorded in.

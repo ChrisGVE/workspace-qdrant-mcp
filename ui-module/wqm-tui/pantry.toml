@@ -69,12 +69,17 @@ fg = "#CDD6F4"
 
 # The structural greys and the fills, same source. These are the rungs r02 specifies that
 # are neither text nor hue, and the reason four named neutrals are not enough on their own.
+#
+# ⚠ `edit_bg` moved #666A80 -> #666A7F when the ladder became a curve through all four of the
+# theme's neutrals (20260801). Nothing failed — this table is static TOML and cannot notice. It
+# is the drift `Colors/Palette` was built to end, and the reason the live frame is the truth and
+# this block is the written vocabulary.
 [colors.structure]
 rule_frame = "#8D93AC"
 rule_internal = "#5C5F74"
 header = "#9EA4BE"
 cursor_bg = "#45475A"
-edit_bg = "#666A80"
+edit_bg = "#666A7F"
 layer1_bg = "#3D3E51"
 layer2_bg = "#4D5064"
 

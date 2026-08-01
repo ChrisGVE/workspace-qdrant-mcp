@@ -161,7 +161,7 @@ const NEUTRALS: [Neutral; 4] = [
     (
         "theme.fg",
         |p| p.fg,
-        "the ladder's high end — tokens::normal lands exactly here",
+        "the ladder's high end — the SAME colour as tokens::normal below",
     ),
 ];
 

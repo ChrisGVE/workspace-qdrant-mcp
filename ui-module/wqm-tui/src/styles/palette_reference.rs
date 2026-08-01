@@ -81,7 +81,7 @@ pub(crate) const RUNGS: [Rung; 11] = [
     (54, "rule_frame", "§2 top and bottom, underlining the frame"),
     (62, "muted", "§2 the default posture of most of the screen"),
     (70, "cursor_mark", "§3 the ▸ on the cursor row"),
-    (85, "normal", "§2 baseline — the terminal's own foreground"),
+    (85, "normal", "§2 baseline — IS theme.fg under Bundled; Reset elsewhere"),
     (100, "strong", "§2 the one datum that must be seen"),
 ];
 
