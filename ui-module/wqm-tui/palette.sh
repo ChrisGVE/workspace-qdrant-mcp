@@ -20,21 +20,19 @@ WIDTH=${WIDTH:-104}
 echo
 echo "════ REFERENCE ════"
 cargo pantry dump "Palette Reference" --variant "ANSI 16" --size "${WIDTH}x16" 2>/dev/null
-for palette in Theme Indexed Derived; do
+# Bundled is in the loop because Bundled is what ships (§15). The script predates it and
+# listed the other three only, so the one palette a user actually receives was the one this
+# instrument did not print.
+for palette in Theme Indexed Derived Bundled; do
 	echo
 	cargo pantry dump "Palette Reference" --variant "Rungs: $palette" \
 		--size "${WIDTH}x12" 2>/dev/null
 done
 
-# Then the vocabulary in use, all three palettes stacked: the tab selector against both
-# alarm hues, the four emphasis rungs, the structural greys, the cursor and edit fills side
-# by side, the layer backgrounds, and the health glyphs.
-#
-# Three times, once per surface. Everything above renders on the terminal's own background,
-# which is layer 0 -- so on its own it never exercises the depth model at all. A rung that
-# reads cleanly there can be swallowed by a modal fill, and that is only visible here.
-for surface in "All Palettes" "All Palettes on Layer 1" "All Palettes on Layer 2"; do
-	echo
-	echo "════ ${surface^^} ════"
-	cargo pantry dump "Palette Sheet" --variant "$surface" --size "${WIDTH}x40" 2>/dev/null
-done
+# `Palette Sheet` used to follow -- the whole vocabulary in use, per palette, once per
+# surface. It is gone (Chris, 20260801: "we can remove the Palette Sheets, we'll work on
+# actual screens"), and with it the side-by-side palette comparison, which `Bundled` being
+# the default settled. What the sheet was the only renderer of is the LAYER model: a rung
+# that reads cleanly on layer 0 can be swallowed by a modal fill. That question now belongs
+# to the screens -- `cargo pantry dump "Service"` and the Modal variants -- rather than to a
+# sheet that draws every role at once.

@@ -19,8 +19,8 @@ layer2 = "#4D5064"
 # vocabulary and the renderer now agree by construction rather than by coincidence.
 # **Pinned to one theme**: switch the theme and this tab is wrong until it is retranscribed.
 #
-# The live instruments are `Palette Sheet` and `Palette Reference`, which render through
-# `tokens` and therefore cannot drift. This tab is the vocabulary, not the truth.
+# The live instrument is `Palette Reference`, which renders through `tokens` and therefore
+# cannot drift. This tab is the vocabulary, not the truth.
 # ─────────────────────────────────────────────────────────────────────────────────────────
 
 # The theme's six hues, under the names the theme itself gives them (§15). Four of them carry
@@ -68,8 +68,8 @@ fg = "#CDD6F4"
 #
 # ⚠ Weight is the other half of this axis and the Styles tab cannot show it: a typography
 # entry takes a colour and a description, nothing else. `strong` is bold, which is most of
-# what separates it from `normal` — so read the descriptions, and judge the real thing in
-# `Palette Sheet`.
+# what separates it from `normal` — so read the descriptions. Nothing renders the weight axis
+# now that `Palette Sheet` is gone; §17.1 replaces this block with an ingredient that can.
 [typography]
 strong = { color = "#ECF6FF", description = "bold, and extrapolated PAST the foreground — the one datum that must be seen" }
 normal = { color = "#CDD6F4", description = "the theme's own fg: body text of the focused zone, the baseline" }
@@ -104,7 +104,6 @@ modules = [
     "widgets::envelope",
     "widgets::modal",
     "widgets::palette_reference",
-    "widgets::palette_sheet",
     "widgets::store_health",
     "widgets::surface",
     "widgets::tab_bar",

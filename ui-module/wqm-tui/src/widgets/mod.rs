@@ -18,7 +18,6 @@ pub mod daemon_status;
 pub mod envelope;
 pub mod modal;
 pub mod palette_reference;
-pub mod palette_sheet;
 pub mod store_health;
 pub mod surface;
 pub mod tab_bar;
@@ -67,7 +66,6 @@ mod tier {
         // the Styles tab is where the vocabulary already lives.
         for module in [
             super::palette_reference::ingredient::ingredients(),
-            super::palette_sheet::ingredient::ingredients(),
             super::theme_sheet::ingredient::ingredients(),
         ] {
             assert_every(
