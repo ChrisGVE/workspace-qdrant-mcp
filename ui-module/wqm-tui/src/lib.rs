@@ -12,6 +12,7 @@ pub mod capture;
 pub mod encoding;
 pub mod health;
 pub mod names;
+pub mod styles;
 pub mod terminal;
 pub mod tokens;
 pub mod views;

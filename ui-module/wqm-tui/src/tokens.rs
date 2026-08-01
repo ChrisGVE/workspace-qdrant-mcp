@@ -222,7 +222,11 @@ fn ladder_endpoints() -> Endpoints {
 /// sets one at startup and then renders the palette comparisons, and a `Theme`-sourced frame
 /// that quietly picked up the bundled hues would make that comparison a lie. So every
 /// role below asks through here, and every source other than [`Palette::Bundled`] gets `None`.
-fn active_theme() -> Option<ThemePalette> {
+///
+/// Public because [`crate::styles::palette`] renders the theme's own fields, and it has to
+/// obey the same rule the roles do — a vocabulary frame that showed the bundled hues while a
+/// slot palette was in force would be describing a screen nobody is looking at.
+pub fn active_theme() -> Option<ThemePalette> {
     match Palette::current() {
         Palette::Bundled => theme(),
         _ => None,

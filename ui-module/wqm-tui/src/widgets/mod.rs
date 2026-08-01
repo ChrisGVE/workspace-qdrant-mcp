@@ -24,7 +24,11 @@ pub mod tab_bar;
 pub mod theme_sheet;
 pub mod toast;
 
-/// The tier every module claims, checked against §16.
+/// The tier every module claims, checked against §16 — crate-wide, not only this directory.
+///
+/// It lives here because this is where the departures started; [`crate::styles`] and
+/// [`crate::views`] are checked from the same test on purpose. One list of exceptions is
+/// auditable, three lists in three modules are three chances to forget one.
 ///
 /// `Ingredient::tab()` defaults to `"Widgets"`, so a module that belongs anywhere else is one
 /// forgotten method away from silently landing in the wrong tab and *looking like* a widget.
@@ -75,6 +79,17 @@ mod tier {
                 "an instrument is sectioned off the product tabs",
             );
         }
+
+        // §17.3: the live vocabulary is Styles with NO section. The section is what separates
+        // how we judge the language from the language itself, so an unsectioned Styles entry
+        // sits beside the `[colors.*]` groups the stylesheet contributes — which is where a
+        // reader looking up "what does the design call this" already is.
+        assert_every(
+            crate::styles::palette::ingredient::ingredients(),
+            "Styles",
+            None,
+            "the vocabulary is Styles and is not an instrument",
+        );
 
         assert_every(
             crate::views::service::ingredient::ingredients(),

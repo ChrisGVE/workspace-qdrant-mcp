@@ -109,6 +109,10 @@ modules = [
     "widgets::tab_bar",
     "widgets::theme_sheet",
     "widgets::toast",
+    # The Styles tab: the vocabulary, rendered live rather than transcribed. These two ask
+    # `tokens` the same questions a screen asks, so they cannot drift from it — which is what
+    # the `[colors.*]` tables above, being static TOML, always could.
+    "styles::palette",
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.
     "views::service",
