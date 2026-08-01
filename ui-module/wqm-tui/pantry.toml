@@ -62,19 +62,10 @@ selection = "#313244"
 muted = "#6C7086"
 fg = "#CDD6F4"
 
-# The emphasis ladder, INTERPOLATED FROM THE THEME'S OWN fg AND bg rather than from white
-# (Chris, 20260731) — which under `Bundled` is what the renderer literally does — a ladder anchored on white is a grey ladder, and it stays grey on a
-# theme whose foreground is not. Mocha's fg is blue-tinted and so is every rung here.
-#
-# ⚠ Weight is the other half of this axis and the Styles tab cannot show it: a typography
-# entry takes a colour and a description, nothing else. `strong` is bold, which is most of
-# what separates it from `normal` — so read the descriptions. Nothing renders the weight axis
-# now that `Palette Sheet` is gone; §17.1 replaces this block with an ingredient that can.
-[typography]
-strong = { color = "#ECF6FF", description = "bold, and extrapolated PAST the foreground — the one datum that must be seen" }
-normal = { color = "#CDD6F4", description = "the theme's own fg: body text of the focused zone, the baseline" }
-muted = { color = "#9EA4BE", description = "inactive tabs, unfocused bodies, timestamps, key hints" }
-faint = { color = "#858AA2", description = "de-emphasised metadata that must still be legible: DEFAULT values, secondary counts" }
+# The emphasis ladder is NOT here. It moved to `styles::typography` (§17.1): Chris asked for
+# the four rungs at three weights, and a `[typography]` entry takes a colour and a description
+# and nothing else — the format has no field for weight. Rendering it from `tokens` also ended
+# the transcription, which was four hex values measured under one theme and pinned to it.
 
 # The structural greys and the fills, same source. These are the rungs r02 specifies that
 # are neither text nor hue, and the reason four named neutrals are not enough on their own.
@@ -113,6 +104,7 @@ modules = [
     # `tokens` the same questions a screen asks, so they cannot drift from it — which is what
     # the `[colors.*]` tables above, being static TOML, always could.
     "styles::palette",
+    "styles::typography",
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.
     "views::service",

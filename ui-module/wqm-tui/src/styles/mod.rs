@@ -16,7 +16,7 @@
 //! - the theme's own ten fields are not fixed values, they are whichever theme is in force
 //!   ([`palette`]);
 //! - a typography entry carries `color` and `description` and **nothing else**, so the tab
-//!   cannot show weight — §17.1, still in `pantry.toml` and moving here next.
+//!   could not show weight ([`typography`]).
 //!
 //! — so they are rendered from `tokens` here instead. That removes the drift as a side effect
 //! rather than as a goal: these two entries cannot disagree with a screen, because they ask the
@@ -35,3 +35,4 @@
 //! it; nothing here is sectioned, which is what puts these entries beside the TOML groups.
 
 pub mod palette;
+pub mod typography;

@@ -84,12 +84,17 @@ mod tier {
         // how we judge the language from the language itself, so an unsectioned Styles entry
         // sits beside the `[colors.*]` groups the stylesheet contributes — which is where a
         // reader looking up "what does the design call this" already is.
-        assert_every(
+        for module in [
             crate::styles::palette::ingredient::ingredients(),
-            "Styles",
-            None,
-            "the vocabulary is Styles and is not an instrument",
-        );
+            crate::styles::typography::ingredient::ingredients(),
+        ] {
+            assert_every(
+                module,
+                "Styles",
+                None,
+                "the vocabulary is Styles and is not an instrument",
+            );
+        }
 
         assert_every(
             crate::views::service::ingredient::ingredients(),
