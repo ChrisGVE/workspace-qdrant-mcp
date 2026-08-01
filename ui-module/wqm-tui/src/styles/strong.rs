@@ -1,4 +1,5 @@
-//! Four candidate rules for `strong`, every theme, side by side.
+//! The candidate rules for `strong`. **Rules only — the frame that shows them is
+//! [`crate::styles::palette`].**
 //!
 //! Chris, 20260801, looking at Everforest: *"I don't quite understand where is the issue with
 //! strong, it is yellowish and quite far from the accent or the success. So did you handle it
@@ -28,28 +29,29 @@
 //! rule whose *worst case over the fifteen* is still legible. This frame is how that is judged
 //! — read down a column and find the rule with no bad row.
 //!
-//! # The columns, and what would rule each out
+//! # Two numbers decide it, and they pull against each other
 //!
-//! Two numbers decide it, and they pull against each other:
-//!
-//! - **`vs body`** — separation from the text `strong` has to stand out from. Below 2.3 the
-//!   rung does nothing.
-//! - **`vs res`** — distance to the nearest hue §3 reserves (the three health states and the
+//! - **`body`** — separation from the text `strong` has to stand out from. Below 2.3 the rung
+//!   does nothing.
+//! - **`res`** — distance to the nearest hue §3 reserves (the three health states and the
 //!   selector). §3 reserves the selector *absolutely*, so a `strong` that lands on it is not a
 //!   weak frame, it is a broken rule.
 //!
-//! A candidate that wins one column and loses the other has not won.
+//! A candidate that wins one and loses the other has not won.
+//!
+//! # This module used to draw a table, and that was the wrong instrument
+//!
+//! It rendered all four rules against all fifteen themes at once, so a rule was judged by its
+//! worst row. Chris: *"that's not the way to proceed, this must be considered holistically
+//! theme by theme."* He is right that a palette is judged whole: `strong` is not a colour on
+//! its own, it is a colour among the ten the theme names and the ten rungs beneath it, and a
+//! grid of swatches from fifteen different palettes shows none of those relationships. The
+//! numbers below are still worth having — they are what a *frame* cannot say — but they belong
+//! beside the colour, in the theme it lives in.
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Paragraph, Widget},
-};
+use ratatui::style::Color;
 
-use crate::tokens::{self, delta_e};
-use crate::widgets::config_table::fit;
+use crate::tokens::delta_e;
 
 /// The distance from the reserved hues below which a candidate is refused.
 ///
@@ -57,14 +59,14 @@ use crate::widgets::config_table::fit;
 /// so a `strong` that reads as either is a false signal rather than an ugly one. Twelve is
 /// comfortably past "plainly a different colour" (5) with room for a weaker terminal to round
 /// both values toward each other.
-const RESERVED_FLOOR: f32 = 12.0;
+pub(crate) const RESERVED_FLOOR: f32 = 12.0;
 
 /// How far [`Candidate::Adaptive`] will push toward the accent before giving up.
 const ADAPTIVE_MAX: f32 = 0.55;
 
 /// The four rules, in the order they were arrived at.
 #[derive(Clone, Copy)]
-enum Candidate {
+pub(crate) enum Candidate {
     /// **What ships.** The ladder continued past `fg` along the `bg → fg` axis, scaled back so
     /// no channel clamps. Consistent formula; fails where `fg` is already near white.
     Extrapolate,
@@ -85,7 +87,7 @@ impl Candidate {
     /// read the table as four different tokens rather than four ways of computing one: *"I assume
     /// that on the table what you call ships is Strong? What I don't understand is the role of
     /// .35, .55 and adaptive."* Every column IS `strong`; a bare number names nothing.
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Candidate::Extrapolate => "now: past fg",
             Candidate::Accent(k) if k < 0.45 => "35% accent",
@@ -94,7 +96,7 @@ impl Candidate {
         }
     }
 
-    fn resolve(self, theme: &ratatui_themes::ThemePalette) -> Color {
+    pub(crate) fn resolve(self, theme: &ratatui_themes::ThemePalette) -> Color {
         match self {
             Candidate::Extrapolate => extrapolated(theme),
             Candidate::Accent(k) => mix(theme.fg, theme.accent, k),
@@ -118,7 +120,7 @@ impl Candidate {
     }
 }
 
-const CANDIDATES: [Candidate; 4] = [
+pub(crate) const CANDIDATES: [Candidate; 4] = [
     Candidate::Extrapolate,
     Candidate::Accent(0.35),
     Candidate::Accent(0.55),
@@ -158,7 +160,7 @@ fn extrapolated(theme: &ratatui_themes::ThemePalette) -> Color {
 }
 
 /// The nearest of the four hues §3 reserves — the three health states and the selector.
-fn nearest_reserved(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
+pub(crate) fn nearest_reserved(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
     [theme.success, theme.warning, theme.error, theme.info]
         .iter()
         .map(|hue| delta_e(colour, *hue))
@@ -176,186 +178,6 @@ fn mix(from: Color, to: Color, t: f32) -> Color {
     let (a, b) = (channels(from), channels(to));
     let blend = |i: usize| (a[i] + (b[i] - a[i]) * t).round().clamp(0.0, 255.0) as u8;
     Color::Rgb(blend(0), blend(1), blend(2))
-}
-
-/// Every candidate against every theme.
-pub struct StrongCandidates;
-
-impl Widget for StrongCandidates {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let mut lines = vec![
-            Line::from(Span::styled(
-                "`strong` — four ways of choosing ONE colour, measured against all fifteen themes.",
-                tokens::strong_style(),
-            )),
-            Line::from(Span::styled(
-                "EVERY COLUMN IS `strong`. They differ only in where its colour comes from:",
-                tokens::muted_style(),
-            )),
-            Line::from(Span::styled(
-                "  now: past fg   the grey ladder continued beyond the foreground — what the \
-                 code does today",
-                tokens::faint_style(),
-            )),
-            Line::from(Span::styled(
-                "  N% accent     the foreground mixed N of the way toward theme.accent \
-                 (0% = fg exactly, 100% = accent)",
-                tokens::faint_style(),
-            )),
-            Line::from(Span::styled(
-                "  adaptive      as much accent as clears the reserved hues — 55% on fourteen \
-                 themes, 35% on Everforest",
-                tokens::faint_style(),
-            )),
-            Line::default(),
-            Line::from(Span::styled(
-                "The two numbers under each swatch: vs body = separation from the text `strong` \
-                 must beat (2.3 = just",
-                tokens::faint_style(),
-            )),
-            Line::from(Span::styled(
-                "noticeable). vs res = distance to the nearest hue §3 reserves (health or \
-                 selector). A rule that wins one",
-                tokens::faint_style(),
-            )),
-            Line::from(Span::styled(
-                "and loses the other has not won — so read DOWN a column and find the one with \
-                 no bad row.",
-                tokens::faint_style(),
-            )),
-            Line::default(),
-        ];
-
-        let mut header = vec![
-            Span::styled(fit("THEME", 17), tokens::muted_style()),
-            Span::styled(fit("body", 8), tokens::muted_style()),
-        ];
-        for candidate in CANDIDATES {
-            header.push(Span::styled(
-                fit(candidate.label(), 18),
-                tokens::muted_style(),
-            ));
-        }
-        lines.push(Line::from(header));
-
-        let mut worst = [f32::MAX; 4];
-        let mut floors = [f32::MAX; 4];
-        for name in ratatui_themes::ThemeName::all() {
-            let theme = name.palette();
-            let mut spans = vec![
-                Span::styled(fit(&format!("{name:?}"), 17), tokens::normal_style()),
-                Span::styled("  ▏", Style::default().fg(tokens::rule_internal())),
-                Span::styled("   ", Style::default().bg(theme.fg)),
-                Span::styled("▕  ", Style::default().fg(tokens::rule_internal())),
-            ];
-
-            for (i, candidate) in CANDIDATES.iter().enumerate() {
-                let colour = candidate.resolve(&theme);
-                let separation = delta_e(colour, theme.fg);
-                let reserved = nearest_reserved(colour, &theme);
-                worst[i] = worst[i].min(separation);
-                floors[i] = floors[i].min(reserved);
-
-                spans.push(Span::styled(
-                    "▏",
-                    Style::default().fg(tokens::rule_internal()),
-                ));
-                spans.push(Span::styled("   ", Style::default().bg(colour)));
-                spans.push(Span::styled(
-                    "▕",
-                    Style::default().fg(tokens::rule_internal()),
-                ));
-                // The two numbers, each coloured by whether it passes its own floor. A wall of
-                // figures is unreadable; the eye should land on the failures.
-                spans.push(Span::styled(
-                    format!("{separation:>5.1}"),
-                    if separation < 2.3 {
-                        Style::default().fg(tokens::offline())
-                    } else {
-                        tokens::faint_style()
-                    },
-                ));
-                spans.push(Span::styled(
-                    format!("{reserved:>6.1}  "),
-                    if reserved < RESERVED_FLOOR {
-                        Style::default().fg(tokens::offline())
-                    } else {
-                        tokens::faint_style()
-                    },
-                ));
-            }
-            lines.push(Line::from(spans));
-        }
-
-        lines.push(Line::default());
-        let mut summary = vec![Span::styled(
-            fit("WORST OF THE 15", 17 + 8),
-            Style::default()
-                .fg(tokens::header())
-                .add_modifier(Modifier::BOLD),
-        )];
-        for i in 0..CANDIDATES.len() {
-            let bad = worst[i] < 2.3 || floors[i] < RESERVED_FLOOR;
-            summary.push(Span::styled(
-                fit(&format!("{:>8.1}{:>6.1}  ", worst[i], floors[i]), 18),
-                if bad {
-                    Style::default().fg(tokens::offline())
-                } else {
-                    Style::default().fg(tokens::healthy())
-                },
-            ));
-        }
-        lines.push(Line::from(summary));
-
-        Paragraph::new(lines).render(area, buf);
-    }
-}
-
-#[cfg(feature = "tui-pantry")]
-pub mod ingredient {
-    use super::*;
-    use tui_pantry::{Ingredient, PropInfo};
-
-    const PROPS: &[PropInfo] = &[PropInfo {
-        name: "candidates",
-        ty: "[Candidate; 4]",
-        description: "ships / accent .35 / accent .55 / adaptive — none of them adopted",
-    }];
-
-    struct Candidates;
-
-    impl Ingredient for Candidates {
-        fn tab(&self) -> &str {
-            "Styles"
-        }
-        // An instrument: this is how the decision gets taken, not part of the language. It
-        // leaves the tab the moment `strong` is settled.
-        fn section(&self) -> Option<&str> {
-            Some("Instruments")
-        }
-        fn group(&self) -> &str {
-            "Strong"
-        }
-        fn name(&self) -> &str {
-            "Four rules, fifteen themes"
-        }
-        fn source(&self) -> &str {
-            "wqm_tui::styles::strong"
-        }
-        fn description(&self) -> &str {
-            "Candidate rules for the top rung, with their worst case over every bundled theme"
-        }
-        fn props(&self) -> &[PropInfo] {
-            PROPS
-        }
-        fn render(&self, area: Rect, buf: &mut Buffer) {
-            StrongCandidates.render(area, buf);
-        }
-    }
-
-    pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
-        vec![Box::new(Candidates)]
-    }
 }
 
 #[cfg(test)]

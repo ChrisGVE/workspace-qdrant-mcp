@@ -53,7 +53,8 @@ use ratatui::{
 };
 
 use crate::styles::palette_reference::{resolve, RUNGS};
-use crate::tokens;
+use crate::styles::strong::{nearest_reserved, CANDIDATES, RESERVED_FLOOR};
+use crate::tokens::{self, delta_e};
 use crate::widgets::config_table::fit;
 
 /// Width of the STANDARD / CUSTOM marker.
@@ -171,14 +172,73 @@ struct Rung {
     name: String,
     colour: Color,
     at: f32,
-    note: &'static str,
+    note: String,
+    /// Set only on the `strong` candidates. Two numbers a frame genuinely cannot show: how far
+    /// this colour is from the body text it must beat, and how close it comes to a hue §3
+    /// reserves. The eye settles the first badly and cannot settle the second at all.
+    verdict: Option<Verdict>,
+}
+
+/// The two measurements that decide a `strong` candidate.
+struct Verdict {
+    body: f32,
+    reserved: f32,
 }
 
 /// The whole palette on one scale: the hues, then every neutral in luminance order.
-pub struct PaletteFrame;
+///
+/// # It can be pinned to a theme, and that is how `strong` gets judged
+///
+/// Chris, 20260801: *"this must be considered holistically theme by theme … duplicate your
+/// existing catppuccin theme, add your variants of strong, and for each duplicate have it show
+/// the palette in its own theme."* A palette is judged whole — `strong` is not a colour on its
+/// own, it is a colour among the ten the theme names and the ten rungs beneath it — so the
+/// pantry carries **one entry per bundled theme**, each rendering *in* its own theme with every
+/// candidate for `strong` drawn beside the rungs it has to live with.
+///
+/// Pinning follows `palette_reference::NeutralRungs`: force the globals for the duration of the
+/// render, restore them after. That is the only way one frame can show a theme the harness is
+/// not set to, and it is why fifteen entries cost fifteen lines rather than fifteen harnesses.
+pub struct PaletteFrame {
+    pinned: Option<ratatui_themes::ThemeName>,
+}
+
+impl PaletteFrame {
+    /// The theme currently in force — what the Styles tab shows when nothing is pinned.
+    pub fn current() -> Self {
+        Self { pinned: None }
+    }
+
+    /// One named theme, whatever the harness is set to.
+    pub fn pinned(theme: ratatui_themes::ThemeName) -> Self {
+        Self {
+            pinned: Some(theme),
+        }
+    }
+}
 
 impl Widget for PaletteFrame {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let restore = self.pinned.map(|name| {
+            let previous = (tokens::Palette::current(), tokens::theme());
+            tokens::Palette::set(tokens::Palette::Bundled);
+            tokens::set_theme(name.palette());
+            previous
+        });
+
+        self.paint(area, buf);
+
+        if let Some((palette, theme)) = restore {
+            tokens::Palette::set(palette);
+            if let Some(theme) = theme {
+                tokens::set_theme(theme);
+            }
+        }
+    }
+}
+
+impl PaletteFrame {
+    fn paint(&self, area: Rect, buf: &mut Buffer) {
         let Some(theme) = tokens::active_theme() else {
             Paragraph::new(unavailable()).render(area, buf);
             return;
@@ -248,17 +308,25 @@ fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
                 name: name.to_string(),
                 colour,
                 at: ladder_percent(colour, theme),
-                note,
+                note: note.to_string(),
+                verdict: None,
             }
         })
-        .chain(RUNGS.iter().map(|(percent, name, spec)| Rung {
-            kind: Kind::Custom,
-            // Qualified, because `muted` alone names two different colours.
-            name: format!("tokens::{name}"),
-            colour: resolve(*percent),
-            at: *percent as f32,
-            note: spec,
-        }))
+        .chain(
+            RUNGS
+                .iter()
+                // `strong` is drawn once per candidate rule at the end, not once here.
+                .filter(|(_, name, _)| *name != "strong")
+                .map(|(percent, name, spec)| Rung {
+                    kind: Kind::Custom,
+                    // Qualified, because `muted` alone names two different colours.
+                    name: format!("tokens::{name}"),
+                    colour: resolve(*percent),
+                    at: *percent as f32,
+                    note: spec.to_string(),
+                    verdict: None,
+                }),
+        )
         .collect();
 
     rungs.sort_by(|a, b| {
@@ -266,6 +334,24 @@ fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| (a.kind == Kind::Custom).cmp(&(b.kind == Kind::Custom)))
     });
+
+    // Appended rather than sorted in: a tinted candidate can be *darker* than the foreground,
+    // which would scatter the four across the ladder and hide that they are one decision. They
+    // are the top of the ladder whatever their luminance, so they go at the top.
+    rungs.extend(CANDIDATES.iter().map(|candidate| {
+        let colour = candidate.resolve(theme);
+        Rung {
+            kind: Kind::Custom,
+            name: format!("strong: {}", candidate.label()),
+            colour,
+            at: ladder_percent(colour, theme),
+            note: String::new(),
+            verdict: Some(Verdict {
+                body: delta_e(colour, theme.fg),
+                reserved: nearest_reserved(colour, theme),
+            }),
+        }
+    }));
     rungs
 }
 
@@ -355,7 +441,30 @@ fn row(rung: &Rung) -> Line<'static> {
         ),
         tokens::faint_style(),
     ));
-    spans.push(Span::styled(rung.note.to_string(), tokens::faint_style()));
+    match &rung.verdict {
+        None => spans.push(Span::styled(rung.note.clone(), tokens::faint_style())),
+        Some(verdict) => {
+            // Coloured against their own floors, so the eye lands on the failures rather than
+            // reading eight numbers. A candidate below either floor is not a weaker option, it
+            // is a rule that does not work on this theme.
+            spans.push(Span::styled(
+                format!("body {:>5.1}  ", verdict.body),
+                if verdict.body < 2.3 {
+                    Style::default().fg(tokens::offline())
+                } else {
+                    tokens::faint_style()
+                },
+            ));
+            spans.push(Span::styled(
+                format!("reserved {:>5.1}", verdict.reserved),
+                if verdict.reserved < RESERVED_FLOOR {
+                    Style::default().fg(tokens::offline())
+                } else {
+                    tokens::faint_style()
+                },
+            ));
+        }
+    }
     Line::from(spans)
 }
 
@@ -451,7 +560,15 @@ pub mod ingredient {
         description: "The bundled theme in force — ten Color fields, none of them optional",
     }];
 
-    struct Palette;
+    /// One entry per bundled theme, each rendering **in** that theme.
+    ///
+    /// Chris, 20260801: *"duplicate your existing catppuccin theme, add your variants of
+    /// strong, and for each duplicate have it show the palette in its own theme."* So the
+    /// variant list is the theme list, and every frame is a whole palette rather than a row of
+    /// one — which is what makes `strong` judgeable at all: it has to be read against the ten
+    /// the theme names and the ten rungs beneath it, not against the same colour on fourteen
+    /// other palettes.
+    struct Palette(Option<ratatui_themes::ThemeName>);
 
     impl Ingredient for Palette {
         // Styles, and NO section: this is vocabulary rather than an instrument, so it belongs
@@ -461,30 +578,43 @@ pub mod ingredient {
             "Styles"
         }
         // The group is `Colors` because Chris asked for it "in the Colors section", and since
-        // 20260801 it is the ONLY entry there — the four TOML groups that used to share the name
-        // were transcriptions of what this frame renders live.
+        // 20260801 it is the ONLY group there — the four TOML groups that used to share the
+        // name were transcriptions of what this frame renders live.
         fn group(&self) -> &str {
             "Colors"
         }
         fn name(&self) -> &str {
-            "Palette"
+            match self.0 {
+                // The harness's own theme, whatever `widget_preview` set it to.
+                None => "Palette — as set",
+                Some(theme) => theme.display_name(),
+            }
         }
         fn source(&self) -> &str {
             "wqm_tui::styles::palette"
         }
         fn description(&self) -> &str {
-            "Every colour the design can reach for, standard and custom, on one luminance scale"
+            "The whole palette in one theme: ten named fields, ten rungs, and every candidate for `strong`"
         }
         fn props(&self) -> &[PropInfo] {
             PROPS
         }
         fn render(&self, area: Rect, buf: &mut Buffer) {
-            PaletteFrame.render(area, buf);
+            match self.0 {
+                None => PaletteFrame::current().render(area, buf),
+                Some(theme) => PaletteFrame::pinned(theme).render(area, buf),
+            }
         }
     }
 
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
-        vec![Box::new(Palette)]
+        std::iter::once(Box::new(Palette(None)) as Box<dyn Ingredient>)
+            .chain(
+                ratatui_themes::ThemeName::all()
+                    .iter()
+                    .map(|name| Box::new(Palette(Some(*name))) as Box<dyn Ingredient>),
+            )
+            .collect()
     }
 }
 
@@ -574,27 +704,29 @@ mod tests {
         ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
     }
 
-    /// The ladder is ordered by luminance, background first and `strong` last.
+    /// The ladder is ordered by luminance from the background up, and ends with the candidates.
     ///
-    /// Chris asked for exactly this (*"put the grayish colors in order of luminance starting by
-    /// the background and finishing by the color we use for Strong"*), and it is the property
-    /// that makes the frame worth reading: the interleaving of STD and OURS is only legible if
-    /// the list is genuinely sorted. A frame that merely *looked* sorted — the theme's four, then
-    /// ours — would show the same rows and say nothing.
+    /// Chris asked for the greys *"in order of luminance starting by the background and
+    /// finishing by the color we use for Strong"*, and that is the property that makes the frame
+    /// worth reading: the interleaving of STD and OURS is only legible if the list is genuinely
+    /// sorted. A frame that merely *looked* sorted — the theme's four, then ours — would show
+    /// the same rows and say nothing.
+    ///
+    /// The four `strong` candidates are **appended rather than sorted in**: a tinted candidate
+    /// can be darker than the foreground, and sorting would scatter them through the ladder and
+    /// hide that they are one decision taken four ways.
     #[test]
-    fn the_ladder_runs_from_the_background_to_strong_in_luminance_order() {
+    fn the_ladder_runs_from_the_background_upward_and_ends_with_the_candidates() {
         let _serial = crate::global_state_lock();
         let previous = Palette::current();
         Palette::set(Palette::Bundled);
         tokens::set_theme(mocha());
 
         let rungs = ladder(&mocha());
-        assert_eq!(rungs.first().map(|r| r.name.as_str()), Some("theme.bg"));
-        assert_eq!(
-            rungs.last().map(|r| r.name.as_str()),
-            Some("tokens::strong")
-        );
-        for pair in rungs.windows(2) {
+        let (sorted, candidates) = rungs.split_at(rungs.len() - CANDIDATES.len());
+
+        assert_eq!(sorted.first().map(|r| r.name.as_str()), Some("theme.bg"));
+        for pair in sorted.windows(2) {
             assert!(
                 pair[0].at <= pair[1].at,
                 "{} at {:.1}% precedes {} at {:.1}%",
@@ -602,6 +734,19 @@ mod tests {
                 pair[0].at,
                 pair[1].name,
                 pair[1].at
+            );
+        }
+
+        assert!(
+            sorted.iter().all(|r| !r.name.starts_with("strong")),
+            "a `strong` candidate leaked into the sorted run"
+        );
+        for (rung, candidate) in candidates.iter().zip(CANDIDATES) {
+            assert_eq!(rung.name, format!("strong: {}", candidate.label()));
+            assert!(
+                rung.verdict.is_some(),
+                "{} is drawn without the two numbers that decide it",
+                rung.name
             );
         }
 

@@ -53,7 +53,6 @@ modules = [
     # the `[colors.*]` tables above, being static TOML, always could.
     "styles::palette",
     "styles::palette_reference",
-    "styles::strong",
     "styles::theme_sheet",
     "styles::typography",
     # The Views tab: full-page layouts. A view composes the widgets above and the screen

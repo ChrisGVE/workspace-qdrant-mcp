@@ -80,7 +80,6 @@ mod tier {
         // is the whole difference between the two Styles groups above and below.
         for module in [
             crate::styles::palette_reference::ingredient::ingredients(),
-            crate::styles::strong::ingredient::ingredients(),
             crate::styles::theme_sheet::ingredient::ingredients(),
         ] {
             assert_every(
