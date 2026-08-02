@@ -17,6 +17,35 @@ supplying an answer. (Standing rule, Chris 20260802.)
 
 ## 1. The short answer on rolling aggregates
 
+> ### ⚠️ UPDATED 20260802 (later the same day) — this section's headline is SUPERSEDED
+>
+> **Chris ruled that the aggregate IS a bounded rolling window** — count, average, median, min and max
+> over one uniform window `W`, recorded as **`CR-056`** (owner `N13`, `proposed`). So the answer to
+> *"do we keep aggregate metrics over a rolling period of time"* is now **yes**.
+>
+> **And the second half of the old headline was wrong, not merely outdated.** The sealed contract does
+> not commit N13 to the opposite. `CONTRACTS.md`:1540 commits it to **current-state**, and
+> `CR-056` §5a records the reconciliation that `CR-006` §3 asked for and nobody had written:
+>
+> > A bounded rolling aggregate is still current-state, **because it forgets**. FW-10's target is the
+> > monotonic lifetime counter — the number that only grows and whose value depends on when the process
+> > started. A count/average/median/min/max over the last `W` has neither property.
+>
+> **N13's guarantee is therefore unchanged and unweakened**, and `CR-006` §3's open reconciliation is
+> answered rather than traded away.
+>
+> Other upstream decisions of the same session, all in `CR-056`, all `proposed`: OpenTelemetry is in
+> scope but **off by default**; measurement has **no cadence** — a pack of measures is emitted when an
+> operation completes; a metric's status expires from **current** into **last known** when the window
+> empties; a metric carries **at most one threshold**, a floor or a ceiling, never both; and an alert is
+> a three-state flag (up / down / stale) of which **only the up↔down transitions are transmitted**,
+> because stale is derivable by the receiver from the timestamp and `W`.
+>
+> `W`'s value, every threshold value, and the debounce are **tolerances and remain Chris's** — none is
+> fixed in `CR-056`.
+>
+> The rest of this section is kept as written, because it is the state the ruling changed.
+
 **No rolling aggregate exists, and the sealed contract currently commits N13 to the opposite.**
 
 N13's *Guarantees*, verbatim (`CONTRACTS.md`:1540):
