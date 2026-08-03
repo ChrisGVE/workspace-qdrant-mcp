@@ -335,12 +335,34 @@ anything renders a threshold.
   the embedder rule into a law for every dependency — *slow* and *absent* are different states, reached by
   different measurements. Note that by the kind model a `down` Qdrant still leaves the **system**
   degraded, not down, since search continues via FTS5, grep and graph.
-- ⚠️ **Thresholds may not be absolute constants, and this is OPEN** (`CR-057` §10.3). Chris: many of these
-  measures depend on the host and are largely unknown to us, so the thresholds are *"a moving target"* and
-  may need historical values and percentiles. Three consequences are recorded and **none is decided**: the
-  threshold type currently admits only absolute numbers; a baseline needs a horizon far longer than `W`,
-  which the design deliberately forgets past `2W`; and the five statistics contain no percentile above the
-  median. **Nothing here should be built against a fixed numeric threshold shape yet.**
+- ⚠️ **Thresholds may not be absolute constants** (`CR-057` §10.3). Chris: many of these measures depend
+  on the host and are largely unknown to us, so the thresholds are *"a moving target"*.
+
+⚠️ **UPDATED — `CR-057` r04, and this one changes where a threshold LIVES.**
+
+**RULED by Chris:** *"these thresholds are no longer in the configuration file, they belong to the state
+database, at least most of them, there might be a few thresholds that can be set by the user as
+'preference' but a small number."*
+
+**A threshold is learned state, not configuration.** It follows from `CR-053`'s own rule rather than
+cutting across it: configuration is user-written *because a tool writing on the user's behalf still has
+the user's agency behind it*, and an adapted threshold has none — nobody wrote it, the system measured it.
+Three layers: a **shipped seed** (measured on our machine, good enough to ship), a **learned value** the
+daemon adapts continuously, and a **small pinned set** the user may set as a preference.
+
+⚠️ **The consequence for anything rendering configuration:** most thresholds will not appear in the config
+file at all. Only the *"small number"* of pinned preferences will. What that set contains is not yet
+decided.
+
+**Two collisions are recorded and are Chris's to resolve, not settled:** `FIRST-PRINCIPLES.md` states that
+`statedb` holds **only** the watch register and queues, so a home for learned state needs either a
+first-principles amendment or a separate store; and the sealed `N13 Requires N7 (thresholds)` edge narrows
+to the pinned set.
+
+**Withdrawn from r03, so it is not carried forward as a concern:** an adaptive threshold does **not**
+require storing history. Online estimators are O(1) in memory, so the storage added is a handful of floats
+per metric rather than a time series — and the five reported statistics stay exact over the raw window,
+unchanged, because a threshold is a control parameter and not a reported measurement.
 
 ---
 
