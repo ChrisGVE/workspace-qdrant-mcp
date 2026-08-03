@@ -354,6 +354,14 @@ daemon adapts continuously, and a **small pinned set** the user may set as a pre
 file at all. Only the *"small number"* of pinned preferences will. What that set contains is not yet
 decided.
 
+**UPDATE 20260803 — "preference" is now a defined store, and it is not the config file.** When the
+ruling above was made, *preference* was an informal word. `CR-059` (20260803, `proposed`) gives it a
+home: preferences live in **`~/.config/workspace-qdrant/preferences.json`**, a separate, disposable,
+**non**-schema-governed file written only by `wqm`, alongside the user's
+`~/.config/workspace-qdrant/config.toml`. So a pinned threshold, if the pinnable set ever names one,
+lands there rather than in the config file. **Which thresholds are pinnable remains undecided** and is
+Chris's (`CR-057` §12.14). Full model in `CR-059`; the channel note is `FROM-CORPUS.md` `NOTE-016`.
+
 **Two collisions are recorded and are Chris's to resolve, not settled:** `FIRST-PRINCIPLES.md` states that
 `statedb` holds **only** the watch register and queues, so a home for learned state needs either a
 first-principles amendment or a separate store; and the sealed `N13 Requires N7 (thresholds)` edge narrows
