@@ -323,6 +323,25 @@ remain tolerances.
   withdrawn for pipeline, background and lifecycle operations, which have a duration and a progress but
   no "our own latency" because nothing is waiting on them.
 
+⚠️ **UPDATED again — `CR-057` r03.** Two more, and the second is unsettled in a way worth knowing before
+anything renders a threshold.
+
+- **Pressure is a named measure family** (`CR-057` §6b), taken from standard practice (RED / USE / the
+  four golden signals) rather than invented: arrival rate, service rate, in-flight, saturation. **Write
+  pressure is the differential** (arrivals minus completions), not the queue depth — depth is a lagging
+  indicator. It fans out per store and carries a **per-participant** dimension, because one client
+  hammering and five clients each asking a little are invisibly identical in any aggregate.
+- **Qdrant, RULED** (`CR-057` §9.4): **unreachable is `down`**; **slow is amber/red**. This generalizes
+  the embedder rule into a law for every dependency — *slow* and *absent* are different states, reached by
+  different measurements. Note that by the kind model a `down` Qdrant still leaves the **system**
+  degraded, not down, since search continues via FTS5, grep and graph.
+- ⚠️ **Thresholds may not be absolute constants, and this is OPEN** (`CR-057` §10.3). Chris: many of these
+  measures depend on the host and are largely unknown to us, so the thresholds are *"a moving target"* and
+  may need historical values and percentiles. Three consequences are recorded and **none is decided**: the
+  threshold type currently admits only absolute numbers; a baseline needs a horizon far longer than `W`,
+  which the design deliberately forgets past `2W`; and the five statistics contain no percentile above the
+  median. **Nothing here should be built against a fixed numeric threshold shape yet.**
+
 ---
 
 ## Maintenance
