@@ -290,7 +290,19 @@ was going to take reintroduces the polling the CR removed.
 
 The overlap worth knowing: `HealthSignal` (N13) and the `CR-035` entries both describe daemon
 condition, and the N13 contract line naming DLQ size predates `CR-035`. How the two surfaces relate
-is not written down in either document.
+was not written down in either document.
+
+⚠️ **UPDATED 20260803 — a relation is now PROPOSED, and it is a proposal, not a ruling.** `CR-057`
+(`proposed`, owner **N13**) records a measure-point catalog and, in its §10, proposes that a
+component's four-state health composes from both surfaces rather than either: **`down`** from
+`CR-035` (the last real access failed — an outcome, not a threshold), **`amber`/`red`** from
+`CR-056` (the component's duration statistic over `W` crossing its same-side thresholds), and
+**`green`** from both holding. `CR-057` §10 also proposes that `degraded` is then the amber band
+rather than a separate axis — explicitly left open in its §12.1 as Chris's.
+
+**Nothing here is decided.** `CR-057` is `proposed`, every threshold value and `W` remain
+tolerances, and the `CR-035` entry list — which deliberately excludes the embedding provider and
+the queue — is `CR-035`'s to change, not `CR-057`'s (`CR-057` §9.1).
 
 ---
 
