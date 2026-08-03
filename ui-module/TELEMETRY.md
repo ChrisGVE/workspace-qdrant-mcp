@@ -300,9 +300,28 @@ component's four-state health composes from both surfaces rather than either: **
 **`green`** from both holding. `CR-057` §10 also proposes that `degraded` is then the amber band
 rather than a separate axis — explicitly left open in its §12.1 as Chris's.
 
-**Nothing here is decided.** `CR-057` is `proposed`, every threshold value and `W` remain
-tolerances, and the `CR-035` entry list — which deliberately excludes the embedding provider and
-the queue — is `CR-035`'s to change, not `CR-057`'s (`CR-057` §9.1).
+**Nothing in that composition is decided.** `CR-057` is `proposed` and every threshold value and `W`
+remain tolerances.
+
+⚠️ **UPDATED again the same day — `CR-057` r02, and two of r01's statements moved.**
+
+- **The `CR-035` entry list DID change.** Chris exercised its revisit clause: **the embedder is an
+  availability entry**, along with "all our components and stores" (`CR-035` r04, `CR-057` §9.2).
+  The queue keeps its gauges as metrics and its non-entry status as health — both stand.
+- **System health is NOT the worst of its components** (`CR-057` §10.1, Chris's ruling): *"the daemon
+  being down is the only certainty, but if the embedder is down, the daemon is degraded and the search
+  as well because we can still do FTS5, grep and graph."* How components compose into a system state
+  is **open**.
+- **A rate limit is not an outage** (`CR-057` §9.3) — transient versus indeterminate — and the two are
+  measured separately, on the latency side (`rate_limit_wait`, distinct from embedding time) and on the
+  availability side (`outage_duration`, plus `down_since` while it is ongoing).
+- **The number of participants is a measure** (`CR-057` §6a): daemon, MCP instances, `wqm` CLI/TUI
+  instances, from gRPC — because an aggregate over `W` is uninterpretable without knowing how many
+  emitters contributed to it.
+- **`E2E − parts` is scoped to request/response operations only** (`CR-057` §3 as amended, §7a). It is
+  valid where a definite question/answer boundary exists — `query` is the confirmed case — and is
+  withdrawn for pipeline, background and lifecycle operations, which have a duration and a progress but
+  no "our own latency" because nothing is waiting on them.
 
 ---
 

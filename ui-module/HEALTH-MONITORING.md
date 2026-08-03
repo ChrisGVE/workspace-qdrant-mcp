@@ -147,6 +147,40 @@ For whoever builds the status zone, in rough priority:
 
 ---
 
+## 5a. ⚠️ ADDED 20260803 — `CR-035` reached r04 and the component set CHANGED
+
+**A factual update, and it touches the vocabulary a status zone renders.** `CR-035` §13's seven
+capability-keyed entries — `daemon` · `statedb` · `storedb` · `qdrant` · `fts_code` · `fts_grep` ·
+`ladybug` — carried a sentence excluding the embedding provider: *"Deliberately NOT entries: … the
+embedding provider. Revisit if either proves to need one."*
+
+**Chris exercised that revisit clause on 20260803** (recorded in `CR-035` r04, raised in `CR-057` §9.2):
+*"there is the question of component availability, again the embedder is included but also all our
+components and stores."* So **the embedder is an availability entry**, and the principle is broader than
+the one name — though "all our components and stores" names a principle, not a finished roster, and the
+final membership is not fixed.
+
+**The queue's exclusion stands unchanged.** Its gauges (queue count, in-progress, errored entries) are
+always-measured *metrics* under `CR-056`; that never conflicted with its not being a health *entry*.
+
+⚠️ **And the embedder introduces a distinction none of the seven had:** *"we should not conflate rate
+limit with inaccessibility, rate limit is transient while non accessibility is not and is of indetermined
+duration."* A rate-limited provider is working and refusing us **now** — not `down`. A reachability check
+that reports the two identically is wrong in both directions.
+
+**Two new measures recorded in `CR-057` §9.3**, general to every entry: the interval from inaccessible to
+available, and — for an outage still in progress — `down_since`, from which elapsed time is derived
+locally rather than transmitted. That is the same derive-don't-transmit shape `CR-056` §6c uses for
+`stale`.
+
+**One consequence for anything that renders an overall state**, from `CR-057` §10.1, and it is Chris's
+ruling rather than a suggestion: **a component being `down` does not make the system `down`.** *"The
+daemon being down is the only certainty, but if the embedder is down, the daemon is degraded and the
+search as well because we can still do FTS5, grep and graph, searches without the embedder."* How
+component states compose into a system state is **open** (`CR-057` §12.0/§12.1) — `CR-057` §10.2 proposes
+composing through `CR-035`'s existing `kind` column plus a required/contributing capability table, and
+that proposal is not decided.
+
 ## 6. What is deliberately open
 
 - **Refresh cadence is a tolerance, and Chris's to set.** Do not infer it from v0.1's accidental
