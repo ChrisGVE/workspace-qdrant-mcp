@@ -46,6 +46,69 @@ supplying an answer. (Standing rule, Chris 20260802.)
 >
 > The rest of this section is kept as written, because it is the state the ruling changed.
 
+> ### ⚠️ UPDATED AGAIN 20260802 (late) — `CR-056` r02 and r03, and **one statement in the block above is now FALSE**
+>
+> Two further revisions landed the same evening. They change the mechanism rather than the answer: the
+> aggregate is still a bounded rolling window and N13's guarantee is still unweakened.
+>
+> **The correction first, because it is a statement of fact that has changed.** The block above says
+> *"a metric carries **at most one threshold**, a floor or a ceiling, never both"*. That was r01. Under
+> **`CR-056` §6a (r02)** a metric carries **one OR two** thresholds, and the invariant is that they are
+> **all on the same side** — a metric never mixes a floor with a ceiling. One threshold gives
+> `green / red`; two give `green / amber / red`. The values are ordered **by severity, increasing away
+> from green** (so ascending for a ceiling, descending for a floor — stated once about severity rather
+> than twice about inequalities). A metric with no threshold carries `None`.
+>
+> **Having a threshold does not make a metric an alarm** (`CR-056` §6d, r02). Alarm-ness is *declared*,
+> and it is what buys proactive evaluation. Three tiers are recorded there:
+>
+> | tier | five statistics | status | evaluated | broadcasts |
+> |---|---|---|---|---|
+> | plain metric | yes | none | — | no |
+> | thresholded, not alarm | yes | yes | **lazily, at read** | no |
+> | alarm metric | yes | yes | **proactively** | **up↔down transitions** |
+>
+> **An alarm metric has exactly ONE threshold** (`CR-056` §6e, r03) — `alarm ⇒ exactly one threshold`,
+> so an alarm has no amber, and the three-state flag maps onto a single threshold with nothing left
+> over. An alarm declared with two is a registration error.
+>
+> **Deactivation is encoded by ABSENCE only** (`CR-056` §6f, r03). An alarm with no threshold is off. A
+> `0` threshold as a deactivation sentinel was proposed and **withdrawn by Chris** — it duplicates
+> absence, and it burns the most useful floor value there is (*throughput fell to zero*).
+>
+> **Metrics are deactivatable, in two classes** (`CR-056` §6g, r03): **explicit / always-present** —
+> queue size, memory, storage — which are **not** deactivatable and exist unconditionally; and
+> **on-demand** — stage timings, payload sizes, everything else — which are. Deactivation is a config
+> fact in `[observability.telemetry]`, because the cost that matters is the *measurement* and it is paid
+> in the emitting process.
+>
+> **Bidirectional metrics are excluded** (`CR-056` §6h, r03), checked against the metrics named so far
+> rather than assumed, with a stated re-entry test: a `Band { floor, ceiling }` variant would extend the
+> type without touching the two that exist.
+>
+> **Ingest is two-stage and the queue is the outbox** (`CR-056` §5e, r02, amended r03). A broadcast is
+> accepted, **enriched by the daemon with the always-present block from its own registers**, and
+> appended to a raw queue — no payload parse, no per-metric demux. Draining happens on three triggers
+> and there is **no periodic process**: a read, the alarm timer, and the daemon's work queue going
+> empty. The stated invariant: *a pack is in the queue if and only if it has not yet been **offered** to
+> the historian* — offered, not sent, because export is best-effort and the queue is not a delivery
+> guarantee. **Local retention is 2W by construction**; anything older leaves fire-and-forget and is
+> dropped. **We are not the historian; OTel is**, and remote retention is the operator's.
+>
+> **Logging shares the pattern and inverts the retention rule** (`CR-056` §7e, r02): accumulate first,
+> process later, never on the path being observed — but **never discard on age; flush on a bound**,
+> with durability in `daemon.jsonl` (N31's). The flush bound is not inherited from `W`. No new component
+> is required: it is N31's already-committed `tracing` facade configured.
+>
+> **Still tolerances, and still Chris's:** `W`, every threshold value, the debounce, and the log flush
+> bound. Nothing here supplies a number.
+>
+> Open in `CR-056` §9 and named there: losslessness of the broadcast, the drain scope, whether the
+> always-present block's memory is the daemon's or the emitter's, whether that block is also sampled at
+> read, the ingest size cap, whether the bus is needed for logs at all, whether `schema_id` derives from
+> the topic, the burst schema, and **the metric list itself** — `CR-056` fixes the *shape* of a metric,
+> not the set. N8 owns metric names and no registry exists yet.
+
 **No rolling aggregate exists, and the sealed contract currently commits N13 to the opposite.**
 
 N13's *Guarantees*, verbatim (`CONTRACTS.md`:1540):
@@ -195,7 +258,7 @@ All five are `CR-006` §5, owner **N13**, acceptance consumer **`P04-GT996`**:
 | 1 | **Where a stage timing is emitted from** — N13 owns the sink, N38 owns the pipeline; whether stages emit through `emit(metric)` or through N31 tracing spans is unstated, and the two have different costs |
 | 2 | **How the write-path corpus is carried forward "in shape"** — comparability with `processing_timings` is required for the `P04-GT996` beat-legacy gate, but the schema is not fixed |
 | 3 | **The drop counter's contract** — semantics unspecified |
-| 4 | **The resource series' cardinality and retention**, and its reconciliation with the gauge-only guarantee — *the rolling-aggregate question* |
+| 4 | **The resource series' cardinality and retention**, and its reconciliation with the gauge-only guarantee — *the rolling-aggregate question*. ⚠️ **Answered in `CR-056` (`proposed`)**: the reconciliation is §5a, and retention is §5e — **2W locally by construction**, with OTel as the historian and remote retention the operator's |
 | 5 | **What replaces "DLQ size"** in `HealthSignal` — owned by `CR-010` / `ADR-004`, lands on N13's surface |
 
 `CR-006` §6 records that it is *"a build obligation with a named acceptance gate, not a decision
@@ -235,8 +298,8 @@ is not written down in either document.
 
 Registered in the BRIEF REGISTER in the repo-root `handover.md`, and walked before every corpus
 seal: if a change-set touches this brief's named sources — `CONTRACTS.md` §N13 or §N31, `CR-006`,
-`CR-010`/`ADR-004`, `CR-035`, `system.proto`, or `wqm-client` — this file is updated in the same
-change-set (standing, Chris 20260730).
+**`CR-056` (any revision)**, `CR-010`/`ADR-004`, `CR-035`, `system.proto`, or `wqm-client` — this file
+is updated in the same change-set (standing, Chris 20260730).
 
 **Binding authority is `CONTRACTS.md` §N13 and `CR-006`.** A brief is a brief, not a specification;
 if this file and its authority ever disagree, this file is the defect — say so rather than working
