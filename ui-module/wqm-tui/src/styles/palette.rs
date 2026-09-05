@@ -321,7 +321,7 @@ fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
                 kind: Kind::Standard,
                 name: name.to_string(),
                 colour,
-                at: ladder_percent(colour, theme),
+                at: tokens::rung_of(colour, theme),
                 note: note.to_string(),
                 verdict: None,
             }
@@ -358,7 +358,7 @@ fn ladder(theme: &ratatui_themes::ThemePalette) -> Vec<Rung> {
             kind: Kind::Custom,
             name: format!("strong: {}", candidate.label()),
             colour,
-            at: ladder_percent(colour, theme),
+            at: tokens::rung_of(colour, theme),
             note: String::new(),
             verdict: Some(Verdict {
                 body: delta_e(colour, theme.fg),
@@ -520,24 +520,6 @@ fn hex(colour: Color) -> String {
     }
 }
 
-/// Relative luminance, the measure r02 names its rungs in.
-fn luma(colour: Color) -> f32 {
-    match colour {
-        Color::Rgb(r, g, b) => 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32,
-        _ => f32::NAN,
-    }
-}
-
-/// Where a colour falls on **our** ladder, in r02's percentage units.
-///
-/// `NORMAL_RUNG` is 85 by construction — the percentage at which the ladder reaches the
-/// foreground — so `bg` is 0 and `fg` is 85, and anything between reads directly against the rung
-/// numbers. Defined here rather than in `tokens` because it is the *inverse* of the ladder and
-/// only a comparison needs it; a widget reaching for a rung asks for the rung.
-fn ladder_percent(colour: Color, theme: &ratatui_themes::ThemePalette) -> f32 {
-    let (bg, fg) = (luma(theme.bg), luma(theme.fg));
-    85.0 * (luma(colour) - bg) / (fg - bg)
-}
 
 /// What to say when there is no theme in force.
 ///
@@ -869,8 +851,8 @@ mod tests {
         let (mut selection_fits, mut muted_fits, mut total) = (0, 0, 0);
         for name in ratatui_themes::ThemeName::all() {
             let theme = name.palette();
-            let selection = ladder_percent(theme.selection, &theme);
-            let muted = ladder_percent(theme.muted, &theme);
+            let selection = tokens::rung_of(theme.selection, &theme);
+            let muted = tokens::rung_of(theme.muted, &theme);
             selection_fits += (selection > 15.0 && selection < 23.0) as usize;
             muted_fits += (muted > 54.0 && muted < 70.0) as usize;
             total += 1;

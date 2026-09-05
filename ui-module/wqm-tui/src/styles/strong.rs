@@ -51,7 +51,7 @@
 
 use ratatui::style::Color;
 
-use crate::tokens::delta_e;
+use crate::tokens::{NORMAL_RUNG, delta_e, rung_of};
 
 /// The distance from the reserved hues below which a candidate is refused.
 ///
@@ -63,6 +63,18 @@ pub(crate) const RESERVED_FLOOR: f32 = 12.0;
 
 /// How far [`Candidate::Adaptive`] will push toward the accent before giving up.
 const ADAPTIVE_MAX: f32 = 0.55;
+
+/// How finely [`Candidate::Lifted`] searches for the largest affordable tint.
+///
+/// Ten times finer than [`Candidate::Adaptive`]'s 0.05, and the difference is not cosmetic.
+/// `Adaptive` walks a *slope* — its constraint loosens gradually, so a coarse step gives up a
+/// fraction of a ΔE and buys the honesty of "as much accent as this theme can afford".
+/// `Lifted` walks a **cliff**: the gamut scaling that follows the tint means luminance falls
+/// away sharply as `k` rises, so the step size is simply how much tint is discarded at the
+/// edge. Measured on MonokaiPro, the theme with no luminance headroom at all: 0.05 lands
+/// `strong` ΔE 2.7 from body text, 0.01 lands it at 3.7. Same rule, same constraints — the
+/// coarse step was throwing away half the separation for nothing.
+const LIFTED_STEP: f32 = 0.01;
 
 /// The four rules, in the order they were arrived at.
 #[derive(Clone, Copy)]
@@ -78,6 +90,12 @@ pub(crate) enum Candidate {
     /// and what the constraint permits — which is this crate's established answer to "a
     /// preference cannot exceed a limit".
     Adaptive,
+    /// **The fifth rule, and the only one that answers the direction.** `fg` turned toward the
+    /// accent, then the ladder extended past that turned foreground exactly as
+    /// [`Candidate::Extrapolate`] extends it past the plain one — so the result differentiates by
+    /// hue *and* is never darker than the text it has to out-shout. `k` backs off, as in
+    /// [`Candidate::Adaptive`], until both constraints hold.
+    Lifted,
 }
 
 impl Candidate {
@@ -93,6 +111,7 @@ impl Candidate {
             Candidate::Accent(k) if k < 0.45 => "35% accent",
             Candidate::Accent(_) => "55% accent",
             Candidate::Adaptive => "adaptive",
+            Candidate::Lifted => "lifted accent",
         }
     }
 
@@ -116,15 +135,35 @@ impl Candidate {
                 // never touches a hue at all.
                 extrapolated(theme)
             }
+            Candidate::Lifted => {
+                // Largest tint the theme can afford under BOTH constraints. Largest, not
+                // safest: the tint is the whole point, and backing off further than the
+                // constraints require throws away the hue separation that distinguishes this
+                // rule from the one that ships.
+                let mut k = ADAPTIVE_MAX;
+                while k > 0.0 {
+                    let candidate = lifted(theme, k);
+                    if nearest_reserved(candidate, theme) >= RESERVED_FLOOR
+                        && rung_of(candidate, theme) >= NORMAL_RUNG as f32
+                    {
+                        return candidate;
+                    }
+                    k -= LIFTED_STEP;
+                }
+                // `lifted(theme, 0.0)` IS `extrapolated`, so this is where the loop was always
+                // heading rather than a different rule bolted on underneath.
+                extrapolated(theme)
+            }
         }
     }
 }
 
-pub(crate) const CANDIDATES: [Candidate; 4] = [
+pub(crate) const CANDIDATES: [Candidate; 5] = [
     Candidate::Extrapolate,
     Candidate::Accent(0.35),
     Candidate::Accent(0.55),
     Candidate::Adaptive,
+    Candidate::Lifted,
 ];
 
 /// The shipping rule, reproduced here so the frame compares rules rather than call paths.
@@ -132,31 +171,23 @@ pub(crate) const CANDIDATES: [Candidate; 4] = [
 /// It has to be recomputed rather than read from `tokens::strong()` because that answers for
 /// the theme currently in force, and this frame asks the question of all fifteen at once.
 fn extrapolated(theme: &ratatui_themes::ThemePalette) -> Color {
-    let (bg, fg) = (channels(theme.bg), channels(theme.fg));
-    let t = 100.0 / 85.0;
+    lifted(theme, 0.0)
+}
+
+/// The shipping rule's axis, turned toward the accent before it is extended.
+///
+/// `k = 0` is [`extrapolated`] exactly, which is the property that makes this one rule rather
+/// than two: the tint is a parameter of the ladder, not a different ladder.
+fn lifted(theme: &ratatui_themes::ThemePalette, k: f32) -> Color {
+    let bg = channels(theme.bg);
+    let top = channels(mix(theme.fg, theme.accent, k));
+    let t = 100.0 / crate::tokens::NORMAL_RUNG as f32;
     let raw = [
-        bg[0] + (fg[0] - bg[0]) * t,
-        bg[1] + (fg[1] - bg[1]) * t,
-        bg[2] + (fg[2] - bg[2]) * t,
+        bg[0] + (top[0] - bg[0]) * t,
+        bg[1] + (top[1] - bg[1]) * t,
+        bg[2] + (top[2] - bg[2]) * t,
     ];
-    let overreach = (0..3).fold(1.0f32, |worst, i| {
-        let headroom = if raw[i] > 255.0 {
-            255.0 - bg[i]
-        } else {
-            return worst;
-        };
-        if headroom.abs() < f32::EPSILON {
-            worst
-        } else {
-            worst.max((raw[i] - bg[i]) / headroom)
-        }
-    });
-    let scale = |i: usize| {
-        (bg[i] + (raw[i] - bg[i]) / overreach)
-            .round()
-            .clamp(0.0, 255.0) as u8
-    };
-    Color::Rgb(scale(0), scale(1), scale(2))
+    crate::tokens::into_gamut([bg[0] as u8, bg[1] as u8, bg[2] as u8], raw)
 }
 
 /// The nearest of the four hues §3 reserves — the three health states and the selector.
@@ -235,5 +266,108 @@ mod tests {
             nearest_reserved(fixed, &theme) < RESERVED_FLOOR,
             "Everforest no longer collides at k=0.55, so the adaptive rule has nothing to fix"
         );
+    }
+
+    /// **The direction guard.** `strong` is never darker than the text it has to out-shout.
+    ///
+    /// This is the assertion ΔE could not make, and its absence is what let four candidates
+    /// through review: on Everforest the tinted rules measured 13.1 and 20.8 from body text and
+    /// were declared well separated, while sitting at rungs 80 and 77 against `normal` at 85 —
+    /// *dimmer* than the body they were meant to beat. A distance has no direction;
+    /// [`rung_of`] does.
+    #[test]
+    fn the_lifted_rule_is_never_darker_than_the_text_it_must_beat() {
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            let rung = rung_of(Candidate::Lifted.resolve(&theme), &theme);
+            assert!(
+                rung >= NORMAL_RUNG as f32,
+                "{name:?}: lifted `strong` sits at rung {rung:.1}, below `normal` at                  {NORMAL_RUNG} — the loudest rung in the design is dimmer than body text"
+            );
+        }
+    }
+
+    /// And it is legible on **every** theme, including the one the shipping rule disappears on.
+    ///
+    /// The floor is the just-noticeable difference. MonokaiPro is the binding case in both
+    /// directions — its foreground is already near white, so there is no luminance headroom to
+    /// lift into and the tint has to be given up almost entirely: measured ΔE 3.7, against the
+    /// shipping rule's 1.0 on the same theme. Comfortable it is not; visible it is, which is
+    /// more than `Extrapolate` manages there.
+    #[test]
+    fn the_lifted_rule_stays_visible_on_every_theme() {
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            let separation = delta_e(Candidate::Lifted.resolve(&theme), theme.fg);
+            assert!(
+                separation >= 2.3,
+                "{name:?}: lifted `strong` separates from body by only {separation:.1}"
+            );
+        }
+
+        // Named separately because "all fifteen clear the floor" would still pass if the rule
+        // achieved nothing on the theme it exists for.
+        let monokai = ratatui_themes::ThemeName::MonokaiPro.palette();
+        let (lifted_sep, ships_sep) = (
+            delta_e(Candidate::Lifted.resolve(&monokai), monokai.fg),
+            delta_e(Candidate::Extrapolate.resolve(&monokai), monokai.fg),
+        );
+        assert!(
+            lifted_sep > ships_sep * 2.0,
+            "on MonokaiPro the lifted rule separates by {lifted_sep:.1} against the shipping              rule's {ships_sep:.1} — it is meant to fix that theme, not match it"
+        );
+    }
+
+    /// The third constraint still holds: it clears every hue §3 reserves, on every theme.
+    ///
+    /// Everforest is the binding case at ΔE 12.3 against a floor of 12.0, and that tightness is
+    /// by construction rather than luck — the search takes the *largest* affordable tint, so it
+    /// stops exactly where the constraint does.
+    #[test]
+    fn the_lifted_rule_never_lands_on_a_hue_that_is_reserved() {
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            let colour = Candidate::Lifted.resolve(&theme);
+            let reserved = nearest_reserved(colour, &theme);
+            assert!(
+                reserved >= RESERVED_FLOOR || delta_e(colour, extrapolated(&theme)) < 0.5,
+                "{name:?}: lifted landed {reserved:.1} from a reserved hue without falling back                  to the untinted rule"
+            );
+        }
+    }
+
+    /// The falsifier for the direction guard: the rules it replaces really are too dark.
+    ///
+    /// Without this, `the_lifted_rule_is_never_darker_than_the_text_it_must_beat` would pass
+    /// just as well in a world where nothing was ever darker than `normal` — a guard that
+    /// cannot tell "the fix works" from "there was nothing to fix". Everforest is where the
+    /// defect was seen by eye, and it is measured here rather than remembered.
+    #[test]
+    fn the_fixed_accent_mixes_are_darker_than_normal_which_is_what_lifting_answers() {
+        let theme = ratatui_themes::ThemeName::Everforest.palette();
+        for k in [0.35, 0.55] {
+            let rung = rung_of(Candidate::Accent(k).resolve(&theme), &theme);
+            assert!(
+                rung < NORMAL_RUNG as f32,
+                "Everforest's {k} accent mix now sits at rung {rung:.1}, at or above `normal` —                  if the ladder changed, the lifted rule's premise needs re-measuring"
+            );
+        }
+    }
+
+    /// `k = 0` IS the shipping rule, which is what makes this one ladder rather than two.
+    ///
+    /// The claim is load-bearing: it is why the search can fall back to `Extrapolate` without
+    /// bolting a second rule on underneath, and why the tint reads as a parameter of the
+    /// existing ladder rather than a replacement for it.
+    #[test]
+    fn an_untinted_lift_is_exactly_the_rule_that_ships() {
+        for name in ratatui_themes::ThemeName::all() {
+            let theme = name.palette();
+            assert_eq!(
+                lifted(&theme, 0.0),
+                Candidate::Extrapolate.resolve(&theme),
+                "{name:?}: the lifted axis at k = 0 is not the shipping axis"
+            );
+        }
     }
 }

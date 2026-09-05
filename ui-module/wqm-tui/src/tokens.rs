@@ -128,7 +128,7 @@ pub const ENDPOINT_FALLBACK: Endpoints = Endpoints {
 /// `cursor_mark` 20 luma against the [`Palette::Indexed`] ramp — the gap Chris saw as "not
 /// as good as Indexed" (20260730). Anchoring here restores it and lets `strong` extrapolate
 /// *past* the foreground, which is what a rung above the baseline has to do.
-const NORMAL_RUNG: u8 = 85;
+pub(crate) const NORMAL_RUNG: u8 = 85;
 
 static ENDPOINTS: RwLock<Endpoints> = RwLock::new(ENDPOINT_FALLBACK);
 
@@ -387,14 +387,7 @@ fn anchors(theme: &ThemePalette) -> [(f32, [u8; 3]); 4] {
         Some(rgb) => [rgb.r, rgb.g, rgb.b],
         None => [0, 0, 0],
     };
-    let at = |colour: Color| {
-        let (bg, fg) = (luminance(theme.bg), luminance(theme.fg));
-        if (fg - bg).abs() < f32::EPSILON {
-            0.0
-        } else {
-            NORMAL_RUNG as f32 * (luminance(colour) - bg) / (fg - bg)
-        }
-    };
+    let at = |colour: Color| rung_of(colour, theme);
     [
         (0.0, channels(theme.bg)),
         (at(theme.selection), channels(theme.selection)),
@@ -408,6 +401,29 @@ fn luminance(colour: Color) -> f32 {
     match Rgb::from_color(colour) {
         Some(rgb) => 0.2126 * rgb.r as f32 + 0.7152 * rgb.g as f32 + 0.0722 * rgb.b as f32,
         None => 0.0,
+    }
+}
+
+/// Where a colour sits on r02's ladder — **measured**, not assumed.
+///
+/// `bg` is 0 and `fg` is [`NORMAL_RUNG`] by definition, and everything else lands wherever its
+/// luminance puts it. This is the unit the design names its rungs in, so it is also the unit a
+/// question like *"is this brighter than `normal`?"* has to be asked in.
+///
+/// Extracted because it was written out three times — inside [`anchors`], inside a test, and a
+/// fourth time it was about to be written in [`crate::styles::strong`]. A measure with three
+/// copies is a measure that can disagree with itself.
+///
+/// ⚠ **This has a direction and [`delta_e`] does not**, which is the whole reason it is here.
+/// ΔE said the accent-tinted `strong` candidates were well clear of body text; they sit at rungs
+/// 80 and 77 against `normal` at 85, i.e. *darker* than the text they have to out-shout. A
+/// distance cannot express "brighter than".
+pub(crate) fn rung_of(colour: Color, theme: &ThemePalette) -> f32 {
+    let (bg, fg) = (luminance(theme.bg), luminance(theme.fg));
+    if (fg - bg).abs() < f32::EPSILON {
+        0.0
+    } else {
+        NORMAL_RUNG as f32 * (luminance(colour) - bg) / (fg - bg)
     }
 }
 
@@ -430,7 +446,7 @@ fn luminance(colour: Color) -> f32 {
 /// whole offset from the base is scaled back by the largest overshoot, so the result is the
 /// brightest colour still on that line and in gamut. A theme whose foreground is already near
 /// white loses almost nothing (Dracula ΔE 1.5); a tinted one keeps its tint.
-fn into_gamut(base: [u8; 3], raw: [f32; 3]) -> Color {
+pub(crate) fn into_gamut(base: [u8; 3], raw: [f32; 3]) -> Color {
     // How far each channel wanted to travel, and how far it *could* before hitting the wall it
     // is heading for. The ratio of the two is how much this channel overreached; the largest
     // of the three is how far back the whole offset has to be scaled.
@@ -627,11 +643,7 @@ fn a_rung_at_an_anchors_position_lands_on_that_anchor() {
     let theme = ratatui_themes::ThemeName::Dracula.palette();
     set_theme(theme);
 
-    let at = |colour: Color| {
-        let (bg, fg) = (luminance(theme.bg), luminance(theme.fg));
-        NORMAL_RUNG as f32 * (luminance(colour) - bg) / (fg - bg)
-    };
-    let position = at(theme.muted).round() as u8;
+    let position = rung_of(theme.muted, &theme).round() as u8;
 
     let curved = neutral(position);
     let chord = along_chord(
