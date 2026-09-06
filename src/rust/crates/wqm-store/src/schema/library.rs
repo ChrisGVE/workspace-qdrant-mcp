@@ -73,3 +73,49 @@ CREATE TABLE IF NOT EXISTS lib_keywords (
 );
 CREATE INDEX IF NOT EXISTS ix_lib_keywords_keyword ON lib_keywords(keyword);
 "#;
+
+/// The reference graph — one row per citation, resolved or not.
+///
+/// Raw reference fields are per-kind and sparse-tolerant: a book row fills
+/// `title`/`author`/`section`/`year`/`isbn`, an article row
+/// `publication`/`ref`/`page`, a website row `url`. They share one table because a
+/// reference's kind is data, not a schema decision.
+///
+/// The two document references differ in their delete rule, and the difference is
+/// the design. `src_doc` — the CITING document — cascades: a reference has no
+/// meaning without the document that made it. `resolved_doc` — the resolution
+/// TARGET — is `ON DELETE SET NULL`: deleting the cited document does not delete
+/// the citation, it *unresolves* it, returning the row to the orphan wait-set it
+/// came from.
+///
+/// That wait-set is the partial index: a reference is pending **iff**
+/// `resolved_doc IS NULL`, so `ix_lib_references_orphan` indexes exactly the rows
+/// awaiting resolution and shrinks as they resolve. A full index on `norm_key`
+/// would answer the same query and carry every resolved row forever.
+pub const LIB_REFERENCES_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS lib_references (
+    ref_id                INTEGER PRIMARY KEY,
+    src_doc               INTEGER NOT NULL
+                            REFERENCES items_libraries(item_id) ON DELETE CASCADE,
+    kind                  TEXT NOT NULL,
+    title                 TEXT,
+    author                TEXT,
+    section               TEXT,
+    year                  INTEGER,
+    isbn                  TEXT,
+    publication           TEXT,
+    ref                   TEXT,
+    page                  TEXT,
+    url                   TEXT,
+    norm_key              BLOB,
+    resolved_doc          INTEGER
+                            REFERENCES items_libraries(item_id) ON DELETE SET NULL,
+    resolution_method     TEXT,
+    resolution_confidence REAL,
+    ambiguous             INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_lib_references_orphan
+    ON lib_references(norm_key) WHERE resolved_doc IS NULL;
+CREATE INDEX IF NOT EXISTS ix_lib_references_resolved ON lib_references(resolved_doc);
+CREATE INDEX IF NOT EXISTS ix_lib_references_src ON lib_references(src_doc);
+"#;
