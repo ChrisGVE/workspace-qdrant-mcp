@@ -119,3 +119,21 @@ CREATE INDEX IF NOT EXISTS ix_lib_references_orphan
 CREATE INDEX IF NOT EXISTS ix_lib_references_resolved ON lib_references(resolved_doc);
 CREATE INDEX IF NOT EXISTS ix_lib_references_src ON lib_references(src_doc);
 "#;
+
+/// Source precedence — two columns, no index, and both of those are decisions.
+///
+/// The row carries no tenant, collection or document key because precedence is a
+/// property of the *source* (`arxiv`, `doi`, `isbn`, `url`), cutting across the
+/// whole reference graph. A scope column would make precedence answerable
+/// differently in two places, which is the one thing a precedence table must not
+/// permit.
+///
+/// No secondary index, deliberately: the table is tiny and is read by full scan
+/// whenever candidate sources must be ordered. The ordering convention that `rank`
+/// expresses — ascending or descending — is P02 detail and is not decided here.
+pub const REF_SOURCE_AUTHORITY_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS ref_source_authority (
+    source  TEXT PRIMARY KEY,
+    rank    INTEGER NOT NULL
+);
+"#;
