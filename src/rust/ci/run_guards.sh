@@ -23,12 +23,13 @@ guards=(
 	# fixtures. A guard that has never failed is indistinguishable from one that
 	# cannot fail -- and most guards above are still vacuous on this workspace,
 	# so their PASS lines rest entirely on these (P04-GT001-WO005).
-	"selftest_link_closure.py"     # 14 cases over the N14 guard's 4 directions
-	"selftest_stratification.py"   # 10 cases -- up-edges, same-level edges, exemption
-	"selftest_codesize.py"         # 9 cases -- both limits, and the literal stripping
-	"selftest_no_skipped_tests.py" # 9 cases -- and that PROSE about the ban is legal
-	"selftest_name_registry.py"    # 12 cases -- and that PROSE quoting a name is legal
-	"selftest_gate_skips.py"       # 9 cases over the skip-set gate, both directions
+	"selftest_link_closure.py"      # 14 cases over the N14 guard's 4 directions
+	"selftest_stratification.py"    # 10 cases -- up-edges, same-level edges, exemption
+	"selftest_codesize.py"          # 9 cases -- both limits, and the literal stripping
+	"selftest_no_skipped_tests.py"  # 9 cases -- and that PROSE about the ban is legal
+	"selftest_name_registry.py"     # 12 cases -- and that PROSE quoting a name is legal
+	"selftest_mac_single_setter.py" # 10 cases -- and that PROSE quoting the anchor is legal
+	"selftest_gate_skips.py"        # 9 cases over the skip-set gate, both directions
 )
 
 # `gate_skips.py` itself is NOT in the list above, and the omission is deliberate.
