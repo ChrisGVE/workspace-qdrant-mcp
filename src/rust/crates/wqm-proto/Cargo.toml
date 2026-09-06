@@ -1,7 +1,8 @@
-# wqm-proto -- N24 gRPC contract: the proto SoT + generated code + the `Address`
-# enum (ARCH §9.1). Generated code only, no wqm-crate dependencies, so it stays
-# linkable by every surface. (An earlier comment credited these to "N13 proto
-# definitions" -- N13 is observability; N24 owns the proto SoT, ARCH rev15 §9.1.)
+# wqm-proto -- N24 gRPC contract: the proto SoT + generated code + the
+# `TransportAddress` enum (ARCH §9.1). Generated code only, no wqm-crate
+# dependencies, so it stays linkable by every surface. (An earlier comment
+# credited these to "N13 proto definitions" -- N13 is observability; N24 owns the
+# proto SoT, ARCH rev15 §9.1.)
 #
 # P04-GT001-WO011 brings forward the one service the walking skeleton crosses;
 # N24's own slice (P04-GT011) adds the rest. Codegen runs at build time from

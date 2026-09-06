@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use wqm_proto::Address;
+use wqm_proto::TransportAddress;
 use wqm_serve::DaemonFacts;
 
 /// Exit code for a surface that parsed a valid request it cannot yet serve.
@@ -77,7 +77,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let address = Address::Uds(socket);
+    let address = TransportAddress::Uds(socket);
     let facts = DaemonFacts::starting_now(env!("CARGO_PKG_VERSION"));
 
     // Announced on stderr before the loop starts, so a supervisor (or a test)

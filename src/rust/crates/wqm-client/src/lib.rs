@@ -25,7 +25,7 @@ use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint};
 use wqm_proto::v1::system_service_client::SystemServiceClient;
 use wqm_proto::v1::{daemon_health, StatusRequest};
-use wqm_proto::Address;
+use wqm_proto::TransportAddress;
 
 /// How long to wait for a connection before calling the daemon unreachable.
 ///
@@ -141,13 +141,13 @@ pub struct IndexState {
 /// started or stopped between calls is observed rather than cached.
 #[derive(Debug, Clone)]
 pub struct Client {
-    address: Address,
+    address: TransportAddress,
 }
 
 impl Client {
     /// A client aimed at `address`. Nothing is dialed here -- construction cannot
     /// fail, and reachability is reported by the call that needs it.
-    pub fn new(address: Address) -> Self {
+    pub fn new(address: TransportAddress) -> Self {
         Client { address }
     }
 
@@ -218,7 +218,7 @@ impl Client {
             .connect_timeout(CONNECT_TIMEOUT);
 
         match &self.address {
-            Address::Uds(path) => {
+            TransportAddress::Uds(path) => {
                 let path = path.clone();
                 endpoint
                     .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
@@ -230,7 +230,7 @@ impl Client {
                     .await
                     .map_err(|_| ConnectFailure::Unreachable)
             }
-            Address::Tcp(_) => endpoint
+            TransportAddress::Tcp(_) => endpoint
                 .connect()
                 .await
                 .map_err(|_| ConnectFailure::Unreachable),

@@ -27,7 +27,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use wqm_client::Client;
-use wqm_proto::Address;
+use wqm_proto::TransportAddress;
 
 /// Exit code for a surface that parsed a valid request it cannot yet serve.
 const EXIT_NOT_YET_AVAILABLE: i32 = 3;
@@ -88,7 +88,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    let client = Client::new(Address::Uds(socket));
+    let client = Client::new(TransportAddress::Uds(socket));
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 

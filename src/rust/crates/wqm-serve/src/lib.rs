@@ -1,7 +1,7 @@
 //! wqm-serve -- N48, the daemon's serving surface (ARCH rev15 §9.1).
 //!
 //! `P04-GT001-WO011` seeds this crate with the two things the walking skeleton
-//! needs: a serve loop that binds N24's [`Address`], and the `SystemService`
+//! needs: a serve loop that binds N24's [`TransportAddress`], and the `SystemService`
 //! implementation behind it. N48's own slice (`P04-GT054`) adds the interceptor,
 //! the ProxiedRead lanes, supervision, slow-burn and the N33 mint half.
 //!
@@ -22,7 +22,7 @@ use tokio_stream::wrappers::{TcpListenerStream, UnixListenerStream};
 use tonic::{Request, Response, Status};
 use wqm_proto::v1::system_service_server::{SystemService, SystemServiceServer};
 use wqm_proto::v1::{daemon_health, DaemonHealth, StatusRequest, StatusResponse};
-use wqm_proto::Address;
+use wqm_proto::TransportAddress;
 
 /// Why a serve loop could not start, or stopped.
 #[derive(Debug, thiserror::Error)]
@@ -117,7 +117,11 @@ impl SystemService for SystemSurface {
 /// A Unix socket is created with mode 0600 (ARCH rev15 §9.1's "UDS-0600 default")
 /// and removed when the loop ends, so a clean shutdown leaves no path for the next
 /// start to trip over.
-pub async fn serve<F>(address: &Address, facts: DaemonFacts, shutdown: F) -> Result<(), ServeError>
+pub async fn serve<F>(
+    address: &TransportAddress,
+    facts: DaemonFacts,
+    shutdown: F,
+) -> Result<(), ServeError>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
@@ -125,7 +129,7 @@ where
     let server = tonic::transport::Server::builder().add_service(service);
 
     match address {
-        Address::Uds(path) => {
+        TransportAddress::Uds(path) => {
             let listener = bind_uds(path)?;
             let result = server
                 .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown)
@@ -135,11 +139,11 @@ where
             let _ = std::fs::remove_file(path);
             result.map_err(ServeError::from)
         }
-        Address::Tcp(addr) => {
+        TransportAddress::Tcp(addr) => {
             let listener = TcpListener::bind(addr)
                 .await
                 .map_err(|source| ServeError::Listen {
-                    address: addr.clone(),
+                    address: addr.to_string(),
                     source,
                 })?;
             server
