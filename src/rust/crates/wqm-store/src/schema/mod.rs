@@ -59,6 +59,7 @@
 pub mod cas;
 pub mod classification;
 pub mod files;
+pub mod library;
 
 /// The scratchpad SoT table, its FTS5 derived index, and the triggers that keep
 /// the two in agreement. Idempotent — every object is `IF NOT EXISTS`.
