@@ -110,3 +110,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_doc_primary
     ON doc_classification(document_id, round) WHERE is_primary;
 CREATE INDEX IF NOT EXISTS ix_doc_classification_doc ON doc_classification(document_id);
 "#;
+
+/// The curation ledger — the user-authored decisions that survive reinduction.
+///
+/// Exactly one target is set, and the `CHECK` says so with `<>` over two
+/// `IS NOT NULL` tests: a category-scoped op sets `target_category_key`, a
+/// document-scoped `override` sets `target_document_id`, and neither an
+/// untargeted nor a doubly-targeted decision can be stored.
+///
+/// Targets are the **lineage key**, not a per-round `category_id`, so a decision
+/// stays valid across reinduction by construction rather than by a migration step
+/// that has to find and rewrite it.
+///
+/// `authored_by` is server-stamped and never caller-supplied. The column cannot
+/// enforce that — the writer does — but the fragment states it as the column's
+/// contract, so it is stated here rather than left to be rediscovered from the
+/// write path.
+pub const CURATION_DECISION_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS curation_decision (
+    decision_id         INTEGER PRIMARY KEY,
+    target_category_key BLOB,
+    target_document_id  INTEGER,
+    op                  TEXT NOT NULL,
+    payload             TEXT NOT NULL,
+    authored_by         TEXT NOT NULL,
+    created_at          INTEGER NOT NULL,
+    CHECK ((target_category_key IS NOT NULL) <> (target_document_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS ix_curation_decision_category ON curation_decision(target_category_key);
+CREATE INDEX IF NOT EXISTS ix_curation_decision_document ON curation_decision(target_document_id);
+"#;
+
+/// The `op` values a curation decision may carry, as the fragment lists them.
+///
+/// This is a documented value set, **not** a Rust enum. Minting a closed enum for
+/// it would be occupying vocabulary — the exact interference `P04-GT002`'s scope
+/// boundary exists to avoid — and the fragment declares a `TEXT` column, not a
+/// type. Stated as a constant so the set is greppable and a later type has a
+/// citable source.
+pub const CURATION_DECISION_OPS: [&str; 5] = ["freeze", "rename", "merge", "split", "override"];
