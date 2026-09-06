@@ -2798,6 +2798,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "wqm-secrets"
+version = "0.2.0"
+
+[[package]]
 name = "wqm-serve"
 version = "0.2.0"
 dependencies = [

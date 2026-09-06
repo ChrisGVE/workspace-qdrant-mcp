@@ -1,0 +1,27 @@
+# wqm-secrets -- N26 credential resolution: the `SecretResolver` port (`A-if-N26`)
+# and its adapters -- env (`C-adp-N26-env`), Keychain, and environment-file. The
+# `Secret` VALUE type is NOT here: it lives in `wqm-common` (`A-secret`), because
+# every crate that handles a resolved credential needs the zeroizing newtype while
+# only this crate needs the resolution machinery.
+#
+# ARCH rev15 §9.1 puts this crate at stratum 1, with a wqm-closure of exactly
+# {wqm-common} -- so the only wqm dependency it will ever declare is that one.
+#
+# No dependencies are declared yet, and the absence is the point: nothing this
+# crate ships today uses one, and an unused dependency is a claim the code does not
+# make (it would also assert the §9.1 edge before any code walks it). `wqm-common`
+# arrives with the first row that names `Secret` or `SecretId` -- the port trait
+# `A-if-N26` at `P04-GT002-WO068`, or whichever row lands first.
+#
+# Declared at `P04-GT002-WO057` (`C-adp-N26-env`); contents grow per work order,
+# and `mesh/program.db` is the tracker.
+[package]
+name = "wqm-secrets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
