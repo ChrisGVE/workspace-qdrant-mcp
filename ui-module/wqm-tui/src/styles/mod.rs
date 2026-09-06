@@ -38,6 +38,7 @@
 //! than part of it, and the section is what keeps the two readings apart; [`palette`] and
 //! [`typography`] carry no section, which is what puts them beside the TOML groups.
 
+pub mod categorical;
 pub mod palette;
 pub mod palette_reference;
 pub mod strong;

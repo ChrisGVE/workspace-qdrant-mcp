@@ -9,6 +9,7 @@
 
 #[cfg(feature = "png-capture")]
 pub mod capture;
+pub mod categorical;
 pub mod encoding;
 pub mod health;
 pub mod names;
@@ -66,6 +67,7 @@ mod tier {
         // Styles, unsectioned — the vocabulary itself. `pantry.toml` no longer contributes any
         // colour groups (Chris, 20260801), so these two ARE the Styles tab's product half.
         for module in [
+            crate::styles::categorical::ingredient::ingredients(),
             crate::styles::palette::ingredient::ingredients(),
             crate::styles::typography::ingredient::ingredients(),
         ] {
