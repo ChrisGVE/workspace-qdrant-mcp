@@ -432,6 +432,18 @@ mod tests {
         (0..buf.area.height).map(|y| row(buf, y)).collect()
     }
 
+    /// Whether any cell in the frame is painted a stated hue.
+    ///
+    /// The RAG is one disc in three colours since 20260906, so a claim about *state* can no
+    /// longer be made against the glyph: `Healthy.glyph()` and `Offline.glyph()` are the same
+    /// string. The hue is the channel that carries it, so the hue is what the assertions read.
+    fn paints(buf: &Buffer, colour: ratatui::style::Color) -> bool {
+        (0..buf.area.height).any(|y| {
+            (0..buf.area.width)
+                .any(|x| buf.cell((x, y)).expect("cell in area").style().fg == Some(colour))
+        })
+    }
+
     /// The cell and the band it drills into cannot be given different federations, because they
     /// take the same argument — and the cell's own rollup is the screen's.
     ///
@@ -468,7 +480,7 @@ mod tests {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
-        let serving = lines(&render_at(
+        let serving_buf = render_at(
             StorageCell::new(
                 frames::stores(Health::Healthy),
                 frames::serving(),
@@ -476,9 +488,8 @@ mod tests {
                 Attention::None,
             ),
             geometry::THREE_WIDE,
-        ))
-        .join("\n");
-        let down = lines(&render_at(
+        );
+        let down_buf = render_at(
             StorageCell::new(
                 frames::stores(Health::Healthy),
                 frames::unreachable(),
@@ -486,19 +497,20 @@ mod tests {
                 Attention::None,
             ),
             geometry::THREE_WIDE,
-        ))
-        .join("\n");
+        );
+        let down = lines(&down_buf).join("\n");
 
         assert!(
-            serving.contains(Health::Healthy.glyph()),
-            "the healthy glyph is drawn when the master is answering: {serving:?}"
+            paints(&serving_buf, tokens::healthy()),
+            "the healthy hue is painted when the master is answering: {:?}",
+            lines(&serving_buf)
         );
         assert!(
-            !down.contains(Health::Healthy.glyph()),
-            "a reading nobody has must not be shown as good: {down:?}"
+            !paints(&down_buf, tokens::healthy()),
+            "a reading nobody has must not be painted as good: {down:?}"
         );
         assert!(
-            down.contains(Health::Offline.glyph()),
+            paints(&down_buf, tokens::offline()),
             "the master's own state is what the cell says instead: {down:?}"
         );
         // The roles stay named — the cell says what it is not reporting on, rather than
@@ -537,6 +549,12 @@ mod tests {
             tail.trim(),
             format!("+{} more {}", total - shown, Health::Degraded.glyph()),
             "the tail names the count and the worst hidden state: {rendered:?}"
+        );
+        // The disc alone no longer says WHICH state, so the hue has to be read as well —
+        // without this, an overflow line that painted the worst state green would still pass.
+        assert!(
+            paints(&buf, tokens::degraded()),
+            "the tail's mark carries the worst hidden state's hue: {rendered:?}"
         );
         // And the hidden rows really are hidden — otherwise the tail is decorative.
         assert!(

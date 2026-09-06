@@ -452,8 +452,18 @@ mod tests {
         let buf = render(frames::queue_degraded(), 125, 34);
         let line = row(&buf, TOP_RULE_ROW + 1);
         assert!(
-            line.starts_with(&format!("{}{}", " ".repeat(2), Health::Degraded.glyph())),
-            "the roll-up glyph follows the parts: {line:?}"
+            line.starts_with(&format!("{}{}", " ".repeat(MARGIN as usize), tokens::DISC)),
+            "the roll-up is a disc at the content margin: {line:?}"
+        );
+        // Since 20260906 the RAG is one disc in three hues, so the STATE is only readable off
+        // the colour — a mark-only assertion here would pass against a green roll-up.
+        assert_eq!(
+            buf.cell((MARGIN, TOP_RULE_ROW + 1))
+                .expect("cell in area")
+                .style()
+                .fg,
+            Some(Health::Degraded.color()),
+            "the roll-up hue follows the parts: {line:?}"
         );
     }
 }

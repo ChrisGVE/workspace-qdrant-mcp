@@ -1075,10 +1075,37 @@ pub enum Health {
     Offline,
 }
 
+/// The one mark a RAG state is drawn with (Chris, 20260906: *"I've asked not to use other
+/// symbol than the disc for the RAG."*).
+///
+/// §4 shipped a three-shape ladder — `● ▲ ○` — so that state survived a colourless terminal.
+/// It cost something on every *other* terminal: three different marks in a column read as
+/// three different kinds of thing, when they are one thing in three states. The hue already
+/// says which, so the shape is spent on nothing.
+pub const DISC: &str = "●";
+
 impl Health {
-    /// §4 glyph table. Shape carries the state as well as hue, so the encoding survives
-    /// `NO_COLOR` and the low colour depths (UX-06).
-    pub const fn glyph(self) -> &'static str {
+    /// The mark for this state: [`DISC`] wherever the stream can carry a hue, and the old
+    /// shape ladder where it cannot.
+    ///
+    /// The fallback is not a leftover — it is the whole reason the ladder was there. Under
+    /// [`Family::None`] every [`Health::color`] resolves to `Color::Reset`, so one disc for
+    /// all three states would say precisely nothing, and §3's *"structural signature first"*
+    /// is the only channel left. See [`Health::shape`].
+    pub fn glyph(self) -> &'static str {
+        match family() {
+            Family::None => self.shape(),
+            _ => DISC,
+        }
+    }
+
+    /// §4's original glyph table — the shape ladder, unconditionally.
+    ///
+    /// Kept and named rather than inlined into the fallback above because it is a claim about
+    /// the *design*, not about a terminal: these are the three marks that carry Healthy,
+    /// Degraded and Offline when nothing else can, and a caller that genuinely needs the
+    /// distinction without asking the encoding should be able to say so out loud.
+    pub const fn shape(self) -> &'static str {
         match self {
             Health::Healthy => "●",
             Health::Degraded => "▲",
@@ -1244,6 +1271,42 @@ mod tests {
             "an inverted block must survive as reverse video or the selector vanishes"
         );
         assert_ne!(Health::Healthy.glyph(), Health::Offline.glyph());
+    }
+
+    /// Chris, 20260906: *"I've asked not to use other symbol than the disc for the RAG."*
+    ///
+    /// So where the stream can carry a hue, the hue is the entire signal and all three states
+    /// are one disc. The shape ladder survives only under an encoding that refuses colour,
+    /// where a single `●` would say nothing at all — which is the case the test below covers
+    /// and the reason [`Health::shape`] still exists.
+    #[test]
+    fn the_rag_is_one_disc_wherever_colour_can_carry_the_state() {
+        let _serial = crate::global_state_lock();
+
+        for encoding in [Encoding::Ansi16, Encoding::Ansi256, Encoding::TrueColor] {
+            let _restore = Restore::set(Palette::Bundled, encoding);
+            for health in [Health::Healthy, Health::Degraded, Health::Offline] {
+                assert_eq!(
+                    health.glyph(),
+                    DISC,
+                    "{health:?} is not a disc under {}",
+                    encoding.label()
+                );
+            }
+            // The hue is doing the work, so the three must still differ from each other.
+            assert_ne!(Health::Healthy.color(), Health::Offline.color());
+        }
+    }
+
+    /// The fallback, and the only place three shapes are still drawn.
+    #[test]
+    fn an_encoding_that_refuses_colour_gets_the_shape_ladder_back() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::NoColor);
+
+        assert_eq!(Health::Healthy.glyph(), "●");
+        assert_eq!(Health::Degraded.glyph(), "▲");
+        assert_eq!(Health::Offline.glyph(), "○");
     }
 
     #[test]
