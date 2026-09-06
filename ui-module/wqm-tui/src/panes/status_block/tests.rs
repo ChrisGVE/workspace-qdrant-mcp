@@ -48,16 +48,28 @@ fn style_of(buf: &Buffer, y: u16, needle: &str) -> Style {
     buf.cell((x, y)).expect("cell in area").style()
 }
 
-/// The style of the first cell AFTER a label — how a count is reached without spelling the
-/// count. `find("2")` would land inside `123`, which is a different span with a different
-/// hue, and the test would be measuring the wrong cell while looking correct.
-fn style_after(buf: &Buffer, y: u16, label: &str) -> Style {
+/// The style of count `i` on the queue row, reached by ARITHMETIC rather than by searching
+/// for its digits.
+///
+/// A count is right-aligned so its last character sits exactly on the field's right edge,
+/// which the constants put one cell left of column `i + 1`'s glyph position. Searching for the
+/// digits instead would land inside a neighbouring number — `find("2")` hits the `2` in `123`,
+/// a different span with a different hue, and the test measures the wrong cell while looking
+/// perfectly correct.
+/// The column a needle starts on, counted in CHARACTERS — the mistake this crate has made
+/// once already.
+fn column_of(buf: &Buffer, y: u16, needle: &str) -> u16 {
     let line = row(buf, y);
     let byte = line
-        .find(label)
-        .unwrap_or_else(|| panic!("{label:?} not on row {y}: {line:?}"));
-    let x = (line[..byte].chars().count() + label.chars().count()) as u16;
-    buf.cell((x, y)).expect("cell in area").style()
+        .find(needle)
+        .unwrap_or_else(|| panic!("{needle:?} not on row {y}: {line:?}"));
+    line[..byte].chars().count() as u16
+}
+
+fn count_style(buf: &Buffer, width: u16, i: usize) -> Style {
+    let column = (width - MARGIN * 2) / ENTRY_LABELS.len() as u16;
+    let x = MARGIN + column * (i as u16 + 1) - 1;
+    buf.cell((x, QUEUE_ROW)).expect("cell in area").style()
 }
 
 /// The INTERIM roll-up, checked against the rule as stated rather than against §7's.
@@ -117,11 +129,11 @@ fn a_queue_count_of_zero_is_muted_and_a_count_of_anything_is_not() {
     let _restore = Restore::dark_truecolor();
 
     let idle = render(block(), WIDE, ROWS_FULL);
-    for label in [PENDING, IN_PROGRESS, FAILED] {
+    for (i, label) in QUEUE_LABELS.iter().enumerate() {
         assert_eq!(
-            style_after(&idle, QUEUE_ROW, label).fg,
+            count_style(&idle, WIDE, i).fg,
             Some(tokens::muted()),
-            "{label}0 is not news"
+            "a {label} count of zero is not news"
         );
     }
 
@@ -136,17 +148,17 @@ fn a_queue_count_of_zero_is_muted_and_a_count_of_anything_is_not() {
         ROWS_FULL,
     );
     assert_eq!(
-        style_after(&busy, QUEUE_ROW, PENDING).fg,
+        count_style(&busy, WIDE, 0).fg,
         Some(tokens::degraded()),
         "work waiting is the warning hue"
     );
     assert_eq!(
-        style_after(&busy, QUEUE_ROW, IN_PROGRESS).fg,
+        count_style(&busy, WIDE, 1).fg,
         Some(tokens::secondary()),
         "work moving is `secondary` — NOT `info`, which §3 reserves to the selector"
     );
     assert_eq!(
-        style_after(&busy, QUEUE_ROW, FAILED).fg,
+        count_style(&busy, WIDE, 2).fg,
         Some(tokens::offline()),
         "work that failed is the error hue"
     );
@@ -169,6 +181,119 @@ fn the_four_entries_stand_on_an_even_grid() {
             at,
             MARGIN + column * i as u16 + 2,
             "{label} is off its column"
+        );
+    }
+}
+
+/// Row 3's labels stand on row 2's columns — the whole point of the change (Chris, 20260906,
+/// after seeing the block in the pantry).
+///
+/// Both rows are checked against the SAME stated expression rather than against each other: a
+/// test that read row 2's label positions out of the buffer and compared row 3's to them would
+/// pass just as happily if both rows had drifted together.
+#[test]
+fn the_queue_labels_stand_on_the_columns_the_entry_labels_stand_on() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(block(), WIDE, ROWS_FULL);
+    let column = (WIDE - MARGIN * 2) / ENTRY_LABELS.len() as u16;
+
+    for (i, label) in QUEUE_LABELS.iter().enumerate() {
+        // Column i + 1: the queue's own glyph and word occupy column 0.
+        let want = MARGIN + column * (i as u16 + 1) + 2;
+        assert_eq!(column_of(&buf, QUEUE_ROW, label), want, "{label} is off its column");
+        assert_eq!(
+            column_of(&buf, ENTRIES_ROW, ENTRY_LABELS[i + 1]),
+            want,
+            "{} moved, so the row below it is aligned to nothing",
+            ENTRY_LABELS[i + 1]
+        );
+    }
+}
+
+/// A count is right-aligned into the slack of the column to its LEFT, ending one cell short of
+/// its own column's glyph position — so the digits grow away from the label they belong to and
+/// the label never moves.
+#[test]
+fn a_count_ends_one_cell_left_of_its_own_columns_glyph() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(
+        block().queue(Queue {
+            pending: 1_240,
+            in_progress: 8,
+            failed: 3,
+            health: Health::Degraded,
+        }),
+        WIDE,
+        ROWS_FULL,
+    );
+    let column = (WIDE - MARGIN * 2) / ENTRY_LABELS.len() as u16;
+    let line = row(&buf, QUEUE_ROW);
+    let chars: Vec<char> = line.chars().collect();
+
+    for (i, drawn) in ["1 240", "8", "3"].iter().enumerate() {
+        let glyph_column = MARGIN + column * (i as u16 + 1);
+        let end = (glyph_column - 1) as usize;
+        let start = end + 1 - drawn.chars().count();
+        let read: String = chars[start..=end].iter().collect();
+        assert_eq!(&read, drawn, "count {i} does not end at the glyph column - 1: {line:?}");
+        assert_eq!(chars[end + 1], ' ', "the glyph column itself stays empty on row 3");
+    }
+}
+
+/// Chris's standing rule for an isolated number: grouped in threes, with a PLAIN space.
+///
+/// Plain, not thin or narrow: those are not width-1 in every terminal, and a separator that
+/// changes width changes the column a right-aligned number ends on.
+#[test]
+fn a_count_is_grouped_in_threes_with_a_plain_space() {
+    assert_eq!(grouped(0), "0");
+    assert_eq!(grouped(999), "999");
+    assert_eq!(grouped(1_240), "1 240");
+    assert_eq!(grouped(9_999_999), "9 999 999");
+    assert_eq!(
+        grouped(9_999_999).chars().count() as u16,
+        COUNT_WIDTH,
+        "COUNT_WIDTH is the width of the widest count the field is sized for"
+    );
+    assert!(
+        !grouped(1_240).contains('\u{202f}') && !grouped(1_240).contains('\u{2009}'),
+        "the separator is a plain space, not a narrow or thin one"
+    );
+}
+
+/// The reason `MIN_COLUMN` had to grow: at the narrowest aligned width, a full-width count
+/// must still clear the label of the column it spills into.
+#[test]
+fn the_widest_count_still_clears_the_previous_columns_label() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let exact = MARGIN * 2 + MIN_COLUMN * ENTRY_LABELS.len() as u16;
+    let buf = render(
+        block().queue(Queue {
+            pending: 9_999_999,
+            in_progress: 9_999_999,
+            failed: 9_999_999,
+            health: Health::Degraded,
+        }),
+        exact,
+        ROWS_FULL,
+    );
+    let chars: Vec<char> = row(&buf, QUEUE_ROW).chars().collect();
+
+    for (i, _) in QUEUE_LABELS.iter().enumerate() {
+        // The cell immediately left of the widest count must be blank, or the count has run
+        // into the word before it.
+        let start = (MARGIN + MIN_COLUMN * (i as u16 + 1) - COUNT_WIDTH) as usize;
+        assert_eq!(
+            chars[start - 1],
+            ' ',
+            "count {i} touches the label to its left at the narrowest aligned width: {:?}",
+            row(&buf, QUEUE_ROW)
         );
     }
 }

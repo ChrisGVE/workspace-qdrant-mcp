@@ -41,8 +41,8 @@
 
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
-    style::{Modifier, Style},
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -59,27 +59,62 @@ use crate::widgets::chrome::{inset, Freshness, Rule, MARGIN};
 /// from the words themselves rather than remembered.
 pub const ENTRY_LABELS: [&str; 4] = ["daemon", "vector db", "graph db", "search db"];
 
-/// The widest label, in columns. ASCII by construction, so bytes and columns agree; a label
-/// with a non-ASCII character would need `Span::width` and a runtime constant.
+/// What the queue row says, on the SAME four columns row 2 uses (Chris, 20260906, after
+/// seeing the block in the pantry: the two rows were on unrelated grids and it read as two
+/// unrelated rows). Column 0 is the queue itself; these three take columns 1–3.
+pub const QUEUE_LABELS: [&str; 3] = ["pending", "in progress", "failed"];
+
+/// Column 0's word — the one the glyph belongs to, because the glyph reports on the queue and
+/// not on any one of its counts.
+pub const QUEUE_HEAD: &str = "queue";
+
+/// Cells a count is right-aligned into: enough for `9 999 999`, grouped.
+///
+/// A fixed field rather than a measured one so that every count on the row ends on the same
+/// relative cell whatever its magnitude — a right edge that moved with the number would undo
+/// the alignment this whole row exists for.
+pub const COUNT_WIDTH: u16 = 9;
+
+/// The widest label on either row, in columns. ASCII by construction, so bytes and columns
+/// agree; a label with a non-ASCII character would need `Span::width` and a runtime constant.
+///
+/// Both rows, not just row 2: `in progress` is eleven columns against `vector db`'s nine, and
+/// sizing the grid to the entries alone is what would let the queue row overflow it.
 const fn widest_label() -> u16 {
+    let mut widest = QUEUE_HEAD.len();
     let mut i = 0;
-    let mut widest = 0;
     while i < ENTRY_LABELS.len() {
-        let len = ENTRY_LABELS[i].len();
-        if len > widest {
-            widest = len;
+        if ENTRY_LABELS[i].len() > widest {
+            widest = ENTRY_LABELS[i].len();
         }
         i += 1;
+    }
+    let mut j = 0;
+    while j < QUEUE_LABELS.len() {
+        if QUEUE_LABELS[j].len() > widest {
+            widest = QUEUE_LABELS[j].len();
+        }
+        j += 1;
     }
     widest as u16
 }
 
-/// The narrowest column that can still hold `glyph + space + the widest label`.
+/// The narrowest column at which the grid still works — **for both rows**.
 ///
-/// Below it the four columns cannot be equal AND hold their contents, which is the width
-/// trigger in [`Collapse`]. Derived rather than chosen: a fifth entry, or a longer word,
-/// moves this number without anyone editing it.
-pub const MIN_COLUMN: u16 = widest_label() + 2;
+/// Two constraints, and the second dominates:
+///
+/// 1. A column holds `glyph + space + the widest label`: `widest_label() + 2`.
+/// 2. A count is right-aligned into the slack LEFT of its own column, occupying
+///    `[origin − COUNT_WIDTH, origin − 1]`. The previous column's label ends at
+///    `origin_prev + widest_label() + 1`, so one clear blank cell between them needs
+///    `column ≥ widest_label() + COUNT_WIDTH + 3`.
+///
+/// The second is what this constant is, and it **raised** the number from 11 to 23 when the
+/// queue row moved onto the entry grid (Chris sanctioned the raise: *"if it does not, raise
+/// `MIN_COLUMN` to guarantee it and say so"*). The visible cost is the collapse threshold: a
+/// screen narrower than `2 · MARGIN + 4 · MIN_COLUMN` now takes the short block, where before
+/// it took the full one and drew a row nobody could line up.
+pub const MIN_COLUMN: u16 = widest_label() + COUNT_WIDTH + 3;
 
 /// Rows the whole block occupies: three of content plus the rule that closes it.
 pub const ROWS_FULL: u16 = 4;
@@ -106,12 +141,6 @@ pub const MIN_CONTENT_ROWS: u16 = 16;
 const STATUS_ROW: u16 = 0;
 const ENTRIES_ROW: u16 = 1;
 const QUEUE_ROW: u16 = 2;
-
-/// Words the queue row is spelled with. Named so the tests can reach a count by its label
-/// rather than by its digits — see `tests::style_after`.
-const PENDING: &str = "pending ";
-const IN_PROGRESS: &str = "in progress ";
-const FAILED: &str = "failed ";
 
 /// Columns between one group on a row and the next. Wide enough that `queue` and `pending 123`
 /// read as two things; the same gap [`crate::tokens::key_hints`] puts between two hints.
@@ -157,8 +186,34 @@ pub fn rollup(daemon: Health, entries: &[Health]) -> Health {
 /// The SSOT for the width trigger: [`Collapse::decide`] and [`StatusBlock::render`] both ask
 /// here, so the height a view reserves and the shape the block draws cannot disagree.
 pub fn columns_align(width: u16) -> bool {
-    let content = width.saturating_sub(MARGIN * 2);
-    content / ENTRY_LABELS.len() as u16 >= MIN_COLUMN
+    column_width(width) >= MIN_COLUMN
+}
+
+/// The width of one of the four columns at this screen width.
+///
+/// One function so both rows ask the same question. It is also the only place the grid's
+/// arithmetic exists, which is what lets a test state a column position as an expression
+/// rather than measure it off the other row.
+pub fn column_width(area_width: u16) -> u16 {
+    area_width.saturating_sub(MARGIN * 2) / ENTRY_LABELS.len() as u16
+}
+
+/// A count, grouped in threes with a **plain** space: `1 240`, `9 999 999`.
+///
+/// Chris's standing rule for an isolated number. Plain rather than thin or narrow because
+/// `U+2009`/`U+202F` are not width-1 in every terminal, and a separator whose width depends on
+/// the emulator changes the cell a right-aligned number ends on — which is the one property
+/// this row is built around.
+pub fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(' ');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 /// The block's two shapes. On or off — see the module docs for why there is no third.
@@ -282,8 +337,7 @@ impl StatusBlock {
     }
 
     /// Row 2 — four equal columns, glyph coloured and label muted.
-    fn entries_row(&self, area: Rect, buf: &mut Buffer) {
-        let column = area.width / ENTRY_LABELS.len() as u16;
+    fn entries_row(&self, area: Rect, buf: &mut Buffer, column: u16) {
         for (i, (label, health)) in ENTRY_LABELS.iter().zip(self.entries).enumerate() {
             let cell = Rect {
                 x: area.x + column * i as u16,
@@ -298,31 +352,65 @@ impl StatusBlock {
         }
     }
 
-    /// Row 3 — is work moving, waiting, or lost.
-    fn queue_row(&self, area: Rect, buf: &mut Buffer) {
-        let count = |value: u64, hue: fn() -> ratatui::style::Color| {
-            // A count of nothing is not news, so it recedes to its own label's rung.
-            let style = if value == 0 {
-                tokens::muted_style()
-            } else {
-                Style::default().fg(hue())
-            };
-            Span::styled(value.to_string(), style)
-        };
-
+    /// Row 3 — is work moving, waiting, or lost, on row 2's own grid.
+    ///
+    /// Each label starts where the label above it starts, and each count is right-aligned into
+    /// the slack to its left, ending one cell short of its column's glyph position. So the
+    /// numbers grow leftward, away from the words they belong to, and no label ever moves
+    /// because a count gained a digit.
+    fn queue_row(&self, area: Rect, buf: &mut Buffer, column: u16) {
         Paragraph::new(Line::from(vec![
             Span::styled(
                 self.queue.health.glyph(),
                 Style::default().fg(self.queue.health.color()),
             ),
-            Span::styled(format!(" queue{GAP}{PENDING}"), tokens::muted_style()),
-            count(self.queue.pending, tokens::degraded),
-            Span::styled(format!("{GAP}{IN_PROGRESS}"), tokens::muted_style()),
-            count(self.queue.in_progress, tokens::secondary),
-            Span::styled(format!("{GAP}{FAILED}"), tokens::muted_style()),
-            count(self.queue.failed, tokens::offline),
+            Span::styled(format!(" {QUEUE_HEAD}"), tokens::muted_style()),
         ]))
-        .render(area, buf);
+        .render(
+            Rect {
+                width: column.min(area.width),
+                ..area
+            },
+            buf,
+        );
+
+        let counts = [
+            (self.queue.pending, tokens::degraded as fn() -> Color),
+            (self.queue.in_progress, tokens::secondary as fn() -> Color),
+            (self.queue.failed, tokens::offline as fn() -> Color),
+        ];
+
+        for (i, ((value, hue), label)) in counts.iter().zip(QUEUE_LABELS).enumerate() {
+            let origin = column * (i as u16 + 1);
+            // A count of nothing is not news, so it recedes to its own label's rung.
+            let style = if *value == 0 {
+                tokens::muted_style()
+            } else {
+                Style::default().fg(hue())
+            };
+            Paragraph::new(Line::from(Span::styled(grouped(*value), style)))
+                .alignment(Alignment::Right)
+                .render(
+                    Rect {
+                        x: area.x + origin.saturating_sub(COUNT_WIDTH),
+                        width: COUNT_WIDTH.min(origin),
+                        ..area
+                    },
+                    buf,
+                );
+
+            let label_x = origin + 2;
+            if label_x < area.width {
+                Paragraph::new(Line::from(Span::styled(label, tokens::muted_style()))).render(
+                    Rect {
+                        x: area.x + label_x,
+                        width: area.width - label_x,
+                        ..area
+                    },
+                    buf,
+                );
+            }
+        }
     }
 }
 
@@ -337,8 +425,11 @@ impl Widget for StatusBlock {
 
         self.status_row(inset(line(area, STATUS_ROW)), buf);
         if !collapsed {
-            self.entries_row(inset(line(area, ENTRIES_ROW)), buf);
-            self.queue_row(inset(line(area, QUEUE_ROW)), buf);
+            // One column width, computed once and handed to both rows: two rows that each
+            // worked it out for themselves is exactly how they came to be on different grids.
+            let column = column_width(area.width);
+            self.entries_row(inset(line(area, ENTRIES_ROW)), buf, column);
+            self.queue_row(inset(line(area, QUEUE_ROW)), buf, column);
         }
         // Edge to edge: §6's rules underline the whole screen, so this one is not inset. It is
         // the LAST row of whichever shape was drawn, which is what makes the block close at the
