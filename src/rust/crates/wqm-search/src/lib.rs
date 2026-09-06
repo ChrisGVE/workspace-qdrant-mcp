@@ -23,6 +23,13 @@
 //! - **Grep.** N35's `grep_eligible` is false for scratchpad (`CONTRACTS.md`:565-566),
 //!   so the regex leg is gated off *before* availability is even consulted.
 //!
+//! # A second landing: N17's HTTP adapter (`P04-GT002-WO001`)
+//!
+//! [`http_embedder`] is not part of the WO013 read slice above and does not
+//! contradict its "no embedding" scope: it declares the type N17's adapter
+//! will be, and implements no port. Nothing in [`executor`] or [`planner`]
+//! reaches it, and this crate still links no HTTP client.
+//!
 //! # The two errors an agent can act on
 //!
 //! §1.6's honest cost of a free-text `q` is that validation is server-side, and its
@@ -34,6 +41,10 @@ use wqm_common::names::Collection;
 
 pub mod executor;
 pub mod grammar;
+/// N17's HTTP adapter (`C-adp-N17-http`), declared at `P04-GT002-WO001`.
+/// Vocabulary only -- the `Embedder` impl, `probe`, batching and the HTTP
+/// client dependency arrive with N17's own slice.
+pub mod http_embedder;
 pub mod planner;
 
 pub use executor::{search, Execution};
