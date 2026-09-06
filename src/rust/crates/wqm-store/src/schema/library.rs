@@ -51,3 +51,25 @@ CREATE TABLE IF NOT EXISTS lib_doc_metadata (
 );
 CREATE INDEX IF NOT EXISTS ix_lib_doc_metadata_norm_key ON lib_doc_metadata(norm_key);
 "#;
+
+/// Per-document keywords with ONE score column.
+///
+/// The single `score` is deliberate. v0.1 carried three — `semantic_score`,
+/// `lexical_score`, `stability_count` — and they were artifacts of the extractor
+/// that produced them; they retire with it under B2, and the new N54 extractor
+/// defines what a score means (§11.2 J-7). Carrying the three forward would have
+/// preserved a shape whose meaning had already been retired.
+///
+/// The `keyword` index exists because induction reads the whole corpus as a
+/// bounded stream, not by point lookup — an index chosen for the access pattern
+/// that exists rather than the one a keyword column suggests.
+pub const LIB_KEYWORDS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS lib_keywords (
+    document_id  INTEGER NOT NULL,
+    keyword      TEXT    NOT NULL,
+    score        REAL    NOT NULL,
+    PRIMARY KEY (document_id, keyword),
+    FOREIGN KEY (document_id) REFERENCES items_libraries(item_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_lib_keywords_keyword ON lib_keywords(keyword);
+"#;
