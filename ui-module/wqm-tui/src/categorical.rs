@@ -14,9 +14,10 @@
 //! **Base tier** — the ten roles, unchanged, on all fifteen themes. **Extended tier** — this,
 //! and it is only worth the name when the active theme is a Catppuccin flavour, because that
 //! is the palette that ships fourteen mutually-tuned accents. Every other theme falls back to
-//! the two base fields that carry no meaning (`accent`, `secondary`), which is nought to two
-//! entries. **Consumers must read [`Categorical::len`] before relying on distinct hues** —
-//! there is no promise here that fifteen categories get fifteen colours.
+//! the one base field that carries no meaning and is not reserved — `secondary` — which is
+//! nought or one entry. **Consumers must read [`Categorical::len`] before relying on distinct
+//! hues** — there is no promise here that fifteen categories get fifteen colours, and on
+//! eleven of the fifteen themes there is exactly one.
 //!
 //! # The flavour is detected from DATA, never from a name
 //!
@@ -30,10 +31,11 @@
 //!
 //! 1. **Exclusion.** Drop any accent within [`RESERVED_FLOOR`] ΔE (CIE76) of a
 //!    **meaning-carrying** role: `success`, `warning`, `error` (§4's health states) and `info`
-//!    (§3's selector). The floor is not a second constant — it is the same one
-//!    [`crate::styles::strong`] defends `strong` with, and for the same reason.
-//!    `accent` is deliberately **not** reserved: a hotkey is an affordance, not a datum, so
-//!    data may reuse its hue without saying anything false.
+//!    (§3's selector), **and `accent`** — the hue the jump digits carry on every screen, so a
+//!    data colour equal to it collides everywhere rather than on one view (Chris, 20260906,
+//!    overturning his own earlier "affordance, not data"). The floor is not a second constant
+//!    — it is the same one [`crate::styles::strong`] defends `strong` with, and for the same
+//!    reason.
 //! 2. **Ordering — farthest first.** Entry 0 is the survivor farthest from the reserved set;
 //!    each next is the survivor whose *nearest* neighbour among {reserved ∪ already chosen} is
 //!    largest. So a consumer taking the first three gets the three most separable, and taking
@@ -59,13 +61,32 @@ mod tests;
 
 /// The roles a categorical hue must never be mistaken for.
 ///
-/// Four, not ten. `bg`, `fg`, `muted` and `selection` are the neutral ladder — a data hue is
-/// not in danger of reading as one — and `accent`/`secondary` carry no meaning to steal.
-pub const RESERVED_ROLES: [&str; 4] = ["success", "warning", "error", "info"];
+/// Five, not ten. `bg`, `fg`, `muted` and `selection` are the neutral ladder — a data hue is
+/// not in danger of reading as one — and `secondary` carries no meaning to steal.
+///
+/// # `accent` is here, and it was not at first (Chris, 20260906)
+///
+/// The first cut left `accent` out on the argument that a hotkey is an *affordance* rather
+/// than a datum, so reusing its hue says nothing false. Chris overturned his own rule on the
+/// better argument: the jump digits carry `accent` on **every screen**, so a data hue equal to
+/// it does not collide on one view, it collides everywhere. A tag that is the same blue as the
+/// key you press is a collision the reader meets constantly and can never learn to ignore.
+///
+/// It is not free. Reserving it costs every flavour its `blue`, and costs **Mocha** its
+/// `lavender` too — Mocha's lavender sits ΔE 11.0 from its blue, just inside the floor, where
+/// the other three flavours clear it. Mocha therefore drops from ten hues to eight while the
+/// others drop to eight and seven from nine and eight.
+pub const RESERVED_ROLES: [&str; 5] = ["success", "warning", "error", "info", "accent"];
 
 /// [`RESERVED_ROLES`] resolved against a theme, in the same order.
-fn reserved_of(theme: &ThemePalette) -> [Color; 4] {
-    [theme.success, theme.warning, theme.error, theme.info]
+fn reserved_of(theme: &ThemePalette) -> [Color; 5] {
+    [
+        theme.success,
+        theme.warning,
+        theme.error,
+        theme.info,
+        theme.accent,
+    ]
 }
 
 /// The nearest of `others` to `colour`, in ΔE. [`f32::MAX`] when `others` is empty, which is
@@ -228,21 +249,24 @@ fn farthest_first(
     chosen
 }
 
-/// What a theme that is not a Catppuccin flavour can honestly offer: the two base fields that
-/// carry no meaning, minus any that collides with a role or with the other one.
+/// What a theme that is not a Catppuccin flavour can honestly offer: **`secondary`, and that
+/// is all** — nought or one entry.
 ///
-/// Nought to two entries, and often two. It is not a categorical palette and this module does
-/// not pretend otherwise — see the module docs on reading [`Categorical::len`] first. The
-/// de-duplication uses the same [`RESERVED_FLOOR`], because two hues closer than the floor are
-/// not two hues for this purpose.
+/// It was `accent` and `secondary` until 20260906. Reserving `accent` did not merely remove it
+/// from the list; it made it *unofferable*, because a reserved role sits ΔE 0 from itself and
+/// fails its own floor by construction. Writing the loop over both and letting `accent` filter
+/// itself out would work, and would be a line nobody could read — so the candidate list says
+/// what it is.
+///
+/// One entry is not a categorical palette and this module does not pretend otherwise: on
+/// Everforest the tier is a single hue. See the module docs on reading [`Categorical::len`]
+/// before assuming distinct colours exist. The filter is the same [`RESERVED_FLOOR`] the
+/// Catppuccin path uses, so `secondary` drops out on a theme that puts it near a role.
 fn fallback(theme: &ThemePalette, reserved: &[Color]) -> Vec<(&'static str, Color)> {
-    let mut chosen: Vec<(&'static str, Color)> = Vec::new();
-    for (name, colour) in [("accent", theme.accent), ("secondary", theme.secondary)] {
-        let taken: Vec<Color> = chosen.iter().map(|(_, c)| *c).collect();
-        if min_delta(colour, reserved) >= RESERVED_FLOOR && min_delta(colour, &taken) >= RESERVED_FLOOR
-        {
-            chosen.push((name, colour));
-        }
+    let secondary = theme.secondary;
+    if min_delta(secondary, reserved) >= RESERVED_FLOOR {
+        vec![("secondary", secondary)]
+    } else {
+        Vec::new()
     }
-    chosen
 }

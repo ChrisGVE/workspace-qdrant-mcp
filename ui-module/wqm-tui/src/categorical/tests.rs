@@ -10,11 +10,11 @@ use ratatui_themes::ThemeName;
 
 /// The order the rule produces on Mocha, computed independently and pinned.
 ///
-/// `blue` first is not an accident of the data: it is the accent farthest from all four
-/// reserved roles, and `accent` is deliberately NOT reserved — a hotkey is an affordance, not
-/// a datum, so its hue is free for data to reuse.
-const MOCHA_ORDER: [&str; 10] = [
-    "blue",
+/// `blue` used to lead this list. It is gone since 20260906, when `accent` joined the reserved
+/// set: the jump digits carry `accent` on **every** screen, so a data hue equal to it collides
+/// everywhere rather than on one view, and that beats the earlier "affordance, not data"
+/// argument. `lavender` went with it — see [`MOCHA_LAVENDER_TO_BLUE`].
+const MOCHA_ORDER: [&str; 8] = [
     "pink",
     "mauve",
     "peach",
@@ -22,18 +22,29 @@ const MOCHA_ORDER: [&str; 10] = [
     "sapphire",
     "sky",
     "maroon",
-    "lavender",
     "flamingo",
 ];
 
 /// Every flavour's count, computed the same way. They differ because the exclusion is a
 /// measurement against that flavour's own reserved roles, not a fixed list of names.
+///
+/// Reserving `accent` cost every flavour its `blue`. It cost **Mocha alone** a second hue,
+/// which is why Mocha is 8 rather than 9 — a prediction of 9 was made before the arithmetic
+/// was run, and the arithmetic disagreed.
 const COUNTS: [(&str, usize); 4] = [
-    ("mocha", 10),
-    ("macchiato", 9),
-    ("frappe", 9),
-    ("latte", 8),
+    ("mocha", 8),
+    ("macchiato", 8),
+    ("frappe", 8),
+    ("latte", 7),
 ];
+
+/// Why Mocha lost two hues where the others lost one.
+///
+/// Mocha's `lavender` sits ΔE 11.0 from its `blue`, just under the floor of 12.0, so reserving
+/// `accent` swept it up as well. The other three clear it — Macchiato by 0.6, Frappé by 1.6,
+/// Latte by 9.3 — which is why only Mocha pays twice. Pinned because it is the whole
+/// explanation of a count that otherwise looks like an off-by-one.
+const MOCHA_LAVENDER_TO_BLUE: f32 = 11.0;
 
 use super::mirrored_palette as flavour_palette;
 
@@ -96,7 +107,10 @@ fn the_mirrored_mapping_reproduces_the_bundled_flavours_exactly() {
 fn an_exact_tie_keeps_the_colour_that_comes_first() {
     let theme = ThemeName::CatppuccinMocha.palette();
     let reserved = reserved_of(&theme);
-    let same = Color::Rgb(0x89, 0xb4, 0xfa);
+    // Mocha's `pink` — a hue that SURVIVES the exclusion, so the pool reaches the ordering
+    // walk at all. The first version used its `blue`, which became a reserved role on
+    // 20260906 and was filtered out before the tie could happen.
+    let same = Color::Rgb(0xf5, 0xc2, 0xe7);
 
     let order: Vec<&str> = farthest_first(vec![("first", same), ("second", same)], &reserved)
         .into_iter()
@@ -131,8 +145,9 @@ fn a_theme_that_is_not_a_catppuccin_flavour_is_recognised_as_none() {
     }
 }
 
-/// Every entry, on every flavour, clears the reserved floor against all four meaning-carrying
-/// roles. This is the whole promise of the tier: a categorical hue never reads as a state.
+/// Every entry, on every flavour, clears the reserved floor against all five reserved roles.
+/// This is the whole promise of the tier: a categorical hue never reads as a state, and never
+/// reads as the key you press.
 #[test]
 fn no_entry_on_any_flavour_comes_within_the_reserved_floor_of_a_role() {
     for flavour in catppuccin::PALETTE.all_flavors() {
@@ -203,21 +218,57 @@ fn the_order_never_improves_as_it_goes() {
     }
 }
 
-/// A theme with no flavour still answers, honestly and small.
+/// A theme with no flavour still answers, honestly and very small.
+///
+/// One candidate now, not two: `accent` became a reserved role on 20260906, and a reserved
+/// role cannot be its own alternative — it sits ΔE 0 from itself and fails the floor by
+/// construction. So the fallback is `secondary` alone, and Everforest yields exactly one hue.
 #[test]
-fn a_non_catppuccin_theme_falls_back_to_the_roles_that_carry_no_meaning() {
+fn a_non_catppuccin_theme_falls_back_to_secondary_alone() {
     let categorical = Categorical::for_theme(&ThemeName::Everforest.palette());
-    assert!(
-        categorical.len() <= 2,
-        "the fallback is `accent` and `secondary` at most, got {}",
-        categorical.len()
+    assert_eq!(
+        categorical.len(),
+        1,
+        "the fallback is `secondary` and nothing else"
     );
-    for (name, _) in categorical.iter() {
-        assert!(
-            name == "accent" || name == "secondary",
-            "{name} is not one of the two roles that carry no meaning"
-        );
+    assert_eq!(categorical.name(0), Some("secondary"));
+    assert!(
+        categorical.iter().all(|(name, _)| name != "accent"),
+        "`accent` is reserved and can never be offered as a data hue"
+    );
+}
+
+/// The reservation that produced the counts above, asserted directly rather than only through
+/// them: no entry, on any flavour, may be the theme's own `accent`.
+#[test]
+fn no_entry_is_the_hue_the_jump_digits_carry() {
+    for flavour in catppuccin::PALETTE.all_flavors() {
+        let theme = flavour_palette(flavour);
+        for (name, colour) in Categorical::for_theme(&theme).iter() {
+            let distance = crate::tokens::delta_e(colour, theme.accent);
+            assert!(
+                distance >= RESERVED_FLOOR,
+                "{}/{name} is ΔE {distance:.1} from `accent`, which is on every screen",
+                flavour.identifier()
+            );
+        }
     }
+}
+
+/// The measurement that explains Mocha's count, checked rather than asserted in prose.
+#[test]
+fn mocha_loses_lavender_because_it_sits_inside_the_floor_of_blue() {
+    let mocha = ThemeName::CatppuccinMocha.palette();
+    let lavender: Color = catppuccin::PALETTE.mocha.colors.lavender.into();
+    let distance = crate::tokens::delta_e(lavender, mocha.accent);
+    assert!(
+        (distance - MOCHA_LAVENDER_TO_BLUE).abs() < 0.1,
+        "the distance that explains the count moved: {distance:.1}"
+    );
+    assert!(
+        distance < RESERVED_FLOOR,
+        "lavender must be inside the floor, or Mocha would have nine"
+    );
 }
 
 /// `color(i)` cycles, so a consumer with more categories than hues never panics and never
