@@ -1,5 +1,5 @@
-//! The environment-variable adapter of N26's `SecretResolver` port
-//! (`C-adp-N26-env`).
+//! `C-adp-N26-env` -- the environment-variable adapter of N26's `SecretResolver`
+//! port. The type is [`EnvResolver`].
 //!
 //! Fill fragment:
 //! `project-notes/wqm-0.2/P04-build/T4-glue/fill/anchor/Alg-N26-env.md`.

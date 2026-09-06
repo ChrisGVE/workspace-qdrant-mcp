@@ -1,9 +1,11 @@
-//! `C-adp-N17-http` -- the ONE HTTP embedding provider, declared.
+//! `C-adp-N17-http` -- N17's HTTP adapter, the ONE HTTP embedding provider,
+//! declared at `P04-GT002-WO001`.
 //!
 //! Transcribed from the sealed fill fragment
-//! `P04-build/T1-kernel/fill/anchor/Alg-N17-http.md` (`P04-GT002-WO001`).
-//! Vocabulary only: nothing here opens a socket, signs a request, parses a
-//! response, or classifies an error.
+//! `P04-build/T1-kernel/fill/anchor/Alg-N17-http.md`. Vocabulary only: nothing
+//! here opens a socket, signs a request, parses a response, or classifies an
+//! error, and the `Embedder` impl, `probe`, batching and the HTTP client
+//! dependency all arrive with N17's own slice.
 //!
 //! # The connection-model insight, which is why there is only one of these
 //!
@@ -167,9 +169,19 @@ impl EmbeddingDialect {
 /// CR-007's first defect is a default live endpoint: a type that can be built
 /// with no arguments is a process that can talk to somewhere nobody named. Every
 /// field here is supplied by the composition root or the value does not exist.
-/// The absence is asserted rather than merely intended:
+/// The absence is asserted rather than merely intended. A bare `compile_fail`
+/// passes on ANY error, so the code this snippet is REQUIRED to fail with is
+/// recorded on the fence: `E0599`, "no such associated function or constant".
+/// It was verified by running the snippet without `compile_fail` and reading the
+/// output, which was that one error and no other.
 ///
-/// ```compile_fail
+/// Note what the annotation does and does not buy. Stable rustdoc parses the
+/// code and does not check it -- `compile_fail,E0000` passes just as happily
+/// (measured, rustdoc 1.98.0) -- so on the toolchain this crate builds with, the
+/// code is a recorded fact for the next reader rather than a gate. Nightly
+/// rustdoc does check it, and the annotation costs nothing to carry until then.
+///
+/// ```compile_fail,E0599
 /// // CR-007: no default endpoint, no default model, no default credential.
 /// // If this ever compiles, a `Default` impl has been added and an unnamed
 /// // endpoint became reachable.
@@ -181,7 +193,16 @@ impl EmbeddingDialect {
 ///
 /// [`secret`]: HttpEmbedder::secret
 ///
-/// ```compile_fail
+/// Recorded as `E0616` ("field is private"), on the same terms as above, and
+/// here the verification matters more than anywhere else: rustc runs its privacy
+/// pass AFTER type-check, so ANY earlier error aborts compilation before privacy
+/// is consulted and the snippet then fails for a reason that has nothing to do
+/// with the field -- while still reading green. Everything above the last line
+/// must therefore compile on its own, and was confirmed to, by running the
+/// snippet without `compile_fail`: the sole error was `E0616` on
+/// `let _leaked = adapter.secret;`.
+///
+/// ```compile_fail,E0616
 /// use wqm_common::secret::Secret;
 /// use wqm_search::http_embedder::{EmbeddingDialect, HttpEmbedder};
 ///

@@ -41,9 +41,6 @@ use wqm_common::names::Collection;
 
 pub mod executor;
 pub mod grammar;
-/// N17's HTTP adapter (`C-adp-N17-http`), declared at `P04-GT002-WO001`.
-/// Vocabulary only -- the `Embedder` impl, `probe`, batching and the HTTP
-/// client dependency arrive with N17's own slice.
 pub mod http_embedder;
 pub mod planner;
 

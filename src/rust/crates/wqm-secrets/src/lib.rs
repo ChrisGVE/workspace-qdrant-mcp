@@ -19,15 +19,13 @@
 //! # What ships today
 //!
 //! `P04-GT002-WO057` declares this crate and its first row, `C-adp-N26-env`: the
-//! [`EnvResolver`] type in [`env`]. Vocabulary only -- zero behavior. The port
-//! trait `A-if-N26` is `P04-GT002-WO068` and is outside this GT's scope, and by
-//! the charter (§2.2) the adapters therefore ship WITHOUT their
+//! [`EnvResolver`](env::EnvResolver) type in [`mod@env`]. Vocabulary only -- zero
+//! behavior. The port trait `A-if-N26` is `P04-GT002-WO068` and is outside this
+//! GT's scope, and by the charter (§2.2) the adapters therefore ship WITHOUT their
 //! `impl SecretResolver` blocks: `SecretId` is declared nowhere in the mesh yet,
 //! and an `impl` is behavior. The struct is the declaration; the behavior follows
 //! its port.
 //!
 //! `mesh/program.db` is the tracker.
 
-/// `C-adp-N26-env` -- the environment-variable adapter of N26's `SecretResolver`
-/// port. See [`env::EnvResolver`].
 pub mod env;

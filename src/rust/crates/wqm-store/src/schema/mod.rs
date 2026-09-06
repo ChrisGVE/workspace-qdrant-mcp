@@ -49,13 +49,15 @@
 //! three-character sequences, so a MATCH term shorter than three characters
 //! matches nothing at all. That is a real narrowing of the query surface and it
 //! belongs to the read leg's declared limits, not to a footnote.
+//!
+//! # The schema families
+//!
+//! The schema families this crate declares are one module per family. Each
+//! module holds DDL and nothing else: a `&str` constant per table, plus the doc
+//! comment that says which fill fragment the shape was transcribed from.
+//! `P04-GT002` is vocabulary only, so no module here opens a connection,
+//! migrates, or writes a row.
 
-/// The schema families this crate declares, one module per family.
-///
-/// Each module holds DDL and nothing else: a `&str` constant per table, plus
-/// the doc comment that says which fill fragment the shape was transcribed
-/// from. `P04-GT002` is vocabulary only, so no module here opens a
-/// connection, migrates, or writes a row.
 pub mod cas;
 pub mod classification;
 pub mod files;

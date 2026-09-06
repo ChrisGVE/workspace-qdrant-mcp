@@ -1,4 +1,9 @@
-//! The committed scratchpad fixture -- the seam the narrowed slice buys.
+//! The committed scratchpad fixture (`P04-GT001-WO012`) -- the seam the narrowed
+//! slice buys.
+//!
+//! It seeds the SoT that N41's FTS5 concrete reads, without crossing the ingest
+//! pipeline, and it writes through the axis-D [`WriteTarget`] rather than around
+//! it.
 //!
 //! # Why a fixture exists at all
 //!
