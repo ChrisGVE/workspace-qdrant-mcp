@@ -6,7 +6,8 @@
 //! canonical names, N9 error taxonomy, N23 path canonicalization, N35 collection
 //! profiles + field-family registry, N51 access-capability registry, N7 config,
 //! N3 identity value objects + the `fts_key` de-dash transform, N40 types, N12
-//! envelope types, the N44 source-access port trait, and the `Secret` newtype.
+//! envelope types, the N44 source-access port trait, the `Secret` newtype,
+//! and N33's `RulesWriteCap`.
 //!
 //! The crate grows per work order: `P04-GT001` declares it and seeds N8, and each
 //! later nexus arrives with the slice that realizes it (`P04-GT006` for N8's full
@@ -44,3 +45,13 @@ pub mod profile;
 /// `P04-GT002-WO075` (concrete `C-ty-secret`); the resolver that mints a
 /// `Secret` stays in `wqm-secrets`.
 pub mod secret;
+
+/// N33's `RulesWriteCap` -- the sealed, non-`pub`-constructible capability that
+/// gates writes to the rules collection, so "only user-authored writes reach
+/// `rules`" is structural rather than a payload convention. Homed here because the
+/// mint half (`wqm-serve`) and the drain (`wqm-store-write`) both name it and the
+/// floor is the only crate they can share one declaration through without a cycle
+/// (PRD F-08). Seeded at `P04-GT002-WO074` (concrete `C-ty-rules-write-cap`); the
+/// mint, N5's persisted MAC marker, and the drain check all arrive with their own
+/// slices.
+pub mod rules_write_cap;
