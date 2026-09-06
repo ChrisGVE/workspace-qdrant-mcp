@@ -70,7 +70,7 @@ fn column_of(buf: &Buffer, y: u16, needle: &str) -> u16 {
 }
 
 fn count_style(buf: &Buffer, width: u16, i: usize) -> Style {
-    let x = MARGIN + column_width(width) * (i as u16 + 1) - 1;
+    let x = MARGIN + column_width(width) * (i as u16 + 1);
     buf.cell((x, QUEUE_ROW)).expect("cell in area").style()
 }
 
@@ -214,11 +214,16 @@ fn the_queue_labels_stand_on_the_columns_the_entry_labels_stand_on() {
     }
 }
 
-/// A count is right-aligned into the slack of the column to its LEFT, ending one cell short of
-/// its own column's glyph position — so the digits grow away from the label they belong to and
-/// the label never moves.
+/// A count is right-aligned into the slack of the column to its LEFT, its units digit landing
+/// **on** its own column's glyph position — so the digits grow away from the label they belong
+/// to, the label never moves, and the count's last cell sits directly under the disc above it.
+///
+/// Chris, 20260906: *"given the symbol, right-align the number on the left"* — the symbol's
+/// slot is where the number ends, not the cell before it. This replaces the earlier reading
+/// (right edge at the glyph column minus one), which left two blanks before the label and made
+/// the count read as belonging to the column on its left.
 #[test]
-fn a_count_ends_one_cell_left_of_its_own_columns_glyph() {
+fn a_count_ends_under_its_own_columns_glyph() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -238,11 +243,19 @@ fn a_count_ends_one_cell_left_of_its_own_columns_glyph() {
 
     for (i, drawn) in ["1 240", "8", "3"].iter().enumerate() {
         let glyph_column = MARGIN + column * (i as u16 + 1);
-        let end = (glyph_column - 1) as usize;
+        let end = glyph_column as usize;
         let start = end + 1 - drawn.chars().count();
         let read: String = chars[start..=end].iter().collect();
-        assert_eq!(&read, drawn, "count {i} does not end at the glyph column - 1: {line:?}");
-        assert_eq!(chars[end + 1], ' ', "the glyph column itself stays empty on row 3");
+        assert_eq!(
+            &read,
+            drawn,
+            "count {i} does not end on its column's glyph position: {line:?}"
+        );
+        assert_eq!(
+            chars[end + 1],
+            ' ',
+            "exactly one blank stands between a count and the label it belongs to"
+        );
     }
 }
 
@@ -290,7 +303,7 @@ fn the_widest_count_still_clears_the_previous_columns_label() {
     for (i, _) in QUEUE_LABELS.iter().enumerate() {
         // The cell immediately left of the widest count must be blank, or the count has run
         // into the word before it.
-        let start = (MARGIN + MIN_COLUMN * (i as u16 + 1) - COUNT_WIDTH) as usize;
+        let start = (MARGIN + MIN_COLUMN * (i as u16 + 1) + 1 - COUNT_WIDTH) as usize;
         assert_eq!(
             chars[start - 1],
             ' ',

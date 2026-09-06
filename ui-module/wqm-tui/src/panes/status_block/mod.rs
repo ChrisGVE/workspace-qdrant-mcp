@@ -105,15 +105,23 @@ const fn widest_label() -> u16 {
 ///
 /// 1. A column holds `glyph + space + the widest label`: `widest_label() + 2`.
 /// 2. A count is right-aligned into the slack LEFT of its own column, occupying
-///    `[origin − COUNT_WIDTH, origin − 1]`. The previous column's label ends at
+///    `[origin − COUNT_WIDTH + 1, origin]`. The previous column's label ends at
 ///    `origin_prev + widest_label() + 1`, so one clear blank cell between them needs
-///    `column ≥ widest_label() + COUNT_WIDTH + 3`.
+///    `column ≥ widest_label() + COUNT_WIDTH + 2`.
 ///
-/// The second is what this constant is, and it **raised** the number from 11 to 23 when the
-/// queue row moved onto the entry grid (Chris sanctioned the raise: *"if it does not, raise
-/// `MIN_COLUMN` to guarantee it and say so"*). The visible cost is the collapse threshold: a
-/// screen narrower than `2 · MARGIN + 4 · MIN_COLUMN` now takes the short block, where before
-/// it took the full one and drew a row nobody could line up.
+/// The second is what this constant is *for*, and it **raised** the number from 11 to 23 when
+/// the queue row moved onto the entry grid (Chris sanctioned the raise: *"if it does not,
+/// raise `MIN_COLUMN` to guarantee it and say so"*). The visible cost is the collapse
+/// threshold: a screen narrower than `2 · MARGIN + 4 · MIN_COLUMN` takes the short block,
+/// where before it took the full one and drew a row nobody could line up.
+///
+/// # It is held at `+ 3` where `+ 2` would now do, deliberately
+///
+/// Moving the count field one cell right (Chris, 20260906) bought a cell of clearance back, so
+/// the requirement above is one lower than this constant. Lowering it would move the collapse
+/// threshold from 96 columns to 92 — a change to what a real terminal shows, decided by an
+/// unrelated alignment tweak. The extra cell stays until the threshold is looked at on its own
+/// terms, and the clearance it buys is two cells rather than one.
 pub const MIN_COLUMN: u16 = widest_label() + COUNT_WIDTH + 3;
 
 /// The widest a column is allowed to get.
@@ -389,9 +397,15 @@ impl StatusBlock {
     /// Row 3 — is work moving, waiting, or lost, on row 2's own grid.
     ///
     /// Each label starts where the label above it starts, and each count is right-aligned into
-    /// the slack to its left, ending one cell short of its column's glyph position. So the
-    /// numbers grow leftward, away from the words they belong to, and no label ever moves
-    /// because a count gained a digit.
+    /// the slack to its left, its units digit landing **on** its column's glyph position. So
+    /// the numbers grow leftward, away from the words they belong to; no label ever moves
+    /// because a count gained a digit; and a count's last cell sits directly under the disc
+    /// above it, which is the column the eye is already following.
+    ///
+    /// Chris, 20260906: *"given the symbol, right-align the number on the left"* — the
+    /// symbol's slot is where the number ends. The first cut ended one cell earlier, which
+    /// left two blanks before the label and made each count read as belonging to the column on
+    /// its left rather than to the word beside it.
     fn queue_row(&self, area: Rect, buf: &mut Buffer, column: u16) {
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -426,8 +440,8 @@ impl StatusBlock {
                 .alignment(Alignment::Right)
                 .render(
                     Rect {
-                        x: area.x + origin.saturating_sub(COUNT_WIDTH),
-                        width: COUNT_WIDTH.min(origin),
+                        x: area.x + (origin + 1).saturating_sub(COUNT_WIDTH),
+                        width: COUNT_WIDTH.min(origin + 1),
                         ..area
                     },
                     buf,
