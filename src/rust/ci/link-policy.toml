@@ -174,7 +174,7 @@ wqm-store-write = ["wqm-search", "wqm-store", "wqm-proto", "wqm-common"]
 # Bins are absent by design: the stratification covers library crates, and bin
 # closures are governed by the [grants] rules above (direction A).
 s0 = ["wqm-common", "wqm-proto"]
-s1 = ["wqm-store", "wqm-secrets", "wqm-conventions", "wqm-sensor"]
+s1 = ["wqm-store", "wqm-secrets", "wqm-conventions", "wqm-sensor", "wqm-service-install"]  # the fifth: CR-023 r02, stratum DERIVED from its stated closure `{ wqm-common }` (ARCH §9.1:2491); the ARCH table row is P02-GT998's to add
 s2 = ["wqm-search"]
 s3 = ["wqm-store-write", "wqm-ingest"]
 s4 = ["wqm-graph", "wqm-intel", "wqm-lsp", "wqm-embed-native", "wqm-host"]
@@ -203,5 +203,8 @@ test_support = ["wqm-test-harness"]
 #
 # Test-support crates may depend on anything, which is why they are not stratified:
 # they sit above the whole ordering by construction. (P04-GT001-WO007.)
-unstratified = ["wqm-service-install"]
-unstratified_reason = "CR-023 -- ARCH rev15 §9.1's stratification omits it (17 of 18 crate-map rows are stratified); its stratum is P02's to assign."
+# Empty since CR-023 r02 (20260906): `wqm-service-install` moved to s1 above. The list
+# stays declared so the guard's "fails loudly on arrival, naming its CR" path keeps a
+# home for the next omission; the selftest carries its own fixture for that case.
+unstratified = []
+unstratified_reason = "no crate is currently pending a stratum"
