@@ -857,6 +857,39 @@ fn role(from_theme: fn(&ThemePalette) -> Color, slot: Color) -> Color {
     }
 }
 
+// --- §10's two unclaimed hues, claimed --------------------------------------------
+// §10 left `accent` and `secondary` carrying no role — "unclaimed — headroom". The constant
+// app bar spends both, and neither spends a hue §3 reserves.
+
+/// The **jump digit** on a tab (`1` in `1 Dashboard`, `0` in `10 Service`).
+///
+/// §3 keeps the number outside the selector block because it is a jump hint rather than part
+/// of the selection, and until now it recited that intent in muted grey — the same rung as the
+/// label it precedes, which says "this is metadata" and not "this is the key you press".
+/// `accent` is the field §10 measured as *unclaimed headroom*, and it is the right one to
+/// spend here precisely because it is not reserved: a digit painted in the selector's `info`
+/// would read as a selection, and one painted in a health hue would read as an alarm.
+///
+/// No underline and no bold with it (Chris, 20260906) — the hue is the whole signal, so the
+/// digit stays quieter than the inverted block beside it.
+///
+/// Magenta where no theme is chosen: the bare-library fallbacks are ANSI slots, and magenta is
+/// the only one left after cyan (the selector) and green/yellow/red (the three health states).
+pub fn accent() -> Color {
+    role(|palette| palette.accent, Color::Magenta)
+}
+
+/// The second unclaimed hue — **work in flight**, as against work waiting or work failed.
+///
+/// The queue row needs a third colour beside `warning` (pending) and `error` (failed), and
+/// Chris asked for blue (20260906). Blue is what `info` is in every bundled theme, and `info`
+/// is the selector — reserved *absolutely* by §3, so a blue count would be the one thing §3
+/// says can never happen: a cyan-blue mark that is not a selection. `secondary` is the free
+/// role that reads blue-ish without being that one.
+pub fn secondary() -> Color {
+    role(|palette| palette.secondary, Color::Blue)
+}
+
 // --- §6 layers, and the one condition that repaints layer 0 --------------------------
 
 /// A screen-wide condition — the state of the *system*, not of a widget.

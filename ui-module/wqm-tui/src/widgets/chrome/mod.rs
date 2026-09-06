@@ -2,8 +2,8 @@
 //!
 //! Most of [`crate::widgets`] is a *zone's* content: a list of stores, a table of keys, a
 //! floating window. A full screen needs a second vocabulary that belongs to none of them —
-//! the rules that divide the zones, the title bar, the sub-screen selector, the merged
-//! status-and-help line at the foot. They are collected here because a screen is where they
+//! the app bar at the very top, the rules that divide the zones, the title bar, the
+//! sub-screen selector, the merged status-and-help line at the foot. They are collected here because a screen is where they
 //! are first needed and a second screen will need exactly the same ones.
 //!
 //! # Chrome is a widget, and that is §16's word
@@ -14,7 +14,7 @@
 //! previously inside `views::chrome`, unregistered and therefore unjudgeable — which is the
 //! one thing a design instrument must never make of an element.
 //!
-//! They stay in one sub-module rather than five loose files because they are a family: a
+//! They stay in one sub-module rather than six loose files because they are a family: a
 //! screen takes all of them or none, and their shared vocabulary (§2's two rule weights, §3's
 //! focus treatment) is stated once here.
 //!
@@ -33,12 +33,14 @@
 //! ([`crate::widgets::config_table::Entry::is_changed`]): a mark that can contradict the fact
 //! it marks is a flag, and the comparison is the rule.
 
+pub mod app_bar;
 pub mod pane_selector;
 pub mod rule;
 pub mod status_line;
 pub mod title_bar;
 pub mod zone_heading;
 
+pub use app_bar::AppBar;
 pub use pane_selector::PaneSelector;
 pub use rule::{Rule, Weight};
 pub use status_line::StatusLine;

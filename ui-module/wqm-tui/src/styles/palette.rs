@@ -116,8 +116,8 @@ type Hue = (
 );
 
 const HUES: [Hue; 6] = [
-    ("theme.accent", |p| p.accent, "unclaimed — headroom"),
-    ("theme.secondary", |p| p.secondary, "unclaimed — headroom"),
+    ("theme.accent", |p| p.accent, "the tab bar's jump digit"),
+    ("theme.secondary", |p| p.secondary, "queue: work in flight"),
     ("theme.error", |p| p.error, "offline ○"),
     (
         "theme.warning",
