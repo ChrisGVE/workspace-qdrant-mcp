@@ -154,10 +154,15 @@ fn a_queue_count_of_zero_is_muted_and_a_count_of_anything_is_not() {
         Some(tokens::degraded()),
         "work waiting is the warning hue"
     );
+    // Chris reaffirmed blue after being told it is the selector's hue (20260906), so this is a
+    // sanctioned exception rather than a slip. Asserted against `info()` and not `selector()`
+    // even though the two resolve to the same colour by construction: the accessor NAME is
+    // what records the intent, and a guard naming the selector would read as the collision
+    // §3 forbids rather than as the one datum exempted from it.
     assert_eq!(
         count_style(&busy, WIDE, 1).fg,
-        Some(tokens::secondary()),
-        "work moving is `secondary` — NOT `info`, which §3 reserves to the selector"
+        Some(tokens::info()),
+        "work moving is the theme's `info` — the one sanctioned use of it outside the selector"
     );
     assert_eq!(
         count_style(&busy, WIDE, 2).fg,

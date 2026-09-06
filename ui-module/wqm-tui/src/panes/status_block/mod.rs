@@ -26,12 +26,18 @@
 //! there is something to see, which is what keeps a healthy screen quiet (Chris agreed,
 //! 20260906).
 //!
-//! # `in progress` is `secondary`, and that is not a free choice
+//! # `in progress` is blue, and blue is the selector's own hue
 //!
-//! Chris asked for blue. Blue is what `info` is in every bundled theme, and §10 reserves `info`
-//! for the selector **absolutely** — a blue count would be the one thing §3 forbids: a
-//! selector-hued mark that is not a selection. [`crate::tokens::secondary`] is the free role
-//! that reads blue-ish without being that one. Flagged to Chris rather than decided quietly.
+//! Chris asked for blue, was told plainly that blue is what §3 reserves absolutely to the
+//! selector, and asked for blue again (20260906). So this count is a **dated, single-datum
+//! exception** to that reservation and reaches it through [`crate::tokens::info`], whose name
+//! says which field is being spent. It is not `secondary`, which the first cut used precisely
+//! to avoid the collision.
+//!
+//! The hole stays narrow because the treatments do not collide even where the hues do: a
+//! selector is an inverted *block*, a fill with dark text on it, while this is a bare figure on
+//! the screen's own background. §3's operative promise — a cyan block is always a selection —
+//! is untouched.
 //!
 //! # Collapse is on or off, never gradual
 //!
@@ -424,7 +430,7 @@ impl StatusBlock {
 
         let counts = [
             (self.queue.pending, tokens::degraded as fn() -> Color),
-            (self.queue.in_progress, tokens::secondary as fn() -> Color),
+            (self.queue.in_progress, tokens::info as fn() -> Color),
             (self.queue.failed, tokens::offline as fn() -> Color),
         ];
 

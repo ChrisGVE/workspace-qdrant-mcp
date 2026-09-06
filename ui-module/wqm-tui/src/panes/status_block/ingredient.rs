@@ -132,7 +132,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         Box::new(Variant(
             "Queue backlog",
-            "Three counts, three hues — warning waiting, secondary moving, error lost",
+            "Three counts, three hues — warning waiting, info moving, error lost",
             || {
                 nominal().overall(Health::Degraded).queue(Queue {
                     pending: 1_240,

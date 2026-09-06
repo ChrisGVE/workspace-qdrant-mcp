@@ -857,9 +857,10 @@ fn role(from_theme: fn(&ThemePalette) -> Color, slot: Color) -> Color {
     }
 }
 
-// --- §10's two unclaimed hues, claimed --------------------------------------------
+// --- the hues beyond the health three --------------------------------------------
 // §10 left `accent` and `secondary` carrying no role — "unclaimed — headroom". The constant
-// app bar spends both, and neither spends a hue §3 reserves.
+// top spends `accent` on the jump digit, which is free. `info` is NOT free, and the one
+// datum that spends it is named and dated below.
 
 /// The **jump digit** on a tab (`1` in `1 Dashboard`, `0` in `10 Service`).
 ///
@@ -879,15 +880,30 @@ pub fn accent() -> Color {
     role(|palette| palette.accent, Color::Magenta)
 }
 
-/// The second unclaimed hue — **work in flight**, as against work waiting or work failed.
+/// **Work in flight** — the queue's `in progress` count, and nothing else.
 ///
-/// The queue row needs a third colour beside `warning` (pending) and `error` (failed), and
-/// Chris asked for blue (20260906). Blue is what `info` is in every bundled theme, and `info`
-/// is the selector — reserved *absolutely* by §3, so a blue count would be the one thing §3
-/// says can never happen: a cyan-blue mark that is not a selection. `secondary` is the free
-/// role that reads blue-ish without being that one.
-pub fn secondary() -> Color {
-    role(|palette| palette.secondary, Color::Blue)
+/// Chris, 20260906: the in-progress count is blue; the one sanctioned use of `info` outside
+/// the selector.
+///
+/// # This is a deliberate hole in §3, not an oversight
+///
+/// §3 reserves the selector hue **absolutely** — *"cyan appears in NOTHING else: if it is a
+/// cyan block, it is what you have selected"* — and [`selector`] reads the same `info` field,
+/// so these two accessors return the same colour by construction. The first cut therefore
+/// routed the count to `secondary`, the free role that reads blue-ish; Chris was told plainly
+/// that blue is the selector's hue and asked for blue anyway.
+///
+/// It is a narrow hole and stays narrow. The selector is a *block* — an inverted fill with
+/// dark text on it — while this is a bare figure on the screen's own background, so the two
+/// never wear the same treatment even where they wear the same hue. That is what keeps §3's
+/// actual promise intact: a cyan **block** is still always a selection.
+///
+/// The accessor exists rather than the queue row calling [`selector`] because the name is the
+/// whole record. A call to `selector()` from a count would read as the collision §3 forbids;
+/// a call to `info()` reads as the exception §3 now carries, and the exception is dated here
+/// and in VISUAL-LANGUAGE §10.
+pub fn info() -> Color {
+    role(|palette| palette.info, Color::Blue)
 }
 
 // --- §6 layers, and the one condition that repaints layer 0 --------------------------
