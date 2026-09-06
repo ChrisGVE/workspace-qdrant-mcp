@@ -10,6 +10,11 @@
 //!
 //! The remaining tests pin already-landed formatting (`P04-GT001-WO011`) through
 //! the rename, and pin the transition alias to the canonical type.
+//!
+//! The last test asserts the variant set is closed. It is here rather than beside
+//! the type because an integration test is a separate crate, which is the only
+//! vantage point from which the closure of a `#[non_exhaustive]`-able enum can be
+//! decided at all.
 
 use std::any::TypeId;
 use std::net::SocketAddr;
@@ -74,5 +79,42 @@ fn address_is_an_alias_of_transport_address() {
         TypeId::of::<Address>(),
         TypeId::of::<TransportAddress>(),
         "`Address` is an alias, not a second transport type"
+    );
+}
+
+/// The transport set is exactly two, and this test only compiles if it is.
+///
+/// The `match` below has no wildcard arm, so adding a third variant to
+/// [`TransportAddress`] breaks this file rather than falling through silently.
+/// The test lives here, in an integration test, and not beside the type, because
+/// that is the only place the closure is decidable: `#[non_exhaustive]` is
+/// invisible inside the defining crate — an in-crate `match` compiles without a
+/// wildcard whether or not the attribute is present — so a same-crate test would
+/// still pass on a type that had been opened up to downstream crates. An
+/// integration test is a *different* crate, which is where the attribute bites,
+/// and where a third transport would have to be handled.
+///
+/// The arms are deliberately not `_ => ...`: a wildcard is exactly where a third
+/// transport would later be swallowed, mapped onto whichever of the two existing
+/// cases the wildcard happened to name.
+#[test]
+fn the_transport_set_is_closed_to_other_crates() {
+    fn is_filesystem_named(address: &TransportAddress) -> bool {
+        match address {
+            TransportAddress::Uds(_) => true,
+            TransportAddress::Tcp(_) => false,
+        }
+    }
+
+    let uds = TransportAddress::Uds(PathBuf::from("/var/run/wqm-v2/daemon.sock"));
+    let tcp = TransportAddress::Tcp("127.0.0.1:50051".parse().expect("a literal address"));
+
+    assert!(
+        is_filesystem_named(&uds),
+        "a Unix socket is named on the filesystem"
+    );
+    assert!(
+        !is_filesystem_named(&tcp),
+        "a TCP endpoint is named by a machine-global port"
     );
 }

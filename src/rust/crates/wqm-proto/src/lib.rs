@@ -51,14 +51,33 @@ pub mod v1 {
 /// on-disk record and no wire-serialized form. A peer only ever sees the concrete
 /// socket or endpoint the value resolves to.
 ///
+/// That sentence is a guarantee, so it is asserted rather than merely written.
+/// `prost` is a direct dependency of this crate, so a `#[derive(prost::Message)]`
+/// added here would quietly turn the bind endpoint into a wire contract -- a
+/// serialized form some peer could then depend on -- with nothing in the crate
+/// objecting. The bound below fails to hold today, and it stops failing the moment
+/// such a derive appears:
+///
+/// ```compile_fail,E0277
+/// // The bind endpoint has no wire-serialized form. If this ever compiles, a
+/// // `prost::Message` impl has been added and "in-memory only" is no longer true.
+/// fn assert_is_wire_message<T: prost::Message>() {}
+/// assert_is_wire_message::<wqm_proto::TransportAddress>();
+/// ```
+///
 /// There is deliberately **no `Default`**: an address is always supplied by the
 /// caller, so no process can dial somewhere nobody named. That is CR-007's first
 /// defect -- a default live endpoint -- applied to the product rather than only to
 /// the test harness. The absence is asserted, not merely intended:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0599
 /// // CR-007: there is no default live endpoint. If this ever compiles, a
-/// // `Default` impl has been added and the guarantee is gone.
+/// // `Default` impl has been added and the guarantee is gone. The error code is
+/// // pinned because a `compile_fail` block passes on *any* error, a typo in the
+/// // path included -- E0599, "no such associated item", is the one absence this
+/// // block is about. Stable rustdoc records the code without checking it, so the
+/// // pin states the intended failure; it was verified by compiling the snippet
+/// // on its own.
 /// let _ = wqm_proto::TransportAddress::default();
 /// ```
 ///
