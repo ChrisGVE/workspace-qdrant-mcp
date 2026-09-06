@@ -1,0 +1,30 @@
+# wqm-store-write -- the S1-only mutation authority (ARCH rev15 §9.1, stratum 3).
+# Every write that reaches persistent state is closed inside this crate: N6's
+# compare-and-swap, N11's destructive-operation gate, N19's schema evolution and
+# migration, N2's drain, and N5's queue. Nothing else in the workspace is allowed
+# to mutate the stores, which is what makes "the daemon owns persistent state" a
+# build-time fact instead of a convention.
+#
+# S1-only, and mechanically so. `ci/link-policy.toml` lists this crate in
+# [s1_only].crates, so the N14 link-closure guard default-denies it to every bin
+# that is not `memexd` (or the declared offline `wqm-restore` maintenance bin).
+# §9.1 also states its own wqm-closure EXACTLY -- {wqm-search, wqm-store,
+# wqm-proto, wqm-common} -- and that exact claim is enforced by
+# [dp7.exact_closures]; widening it is an ARCH revision, i.e. a CR, never a
+# policy edit.
+#
+# NO dependencies are declared yet, and that is the honest state rather than an
+# omission: `P04-GT002-WO047` lands vocabulary only (the per-store schema-version
+# report), which needs nothing outside `core`. The four closure members arrive
+# with the rows that actually use them -- N19's persisted `schema_version` reads
+# pull in `wqm-store`, the N45 reembed driver pulls in `wqm-search`, and so on.
+[package]
+name = "wqm-store-write"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
