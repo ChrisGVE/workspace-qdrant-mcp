@@ -105,9 +105,12 @@ supplying an answer. (Standing rule, Chris 20260802.)
 >
 > Open in `CR-056` §9 and named there: losslessness of the broadcast, the drain scope, whether the
 > always-present block's memory is the daemon's or the emitter's, whether that block is also sampled at
-> read, the ingest size cap, whether the bus is needed for logs at all, whether `schema_id` derives from
-> the topic, the burst schema, and **the metric list itself** — `CR-056` fixes the *shape* of a metric,
-> not the set. N8 owns metric names and no registry exists yet.
+> read, the ingest size cap, whether the bus is needed for logs at all, and **the metric list itself** —
+> `CR-056` fixes the *shape* of a metric, not the set. N8 owns metric names and no registry exists yet.
+> *(20260906, `CR-056` r04:* `schema_id` is written in every envelope, never derived from the topic; the
+> burst's always-present block is two named blocks, `process` and `system`; `process.memory`'s filler is
+> still the open item above. `CR-057` r11: the threshold type is `ThresholdSpec` (compiled-in side + seed)
+> and `ThresholdValues { Seed | Learned | Pinned }` (resolved); the `Relative` variant is withdrawn.)*
 
 **No rolling aggregate exists, and the sealed contract currently commits N13 to the opposite.**
 
