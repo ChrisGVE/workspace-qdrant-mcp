@@ -7,14 +7,17 @@ style_source = "wqm_tui::tokens"
 # #000000 / #262626 / #3B3B3B were absolute values that matched no theme and made the fill-less
 # toast look filled (§8.6).
 #
-# ⚠ These are **Everforest** values, matching the theme `widget_preview` now sets. This is the
-# one transcription left in this file and it is pinned to that choice: change the theme in
-# `examples/widget_preview/main.rs` and these three are wrong until they are re-read from
-# `Colors/Palette`. Nothing will fail — which is exactly why `[colors.*]` is gone.
+# ⚠ These are **Catppuccin Mocha** values (re-read 20260906, when the harness moved off
+# Everforest so that the screen Chris judges and the numbers the tests pin are the same theme).
+# They are `screen_bg()`, `layer1_bg()` and `layer2_bg()` under that theme, in that order.
+#
+# This is the one transcription left in this file and it is pinned to that choice: change the
+# theme in `examples/widget_preview/main.rs` and these three are wrong until they are re-read.
+# Nothing will fail — which is exactly why `[colors.*]` is gone.
 [pantry.preview_backgrounds]
-layer0 = "#2F3537"
-layer1 = "#465051"
-layer2 = "#535E5D"
+layer0 = "#1E1E2E"
+layer1 = "#3D3E51"
+layer2 = "#4D5064"
 
 # The Styles tab's vocabulary is NOT here any more (Chris, 20260801: *"you can get rid of Role /
 # Reserved / Anchor / Structure — under the Colors style we only need this one"*). Every one of

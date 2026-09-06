@@ -35,16 +35,26 @@ fn main() -> std::io::Result<()> {
     // preference with nowhere to be written yet (`UIQ-009`/`UIQ-010`), and the pantry is not
     // where that decision belongs.
     //
-    // **Everforest, on Chris's instruction 20260801** — *"can you change the theme to Everforest
-    // so I can see with my own eyes"*. It is the adversarial case for tinting `strong` toward
-    // `accent`: Everforest's accent is `#83C178` and its `success` is `#A7C080`, both green, and
-    // the measured distance between a tinted `strong` and that reserved hue is the worst of the
-    // fifteen (ΔE 6.6 at k = 0.55). A theme chosen because it is where the idea is most likely
-    // to fail is worth more than one chosen because it looks good.
+    // **Catppuccin Mocha, on Chris's instruction 20260906.** It was Everforest from 20260801
+    // — *"can you change the theme to Everforest so I can see with my own eyes"* — chosen as
+    // the adversarial case for tinting `strong` toward `accent`, since Everforest's accent
+    // (`#83C178`) and its `success` (`#A7C080`) are both green and sit ΔE 6.6 apart at
+    // k = 0.55, the worst of the fifteen.
     //
-    // Mocha remains the theme the crate's *tests* pin, so a measurement stays reproducible while
-    // the thing on screen is the one being judged.
-    wqm_tui::tokens::set_theme(ratatui_themes::ThemeName::Everforest.palette());
+    // That case has not gone away; it has moved somewhere better. `styles::strong` measures
+    // Everforest directly, as data, and a *test* that names the adversarial theme is a
+    // stronger instrument than a *harness* that happens to be set to it: it keeps measuring
+    // whatever the pantry is painting with.
+    //
+    // What the harness was costing, meanwhile, was agreement. Mocha is the theme the crate's
+    // tests pin and the theme every measurement in `tokens` was taken against, so the screen
+    // Chris judged and the numbers this crate argues from were two different rooms. They are
+    // one room now.
+    //
+    // ⚠ `pantry.toml`'s `[pantry.preview_backgrounds]` are a hand transcription of the three
+    // layer colours THIS theme produces. Change this line and those three are silently wrong
+    // — nothing fails, the previews simply sit on another theme's backdrop.
+    wqm_tui::tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
 
     Encoding::set(match encoding::detect() {
         // See the module docs: for a dump, the escape sequences are the whole output.
