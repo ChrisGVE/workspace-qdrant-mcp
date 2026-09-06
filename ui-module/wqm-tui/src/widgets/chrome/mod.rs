@@ -34,6 +34,7 @@
 //! it marks is a flag, and the comparison is the rule.
 
 pub mod app_bar;
+pub mod freshness;
 pub mod pane_selector;
 pub mod rule;
 pub mod status_line;

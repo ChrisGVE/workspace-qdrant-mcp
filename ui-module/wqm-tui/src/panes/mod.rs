@@ -28,8 +28,10 @@
 pub mod collections;
 pub mod config;
 pub mod status_band;
+pub mod status_block;
 pub mod storage;
 
 pub use config::ConfigPane;
 pub use status_band::StatusBand;
+pub use status_block::StatusBlock;
 pub use storage::StorageCell;

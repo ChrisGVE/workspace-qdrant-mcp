@@ -48,6 +48,7 @@ modules = [
     "panes::collections",
     "panes::config",
     "panes::status_band",
+    "panes::status_block",
     "panes::storage",
     # The Styles tab: the vocabulary, rendered live rather than transcribed. These two ask
     # `tokens` the same questions a screen asks, so they cannot drift from it — which is what

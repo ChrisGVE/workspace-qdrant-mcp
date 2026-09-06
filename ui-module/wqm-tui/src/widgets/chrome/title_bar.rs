@@ -1,70 +1,22 @@
 //! The title bar — the screen's name, with how old its readings are right-aligned against it.
+//!
+//! [`Freshness`] and [`format_age`] are re-exported rather than owned: they moved to
+//! [`super::freshness`] when [`crate::panes::status_block`] needed the same treatment on line
+//! 1 of every screen. Every path that already named them through this module still resolves.
 
 use std::time::Duration;
 
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
 use crate::tokens;
 
-/// How old the screen's readings are, and how old they are allowed to get.
-///
-/// §4: *"Freshness/staleness is right-aligned, muted; past its SLA it turns `[yellow]stale
-/// …`"*. Both halves of that comparison are carried, so [`Freshness::is_stale`] is a
-/// measurement rather than a claim — a frame reading `updated 18m ago` in muted grey under a
-/// one-minute SLA is not constructible.
-///
-/// **The SLA itself is not this crate's to set** — §7 leaves the freshness SLA open (OQ-6),
-/// which is exactly why it is a parameter here instead of a constant.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Freshness {
-    age: Duration,
-    sla: Duration,
-}
-
-impl Freshness {
-    pub const fn new(age: Duration, sla: Duration) -> Self {
-        Self { age, sla }
-    }
-
-    pub fn is_stale(&self) -> bool {
-        self.age > self.sla
-    }
-
-    /// The right-aligned span: muted while fresh, and the degraded hue once it is not.
-    fn span(&self) -> Span<'static> {
-        if self.is_stale() {
-            Span::styled(
-                format!("stale — {} ago", format_age(self.age)),
-                Style::default().fg(tokens::Health::Degraded.color()),
-            )
-        } else {
-            Span::styled(
-                format!("updated {} ago", format_age(self.age)),
-                tokens::muted_style(),
-            )
-        }
-    }
-}
-
-/// An age in the coarsest unit that still says something: `4s`, `18m`, `2h`, `3d`.
-///
-/// Coarse on purpose. The number is read peripherally to answer *"is this recent?"*, and a
-/// second of precision on an eighteen-minute age answers a question nobody asked.
-pub fn format_age(age: Duration) -> String {
-    let secs = age.as_secs();
-    match secs {
-        0..=59 => format!("{secs}s"),
-        60..=3_599 => format!("{}m", secs / 60),
-        3_600..=86_399 => format!("{}h", secs / 3_600),
-        _ => format!("{}d", secs / 86_400),
-    }
-}
+pub use super::freshness::{format_age, Freshness};
 
 /// The screen's name on its own line, with the freshness right-aligned against it (§6).
 pub struct TitleBar {
@@ -120,17 +72,6 @@ mod tests {
     use super::*;
     use crate::tokens::Health;
     use crate::widgets::chrome::test_support::{render, row, style_at, Restore};
-
-    #[test]
-    fn an_age_is_named_in_the_coarsest_unit_that_still_says_something() {
-        assert_eq!(format_age(Duration::from_secs(0)), "0s");
-        assert_eq!(format_age(Duration::from_secs(59)), "59s");
-        assert_eq!(format_age(Duration::from_secs(60)), "1m");
-        assert_eq!(format_age(Duration::from_secs(3_599)), "59m");
-        assert_eq!(format_age(Duration::from_secs(3_600)), "1h");
-        assert_eq!(format_age(Duration::from_secs(86_399)), "23h");
-        assert_eq!(format_age(Duration::from_secs(86_400)), "1d");
-    }
 
     #[test]
     fn staleness_is_the_comparison_and_cannot_be_stated_against_it() {
