@@ -77,3 +77,36 @@ CREATE TABLE IF NOT EXISTS category_keyword (
 );
 CREATE INDEX IF NOT EXISTS ix_category_keyword_keyword ON category_keyword(keyword);
 "#;
+
+/// Document→category assignments, keyed on the lineage key rather than the
+/// per-round surrogate.
+///
+/// The composite FK targets `taxonomy_category`'s `UNIQUE(category_key, round)`,
+/// which makes an assignment to an absent category in its round **structurally
+/// impossible** (DATA-04) — the store half of a two-sided defense whose other half
+/// is N53 never proposing one.
+///
+/// The partial `UNIQUE(document_id, round) WHERE is_primary` holds *one primary
+/// per document per round*. N53 already guarantees it by construction (highest
+/// Jaccard, ties broken by the proposal's total order), so the store's rejection
+/// is defense in depth — which is the point: the guarantee survives a future
+/// producer that does not carry it.
+///
+/// `method` and `confidence` are opaque stored values; the store records them and
+/// never branches on `method`.
+pub const DOC_CLASSIFICATION_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS doc_classification (
+    document_id  INTEGER NOT NULL,
+    category_key BLOB    NOT NULL,
+    round        INTEGER NOT NULL,
+    confidence   REAL    NOT NULL,
+    method       TEXT    NOT NULL,
+    is_primary   INTEGER NOT NULL,
+    PRIMARY KEY (document_id, category_key, round),
+    FOREIGN KEY (category_key, round)
+        REFERENCES taxonomy_category(category_key, round) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_doc_primary
+    ON doc_classification(document_id, round) WHERE is_primary;
+CREATE INDEX IF NOT EXISTS ix_doc_classification_doc ON doc_classification(document_id);
+"#;
