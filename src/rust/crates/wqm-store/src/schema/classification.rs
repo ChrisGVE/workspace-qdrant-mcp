@@ -1,0 +1,55 @@
+//! N52's taxonomy and classification families in storedb.
+//!
+//! Transcribed from the sealed fill fragments under
+//! `P04-build/T1-kernel/fill/anchor/` (`P02-GT004`) — `A-tbl-taxonomy-category`,
+//! `A-tbl-category-keyword`, `A-tbl-doc-classification`,
+//! `A-tbl-curation-decision`. Vocabulary only: no module here opens a connection,
+//! migrates, or writes a row.
+//!
+//! # The family is global, and reads that way on purpose
+//!
+//! None of these tables carries a tenant or collection column. The taxonomy is
+//! one cross-tenant backbone on the `libraries` axis (N35), so a scope column
+//! would not narrow a query — it would fork the backbone.
+//!
+//! # Retention is schema, not discipline
+//!
+//! Rounds coexist so induction can append-then-flip, and the *current + previous*
+//! retention bound is held by `ON DELETE CASCADE` off `taxonomy_category` rather
+//! than by a GC routine that remembers to visit three tables. Round-GC deletes
+//! the superseded round's categories; its profiles and assignments go with them,
+//! mechanically. These are composition deletes of a round's own component rows —
+//! not the FP-1 cross-entity cascade, which orders consumers before their target.
+
+/// The per-round category table — the taxonomy backbone.
+///
+/// Two identifiers, deliberately: `category_id` is a per-round surrogate rowid,
+/// and `category_key` is the **round-stable lineage key** minted by N52. Downstream
+/// rows reference the lineage key, so a cross-round query needs no id mapping.
+///
+/// The two `UNIQUE` constraints do different jobs. `UNIQUE(name, round)` scopes
+/// name uniqueness to a round, which is what lets two rounds coexist during
+/// append-then-flip. `UNIQUE(category_key, round)` is the candidate key
+/// `DOC_CLASSIFICATION_SQL` names in its composite foreign key — without it that
+/// FK cannot be declared at all.
+///
+/// `parent_id` references a `category_id` **in the same round only**. Induction
+/// emits a cluster dendrogram, a forest acyclic by construction, so no cyclic or
+/// cross-round parent can arise.
+pub const TAXONOMY_CATEGORY_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS taxonomy_category (
+    category_id  INTEGER PRIMARY KEY,
+    category_key BLOB    NOT NULL,
+    name         TEXT    NOT NULL,
+    description  TEXT,
+    level        INTEGER NOT NULL,
+    parent_id    INTEGER,
+    is_frozen    INTEGER NOT NULL,
+    is_utility   INTEGER NOT NULL,
+    round        INTEGER NOT NULL,
+    UNIQUE (name, round),
+    UNIQUE (category_key, round)
+);
+CREATE INDEX IF NOT EXISTS ix_taxonomy_category_parent ON taxonomy_category(parent_id);
+CREATE INDEX IF NOT EXISTS ix_taxonomy_category_key ON taxonomy_category(category_key);
+"#;
