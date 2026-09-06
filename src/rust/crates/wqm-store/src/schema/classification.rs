@@ -53,3 +53,27 @@ CREATE TABLE IF NOT EXISTS taxonomy_category (
 CREATE INDEX IF NOT EXISTS ix_taxonomy_category_parent ON taxonomy_category(parent_id);
 CREATE INDEX IF NOT EXISTS ix_taxonomy_category_key ON taxonomy_category(category_key);
 "#;
+
+/// The per-category keyword profile — one weight per (category, keyword).
+///
+/// The composite PK forbids a duplicate keyword inside one profile, which is what
+/// N53 emits anyway: a per-cluster keyword→weight map cannot carry a duplicate
+/// key. Stating it in the schema makes the store agree with the producer instead
+/// of trusting it.
+///
+/// `weight` is an **opaque stored score**. N52 stores it; what a weight means
+/// belongs to N53/N54, and the store never interprets or branches on it.
+///
+/// The `ON DELETE CASCADE` is a composition delete: a profile belongs to its
+/// category row, so the retention bound holds for profiles by the same mechanism
+/// that holds it for categories.
+pub const CATEGORY_KEYWORD_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS category_keyword (
+    category_id INTEGER NOT NULL
+        REFERENCES taxonomy_category(category_id) ON DELETE CASCADE,
+    keyword     TEXT    NOT NULL,
+    weight      REAL    NOT NULL,
+    PRIMARY KEY (category_id, keyword)
+);
+CREATE INDEX IF NOT EXISTS ix_category_keyword_keyword ON category_keyword(keyword);
+"#;
