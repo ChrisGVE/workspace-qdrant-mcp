@@ -15,43 +15,22 @@
 //! `P04-GT025` for N51). `mesh/program.db` is the tracker; a slice GT is named
 //! `slice-N##`.
 
-/// N8 -- the canonical name registry: the single owner of the workspace's literal
-/// identifier strings (collection names, environment keys, the N51
-/// operation-class and consumer vocabularies). See [`names`] for the
-/// single-producer rule and the grow-per-phase contract.
+// Each module carries its OWN documentation in its `//!` header. These
+// declarations are deliberately bare: an outer `///` block on a `pub mod` line
+// makes that module's inner intra-doc links resolve against the crate root
+// instead of the module, so a link to Thing written inside the module fails to
+// resolve even though Thing is declared right there. That cost this crate 13
+// unresolved links and a red `cargo doc`; it is a rustdoc scoping behaviour, not
+// a naming mistake, and the only fix is to leave the declaration undecorated.
+
 pub mod names;
 
-/// N12 -- the response envelope every MCP tool answers in, with §4.3's error
-/// vocabulary and §4.4's notice vocabulary. Seeded at `P04-GT001-WO011` with the
-/// sealed seven-key shape (MCP-SURFACE.md §3.1); the per-tool `data` shapes live
-/// with the tools that produce them.
 pub mod envelope;
 
-/// N56's plan types (`CONTRACTS.md`:2346 homes them here, not in the planner).
-/// Seeded at `P04-GT001-WO013` with the ECHO side -- what a `query` response
-/// carries back (MCP-SURFACE.md §3.4).
 pub mod plan;
 
-/// N35 -- the injected collection-profile READ face, at the three axes the
-/// narrowed read leg consults (`P04-GT001-WO013`). The table itself belongs to the
-/// glue side no kernel crate may link.
 pub mod profile;
 
-/// N26's `Secret` newtype -- the one in-memory value type every resolved
-/// credential is carried in, zeroized on drop and redacted at `Debug`/`Display`.
-/// It is homed here rather than in `wqm-secrets` because both the kernel (N7,
-/// N17) and the glue (N26, N44, N46, N49) name it, and the floor is the only
-/// place all six can share one declaration without a crate cycle. Seeded at
-/// `P04-GT002-WO075` (concrete `C-ty-secret`); the resolver that mints a
-/// `Secret` stays in `wqm-secrets`.
 pub mod secret;
 
-/// N33's `RulesWriteCap` -- the sealed, non-`pub`-constructible capability that
-/// gates writes to the rules collection, so "only user-authored writes reach
-/// `rules`" is structural rather than a payload convention. Homed here because the
-/// mint half (`wqm-serve`) and the drain (`wqm-store-write`) both name it and the
-/// floor is the only crate they can share one declaration through without a cycle
-/// (PRD F-08). Seeded at `P04-GT002-WO074` (concrete `C-ty-rules-write-cap`); the
-/// mint, N5's persisted MAC marker, and the drain check all arrive with their own
-/// slices.
 pub mod rules_write_cap;

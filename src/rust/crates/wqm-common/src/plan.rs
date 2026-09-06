@@ -1,4 +1,5 @@
-//! N56's plan, as the response carries it back (MCP-SURFACE.md §3.4).
+//! N56's plan, as the response carries it back (MCP-SURFACE.md §3.4). Seeded
+//! at `P04-GT001-WO013` with the ECHO side.
 //!
 //! # Why the types are here and not in the planner
 //!

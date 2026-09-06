@@ -91,12 +91,12 @@ mod tier {
             );
         }
 
-        assert_every(
+        for module in [
             crate::views::service::ingredient::ingredients(),
-            "Views",
-            None,
-            "a full screen is a view",
-        );
+            crate::views::shell::ingredient::ingredients(),
+        ] {
+            assert_every(module, "Views", None, "a full screen is a view");
+        }
     }
 }
 

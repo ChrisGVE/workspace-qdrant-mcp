@@ -93,9 +93,15 @@ fn a_clone_carries_the_same_value() {
 fn the_type_is_zeroize_on_drop() {
     // Reading freed memory to observe the wipe is undefined behaviour, so the
     // property is asserted where it is actually decidable: at the type level.
-    // `Zeroizing<Vec<u8>>` does the wiping; this holds the marker in place so
-    // swapping the field for a bare `Vec<u8>` fails to compile rather than
-    // silently dropping the guarantee.
+    //
+    // What this test does and does NOT hold. `ZeroizeOnDrop` is an empty marker
+    // trait and `secret.rs` implements it by hand, so this bound only pins that
+    // the marker stays PRESENT -- it cannot see the field and would pass
+    // unchanged if `Zeroizing<Vec<u8>>` became a bare `Vec<u8>`. The field is
+    // held by the `const` assertion beside that impl (`the_field_wipes_itself`
+    // in `src/secret.rs`), which names `secret.0` and fails to compile if the
+    // field stops wiping. Both are needed: this one keeps the marker callers can
+    // bind on, that one keeps the marker honest.
     fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
 
     assert_zeroize_on_drop::<Secret>();

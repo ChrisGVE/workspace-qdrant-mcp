@@ -89,7 +89,16 @@
 /// snippet above is its control: the path and spelling compile, so the failure
 /// below is the private field and not a typo.
 ///
-/// ```compile_fail
+/// The block records its expected code, and this is the one where that matters
+/// most: rustc runs its privacy pass AFTER type-check, so any earlier error --
+/// a renamed field, a changed shape -- aborts before E0451 is ever reached, and
+/// a bare `compile_fail` would stay green while asserting nothing. Note that
+/// rustdoc does NOT check the code (measured, rustc 1.98.0, stable and nightly:
+/// a deliberately wrong code still passes), so it is a review anchor rather than
+/// a gate. The snippet was compiled standalone against this crate and raises
+/// E0451 alone; re-run that check if it is ever edited.
+///
+/// ```compile_fail,E0451
 /// use wqm_common::rules_write_cap::RulesWriteCap;
 ///
 /// let _forged = RulesWriteCap { _sealed: () };
@@ -99,7 +108,7 @@
 /// different name, and would hand every caller the authority the type exists to
 /// withhold:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0599
 /// use wqm_common::rules_write_cap::RulesWriteCap;
 ///
 /// let _forged = RulesWriteCap::default();
@@ -110,12 +119,31 @@
 /// becoming a supply. Asserted through a bound, since no value can be obtained to
 /// call `.clone()` on:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0277
 /// use wqm_common::rules_write_cap::RulesWriteCap;
 ///
 /// fn assert_clone<T: Clone>() {}
 /// assert_clone::<RulesWriteCap>();
 /// ```
+///
+/// # And no inherent constructor
+///
+/// This is the absence most likely to erode, because it is the path of least
+/// resistance: when N33's mint slice (`C-mod-N33`, `wqm-serve`) is written, a
+/// `pub fn new()` here is the shortest way to make the mint compile, and it
+/// would hand the authority to every crate in the workspace at the same time.
+/// Nothing mechanical would notice -- F-13's `ci/guard_mac_single_setter.py`
+/// counts the setter of N5's Layer-2 marker, not the minters of this type -- so
+/// the tripwire has to be here:
+///
+/// ```compile_fail,E0599
+/// use wqm_common::rules_write_cap::RulesWriteCap;
+///
+/// let _forged = RulesWriteCap::new();
+/// ```
+///
+/// When the mint does arrive it must not arrive as a public `new()`; a doctest
+/// that fails at that point is this file objecting, not a stale test.
 #[derive(Debug)]
 pub struct RulesWriteCap {
     /// The seal. Private, so no out-of-crate literal can build the type; a unit

@@ -60,4 +60,5 @@ modules = [
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.
     "views::service",
+    "views::shell",
 ]

@@ -26,6 +26,73 @@
 //! this type carries no store handle (contracts N26: "never returned to the
 //! kernel as a store handle -- only the resolved value crosses the edge").
 //!
+//! # The absences, held by the compiler rather than by the paragraph above
+//!
+//! A derive added in a later slice would satisfy that prose and break the
+//! invariant silently, so each named absence has a doctest that must fail to
+//! compile. Each is written as a trait bound rather than a use site, because a
+//! bound is decided by the impl set alone -- which is the thing being asserted.
+//!
+//! Every block carries its expected error code (`compile_fail,E0277`), and what
+//! that code is worth has to be stated exactly, because it is easy to overtrust:
+//! a bare `compile_fail` passes on ANY error, including a mistyped path or a
+//! renamed module, so the code says which failure was intended. **rustdoc does
+//! not verify it.** Measured on rustc 1.98.0, stable and nightly alike: a block
+//! pinned to a code the snippet does not raise -- even a code that does not
+//! exist -- still passes. The pin is therefore a review anchor and the record of
+//! what was proven, not a gate. The proof itself is out-of-band: each snippet was
+//! compiled on its own against this crate and confirmed to raise that code and
+//! nothing else, which is the step a reviewer must repeat when one of these is
+//! edited.
+//!
+//! No `Serialize` -- the read path onto disk, a log, a metric, or the wire:
+//!
+//! ```compile_fail,E0277
+//! use wqm_common::secret::Secret;
+//!
+//! fn assert_serialize<T: serde::Serialize>() {}
+//! assert_serialize::<Secret>();
+//! ```
+//!
+//! No `PartialEq` -- comparison reads the bytes, one answer at a time:
+//!
+//! ```compile_fail,E0277
+//! use wqm_common::secret::Secret;
+//!
+//! fn assert_partial_eq<T: PartialEq>() {}
+//! assert_partial_eq::<Secret>();
+//! ```
+//!
+//! No `Deref` -- coercion would hand out the bytes implicitly, at any site
+//! expecting a slice, with no named call to grep:
+//!
+//! ```compile_fail,E0277
+//! use wqm_common::secret::Secret;
+//!
+//! fn assert_deref<T: core::ops::Deref>() {}
+//! assert_deref::<Secret>();
+//! ```
+//!
+//! No `AsRef<[u8]>` -- the same unnamed read path, reached through the generic
+//! parameter most byte-taking APIs advertise:
+//!
+//! ```compile_fail,E0277
+//! use wqm_common::secret::Secret;
+//!
+//! fn assert_as_ref<T: AsRef<[u8]>>() {}
+//! assert_as_ref::<Secret>();
+//! ```
+//!
+//! No `From<String>` -- an infallible `.into()` is a mint with no named
+//! construction site to review:
+//!
+//! ```compile_fail,E0277
+//! use wqm_common::secret::Secret;
+//!
+//! fn assert_from_string<T: From<String>>() {}
+//! assert_from_string::<Secret>();
+//! ```
+//!
 //! Sources: contracts N26 *Provides*; ARCH §9.1 (the `Secret` TYPE homed in
 //! `wqm-common`, closure `wqm-secrets -> {wqm-common}`); PRD F-08 (AC1 redact +
 //! zeroize, FP-2 single home); Design_Principles I7 + FP-2. Owner nexus N26; the
@@ -69,7 +136,7 @@ const DISPLAY_REDACTION: &str = "<redacted>";
 /// `expose()` is the only read path -- the bytes are not reachable by indexing
 /// or by deref, so a leak cannot happen without the greppable name appearing:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0608
 /// use wqm_common::secret::Secret;
 ///
 /// let key = Secret::new(b"hunter2".to_vec());
@@ -103,7 +170,25 @@ impl Secret {
 
 /// Wiped on drop by the field's own type; the marker states the property so it
 /// can be named in a bound rather than only described in prose.
+///
+/// `ZeroizeOnDrop` is an EMPTY marker trait, so writing this impl by hand asserts
+/// nothing on its own -- it would keep compiling, and every `T: ZeroizeOnDrop`
+/// bound on `Secret` would keep passing, if the field below became a bare
+/// `Vec<u8>` and stopped wiping. The `const` block underneath is what makes the
+/// impl honest: it names the FIELD, so the property this marker advertises is the
+/// property the field actually has.
 impl ZeroizeOnDrop for Secret {}
+
+/// The honesty check for the impl above. Never executed: a function body is
+/// type-checked whether or not anything calls it, and that type-check IS the
+/// assertion. `&secret.0` has whatever type the field has, so replacing
+/// `Zeroizing<Vec<u8>>` with a type that does not wipe fails the bound (E0277)
+/// and the crate stops building.
+const _: fn(&Secret) = |secret| {
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>(_: &T) {}
+
+    assert_zeroize_on_drop(&secret.0);
+};
 
 /// Never the inner bytes -- I7 holds at every formatting site, including the
 /// derived `Debug` of any struct that happens to contain a `Secret`.
