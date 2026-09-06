@@ -164,6 +164,19 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
+            "Wide 200",
+            "Two hundred columns: the grid stops at MAX_COLUMN and packs left, and the age still follows the screen's own right edge",
+            || {
+                nominal().queue(Queue {
+                    pending: 1_240,
+                    in_progress: 8,
+                    failed: 3,
+                    health: Health::Healthy,
+                })
+            },
+            Some((200, ROWS_FULL)),
+        )),
+        Box::new(Variant(
             "Collapsed (height)",
             "Two rows offered: the roll-up and its rule, nothing else — collapse is on or off",
             nominal,

@@ -116,6 +116,30 @@ const fn widest_label() -> u16 {
 /// it took the full one and drew a row nobody could line up.
 pub const MIN_COLUMN: u16 = widest_label() + COUNT_WIDTH + 3;
 
+/// The widest a column is allowed to get.
+///
+/// Chris, 20260906: on a very wide terminal the four columns spread until they are hard to
+/// read — four glyphs separated by thirty blank cells stop being a row and become four
+/// unrelated things. Past this the grid packs LEFT from the margin and the remaining width
+/// stays empty, which is the honest answer: the information did not get bigger, so neither
+/// should the space it occupies.
+///
+/// **A tolerance, and Chris has not set it.** `MIN_COLUMN + 8` is the placeholder: eight cells
+/// of slack above the narrowest legal column is enough to keep a full-width count comfortably
+/// clear of the label to its left without the row starting to drift apart. The number to argue
+/// with is what it produces — the storyboard's 125 columns sit just under it and are unaffected,
+/// and a 200-column terminal is capped rather than spread.
+pub const MAX_COLUMN: u16 = MIN_COLUMN + 8;
+
+/// A cap below the floor is not a tight grid, it is a `clamp` that panics — and it would panic
+/// on the first frame drawn, not in a test. Held at COMPILE time because both operands are
+/// constants: a runtime guard for a fact the compiler already knows is a test that can only
+/// ever pass.
+const _: () = assert!(
+    MIN_COLUMN <= MAX_COLUMN,
+    "MAX_COLUMN is below MIN_COLUMN: the grid has no legal width"
+);
+
 /// Rows the whole block occupies: three of content plus the rule that closes it.
 pub const ROWS_FULL: u16 = 4;
 
@@ -186,16 +210,26 @@ pub fn rollup(daemon: Health, entries: &[Health]) -> Health {
 /// The SSOT for the width trigger: [`Collapse::decide`] and [`StatusBlock::render`] both ask
 /// here, so the height a view reserves and the shape the block draws cannot disagree.
 pub fn columns_align(width: u16) -> bool {
-    column_width(width) >= MIN_COLUMN
+    even_share(width) >= MIN_COLUMN
 }
 
-/// The width of one of the four columns at this screen width.
+/// What the width would give each column if nothing constrained it.
+///
+/// Separate from [`column_width`] on purpose, and the separation is load-bearing:
+/// [`columns_align`] must ask the UNCLAMPED question. Clamping raises a too-narrow column up
+/// to [`MIN_COLUMN`], so an alignment test asking the clamped value would always be satisfied
+/// and the width trigger in [`Collapse`] would never fire.
+fn even_share(area_width: u16) -> u16 {
+    area_width.saturating_sub(MARGIN * 2) / ENTRY_LABELS.len() as u16
+}
+
+/// The width of one of the four columns at this screen width — the even share, capped.
 ///
 /// One function so both rows ask the same question. It is also the only place the grid's
 /// arithmetic exists, which is what lets a test state a column position as an expression
 /// rather than measure it off the other row.
 pub fn column_width(area_width: u16) -> u16 {
-    area_width.saturating_sub(MARGIN * 2) / ENTRY_LABELS.len() as u16
+    even_share(area_width).clamp(MIN_COLUMN, MAX_COLUMN)
 }
 
 /// A count, grouped in threes with a **plain** space: `1 240`, `9 999 999`.

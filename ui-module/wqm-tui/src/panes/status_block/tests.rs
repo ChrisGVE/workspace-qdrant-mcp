@@ -11,6 +11,9 @@ use std::time::Duration;
 
 const WIDE: u16 = 125;
 
+/// A terminal wide enough that the grid would spread past its cap if nothing stopped it.
+const WIDE_SCREEN: u16 = 200;
+
 fn block() -> StatusBlock {
     StatusBlock::new(
         Health::Healthy,
@@ -67,8 +70,7 @@ fn column_of(buf: &Buffer, y: u16, needle: &str) -> u16 {
 }
 
 fn count_style(buf: &Buffer, width: u16, i: usize) -> Style {
-    let column = (width - MARGIN * 2) / ENTRY_LABELS.len() as u16;
-    let x = MARGIN + column * (i as u16 + 1) - 1;
+    let x = MARGIN + column_width(width) * (i as u16 + 1) - 1;
     buf.cell((x, QUEUE_ROW)).expect("cell in area").style()
 }
 
@@ -326,6 +328,65 @@ fn the_narrowest_aligned_width_still_holds_every_label_whole() {
             "column {i} cannot hold `glyph + space + {label}` at the stated minimum width"
         );
     }
+}
+
+/// Chris, 20260906: on a very wide terminal the four columns spread until they are hard to
+/// read. They stop at [`MAX_COLUMN`] and pack left; the width past them stays empty.
+///
+/// Both ends are asserted against the STATED constants — the cap, and the storyboard's own
+/// width, which is below the cap and must therefore still divide evenly.
+#[test]
+fn the_columns_stop_stretching_at_the_stated_cap() {
+    assert_eq!(column_width(WIDE_SCREEN), MAX_COLUMN, "a wide screen is capped");
+    assert_eq!(
+        column_width(WIDE),
+        (WIDE - MARGIN * 2) / ENTRY_LABELS.len() as u16,
+        "the storyboard's own width is under the cap and divides as it always did"
+    );
+}
+
+/// Packed left, and genuinely empty to the right — otherwise the cap has only moved the
+/// spreading somewhere the eye still has to travel.
+#[test]
+fn a_capped_grid_packs_left_and_leaves_the_rest_of_the_row_empty() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(block(), WIDE_SCREEN, ROWS_FULL);
+    for (i, label) in ENTRY_LABELS.iter().enumerate() {
+        assert_eq!(
+            column_of(&buf, ENTRIES_ROW, label),
+            MARGIN + MAX_COLUMN * i as u16 + 2,
+            "{label} is not packed onto the capped grid"
+        );
+    }
+
+    // Everything right of the last column's content is untouched.
+    let last = ENTRY_LABELS.last().expect("four labels");
+    let end = MARGIN + MAX_COLUMN * (ENTRY_LABELS.len() as u16 - 1) + 2 + last.len() as u16;
+    let line: Vec<char> = row(&buf, ENTRIES_ROW).chars().collect();
+    assert!(
+        line[end as usize..].iter().all(|c| *c == ' '),
+        "the grid spread past its cap: {:?}",
+        row(&buf, ENTRIES_ROW)
+    );
+}
+
+/// The cap governs the GRID, never the row. Row 1's age is a property of the screen, so it
+/// stays flush with the screen's own right margin whatever the columns are doing.
+#[test]
+fn the_freshness_stays_flush_right_of_the_full_width_when_the_grid_is_capped() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(block(), WIDE_SCREEN, ROWS_FULL);
+    let line = row(&buf, STATUS_ROW);
+    let last = column_of(&buf, STATUS_ROW, "updated 4s ago") + "updated 4s ago".len() as u16 - 1;
+    assert_eq!(
+        last,
+        WIDE_SCREEN - MARGIN - 1,
+        "the age follows the screen, not the grid: {line:?}"
+    );
 }
 
 /// Both triggers, each on its own, and the shape that comes out of each.

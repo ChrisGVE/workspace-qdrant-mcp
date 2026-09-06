@@ -313,6 +313,12 @@ pub mod ingredient {
                 Some((80, 20)),
             )),
             Box::new(Variant(
+                "Wide 200x40",
+                "Two hundred by forty: the tab row has all the room it wants, and the grid below it deliberately does not take all of its own",
+                frames::queue_degraded,
+                Some((200, 40)),
+            )),
+            Box::new(Variant(
                 "Service tab",
                 "Tab 10, and the one tab with no status block — its own band says the same thing better",
                 frames::service_tab,
