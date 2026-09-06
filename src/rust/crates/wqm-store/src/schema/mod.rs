@@ -50,6 +50,14 @@
 //! matches nothing at all. That is a real narrowing of the query surface and it
 //! belongs to the read leg's declared limits, not to a footnote.
 
+/// The schema families this crate declares, one module per family.
+///
+/// Each module holds DDL and nothing else: a `&str` constant per table, plus
+/// the doc comment that says which fill fragment the shape was transcribed
+/// from. `P04-GT002` is vocabulary only, so no module here opens a
+/// connection, migrates, or writes a row.
+pub mod cas;
+
 /// The scratchpad SoT table, its FTS5 derived index, and the triggers that keep
 /// the two in agreement. Idempotent — every object is `IF NOT EXISTS`.
 ///
