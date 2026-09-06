@@ -22,3 +22,7 @@ workspace = true
 # by the types, and the wire spelling by the attributes.
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# The `Secret` newtype wraps `Zeroizing<Vec<u8>>` so a resolved credential's bytes
+# are wiped when the value drops (P04-GT002-WO075, A-secret invariants).
+zeroize = { workspace = true }

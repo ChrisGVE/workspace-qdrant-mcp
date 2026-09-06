@@ -74,6 +74,12 @@ hyper-util = { version = "0.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# `Secret`'s backing store (P04-GT002-WO075). The credential newtype must wipe its
+# bytes on drop, and `Zeroizing<Vec<u8>>` is the established primitive for that --
+# a compiler-fence-guarded wipe the optimizer may not elide, which a hand-written
+# `Drop` cannot promise. Vocabulary-only dependency: no resolver lives here.
+zeroize = "1"
+
 # §3.3's `digest` -- a hash of the full matched set, so an agent can tell it
 # already holds the answer it is about to ask for. Arrives at
 # `P04-GT001-WO013` with the first result-bearing response.

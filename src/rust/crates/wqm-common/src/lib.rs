@@ -35,3 +35,12 @@ pub mod plan;
 /// narrowed read leg consults (`P04-GT001-WO013`). The table itself belongs to the
 /// glue side no kernel crate may link.
 pub mod profile;
+
+/// N26's `Secret` newtype -- the one in-memory value type every resolved
+/// credential is carried in, zeroized on drop and redacted at `Debug`/`Display`.
+/// It is homed here rather than in `wqm-secrets` because both the kernel (N7,
+/// N17) and the glue (N26, N44, N46, N49) name it, and the floor is the only
+/// place all six can share one declaration without a crate cycle. Seeded at
+/// `P04-GT002-WO075` (concrete `C-ty-secret`); the resolver that mints a
+/// `Secret` stays in `wqm-secrets`.
+pub mod secret;
