@@ -25,12 +25,14 @@
 //! — the view says which zone is live, the pane decides what being live looks like for its own
 //! heading and its own contents.
 
+pub mod cell;
 pub mod collections;
 pub mod config;
 pub mod status_band;
 pub mod status_block;
 pub mod storage;
 
+pub use cell::{CellPane, CellTable};
 pub use config::ConfigPane;
 pub use status_band::StatusBand;
 pub use status_block::StatusBlock;

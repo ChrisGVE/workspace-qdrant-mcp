@@ -56,6 +56,7 @@ mod tier {
         // Panes — a zone of a screen. The collections list is one because it fills a tab's
         // body; the other two are the Service hub's own zones.
         for module in [
+            crate::panes::cell::ingredient::ingredients(),
             crate::panes::collections::ingredient::ingredients(),
             crate::panes::config::ingredient::ingredients(),
             crate::panes::status_band::ingredient::ingredients(),
@@ -95,6 +96,7 @@ mod tier {
         }
 
         for module in [
+            crate::views::dashboard::ingredient::ingredients(),
             crate::views::service::ingredient::ingredients(),
             crate::views::shell::ingredient::ingredients(),
         ] {

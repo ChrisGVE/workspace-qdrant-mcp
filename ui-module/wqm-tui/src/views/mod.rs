@@ -21,6 +21,7 @@
 //! [`crate::widgets`] — a view that grows its own rendering is how two screens end up drawing
 //! the same thing twice.
 
+pub mod dashboard;
 pub mod service;
 pub mod top;
 pub mod shell;

@@ -1,0 +1,160 @@
+//! The pantry variants for [`super`].
+//!
+//! Five frames, and three of them exist to be uncomfortable. `Populated` is the captured
+//! workspace and answers "does this look like v0.1"; `Empty workspace` answers "does a fresh
+//! install read as empty or as broken"; `Small 80x24` answers the question a design instrument
+//! is actually for — **what breaks first**.
+
+use super::*;
+use crate::panes::status_block::{Queue, ENTRY_LABELS};
+use crate::widgets::chrome::Freshness;
+use std::time::Duration;
+use tui_pantry::{Ingredient, PropInfo};
+
+const PROPS: &[PropInfo] = &[
+    PropInfo {
+        name: "cells",
+        ty: "Vec<CellPane>",
+        description: "Six projections, row-major. The view places them; each scrolls itself",
+    },
+    PropInfo {
+        name: "status",
+        ty: "StatusBlock",
+        description: "The constant top's block — the same one every other tab carries",
+    },
+    PropInfo {
+        name: "attention",
+        ty: "Attention",
+        description: "Which cell is live — screen-level, so two cannot be",
+    },
+];
+
+/// Not a decision — §7 leaves the freshness SLA open (OQ-6); the number the other views' frames
+/// are drawn against, so every screen ages at the same rate.
+const FRAME_SLA: Duration = Duration::from_secs(60);
+
+fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> (StatusBlock, Health) {
+    let overall = overall(entries[0], &entries[1..]);
+    (
+        StatusBlock::new(
+            overall,
+            "v0.2.0",
+            Freshness::new(Duration::from_secs(4), FRAME_SLA),
+            entries,
+            queue,
+        ),
+        overall,
+    )
+}
+
+/// The capture's own queue: 11'236 waiting, 4 moving, 3 lost.
+fn captured_queue() -> Queue {
+    Queue {
+        pending: 11_236,
+        in_progress: 4,
+        failed: 3,
+        health: Health::Degraded,
+    }
+}
+
+fn idle() -> Queue {
+    Queue {
+        pending: 0,
+        in_progress: 0,
+        failed: 0,
+        health: Health::Healthy,
+    }
+}
+
+fn dashboard(cells: Vec<CellPane>, queue: Queue, entries: [Health; 4]) -> Dashboard {
+    let (status, overall) = block(entries, queue);
+    Dashboard::new(cells, status, overall)
+}
+
+fn populated() -> Dashboard {
+    dashboard(
+        frames::populated(),
+        captured_queue(),
+        [
+            Health::Healthy,
+            Health::Degraded,
+            Health::Healthy,
+            Health::Healthy,
+        ],
+    )
+}
+
+struct Variant(&'static str, &'static str, fn() -> Dashboard, Option<(u16, u16)>);
+
+impl Ingredient for Variant {
+    fn tab(&self) -> &str {
+        "Views"
+    }
+    fn group(&self) -> &str {
+        "Dashboard"
+    }
+    fn name(&self) -> &str {
+        self.0
+    }
+    fn source(&self) -> &str {
+        "wqm_tui::views::dashboard"
+    }
+    fn description(&self) -> &str {
+        self.1
+    }
+    fn props(&self) -> &[PropInfo] {
+        PROPS
+    }
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let (width, height) = self.3.unwrap_or((area.width, area.height));
+        (self.2)().render(
+            Rect {
+                width: width.min(area.width),
+                height: height.min(area.height),
+                ..area
+            },
+            buf,
+        );
+    }
+}
+
+pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
+    vec![
+        Box::new(Variant(
+            "Populated",
+            "The captured workspace: 29 projects into a six-row cell, so the overflow tail is what you see",
+            populated,
+            None,
+        )),
+        Box::new(Variant(
+            "Empty workspace",
+            "A fresh install — six `No data` cells. Does it read as empty, or as failed to load?",
+            || {
+                dashboard(
+                    frames::empty(),
+                    idle(),
+                    [Health::Healthy; ENTRY_LABELS.len()],
+                )
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Focus on Rules",
+            "The zone accent on cell 3 of 6 — the `▌` bar, and nothing else changed",
+            || populated().attention(Attention::Zone(3)),
+            None,
+        )),
+        Box::new(Variant(
+            "Small 80x24",
+            "Eighty by twenty-four: the block collapses, the tab row runs off, and the cells lose rows before they lose columns",
+            populated,
+            Some((80, 24)),
+        )),
+        Box::new(Variant(
+            "Wide 200x50",
+            "Room for everything: the grid's cells grow but the status block's own columns stop at their cap",
+            populated,
+            Some((200, 50)),
+        )),
+    ]
+}

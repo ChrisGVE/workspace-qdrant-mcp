@@ -48,6 +48,7 @@ modules = [
     "widgets::toast",
     # The Panes tab: zones of a screen (§16). Panes are the unit of design work from here —
     # the Dashboard is a 2 × 3 grid of them, each judged alone before being composed.
+    "panes::cell",
     "panes::collections",
     "panes::config",
     "panes::status_band",
@@ -63,6 +64,7 @@ modules = [
     "styles::typography",
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.
+    "views::dashboard",
     "views::service",
     "views::shell",
 ]
