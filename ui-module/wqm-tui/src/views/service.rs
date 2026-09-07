@@ -53,7 +53,7 @@ use ratatui::{
 use wqm_client::DaemonReport;
 
 use crate::health::{Component, Rollup, SystemHealth};
-use crate::tokens::{Condition, Health};
+use crate::tokens::{self, Condition, Health};
 use crate::panes::{ConfigPane, StatusBand};
 use crate::widgets::chrome::{inset, Attention, Freshness, Rule, StatusLine, TitleBar};
 use crate::widgets::{
@@ -243,6 +243,16 @@ impl Widget for ServiceView<'_> {
         }
         let r = rows(body);
 
+        // Everything from here to the `drop` below is the PAGE, and while a modal owns the
+        // input every colour on it goes muted — VL §6, the whole screen and not the three
+        // elements someone remembered ([`crate::tokens::modal`]).
+        //
+        // Dropped *before* the modal deliberately: the modal is the thing being answered, so
+        // it keeps its own rungs, and the toast and the condition band behind it are the
+        // must-see channel §6 says a modal cannot suspend. All three paint over the stack, and
+        // all three are drawn after the scope has closed.
+        let page = self.modal.is_some().then(tokens::ModalScope::enter);
+
         tabs.render(inset(r.tabs), buf);
         Rule::frame().render(r.top_rule, buf);
         TitleBar::new("Service")
@@ -263,6 +273,7 @@ impl Widget for ServiceView<'_> {
             status = status.hint(key, label);
         }
         status.render(inset(r.status_line), buf);
+        drop(page);
 
         // Above the screen, in §6's order: the modal takes the stack, the toast sits outside
         // it and is painted over whatever is there.
@@ -423,14 +434,22 @@ pub(crate) mod frames {
             freshness(),
         )
         .attention(Attention::Zone(ZONE_CONFIG))
-        .modal(
-            Modal::new(
-                "Discard changes?",
-                "watcher.debounce_ms has been edited and not saved.",
-            )
-            .action("y", "discard")
-            .action("n", "keep editing"),
+        .modal(confirm_modal())
+    }
+
+    /// The confirm box [`confirming`] carries, on its own.
+    ///
+    /// Named rather than inlined because a guard has to know **what the modal covers** —
+    /// [`Modal::rect`] answers that — and the page-is-colourless sweep is exactly the caller
+    /// that comment on `rect` anticipated. Two constructions of one box would be two boxes
+    /// whose rectangles agree until someone edits one of them.
+    pub fn confirm_modal() -> Modal {
+        Modal::new(
+            "Discard changes?",
+            "watcher.debounce_ms has been edited and not saved.",
         )
+        .action("y", "discard")
+        .action("n", "keep editing")
     }
 
     /// One store degraded: the rollup, the tab colour and the toast all follow from it.
@@ -820,6 +839,8 @@ mod tests {
             "and the hints follow the mode, not the default row"
         );
     }
+
+    mod under_modal;
 
     #[test]
     fn the_modal_covers_the_zones_and_the_toast_covers_the_corner() {
