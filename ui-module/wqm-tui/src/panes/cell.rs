@@ -146,8 +146,9 @@ impl Cell {
     ///
     /// The zero rule is the queue triple's alone: `count_span` mutes a zero because *no work
     /// waiting* is not news. A plain figure column keeps its zeros at the normal rung — v0.1's
-    /// `Pts` column is all zeros, and muting them would make the column disappear rather than
-    /// recede.
+    /// `Pts` column was all zeros, and muting them would have made the column disappear rather
+    /// than recede. (That column has since been dropped altogether, 2026-09-07: a field that is
+    /// always zero is better removed than styled.)
     fn spans(&self, width: u16) -> Vec<Span<'static>> {
         match self {
             Cell::Text(text) => vec![Span::styled(fit(text, width), tokens::normal_style())],

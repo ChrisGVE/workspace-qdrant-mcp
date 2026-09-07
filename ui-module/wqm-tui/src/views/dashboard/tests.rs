@@ -555,3 +555,50 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
         "an empty projection says so rather than showing a blank cell"
     );
 }
+
+/// R5 (Chris, 2026-09-07): `Pts` is gone from Projects and Libraries, and the width it held
+/// goes to the flex `Name` column.
+///
+/// The `Name` width is asserted against the ARITHMETIC, spelled out here, rather than against
+/// another render: comparing two renders of the same code would agree with any width at all,
+/// and comparing against a remembered number would need someone to remember it.
+///
+/// At 125 columns the screen insets by [`crate::widgets::chrome::MARGIN`] on each side (121),
+/// splits into two cells with a three-column gap (59 each). The Projects table then spends
+/// `Bch` 3 + `Files` 5 + `Queue` 9 = 17 on fixed columns and three single-column gaps between
+/// its four columns, leaving 59 − 17 − 3 = 39 for `Name`. With `Pts` it was 59 − 20 − 4 = 35.
+#[test]
+fn dropping_pts_gives_its_columns_to_the_name() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    const NAME_WIDTH: u16 = 39;
+    /// What the same arithmetic gave while `Pts` was there: 59 − 20 − 4.
+    const NAME_WIDTH_WITH_PTS: u16 = 35;
+
+    let buf = render(view(frames::populated()), WIDE, TALL);
+    let (_, cells) = heading_rows();
+    let projects = cells[0];
+
+    // `Bch` is right-aligned in the column after `Name`, and its column is exactly as wide as
+    // its title — so the first `B` sits one gap column past the end of `Name`.
+    let header = heading_text(&buf, Rect { y: projects.y + 1, ..projects });
+    let bch = header
+        .chars()
+        .position(|c| c == 'B')
+        .expect("the Bch header is drawn") as u16;
+    assert_eq!(
+        bch,
+        NAME_WIDTH + 1,
+        "the Name column is {NAME_WIDTH} wide with one gap after it: {header:?}"
+    );
+    assert!(
+        bch - 1 > NAME_WIDTH_WITH_PTS,
+        "the measured Name column must be wider than the {NAME_WIDTH_WITH_PTS} it had while \
+         `Pts` was drawn: {header:?}"
+    );
+
+    // And no cell on the whole screen says `Pts` any more.
+    let joined: String = (0..TALL).map(|y| line(&buf, y)).collect::<Vec<_>>().join("\n");
+    assert!(!joined.contains("Pts"), "a Pts header survives: {joined}");
+}

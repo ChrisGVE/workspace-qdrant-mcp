@@ -26,7 +26,6 @@ use crate::panes::cell::{Cell, CellPane, CellTable, Column};
 pub struct ProjectRow {
     pub name: &'static str,
     pub branches: u64,
-    pub points: u64,
     pub files: u64,
     pub queue: (u64, u64, u64),
 }
@@ -34,7 +33,6 @@ pub struct ProjectRow {
 /// A library. **NOT contract-bound (UIQ pending).**
 pub struct LibraryRow {
     pub name: &'static str,
-    pub points: u64,
     pub files: u64,
     pub queue: (u64, u64, u64),
     pub sync: &'static str,
@@ -79,13 +77,18 @@ fn queue(triple: (u64, u64, u64)) -> Cell {
     }
 }
 
-/// Column sets are v0.1's, name for name — see the capture beside this crate.
+/// **`Pts` is gone from this cell and from [`libraries`]** (Chris, 2026-09-07). v0.1 draws a
+/// points column and it is all zeros on every workspace anyone has captured — three columns
+/// spent saying nothing, on the two cells whose names are the longest and the first to elide.
+/// The width goes to the flex `Name` column, which is what a reader is actually trying to
+/// finish reading.
+///
+/// Every other column set is v0.1's, name for name — see the capture beside this crate.
 pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Name"),
             Column::number("Bch", 3),
-            Column::number("Pts", 3),
             Column::number("Files", 5),
             Column::number("Queue", 9),
         ],
@@ -94,7 +97,6 @@ pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
                 vec![
                     Cell::Text(r.name.to_string()),
                     Cell::Num(r.branches),
-                    Cell::Num(r.points),
                     Cell::Num(r.files),
                     queue(r.queue),
                 ]
@@ -108,7 +110,6 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Name"),
-            Column::number("Pts", 3),
             Column::number("Files", 5),
             Column::number("Queue", 7),
             Column::text("Sync", 4),
@@ -117,7 +118,6 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
             .map(|r| {
                 vec![
                     Cell::Text(r.name.to_string()),
-                    Cell::Num(r.points),
                     Cell::Num(r.files),
                     queue(r.queue),
                     Cell::Text(r.sync.to_string()),
@@ -218,13 +218,13 @@ pub fn last_errors(rows: &[ErrorRow]) -> CellPane {
 
 /// The seven projects v0.1 had room to draw, out of the twenty-nine it counted.
 pub const PROJECTS: [ProjectRow; 7] = [
-    ProjectRow { name: ".config", branches: 1, points: 0, files: 2_790, queue: (2_635, 0, 0) },
-    ProjectRow { name: "ArraySwift", branches: 0, points: 0, files: 0, queue: (101, 0, 0) },
-    ProjectRow { name: "claude", branches: 1, points: 0, files: 954, queue: (877, 0, 0) },
-    ProjectRow { name: "de-slop", branches: 0, points: 0, files: 0, queue: (286, 0, 0) },
-    ProjectRow { name: "ExtendedSwiftMath", branches: 1, points: 0, files: 118, queue: (102, 0, 0) },
-    ProjectRow { name: "inkyfingers", branches: 0, points: 0, files: 0, queue: (285, 0, 0) },
-    ProjectRow { name: "localdata-mcp", branches: 2, points: 0, files: 136, queue: (153, 0, 0) },
+    ProjectRow { name: ".config", branches: 1, files: 2_790, queue: (2_635, 0, 0) },
+    ProjectRow { name: "ArraySwift", branches: 0, files: 0, queue: (101, 0, 0) },
+    ProjectRow { name: "claude", branches: 1, files: 954, queue: (877, 0, 0) },
+    ProjectRow { name: "de-slop", branches: 0, files: 0, queue: (286, 0, 0) },
+    ProjectRow { name: "ExtendedSwiftMath", branches: 1, files: 118, queue: (102, 0, 0) },
+    ProjectRow { name: "inkyfingers", branches: 0, files: 0, queue: (285, 0, 0) },
+    ProjectRow { name: "localdata-mcp", branches: 2, files: 136, queue: (153, 0, 0) },
 ];
 
 /// The workspace counted twenty-nine. The cell holds far fewer, which is the point.
@@ -232,7 +232,6 @@ pub const PROJECT_TOTAL: usize = 29;
 
 pub const LIBRARIES: [LibraryRow; 1] = [LibraryRow {
     name: "programming",
-    points: 0,
     files: 21,
     queue: (7, 0, 0),
     sync: "inc",
