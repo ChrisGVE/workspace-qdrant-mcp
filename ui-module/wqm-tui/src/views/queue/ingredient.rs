@@ -25,6 +25,12 @@ const PROPS: &[PropInfo] = &[
         ty: "Option<Modal>",
         description: "The help window; the page beneath it goes quiet on its own",
     },
+    PropInfo {
+        name: "fixture::ROWS",
+        ty: "[QueueRow; 200]",
+        description:
+            "NOT contract-bound (UIQ pending) — v0.1's captured screen, not a wire message",
+    },
 ];
 
 /// A search that has been accepted, with its counts read off the projection rather than typed.
@@ -202,6 +208,12 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             "Under modal",
             "The page beneath a modal, with no modal on it: does everything go quiet, or does the Status column stay alight?",
             || queue(QueueState::default()).under_modal(true),
+            None,
+        )),
+        Box::new(Variant(
+            "Help",
+            "Every key of this view, the four paging chords included — the only place they are ever shown",
+            || queue(QueueState::default()).modal(Queue::help()),
             None,
         )),
         Box::new(Variant(

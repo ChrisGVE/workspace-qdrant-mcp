@@ -26,6 +26,9 @@ use crate::panes::status_block::QUEUE_LABELS;
 
 /// What the one-letter `T` column shows, and what the `t` selector cycles through.
 ///
+/// **NOT contract-bound (UIQ pending).** The four names are ADR-001's, but these one-letter
+/// abbreviations are v0.1's drawing of them and nothing on the wire spells them this way.
+///
 /// The four canonical collections of ADR-001, one letter each, exactly as v0.1 abbreviates
 /// them. Not sourced from `wqm_common::names::Collection`: these are the letters v0.1 draws in a
 /// one-column field, and the collection names are words — the day they should be the same thing
@@ -55,6 +58,9 @@ impl Kind {
 }
 
 /// Where a queued item has got to. The three v0.1 shows, and the three the status block counts.
+///
+/// **NOT contract-bound (UIQ pending).** Three states is what the captured screen has; whether
+/// the queue really has exactly three is the contract's answer to give.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Pending,

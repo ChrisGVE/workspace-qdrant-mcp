@@ -9,6 +9,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
 mod dialog;
+mod help;
 mod layout;
 mod sort;
 

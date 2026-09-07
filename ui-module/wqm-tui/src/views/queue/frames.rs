@@ -25,6 +25,11 @@ pub const AGE: usize = 8;
 
 /// The Queue's columns, in v0.1's own order, with the sort keys this screen binds.
 ///
+/// **NOT contract-bound (UIQ pending).** Nine columns shaped like v0.1's captured screen, which
+/// is what Chris asked the tab to start from — not because any wire message names these fields.
+/// Labelled rather than quietly treated as settled, so the day the contract does name them the
+/// difference is a diff and not a discovery.
+///
 /// **`T` offers no key, and that is a decision rather than an omission.** `t` is the type
 /// selector, and sorting by `T` is what the selector already does — better, because it *removes*
 /// the rows of every other type instead of gathering them at one end of a list you still have to

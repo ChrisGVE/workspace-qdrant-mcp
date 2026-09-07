@@ -44,7 +44,8 @@
 //! displayed age in seconds: two numbers that order the column exactly as a reader would expect,
 //! and that claim nothing more precise than the screen they came from.
 //!
-//! **NOT contract-bound (UIQ-013 style).** No wire message carries these fields. `wqm-common`
+//! **NOT contract-bound (UIQ pending)** — the mark `views::dashboard::frames` carries, on
+//! every one of its six shapes, and for the same reason. No wire message carries these fields. `wqm-common`
 //! names the collections and the response envelope; it names none of this. The shape is v0.1's
 //! captured screen, and it is labelled a fiction rather than quietly treated as one.
 

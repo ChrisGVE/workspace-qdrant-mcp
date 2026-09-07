@@ -181,33 +181,54 @@ impl Queue {
         hints
     }
 
-    /// The help modal: every key of this view, including the ones the foot never shows.
+    /// Every key this view has, in the order the help lists them.
     ///
-    /// Chris, 2026-09-07, on the paging keys: *"shown only in the help… valid for all lists
-    /// including the dashboard"*. They come from [`NAV_HELP`], so the day the Dashboard grows a
-    /// help modal the two say the same words.
+    /// Exposed rather than built inline so a guard can read what the window DECLARES rather than
+    /// scraping it back out of a rendered box — where `r` and `c` are indistinguishable from the
+    /// hundreds of `r`s and `c`s in the list behind it.
+    ///
+    /// The paging chords come from [`NAV_HELP`] (Chris, 2026-09-07: *"shown only in the help…
+    /// valid for all lists including the dashboard"*), so the day the Dashboard grows a help
+    /// modal the two say the same words. `?` and `q` are in here too: the foot offers them, and
+    /// a window that claimed to list every key while omitting the two on every screen would be
+    /// the one place a reader could not check.
+    pub fn help_keys() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("↓↑ / j k", "Move the cursor"),
+            NAV_HELP[0],
+            NAV_HELP[1],
+            ("Enter", "Open the item, or load the next page"),
+            ("/  n N", "Search; next and previous hit"),
+            ("f", "Filter the list"),
+            ("t", "Cycle the type"),
+            ("s", "Cycle the status"),
+            ("r  c  x", "Retry, cancel, remove"),
+            ("Esc", "Leave search or filter"),
+            ("?", "This window"),
+            ("q", "Quit"),
+        ]
+    }
+
+    /// The help modal: [`Queue::help_keys`], laid out, over the quietened page.
     pub fn help() -> Modal {
-        let mut body: Vec<String> = vec![
-            key("↓↑ / j k", "Move the cursor"),
-            key(NAV_HELP[0].0, NAV_HELP[0].1),
-            key(NAV_HELP[1].0, NAV_HELP[1].1),
-            key("Enter", "Open the item, or load the next page"),
-            key("/  n N", "Search; next and previous hit"),
-            key("f", "Filter the list"),
-            key("t", "Cycle the type"),
-            key("s", "Cycle the status"),
-            key("r  c  x", "Retry, cancel, remove"),
-            key("Esc", "Leave search or filter"),
-        ];
+        let keys = Self::help_keys();
+        // The key column is as wide as the widest key plus two, MEASURED rather than stated: the
+        // paging chords are the longest entries and they come from another module, so a number
+        // written here would be a number that silently stopped fitting.
+        let column = keys
+            .iter()
+            .map(|(key, _)| key.chars().count())
+            .max()
+            .unwrap_or(0)
+            + 2;
+        let mut body: Vec<String> = keys
+            .iter()
+            .map(|(key, what)| format!("{key:<column$}{what}"))
+            .collect();
         body.push(String::new());
         body.push("The selectors survive Esc; only search and filter leave.".to_string());
         Modal::with_body("Queue — keys", body).action("Esc", "close")
     }
-}
-
-/// One line of the help modal: the key, padded to a column, then what it does.
-fn key(keys: &str, what: &str) -> String {
-    format!("{keys:<14}{what}")
 }
 
 impl Widget for Queue {
