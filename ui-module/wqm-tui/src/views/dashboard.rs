@@ -129,20 +129,21 @@ impl Dashboard {
 
     /// The keys the foot of the screen offers.
     ///
-    /// `F Global` is in v0.1's hint line and is **not** here: [`StatusLine`] carries a roll-up,
-    /// an edit-mode indicator and key hints, and nothing this crate has built makes a global
-    /// filter mean anything yet. A hint for an action that does nothing is worse than a missing
-    /// one — it is the storyboard depicting a screen that does not exist.
-    fn hints(&self) -> Vec<(String, &'static str)> {
-        vec![
-            (
-                FOCUS_KEYS.iter().map(|k| k.to_string()).collect::<Vec<_>>().join("/"),
-                "Focus cell",
-            ),
-            ("Enter".to_string(), "Detail"),
-            ("?".to_string(), "Help"),
-            ("q".to_string(), "Quit"),
-        ]
+    /// **Two hints, and no more** (Chris, 2026-09-07). `p/l/s/r/a/e Focus cell` is gone: since
+    /// every cell heading now lights the letter that focuses it, the foot was reciting a hint
+    /// the grid already gives — and reciting it in the one place a user reads *last*. The
+    /// heading IS the hint, so the line spends its width on the two keys nothing else says.
+    ///
+    /// `Enter Detail` is gone from the DEFAULT for a different reason: with no cell focused
+    /// there is nothing to open, so the hint named an action the screen could not perform. It
+    /// comes back the moment a cell takes focus, together with a navigation hint when that cell
+    /// has more than one row.
+    ///
+    /// `F Global` was in v0.1's hint line and has never been here: nothing this crate has built
+    /// makes a global filter mean anything yet, and a hint for an action that does nothing is
+    /// the storyboard depicting a screen that does not exist.
+    fn hints(&self) -> Vec<(&'static str, &'static str)> {
+        vec![("?", "Help"), ("q", "Quit")]
     }
 }
 

@@ -160,21 +160,32 @@ fn the_bottom_rollup_agrees_with_the_status_block_above_it() {
     assert!(line(&buf, TALL - 1).contains("degraded"));
 }
 
-/// The foot offers the six focus keys as one hint, and does NOT offer `F Global`.
+/// R2 (Chris, 2026-09-07): with no cell focused the foot offers exactly TWO hints.
+///
+/// `p/l/s/r/a/e Focus cell` is gone because the headings carry the letters now, and
+/// `Enter Detail` is gone because with nothing focused there is nothing to open. Counted
+/// structurally as well as read off the screen: "the row does not contain `Focus cell`" would
+/// also pass on a foot that had grown three new hints.
 #[test]
-fn the_foot_offers_the_focus_keys_and_nothing_that_does_nothing() {
+fn the_default_foot_offers_two_hints_and_neither_is_a_key_the_headings_already_carry() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    let foot = line(&render(view(frames::populated()), WIDE, TALL), TALL - 1);
-    assert!(foot.contains("p/l/s/r/a/e Focus cell"), "{foot:?}");
-    for (key, label) in [("Enter", "Detail"), ("?", "Help"), ("q", "Quit")] {
-        assert!(foot.contains(&format!("{key} {label}")), "{foot:?}");
-    }
-    assert!(
-        !foot.contains("Global"),
-        "a hint for an action nothing implements is a screen that does not exist: {foot:?}"
+    let hints = view(frames::populated()).hints();
+    assert_eq!(
+        hints,
+        vec![("?", "Help"), ("q", "Quit")],
+        "the default foot is two hints, in this order"
     );
+
+    let foot = line(&render(view(frames::populated()), WIDE, TALL), TALL - 1);
+    assert!(foot.ends_with("? Help   q Quit"), "{foot:?}");
+    for absent in ["Focus cell", "Detail", "Global", "Navigate"] {
+        assert!(
+            !foot.contains(absent),
+            "{absent:?} is on a foot that should carry two hints: {foot:?}"
+        );
+    }
 }
 
 /// §18: the grid keeps its shape and the cells lose rows. A cramped terminal must not reflow
