@@ -122,13 +122,14 @@ const fn widest_label() -> u16 {
 /// threshold: a screen narrower than `2 · MARGIN + 4 · MIN_COLUMN` takes the short block,
 /// where before it took the full one and drew a row nobody could line up.
 ///
-/// # It is held at `+ 3` where `+ 2` would now do, deliberately
+/// # It is held at `+ 3` where `+ 2` would now do, and the threshold it fixes is chosen
 ///
 /// Moving the count field one cell right (Chris, 20260906) bought a cell of clearance back, so
-/// the requirement above is one lower than this constant. Lowering it would move the collapse
-/// threshold from 96 columns to 92 — a change to what a real terminal shows, decided by an
-/// unrelated alignment tweak. The extra cell stays until the threshold is looked at on its own
-/// terms, and the clearance it buys is two cells rather than one.
+/// the requirement above is one lower than this constant. The extra cell stays for the
+/// clearance it buys — two cells rather than one — and the width-collapse threshold it fixes
+/// (96 columns: `2 · MARGIN + 4 · MIN_COLUMN`) never fires inside the supported range, because
+/// the design floor is 100 columns (Chris, 2026-09-07). A terminal narrow enough to trip it is
+/// narrower than any this design supports.
 pub const MIN_COLUMN: u16 = widest_label() + COUNT_WIDTH + 3;
 
 /// The widest a column is allowed to get.
@@ -139,11 +140,12 @@ pub const MIN_COLUMN: u16 = widest_label() + COUNT_WIDTH + 3;
 /// stays empty, which is the honest answer: the information did not get bigger, so neither
 /// should the space it occupies.
 ///
-/// **A tolerance, and Chris has not set it.** `MIN_COLUMN + 8` is the placeholder: eight cells
-/// of slack above the narrowest legal column is enough to keep a full-width count comfortably
-/// clear of the label to its left without the row starting to drift apart. The number to argue
-/// with is what it produces — the storyboard's 125 columns sit just under it and are unaffected,
-/// and a 200-column terminal is capped rather than spread.
+/// **Chosen (Chris, 2026-09-07): `MIN_COLUMN + 8` = 31.** On a wide terminal the entry
+/// columns stop growing and pack left, because spreading four words across 200 columns makes
+/// the eye travel for nothing. Eight cells of slack above the narrowest legal column also
+/// keeps a full-width count comfortably clear of the label to its left without the row
+/// starting to drift apart — the storyboard's 125 columns sit just under it and are
+/// unaffected, and a 200-column terminal is capped rather than spread.
 pub const MAX_COLUMN: u16 = MIN_COLUMN + 8;
 
 /// A cap below the floor is not a tight grid, it is a `clamp` that panics — and it would panic
@@ -163,11 +165,11 @@ pub const ROWS_COLLAPSED: u16 = 2;
 
 /// The floor a view keeps for its own content before this block gives way.
 ///
-/// **A tolerance, and Chris has not set it.** Sixteen is a placeholder, and this is the whole
-/// of its reasoning: a tab body worth showing is a heading, a dozen rows and a foot, and below
-/// that the constant furniture is eating the screen it is supposed to be introducing. The
-/// arithmetic it produces is the part to argue with — with the two rows above the block, the
-/// full shape survives a 24-row terminal (`24 − 2 ≥ 4 + 16`) and collapses on a 20-row one.
+/// **Chosen (Chris, 2026-09-07).** Sixteen: on a squat wide terminal the content wins and the
+/// block collapses to row 1, because health still shows in row 1 — and the design floor is
+/// 100 columns by 30 rows, where no collapse ever happens (`30 − 2 ≥ 4 + 16`). A tab body
+/// worth showing is a heading, a dozen rows and a foot; below that the constant furniture is
+/// eating the screen it is supposed to be introducing.
 ///
 /// It is a *parameter* of [`Collapse::decide`] rather than a constant read inside it precisely
 /// because the number is the view's to state: a screen whose content is a one-line summary can

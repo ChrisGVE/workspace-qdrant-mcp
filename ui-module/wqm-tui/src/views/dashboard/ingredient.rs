@@ -35,17 +35,14 @@ const FRAME_SLA: Duration = Duration::from_secs(60);
 
 /// Public to the crate so the Queue tab's frames carry the SAME captured workspace at the top of
 /// the screen. Two tabs whose status blocks disagreed would be two frames of two machines.
-pub(crate) fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> (StatusBlock, Health) {
-    let overall = overall(entries[0], &entries[1..]);
-    (
-        StatusBlock::new(
-            overall,
-            "v0.2.0",
-            Freshness::new(Duration::from_secs(4), FRAME_SLA),
-            entries,
-            queue,
-        ),
-        overall,
+pub(crate) fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> StatusBlock {
+    StatusBlock::new(
+        // Derived, never stated: the block's roll-up cannot contradict the parts under it.
+        overall(entries[0], &entries[1..]),
+        "v0.2.0",
+        Freshness::new(Duration::from_secs(4), FRAME_SLA),
+        entries,
+        queue,
     )
 }
 
@@ -78,8 +75,7 @@ fn idle() -> Queue {
 }
 
 fn dashboard(cells: Vec<CellPane>, queue: Queue, entries: [Health; 4]) -> Dashboard {
-    let (status, overall) = block(entries, queue);
-    Dashboard::new(cells, status, overall)
+    Dashboard::new(cells, block(entries, queue))
 }
 
 fn populated() -> Dashboard {

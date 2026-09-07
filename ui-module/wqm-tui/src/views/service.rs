@@ -21,10 +21,10 @@
 //!
 //! # Nothing on this screen is stated twice
 //!
-//! The rollup dot, the screen-wide condition and the Service tab's alarm colour are all
-//! *derived* from the same [`SystemHealth`] the store rows and the daemon panel are built
-//! from. A frame with a green rollup over a degraded store, or a red wash under a healthy
-//! daemon panel, is not a value [`ServiceView`] can take — which is the same discipline
+//! The Service tab's alarm colour and the screen-wide condition are all *derived* from the
+//! same [`SystemHealth`] the store rows and the daemon panel are built from. A frame with a
+//! calm tab over a degraded store, or a red wash under a healthy daemon panel, is not a value
+//! [`ServiceView`] can take — which is the same discipline
 //! `config_table::Entry::is_changed` and `health::SystemHealth::condition` already apply,
 //! carried up to the screen.
 //!
@@ -131,7 +131,10 @@ impl<'a> ServiceView<'a> {
         )
     }
 
-    /// §7's single rollup dot, derived from the rows the screen is already showing.
+    /// §7's rollup, derived from the rows the screen is already showing. It no longer leads
+    /// the foot (Chris, 2026-09-07: the band above is the permanent detailed health, so a
+    /// summary at the foot was redundant) — it is the one value the Service tab's alarm
+    /// colour answers to.
     pub fn rollup(&self) -> Rollup {
         self.system().rollup()
     }
@@ -142,8 +145,8 @@ impl<'a> ServiceView<'a> {
     }
 
     /// §4.1's tab row with §4's must-see rule applied: the tab that owns a store in trouble
-    /// is recoloured, and it is recoloured **from the same rollup the status line shows**, so
-    /// a red tab over a green dot is not constructible.
+    /// is recoloured, and it is recoloured **from the same rollup the rest of the screen
+    /// answers to**, so a calm tab over a degraded store is not constructible.
     fn tabs(&self) -> TabBar {
         let rollup = self.rollup();
         let mut tabs: Vec<Tab> = TabBar::storyboard_tabs();
@@ -222,7 +225,6 @@ fn rows(area: Rect) -> Rows {
 impl Widget for ServiceView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let condition = self.condition();
-        let rollup = self.rollup();
         let tabs = self.tabs();
         let hints = self.hints();
         let mode = self.config.edit_mode();
@@ -268,7 +270,7 @@ impl Widget for ServiceView<'_> {
         ConfigPane::new(self.config, ZONE_CONFIG, self.attention).render(r.config, buf);
 
         crate::views::top::foot_rule(r.bottom_rule, buf);
-        let mut status = StatusLine::new(rollup).mode(mode);
+        let mut status = StatusLine::new().mode(mode);
         for (key, label) in hints {
             status = status.hint(key, label);
         }
@@ -753,13 +755,6 @@ mod tests {
             Some(Health::Degraded.color()),
             "§4's must-see rule: the owning tab keeps its alarm colour UNDER inversion"
         );
-        assert!(
-            rows_of(&buf)
-                .last()
-                .expect("a bottom row")
-                .contains("1 degraded"),
-            "and the same count is what the status line says"
-        );
     }
 
     #[test]
@@ -811,8 +806,7 @@ mod tests {
             .trim_start()
             .starts_with(Health::Offline.glyph()));
         assert!(
-            row(&buf, bottom - 1).contains("healthy")
-                || row(&buf, bottom - 1).contains("unreachable"),
+            row(&buf, bottom - 1).contains("quit"),
             "the status line is directly above the band, so the band displaced nothing"
         );
     }

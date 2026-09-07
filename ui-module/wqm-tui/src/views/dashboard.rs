@@ -48,7 +48,6 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::health::Rollup;
 use crate::panes::cell::CellPane;
 use crate::panes::status_block::{self, StatusBlock};
 use crate::tokens::Health;
@@ -131,30 +130,16 @@ pub const DASHBOARD_BOUND_KEYS: [char; CELLS + 4] = [
 pub struct Dashboard {
     cells: Vec<CellPane>,
     status: StatusBlock,
-    /// The roll-up the bottom line shows. Derived by [`Dashboard::new`] from the same health
-    /// the status block was built from, so the dot and the block cannot disagree.
-    rollup: Rollup,
     attention: Attention,
     modal: bool,
 }
 
 impl Dashboard {
-    /// `cells` must be [`CELLS`] long, row-major. The health is taken rather than re-derived so
-    /// that the bottom dot and the top block answer from one value.
-    pub fn new(cells: Vec<CellPane>, status: StatusBlock, overall: Health) -> Self {
+    /// `cells` must be [`CELLS`] long, row-major.
+    pub fn new(cells: Vec<CellPane>, status: StatusBlock) -> Self {
         Self {
             cells,
             status,
-            rollup: Rollup {
-                health: overall,
-                // The block's INTERIM rule has no `Offline`, so two words cover it. Spelled
-                // here rather than reaching `health::verb`, which answers §7's question — a
-                // different rule, and one that would disagree with the block above.
-                label: match overall {
-                    Health::Healthy => "healthy".to_string(),
-                    _ => "degraded".to_string(),
-                },
-            },
             attention: Attention::None,
             modal: false,
         }
@@ -171,7 +156,7 @@ impl Dashboard {
     /// nowhere below: [`Widget::render`] opens a [`crate::tokens::ModalScope`] around the whole
     /// draw and every colour under it goes muted on its own. The version that passed a flag
     /// down to the top and to each cell muted the digits and the key letters and left the RAG
-    /// discs, the queue counts and the roll-up dot alight — a page half live, which is the one
+    /// discs and the queue counts alight — a page half live, which is the one
     /// thing the rule exists to forbid.
     pub fn under_modal(mut self, modal: bool) -> Self {
         self.modal = modal;
@@ -295,7 +280,7 @@ impl Widget for Dashboard {
                 .render(at, buf);
         }
 
-        let mut status = StatusLine::new(self.rollup);
+        let mut status = StatusLine::new();
         for (key, label) in hints {
             status = status.hint(key, label);
         }
@@ -336,10 +321,13 @@ pub fn rule_segments(screen: Rect, rule: Rect, left: Rect, right: Rect) -> [Rect
     ]
 }
 
-/// The roll-up the Dashboard shows, from the same inputs its status block is built from.
+/// The roll-up the Dashboard's status block states, derived from the same inputs the block is
+/// built from.
 ///
-/// Exposed so a frame cannot construct a Dashboard whose bottom dot disagrees with its top
-/// block — the same discipline `views::service` applies to its own rollup.
+/// Exposed so a frame cannot construct a block whose headline contradicts the parts under it —
+/// a green roll-up over a degraded entry is not a frame this view can build. The foot no
+/// longer repeats the value (Chris, 2026-09-07): the block is the permanent detailed health,
+/// and a summary of it at the foot was redundant.
 pub fn overall(daemon: Health, entries: &[Health]) -> Health {
     status_block::rollup(daemon, entries)
 }

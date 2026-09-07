@@ -3,23 +3,22 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Style,
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
-use crate::health::Rollup;
 use crate::tokens;
 use crate::widgets::config_table::EditMode;
 
 /// The merged status-and-help line at the foot of the screen (§6).
 ///
-/// Left: the edit-mode indicator when there is one, then §7's single rollup dot. Right: the
-/// keys available for what is selected. §4 caps the whole line — *"never more vibrant than
-/// the content"* — so only the health glyph carries a hue, and §3 keeps the mode indicator
-/// on weight alone because cyan belongs to the selector.
+/// Left: the edit-mode indicator when there is one. Right: the keys available for what is
+/// selected. The roll-up dot that once led the left half is gone (Chris, 2026-09-07): the
+/// status block at the top of every tab is the permanent detailed health, so the foot
+/// repeating a summary of it was redundant. §4's cap — *"never more vibrant than the
+/// content"* — is therefore absolute now: the line carries no hue at all, and §3 keeps the
+/// mode indicator on weight alone because cyan belongs to the selector.
 pub struct StatusLine {
-    rollup: Rollup,
     mode: Option<EditMode>,
     /// Each hint, and whether it survives a foot too narrow for all of them. See [`ALWAYS`].
     hints: Vec<(String, String, bool)>,
@@ -40,9 +39,8 @@ pub struct StatusLine {
 pub const ALWAYS: [(&str, &str); 2] = [("?", "Help"), ("q", "Quit")];
 
 impl StatusLine {
-    pub fn new(rollup: Rollup) -> Self {
+    pub fn new() -> Self {
         Self {
-            rollup,
             mode: None,
             hints: Vec::new(),
         }
@@ -89,21 +87,20 @@ impl StatusLine {
         Vec::new()
     }
 
+    /// The left half: the edit-mode indicator when there is one, and nothing else. The health
+    /// dot that used to follow it is gone (Chris, 2026-09-07) — see the struct docs — so a
+    /// foot with no edit open has no left half at all.
     fn left(&self) -> Vec<Span<'static>> {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        if let Some(mode) = self.mode {
-            spans.push(mode.indicator_span());
-            spans.push(Span::raw("  "));
+        match self.mode {
+            Some(mode) => vec![mode.indicator_span(), Span::raw("  ")],
+            None => Vec::new(),
         }
-        spans.push(Span::styled(
-            self.rollup.health.glyph(),
-            Style::default().fg(self.rollup.health.color()),
-        ));
-        spans.push(Span::styled(
-            format!(" {}", self.rollup.label),
-            tokens::muted_style(),
-        ));
-        spans
+    }
+}
+
+impl Default for StatusLine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -115,10 +112,11 @@ impl Widget for StatusLine {
 
         let left = self.left();
         let left_width: usize = left.iter().map(|s| s.content.chars().count()).sum();
-        // One clear cell between the two halves is the minimum that still reads as two
-        // halves. Below that the hints fall back to [`ALWAYS`] and then go entirely: the status
-        // is what the line is for, and half a hint row is noise rather than help.
-        let room = (area.width as usize).saturating_sub(left_width + 1);
+        // One clear cell between the two halves is the minimum that still reads as two halves —
+        // and with no edit open there is only one half, so the hints get the whole row. Below
+        // that the hints fall back to [`ALWAYS`] and then go entirely: half a hint row is noise
+        // rather than help.
+        let room = (area.width as usize).saturating_sub(left_width + usize::from(!left.is_empty()));
         let hints = self.fitting(room);
         let hints_width = tokens::key_hints_width(&hints);
 
@@ -140,33 +138,30 @@ mod tests {
     use crate::widgets::chrome::test_support::{render, row, style_at, Restore, AREA};
     use ratatui::style::Modifier;
 
+    /// The roll-up dot is gone (Chris, 2026-09-07) and §4's cap went absolute with it: not one
+    /// cell of the foot carries a hue, health's included. The status block at the top of every
+    /// tab is the permanent detailed health — the foot repeating a summary of it was redundant,
+    /// and a foot that restated it in colour was the one place the cap had an exception.
     #[test]
-    fn the_status_line_carries_colour_on_the_glyph_and_nowhere_else() {
+    fn the_foot_carries_no_hue_anywhere_not_even_for_health() {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
         let buf = render(
-            StatusLine::new(Rollup {
-                health: Health::Degraded,
-                label: "1 degraded".into(),
-            })
-            .hint("↵", "edit"),
+            StatusLine::new()
+                .mode(Some(EditMode::Insert))
+                .hint("↵", "edit"),
         );
 
-        assert_eq!(
-            style_at(&buf, 0).fg,
-            Some(Health::Degraded.color()),
-            "the glyph carries the state"
-        );
-        // Every other painted cell is a neutral. §4: the status line is never more vibrant
-        // than the content.
+        // §4: the status line is never more vibrant than the content — and now it is not
+        // vibrant at all.
         let hues = [
             Health::Healthy.color(),
             Health::Degraded.color(),
             Health::Offline.color(),
             tokens::selector(),
         ];
-        for x in 1..AREA.width {
+        for x in 0..AREA.width {
             let fg = style_at(&buf, x).fg;
             assert!(
                 fg.is_none_or(|c| !hues.contains(&c)),
@@ -176,46 +171,39 @@ mod tests {
     }
 
     #[test]
-    fn the_hints_are_flush_right_and_the_rollup_outlives_them() {
+    fn the_hints_are_flush_right_and_go_whole_rather_than_halved() {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
-        let line = StatusLine::new(Rollup {
-            health: Health::Healthy,
-            label: "healthy".into(),
-        })
-        .hint("j/k", "move")
-        .hint("↵", "edit");
+        let line = StatusLine::new().hint("j/k", "move").hint("↵", "edit");
 
         let wide = row(&render(line), 0);
-        assert!(wide.starts_with("● healthy"), "{wide:?}");
         assert!(
             wide.ends_with("↵ edit"),
             "the hints sit against the right edge: {wide:?}"
         );
 
-        // Narrow enough that the two halves would overlap. The hints go; the status stays.
+        // Narrow enough that the hints would have to overlap or truncate each other. They go
+        // entirely rather than be shown halved: half a hint row is not help. With no status to
+        // keep, the row is blank.
         let mut narrow_buf = Buffer::empty(Rect {
             x: 0,
             y: 0,
             width: 14,
             height: 1,
         });
-        StatusLine::new(Rollup {
-            health: Health::Healthy,
-            label: "healthy".into(),
-        })
-        .hint("j/k", "move")
-        .hint("↵", "edit")
-        .render(narrow_buf.area, &mut narrow_buf);
+        StatusLine::new()
+            .hint("j/k", "move")
+            .hint("↵", "edit")
+            .render(narrow_buf.area, &mut narrow_buf);
         let narrow: String = (0..14)
             .map(|x| narrow_buf.cell((x, 0)).expect("cell in area").symbol())
             .collect();
-        assert!(narrow.starts_with("● healthy"), "{narrow:?}");
         assert!(
-            !narrow.contains("move"),
+            narrow.trim().is_empty(),
             "half a hint row is not help: {narrow:?}"
         );
+        assert!(!narrow.contains("move"), "{narrow:?}");
     }
 
     /// Too narrow for the whole row, the foot falls back to [`ALWAYS`] rather than to nothing.
@@ -234,16 +222,13 @@ mod tests {
                 width,
                 height: 1,
             });
-            StatusLine::new(Rollup {
-                health: Health::Healthy,
-                label: "healthy".into(),
-            })
-            .hint("/", "Search")
-            .hint("f", "Filter")
-            .hint("x", "Remove")
-            .hint("?", "Help")
-            .hint("q", "Quit")
-            .render(buf.area, &mut buf);
+            StatusLine::new()
+                .hint("/", "Search")
+                .hint("f", "Filter")
+                .hint("x", "Remove")
+                .hint("?", "Help")
+                .hint("q", "Quit")
+                .render(buf.area, &mut buf);
             (0..width)
                 .map(|x| buf.cell((x, 0)).expect("cell in area").symbol())
                 .collect()
@@ -252,17 +237,19 @@ mod tests {
         let wide = line(60);
         assert!(wide.contains("/ Search") && wide.ends_with("? Help   q Quit"), "{wide:?}");
 
-        // Room for the rollup and the two, and not for `/ Search` beside them.
+        // Room for the two, and not for `/ Search` beside them.
         let narrow = line(30);
         assert!(narrow.ends_with("? Help   q Quit"), "{narrow:?}");
         for absent in ["Search", "Filter", "Remove"] {
             assert!(!narrow.contains(absent), "{absent:?} survived: {narrow:?}");
         }
 
-        // And below even that, the status is what the line is for.
-        let tiny = line(16);
-        assert!(tiny.starts_with("● healthy"), "{tiny:?}");
-        assert!(!tiny.contains("Help"), "half a hint row is not help: {tiny:?}");
+        // And below even that, the row is blank: half a hint row is not help.
+        let tiny = line(14);
+        assert!(
+            tiny.trim().is_empty(),
+            "too narrow for the two, so nothing at all: {tiny:?}"
+        );
     }
 
     #[test]
@@ -270,18 +257,13 @@ mod tests {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
-        let rollup = Rollup {
-            health: Health::Healthy,
-            label: "healthy".into(),
-        };
-
-        let idle = row(&render(StatusLine::new(rollup.clone())), 0);
+        let idle = row(&render(StatusLine::new()), 0);
         assert!(
             !idle.contains("INSERT") && !idle.contains("NORMAL"),
             "{idle:?}"
         );
 
-        let editing = render(StatusLine::new(rollup).mode(Some(EditMode::Insert)));
+        let editing = render(StatusLine::new().mode(Some(EditMode::Insert)));
         let line = row(&editing, 0);
         assert!(line.starts_with("-- INSERT --"), "{line:?}");
         // §3: bold, no hue — cyan is the selector's and this must not read as a selection.
@@ -293,15 +275,9 @@ mod tests {
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient {
     use super::*;
-    use crate::tokens::Health;
     use tui_pantry::{Ingredient, PropInfo};
 
     const PROPS: &[PropInfo] = &[
-        PropInfo {
-            name: "rollup",
-            ty: "Rollup",
-            description: "§7's single dot: the whole system's health in one glyph and one phrase",
-        },
         PropInfo {
             name: "mode",
             ty: "Option<EditMode>",
@@ -344,15 +320,11 @@ pub mod ingredient {
         }
     }
 
-    fn rollup(health: Health, label: &str) -> Rollup {
-        Rollup {
-            health,
-            label: label.into(),
-        }
-    }
-
-    fn hinted(health: Health, label: &str) -> StatusLine {
-        StatusLine::new(rollup(health, label))
+    /// The row with no edit open: hints alone, flush right. The health dot that once led
+    /// this line is gone (Chris, 2026-09-07) — the status block at the top of every tab is
+    /// the permanent detailed health, so the foot repeating a summary of it was redundant.
+    fn idle() -> StatusLine {
+        StatusLine::new()
             .hint("j/k", "move")
             .hint("↵", "edit")
             .hint("q", "quit")
@@ -361,25 +333,15 @@ pub mod ingredient {
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
             Box::new(Variant {
-                name: "Healthy",
-                description: "Nothing is wrong: one green dot, and the rest of the line is hints",
-                build: || hinted(Health::Healthy, "healthy"),
-            }),
-            Box::new(Variant {
-                name: "Degraded",
-                description: "The one hue on the line. §4 caps it: never more vibrant than the content above",
-                build: || hinted(Health::Degraded, "1 degraded"),
-            }),
-            Box::new(Variant {
-                name: "Offline",
-                description: "The loudest this line ever gets — and it is still one glyph",
-                build: || hinted(Health::Offline, "vector store offline"),
+                name: "Idle",
+                description: "No edit open: the keys for what is selected, flush right — and nothing else",
+                build: idle,
             }),
             Box::new(Variant {
                 name: "Editing",
                 description: "An edit is open: the mode indicator leads, on weight alone, because cyan belongs to the selector",
                 build: || {
-                    StatusLine::new(rollup(Health::Healthy, "healthy"))
+                    StatusLine::new()
                         .mode(Some(EditMode::Insert))
                         .hint("esc", "normal")
                         .hint("↵", "accept")

@@ -30,7 +30,6 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::health::Rollup;
 use crate::panes::list::NAV_HELP;
 use crate::panes::status_block::StatusBlock;
 use crate::tokens::Health;
@@ -100,7 +99,6 @@ pub const QUEUE_BOUND_EXTRA: [char; 1] = ['l'];
 pub struct Queue {
     state: QueueState,
     status: StatusBlock,
-    rollup: Rollup,
     modal: Option<Modal>,
     /// Whether the page is drawn beneath a modal, with no modal on top of it. The Dashboard's
     /// own frame: it is how the ruling that the page goes quiet is judged at all.
@@ -108,17 +106,10 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn new(state: QueueState, status: StatusBlock, overall: Health) -> Self {
+    pub fn new(state: QueueState, status: StatusBlock) -> Self {
         Self {
             state,
             status,
-            rollup: Rollup {
-                health: overall,
-                label: match overall {
-                    Health::Healthy => "healthy".to_string(),
-                    _ => "degraded".to_string(),
-                },
-            },
             modal: None,
             under_modal: false,
         }
@@ -257,7 +248,7 @@ impl Widget for Queue {
         let (list_area, foot_row) = top::foot(below, buf);
         pane.render(inset(list_area), buf);
 
-        let mut status = StatusLine::new(self.rollup);
+        let mut status = StatusLine::new();
         for (key, label) in hints {
             status = status.hint(key, label);
         }
@@ -273,8 +264,11 @@ impl Widget for Queue {
     }
 }
 
-/// The roll-up this tab shows, from the same inputs its status block is built from — the same
-/// discipline the Dashboard applies, so the bottom dot and the top block cannot disagree.
+/// The roll-up this tab's status block states, from the same inputs the block is built from.
+///
+/// The foot no longer repeats it (Chris, 2026-09-07): the block at the top is the permanent
+/// detailed health, and a summary of it at the foot was redundant. Exposed so a frame cannot
+/// build the block's headline apart from the parts under it.
 pub fn overall(daemon: Health, entries: &[Health]) -> Health {
     crate::panes::status_block::rollup(daemon, entries)
 }

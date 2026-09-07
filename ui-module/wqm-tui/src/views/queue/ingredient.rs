@@ -53,8 +53,7 @@ fn filtering(term: &str) -> QueueState {
 
 /// A Queue tab on the captured workspace, showing `state`.
 pub fn queue(state: QueueState) -> Queue {
-    let (status, overall) = block(CAPTURED_ENTRIES, captured_queue());
-    Queue::new(state, status, overall)
+    Queue::new(state, block(CAPTURED_ENTRIES, captured_queue()))
 }
 
 pub struct Variant(

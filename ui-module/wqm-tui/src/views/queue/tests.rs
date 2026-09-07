@@ -43,7 +43,6 @@ pub(super) fn view(state: QueueState) -> Queue {
                 health: Health::Degraded,
             },
         ),
-        overall,
     )
 }
 

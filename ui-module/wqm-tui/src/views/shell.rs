@@ -22,9 +22,9 @@
 //!
 //! # The content floor is the view's number, not the block's
 //!
-//! [`crate::panes::status_block::MIN_CONTENT_ROWS`] is a placeholder tolerance Chris has not
-//! set. It is passed *in* rather than read inside the block because a tab holding a table can
-//! afford less top furniture than one holding a summary, and that is a per-screen judgement.
+//! [`crate::panes::status_block::MIN_CONTENT_ROWS`] is chosen (Chris, 2026-09-07). It is
+//! passed *in* rather than read inside the block because a tab holding a table can afford
+//! less top furniture than one holding a summary, and that is a per-screen judgement.
 
 use ratatui::{
     buffer::Buffer,

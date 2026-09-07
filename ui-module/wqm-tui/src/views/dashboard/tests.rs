@@ -5,7 +5,7 @@ use crate::panes::cell::{Cell, CellTable, Column};
 use crate::panes::status_block::Queue;
 use crate::widgets::chrome::rule::RULE;
 use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
-use crate::widgets::chrome::{Freshness, MARGIN};
+use crate::widgets::chrome::Freshness;
 use ratatui::buffer::Buffer;
 use std::time::Duration;
 
@@ -24,7 +24,6 @@ fn view(cells: Vec<CellPane>) -> Dashboard {
             entries,
             Queue { pending: 11_236, in_progress: 4, failed: 3, health: Health::Degraded },
         ),
-        overall,
     )
 }
 
@@ -267,21 +266,31 @@ fn the_row_above_the_key_hint_line_is_an_internal_rule_and_the_row_above_that_is
     );
 }
 
-/// SYS-3, in the chrome: the dot at the foot and the block at the head answer from one value.
+/// Chris, 2026-09-07: the roll-up dot is gone from the foot — the status block at the top of
+/// every tab is the permanent detailed health, so the foot repeating a summary of it was
+/// redundant. This screen is degraded, and the guard pins the removal: the foot carries
+/// neither a health glyph nor a health word, only the keys. It fails on the old foot, which
+/// opened with `▲ degraded` in the degraded hue.
 #[test]
-fn the_bottom_rollup_agrees_with_the_status_block_above_it() {
+fn the_foot_states_no_health_of_its_own() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
     let buf = render(view(frames::populated()), WIDE, TALL);
-    let block = buf.cell((MARGIN, crate::views::top::CONSTANT_ROWS)).expect("cell");
-    let foot = buf.cell((MARGIN, TALL - 1)).expect("cell");
-    assert_eq!(
-        block.style().fg,
-        foot.style().fg,
-        "a green dot under a degraded block is not a screen this view may produce"
+    let foot = line(&buf, TALL - 1);
+    assert!(
+        !foot.contains("degraded") && !foot.contains("healthy"),
+        "the block at the top is the one place health is said: {foot:?}"
     );
-    assert!(line(&buf, TALL - 1).contains("degraded"));
+    for glyph in [
+        Health::Healthy.glyph(),
+        Health::Degraded.glyph(),
+        Health::Offline.glyph(),
+    ] {
+        assert!(!foot.contains(glyph), "a health glyph at the foot: {foot:?}");
+    }
+    // The keys are what the row is for, and they survived the removal.
+    assert!(foot.ends_with("? Help   q Quit"), "{foot:?}");
 }
 
 /// R2 (Chris, 2026-09-07): with no cell focused the foot offers exactly TWO hints.
