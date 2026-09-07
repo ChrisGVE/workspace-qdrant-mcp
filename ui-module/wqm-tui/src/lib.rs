@@ -13,6 +13,7 @@ pub mod categorical;
 pub mod encoding;
 pub mod format;
 pub mod health;
+pub mod motion;
 pub mod names;
 pub mod panes;
 pub mod styles;

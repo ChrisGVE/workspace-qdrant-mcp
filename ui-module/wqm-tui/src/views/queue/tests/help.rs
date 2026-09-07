@@ -37,6 +37,10 @@ fn the_help_declares_every_key_of_this_view() {
         Queue::help_keys(),
         vec![
             ("↓↑ / j k", "Move the cursor"),
+            ("Home / gg", "Top"),
+            ("End / G", "Bottom"),
+            ("<n>g", "Go to row n"),
+            ("<n>↓↑", "Repeat the move n times"),
             NAV_HELP[0],
             NAV_HELP[1],
             ("Enter", "Open the item, or load the next page"),
@@ -97,6 +101,46 @@ fn the_paging_chords_are_offered_in_the_help_and_nowhere_else() {
                 "{key:?} is on the foot, where Chris said it never goes"
             );
         }
+    }
+}
+
+/// The movement keys the shared model adds are in the help, drawn with their meanings, and are
+/// offered NOWHERE else.
+///
+/// `Home`/`gg`, `End`/`G`, `<n>g` and `<n>↓↑` are help-only for the same reason the paging chords
+/// are: the foot is the screen's scarcest row, and `↓↑/jk Navigate` already tells the reader the
+/// list moves. Checked against the drawn window rather than [`Queue::help_keys`], because a line
+/// that is declared but dropped off the edge of the modal is exactly as unreadable as one that was
+/// never declared.
+#[test]
+fn the_movement_keys_are_drawn_in_the_help_and_offered_nowhere_else() {
+    let _serial = crate::global_state_lock();
+    let drawn = window();
+    for (key, what) in [
+        ("Home / gg", "Top"),
+        ("End / G", "Bottom"),
+        ("<n>g", "Go to row n"),
+        ("<n>↓↑", "Repeat the move n times"),
+    ] {
+        let found = drawn.iter().find(|row| row.contains(key) && row.contains(what));
+        assert!(
+            found.is_some(),
+            "`{key}` and {what:?} are not on one line of the window: {drawn:#?}"
+        );
+    }
+
+    // The foot keeps its single navigation hint; the movement keys do not leak onto it.
+    let hints = view(QueueState::default()).hints();
+    assert_eq!(
+        hints[0], ("↓↑/jk", "Navigate"),
+        "the navigation hint is unchanged by the movement model"
+    );
+    let foot_keys: String = hints.iter().map(|(key, _)| *key).collect::<Vec<_>>().concat();
+    for extra in ["Home", "gg", "End", "<n>"] {
+        assert!(
+            !foot_keys.contains(extra),
+            "`{extra}` leaked onto the foot: {hints:?}"
+        );
     }
 }
 

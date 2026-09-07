@@ -25,6 +25,7 @@
 //! failure this separation exists to prevent.
 
 use super::fixture::QueueRow;
+use crate::motion::Motion;
 use crate::panes::cell::Sort;
 use crate::panes::list::LIST_PAGE;
 use crate::panes::status_block::QUEUE_LABELS;
@@ -391,6 +392,40 @@ impl QueueState {
             status: cycle(&Status::CYCLE, self.status, |s| {
                 buffer.iter().any(|row| row.status == *s)
             }),
+            ..self.clone()
+        }
+    }
+
+    /// Apply a motion to the cursor, `count` times, clamped to the projection.
+    ///
+    /// The list half of the shared movement model ([`crate::motion`]): a [`Motion`] and a count
+    /// arrive, and this turns them into the cursor the list will draw. `nos` are the projection's
+    /// invariant `No` values in drawn order — one per row — so the cursor's range is
+    /// `0..nos.len()` and [`Motion::Row`] can find the row a number names rather than guess a
+    /// drawn position. `page` is how many rows the list shows at once: the step
+    /// [`Motion::PageDown`] and [`Motion::PageUp`] take.
+    ///
+    /// The count is passed even for the motions that ignore it — [`Motion::Top`],
+    /// [`Motion::Bottom`] and [`Motion::Row`] — because [`crate::motion::Prefix::key`] returns it
+    /// uniformly and only the repeating motions consume it. A [`Motion::Row`] whose number is not
+    /// in the projection leaves the cursor where it was: there is no row to move to, and moving to
+    /// the nearest neighbour would look like the row was found.
+    pub fn moved(&self, motion: Motion, count: usize, page: usize, nos: &[u16]) -> Self {
+        let last = nos.len().saturating_sub(1);
+        let cursor = match motion {
+            Motion::Up => self.cursor.saturating_sub(count),
+            Motion::Down => self.cursor.saturating_add(count).min(last),
+            Motion::PageUp => self.cursor.saturating_sub(count.saturating_mul(page)),
+            Motion::PageDown => self.cursor.saturating_add(count.saturating_mul(page)).min(last),
+            Motion::Top => 0,
+            Motion::Bottom => last,
+            Motion::Row(n) => nos
+                .iter()
+                .position(|&no| usize::from(no) == n)
+                .unwrap_or(self.cursor),
+        };
+        Self {
+            cursor,
             ..self.clone()
         }
     }

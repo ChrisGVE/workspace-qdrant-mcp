@@ -71,11 +71,12 @@ const NAVIGATE_KEYS: &str = "↓↑/jk";
 /// are likewise out: a control chord is not a letter either, and nothing lights one.
 ///
 /// **The guard compares case-INSENSITIVELY**, and this screen is why. `n` and `N` are two
-/// different bindings here (next hit, previous hit), but
+/// different bindings here (next hit, previous hit), and `g` and `G` are another (go — the `gg`/`<n>g`
+/// prefix — and go to the bottom), but
 /// [`crate::widgets::chrome::keyed_spans`] finds a sort key in a title without regard to case —
 /// so a column offering `N` would light the `n` in its own name and a reader would press the one
 /// that moves the search.
-pub const QUEUE_BOUND_KEYS: [char; 14] = [
+pub const QUEUE_BOUND_KEYS: [char; 16] = [
     '/', // open search
     'n', // next hit
     'N', // previous hit
@@ -89,6 +90,8 @@ pub const QUEUE_BOUND_KEYS: [char; 14] = [
     '?', // help
     'j', // cursor down
     'k', // cursor up
+    'g', // go — `gg` to the top, `<n>g` to row n
+    'G', // go to the bottom
     'h', // reserved: left, the vim pair `j k h l` is bound as a set
 ];
 
@@ -186,6 +189,10 @@ impl Queue {
     pub fn help_keys() -> Vec<(&'static str, &'static str)> {
         vec![
             ("↓↑ / j k", "Move the cursor"),
+            ("Home / gg", "Top"),
+            ("End / G", "Bottom"),
+            ("<n>g", "Go to row n"),
+            ("<n>↓↑", "Repeat the move n times"),
             NAV_HELP[0],
             NAV_HELP[1],
             ("Enter", "Open the item, or load the next page"),

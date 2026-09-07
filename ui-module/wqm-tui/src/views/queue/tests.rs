@@ -12,6 +12,7 @@ use ratatui::widgets::Widget;
 mod dialog;
 mod help;
 mod layout;
+mod motion;
 mod sort;
 
 pub(super) const WIDE: u16 = 125;
