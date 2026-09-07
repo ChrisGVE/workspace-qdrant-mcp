@@ -101,7 +101,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         Box::new(Variant(
             "Focused",
-            "The `▌` accent, and the two-column shift §3 asks for — the whole difference a live cell shows",
+            "The selector block on the heading and the tint on the first row — no marker, no shift",
             || {
                 CellPane::new("Projects", Some(29), CellTable::new(columns(), rows(29)))
                     .placed(0, Attention::Zone(0))

@@ -1,6 +1,6 @@
 //! What a cell is pinned to.
 
-use super::table::{fit, GUTTER};
+use super::table::fit;
 use super::*;
 use crate::tokens;
 use crate::widgets::chrome::test_support::Restore;
@@ -50,14 +50,14 @@ fn line(buf: &Buffer, y: u16) -> String {
         .to_string()
 }
 
-/// One row of the table's BODY — the marker column stripped off the front.
+/// One row of the table's body.
 ///
-/// Every row is indented by [`GUTTER`], cursor or not, so a test asserting what a row says has
-/// to look past the gutter. Stripped by width rather than by trimming: the cursor row's marker
-/// is `▸ ` and trimming would silently drop it too, which is the one thing a cursor test needs
-/// to see.
+/// The marker gutter is gone (Chris, 2026-09-07), so a row starts at the cell's own first
+/// column and this is [`line`] under another name. Kept as its own function rather than
+/// inlined at each call: what these assertions are about is *what the table said*, and the day
+/// a lead-in column comes back it comes back here rather than in nine places.
 fn body(buf: &Buffer, y: u16) -> String {
-    line(buf, y).chars().skip(GUTTER as usize).collect()
+    line(buf, y)
 }
 
 /// §18: a cell scrolls inside itself and the grid keeps its shape, so a cell that cannot show

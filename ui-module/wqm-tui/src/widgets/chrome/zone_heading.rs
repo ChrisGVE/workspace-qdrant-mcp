@@ -93,6 +93,8 @@ pub struct ZoneHeading {
     /// nothing jumps to — the Service hub's zones are reached by tab, not by letter.
     hotkey: Option<char>,
     mark: FocusMark,
+    /// Whether the whole heading is drawn bold, in every attention state.
+    bold: bool,
 }
 
 impl ZoneHeading {
@@ -103,7 +105,26 @@ impl ZoneHeading {
             attention,
             hotkey: None,
             mark: FocusMark::default(),
+            bold: false,
         }
+    }
+
+    /// Draw the WHOLE heading bold, whatever the screen's attention is (Chris, 2026-09-07).
+    ///
+    /// A Dashboard cell heading is the label of a tile among six, and at the default view —
+    /// where nothing is focused and so nothing carries weight — six labels sat at exactly the
+    /// rung of the data beneath them. Weight is what separates a label from a datum, so the
+    /// cells take it always rather than only when live.
+    ///
+    /// Opt-in rather than the default, because the Service hub's zones do NOT take it: there,
+    /// weight is what says *which zone is live* ([`ZoneHeading::title_style`]), and a heading
+    /// that were always bold would have no weight left to spend on saying so.
+    ///
+    /// Bold is not a colour, so it survives a modal untouched (VL §6) — the hue underneath it
+    /// is [`crate::tokens`]'s business and this flag does not touch it.
+    pub fn bold(mut self) -> Self {
+        self.bold = true;
+        self
     }
 
     /// Which mark this heading wears when it is the live zone. See [`FocusMark`]; the default
@@ -134,6 +155,19 @@ impl ZoneHeading {
 
     /// The heading's own style — what every part of the title that is not the key wears.
     fn title_style(&self) -> Style {
+        let style = self.attention_style();
+        if self.bold {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style
+        }
+    }
+
+    /// What the screen's attention alone says this heading wears, before [`ZoneHeading::bold`]
+    /// has its say. Split out so the two facts stay separable: "this zone is live" and "this
+    /// family of headings is bold" are different claims, and one style expression computing
+    /// both is where they would come to be read as one.
+    fn attention_style(&self) -> Style {
         match self.attention {
             // §3's third row: the default view leaves every heading at the baseline.
             Attention::None => tokens::normal_style(),
@@ -188,7 +222,11 @@ impl ZoneHeading {
     /// every colour, and weight is not a colour).
     fn block_spans(&self) -> Vec<Span<'static>> {
         let text = format!(" {} ", self.title);
-        vec![Span::styled(text, tokens::inverted(tokens::selector()))]
+        let mut style = tokens::inverted(tokens::selector());
+        if self.bold {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        vec![Span::styled(text, style)]
     }
 
     fn spans(&self) -> Vec<Span<'static>> {

@@ -133,10 +133,10 @@ fn the_cells_beside_the_focused_one_keep_their_key_letters() {
 }
 
 /// The focused cell's FIRST data row takes the data cursor — the tint across the whole row and
-/// the `▸` in the marker column — and the row below it does not.
+/// **nothing else** — and the row below it does not.
 ///
-/// Both halves matter: a tint on every row is not a cursor, and a `▸` with no tint is not the
-/// treatment §3 specifies.
+/// Both halves matter: a tint on every row is not a cursor, and a cursor row that also carried
+/// a `▸` would be the gutter Chris removed (2026-09-07) coming back one glyph at a time.
 #[test]
 fn the_focused_cells_first_row_takes_the_data_cursor_and_the_second_does_not() {
     let _serial = crate::global_state_lock();
@@ -153,12 +153,6 @@ fn the_focused_cells_first_row_takes_the_data_cursor_and_the_second_does_not() {
     // heading, then the column header, then the first data row.
     let (first, second) = (cell.y + 2, cell.y + 3);
 
-    assert_eq!(
-        buf.cell((cell.x, first)).expect("cell in area").symbol(),
-        "▸",
-        "the marker sits in the row's first column: {:?}",
-        heading_text(&buf, Rect { y: first, ..cell })
-    );
     for x in cell.x..cell.x + cell.width {
         assert_eq!(
             buf.cell((x, first)).expect("cell in area").style().bg,
@@ -171,11 +165,16 @@ fn the_focused_cells_first_row_takes_the_data_cursor_and_the_second_does_not() {
             "column {x} of the SECOND row is tinted — that is a fill, not a cursor"
         );
     }
-    assert_ne!(
-        buf.cell((cell.x, second)).expect("cell in area").symbol(),
-        "▸",
-        "only one row carries the mark"
-    );
+    // And no row of the cell carries a marker glyph at all — the tint IS the cursor now.
+    for y in cell.y + 1..cell.y + cell.height {
+        for x in cell.x..cell.x + cell.width {
+            assert_ne!(
+                buf.cell((x, y)).expect("cell in area").symbol(),
+                "▸",
+                "a marker glyph survives at {x},{y} — the gutter is gone, tint and nothing else"
+            );
+        }
+    }
 }
 
 /// A cell with nothing in it highlights nothing, and the foot does not grow.
@@ -383,18 +382,19 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
 /// and comparing against a remembered number would need someone to remember it.
 ///
 /// At 125 columns the screen insets by [`crate::widgets::chrome::MARGIN`] on each side (121),
-/// splits into two cells with a three-column gap (59 each). The table reserves
-/// [`crate::panes::cell::table::GUTTER`] for its cursor marker, leaving 57. It then spends `Bch` 3 +
-/// `Files` 5 + `Queue` 9 = 17 on fixed columns and three single-column gaps between its four
-/// columns, leaving 57 − 17 − 3 = 37 for `Name`. With `Pts` it was 57 − 20 − 4 = 33.
+/// splits into two cells with a three-column gap (59 each). The table now starts at the cell's
+/// own first column — the two-column marker gutter is gone (Chris, 2026-09-07) — so it has all
+/// 59. It spends `Bch` 3 + `Files` 5 + `Queue` 9 = 17 on fixed columns and three single-column
+/// gaps between its four columns, leaving 59 − 17 − 3 = **39** for `Name`. With `Pts` and the
+/// same 59 it would be 59 − 20 − 4 = 35; with `Pts` AND the old gutter it was 33.
 #[test]
 fn dropping_pts_gives_its_columns_to_the_name() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    const NAME_WIDTH: u16 = 37;
-    /// What the same arithmetic gave while `Pts` was there: 57 − 20 − 4.
-    const NAME_WIDTH_WITH_PTS: u16 = 33;
+    const NAME_WIDTH: u16 = 39;
+    /// What the same arithmetic would give if `Pts` came back: 59 − 20 − 4.
+    const NAME_WIDTH_WITH_PTS: u16 = 35;
 
     let buf = render(view(frames::populated()), WIDE, TALL);
     let (_, cells) = heading_rows();
@@ -408,12 +408,11 @@ fn dropping_pts_gives_its_columns_to_the_name() {
         .position(|c| c == 'B')
         .expect("the Bch header is drawn") as u16;
     assert_eq!(
-        bch,
-        crate::panes::cell::table::GUTTER + NAME_WIDTH + 1,
+        bch, NAME_WIDTH + 1,
         "the Name column is {NAME_WIDTH} wide with one gap after it: {header:?}"
     );
     assert!(
-        bch - 1 - crate::panes::cell::table::GUTTER > NAME_WIDTH_WITH_PTS,
+        bch - 1 > NAME_WIDTH_WITH_PTS,
         "the measured Name column must be wider than the {NAME_WIDTH_WITH_PTS} it had while \
          `Pts` was drawn: {header:?}"
     );

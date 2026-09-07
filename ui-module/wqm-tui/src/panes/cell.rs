@@ -112,8 +112,12 @@ impl Widget for CellPane {
         // `CellPane` *is* a Dashboard grid cell — there is no other kind. Letting the view
         // choose would make "a grid cell wearing the `▌` bar" a frame someone could build, and
         // Chris ruled the block for these cells specifically (2026-09-07).
+        // Bold on every cell, focused or not (Chris, 2026-09-07): a tile's label sits directly
+        // above the column header and the data, and without weight the three read as one block
+        // of text on the default view — where no cell is focused and so nothing else carries it.
         let mut heading = ZoneHeading::new(self.heading(), self.zone, self.attention)
-            .focus_mark(FocusMark::Block);
+            .focus_mark(FocusMark::Block)
+            .bold();
         if let Some(key) = self.hotkey {
             heading = heading.hotkey(key);
         }

@@ -376,4 +376,6 @@ fn heading_text(buf: &Buffer, cell: Rect) -> String {
 }
 
 mod focus;
+mod grid;
 mod modal;
+

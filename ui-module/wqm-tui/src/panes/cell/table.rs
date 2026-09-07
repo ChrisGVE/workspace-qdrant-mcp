@@ -39,17 +39,19 @@ pub const EMPTY: &str = "No data";
 /// Columns between one column of the table and the next.
 const COLUMN_GAP: u16 = 1;
 
-/// The marker column at the head of every row, cursor or not.
-///
-/// **Always present**, which is [`crate::panes::collections`]'s own answer to the same question
-/// and the reason this is a constant rather than a conditional inset: a gutter that appeared
-/// only on the focused cell would shift every name two columns to the right the moment a cell
-/// took focus, and the point of the cursor is to say *which row*, not to move the table.
-pub(crate) const GUTTER: u16 = 2;
-
-/// The mark on the row the cursor is on. Same glyph and same rung as
-/// [`crate::panes::collections`] — one data cursor in this crate, not two.
-const CURSOR_MARK: &str = "▸ ";
+// # There is no marker gutter here, and that is a ruling with a date on it
+//
+// This table used to reserve two columns at the head of every row for a `▸` — always present,
+// so that a cell taking focus did not shift its own names sideways. Chris removed it
+// (2026-09-07): *"This gives us the ability to remove the indent under the title and thus
+// regaining two columns"*. A Dashboard cell is 59 columns wide and its flex column is the one
+// carrying the thing a reader is trying to finish reading, so two columns spent on a glyph that
+// is blank on five cells out of six is two columns spent badly.
+//
+// What is left is the tint. [`paint_cursor`] fills the cursor row across the cell's whole width
+// and draws no glyph at all — the row itself is the mark. [`crate::panes::collections`] keeps
+// its own `▸`: it is a full-width list where the gutter costs nothing and the marker is the
+// only thing distinguishing its cursor from a selection.
 
 /// Which edge a column's content is flush with.
 ///
@@ -287,33 +289,24 @@ impl CellTable {
     }
 }
 
-/// Mark `row` as the one the data cursor is on: the tint across its whole width, then the
-/// marker in the gutter.
+/// Mark `row` as the one the data cursor is on: the tint across its whole width, and nothing
+/// else at all.
 ///
-/// The tint goes down FIRST and covers the marker column too. Ratatui styles patch rather than
-/// replace, so every span drawn over it afterwards keeps its own hue and inherits this
+/// The tint goes down FIRST, before any span of the row is drawn. Ratatui styles patch rather
+/// than replace, so every span drawn over it afterwards keeps its own hue and inherits this
 /// background — which is what makes one `set_style` enough for a row of many spans.
 fn paint_cursor(row: Rect, buf: &mut Buffer) {
     buf.set_style(row, Style::default().bg(tokens::cursor_bg()));
-    Paragraph::new(Line::from(Span::styled(
-        CURSOR_MARK,
-        Style::default().fg(tokens::cursor_mark()),
-    )))
-    .render(Rect { width: GUTTER, ..row }, buf);
 }
 
 impl Widget for CellTable {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.is_empty() || area.height == 0 || area.width <= GUTTER {
+        if area.is_empty() || area.height == 0 {
             return;
         }
-        // Everything but the marker column is drawn in `body`; the marker column is the
-        // leftmost [`GUTTER`] columns of `area`, and stays empty except on the cursor row.
-        let body = Rect {
-            x: area.x + GUTTER,
-            width: area.width - GUTTER,
-            ..area
-        };
+        // The table starts at the cell's own first column — no marker gutter, so the column
+        // header and every row line up under the first character of the heading above them.
+        let body = area;
         let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
         let columns = Layout::horizontal(constraints)
             .spacing(COLUMN_GAP)
