@@ -35,6 +35,53 @@ pub fn row(area: Rect, n: u16) -> Rect {
     }
 }
 
+/// Rows a key-hint foot costs a view's body: the rule that closes the content, and the hint
+/// line itself.
+///
+/// A view's own minimum-height arithmetic adds this rather than adding 1, so the day a foot
+/// grows a third row there is one number to change instead of one per screen.
+pub const FOOT_ROWS: u16 = 2;
+
+/// Carve the key-hint foot off the bottom of `body`, DRAW the rule that closes the content
+/// above it, and hand back what is left for the view plus the row the hint line goes on.
+///
+/// Chris, 2026-09-07: *"we should have a line just above the bottom line, valid for all views
+/// as well."* Every screen that ends in a key-hint line ends the same way, so the rule is not
+/// a thing a view remembers to draw — it is drawn by the call that tells the view how much room
+/// it has. A fourth screen asking for its foot gets the rule whether or not anybody thought
+/// about it, and a screen that skipped this call would have no foot row to render into.
+///
+/// The rule runs edge to edge, [`crate::widgets::chrome::MARGIN`] included, exactly as the
+/// screen's other full-width rules do: it divides the screen rather than the content inside it.
+/// Only the Dashboard's row rules break over the column gap, and they break because the GRID
+/// has two columns — this one has nothing to break over.
+///
+/// Returns the whole of `body` and an empty foot when `body` is too short to hold both rows,
+/// so a caller that forgets to check still draws no rule rather than drawing one over its own
+/// last line.
+pub fn foot(body: Rect, buf: &mut Buffer) -> (Rect, Rect) {
+    if body.height < FOOT_ROWS {
+        return (body, Rect { height: 0, ..body });
+    }
+    let content = Rect {
+        height: body.height - FOOT_ROWS,
+        ..body
+    };
+    let rule = row(body, body.height - FOOT_ROWS);
+    foot_rule(rule, buf);
+    (content, row(body, body.height - 1))
+}
+
+/// Draw the rule that closes a screen's content, directly above its key-hint line.
+///
+/// Public and separate from [`foot`] for the one screen that lays out all of its rows at once
+/// ([`crate::views::service`]): its foot row is carved by its own [`ratatui::layout::Layout`]
+/// alongside eight others, so it cannot take the rect back from `foot` — but it can and does
+/// take the RULE from here, which is the half that has to be identical everywhere.
+pub fn foot_rule(at: Rect, buf: &mut Buffer) {
+    Rule::internal().render(at, buf);
+}
+
 /// App bar, frame rule, and the status block a tab carries — or does not.
 pub struct ConstantTop {
     active: usize,

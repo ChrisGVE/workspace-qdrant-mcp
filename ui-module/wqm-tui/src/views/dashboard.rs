@@ -73,8 +73,15 @@ pub const CELLS: usize = COLUMNS * GRID_ROWS;
 const COLUMN_GAP: u16 = 3;
 
 /// Rows the grid needs before the status block is asked to collapse: three cells of a heading,
-/// a column header and one data row, plus the two rules between them.
+/// a column header and one data row, plus the two rules between them. Eleven.
 const MIN_GRID_ROWS: u16 = GRID_ROWS as u16 * 3 + (GRID_ROWS as u16 - 1);
+
+/// Rows the Dashboard's body needs before the status block gives way: the grid, plus the two
+/// [`crate::views::top::FOOT_ROWS`] the key-hint line and the rule above it take. Eleven and
+/// two is **thirteen** — it was twelve while the foot was one row (Chris, 2026-09-07 added the
+/// rule). [`crate::panes::status_block::MIN_CONTENT_ROWS`] does NOT move with it: that is the
+/// floor for the screens whose foot arithmetic is their own, and neither of them gained a row.
+const MIN_CONTENT_ROWS: u16 = MIN_GRID_ROWS + crate::views::top::FOOT_ROWS;
 
 /// The keys that move the data cursor within a cell — Chris's own spelling (2026-09-07),
 /// *"down up/j k (without the spaces)"*: the two arrows, then the two vim letters, one token
@@ -238,18 +245,17 @@ impl Widget for Dashboard {
         let _modal = self.modal.then(crate::tokens::ModalScope::enter);
         let body = ConstantTop::new(DASHBOARD_TAB)
             .status(self.status)
-            .content_floor(MIN_GRID_ROWS + 1)
+            .content_floor(MIN_CONTENT_ROWS)
             .draw(area, buf);
-        if body.height < MIN_GRID_ROWS + 1 {
+        if body.height < MIN_CONTENT_ROWS {
             return;
         }
 
-        // The status line is carved off the bottom before the grid is laid out, so no cell is
-        // ever drawn into it and then overwritten.
-        let grid_area = Rect {
-            height: body.height - 1,
-            ..body
-        };
+        // The foot — the key-hint line AND the rule that closes the content above it — is
+        // carved off the bottom before the grid is laid out, so no cell is ever drawn into
+        // either row and then overwritten. The rule is drawn by the same call, which is what
+        // stops a screen from having a foot and forgetting the line above it.
+        let (grid_area, foot_row) = crate::views::top::foot(body, buf);
         let (cells, rules) = grid(inset(grid_area));
         // Read before the cells are consumed below. Every row has the same two x-ranges, so
         // the first row's pair is the whole geometry a rule needs.
@@ -269,10 +275,7 @@ impl Widget for Dashboard {
         for (key, label) in hints {
             status = status.hint(key, label);
         }
-        status.render(
-            inset(crate::views::top::row(body, body.height - 1)),
-            buf,
-        );
+        status.render(inset(foot_row), buf);
     }
 }
 

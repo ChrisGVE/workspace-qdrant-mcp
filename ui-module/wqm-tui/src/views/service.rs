@@ -267,7 +267,7 @@ impl Widget for ServiceView<'_> {
 
         ConfigPane::new(self.config, ZONE_CONFIG, self.attention).render(r.config, buf);
 
-        Rule::frame().render(r.bottom_rule, buf);
+        crate::views::top::foot_rule(r.bottom_rule, buf);
         let mut status = StatusLine::new(rollup).mode(mode);
         for (key, label) in hints {
             status = status.hint(key, label);
@@ -840,6 +840,7 @@ mod tests {
         );
     }
 
+    mod foot;
     mod under_modal;
 
     #[test]

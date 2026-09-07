@@ -142,13 +142,15 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
     let buf = render(view(frames::populated()), WIDE, TALL);
     let full = RULE.repeat(WIDE as usize);
 
-    // The full-width rules are the constant top's two — the top rule and the one that closes
-    // the status block. The grid's own two are no longer among them.
+    // The full-width rules are THREE: the constant top's two — the top rule and the one that
+    // closes the status block — and, since R11, the rule directly above the key-hint line. The
+    // grid's own two are not among them; they break over the column gap.
     let continuous: Vec<u16> = (0..TALL).filter(|y| line(&buf, *y) == full).collect();
     assert_eq!(
         continuous.len(),
-        2,
-        "the top rule and the block's closing rule, and nothing else: {continuous:?}"
+        3,
+        "the top rule, the block's closing rule and the foot rule, and nothing else: \
+         {continuous:?}"
     );
     let block_rule = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
     assert!(
@@ -162,7 +164,9 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
         0,
         crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL,
         WIDE,
-        TALL - 1 - (crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
+        TALL
+            - crate::views::top::FOOT_ROWS
+            - (crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
     )));
     let (_, cells) = heading_rows();
     let gap = cells[0].x + cells[0].width..cells[1].x;
@@ -217,6 +221,49 @@ fn the_two_rule_segments_cover_every_column_except_the_gap() {
         WIDE - left.width - right.width,
         cells[1].x - (cells[0].x + cells[0].width),
         "what the two segments leave uncovered is exactly the gap"
+    );
+}
+
+/// R11 (Chris, 2026-09-07): *"we should have a line just above the bottom line, valid for all
+/// views as well."*
+///
+/// Both halves, because only the pair says *a rule directly above the foot*: the row above the
+/// key-hint line is the rule glyph from edge to edge, and the row above THAT carries no rule
+/// glyph at all. Without the second half the guard would pass on a screen whose whole lower
+/// third had been ruled.
+///
+/// The weight is asserted too. The row is drawn through
+/// [`crate::views::top::foot_rule`], which is the one place the weight is stated, and a screen
+/// that drew its own rule there would be free to pick the other one.
+#[test]
+fn the_row_above_the_key_hint_line_is_an_internal_rule_and_the_row_above_that_is_content() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(view(frames::populated()), WIDE, TALL);
+    let rule_row = TALL - crate::views::top::FOOT_ROWS;
+
+    assert_eq!(
+        line(&buf, rule_row),
+        RULE.repeat(WIDE as usize),
+        "the row above the foot is a rule from edge to edge"
+    );
+    for x in 0..WIDE {
+        assert_eq!(
+            buf.cell((x, rule_row)).expect("cell in area").style().fg,
+            Some(crate::tokens::rule_internal()),
+            "column {x} of the foot rule is not the internal weight"
+        );
+    }
+
+    let above = line(&buf, rule_row - 1);
+    assert!(
+        !above.contains(RULE),
+        "the row above the foot rule is content, not more rule: {above:?}"
+    );
+    assert!(
+        line(&buf, TALL - 1).contains("Help"),
+        "the row below it is the key-hint line"
     );
 }
 
@@ -279,8 +326,12 @@ fn a_cramped_screen_keeps_the_grid_and_takes_the_rows_from_the_cells() {
     for heading in ["Projects (29)", "Libraries (1)", "Scratchpad (0)", "Rules (11)", "Active Projects (2)", "Last Errors"] {
         assert!(joined.contains(heading), "{heading} left the grid at 80x24");
     }
+    // Four, not three: R11's rule above the key-hint line takes one row from the grid, the
+    // first band loses it, and the Projects cell is where a lost row is visible. That the
+    // number MOVED when a row left the grid is the point — a cell silently drawing one row
+    // fewer while still claiming three would be the tail lying about the body.
     assert!(
-        joined.contains("… 3 more"),
+        joined.contains("… 4 more"),
         "the Projects cell must shed rows and say so: {joined}"
     );
 }
@@ -363,7 +414,7 @@ fn heading_rows() -> (u16, Vec<Rect>) {
         0,
         first,
         WIDE,
-        TALL - 1 - first,
+        TALL - crate::views::top::FOOT_ROWS - first,
     )));
     (first, cells)
 }
