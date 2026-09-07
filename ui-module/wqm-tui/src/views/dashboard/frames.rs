@@ -47,12 +47,14 @@ pub struct LibraryRow {
 pub struct ScratchpadRow {
     pub note: &'static str,
     pub scope: &'static str,
+    pub queue: (u64, u64, u64),
 }
 
 /// One behavioural rule. **NOT contract-bound (UIQ pending).**
 pub struct RuleRow {
     pub rule: &'static str,
     pub scope: &'static str,
+    pub queue: (u64, u64, u64),
 }
 
 /// A project currently being watched. **NOT contract-bound (UIQ pending).**
@@ -137,20 +139,38 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
 /// beside it is the one carrying the item, and it gets everything else.
 const SCOPE_WIDTH: u16 = 13;
 
-/// **No `Queue` column** on this cell or on [`rules`].
+/// How wide a `Queue` column is on the two item cells.
 ///
-/// A queue triple beside a single note means nothing — ingest is queued per collection, not per
-/// item, so the number would either be the collection's (repeated identically down the column)
-/// or invented. The collection's queue is already in the status block above the grid, which is
-/// where a per-collection fact belongs.
+/// The same seven columns [`libraries`] gives its own, so the two low-count cells on the grid
+/// are drawn at one width rather than at two nearly-equal ones. Seven holds `102/0/0` — the
+/// widest triple anything on the captured workspace carries outside the Projects cell.
+const ITEM_QUEUE_WIDTH: u16 = 7;
+
+/// **The `Queue` column is back on this cell and on [`rules`]** (Chris, 2026-09-07).
+///
+/// It was dropped on the reading that ingest is queued per collection rather than per item, so
+/// a per-item triple would be either the collection's number repeated down the column or an
+/// invention. Chris asked for the column back, so the column is back — and the fixture answers
+/// the objection honestly rather than by inventing counts: every rule below carries `0/0/0`,
+/// because **nothing is known to be queued for any of them**. Zeros are muted by the shared
+/// `queue()` helper, so the column recedes to exactly the weight a column of no news deserves.
+///
+/// If a real per-item queue depth turns out not to exist behind the contract, the honest
+/// outcome is a column of zeros — which is what this frame shows — and not a column of numbers
+/// borrowed from somewhere else.
 pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     let table = CellTable::new(
-        vec![Column::flex("Note"), Column::text("Scope", SCOPE_WIDTH)],
+        vec![
+            Column::flex("Note"),
+            Column::text("Scope", SCOPE_WIDTH),
+            Column::number("Queue", ITEM_QUEUE_WIDTH),
+        ],
         rows.iter()
             .map(|r| {
                 vec![
                     Cell::Text(r.note.to_string()),
                     Cell::Text(r.scope.to_string()),
+                    queue(r.queue),
                 ]
             })
             .collect(),
@@ -158,15 +178,24 @@ pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     CellPane::new("Scratchpad", Some(total), table)
 }
 
-/// See [`scratchpad`] for why neither of these two cells carries a `Queue` column.
+/// See [`scratchpad`] for what the `Queue` column on these two cells shows.
+///
+/// The flex column is titled **`Rule name`** rather than `Rule` (Chris, 2026-09-07). `Rule` on
+/// its own reads as the row's type — the same word the cell's heading already says — where
+/// what the column holds is the rule's NAME.
 pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
     let table = CellTable::new(
-        vec![Column::flex("Rule"), Column::text("Scope", SCOPE_WIDTH)],
+        vec![
+            Column::flex("Rule name"),
+            Column::text("Scope", SCOPE_WIDTH),
+            Column::number("Queue", ITEM_QUEUE_WIDTH),
+        ],
         rows.iter()
             .map(|r| {
                 vec![
                     Cell::Text(r.rule.to_string()),
                     Cell::Text(r.scope.to_string()),
+                    queue(r.queue),
                 ]
             })
             .collect(),
@@ -248,15 +277,20 @@ pub const ACTIVE: [ActiveProjectRow; 2] = [
 /// discipline the projects fixture follows. A dashboard fixture of invented rule names would
 /// look plausible and teach nothing: `release-gatekeeper` is eighteen columns wide and that is
 /// the fact the flex column has to survive.
+///
+/// **Every queue triple is `0/0/0`, and that is a measurement.** Nothing is known to be queued
+/// for any rule in this store, so the column says nothing is queued. Inventing a count to make
+/// the new column look busy would put a fiction on the one screen Chris judges the design from
+/// — the same reason [`scratchpad`]'s fixture is empty rather than plausible.
 pub const RULES: [RuleRow; 8] = [
-    RuleRow { rule: "auto-file-defects", scope: "global" },
-    RuleRow { rule: "collab-spirit", scope: "global" },
-    RuleRow { rule: "docker-test-rm", scope: "global" },
-    RuleRow { rule: "human-voice", scope: "global" },
-    RuleRow { rule: "instr-supersede", scope: "global" },
-    RuleRow { rule: "match-register", scope: "global" },
-    RuleRow { rule: "mesh-field-log", scope: "global" },
-    RuleRow { rule: "release-gatekeeper", scope: "global" },
+    RuleRow { rule: "auto-file-defects", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "collab-spirit", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "docker-test-rm", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "human-voice", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "instr-supersede", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "match-register", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "mesh-field-log", scope: "global", queue: (0, 0, 0) },
+    RuleRow { rule: "release-gatekeeper", scope: "global", queue: (0, 0, 0) },
 ];
 
 /// The store holds eleven; the cell has room for five. That gap is the whole point of the

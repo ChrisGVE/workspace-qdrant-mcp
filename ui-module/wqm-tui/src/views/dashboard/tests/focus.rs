@@ -302,13 +302,19 @@ fn a_modal_mutes_every_cell_key_without_moving_a_row() {
 }
 
 /// R4 (Chris, 2026-09-07): Scratchpad and Rules list their ITEMS with the scope beside them —
-/// *"their scope should be inverted with their respective Notes and Rules"*.
+/// *"their scope should be inverted with their respective Notes and Rules"* — and R10, four
+/// rounds later: the `Queue` column comes back on both, and the flex column is `Rule name`
+/// rather than `Rule`.
 ///
 /// The header row is read off the render, because the ruling is about what a reader sees: a
 /// check against the column titles in `frames` would pass on a table whose header was never
 /// drawn.
+///
+/// The queue triple is checked as three HUES rather than as the text `0/0/0`, because that is
+/// what makes it the same column the Projects cell draws: a `0/0/0` in one flat colour would
+/// read as a string and satisfy any assertion about characters.
 #[test]
-fn the_rules_cell_lists_rules_with_their_scope_and_carries_no_queue() {
+fn the_rules_cell_lists_rule_names_with_their_scope_and_a_queue() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -318,16 +324,30 @@ fn the_rules_cell_lists_rules_with_their_scope_and_carries_no_queue() {
     let cell = cells[RULES_ZONE];
 
     let header = heading_text(&buf, Rect { y: cell.y + 1, ..cell });
-    assert!(header.trim_start().starts_with("Rule"), "{header:?}");
-    assert!(header.contains("Scope"), "{header:?}");
-    for gone in ["Queue", "Notes"] {
-        assert!(!header.contains(gone), "{gone:?} survives on the Rules cell: {header:?}");
+    assert!(header.starts_with("Rule name"), "{header:?}");
+    for present in ["Scope", "Queue"] {
+        assert!(header.contains(present), "{present:?} is missing from the Rules cell: {header:?}");
     }
+    assert!(!header.contains("Notes"), "a count column survives: {header:?}");
 
     // The first data row is a rule NAME and the scope beside it, not a scope and a count.
     let first = heading_text(&buf, Rect { y: cell.y + 2, ..cell });
     assert!(first.contains(frames::RULES[0].rule), "{first:?}");
     assert!(first.contains("global"), "{first:?}");
+
+    // And the triple renders as the Projects cell's does: three figures, three roles, each
+    // muted because it is a zero. `0/0/0` is seven columns right-aligned into a seven-column
+    // field, so its three digits sit at the cell's last, third-from-last and fifth-from-last.
+    let right = cell.x + cell.width - 1;
+    for (at, role) in [(right - 4, "pending"), (right - 2, "in flight"), (right, "failed")] {
+        let drawn = buf.cell((at, cell.y + 2)).expect("cell in area");
+        assert_eq!(drawn.symbol(), "0", "the {role} figure of the queue triple");
+        assert_eq!(
+            drawn.style().fg,
+            Some(crate::tokens::muted()),
+            "a {role} count of zero is not news, so it recedes: {first:?}"
+        );
+    }
 }
 
 /// The heading counts the STORE, and the tail counts what the cell could not draw. They are
@@ -372,6 +392,14 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
             .starts_with(crate::panes::cell::EMPTY),
         "an empty projection says so rather than showing a blank cell"
     );
+
+    // Its columns are still drawn, and they are the three R10 gives it — an empty cell says
+    // what it WOULD hold, which is the difference between "nothing here" and "nothing works".
+    let header = heading_text(&buf, Rect { y: cell.y + 1, ..cell });
+    assert!(header.starts_with("Note"), "{header:?}");
+    for present in ["Scope", "Queue"] {
+        assert!(header.contains(present), "{present:?} is missing from Scratchpad: {header:?}");
+    }
 }
 
 /// R5 (Chris, 2026-09-07): `Pts` is gone from Projects and Libraries, and the width it held
