@@ -96,7 +96,12 @@ impl Ingredient for Variant {
     }
 }
 
-pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
+/// The list itself: what the screen looks like with nothing said to it.
+///
+/// Split from [`dialog_frames`] because they answer different questions, not because the list
+/// was long: these are about the TABLE — its rows, its order, its end, its two extreme widths —
+/// and every one of them can be judged without knowing what a dialog is.
+fn list_frames() -> Vec<Box<dyn Ingredient>> {
     vec![
         Box::new(Variant(
             "Populated",
@@ -140,7 +145,31 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
             None,
         )),
-        // --- the dialog slot's five states, and the selectors beside them ---------------
+        Box::new(Variant(
+            "Under modal",
+            "The page beneath a modal, with no modal on it: does everything go quiet, or does the Status column stay alight?",
+            || queue(QueueState::default()).under_modal(true),
+            None,
+        )),
+        Box::new(Variant(
+            "Small 80x24",
+            "Eighty by twenty-four: the flex Object column is the first thing to go, and the foot falls back to two hints",
+            || queue(QueueState::default()),
+            Some((80, 24)),
+        )),
+    ]
+}
+
+/// Every frame this view offers: the table's, then the slot's.
+pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
+    let mut frames = list_frames();
+    frames.extend(dialog_frames());
+    frames
+}
+
+/// The dialog slot's five states, the two selectors, and the window that lists every key.
+fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
+    vec![
         Box::new(Variant(
             "Search input",
             "`/` pressed: the prompt, then the crate's own edit-in-place field running to the end of the row",
@@ -205,22 +234,10 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
-            "Under modal",
-            "The page beneath a modal, with no modal on it: does everything go quiet, or does the Status column stay alight?",
-            || queue(QueueState::default()).under_modal(true),
-            None,
-        )),
-        Box::new(Variant(
             "Help",
             "Every key of this view, the four paging chords included — the only place they are ever shown",
             || queue(QueueState::default()).modal(Queue::help()),
             None,
-        )),
-        Box::new(Variant(
-            "Small 80x24",
-            "Eighty by twenty-four: the flex Object column is the first thing to go, and the foot falls back to two hints",
-            || queue(QueueState::default()),
-            Some((80, 24)),
         )),
     ]
 }
