@@ -1,7 +1,6 @@
 //! What the Dashboard is pinned to.
 
 use super::*;
-use crate::panes::cell::{Cell, CellTable, Column};
 use crate::panes::status_block::Queue;
 use crate::widgets::chrome::rule::RULE;
 use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
@@ -372,44 +371,6 @@ fn every_frame_figure_fits_the_column_it_is_drawn_in() {
             }
         }
     }
-}
-
-/// A cell whose columns are all fixed starves its flex column before it drops a column. That is
-/// what breaks first on a narrow screen, and it is pinned so the day it is fixed is deliberate.
-#[test]
-fn a_narrow_cell_starves_its_flexible_column_rather_than_dropping_a_fixed_one() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::dark_truecolor();
-
-    let table = CellTable::new(
-        vec![
-            Column::flex("Name"),
-            Column::text("Branch", 19),
-            Column::number("Files", 5),
-            Column::number("Queue", 8),
-        ],
-        vec![vec![
-            Cell::Text("workspace-qdrant-mcp".into()),
-            Cell::Text("dev".into()),
-            Cell::Num(93),
-            Cell::Queue { pending: 50, in_flight: 0, failed: 0 },
-        ]],
-    );
-    let area = Rect::new(0, 0, 38, 4);
-    let mut buf = Buffer::empty(area);
-    CellPane::new("Active Projects", Some(2), table).render(area, &mut buf);
-
-    let drawn = line(&buf, 2);
-    let name = drawn.split_whitespace().next().expect("a name is drawn");
-    assert!(
-        name.ends_with('…') && name.chars().count() < "workspace-qdrant-mcp".chars().count(),
-        "the flex column is what gives, down to an ellipsis: {drawn:?}"
-    );
-    assert!(
-        line(&buf, 2).contains("dev"),
-        "the fixed columns keep their width: {:?}",
-        line(&buf, 2)
-    );
 }
 
 /// The first grid row, and the six cell rectangles as the renderer lays them out.

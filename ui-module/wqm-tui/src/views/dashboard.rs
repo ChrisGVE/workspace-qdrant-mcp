@@ -35,6 +35,14 @@
 //! rows of 9, 8 and 8 with the two internal rules between them, each cell 59 columns wide. A
 //! cell therefore shows its heading, its column header, and six or five data rows.
 //!
+//! # The design floor is 100 × 30; 80 × 24 is a stress case
+//!
+//! The floor is 100 columns by 30 rows (Chris, 2026-09-07): the narrowest screen on which every
+//! cell keeps its full column set and no name elides. Below it a cell protects its flex column —
+//! the row's identity — by dropping fixed columns, lowest priority first (a queue triple, then a
+//! figure, then text), never the flex: see [`crate::panes::cell::table::CellTable::min_flex`].
+//! 80 × 24 is not a target, it is where a design instrument answers *what breaks first*.
+//!
 //! # No vertical rule between the columns
 //!
 //! v0.1 has none, and VL §6 leaves the side divider an explicit open micro-choice (*"a single

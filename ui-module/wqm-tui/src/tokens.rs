@@ -793,9 +793,15 @@ pub fn rule_frame() -> Color {
 pub fn rule_internal() -> Color {
     neutral(30)
 }
-/// Column headers are CAPS at this depth: structure, not data.
+/// Column headers are structure, not data: the body-text foreground, in italics.
+///
+/// A header is not bold (Chris, 2026-09-07) — that reads as a heading rather than as a label
+/// under it — so it keeps the SAME foreground the body text wears and marks itself with
+/// [`Modifier::ITALIC`] instead of weight. The italic is added by the tables that draw the
+/// header ([`crate::panes::cell::table`]); this returns the colour, which is [`normal`]
+/// exactly, so a header can never land on a rung the data beneath it does not use.
 pub fn header() -> Color {
-    neutral(62)
+    normal()
 }
 
 // --- §3 highlight roles -------------------------------------------------------------

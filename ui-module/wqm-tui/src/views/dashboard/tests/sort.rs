@@ -10,7 +10,7 @@
 //! the key it claims to be, and no key collides with one the screen has already spoken for.
 
 use super::*;
-use crate::panes::cell::{Direction, Sort};
+use crate::panes::cell::{Cell, Direction, Sort};
 
 /// The Dashboard's cell geometry at 125 × 34, for the guards that judge one cell alone.
 const CELL: Rect = Rect { x: 0, y: 0, width: 59, height: 9 };

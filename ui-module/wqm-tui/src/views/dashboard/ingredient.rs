@@ -1,8 +1,9 @@
 //! The pantry variants for [`super`].
 //!
-//! Five frames, and three of them exist to be uncomfortable. `Populated` is the captured
+//! Five frames, and two of them exist to be uncomfortable. `Populated` is the captured
 //! workspace and answers "does this look like v0.1"; `Empty workspace` answers "does a fresh
-//! install read as empty or as broken"; `Small 80x24` answers the question a design instrument
+//! install read as empty or as broken"; `Floor 100x30` is the design floor — the narrowest
+//! screen everything still fits on; `Stress 80x24` answers the question a design instrument
 //! is actually for — **what breaks first**.
 
 use super::*;
@@ -186,8 +187,14 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
-            "Small 80x24",
-            "Eighty by twenty-four: the block collapses, the tab row runs off, and the cells lose rows before they lose columns",
+            "Floor 100x30",
+            "The design floor (Chris, 2026-09-07): one hundred by thirty. Every cell keeps its full column set and no name elides",
+            populated,
+            Some((100, 30)),
+        )),
+        Box::new(Variant(
+            "Stress 80x24",
+            "Eighty by twenty-four: the block collapses, the tab row runs off, and the cells shed fixed columns before the flex column's identity starves",
             populated,
             Some((80, 24)),
         )),

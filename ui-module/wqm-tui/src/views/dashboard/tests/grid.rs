@@ -78,46 +78,80 @@ fn the_column_header_starts_on_the_same_column_as_the_heading_above_it() {
     }
 }
 
-/// The two columns the gutter used to hold go to the flex column, and at 80 × 24 that is the
-/// difference between a `Name` column and no `Name` column at all.
+/// The design floor is 100 × 30 (Chris, 2026-09-07): every column of `Active Projects` is
+/// drawn, and neither project name elides. 80 × 24 is a stress case, not the floor — below it
+/// the cell drops fixed columns rather than starve the flex `Name`.
 ///
-/// The arithmetic, stated: 80 columns inset by [`crate::widgets::chrome::MARGIN`] on each side
-/// is 76; the three-column gap leaves 73 for the two cells, and the remainder goes to the left
-/// one — 37 and 36. `Active Projects` is the left cell of the third row, and it spends
-/// `Branch` 19 + `Files` 5 + `Queue` 8 = 32 on fixed columns with three single-column gaps
-/// between its four, leaving 37 − 32 − 3 = **2** for `Name`. With the old two-column gutter it
-/// was **0**: the column existed and drew nothing.
+/// At 100 columns the grid insets to 96 and the two cells get 47 and 46; `Active Projects` is
+/// the left cell, and it spends `Branch` 11 + `Files` 5 + `Queue` 8 = 24 on fixed columns with
+/// three single-column gaps, leaving 47 − 24 − 3 = **20** for `Name` — exactly the width of
+/// `workspace-qdrant-mcp`, the longer of the two names.
 #[test]
-fn at_80x24_the_active_projects_name_column_is_two_columns_rather_than_none() {
+fn at_100x30_the_active_projects_cell_shows_every_column_and_no_name_elides() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    /// 37 − 32 − 3, with the gutter gone.
-    const NAME_WIDTH: u16 = 2;
-    /// What the same cell had while the gutter took its two columns.
-    const NAME_WIDTH_WITH_GUTTER: u16 = 0;
+    let buf = render(view(frames::populated()), 100, 30);
+    let heading_y = (0..30)
+        .find_map(|y| line(&buf, y).find("Active Projects").map(|_| y))
+        .expect("the Active Projects cell is on a 100x30 screen");
+
+    let header = line(&buf, heading_y + 1);
+    for title in ["Name", "Branch", "Files", "Queue"] {
+        assert!(
+            header.contains(title),
+            "{title:?} left the Active Projects header at 100x30: {header:?}"
+        );
+    }
+
+    // Both names draw whole — a name column of 20 holds `workspace-qdrant-mcp` exactly, so the
+    // full string is present in its row and no `…` stands in for its tail.
+    for name in ["open-books", "workspace-qdrant-mcp"] {
+        let whole = (heading_y + 2..heading_y + 4)
+            .map(|y| line(&buf, y))
+            .any(|row| row.contains(name));
+        assert!(whole, "{name} is not drawn whole at the 100x30 floor");
+    }
+}
+
+/// 80 × 24 is a stress case, not a target: the cell drops the queue triple first — its counts
+/// are the one thing a reader can find again in the status block — and the flex `Name` keeps
+/// its floor rather than being starved.
+#[test]
+fn at_80x24_the_active_projects_cell_drops_the_queue_column_and_keeps_the_name_at_its_floor() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
 
     let buf = render(view(frames::populated()), 80, 24);
     let (heading_y, heading_x) = (0..24)
         .find_map(|y| line(&buf, y).find("Active Projects").map(|x| (y, x as u16)))
         .expect("the Active Projects cell is on an 80x24 screen");
     let header = line(&buf, heading_y + 1);
+
+    // The queue triple is the first column to go.
+    assert!(
+        !header.contains("Queue"),
+        "the Queue column survived the stress size: {header:?}"
+    );
+    assert!(
+        header.contains("Name") && header.contains("Branch"),
+        "the flex identity and the text column survive: {header:?}"
+    );
+
+    // `Branch` is left-aligned one gap past the flex column, so its position measures the Name
+    // column's width directly — and it must be at least the twelve-cell floor.
     let branch = header.find("Branch").expect("its Branch column header is drawn") as u16;
+    let name_width = branch - heading_x - 1;
+    assert!(
+        name_width >= 12,
+        "the Name column is {name_width} wide at 80x24, below its floor: {header:?}"
+    );
 
-    // `Branch` is left-aligned in the column after `Name`, and one gap column separates them.
-    let measured = branch - heading_x - 1;
-    assert_eq!(measured, NAME_WIDTH, "the Name column is {NAME_WIDTH} wide at 80x24: {header:?}");
-
-    // The width alone does not say it: with the two-column gutter back, the gutter takes
-    // exactly the two columns `Name` has and `Branch` lands on the very same x — the distance
-    // between the heading and `Branch` is invariant across the change it is meant to detect.
-    // What is NOT invariant is whether the Name column draws anything, so that is what is read:
-    // the header row must begin, at the cell's own first column, with the (clipped) title.
-    let drawn: String = (heading_x..heading_x + NAME_WIDTH + 1)
-        .map(|x| buf.cell((x, heading_y + 1)).expect("cell in area").symbol())
-        .collect();
-    assert_eq!(
-        drawn, "Na ",
-        "a Name column of {NAME_WIDTH_WITH_GUTTER} columns draws nothing at all: {header:?}"
+    // And the dropped column vanishes from the data rows too, not only from the header: the
+    // first project's queue triple `247/4/0` is nowhere on the screen.
+    let first_data = line(&buf, heading_y + 2);
+    assert!(
+        !first_data.contains("247/4/0"),
+        "the dropped queue triple is still drawn in a data row: {first_data:?}"
     );
 }

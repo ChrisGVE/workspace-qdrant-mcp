@@ -6,6 +6,7 @@ use crate::tokens;
 use crate::widgets::chrome::test_support::Restore;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Modifier;
 use ratatui::widgets::Widget;
 
 const WIDE: u16 = 59;
@@ -317,4 +318,90 @@ fn a_measured_value_orders_by_its_magnitude_and_a_tinted_one_by_its_word() {
         "…"
     );
     assert!(!pending.is_figure(), "a state word elides like any other word");
+}
+
+/// The fixed columns drop in priority order — lowest first, the flex column never — until the
+/// flex column reaches its floor. A synthetic table, so the order is read from the data rather
+/// than from any particular cell's fixture.
+#[test]
+fn a_narrow_table_drops_fixed_columns_in_priority_order_and_never_the_flex() {
+    let table = CellTable::new(
+        vec![
+            Column::flex("Name"),
+            Column::text("Branch", 10).priority(2),
+            Column::number("Files", 5).priority(1),
+            Column::number("Queue", 8).priority(0),
+        ],
+        vec![],
+    );
+
+    // 47 columns leaves the flex 21, above its floor of 12: nothing drops.
+    assert_eq!(table.fitted(47), vec![0, 1, 2, 3]);
+
+    // 30 leaves it 4, so the queue triple (priority 0) goes first.
+    assert_eq!(table.fitted(30), vec![0, 1, 2], "the lowest-priority column drops first");
+
+    // 25 leaves it 8 even after the queue goes, so the figure (priority 1) goes next.
+    assert_eq!(table.fitted(25), vec![0, 1], "then the figure");
+
+    // 20 leaves it 9 even after that, so text (priority 2) goes too — and the flex identity is
+    // the one thing that never does.
+    assert_eq!(table.fitted(20), vec![0], "the flex column is never dropped");
+}
+
+/// On a priority tie the RIGHTMOST column drops first — the one furthest from the flex identity.
+#[test]
+fn a_priority_tie_drops_the_rightmost_column_first() {
+    let table = CellTable::new(
+        vec![
+            Column::flex("Name"),
+            Column::number("A", 5).priority(1),
+            Column::number("B", 5).priority(1),
+        ],
+        vec![],
+    );
+
+    // 20 columns: fixed 5 + 5 and one gap is 11, leaving the flex 9 — below the floor, so one
+    // of the two tied columns must go, and it is `B`, the rightmost.
+    assert_eq!(table.fitted(20), vec![0, 1], "the rightmost of the tie drops first");
+}
+
+/// A column header wears the body foreground in italics — the same colour the data under it
+/// wears, marked as structure by slant rather than by a different rung (Chris, 2026-09-07).
+///
+/// Pinned on the rendered header rather than on [`tokens::header`] alone: the token returning
+/// the body foreground is half the rule and the [`Modifier::ITALIC`] the table applies is the
+/// other, and a guard reading only one of them would pass on a header that lost the other.
+#[test]
+fn a_column_header_wears_the_body_foreground_in_italics() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(
+        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1))),
+        WIDE,
+        TALL,
+    );
+
+    // The header is the row under the heading, so line 1 — and every painted cell on it.
+    let mut painted = 0;
+    for x in 0..WIDE {
+        let cell = buf.cell((x, 1)).expect("cell in area");
+        if cell.symbol().trim().is_empty() {
+            continue;
+        }
+        assert!(
+            cell.style().add_modifier.contains(Modifier::ITALIC),
+            "column {x} ({:?}) of the header is not italic",
+            cell.symbol()
+        );
+        assert_eq!(
+            cell.style().fg,
+            Some(tokens::normal()),
+            "column {x} ({:?}) of the header is not the body foreground",
+            cell.symbol()
+        );
+        painted += 1;
+    }
+    assert!(painted > 0, "the header drew nothing at all");
 }

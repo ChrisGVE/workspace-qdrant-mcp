@@ -10,7 +10,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -80,10 +80,20 @@ pub struct Column {
     /// Which end of an over-long value this column drops. See [`Elide`]: it is a fact about
     /// what the column holds, so every value in it answers the question the same way.
     pub elide: Elide,
+    /// How long this column survives a narrow cell. When the flex column would fall below
+    /// [`CellTable::min_flex`], the fixed column with the LOWEST priority is dropped first
+    /// (ties: the rightmost first), so a higher number outlasts a lower one. Default 0.
+    ///
+    /// The flex column is the row's identity and is never dropped, so its priority is never
+    /// consulted — it is the thing every drop is spent to keep whole.
+    pub priority: u8,
 }
 
 impl Column {
     /// A text column that takes what is left. At most one per table, or they share the slack.
+    ///
+    /// The flex column is the row's identity — it is never dropped when the cell narrows; the
+    /// fixed columns are, lowest [`Column::priority`] first. See [`CellTable::fitted`].
     pub fn flex(title: &'static str) -> Self {
         Self {
             title,
@@ -91,6 +101,7 @@ impl Column {
             width: Constraint::Fill(1),
             sort_key: None,
             elide: Elide::Right,
+            priority: 0,
         }
     }
 
@@ -102,6 +113,7 @@ impl Column {
             width: Constraint::Length(width),
             sort_key: None,
             elide: Elide::Right,
+            priority: 0,
         }
     }
 
@@ -113,7 +125,14 @@ impl Column {
             width: Constraint::Length(width),
             sort_key: None,
             elide: Elide::Right,
+            priority: 0,
         }
+    }
+
+    /// How long this column survives a narrow cell — see [`Column::priority`].
+    pub fn priority(mut self, priority: u8) -> Self {
+        self.priority = priority;
+        self
     }
 
     /// Shorten this column's values from the LEFT — the file-path rule, and so far the Queue
@@ -165,6 +184,11 @@ pub struct CellTable {
     /// How the table is sorted, if it is. Independent of `sortable`: the mark stays on the
     /// column while the cell is read, and the offer only stands while it is live.
     sort: Option<Sort>,
+    /// The fewest cells the flex column is allowed to end up with. Below this the table drops
+    /// its lowest-priority fixed column rather than starve the row's identity — see
+    /// [`CellTable::fitted`]. Twelve (Chris, 2026-09-07): a name narrower than that is a name
+    /// nobody can finish reading, and dropping a whole column is the cheaper loss.
+    min_flex: u16,
 }
 
 impl CellTable {
@@ -176,7 +200,14 @@ impl CellTable {
             cursor: None,
             sortable: false,
             sort: None,
+            min_flex: 12,
         }
+    }
+
+    /// The floor the flex column keeps, in cells. See the field.
+    pub fn min_flex(mut self, min_flex: u16) -> Self {
+        self.min_flex = min_flex;
+        self
     }
 
     /// Whether this table OFFERS its sort keys. See the field: the pane decides, from the
@@ -246,6 +277,44 @@ impl CellTable {
         self.rows.is_empty()
     }
 
+    /// Which columns survive the fit, as indices into [`CellTable::columns`].
+    ///
+    /// The flex column is the row's identity and is never dropped. The fixed columns are
+    /// dropped — lowest [`Column::priority`] first, the rightmost first on a tie — until the
+    /// flex column would get at least [`CellTable::min_flex`] cells, or until no fixed column
+    /// remains. The surviving columns keep their widths: a dropped column takes its width and
+    /// its gap with it, and the slack goes to the flex column, nowhere else.
+    ///
+    /// A table with no flex column returns every column: there is no identity to protect, so
+    /// nothing gives.
+    pub(super) fn fitted(&self, width: u16) -> Vec<usize> {
+        let mut active: Vec<usize> = (0..self.columns.len()).collect();
+        let Some(flex) = self.columns.iter().position(|c| c.fixed().is_none()) else {
+            return active;
+        };
+        while active.len() > 1 {
+            let fixed: u16 = active
+                .iter()
+                .filter(|&&at| at != flex)
+                .filter_map(|&at| self.columns[at].fixed())
+                .sum();
+            let gaps = (active.len() as u16 - 1) * COLUMN_GAP;
+            if width.saturating_sub(fixed).saturating_sub(gaps) >= self.min_flex {
+                break;
+            }
+            // Lowest priority first; `Reverse` makes the rightmost of a tie the least, which is
+            // what `min_by_key` picks.
+            let drop = active
+                .iter()
+                .copied()
+                .filter(|&at| at != flex)
+                .min_by_key(|&at| (self.columns[at].priority, std::cmp::Reverse(at)))
+                .expect("a fixed column remains to drop");
+            active.retain(|&at| at != drop);
+        }
+        active
+    }
+
     /// How many data rows fit, and how many are left over, given `height` rows for the header
     /// and the body together.
     ///
@@ -263,8 +332,9 @@ impl CellTable {
         (shown, remaining - shown)
     }
 
-    fn header(&self, body: Rect, cells: &[Rect], buf: &mut Buffer) {
-        for (at, (column, area)) in self.columns.iter().zip(cells).enumerate() {
+    fn header(&self, body: Rect, active: &[usize], cells: &[Rect], buf: &mut Buffer) {
+        for (&at, &area) in active.iter().zip(cells) {
+            let column = &self.columns[at];
             let mark = self.sort.filter(|sort| sort.column == at);
             let spans = self.header_spans(column, mark);
             let needed: u16 = spans
@@ -272,31 +342,36 @@ impl CellTable {
                 .map(|span| span.content.chars().count() as u16)
                 .sum();
             // **Only the MARK may take room beyond the column.** A title too long for its own
-            // column is clipped, exactly as it was before there were marks — at 80 × 24 the
-            // `Active Projects` cell gives `Name` two columns and draws `Na`, and a header that
-            // grew to fit its own title would reach across `Branch` on every screen too narrow
-            // for it, sorted or not.
-            let at_rect = if mark.is_some() { grown(*area, body, needed) } else { *area };
+            // column is clipped, exactly as it was before there were marks — a header that grew
+            // to fit its own title would reach across the next column on every screen too
+            // narrow for it, sorted or not. The narrowest screens no longer clip `Name` to
+            // `Na`: [`CellTable::fitted`] drops a fixed column before the flex column falls
+            // below [`CellTable::min_flex`].
+            let at_rect = if mark.is_some() { grown(area, body, needed) } else { area };
             Paragraph::new(Line::from(spans))
                 .alignment(column.align.to_ratatui())
                 .render(at_rect, buf);
         }
     }
 
-    /// One column header: its title, the sort key lit if the table is offering its keys, and
-    /// the sort mark if this is the column the table is sorted by.
+    /// One column header: its title in the body foreground with [`Modifier::ITALIC`], the sort
+    /// key lit if the table is offering its keys, and the sort mark if this is the column the
+    /// table is sorted by.
     ///
-    /// The lit letter changes the HUE and nothing else (Chris, 2026-09-07): a column header on
-    /// this screen is not bold, and a key that arrived bold would read as a heading rather than
-    /// as a letter to press. [`tokens::selector`] is the reserved selection hue — the same one
-    /// the focused cell's block is filled with — so the screen says *selected* in one colour
-    /// whether it is naming a cell or a column.
+    /// The header wears the SAME foreground the data under it wears and distinguishes itself
+    /// with italics (Chris, 2026-09-07): a column header on this screen is not bold, and a key
+    /// that arrived bold would read as a heading rather than as a letter to press. The lit
+    /// letter changes the HUE and nothing else — [`tokens::selector`] is the reserved selection
+    /// hue, the same one the focused cell's block is filled with, so the screen says *selected*
+    /// in one colour whether it is naming a cell or a column.
     ///
     /// The mark is muted: it says which column is sorted, and it is never the thing being read.
     /// It is appended with no space between it and the title — see [`grown`] for why the space
     /// is what a five-column `Files` cannot afford.
     fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
-        let rest = Style::default().fg(tokens::header());
+        let rest = Style::default()
+            .fg(tokens::header())
+            .add_modifier(Modifier::ITALIC);
         let key = self.sortable.then_some(column.sort_key).flatten();
         let mut spans =
             crate::widgets::chrome::keyed_spans(column.title, key, rest.fg(tokens::selector()), rest);
@@ -325,12 +400,14 @@ impl Widget for CellTable {
         // The table starts at the cell's own first column — no marker gutter, so the column
         // header and every row line up under the first character of the heading above them.
         let body = area;
-        let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
+        let active = self.fitted(body.width);
+        let constraints: Vec<Constraint> =
+            active.iter().map(|&at| self.columns[at].width).collect();
         let columns = Layout::horizontal(constraints)
             .spacing(COLUMN_GAP)
             .split(Rect { height: 1, ..body });
 
-        self.header(body, &columns, buf);
+        self.header(body, &active, &columns, buf);
 
         let text_row = |offset: u16, text: String| {
             (
@@ -358,15 +435,18 @@ impl Widget for CellTable {
             }
 
             // Indexed rather than zipped by reference: a row may carry fewer cells than the
-            // table has columns, and the column its value belongs to is its POSITION.
-            for (at, (cell, column)) in row.iter().zip(&self.columns).enumerate() {
-                Paragraph::new(Line::from(cell.spans(columns[at].width, column.elide)))
+            // table has columns, and the column its value belongs to is its POSITION. A dropped
+            // column is skipped by its index — `active` names the survivors.
+            for (n, &at) in active.iter().enumerate() {
+                let Some(cell) = row.get(at) else { continue };
+                let column = &self.columns[at];
+                Paragraph::new(Line::from(cell.spans(columns[n].width, column.elide)))
                     .alignment(column.align.to_ratatui())
                     .render(
                         Rect {
                             y,
                             height: 1,
-                            ..columns[at]
+                            ..columns[n]
                         },
                         buf,
                     );

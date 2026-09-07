@@ -22,6 +22,16 @@
 
 use crate::panes::cell::{Cell, CellPane, CellTable, Column, Direction, Sort};
 
+/// Priority tiers for column survival — [`Column::priority`].
+///
+/// Higher survives longer: when a narrow cell drops fixed columns to protect its flex column
+/// ([`CellTable::min_flex`]), a queue triple goes first — its three counts are the one thing a
+/// reader can find elsewhere, in the status block — then a figure, then text. The flex column
+/// is the row's identity and is never dropped, so it has no tier at all.
+const QUEUE_PRIORITY: u8 = 0;
+const FIGURE_PRIORITY: u8 = 1;
+const TEXT_PRIORITY: u8 = 2;
+
 /// A project as the Dashboard's first cell shows it. **NOT contract-bound (UIQ pending).**
 pub struct ProjectRow {
     pub name: &'static str,
@@ -90,9 +100,9 @@ pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Name").sort('n'),
-            Column::number("Bch", 3).sort('b'),
-            Column::number("Files", 5).sort('f'),
-            Column::number("Queue", 9).sort('u'),
+            Column::number("Bch", 3).sort('b').priority(FIGURE_PRIORITY),
+            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
+            Column::number("Queue", 9).sort('u').priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -112,13 +122,13 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Name").sort('n'),
-            Column::number("Files", 5).sort('f'),
-            Column::number("Queue", 7).sort('u'),
+            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
+            Column::number("Queue", 7).sort('u').priority(QUEUE_PRIORITY),
             // Five columns for a four-letter title: this is the LAST column of its cell, so
             // there is no gap to its right for the sort mark to borrow, and a column that
             // cannot show its own mark must not offer a key. The one column comes out of the
             // flex `Name` beside it, which has forty to spare.
-            Column::text("Sync", 5).sort('y'),
+            Column::text("Sync", 5).sort('y').priority(TEXT_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -166,8 +176,8 @@ pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Note").sort('n'),
-            Column::text("Scope", SCOPE_WIDTH).sort('c'),
-            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u'),
+            Column::text("Scope", SCOPE_WIDTH).sort('c').priority(TEXT_PRIORITY),
+            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u').priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -191,8 +201,8 @@ pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Rule name").sort('n'),
-            Column::text("Scope", SCOPE_WIDTH).sort('c'),
-            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u'),
+            Column::text("Scope", SCOPE_WIDTH).sort('c').priority(TEXT_PRIORITY),
+            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u').priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -208,12 +218,16 @@ pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
 }
 
 pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
+    // `Branch` is eleven columns, not the nineteen the longest branch alone would want: the flex
+    // `Name` is the row's identity, and at the design floor (100 × 30) the whole `Active
+    // Projects` cell is 47 columns, so eleven leaves exactly the twenty `workspace-qdrant-mcp`
+    // needs to draw whole. A branch is text and elides; a name should not have to.
     let table = CellTable::new(
         vec![
             Column::flex("Name").sort('n'),
-            Column::text("Branch", 19).sort('b'),
-            Column::number("Files", 5).sort('f'),
-            Column::number("Queue", 8).sort('u'),
+            Column::text("Branch", 11).sort('b').priority(TEXT_PRIORITY),
+            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
+            Column::number("Queue", 8).sort('u').priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -235,7 +249,7 @@ pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
 pub fn last_errors(rows: &[ErrorRow]) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::text("Collection", 13).sort('c'),
+            Column::text("Collection", 13).sort('c').priority(TEXT_PRIORITY),
             Column::flex("Error").sort('o'),
         ],
         rows.iter()
