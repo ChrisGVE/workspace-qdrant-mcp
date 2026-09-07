@@ -117,7 +117,7 @@ type Hue = (
 
 const HUES: [Hue; 6] = [
     ("theme.accent", |p| p.accent, "the tab bar's jump digit"),
-    ("theme.secondary", |p| p.secondary, "unclaimed — headroom"),
+    ("theme.secondary", |p| p.secondary, "the categorical fallback's only hue"),
     ("theme.error", |p| p.error, "offline ○"),
     (
         "theme.warning",
@@ -128,7 +128,7 @@ const HUES: [Hue; 6] = [
     (
         "theme.info",
         |p| p.info,
-        "selector (§3) + queue: work in flight — the one exception",
+        "selector — reserved absolutely (§3) again since 20260907",
     ),
 ];
 

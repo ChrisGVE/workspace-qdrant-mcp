@@ -14,12 +14,11 @@ use ratatui_themes::ThemeName;
 /// set: the jump digits carry `accent` on **every** screen, so a data hue equal to it collides
 /// everywhere rather than on one view, and that beats the earlier "affordance, not data"
 /// argument. `lavender` went with it — see [`MOCHA_LAVENDER_TO_BLUE`].
-const MOCHA_ORDER: [&str; 8] = [
+const MOCHA_ORDER: [&str; 7] = [
     "pink",
     "mauve",
     "peach",
     "rosewater",
-    "sapphire",
     "sky",
     "maroon",
     "flamingo",
@@ -28,13 +27,15 @@ const MOCHA_ORDER: [&str; 8] = [
 /// Every flavour's count, computed the same way. They differ because the exclusion is a
 /// measurement against that flavour's own reserved roles, not a fixed list of names.
 ///
-/// Reserving `accent` cost every flavour its `blue`. It cost **Mocha alone** a second hue,
-/// which is why Mocha is 8 rather than 9 — a prediction of 9 was made before the arithmetic
-/// was run, and the arithmetic disagreed.
+/// Two reservations have moved these numbers. `accent` (20260906) cost every flavour its
+/// `blue`, and Mocha alone a second hue. `in flight` (20260907) costs each flavour its
+/// `sapphire` — except Latte, whose sapphire was already excluded for sitting ΔE 10.1 from its
+/// `teal`, which is why Latte alone is unchanged at 7. Frappé pays twice: its `sky` sits ΔE
+/// 10.8 from its `sapphire` and goes with it, which is the whole reason Frappé is 6.
 const COUNTS: [(&str, usize); 4] = [
-    ("mocha", 8),
-    ("macchiato", 8),
-    ("frappe", 8),
+    ("mocha", 7),
+    ("macchiato", 7),
+    ("frappe", 6),
     ("latte", 7),
 ];
 
@@ -240,6 +241,127 @@ fn a_non_catppuccin_theme_falls_back_to_secondary_alone() {
 
 /// The reservation that produced the counts above, asserted directly rather than only through
 /// them: no entry, on any flavour, may be the theme's own `accent`.
+/// The in-flight role resolves to a flavour's own `sapphire` — a hue that carries no other
+/// meaning, which is the whole reason the 20260906 exception could be retired on these four.
+#[test]
+fn on_a_flavour_the_in_flight_role_is_that_flavours_sapphire() {
+    for flavour in catppuccin::PALETTE.all_flavors() {
+        let theme = flavour_palette(flavour);
+        assert_eq!(
+            in_flight_of(&theme),
+            Color::from(flavour.colors.sapphire),
+            "{} does not resolve in-flight to its own sapphire",
+            flavour.identifier()
+        );
+        // And it is genuinely a different hue from the selector's, which is the point.
+        assert_ne!(in_flight_of(&theme), theme.info);
+    }
+}
+
+/// Every theme that is NOT a flavour keeps the 20260906 exception, because it has nothing
+/// spare to offer instead. Asserted across all of them rather than on one sample: the claim is
+/// about the eleven, and a single theme would not notice a rule that had quietly narrowed.
+#[test]
+fn every_other_theme_keeps_the_selectors_hue_for_want_of_a_spare() {
+    let mut checked = 0;
+    for name in ratatui_themes::ThemeName::all() {
+        let theme = name.palette();
+        if flavour_of(&theme).is_some() {
+            continue;
+        }
+        assert_eq!(
+            in_flight_of(&theme),
+            theme.info,
+            "{} should still be carrying the exception",
+            name.display_name()
+        );
+        checked += 1;
+    }
+    assert!(
+        checked >= 10,
+        "only {checked} non-Catppuccin themes were checked — the bundled set shrank"
+    );
+}
+
+/// The accessor, end to end through the process globals, at the two hues that matter.
+#[test]
+fn the_accessor_answers_sapphire_on_mocha_and_info_on_everforest() {
+    let _serial = crate::global_state_lock();
+    let previous = (Palette::current(), Encoding::current(), crate::tokens::theme());
+    Palette::set(Palette::Bundled);
+    Encoding::set(Encoding::TrueColor);
+
+    crate::tokens::set_theme(ThemeName::CatppuccinMocha.palette());
+    assert_eq!(
+        crate::tokens::in_flight(),
+        Color::Rgb(0x74, 0xC7, 0xEC),
+        "Mocha's sapphire, stated as a literal so a retuned palette is visible here"
+    );
+    assert_ne!(
+        crate::tokens::in_flight(),
+        crate::tokens::selector(),
+        "on a flavour the count no longer borrows the selector's hue"
+    );
+
+    let everforest = ThemeName::Everforest.palette();
+    crate::tokens::set_theme(everforest);
+    assert_eq!(crate::tokens::in_flight(), everforest.info);
+    assert_eq!(
+        crate::tokens::in_flight(),
+        crate::tokens::selector(),
+        "off a flavour the 20260906 exception still stands, and the guard says so out loud"
+    );
+
+    Palette::set(previous.0);
+    Encoding::set(previous.1);
+    if let Some(theme) = previous.2 {
+        crate::tokens::set_theme(theme);
+    }
+}
+
+/// `sapphire` carries `in flight` on a flavour, so it is a role now and no longer data.
+///
+/// Asserted by NAME as well as by distance: the distance check below would also pass if
+/// sapphire were merely renamed, and the point is that this particular hue left the set.
+#[test]
+fn sapphire_is_absent_from_every_flavours_order() {
+    for flavour in catppuccin::PALETTE.all_flavors() {
+        let theme = flavour_palette(flavour);
+        let names: Vec<&str> = Categorical::for_theme(&theme)
+            .iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert!(
+            !names.contains(&"sapphire"),
+            "{} still offers sapphire as data: {names:?}",
+            flavour.identifier()
+        );
+        for (name, colour) in Categorical::for_theme(&theme).iter() {
+            let distance = crate::tokens::delta_e(colour, in_flight_of(&theme));
+            assert!(
+                distance >= RESERVED_FLOOR,
+                "{}/{name} is ΔE {distance:.1} from the in-flight hue",
+                flavour.identifier()
+            );
+        }
+    }
+}
+
+/// Frappé is 6 where its siblings are 7, and this is why: reserving `sapphire` swept its
+/// neighbour `sky` along with it. Pinned so the odd count has a reason attached.
+#[test]
+fn frappe_loses_sky_to_the_sapphire_reservation() {
+    let frappe = catppuccin::PALETTE.frappe;
+    let sky: Color = frappe.colors.sky.into();
+    let sapphire: Color = frappe.colors.sapphire.into();
+    let distance = crate::tokens::delta_e(sky, sapphire);
+    assert!(
+        distance < RESERVED_FLOOR,
+        "Frappé's sky is ΔE {distance:.1} from its sapphire — at or above the floor it would \
+         have survived and Frappé would be 7"
+    );
+}
+
 #[test]
 fn no_entry_is_the_hue_the_jump_digits_carry() {
     for flavour in catppuccin::PALETTE.all_flavors() {

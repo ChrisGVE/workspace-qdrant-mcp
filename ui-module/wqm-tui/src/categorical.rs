@@ -31,11 +31,12 @@
 //!
 //! 1. **Exclusion.** Drop any accent within [`RESERVED_FLOOR`] ΔE (CIE76) of a
 //!    **meaning-carrying** role: `success`, `warning`, `error` (§4's health states) and `info`
-//!    (§3's selector), **and `accent`** — the hue the jump digits carry on every screen, so a
-//!    data colour equal to it collides everywhere rather than on one view (Chris, 20260906,
-//!    overturning his own earlier "affordance, not data"). The floor is not a second constant
-//!    — it is the same one [`crate::styles::strong`] defends `strong` with, and for the same
-//!    reason.
+//!    (§3's selector), **`accent`** — the hue the jump digits carry on every screen, so a data
+//!    colour equal to it collides everywhere rather than on one view (Chris, 20260906,
+//!    overturning his own earlier "affordance, not data") — and **whatever
+//!    [`in_flight_of`] resolves to**, which on a flavour is its `sapphire` (Chris, 20260907).
+//!    The floor is not a second constant — it is the same one [`crate::styles::strong`]
+//!    defends `strong` with, and for the same reason.
 //! 2. **Ordering — farthest first.** Entry 0 is the survivor farthest from the reserved set;
 //!    each next is the survivor whose *nearest* neighbour among {reserved ∪ already chosen} is
 //!    largest. So a consumer taking the first three gets the three most separable, and taking
@@ -76,17 +77,54 @@ mod tests;
 /// `lavender` too — Mocha's lavender sits ΔE 11.0 from its blue, just inside the floor, where
 /// the other three flavours clear it. Mocha therefore drops from ten hues to eight while the
 /// others drop to eight and seven from nine and eight.
-pub const RESERVED_ROLES: [&str; 5] = ["success", "warning", "error", "info", "accent"];
+pub const RESERVED_ROLES: [&str; 6] = [
+    "success",
+    "warning",
+    "error",
+    "info",
+    "accent",
+    "in flight",
+];
 
 /// [`RESERVED_ROLES`] resolved against a theme, in the same order.
-fn reserved_of(theme: &ThemePalette) -> [Color; 5] {
+///
+/// The sixth is [`in_flight_of`] rather than a named field, and that is the point: the rule is
+/// *whatever currently carries the in-flight meaning is reserved*, not *sapphire is reserved*.
+/// On a non-Catppuccin theme it resolves to `info`, which the fourth entry already holds — a
+/// harmless duplicate, and cheaper than a variable-length reserved set that every caller would
+/// have to reason about.
+fn reserved_of(theme: &ThemePalette) -> [Color; 6] {
     [
         theme.success,
         theme.warning,
         theme.error,
         theme.info,
         theme.accent,
+        in_flight_of(theme),
     ]
+}
+
+/// The hue for **work in flight** — the queue's `in progress` count, and any future datum
+/// meaning "this is happening now" (Chris, 20260907: *"can we use sapphire for in-progress
+/// since it is a categorical color now?"*).
+///
+/// Two resolutions, and the flavour decides which:
+///
+/// - **A Catppuccin flavour** has a `sapphire` that is nobody else's, so the role gets a hue of
+///   its own and §3's selector reservation goes back to being absolute.
+/// - **Any other theme** has only the ten roles, none of them spare, so it keeps the
+///   20260906 exception: `info`, the selector's own field. That exception is now scoped to the
+///   eleven themes where there is genuinely nothing else to reach for, rather than being the
+///   universal answer.
+///
+/// It lives here rather than in [`crate::tokens`] because deciding it means knowing what a
+/// flavour is, and this module is the one that knows. `tokens::in_flight` is the accessor;
+/// this is the rule.
+pub(crate) fn in_flight_of(theme: &ThemePalette) -> Color {
+    match flavour_of(theme) {
+        Some(flavour) => Color::from(flavour.colors.sapphire),
+        None => theme.info,
+    }
 }
 
 /// The nearest of `others` to `colour`, in ΔE. [`f32::MAX`] when `others` is empty, which is
@@ -104,7 +142,7 @@ fn min_delta(colour: Color, others: &[Color]) -> f32 {
 /// Exact equality on purpose. A near-match would mean some other theme with a similar base
 /// silently acquired Catppuccin's accents, which is a worse failure than having no extended
 /// tier: the hues would be tuned for a palette the rest of the screen is not drawn from.
-fn flavour_of(theme: &ThemePalette) -> Option<&'static Flavor> {
+pub(crate) fn flavour_of(theme: &ThemePalette) -> Option<&'static Flavor> {
     catppuccin::PALETTE
         .all_flavors()
         .into_iter()

@@ -154,15 +154,14 @@ fn a_queue_count_of_zero_is_muted_and_a_count_of_anything_is_not() {
         Some(tokens::degraded()),
         "work waiting is the warning hue"
     );
-    // Chris reaffirmed blue after being told it is the selector's hue (20260906), so this is a
-    // sanctioned exception rather than a slip. Asserted against `info()` and not `selector()`
-    // even though the two resolve to the same colour by construction: the accessor NAME is
-    // what records the intent, and a guard naming the selector would read as the collision
-    // §3 forbids rather than as the one datum exempted from it.
+    // A role of its own since 20260907, resolved by the categorical tier: a flavour's
+    // `sapphire` where there is one, the selector's `info` on the eleven themes with nothing
+    // spare. The guard names the ROLE rather than either field, because which field answers is
+    // exactly what this pane must not know.
     assert_eq!(
         count_style(&busy, WIDE, 1).fg,
-        Some(tokens::info()),
-        "work moving is the theme's `info` — the one sanctioned use of it outside the selector"
+        Some(tokens::in_flight()),
+        "work moving carries the in-flight role"
     );
     assert_eq!(
         count_style(&busy, WIDE, 2).fg,

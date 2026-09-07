@@ -880,30 +880,32 @@ pub fn accent() -> Color {
     role(|palette| palette.accent, Color::Magenta)
 }
 
-/// **Work in flight** — the queue's `in progress` count, and nothing else.
+/// **Work in flight** — the queue's `in progress` count, and any future datum whose meaning is
+/// *this is happening now*.
 ///
-/// Chris, 20260906: the in-progress count is blue; the one sanctioned use of `info` outside
-/// the selector.
+/// Chris, 20260907: *"can we use sapphire for in-progress since it is a categorical color
+/// now?"* — and the answer is that it resolves in two ways, because only some themes have a
+/// sapphire to spend.
 ///
-/// # This is a deliberate hole in §3, not an oversight
+/// # The one-day history is the whole justification, so it is written down
 ///
-/// §3 reserves the selector hue **absolutely** — *"cyan appears in NOTHING else: if it is a
-/// cyan block, it is what you have selected"* — and [`selector`] reads the same `info` field,
-/// so these two accessors return the same colour by construction. The first cut therefore
-/// routed the count to `secondary`, the free role that reads blue-ish; Chris was told plainly
-/// that blue is the selector's hue and asked for blue anyway.
+/// On 20260906 this datum was `info` — the selector's own field — as a **dated, deliberate
+/// exception** to §3's absolute reservation. Chris was told plainly that blue is the
+/// selector's hue and asked for blue anyway. The exception was uncomfortable and stayed
+/// narrow, and a day later the categorical tier gave it somewhere better to go: a Catppuccin
+/// flavour ships a `sapphire` that carries no role, so on those four themes this hue is its
+/// own and §3 is absolute again. On the other eleven there is still nothing spare, so they
+/// keep the exception.
 ///
-/// It is a narrow hole and stays narrow. The selector is a *block* — an inverted fill with
-/// dark text on it — while this is a bare figure on the screen's own background, so the two
-/// never wear the same treatment even where they wear the same hue. That is what keeps §3's
-/// actual promise intact: a cyan **block** is still always a selection.
+/// The rule lives in [`crate::categorical::in_flight_of`], not here: choosing between the two
+/// means knowing what a Catppuccin flavour *is*, and that is the tier's knowledge rather than
+/// this module's. This is the accessor; that is the decision. §10 in VISUAL-LANGUAGE.md
+/// carries both.
 ///
-/// The accessor exists rather than the queue row calling [`selector`] because the name is the
-/// whole record. A call to `selector()` from a count would read as the collision §3 forbids;
-/// a call to `info()` reads as the exception §3 now carries, and the exception is dated here
-/// and in VISUAL-LANGUAGE §10.
-pub fn info() -> Color {
-    role(|palette| palette.info, Color::Blue)
+/// Blue where no theme is chosen at all — the same fallback the retired `info()` accessor had,
+/// since a bare library has neither a flavour nor a role table to consult.
+pub fn in_flight() -> Color {
+    role(crate::categorical::in_flight_of, Color::Blue)
 }
 
 // --- §6 layers, and the one condition that repaints layer 0 --------------------------

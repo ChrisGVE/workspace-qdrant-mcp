@@ -26,18 +26,18 @@
 //! there is something to see, which is what keeps a healthy screen quiet (Chris agreed,
 //! 20260906).
 //!
-//! # `in progress` is blue, and blue is the selector's own hue
+//! # `in progress` has a hue of its own now
 //!
-//! Chris asked for blue, was told plainly that blue is what §3 reserves absolutely to the
-//! selector, and asked for blue again (20260906). So this count is a **dated, single-datum
-//! exception** to that reservation and reaches it through [`crate::tokens::info`], whose name
-//! says which field is being spent. It is not `secondary`, which the first cut used precisely
-//! to avoid the collision.
+//! It reaches [`crate::tokens::in_flight`], which is a **role**, not a borrowed field. That
+//! took two days and three answers. Chris asked for blue; blue is what §3 reserves absolutely
+//! to the selector; he was told so and asked for blue anyway (20260906), which made this count
+//! a dated single-datum hole in the one rule the whole highlight system rests on. The hole was
+//! narrow but it was real.
 //!
-//! The hole stays narrow because the treatments do not collide even where the hues do: a
-//! selector is an inverted *block*, a fill with dark text on it, while this is a bare figure on
-//! the screen's own background. §3's operative promise — a cyan block is always a selection —
-//! is untouched.
+//! The categorical tier closed it (20260907). A Catppuccin flavour ships a `sapphire` that
+//! carries no role, so on those four themes the count has its own hue and §3 is absolute
+//! again; the other eleven keep the exception because they have nothing spare. This pane does
+//! not know or care which — it asks for the role and is answered.
 //!
 //! # Collapse is on or off, never gradual
 //!
@@ -430,7 +430,7 @@ impl StatusBlock {
 
         let counts = [
             (self.queue.pending, tokens::degraded as fn() -> Color),
-            (self.queue.in_progress, tokens::info as fn() -> Color),
+            (self.queue.in_progress, tokens::in_flight as fn() -> Color),
             (self.queue.failed, tokens::offline as fn() -> Color),
         ];
 
