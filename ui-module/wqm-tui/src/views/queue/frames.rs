@@ -30,15 +30,19 @@ pub const AGE: usize = 8;
 /// Labelled rather than quietly treated as settled, so the day the contract does name them the
 /// difference is a diff and not a discovery.
 ///
-/// **`T` offers no key, and that is a decision rather than an omission.** `t` is the type
-/// selector, and sorting by `T` is what the selector already does — better, because it *removes*
-/// the rows of every other type instead of gathering them at one end of a list you still have to
-/// scroll. A key that duplicated the selector would also have to be some letter other than `t`,
-/// which is the one letter a reader would reach for.
+/// **`No` is untitled and offers no key, and both are the same decision.** v0.1 leads with an
+/// eight-character hash; Chris replaced it with `No` (2026-09-07), the number a person can
+/// actually say out loud — and the number is an INVARIANT: assigned at load, unmoved by every
+/// sort, filter and selector this screen has. It names the row; it is not a fact about the row
+/// that could be ordered. A sort key here would invite reordering the list by its own naming
+/// scheme, and a title would spend three columns saying so. `o`, freed by that decision, is the
+/// operation selector's now.
 ///
-/// **`ID` is gone.** v0.1 leads with an eight-character hash; Chris replaced it with `No`
-/// (2026-09-07), which is nine columns fewer and is the number a person can actually say out
-/// loud. Nothing else about the column set is this crate's invention.
+/// **`T` offers no key.** The type selector is gone and the free-text filter covers narrowing
+/// by type — a reader who wants one type types the word — and `Type` next door sorts by the
+/// same fact when they want it gathered rather than removed.
+///
+/// Nothing else about the column set is this crate's invention.
 ///
 /// The widths are sized to the captured data, not to the titles: `Tenant` is twenty because
 /// `workspace-qdrant-mcp` is twenty, and `Status` is eleven because `in progress` is eleven.
@@ -46,7 +50,7 @@ pub const AGE: usize = 8;
 /// beside it — which is what `views::queue::tests` checks rather than assumes.
 pub fn columns() -> Vec<Column> {
     vec![
-        Column::number("No", 3).sort('o'),
+        Column::number("", 3),
         Column::text("T", 1),
         Column::text("Tenant", 20).sort('e'),
         // The one column that shortens from the LEFT: the end of a path is the file, and the
@@ -73,7 +77,7 @@ fn cells(row: &QueueRow) -> Vec<Cell> {
         Cell::Text(row.tenant.to_string()),
         Cell::Text(row.object.to_string()),
         Cell::Text(row.item.to_string()),
-        Cell::Text(row.op.to_string()),
+        Cell::Text(row.op.label().to_string()),
         Cell::Tinted {
             text: row.status.label().to_string(),
             hue: row.status.hue(),

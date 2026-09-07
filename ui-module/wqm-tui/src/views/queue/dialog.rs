@@ -10,16 +10,20 @@
 //! a reader was looking at would move under them at the moment they started looking for
 //! something.
 //!
-//! # Two halves, and they belong to different kinds of thing
+//! # Two conversations, then the settings
 //!
-//! **Left: the conversation.** Typing a term, or the term that was accepted and what it found.
-//! It comes and goes.
+//! **Left: the conversations.** The search and the filter are independent (Chris, 2026-09-07:
+//! *"I was thinking they were mutually exclusive but they are not"*), so the row holds both
+//! when both are held: whichever was opened first on the left — the order they arrived in,
+//! which is the order a reader remembers — the second to its right, three spaces between. One
+//! alone sits on the left, as it always did. Each leaves by its own door, and each settled
+//! conversation says so beside itself: `Esc` takes the search, `f` takes the filter.
 //!
-//! **Right: the settings.** `type P · status failed`. Chris did not say where the selectors are
-//! shown; a knob whose position is only in the reader's memory is a knob they will forget they
-//! turned, and *"why is the list empty"* is the question that follows. So they are drawn, at the
-//! right end of the row, on every one of its states — and omitted entirely when they are `All`,
-//! because a selector at its default is not a setting anybody made.
+//! **Right: the settings.** `op update · status failed`. Chris did not say where the selectors
+//! are shown; a knob whose position is only in the reader's memory is a knob they will forget
+//! they turned, and *"why is the list empty"* is the question that follows. So they are drawn, at
+//! the right end of the row, on every one of its states — and omitted entirely when they are
+//! `All`, because a selector at its default is not a setting anybody made.
 //!
 //! *Supervisor's ruling on where they go, not yet Chris's.*
 
@@ -30,13 +34,14 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use super::state::{Dialog, Kind, Status};
+use super::state::{Filter, First, QueueState, Search};
 use crate::tokens;
 use crate::widgets::edit_field::{caret_spans, Edit};
 
 /// Columns between one fact on this row and the next — the same three
 /// [`crate::tokens::key_hints`] puts between two hints, and the same
-/// [`crate::panes::status_block`] puts between two groups.
+/// [`crate::panes::status_block`] puts between two groups. It is also the three between the
+/// two conversations, so the row reads as a sequence of facts at one spacing rather than two.
 const GAP: &str = "   ";
 
 /// The prompts, spelled once each. Chris's own words, and the shared `term/regex` half is why
@@ -45,37 +50,39 @@ const SEARCH_PROMPT: &str = "search term/regex: ";
 const FILTER_PROMPT: &str = "filter term/regex: ";
 const SEARCH_ON: &str = "search on: ";
 const FILTER_ON: &str = "filter on: ";
-/// What both settled dialogs end with. A dialog that did not say how it ends is one the reader
-/// has to guess their way out of — §6's rule for a modal, and a dialog owes the same.
-const CANCEL: &str = "Esc to cancel";
+/// What each settled conversation ends with. A dialog that did not say how it ends is one the
+/// reader has to guess their way out of — §6's rule for a modal, and a dialog owes the same.
+/// The two differ, because the two conversations leave by different doors: Esc takes the
+/// search, and the filter is taken by `f` — the key that opened it.
+const SEARCH_EXIT: &str = "Esc to cancel";
+const FILTER_EXIT: &str = "f to clear";
 
-/// The row under the status block: a dialog on the left, the selectors on the right.
-pub struct DialogSlot {
-    dialog: Dialog,
-    kind: Option<Kind>,
-    status: Option<Status>,
+/// The row under the status block: the conversations on the left, the selectors on the right.
+///
+/// Built from the whole [`QueueState`] rather than from the slots passed in one by one, because
+/// the row's left half is a fact about TWO slots — which is held, and which was opened first —
+/// and a caller hand-feeding the pieces would be a second place that could feed them in the
+/// wrong order.
+pub struct DialogSlot<'a> {
+    state: &'a QueueState,
 }
 
-impl DialogSlot {
-    pub fn new(dialog: Dialog, kind: Option<Kind>, status: Option<Status>) -> Self {
-        Self {
-            dialog,
-            kind,
-            status,
-        }
+impl<'a> DialogSlot<'a> {
+    pub fn new(state: &'a QueueState) -> Self {
+        Self { state }
     }
 
-    /// The settings half: `type P · status failed`, label muted and value normal, and nothing at
-    /// all when both are `All`.
+    /// The settings half: `op update · status failed`, label muted and value normal, and
+    /// nothing at all when both are `All`.
     ///
     /// The label is muted because it never changes and the value is what a reader is checking;
     /// the same split the status block draws between a glyph's word and its count.
     fn selectors(&self) -> Vec<Span<'static>> {
         let mut shown: Vec<(&str, String)> = Vec::new();
-        if let Some(kind) = self.kind {
-            shown.push(("type", kind.letter().to_string()));
+        if let Some(op) = self.state.op {
+            shown.push(("op", op.label().to_string()));
         }
-        if let Some(status) = self.status {
+        if let Some(status) = self.state.status {
             shown.push(("status", status.label().to_string()));
         }
         let mut spans = Vec::new();
@@ -89,35 +96,35 @@ impl DialogSlot {
         spans
     }
 
-    /// A settled dialog: what it is, the term, what it found, and how to leave.
-    fn settled(prompt: &str, term: &str, found: String) -> Vec<Span<'static>> {
+    /// A settled conversation: what it is, the term, what it found, and how to leave.
+    fn settled(prompt: &str, term: &str, found: String, exit: &str) -> Vec<Span<'static>> {
         vec![
             Span::styled(prompt.to_string(), tokens::muted_style()),
             Span::styled(term.to_string(), tokens::normal_style()),
             Span::styled(GAP, tokens::muted_style()),
             Span::styled(found, tokens::normal_style()),
             Span::styled(GAP, tokens::muted_style()),
-            Span::styled(CANCEL.to_string(), tokens::muted_style()),
+            Span::styled(exit.to_string(), tokens::muted_style()),
         ]
     }
 
-    /// The conversation half, and how many columns of fill the typing field wants after it.
-    ///
-    /// The fill is returned rather than drawn here because only [`Widget::render`] knows where
-    /// the selectors start, and the field runs up to them — Chris: it fills *"the rest of the
-    /// row"*. A field that stopped at the end of its own text would read as a word on a coloured
-    /// background rather than as somewhere to type.
-    fn conversation(&self) -> (Vec<Span<'static>>, bool) {
-        match &self.dialog {
-            Dialog::Idle => (Vec::new(), false),
-            Dialog::SearchInput(term) => (Self::typing(SEARCH_PROMPT, term), true),
-            Dialog::FilterInput(term) => (Self::typing(FILTER_PROMPT, term), true),
-            Dialog::SearchOn { term, hit, hits } => (
-                Self::settled(SEARCH_ON, term, format!("{hit}/{hits}")),
+    /// The search conversation, and whether it wants a typing field after it.
+    fn search(search: &Search) -> (Vec<Span<'static>>, bool) {
+        match search {
+            Search::Input(term) => (Self::typing(SEARCH_PROMPT, term), true),
+            Search::On { term, hit, hits } => (
+                Self::settled(SEARCH_ON, term, format!("{hit}/{hits}"), SEARCH_EXIT),
                 false,
             ),
-            Dialog::FilterOn { term, rows } => (
-                Self::settled(FILTER_ON, term, format!("{rows} rows")),
+        }
+    }
+
+    /// The filter conversation, likewise.
+    fn filter(filter: &Filter) -> (Vec<Span<'static>>, bool) {
+        match filter {
+            Filter::Input(term) => (Self::typing(FILTER_PROMPT, term), true),
+            Filter::On { term, rows } => (
+                Self::settled(FILTER_ON, term, format!("{rows} rows"), FILTER_EXIT),
                 false,
             ),
         }
@@ -143,29 +150,90 @@ fn width(spans: &[Span<'static>]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
 }
 
-impl Widget for DialogSlot {
+/// The fill a typing field is drawn with — the "somewhere to type" half of the field.
+fn field_fill(columns: usize) -> Span<'static> {
+    Span::styled(
+        " ".repeat(columns),
+        tokens::normal_style().bg(tokens::edit_bg()),
+    )
+}
+
+impl Widget for DialogSlot<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if area.is_empty() {
             return;
         }
-        let (mut left, fills) = self.conversation();
-        let right = self.selectors();
-        let slack = (area.width as usize).saturating_sub(width(&left) + width(&right));
+        // The two conversations in the order they were opened: the elder on the left, the
+        // second to its right. [`First`] is only read when both are held — with one, that one
+        // sits on the left whatever the marker says.
+        let (left, right) = match self.state.first {
+            First::Search => (
+                self.state.search.as_ref().map(Self::search),
+                self.state.filter.as_ref().map(Self::filter),
+            ),
+            First::Filter => (
+                self.state.filter.as_ref().map(Self::filter),
+                self.state.search.as_ref().map(Self::search),
+            ),
+        };
+        let settings = self.selectors();
+        let both = left.is_some() && right.is_some();
+        let left_typing = left.as_ref().is_some_and(|(_, typing)| *typing);
+        let right_typing = right.as_ref().is_some_and(|(_, typing)| *typing);
 
-        if fills {
-            // The field runs to where the settings begin, so there is somewhere to type into
-            // rather than a coloured word. One clear column before the settings, so the two
-            // halves do not touch.
-            let pad = slack.saturating_sub(usize::from(!right.is_empty()));
-            left.push(Span::styled(
-                " ".repeat(pad),
-                tokens::normal_style().bg(tokens::edit_bg()),
-            ));
-            left.push(Span::raw(" ".repeat(slack - pad)));
-        } else {
-            left.push(Span::raw(" ".repeat(slack)));
+        // The slack, and how much of it each typing field runs for. A field runs to whatever
+        // follows it — the other conversation, or the settings — because a field that stopped
+        // at the end of its own text would read as a word on a coloured background rather than
+        // as somewhere to type. When BOTH are being typed into at once they share the slack,
+        // the elder taking the odd column.
+        let slack = (area.width as usize).saturating_sub(
+            left.as_ref().map_or(0, |(spans, _)| width(spans))
+                + right.as_ref().map_or(0, |(spans, _)| width(spans))
+                + usize::from(both) * GAP.chars().count()
+                + width(&settings),
+        );
+        let mut left_fill = 0;
+        let mut right_fill = 0;
+        match (left_typing, right_typing) {
+            (true, true) => {
+                left_fill = slack / 2;
+                right_fill = slack - left_fill;
+            }
+            (true, false) => left_fill = slack,
+            (false, true) => right_fill = slack,
+            (false, false) => {}
         }
-        left.extend(right);
-        Paragraph::new(Line::from(left)).render(Rect { height: 1, ..area }, buf);
+        // One clear column before the settings, so a field and a setting never touch — the
+        // same reservation the single-conversation row made, on whichever field is last.
+        if !settings.is_empty() {
+            if right_typing {
+                right_fill = right_fill.saturating_sub(1);
+            } else if right.is_none() && left_typing {
+                left_fill = left_fill.saturating_sub(1);
+            }
+        }
+
+        let mut row: Vec<Span<'static>> = Vec::new();
+        if let Some(spans) = left.as_ref() {
+            row.extend(spans.0.iter().cloned());
+            if left_fill > 0 {
+                row.push(field_fill(left_fill));
+            }
+            if both {
+                row.push(Span::styled(GAP, tokens::muted_style()));
+            }
+        }
+        if let Some(spans) = right.as_ref() {
+            row.extend(spans.0.iter().cloned());
+            if right_fill > 0 {
+                row.push(field_fill(right_fill));
+            }
+        }
+        let used = width(&row) + width(&settings);
+        row.push(Span::raw(
+            " ".repeat((area.width as usize).saturating_sub(used)),
+        ));
+        row.extend(settings);
+        Paragraph::new(Line::from(row)).render(Rect { height: 1, ..area }, buf);
     }
 }

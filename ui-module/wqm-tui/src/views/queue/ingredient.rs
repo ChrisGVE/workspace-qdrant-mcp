@@ -13,7 +13,7 @@ const PROPS: &[PropInfo] = &[
     PropInfo {
         name: "state",
         ty: "QueueState",
-        description: "Dialog, selectors, sort and cursor — everything done to the buffer",
+        description: "Search, filter, selectors, sort and cursor — everything done to the buffer",
     },
     PropInfo {
         name: "status",
@@ -36,7 +36,7 @@ const PROPS: &[PropInfo] = &[
 /// A search that has been accepted, with its counts read off the projection rather than typed.
 fn searching(term: &str) -> QueueState {
     QueueState {
-        dialog: Dialog::SearchInput(term.into()),
+        search: Some(Search::Input(term.into())),
         ..QueueState::default()
     }
     .accept_search(&fixture::ROWS)
@@ -45,7 +45,7 @@ fn searching(term: &str) -> QueueState {
 /// Likewise a filter.
 fn filtering(term: &str) -> QueueState {
     QueueState {
-        dialog: Dialog::FilterInput(term.into()),
+        filter: Some(Filter::Input(term.into())),
         ..QueueState::default()
     }
     .accept_filter(&fixture::ROWS)
@@ -104,7 +104,7 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
     vec![
         Box::new(Variant(
             "Populated",
-            "The captured buffer: two hundred rows, the cursor on row 1, nothing narrowed",
+            "The captured buffer: two hundred rows, nothing narrowed — and with no sort chosen, the ten in progress lead",
             || queue(QueueState::default()),
             None,
         )),
@@ -113,7 +113,7 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
             "A selector that matches nothing: `No data`, and a foot of two hints because every other key acts on a row",
             || {
                 queue(QueueState {
-                    kind: Some(Kind::Library),
+                    op: Some(Op::Delete),
                     ..QueueState::default()
                 })
             },
@@ -166,7 +166,8 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
     frames
 }
 
-/// The dialog slot's five states, the two selectors, and the window that lists every key.
+/// The dialog slot's states — each conversation alone, both at once — the selectors, and the
+/// window that lists every key.
 fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
     vec![
         Box::new(Variant(
@@ -174,7 +175,7 @@ fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
             "`/` pressed: the prompt, then the crate's own edit-in-place field running to the end of the row",
             || {
                 queue(QueueState {
-                    dialog: Dialog::SearchInput("reading_gui".into()),
+                    search: Some(Search::Input("reading_gui".into())),
                     ..QueueState::default()
                 })
             },
@@ -188,7 +189,7 @@ fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
         )),
         Box::new(Variant(
             "Search on",
-            "Enter: the term, which hit of how many, and how to leave — and the cursor on the first hit, ninety rows into the list",
+            "Enter: the term, which hit of how many, and how to leave — with no sort chosen the first hit sits below the rows in progress",
             || queue(searching("reading_guide")),
             None,
         )),
@@ -197,7 +198,7 @@ fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
             "`f` pressed: the same field with the other verb — the two dialogs differ in one word, which is the point",
             || {
                 queue(QueueState {
-                    dialog: Dialog::FilterInput("open-book".into()),
+                    filter: Some(Filter::Input("open-book".into())),
                     ..QueueState::default()
                 })
             },
@@ -210,11 +211,36 @@ fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
-            "Type P, status failed",
+            "Search on, filter on",
+            "Both conversations on one row: the search (opened first) on the left, the filter to its right — three spaces between, and n/N still in the foot",
+            || {
+                queue(
+                    QueueState {
+                        search: Some(Search::Input("reading_guide".into())),
+                        ..filtering("open-books")
+                    }
+                    .accept_search(&fixture::ROWS),
+                )
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Op update",
+            "The operation selector engaged: `op update` beside a list narrowed to the updates — the type selector's replacement, on the key the `No` column gave up",
+            || {
+                queue(QueueState {
+                    op: Some(Op::Update),
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Op add, status failed",
             "Two selectors at the right of the slot, cumulative: three rows left, and the foot loses Navigate",
             || {
                 queue(QueueState {
-                    kind: Some(Kind::Project),
+                    op: Some(Op::Add),
                     status: Some(Status::Failed),
                     ..QueueState::default()
                 })
@@ -222,11 +248,11 @@ fn dialog_frames() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
-            "Search on, type P",
-            "A dialog and a selector on one row: does the slot read as two things, or as one long sentence?",
+            "Search on, op update",
+            "A conversation and a selector on one row: does the slot read as two things, or as one long sentence?",
             || {
                 queue(QueueState {
-                    kind: Some(Kind::Project),
+                    op: Some(Op::Update),
                     ..searching("reading_guide")
                 })
             },

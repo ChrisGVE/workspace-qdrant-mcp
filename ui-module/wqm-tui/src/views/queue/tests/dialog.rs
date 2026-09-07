@@ -1,4 +1,5 @@
-//! The dialog slot: its five states, the selectors beside them, and what each of them means.
+//! The dialog slot: its two conversations and their states, the selectors beside them, and what
+//! each means.
 
 use super::*;
 
@@ -15,7 +16,7 @@ fn shown(state: QueueState) -> String {
 /// A search whose counts come from the projection rather than from a literal here.
 fn searching(term: &str) -> QueueState {
     QueueState {
-        dialog: Dialog::SearchInput(term.into()),
+        search: Some(Search::Input(term.into())),
         ..QueueState::default()
     }
     .accept_search(&fixture::ROWS)
@@ -23,18 +24,18 @@ fn searching(term: &str) -> QueueState {
 
 fn filtering(term: &str) -> QueueState {
     QueueState {
-        dialog: Dialog::FilterInput(term.into()),
+        filter: Some(Filter::Input(term.into())),
         ..QueueState::default()
     }
     .accept_filter(&fixture::ROWS)
 }
 
-/// The five states, in Chris's own words, on the row Chris asked for them.
+/// The four conversation states, in Chris's own words, on the row Chris asked for them.
 ///
 /// Spelled out rather than derived from the constants in [`super::super::dialog`], which would
 /// be the wording agreeing with itself. The words ARE the ruling.
 #[test]
-fn the_slot_says_each_of_its_five_things_in_the_ruled_words() {
+fn the_slot_says_each_of_its_four_things_in_the_ruled_words() {
     let _serial = crate::global_state_lock();
 
     assert_eq!(
@@ -44,7 +45,7 @@ fn the_slot_says_each_of_its_five_things_in_the_ruled_words() {
     );
 
     let typing = shown(QueueState {
-        dialog: Dialog::SearchInput("readin".into()),
+        search: Some(Search::Input("readin".into())),
         ..QueueState::default()
     });
     assert!(
@@ -60,7 +61,7 @@ fn the_slot_says_each_of_its_five_things_in_the_ruled_words() {
     );
 
     let filter_typing = shown(QueueState {
-        dialog: Dialog::FilterInput("open-book".into()),
+        filter: Some(Filter::Input("open-book".into())),
         ..QueueState::default()
     });
     assert!(
@@ -71,7 +72,7 @@ fn the_slot_says_each_of_its_five_things_in_the_ruled_words() {
     let filter_on = shown(filtering("open-books"));
     assert_eq!(
         filter_on.trim(),
-        "filter on: open-books   38 rows   Esc to cancel",
+        "filter on: open-books   38 rows   f to clear",
         "{filter_on:?}"
     );
 }
@@ -85,12 +86,12 @@ fn the_counts_on_the_row_are_the_projections_own() {
     let state = searching("reading_guide");
     let rows = state::project(&fixture::ROWS, &state);
     let found = state::hits(&rows, "reading_guide");
-    match &state.dialog {
-        Dialog::SearchOn { hit, hits, .. } => {
+    match &state.search {
+        Some(Search::On { hit, hits, .. }) => {
             assert_eq!(*hits, found.len(), "the total is counted, not stated");
             assert_eq!(*hit, 1, "the cursor starts on the first hit");
         }
-        other => panic!("accept_search must settle the dialog: {other:?}"),
+        other => panic!("accept_search must settle the search: {other:?}"),
     }
     assert_eq!(
         state.cursor, found[0],
@@ -101,13 +102,13 @@ fn the_counts_on_the_row_are_the_projections_own() {
     // order of magnitude, so a number written into the code cannot satisfy both.
     for term in ["open-books", "PlotSwift"] {
         let filtered = filtering(term);
-        match &filtered.dialog {
-            Dialog::FilterOn { rows, .. } => assert_eq!(
+        match &filtered.filter {
+            Some(Filter::On { rows, .. }) => assert_eq!(
                 *rows,
                 frames::pane(&filtered).len(),
                 "the row count for {term:?} is not the reload's own"
             ),
-            other => panic!("accept_filter must settle the dialog: {other:?}"),
+            other => panic!("accept_filter must settle the filter: {other:?}"),
         }
     }
 }
@@ -120,7 +121,7 @@ fn a_search_that_finds_nothing_says_zero_and_leaves_the_cursor_alone() {
 
     let state = QueueState {
         cursor: 7,
-        dialog: Dialog::SearchInput("no-such-thing".into()),
+        search: Some(Search::Input("no-such-thing".into())),
         ..QueueState::default()
     }
     .accept_search(&fixture::ROWS);
@@ -163,57 +164,103 @@ fn the_search_reads_four_fields_and_a_status_word_is_not_one_of_them() {
     }
 }
 
-/// Search and filter are mutually exclusive, and Esc leaves the dialog without touching a
-/// selector.
+/// Search and filter coexist: opening one leaves the other alone, and the one opened first is
+/// the one drawn on the left.
 ///
-/// The exclusivity is the type's doing — [`Dialog`] holds one value — so what is checked is that
-/// the transitions honour it rather than working around it.
+/// The coexistence is the type's doing — the two slots are independent — so what is checked is
+/// that the row draws both, in the order they arrived, and that Esc takes the search without
+/// touching the filter or a selector.
 #[test]
-fn starting_one_dialog_replaces_the_other_and_esc_spares_the_selectors() {
+fn opening_one_conversation_leaves_the_other_and_the_elder_sits_on_the_left() {
+    let _serial = crate::global_state_lock();
+
     let searching = searching("reading_guide");
-    let then_filtering = searching.open_filter();
+    let both = searching.toggle_filter();
+    assert_eq!(
+        both.first,
+        First::Search,
+        "the search was opened first"
+    );
     assert!(
-        matches!(then_filtering.dialog, Dialog::FilterInput(ref term) if term == "reading_guide"),
-        "opening a filter replaces the search — and carries the term over: {:?}",
-        then_filtering.dialog
+        matches!(both.search, Some(Search::On { .. })),
+        "opening the filter left the search alone"
+    );
+    assert!(
+        matches!(both.filter, Some(Filter::Input(ref term)) if term.is_empty()),
+        "`f` opens the filter as an empty input"
     );
 
-    // `/` again: the input state with the term pre-loaded, so a regex need not be retyped.
-    let reopened = searching.open_search();
-    assert_eq!(reopened.dialog, Dialog::SearchInput("reading_guide".into()));
+    // Enter settles the filter beside the search: the elder on the left, the second to its
+    // right. Built with a term typed in so the row is the two conversations, not an empty one.
+    let settled = QueueState {
+        filter: Some(Filter::Input("open-books".into())),
+        ..both
+    }
+    .accept_filter(&fixture::ROWS);
+    let row = shown(settled.clone());
+    assert!(
+        row.trim_start().starts_with("search on: reading_guide"),
+        "the first-opened search is on the left: {row:?}"
+    );
+    assert!(
+        row.trim_end().ends_with("filter on: open-books   38 rows   f to clear"),
+        "the second-opened filter is to its right: {row:?}"
+    );
 
-    // Esc leaves the conversation. The settings are the reader's, and stay.
+    // Esc takes the search — and touches neither the filter nor a selector.
     let with_selectors = QueueState {
-        kind: Some(Kind::Project),
+        op: Some(Op::Update),
         status: Some(Status::Failed),
-        ..filtering("open-books")
+        ..settled.clone()
     };
     let escaped = with_selectors.escape();
-    assert_eq!(escaped.dialog, Dialog::Idle);
-    assert_eq!(escaped.kind, Some(Kind::Project), "Esc is not a reset");
+    assert_eq!(escaped.search, None, "Esc clears the search");
+    assert!(
+        matches!(escaped.filter, Some(Filter::On { .. })),
+        "Esc leaves the filter where it was"
+    );
+    assert_eq!(escaped.op, Some(Op::Update), "Esc is not a reset");
     assert_eq!(escaped.status, Some(Status::Failed));
+
+    // The filter side of the order: opened first, the filter leads the search.
+    let filtering = filtering("open-books");
+    let both = QueueState {
+        search: Some(Search::Input("reading_guide".into())),
+        first: First::Filter,
+        ..filtering
+    }
+    .accept_search(&fixture::ROWS);
+    let row = shown(both);
+    assert!(
+        row.trim_start().starts_with("filter on: open-books"),
+        "the first-opened filter is on the left: {row:?}"
+    );
+    assert!(
+        row.trim_end().ends_with("search on: reading_guide   1/6   Esc to cancel"),
+        "the second-opened search is to its right: {row:?}"
+    );
 }
 
 /// The selectors cycle in the ruled order, skipping every value the buffer has no rows for, and
-/// coming back to All.
+/// settling back to All.
 ///
-/// The captured buffer holds only project items, so the type cycle is `All → P → All` — which is
-/// the skip rule doing its job, not a shortened cycle. The status cycle visits all three,
-/// because the fixture was composed so that it could.
+/// The captured buffer holds only adds and updates, so the operation cycle is
+/// `All → add → update → All` — which is the skip rule doing its job, not a shortened cycle. The
+/// status cycle visits all three, because the fixture was composed so that it could.
 #[test]
 fn the_selectors_cycle_in_order_and_skip_what_the_buffer_has_none_of() {
     let idle = QueueState::default();
 
-    let mut kinds = Vec::new();
+    let mut ops = Vec::new();
     let mut state = idle.clone();
     for _ in 0..3 {
-        state = state.next_kind(&fixture::ROWS);
-        kinds.push(state.kind);
+        state = state.next_op(&fixture::ROWS);
+        ops.push(state.op);
     }
     assert_eq!(
-        kinds,
-        vec![Some(Kind::Project), None, Some(Kind::Project)],
-        "L, S and R have no rows in this buffer, so the cycle steps over them"
+        ops,
+        vec![Some(Op::Add), Some(Op::Update), None],
+        "delete and scan have no rows in this buffer, so the cycle steps over them"
     );
 
     let mut statuses = Vec::new();
@@ -239,18 +286,18 @@ fn the_selectors_cycle_in_order_and_skip_what_the_buffer_has_none_of() {
 /// Chris did not say where they go, so this is the supervisor's ruling made checkable: a knob
 /// whose position lives only in the reader's memory is a knob they forget they turned.
 #[test]
-fn the_selectors_are_drawn_at_the_right_of_the_slot_and_coexist_with_a_dialog() {
+fn the_selectors_are_drawn_at_the_right_of_the_slot_and_coexist_with_a_conversation() {
     let _serial = crate::global_state_lock();
 
     let both = shown(QueueState {
-        kind: Some(Kind::Project),
+        op: Some(Op::Add),
         status: Some(Status::Failed),
         ..QueueState::default()
     });
-    assert!(both.ends_with("type P · status failed"), "{both:?}");
+    assert!(both.ends_with("op add · status failed"), "{both:?}");
     assert_eq!(
         both.trim(),
-        "type P · status failed",
+        "op add · status failed",
         "the slot holds nothing else"
     );
 
@@ -261,9 +308,9 @@ fn the_selectors_are_drawn_at_the_right_of_the_slot_and_coexist_with_a_dialog() 
     });
     assert_eq!(one.trim(), "status in progress", "{one:?}");
 
-    // Beside a dialog: the conversation on the left, the settings on the right, on one row.
+    // Beside a conversation: the search on the left, the setting on the right, on one row.
     let alongside = shown(QueueState {
-        kind: Some(Kind::Project),
+        op: Some(Op::Update),
         ..searching("reading_guide")
     });
     assert!(
@@ -272,7 +319,7 @@ fn the_selectors_are_drawn_at_the_right_of_the_slot_and_coexist_with_a_dialog() 
             .starts_with("search on: reading_guide"),
         "{alongside:?}"
     );
-    assert!(alongside.ends_with("type P"), "{alongside:?}");
+    assert!(alongside.ends_with("op update"), "{alongside:?}");
 }
 
 /// The selectors narrow the BUFFER and are cumulative with each other and with a filter.
@@ -288,18 +335,18 @@ fn the_selectors_narrow_the_buffer_and_stack_with_a_filter() {
     .len();
     assert_eq!(failed, 3);
 
-    let and_type = frames::pane(&QueueState {
-        kind: Some(Kind::Project),
+    let and_op = frames::pane(&QueueState {
+        op: Some(Op::Add),
         status: Some(Status::Failed),
         ..QueueState::default()
     })
     .len();
-    assert_eq!(and_type, failed, "every captured row is a project item");
+    assert_eq!(and_op, failed, "the three failed rows are all adds");
 
     // A filter on top of both: PlotSwift is where the failures are, so this survives; a term
     // that is elsewhere does not.
     let with_filter = frames::pane(&QueueState {
-        kind: Some(Kind::Project),
+        op: Some(Op::Add),
         status: Some(Status::Failed),
         ..filtering("PlotSwift")
     })
@@ -316,8 +363,8 @@ fn the_selectors_narrow_the_buffer_and_stack_with_a_filter() {
 
 /// A filter reloads the list; a search does not.
 ///
-/// The one sentence that says what the two dialogs are for, and the one a reader would otherwise
-/// have to discover by pressing both.
+/// The one sentence that says what the two conversations are for, and the one a reader would
+/// otherwise have to discover by pressing both.
 #[test]
 fn a_filter_reloads_the_list_and_a_search_only_moves_the_cursor() {
     let filtered = frames::pane(&filtering("open-books"));

@@ -46,7 +46,7 @@ pub mod state;
 #[cfg(test)]
 mod tests;
 
-pub use state::{Dialog, Kind, QueueState, Status};
+pub use state::{Filter, First, Kind, Op, QueueState, Search, Status};
 
 /// The Queue's index in [`crate::widgets::tab_bar::TabBar::storyboard_tabs`] — tab 2.
 pub const QUEUE_TAB: usize = 1;
@@ -79,9 +79,9 @@ pub const QUEUE_BOUND_KEYS: [char; 14] = [
     '/', // open search
     'n', // next hit
     'N', // previous hit
-    't', // type selector
+    'o', // operation selector
     's', // status selector
-    'f', // open filter
+    'f', // filter — opens it, and clears it once it is on
     'r', // retry
     'c', // cancel
     'x', // remove
@@ -154,12 +154,12 @@ impl Queue {
             hints.push((NAVIGATE_KEYS, "Navigate"));
         }
         hints.push(("/", "Search"));
-        if matches!(self.state.dialog, Dialog::SearchOn { .. }) {
+        if matches!(self.state.search, Some(Search::On { .. })) {
             hints.push(("n/N", "Next/Prev"));
         }
         for pair in [
             ("f", "Filter"),
-            ("t", "Type"),
+            ("o", "Op"),
             ("s", "Status"),
             ("r", "Retry"),
             ("c", "Cancel"),
@@ -190,11 +190,11 @@ impl Queue {
             NAV_HELP[1],
             ("Enter", "Open the item, or load the next page"),
             ("/  n N", "Search; next and previous hit"),
-            ("f", "Filter the list"),
-            ("t", "Cycle the type"),
+            ("f", "Filter the list; again clears it"),
+            ("o", "Cycle the operation"),
             ("s", "Cycle the status"),
             ("r  c  x", "Retry, cancel, remove"),
-            ("Esc", "Leave search or filter"),
+            ("Esc", "Leave the search"),
             ("?", "This window"),
             ("q", "Quit"),
         ]
@@ -217,7 +217,7 @@ impl Queue {
             .map(|(key, what)| format!("{key:<column$}{what}"))
             .collect();
         body.push(String::new());
-        body.push("The selectors survive Esc; only search and filter leave.".to_string());
+        body.push("The selectors survive Esc; the search leaves on Esc, the filter on f.".to_string());
         Modal::with_body("Queue — keys", body).action("Esc", "close")
     }
 }
@@ -237,8 +237,7 @@ impl Widget for Queue {
             return;
         }
 
-        dialog::DialogSlot::new(self.state.dialog.clone(), self.state.kind, self.state.status)
-            .render(inset(top::row(body, 0)), buf);
+        dialog::DialogSlot::new(&self.state).render(inset(top::row(body, 0)), buf);
 
         let below = Rect {
             y: body.y + DIALOG_ROWS,

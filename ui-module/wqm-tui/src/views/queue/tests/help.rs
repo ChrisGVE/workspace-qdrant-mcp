@@ -41,11 +41,11 @@ fn the_help_declares_every_key_of_this_view() {
             NAV_HELP[1],
             ("Enter", "Open the item, or load the next page"),
             ("/  n N", "Search; next and previous hit"),
-            ("f", "Filter the list"),
-            ("t", "Cycle the type"),
+            ("f", "Filter the list; again clears it"),
+            ("o", "Cycle the operation"),
             ("s", "Cycle the status"),
             ("r  c  x", "Retry, cancel, remove"),
-            ("Esc", "Leave search or filter"),
+            ("Esc", "Leave the search"),
             ("?", "This window"),
             ("q", "Quit"),
         ]
@@ -87,7 +87,7 @@ fn the_paging_chords_are_offered_in_the_help_and_nowhere_else() {
     for state in [
         QueueState::default(),
         QueueState {
-            kind: Some(Kind::Library),
+            op: Some(Op::Delete),
             ..QueueState::default()
         },
     ] {

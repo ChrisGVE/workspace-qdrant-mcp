@@ -1,7 +1,8 @@
-//! What the Queue tab is pinned to. The shared scaffolding; the claims are in the submodules.
+//! What the Queue tab is pinned to. The shared scaffolding and the claims about the state
+//! machine itself; the claims about what is drawn are in the submodules.
 
 use super::*;
-use crate::panes::cell::Cell;
+use crate::panes::cell::{Cell, Direction, Sort};
 use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
 use crate::widgets::chrome::MARGIN;
 use ratatui::buffer::Buffer;
@@ -147,7 +148,10 @@ fn the_reference_number_survives_the_selectors_and_a_filter() {
     }
 
     let all = numbers(QueueState::default());
-    assert_eq!(all[0], 1, "the load numbers from one");
+    assert_eq!(
+        all[0], 188,
+        "with no sort chosen the rows in progress lead — row 188 is the first of them"
+    );
     assert_eq!(all.len(), crate::panes::list::LIST_PAGE);
 
     // The three failed rows are the last three of the captured page, so their numbers are the
@@ -164,13 +168,157 @@ fn the_reference_number_survives_the_selectors_and_a_filter() {
 
     // And a filter, which reloads the list rather than narrowing it in place.
     let filtered = numbers(QueueState {
-        dialog: Dialog::FilterOn {
+        filter: Some(Filter::On {
             term: "PlotSwift".into(),
             rows: 3,
-        },
+        }),
         ..QueueState::default()
     });
     assert_eq!(filtered, vec![198, 199, 200], "a filter keeps them too");
+}
+
+/// The two conversations are independent, and each leaves by its own door.
+///
+/// Chris, 2026-09-07: *"I was thinking they were mutually exclusive but they are not"* — the
+/// transitions are the whole of that ruling made checkable: opening either conversation leaves
+/// the other exactly where it was, Esc takes the search alone, and `f` — which opened the
+/// filter — is the key that closes it.
+#[test]
+fn the_two_conversations_are_independent_and_each_leaves_by_its_own_door() {
+    let searching = QueueState {
+        search: Some(Search::Input("reading_guide".into())),
+        ..QueueState::default()
+    }
+    .accept_search(&fixture::ROWS);
+
+    // `f` opens the filter beside the search, and the search survives it.
+    let opened = searching.toggle_filter();
+    assert!(
+        matches!(opened.search, Some(Search::On { hits: 6, .. })),
+        "opening the filter leaves the search alone: {:?}",
+        opened.search
+    );
+    assert!(
+        matches!(opened.filter, Some(Filter::Input(ref term)) if term.is_empty()),
+        "`f` with no filter opens the input: {:?}",
+        opened.filter
+    );
+    assert_eq!(opened.first, First::Search, "the search was opened first");
+
+    // Enter on the filter: the search still survives, and its hits were counted over the rows
+    // the filter left. PlotSwift holds three rows, two of which match `Tests` — a count over
+    // the whole buffer would say otherwise, so this is the difference made checkable.
+    let filtered = QueueState {
+        filter: Some(Filter::Input("PlotSwift".into())),
+        first: First::Filter,
+        ..searching.clone()
+    }
+    .accept_filter(&fixture::ROWS);
+    assert_eq!(filtered.filter, Some(Filter::On { term: "PlotSwift".into(), rows: 3 }));
+    let searched_within = QueueState {
+        search: Some(Search::Input("Tests".into())),
+        ..filtered.clone()
+    }
+    .accept_search(&fixture::ROWS);
+    assert_eq!(
+        searched_within.search,
+        Some(Search::On { term: "Tests".into(), hit: 1, hits: 2 }),
+        "the search counts its hits over the rows the filter left"
+    );
+    assert_eq!(searched_within.cursor, 1, "the cursor is on the first of the two hits");
+
+    // Esc takes the search — typing or settled — and nothing else.
+    let escaped = searched_within.escape();
+    assert_eq!(escaped.search, None, "Esc clears the search");
+    assert_eq!(
+        escaped.filter,
+        Some(Filter::On { term: "PlotSwift".into(), rows: 3 }),
+        "Esc leaves the filter where it was"
+    );
+    let escaped_typing = QueueState {
+        search: Some(Search::Input("readin".into())),
+        ..escaped.clone()
+    }
+    .escape();
+    assert_eq!(escaped_typing.search, None, "Esc clears a search still typing");
+
+    // `f` on an accepted filter clears it — the key that opened it is the key that closes it —
+    // and `f` on a filter still typing is a letter in the term, not a command.
+    let cleared = escaped.toggle_filter();
+    assert_eq!(cleared.filter, None, "`f` clears an accepted filter");
+    assert_eq!(cleared.search, None, "and touches nothing else");
+    let typing = QueueState {
+        filter: Some(Filter::Input("sv".into())),
+        ..cleared.clone()
+    };
+    assert_eq!(
+        typing.toggle_filter().filter,
+        Some(Filter::Input("sv".into())),
+        "`f` on a filter still typing is a letter in the term, not a command"
+    );
+
+    // An empty term matches everything — the whole page.
+    let empty = cleared.toggle_filter().accept_filter(&fixture::ROWS);
+    assert_eq!(
+        empty.filter,
+        Some(Filter::On { term: String::new(), rows: 200 }),
+        "an empty term matches everything — the whole page"
+    );
+
+    // `/` re-opens the search input pre-loaded with the search's own term, and never with the
+    // filter's.
+    let reopened = searching.open_search();
+    assert_eq!(
+        reopened.search,
+        Some(Search::Input("reading_guide".into())),
+        "`/` pre-loads the search's own term"
+    );
+    assert_eq!(reopened.filter, None, "the filter is untouched throughout");
+}
+
+/// With no sort chosen, the rows in progress lead and the rest keep the buffer's order; a
+/// chosen sort replaces the default outright.
+///
+/// Read off [`state::project`] — the one producer of the order — with the sort's half checked
+/// through [`frames::pane`], which is where a chosen sort is applied.
+#[test]
+fn with_no_sort_chosen_the_rows_in_progress_lead_in_buffer_order() {
+    let rows = state::project(&fixture::ROWS, &QueueState::default());
+    let statuses: Vec<Status> = rows.iter().map(|row| row.status).collect();
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == Status::InProgress)
+            .count(),
+        10,
+        "the captured page holds ten rows in progress"
+    );
+    assert!(
+        statuses[..10]
+            .iter()
+            .all(|status| *status == Status::InProgress),
+        "they lead"
+    );
+    assert_eq!(rows[0].no, 188, "in buffer order among themselves");
+    assert_eq!(
+        rows[10].no, 1,
+        "then the remaining rows in buffer order, from the top of the page"
+    );
+    assert_eq!(rows[199].no, 200, "down to the last of them");
+
+    // A chosen sort replaces the default rather than composing with it: ascending by age puts
+    // row 1 — newest, and not in progress — back at the top.
+    let sorted = frames::pane(&QueueState {
+        sort: Some(Sort {
+            column: frames::AGE,
+            direction: Direction::Asc,
+        }),
+        ..QueueState::default()
+    });
+    assert!(
+        matches!(&sorted.rows()[0][frames::NO], Cell::Num(1)),
+        "a chosen sort outranks the in-progress-first default"
+    );
 }
 
 /// The captured page is exactly one buffer page, so the list ends in the offer of the next.

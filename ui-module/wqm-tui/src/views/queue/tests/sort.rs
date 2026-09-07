@@ -19,7 +19,7 @@ fn the_columns_are_v01s_in_v01s_order_with_the_ruled_sort_keys() {
     assert_eq!(
         got,
         vec![
-            ("No", Some('o')),
+            ("", None),
             ("T", None),
             ("Tenant", Some('e')),
             ("Object", Some('b')),
@@ -36,17 +36,26 @@ fn the_columns_are_v01s_in_v01s_order_with_the_ruled_sort_keys() {
     );
 }
 
-/// `T` offers no key on purpose: `t` is the type selector, and sorting by `T` is what the
-/// selector already does — better, because it removes the other rows instead of gathering them
-/// at one end of a list you still have to scroll.
+/// `No` is untitled and offers no key: the reference number is an invariant, not a fact about
+/// the row that could be ordered — and the letter it freed (`o`) is the operation selector's.
 #[test]
-fn the_type_column_offers_no_sort_key_because_the_selector_already_does_that() {
+fn the_reference_column_offers_no_key_and_frees_the_o_for_the_selector() {
+    let columns = frames::columns();
+    assert_eq!(columns[frames::NO].sort_key, None);
+    assert_eq!(columns[frames::NO].title, "");
+    assert!(
+        QUEUE_BOUND_KEYS.contains(&'o'),
+        "`o` is bound to the operation selector, which the keyless `No` column freed"
+    );
+}
+
+/// `T` offers no key: the type selector is gone and the free-text filter covers narrowing by
+/// type — and `Type` next door sorts by the same fact when a reader wants it gathered rather
+/// than removed.
+#[test]
+fn the_type_column_offers_no_sort_key_because_the_filter_covers_narrowing_by_type() {
     let columns = frames::columns();
     assert_eq!(columns[frames::T].sort_key, None);
-    assert!(
-        QUEUE_BOUND_KEYS.contains(&'t'),
-        "`t` is bound to the selector, which is the reason the column offers nothing"
-    );
 }
 
 /// Chris's *non-ambiguous* requirement, made structural: no column offers a letter twice, and
@@ -66,7 +75,7 @@ fn every_sort_key_is_unique_and_free_of_the_keys_the_screen_has_bound() {
         .iter()
         .filter_map(|column| column.sort_key)
         .collect();
-    assert_eq!(keys.len(), 8, "eight of the nine columns sort");
+    assert_eq!(keys.len(), 7, "seven of the nine columns sort");
     for (at, key) in keys.iter().enumerate() {
         let lower: Vec<char> = key.to_lowercase().collect();
         assert!(

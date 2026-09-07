@@ -28,7 +28,7 @@ fn the_screen_is_the_constant_top_a_dialog_row_a_list_and_a_foot() {
     );
     let header = line(&buf, header_row());
     assert!(
-        header.starts_with("   No T Tenant"),
+        header.starts_with("      T Tenant"),
         "the column header follows the slot: {header:?}"
     );
 
@@ -74,9 +74,13 @@ fn the_list_starts_on_the_screens_own_margin() {
 
     let buf = render(view(QueueState::default()), WIDE, TALL);
     let header = line(&buf, header_row());
-    // `No` is right-aligned in a three-column field at the margin, so the header's first
-    // painted character is at MARGIN + 1.
-    assert_eq!(header.find("No"), Some(MARGIN as usize + 1), "{header:?}");
+    // The `No` column is an untitled figure field at the margin, so the first painted character
+    // is the `T` column's header — three (empty) columns past the margin, plus the gap.
+    assert_eq!(
+        header.find('T'),
+        Some((MARGIN + 3 + 1) as usize),
+        "{header:?}"
+    );
 }
 
 /// The foot, in the order the rules give it, and in each of the three shapes it has.
@@ -93,7 +97,7 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
             ("↓↑/jk", "Navigate"),
             ("/", "Search"),
             ("f", "Filter"),
-            ("t", "Type"),
+            ("o", "Op"),
             ("s", "Status"),
             ("r", "Retry"),
             ("c", "Cancel"),
@@ -106,11 +110,11 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
 
     // `n/N` appears only while a search is on, and directly after `/ Search`.
     let searching = view(QueueState {
-        dialog: Dialog::SearchOn {
+        search: Some(Search::On {
             term: "yml".into(),
             hit: 1,
             hits: 4,
-        },
+        }),
         ..QueueState::default()
     })
     .hints();
@@ -120,10 +124,10 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
 
     // One row: somewhere to act, but nowhere to navigate to.
     let one = view(QueueState {
-        dialog: Dialog::FilterOn {
+        filter: Some(Filter::On {
             term: "VISUAL-LANGUAGE".into(),
             rows: 1,
-        },
+        }),
         ..QueueState::default()
     });
     assert_eq!(frames::pane(&one.state).len(), 1, "this frame must hold one row");
@@ -136,7 +140,7 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
 
     // An empty list offers two hints and no more: every other key acts on a row.
     let empty = view(QueueState {
-        kind: Some(Kind::Library),
+        op: Some(Op::Delete),
         ..QueueState::default()
     });
     assert_eq!(
