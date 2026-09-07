@@ -276,7 +276,7 @@ fn a_cramped_screen_keeps_the_grid_and_takes_the_rows_from_the_cells() {
     let rendered: Vec<String> = (0..24).map(|y| line(&buf, y)).collect();
     let joined = rendered.join("\n");
 
-    for heading in ["Projects (29)", "Libraries (1)", "Scratchpad (0)", "Rules (0)", "Active Projects (2)", "Last Errors"] {
+    for heading in ["Projects (29)", "Libraries (1)", "Scratchpad (0)", "Rules (11)", "Active Projects (2)", "Last Errors"] {
         assert!(joined.contains(heading), "{heading} left the grid at 80x24");
     }
     assert!(
@@ -483,4 +483,75 @@ fn a_modal_mutes_every_cell_key_without_moving_a_row() {
     for y in 0..TALL {
         assert_eq!(line(&live, y), line(&under, y), "row {y} moved under a modal");
     }
+}
+
+/// R4 (Chris, 2026-09-07): Scratchpad and Rules list their ITEMS with the scope beside them —
+/// *"their scope should be inverted with their respective Notes and Rules"*.
+///
+/// The header row is read off the render, because the ruling is about what a reader sees: a
+/// check against the column titles in `frames` would pass on a table whose header was never
+/// drawn.
+#[test]
+fn the_rules_cell_lists_rules_with_their_scope_and_carries_no_queue() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    const RULES_ZONE: usize = 3;
+    let buf = render(view(frames::populated()), WIDE, TALL);
+    let (_, cells) = heading_rows();
+    let cell = cells[RULES_ZONE];
+
+    let header = heading_text(&buf, Rect { y: cell.y + 1, ..cell });
+    assert!(header.trim_start().starts_with("Rule"), "{header:?}");
+    assert!(header.contains("Scope"), "{header:?}");
+    for gone in ["Queue", "Notes"] {
+        assert!(!header.contains(gone), "{gone:?} survives on the Rules cell: {header:?}");
+    }
+
+    // The first data row is a rule NAME and the scope beside it, not a scope and a count.
+    let first = heading_text(&buf, Rect { y: cell.y + 2, ..cell });
+    assert!(first.contains(frames::RULES[0].rule), "{first:?}");
+    assert!(first.contains("global"), "{first:?}");
+}
+
+/// The heading counts the STORE, and the tail counts what the cell could not draw. They are
+/// different numbers on purpose — the same split `Projects (29)` has always had.
+#[test]
+fn the_rules_heading_counts_the_store_and_the_tail_counts_the_overflow() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    assert!(
+        frames::RULES.len() < frames::RULE_TOTAL,
+        "the fixture must not be able to draw the whole store, or this guard checks nothing"
+    );
+
+    let joined: String = (0..TALL)
+        .map(|y| line(&render(view(frames::populated()), WIDE, TALL), y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        joined.contains(&format!("Rules ({})", frames::RULE_TOTAL)),
+        "the heading is the size of the projection: {joined}"
+    );
+}
+
+/// Scratchpad shows `No data` because there were no notes to read, not because the cell is
+/// broken. Pinned so that the day a note appears in this frame, it is a deliberate act.
+#[test]
+fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    const SCRATCHPAD_ZONE: usize = 2;
+    assert!(frames::populated()[SCRATCHPAD_ZONE].table().is_empty());
+
+    let buf = render(view(frames::populated()), WIDE, TALL);
+    let (_, cells) = heading_rows();
+    let cell = cells[SCRATCHPAD_ZONE];
+    assert!(heading_text(&buf, cell).starts_with("Scratchpad (0)"));
+    assert!(
+        heading_text(&buf, Rect { y: cell.y + 2, ..cell }).starts_with(crate::panes::cell::EMPTY),
+        "an empty projection says so rather than showing a blank cell"
+    );
 }

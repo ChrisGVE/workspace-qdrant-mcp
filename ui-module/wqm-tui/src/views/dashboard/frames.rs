@@ -40,18 +40,21 @@ pub struct LibraryRow {
     pub sync: &'static str,
 }
 
-/// A scratchpad scope. **NOT contract-bound (UIQ pending).**
+/// One note in the scratchpad. **NOT contract-bound (UIQ pending).**
+///
+/// The item, then the scope it belongs to — not a scope with a count beside it (Chris,
+/// 2026-09-07: *"their scope should be inverted with their respective Notes and Rules, instead
+/// of showing the number of Notes and Rules"*). A cell listing `global 34` answers a question
+/// nobody asked of a dashboard; a cell listing the notes answers *what is in there*.
 pub struct ScratchpadRow {
+    pub note: &'static str,
     pub scope: &'static str,
-    pub notes: u64,
-    pub queue: (u64, u64, u64),
 }
 
-/// A rules scope. **NOT contract-bound (UIQ pending).**
+/// One behavioural rule. **NOT contract-bound (UIQ pending).**
 pub struct RuleRow {
+    pub rule: &'static str,
     pub scope: &'static str,
-    pub rules: u64,
-    pub queue: (u64, u64, u64),
 }
 
 /// A project currently being watched. **NOT contract-bound (UIQ pending).**
@@ -125,19 +128,29 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
     CellPane::new("Libraries", Some(total), table)
 }
 
+/// How wide a scope name is drawn.
+///
+/// A scope is either the word `global` or a project's name, so the field is sized to the
+/// project names this workspace actually has: thirteen columns holds `global` and six of the
+/// captured seven, and it is the same width [`last_errors`] gives a collection. The longest
+/// (`ExtendedSwiftMath`) elides, which is what a text column is allowed to do — the flex column
+/// beside it is the one carrying the item, and it gets everything else.
+const SCOPE_WIDTH: u16 = 13;
+
+/// **No `Queue` column** on this cell or on [`rules`].
+///
+/// A queue triple beside a single note means nothing — ingest is queued per collection, not per
+/// item, so the number would either be the collection's (repeated identically down the column)
+/// or invented. The collection's queue is already in the status block above the grid, which is
+/// where a per-collection fact belongs.
 pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     let table = CellTable::new(
-        vec![
-            Column::flex("Scope"),
-            Column::number("Notes", 5),
-            Column::number("Queue", 7),
-        ],
+        vec![Column::flex("Note"), Column::text("Scope", SCOPE_WIDTH)],
         rows.iter()
             .map(|r| {
                 vec![
+                    Cell::Text(r.note.to_string()),
                     Cell::Text(r.scope.to_string()),
-                    Cell::Num(r.notes),
-                    queue(r.queue),
                 ]
             })
             .collect(),
@@ -145,19 +158,15 @@ pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     CellPane::new("Scratchpad", Some(total), table)
 }
 
+/// See [`scratchpad`] for why neither of these two cells carries a `Queue` column.
 pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
     let table = CellTable::new(
-        vec![
-            Column::flex("Scope"),
-            Column::number("Rules", 5),
-            Column::number("Queue", 7),
-        ],
+        vec![Column::flex("Rule"), Column::text("Scope", SCOPE_WIDTH)],
         rows.iter()
             .map(|r| {
                 vec![
+                    Cell::Text(r.rule.to_string()),
                     Cell::Text(r.scope.to_string()),
-                    Cell::Num(r.rules),
-                    queue(r.queue),
                 ]
             })
             .collect(),
@@ -234,6 +243,31 @@ pub const ACTIVE: [ActiveProjectRow; 2] = [
     ActiveProjectRow { name: "workspace-qdrant-mcp", branch: "dev", files: 93, queue: (50, 0, 0) },
 ];
 
+/// The eight rules the cell has room to draw, out of the [`RULE_TOTAL`] the store holds.
+///
+/// **Real rules, read from this machine's own rules store**, first eight by name — the same
+/// discipline the projects fixture follows. A dashboard fixture of invented rule names would
+/// look plausible and teach nothing: `release-gatekeeper` is eighteen columns wide and that is
+/// the fact the flex column has to survive.
+pub const RULES: [RuleRow; 8] = [
+    RuleRow { rule: "auto-file-defects", scope: "global" },
+    RuleRow { rule: "collab-spirit", scope: "global" },
+    RuleRow { rule: "docker-test-rm", scope: "global" },
+    RuleRow { rule: "human-voice", scope: "global" },
+    RuleRow { rule: "instr-supersede", scope: "global" },
+    RuleRow { rule: "match-register", scope: "global" },
+    RuleRow { rule: "mesh-field-log", scope: "global" },
+    RuleRow { rule: "release-gatekeeper", scope: "global" },
+];
+
+/// The store holds eleven; the cell has room for five. That gap is the whole point of the
+/// overflow tail, and it is why this frame carries the real number rather than the row count.
+pub const RULE_TOTAL: usize = 11;
+
+/// **Scratchpad has no fixture, and that is a measurement rather than an omission.** The
+/// captured workspace had no notes and there is no real source of them on this machine to read,
+/// so the cell shows `No data`. Inventing a note would put a fiction on the one screen Chris
+/// judges the design from.
 /// Long enough to prove the Error column elides rather than clipping silently.
 pub const ERRORS: [ErrorRow; 3] = [
     ErrorRow { collection: "[P] PlotSwift", error: "destination failure on success path (qdrant unreachable at QDRANT_URL)" },
@@ -247,7 +281,7 @@ pub fn populated() -> Vec<CellPane> {
         projects(&PROJECTS, PROJECT_TOTAL),
         libraries(&LIBRARIES, 1),
         scratchpad(&[], 0),
-        rules(&[], 0),
+        rules(&RULES, RULE_TOTAL),
         active_projects(&ACTIVE, 2),
         last_errors(&ERRORS),
     ]
