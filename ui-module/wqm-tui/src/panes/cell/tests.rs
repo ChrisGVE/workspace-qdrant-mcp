@@ -1,7 +1,12 @@
 //! What a cell is pinned to.
 
+use super::table::{fit, GUTTER};
 use super::*;
+use crate::tokens;
 use crate::widgets::chrome::test_support::Restore;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::widgets::Widget;
 
 const WIDE: u16 = 59;
 const TALL: u16 = 9;
