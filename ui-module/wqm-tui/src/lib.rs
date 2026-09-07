@@ -98,6 +98,7 @@ mod tier {
 
         for module in [
             crate::views::dashboard::ingredient::ingredients(),
+            crate::views::queue::ingredient::ingredients(),
             crate::views::service::ingredient::ingredients(),
             crate::views::shell::ingredient::ingredients(),
         ] {

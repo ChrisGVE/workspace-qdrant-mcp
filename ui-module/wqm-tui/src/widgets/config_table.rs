@@ -19,6 +19,12 @@ use ratatui::{
 };
 
 use crate::tokens;
+use crate::widgets::edit_field::caret_spans;
+
+/// The edit-in-place field this table opened, now shared with every other surface that has one
+/// — see [`crate::widgets::edit_field`]. Re-exported rather than moved out of sight: this is
+/// still where a reader of the config table expects to find what an edit is.
+pub use crate::widgets::edit_field::{Edit, EditMode};
 
 /// Column geometry, carried over from the reviewed frame so the two agree cell for cell.
 /// Padding is computed on the **visible** text and the style wrapped around the padded
@@ -95,91 +101,6 @@ pub enum Row {
     Entry(Entry),
 }
 
-/// Which vim mode the edit is in. §3 gives each its own caret and both the same indicator
-/// treatment: **bold, no hue** — cyan belongs to the selector and this must not read as one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum EditMode {
-    Insert,
-    Normal,
-}
-
-impl EditMode {
-    /// The status-line indicator. One producer, so the two surfaces cannot drift.
-    pub const fn indicator(self) -> &'static str {
-        match self {
-            EditMode::Insert => "-- INSERT --",
-            EditMode::Normal => "-- NORMAL --",
-        }
-    }
-
-    /// §3, and Chris's r06 mark #8 — *"this color is already used to indicate the
-    /// selection"*. Weight carries it; hue is not available to this element.
-    pub fn indicator_span(self) -> Span<'static> {
-        Span::styled(
-            self.indicator(),
-            Style::default().add_modifier(Modifier::BOLD),
-        )
-    }
-}
-
-/// An edit in progress: the text as it stands, the mode, and where the caret is.
-///
-/// The caret is a **character** index and may equal the value's length — that is the caret
-/// past the last character, which insert mode reaches on every keystroke.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Edit {
-    value: String,
-    mode: EditMode,
-    caret: usize,
-}
-
-impl Edit {
-    /// Insert mode with the caret past the last character — where typing leaves it.
-    pub fn insert(value: impl Into<String>) -> Self {
-        let value = value.into();
-        let caret = value.chars().count();
-        Self {
-            value,
-            mode: EditMode::Insert,
-            caret,
-        }
-    }
-
-    /// Insert mode with the caret placed by hand, clamped to the value's length.
-    pub fn insert_at(value: impl Into<String>, caret: usize) -> Self {
-        let value = value.into();
-        let caret = caret.min(value.chars().count());
-        Self {
-            value,
-            mode: EditMode::Insert,
-            caret,
-        }
-    }
-
-    /// Normal mode: the caret is a block **on** a character rather than a bar between two.
-    pub fn normal(value: impl Into<String>, caret: usize) -> Self {
-        let value = value.into();
-        let caret = caret.min(value.chars().count());
-        Self {
-            value,
-            mode: EditMode::Normal,
-            caret,
-        }
-    }
-
-    pub fn value(&self) -> &str {
-        &self.value
-    }
-
-    pub fn mode(&self) -> EditMode {
-        self.mode
-    }
-
-    pub fn caret(&self) -> usize {
-        self.caret
-    }
-}
-
 /// What the table's interaction state is, expressed so the states §3 forbids cannot be built.
 ///
 /// Both indices count **entries**, not display rows, which is what makes a cursor on a group
@@ -229,7 +150,7 @@ impl ConfigTable {
     /// The mode the status line should be showing, if any. One producer for the indicator.
     pub fn edit_mode(&self) -> Option<EditMode> {
         match &self.focus {
-            Focus::Editing(_, edit) => Some(edit.mode),
+            Focus::Editing(_, edit) => Some(edit.mode()),
             _ => None,
         }
     }
@@ -321,36 +242,12 @@ impl ConfigTable {
     /// the text yields — so the fill begins where the column begins and keeps its trailing
     /// cell. The value no longer moves when a row goes into edit.
     fn edit_cell(&self, edit: &Edit, default: &str) -> (Vec<Span<'static>>, usize) {
-        let chars: Vec<char> = edit.value.chars().collect();
-        let before: String = chars[..edit.caret].iter().collect();
-        let after: String = chars[edit.caret..].iter().collect();
-
-        let mut style = actual_style(&edit.value, default).bg(tokens::edit_bg());
+        let mut style = actual_style(edit.value(), default).bg(tokens::edit_bg());
         if self.underline_edit {
             style = style.add_modifier(Modifier::UNDERLINED);
         }
-
-        let mut spans = vec![Span::styled(before, style)];
-        match edit.mode {
-            // A bar between two characters — vim insert.
-            EditMode::Insert => {
-                spans.push(Span::styled("▏", style));
-                spans.push(Span::styled(after, style));
-            }
-            // A block ON a character — vim normal. Past the last character there is no
-            // character to reverse, so the block falls on the space where one would go.
-            EditMode::Normal => {
-                let mut rest = after.chars();
-                let under = rest.next().unwrap_or(' ');
-                spans.push(Span::styled(
-                    under.to_string(),
-                    style.add_modifier(Modifier::REVERSED),
-                ));
-                spans.push(Span::styled(rest.collect::<String>(), style));
-            }
-        }
+        let mut spans = caret_spans(edit, style);
         spans.push(Span::styled(" ", style));
-
         let width = spans.iter().map(|s| s.content.chars().count()).sum();
         (spans, width)
     }

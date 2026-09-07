@@ -21,6 +21,7 @@
 pub mod chrome;
 pub mod config_table;
 pub mod daemon_status;
+pub mod edit_field;
 pub mod envelope;
 pub mod modal;
 pub mod store_health;

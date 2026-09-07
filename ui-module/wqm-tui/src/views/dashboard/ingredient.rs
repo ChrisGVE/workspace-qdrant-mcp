@@ -33,7 +33,9 @@ const PROPS: &[PropInfo] = &[
 /// are drawn against, so every screen ages at the same rate.
 const FRAME_SLA: Duration = Duration::from_secs(60);
 
-fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> (StatusBlock, Health) {
+/// Public to the crate so the Queue tab's frames carry the SAME captured workspace at the top of
+/// the screen. Two tabs whose status blocks disagreed would be two frames of two machines.
+pub(crate) fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> (StatusBlock, Health) {
     let overall = overall(entries[0], &entries[1..]);
     (
         StatusBlock::new(
@@ -47,8 +49,8 @@ fn block(entries: [Health; ENTRY_LABELS.len()], queue: Queue) -> (StatusBlock, H
     )
 }
 
-/// The capture's own queue: 11'236 waiting, 4 moving, 3 lost.
-fn captured_queue() -> Queue {
+/// The capture's own queue: 11'236 waiting, 4 moving, 3 lost. See [`block`] for why it is shared.
+pub(crate) fn captured_queue() -> Queue {
     Queue {
         pending: 11_236,
         in_progress: 4,
@@ -56,6 +58,15 @@ fn captured_queue() -> Queue {
         health: Health::Degraded,
     }
 }
+
+/// The four health entries the captured workspace had — one degraded, three well. Shared for the
+/// same reason [`block`] is.
+pub(crate) const CAPTURED_ENTRIES: [Health; ENTRY_LABELS.len()] = [
+    Health::Healthy,
+    Health::Degraded,
+    Health::Healthy,
+    Health::Healthy,
+];
 
 fn idle() -> Queue {
     Queue {

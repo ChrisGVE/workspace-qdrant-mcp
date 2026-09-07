@@ -21,8 +21,23 @@ use crate::widgets::config_table::EditMode;
 pub struct StatusLine {
     rollup: Rollup,
     mode: Option<EditMode>,
-    hints: Vec<(String, String)>,
+    /// Each hint, and whether it survives a foot too narrow for all of them. See [`ALWAYS`].
+    hints: Vec<(String, String, bool)>,
 }
+
+/// The two hints every screen ends with — and the two that stay when the rest cannot fit.
+///
+/// Chris, 2026-09-07, on the Queue tab's foot: when the hints do not fit the width, render
+/// `? Help · q Quit` alone, *"the help modal carries them all"*. The rule is about **every**
+/// view, so it lives here and not in one of them, and [`StatusLine::hint`] applies it by
+/// comparing what it is handed against this list. A view therefore gets the behaviour without
+/// being able to forget it, and there is no second place where the pair is spelled.
+///
+/// Why these two and not a count of whatever fits: a foot that shed hints one at a time would
+/// offer a different set at every terminal width, and a reader would have to discover which
+/// keys their window happens to be showing. Two keys, always the same two, and one of them opens
+/// the window that lists the rest.
+pub const ALWAYS: [(&str, &str); 2] = [("?", "Help"), ("q", "Quit")];
 
 impl StatusLine {
     pub fn new(rollup: Rollup) -> Self {
@@ -40,9 +55,38 @@ impl StatusLine {
         self
     }
 
+    /// Offer a key. A hint that is one of [`ALWAYS`] is marked as surviving a narrow foot; every
+    /// other one goes when the line cannot hold them all.
     pub fn hint(mut self, key: impl Into<String>, label: impl Into<String>) -> Self {
-        self.hints.push((key.into(), label.into()));
+        let (key, label) = (key.into(), label.into());
+        let always = ALWAYS
+            .iter()
+            .any(|(k, l)| *k == key.as_str() && *l == label.as_str());
+        self.hints.push((key, label, always));
         self
+    }
+
+    /// The hints to draw, given `room` columns for them: all of them, or [`ALWAYS`]'s alone, or
+    /// none. Three steps rather than a search for the widest fitting subset — see [`ALWAYS`].
+    fn fitting(&self, room: usize) -> Vec<(&str, &str)> {
+        let all: Vec<(&str, &str)> = self
+            .hints
+            .iter()
+            .map(|(key, label, _)| (key.as_str(), label.as_str()))
+            .collect();
+        if tokens::key_hints_width(&all) <= room {
+            return all;
+        }
+        let always: Vec<(&str, &str)> = self
+            .hints
+            .iter()
+            .filter(|(_, _, always)| *always)
+            .map(|(key, label, _)| (key.as_str(), label.as_str()))
+            .collect();
+        if !always.is_empty() && tokens::key_hints_width(&always) <= room {
+            return always;
+        }
+        Vec::new()
     }
 
     fn left(&self) -> Vec<Span<'static>> {
@@ -71,16 +115,18 @@ impl Widget for StatusLine {
 
         let left = self.left();
         let left_width: usize = left.iter().map(|s| s.content.chars().count()).sum();
-        let hints_width = tokens::key_hints_width(&self.hints);
+        // One clear cell between the two halves is the minimum that still reads as two
+        // halves. Below that the hints fall back to [`ALWAYS`] and then go entirely: the status
+        // is what the line is for, and half a hint row is noise rather than help.
+        let room = (area.width as usize).saturating_sub(left_width + 1);
+        let hints = self.fitting(room);
+        let hints_width = tokens::key_hints_width(&hints);
 
         let mut spans = left;
-        // One clear cell between the two halves is the minimum that still reads as two
-        // halves. Below that the hints go entirely: the status is what the line is for, and
-        // half a hint row is noise rather than help.
-        if hints_width > 0 && left_width + 1 + hints_width <= area.width as usize {
+        if hints_width > 0 {
             let gap = area.width as usize - left_width - hints_width;
             spans.push(Span::raw(" ".repeat(gap)));
-            spans.extend(tokens::key_hints(&self.hints));
+            spans.extend(tokens::key_hints(&hints));
         }
 
         Paragraph::new(Line::from(spans)).render(area, buf);
@@ -170,6 +216,53 @@ mod tests {
             !narrow.contains("move"),
             "half a hint row is not help: {narrow:?}"
         );
+    }
+
+    /// Too narrow for the whole row, the foot falls back to [`ALWAYS`] rather than to nothing.
+    ///
+    /// Three widths in one guard because the rule is a ladder and a ladder fails between its
+    /// rungs: wide enough for everything, wide enough for the two, and too narrow even for those.
+    #[test]
+    fn a_foot_too_narrow_for_every_hint_keeps_the_two_that_open_the_rest() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        fn line(width: u16) -> String {
+            let mut buf = Buffer::empty(Rect {
+                x: 0,
+                y: 0,
+                width,
+                height: 1,
+            });
+            StatusLine::new(Rollup {
+                health: Health::Healthy,
+                label: "healthy".into(),
+            })
+            .hint("/", "Search")
+            .hint("f", "Filter")
+            .hint("x", "Remove")
+            .hint("?", "Help")
+            .hint("q", "Quit")
+            .render(buf.area, &mut buf);
+            (0..width)
+                .map(|x| buf.cell((x, 0)).expect("cell in area").symbol())
+                .collect()
+        }
+
+        let wide = line(60);
+        assert!(wide.contains("/ Search") && wide.ends_with("? Help   q Quit"), "{wide:?}");
+
+        // Room for the rollup and the two, and not for `/ Search` beside them.
+        let narrow = line(30);
+        assert!(narrow.ends_with("? Help   q Quit"), "{narrow:?}");
+        for absent in ["Search", "Filter", "Remove"] {
+            assert!(!narrow.contains(absent), "{absent:?} survived: {narrow:?}");
+        }
+
+        // And below even that, the status is what the line is for.
+        let tiny = line(16);
+        assert!(tiny.starts_with("● healthy"), "{tiny:?}");
+        assert!(!tiny.contains("Help"), "half a hint row is not help: {tiny:?}");
     }
 
     #[test]
