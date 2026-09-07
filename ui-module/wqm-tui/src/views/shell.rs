@@ -73,6 +73,12 @@ impl ShellView {
         }
     }
 
+    /// Whether a modal owns the input.
+    ///
+    /// A **screen-level** fact, and the screen is the only thing that carries it: [`Widget::render`]
+    /// opens a [`tokens::ModalScope`] around the whole page, and every colour beneath goes muted
+    /// on its own ([`crate::tokens::modal`]). No widget below is told, because the version that
+    /// told them muted three things and left the rest of the page painting.
     pub fn under_modal(mut self, modal: bool) -> Self {
         self.modal = modal;
         self
@@ -89,9 +95,10 @@ impl ShellView {
 
 impl Widget for ShellView {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let mut top = ConstantTop::new(self.active)
-            .under_modal(self.modal)
-            .content_floor(self.content_floor);
+        // Held for the whole draw, so every token read beneath it answers as a page under a
+        // modal — the bar, the block, its discs and its counts alike.
+        let _modal = self.modal.then(tokens::ModalScope::enter);
+        let mut top = ConstantTop::new(self.active).content_floor(self.content_floor);
         if let Some(block) = self.status {
             top = top.status(block);
         }
@@ -283,7 +290,7 @@ mod tests {
     use super::*;
     use crate::tokens::Health;
     use crate::widgets::chrome::rule::RULE;
-    use crate::widgets::chrome::test_support::Restore;
+    use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
     use crate::views::top::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
     use crate::widgets::chrome::MARGIN;
 
@@ -394,6 +401,37 @@ mod tests {
         for y in 1..34 {
             assert_eq!(row(&live, y), row(&under, y), "row {y} moved under a modal");
         }
+    }
+
+    /// The whole-frame companion to the guard above: under a modal not one cell of the Shell
+    /// carries a colour, discs and queue counts included (VL §6, Chris 2026-09-07).
+    ///
+    /// The bar guard says the digits went muted. It cannot say the status block's RAG discs and
+    /// its three queue counts did — those are the cells that were still painting when Chris
+    /// looked at the frame, and no per-widget guard was ever going to see them.
+    #[test]
+    fn no_cell_of_the_shell_carries_a_colour_under_a_modal() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let neutrals = neutral_rungs();
+
+        // A live frame first: a screen that painted nothing anyway would pass the sweep below
+        // without the switch existing.
+        let live = render(frames::dashboard(), 125, 34);
+        assert!(
+            !coloured_cells(&live, &neutrals).is_empty(),
+            "the Shell paints no colour even when it is live — this guard checks nothing"
+        );
+
+        let under = render(frames::dashboard().under_modal(true), 125, 34);
+        let survivors = coloured_cells(&under, &neutrals);
+        assert!(
+            survivors.is_empty(),
+            "{} cells kept a colour under a modal, first ten: {:?}",
+            survivors.len(),
+            &survivors[..survivors.len().min(10)]
+        );
     }
 
     /// The roll-up on the block is the one the entries produce — a green dot over a degraded

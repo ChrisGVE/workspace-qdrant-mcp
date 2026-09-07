@@ -49,7 +49,6 @@ pub struct CellPane {
     /// The key that focuses this cell, accented in the heading. The **view** owns which key
     /// that is — a cell that named its own would be a second copy of the screen's key table.
     hotkey: Option<char>,
-    modal: bool,
 }
 
 impl CellPane {
@@ -61,7 +60,6 @@ impl CellPane {
             zone: 0,
             attention: Attention::None,
             hotkey: None,
-            modal: false,
         }
     }
 
@@ -78,13 +76,6 @@ impl CellPane {
     /// from one table ([`crate::views::dashboard::FOCUS_KEYS`]).
     pub fn hotkey(mut self, key: char) -> Self {
         self.hotkey = Some(key);
-        self
-    }
-
-    /// Whether a modal owns the input — screen-level, and passed straight through to the
-    /// heading, which mutes its key letter under one.
-    pub fn under_modal(mut self, modal: bool) -> Self {
-        self.modal = modal;
         self
     }
 
@@ -122,8 +113,7 @@ impl Widget for CellPane {
         // choose would make "a grid cell wearing the `▌` bar" a frame someone could build, and
         // Chris ruled the block for these cells specifically (2026-09-07).
         let mut heading = ZoneHeading::new(self.heading(), self.zone, self.attention)
-            .focus_mark(FocusMark::Block)
-            .under_modal(self.modal);
+            .focus_mark(FocusMark::Block);
         if let Some(key) = self.hotkey {
             heading = heading.hotkey(key);
         }

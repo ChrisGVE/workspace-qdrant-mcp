@@ -18,13 +18,19 @@
 //! [`Tab::hotkey_char`]) rather than in the render loop, because a loop that special-cased the
 //! number ten would be right about one tab and wrong about every future two-digit one.
 //!
-//! # Under a modal the bar carries no highlight at all
+//! # Under a modal the bar carries no highlight at all, and this file does not say so
 //!
-//! Chris, 20260906: *"remove all highlighting to the underlying page when in modal mode"*. So
-//! [`TabBar::under_modal`] drops the accent, the inversion and the §4 alarm hues together, and
-//! leaves the selected tab distinguished by **weight alone**. That is §1's two axes doing what
-//! they are for: emphasis says *which one you are on*, highlight says *this is live*, and while
-//! a modal owns the input nothing behind it is live.
+//! Chris, 20260906: *"remove all highlighting to the underlying page when in modal mode"*. The
+//! accent on the digit, the inversion on the selected tab and the §4 alarm hues all drop
+//! together, leaving the selected tab distinguished by **weight alone** — §1's two axes doing
+//! what they are for: emphasis says *which one you are on*, highlight says *this is live*, and
+//! while a modal owns the input nothing behind it is live.
+//!
+//! None of that is implemented here any more. This bar reaches for [`tokens::accent`] and
+//! [`tokens::inverted`] unconditionally, and those answer the modal question themselves
+//! ([`crate::tokens::modal`]). The flag this widget used to carry muted the three things
+//! someone remembered and left every other hue on the page painting, which is the failure the
+//! switch was moved to the tokens for.
 //!
 //! # A tab that names a collection derives its label
 //!
@@ -126,13 +132,14 @@ impl Tab {
     ///
     /// # An alarm is a highlight, so a modal takes it too
     ///
-    /// Under a modal `modal` is true and this is muted whatever the alarm says. That is not a
-    /// loss of information: the modal is the thing being answered, and §4's must-see rule is
-    /// about the tab *you could jump to*, which is exactly what a modal has suspended.
-    fn unselected_fg(&self, modal: bool) -> Color {
+    /// Under a modal [`Health::color`] is already muted, so this reads as muted without asking
+    /// — and that is not a loss of information: the modal is the thing being answered, and §4's
+    /// must-see rule is about the tab *you could jump to*, which is exactly what a modal has
+    /// suspended.
+    fn unselected_fg(&self) -> Color {
         match self.alarm {
-            Some(health) if !modal => health.color(),
-            _ => tokens::muted(),
+            Some(health) => health.color(),
+            None => tokens::muted(),
         }
     }
 }
@@ -140,7 +147,6 @@ impl Tab {
 pub struct TabBar {
     tabs: Vec<Tab>,
     active: usize,
-    modal: bool,
 }
 
 /// Columns between one tab and the next.
@@ -148,17 +154,7 @@ const TAB_GAP: u16 = 2;
 
 impl TabBar {
     pub fn new(tabs: Vec<Tab>, active: usize) -> Self {
-        Self {
-            tabs,
-            active,
-            modal: false,
-        }
-    }
-
-    /// Whether a modal owns the input. See the module docs: under one, every highlight drops.
-    pub fn under_modal(mut self, modal: bool) -> Self {
-        self.modal = modal;
-        self
+        Self { tabs, active }
     }
 
     /// Columns this row would occupy if nothing truncated it.
@@ -244,36 +240,25 @@ impl Widget for TabBar {
             spans.push(Span::styled(
                 tab.hotkey_char().to_string(),
                 Style::default()
-                    .fg(if self.modal {
-                        tokens::muted()
-                    } else {
-                        tokens::accent()
-                    })
+                    .fg(tokens::accent())
                     // Bold as well as the hue (Chris, 2026-09-07). Weight is not a highlight —
                     // the selected tab keeps its own under a modal — so the digit keeps this
-                    // when the accent drops to muted.
+                    // when `accent` drops to muted underneath it.
                     .add_modifier(Modifier::BOLD),
             ));
 
             if i == self.active {
                 spans.push(Span::styled(" ", tokens::muted_style()));
-                spans.push(if self.modal {
-                    // Weight alone: `inverted` would put a fill behind a page that a modal has
-                    // already taken the input from.
-                    Span::styled(
-                        format!(" {} ", tab.label),
-                        tokens::muted_style().add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::styled(
-                        format!(" {} ", tab.label),
-                        tokens::inverted(tab.selected_bg()),
-                    )
-                });
+                // Under a modal `inverted` is bold muted text with no fill, so the block
+                // becomes weight alone without this loop knowing a modal exists.
+                spans.push(Span::styled(
+                    format!(" {} ", tab.label),
+                    tokens::inverted(tab.selected_bg()),
+                ));
             } else {
                 spans.push(Span::styled(
                     format!(" {}", tab.label),
-                    Style::default().fg(tab.unselected_fg(self.modal)),
+                    Style::default().fg(tab.unselected_fg()),
                 ));
             }
         }
@@ -370,10 +355,13 @@ mod tests {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
-        let buf = render(
-            TabBar::new(vec![Tab::new(1, "Dashboard"), Tab::new(2, "Queue")], 0).under_modal(true),
-            40,
-        );
+        let buf = {
+            let _modal = tokens::ModalScope::enter();
+            render(
+                TabBar::new(vec![Tab::new(1, "Dashboard"), Tab::new(2, "Queue")], 0),
+                40,
+            )
+        };
         let digit = style_of(&buf, "2");
         assert_eq!(digit.fg, Some(tokens::muted()), "the hue goes");
         assert!(
@@ -415,7 +403,14 @@ mod tests {
         };
 
         let live = render(build(), 40);
-        let under = render(build().under_modal(true), 40);
+        // The assertions below are taken OUTSIDE the scope, so `tokens::accent()` and
+        // `Health::Offline.color()` resolve to the hues themselves rather than to the muted
+        // rung the frame was drawn with — a comparison against a token read inside the scope
+        // would pass however wrong the render was.
+        let under = {
+            let _modal = tokens::ModalScope::enter();
+            render(build(), 40)
+        };
 
         assert_eq!(style_of(&live, "1").fg, Some(tokens::accent()));
         assert_eq!(style_of(&under, "1").fg, Some(tokens::muted()), "no accent under a modal");

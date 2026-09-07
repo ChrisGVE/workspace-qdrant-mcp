@@ -200,8 +200,12 @@ impl Categorical {
     /// The hue for category `i`, **cycling**. A consumer with more categories than hues gets
     /// repeats rather than a panic — repeats are a legible failure, and `len()` is there for a
     /// consumer that wants to avoid them.
+    ///
+    /// Muted under a modal, with the roles (VL §6). A data hue is still a hue: the page beneath
+    /// a modal drops every one of them, and a tier that kept painting would be the one thing on
+    /// the screen still claiming to be live.
     pub fn color(&self, i: usize) -> Option<Color> {
-        (!self.is_empty()).then(|| self.entries[i % self.entries.len()].1)
+        (!self.is_empty()).then(|| tokens::modal::or_muted(self.entries[i % self.entries.len()].1))
     }
 
     /// The name of category `i`'s hue, cycling with [`Categorical::color`].
@@ -209,8 +213,12 @@ impl Categorical {
         (!self.is_empty()).then(|| self.entries[i % self.entries.len()].0)
     }
 
+    /// Every entry, name and hue, in order — muted under a modal exactly as
+    /// [`Categorical::color`] is.
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, Color)> + '_ {
-        self.entries.iter().copied()
+        self.entries
+            .iter()
+            .map(|(name, colour)| (*name, tokens::modal::or_muted(*colour)))
     }
 }
 

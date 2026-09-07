@@ -60,6 +60,10 @@ use ratatui_themes::ThemePalette;
 use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
 
+pub mod modal;
+
+pub use modal::{under_modal, ModalScope};
+
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Palette {
@@ -249,15 +253,22 @@ pub fn family() -> Family {
         .min(Encoding::current().family())
 }
 
-/// A reserved hue, or nothing if the encoding refuses colour.
+/// A reserved hue — or nothing if the encoding refuses colour, or the muted rung if a modal
+/// owns the input.
 ///
-/// The design anticipates this: r02 §3 asks for a structural signature first with colour
+/// The design anticipates the first: r02 §3 asks for a structural signature first with colour
 /// reserved, and [`Health::glyph`] already carries state as shape. So dropping the hue costs
 /// emphasis, not information.
+///
+/// The second is VL §6, and this is the whole of its implementation. **Every** reserved hue in
+/// the vocabulary is emitted through here — [`selector`], [`selector_fg`], and everything
+/// [`role`] answers: [`healthy`], [`degraded`], [`offline`], [`accent`], [`in_flight`], and so
+/// [`Health::color`] with them. A widget therefore cannot forget the rule, because a widget
+/// never sees it; see [`modal`] for the per-widget flag this replaced and why it leaked.
 fn hue(color: Color) -> Color {
     match family() {
         Family::None => Color::Reset,
-        _ => color,
+        _ => modal::or_muted(color),
     }
 }
 
@@ -814,7 +825,18 @@ pub fn selector_fg() -> Color {
 /// rather than disappearing. Without it, `fill` and the text on it both resolve to
 /// `Color::Reset` and a selected row becomes indistinguishable from an unselected one —
 /// which is the same class of failure as [`Palette::Theme`]'s invisible cursor row.
+///
+/// # Under a modal there is no block at all
+///
+/// A fill IS the highlight, so §6 takes it whole: the block becomes bold muted text, keeping
+/// its own padding so nothing on the row moves. That is the treatment the tab bar and the
+/// Dashboard's cell headings each used to spell for themselves; stating it here is what lets
+/// both of them stop asking whether a modal is open. Modifiers a caller adds are patched on
+/// top of this style as they are on top of the fill, so a block that was bold stays bold.
 pub fn inverted(fill: Color) -> Style {
+    if under_modal() {
+        return muted_style().add_modifier(Modifier::BOLD);
+    }
     match family() {
         Family::None => Style::default().add_modifier(Modifier::REVERSED),
         _ => Style::default().fg(selector_fg()).bg(fill),

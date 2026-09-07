@@ -4,7 +4,7 @@ use super::*;
 use crate::panes::cell::{Cell, CellTable, Column};
 use crate::panes::status_block::Queue;
 use crate::widgets::chrome::rule::RULE;
-use crate::widgets::chrome::test_support::Restore;
+use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
 use crate::widgets::chrome::{Freshness, MARGIN};
 use ratatui::buffer::Buffer;
 use std::time::Duration;
@@ -376,3 +376,4 @@ fn heading_text(buf: &Buffer, cell: Rect) -> String {
 }
 
 mod focus;
+mod modal;

@@ -38,7 +38,6 @@ pub fn row(area: Rect, n: u16) -> Rect {
 /// App bar, frame rule, and the status block a tab carries — or does not.
 pub struct ConstantTop {
     active: usize,
-    modal: bool,
     /// Absent on the Service tab, which carries [`crate::panes::status_band`] instead.
     status: Option<StatusBlock>,
     content_floor: u16,
@@ -49,7 +48,6 @@ impl ConstantTop {
     pub fn new(active: usize) -> Self {
         Self {
             active,
-            modal: false,
             status: None,
             content_floor: status_block::MIN_CONTENT_ROWS,
         }
@@ -57,11 +55,6 @@ impl ConstantTop {
 
     pub fn status(mut self, block: StatusBlock) -> Self {
         self.status = Some(block);
-        self
-    }
-
-    pub fn under_modal(mut self, modal: bool) -> Self {
-        self.modal = modal;
         self
     }
 
@@ -88,9 +81,7 @@ impl ConstantTop {
         // rather than read from the process, because a frame is a still.
         Surface::with_condition(Condition::Nominal).render(area, buf);
 
-        AppBar::new(self.active)
-            .under_modal(self.modal)
-            .render(inset(row(area, APP_BAR_ROW)), buf);
+        AppBar::new(self.active).render(inset(row(area, APP_BAR_ROW)), buf);
         Rule::frame().render(row(area, TOP_RULE_ROW), buf);
 
         // What the block and the body share. The block answers how much of it it takes;

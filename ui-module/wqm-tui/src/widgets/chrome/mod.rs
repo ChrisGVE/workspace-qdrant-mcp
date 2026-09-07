@@ -140,4 +140,55 @@ pub(crate) mod test_support {
     pub fn style_at(buf: &Buffer, x: u16) -> Style {
         buf.cell((x, 0)).expect("cell in area").style()
     }
+
+    /// The neutral ladder, enumerated from [`crate::tokens`] itself.
+    ///
+    /// Every rung the vocabulary names, plus `Color::Reset` — which in a ratatui buffer is a
+    /// cell nobody painted, i.e. the terminal's own ground. Read off the tokens rather than off
+    /// a rendered frame, because a set derived from a render grows to fit whatever that render
+    /// did, which is how a guard comes to bless the defect it was written against.
+    ///
+    /// Here rather than beside one screen's tests because **both** full screens are swept
+    /// against it (VL §6), and two enumerations of one ladder is how the two come to disagree
+    /// about which rungs exist.
+    pub fn neutral_rungs() -> Vec<ratatui::style::Color> {
+        vec![
+            ratatui::style::Color::Reset,
+            tokens::faint(),
+            tokens::muted(),
+            tokens::normal(),
+            tokens::strong(),
+            tokens::rule_frame(),
+            tokens::rule_internal(),
+            tokens::header(),
+            tokens::cursor_bg(),
+            tokens::cursor_mark(),
+            tokens::edit_bg(),
+            tokens::layer1_bg(),
+            tokens::layer2_bg(),
+        ]
+    }
+
+    /// Every cell of `buf` whose foreground or background is outside `neutrals`, reported as
+    /// `(x, y, which, colour)` — enough to walk from a failure straight to the widget that
+    /// painted it, which is what an instrument owes ([`coding.md#measurement`]: surface and
+    /// localise, never classify).
+    pub fn coloured_cells(
+        buf: &Buffer,
+        neutrals: &[ratatui::style::Color],
+    ) -> Vec<(u16, u16, &'static str, ratatui::style::Color)> {
+        let mut found = Vec::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let style = buf.cell((x, y)).expect("cell in area").style();
+                if let Some(fg) = style.fg.filter(|fg| !neutrals.contains(fg)) {
+                    found.push((x, y, "fg", fg));
+                }
+                if let Some(bg) = style.bg.filter(|bg| !neutrals.contains(bg)) {
+                    found.push((x, y, "bg", bg));
+                }
+            }
+        }
+        found
+    }
 }

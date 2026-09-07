@@ -134,10 +134,14 @@ impl Dashboard {
         self
     }
 
-    /// Whether a modal owns the input. Told to the constant top **and** to every cell, because
-    /// VL §6's rule is about the whole page beneath the modal: the tab bar's jump digits and
-    /// the cells' key letters are the same affordance, and one going muted while the other
-    /// stayed lit would say the page was half live.
+    /// Whether a modal owns the input.
+    ///
+    /// VL §6's rule is about the **whole page** beneath the modal, so it is held here and
+    /// nowhere below: [`Widget::render`] opens a [`crate::tokens::ModalScope`] around the whole
+    /// draw and every colour under it goes muted on its own. The version that passed a flag
+    /// down to the top and to each cell muted the digits and the key letters and left the RAG
+    /// discs, the queue counts and the roll-up dot alight — a page half live, which is the one
+    /// thing the rule exists to forbid.
     pub fn under_modal(mut self, modal: bool) -> Self {
         self.modal = modal;
         self
@@ -229,9 +233,11 @@ impl Widget for Dashboard {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Read before `self.cells` is consumed below — `hints` borrows the whole value.
         let hints = self.hints();
+        // Held for the whole page: the top, the grid and the status line are all "beneath the
+        // modal", and each of them reads its colours from the tokens while this is alive.
+        let _modal = self.modal.then(crate::tokens::ModalScope::enter);
         let body = ConstantTop::new(DASHBOARD_TAB)
             .status(self.status)
-            .under_modal(self.modal)
             .content_floor(MIN_GRID_ROWS + 1)
             .draw(area, buf);
         if body.height < MIN_GRID_ROWS + 1 {
@@ -256,7 +262,6 @@ impl Widget for Dashboard {
         for (zone, (pane, at)) in self.cells.into_iter().zip(cells).enumerate() {
             pane.placed(zone, self.attention)
                 .hotkey(FOCUS_KEYS[zone])
-                .under_modal(self.modal)
                 .render(at, buf);
         }
 

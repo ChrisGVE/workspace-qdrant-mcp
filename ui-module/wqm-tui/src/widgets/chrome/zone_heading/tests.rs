@@ -123,11 +123,10 @@ fn a_modal_mutes_the_key_letter_and_leaves_the_bar_and_the_weight() {
     let _restore = Restore::dark_truecolor();
 
     let live = render(ZoneHeading::new("Rules (0)", 1, Attention::Zone(1)).hotkey('r'));
-    let under = render(
-        ZoneHeading::new("Rules (0)", 1, Attention::Zone(1))
-            .hotkey('r')
-            .under_modal(true),
-    );
+    let under = {
+        let _modal = tokens::ModalScope::enter();
+        render(ZoneHeading::new("Rules (0)", 1, Attention::Zone(1)).hotkey('r'))
+    };
 
     let line = row(&live, 0);
     let x = line
@@ -207,11 +206,10 @@ fn a_modal_takes_the_key_letters_hue_and_leaves_its_weight() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    let under = render(
-        ZoneHeading::new("Projects (29)", 0, Attention::None)
-            .hotkey('p')
-            .under_modal(true),
-    );
+    let under = {
+        let _modal = tokens::ModalScope::enter();
+        render(ZoneHeading::new("Projects (29)", 0, Attention::None).hotkey('p'))
+    };
     let style = style_at(&under, 0);
     assert_eq!(style.fg, Some(tokens::muted()), "the hue goes");
     assert!(
@@ -257,11 +255,10 @@ fn a_modal_takes_the_blocks_fill_and_leaves_its_weight() {
     let live = render(
         ZoneHeading::new("Rules (11)", 1, Attention::Zone(1)).focus_mark(FocusMark::Block),
     );
-    let under = render(
-        ZoneHeading::new("Rules (11)", 1, Attention::Zone(1))
-            .focus_mark(FocusMark::Block)
-            .under_modal(true),
-    );
+    let under = {
+        let _modal = tokens::ModalScope::enter();
+        render(ZoneHeading::new("Rules (11)", 1, Attention::Zone(1)).focus_mark(FocusMark::Block))
+    };
 
     assert_eq!(row(&under, 0), row(&live, 0), "a modal moves nothing");
     assert_eq!(style_at(&live, 1).bg, Some(tokens::selector()));

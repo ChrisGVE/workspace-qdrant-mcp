@@ -92,7 +92,6 @@ pub struct ZoneHeading {
     /// The one key that focuses this zone, when the screen offers one. `None` on a heading
     /// nothing jumps to — the Service hub's zones are reached by tab, not by letter.
     hotkey: Option<char>,
-    modal: bool,
     mark: FocusMark,
 }
 
@@ -103,7 +102,6 @@ impl ZoneHeading {
             index,
             attention,
             hotkey: None,
-            modal: false,
             mark: FocusMark::default(),
         }
     }
@@ -134,15 +132,6 @@ impl ZoneHeading {
         self
     }
 
-    /// Whether a modal owns the input. Under one the key letter's HUE goes muted, as the tab
-    /// bar's digits do (VL §6) — nothing else about the heading changes, because the `▌` bar
-    /// and the weight, the key letter's bold included, are structure rather than highlight
-    /// (§3).
-    pub fn under_modal(mut self, modal: bool) -> Self {
-        self.modal = modal;
-        self
-    }
-
     /// The heading's own style — what every part of the title that is not the key wears.
     fn title_style(&self) -> Style {
         match self.attention {
@@ -163,8 +152,9 @@ impl ZoneHeading {
     /// unfocused one's by the rung underneath it — replacing the whole style would have made
     /// the key identical on every zone, which is the one thing the heading's own rung says.
     ///
-    /// Bold is not a highlight, so it survives a modal (§6): under one the hue drops to muted
-    /// and the weight stays, exactly as the selected tab keeps its bold.
+    /// Bold is not a highlight, so it survives a modal (§6): under one [`tokens::accent`] is
+    /// already the muted rung and the weight stays, exactly as the selected tab keeps its bold.
+    /// This heading asks no question about modals — [`crate::tokens::modal`] answers it.
     fn title_spans(&self) -> Vec<Span<'static>> {
         let style = self.title_style();
         let at = self.hotkey.and_then(|key| {
@@ -175,13 +165,7 @@ impl ZoneHeading {
         let Some((at, letter)) = at else {
             return vec![Span::styled(self.title.clone(), style)];
         };
-        let key_style = style
-            .fg(if self.modal {
-                tokens::muted()
-            } else {
-                tokens::accent()
-            })
-            .add_modifier(Modifier::BOLD);
+        let key_style = style.fg(tokens::accent()).add_modifier(Modifier::BOLD);
         let before = &self.title[..at];
         let after = &self.title[at + letter.len_utf8()..];
         let mut spans = Vec::with_capacity(3);
@@ -198,20 +182,13 @@ impl ZoneHeading {
     /// The focused heading as the tab line draws its active tab: the title in an inverse block,
     /// one space each side inside it.
     ///
-    /// Under a modal it gives way to muted bold text, keeping the two spaces so nothing on the
-    /// row moves — which is exactly what [`crate::widgets::tab_bar`] does with the selected tab,
-    /// and for the same reason (VL §6: the page beneath a modal drops every highlight, and
-    /// weight is not a highlight).
+    /// Under a modal [`tokens::inverted`] is bold muted text with no fill, keeping the two
+    /// spaces so nothing on the row moves — which is exactly what [`crate::widgets::tab_bar`]
+    /// gets from the same call, and for the same reason (VL §6: the page beneath a modal drops
+    /// every colour, and weight is not a colour).
     fn block_spans(&self) -> Vec<Span<'static>> {
         let text = format!(" {} ", self.title);
-        vec![Span::styled(
-            text,
-            if self.modal {
-                tokens::muted_style().add_modifier(Modifier::BOLD)
-            } else {
-                tokens::inverted(tokens::selector())
-            },
-        )]
+        vec![Span::styled(text, tokens::inverted(tokens::selector()))]
     }
 
     fn spans(&self) -> Vec<Span<'static>> {
@@ -364,10 +341,12 @@ pub mod ingredient {
             ZoneHeading::new("Projects (29)", 0, Attention::Zone(0))
                 .hotkey('p')
                 .render(rows[1], buf);
-            ZoneHeading::new("Projects (29)", 0, Attention::Zone(0))
-                .hotkey('p')
-                .under_modal(true)
-                .render(rows[2], buf);
+            {
+                let _modal = tokens::ModalScope::enter();
+                ZoneHeading::new("Projects (29)", 0, Attention::Zone(0))
+                    .hotkey('p')
+                    .render(rows[2], buf);
+            }
         }
     }
 

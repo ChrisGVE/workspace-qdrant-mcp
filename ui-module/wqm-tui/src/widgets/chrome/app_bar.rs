@@ -65,7 +65,6 @@ pub const SERVICE_TAB: usize = 9;
 pub struct AppBar {
     tabs: Vec<Tab>,
     active: usize,
-    modal: bool,
 }
 
 impl AppBar {
@@ -76,23 +75,11 @@ impl AppBar {
 
     /// A stated tab row — how a frame shows an alarm on a tab that is not the selected one.
     pub fn with_tabs(tabs: Vec<Tab>, active: usize) -> Self {
-        Self {
-            tabs,
-            active,
-            modal: false,
-        }
-    }
-
-    /// Whether a modal owns the input. Passed straight through to
-    /// [`TabBar::under_modal`], which is where the rule lives — this widget must not grow a
-    /// second opinion about what a modal does to a highlight.
-    pub fn under_modal(mut self, modal: bool) -> Self {
-        self.modal = modal;
-        self
+        Self { tabs, active }
     }
 
     fn bar(self) -> TabBar {
-        TabBar::new(self.tabs, self.active).under_modal(self.modal)
+        TabBar::new(self.tabs, self.active)
     }
 
     /// Columns this row wants: the title, the full gap, and every tab drawn in full.
@@ -261,7 +248,17 @@ pub mod ingredient {
 
     /// The width a variant is drawn at. `None` takes whatever the preview cell offers, which
     /// is how the row is judged against the terminal the pantry is actually running in.
-    struct Variant(&'static str, &'static str, fn() -> AppBar, Option<u16>);
+    /// Name, description, builder, stated width, and whether the frame is drawn beneath a
+    /// modal. The last is a property of the *frame* rather than of the bar — the bar has no
+    /// opinion any more ([`crate::tokens::modal`]) — so it is the preview that opens the scope,
+    /// exactly as a real view does around its page.
+    struct Variant(
+        &'static str,
+        &'static str,
+        fn() -> AppBar,
+        Option<u16>,
+        bool,
+    );
 
     impl Ingredient for Variant {
         fn group(&self) -> &str {
@@ -281,6 +278,7 @@ pub mod ingredient {
         }
         fn render(&self, area: Rect, buf: &mut Buffer) {
             let width = self.3.unwrap_or(area.width).min(area.width);
+            let _modal = self.4.then(tokens::ModalScope::enter);
             (self.2)().render(
                 Rect {
                     height: 1,
@@ -308,30 +306,35 @@ pub mod ingredient {
                 "Dashboard selected — the row every screen opens on, and the accent digits against it",
                 || AppBar::new(0),
                 None,
+                false,
             )),
             Box::new(Variant(
                 "Service active",
                 "Tab ten: only the 0 is accented, because 0 is the key that jumps here",
                 || AppBar::new(SERVICE_TAB),
                 None,
+                false,
             )),
             Box::new(Variant(
                 "Under modal",
                 "Every highlight gone — no accent, no inverse block, the selected tab bold only",
-                || AppBar::new(0).under_modal(true),
+                || AppBar::new(0),
                 None,
+                true,
             )),
             Box::new(Variant(
                 "Alarm on Queue",
                 "An accent digit immediately left of a warning-hued label: do the two hues fight?",
                 || AppBar::with_tabs(queue_degraded(), 0),
                 None,
+                false,
             )),
             Box::new(Variant(
                 "Narrow 80",
                 "Eighty columns: the gap has already gone and the row runs off the right edge",
                 || AppBar::new(0),
                 Some(80),
+                false,
             )),
         ]
     }
