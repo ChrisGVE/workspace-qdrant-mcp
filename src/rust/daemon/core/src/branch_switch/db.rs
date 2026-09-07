@@ -238,7 +238,7 @@ async fn insert_file_metadata_for_branch(
         let abs_path = format!(
             "{}/{}",
             watch_root.trim_end_matches('/'),
-            &candidate.relative_path
+            candidate.relative_path
         );
         let result = sqlx::query(
             "INSERT INTO file_metadata (file_id, tenant_id, branch, file_path, base_point, relative_path, file_hash)

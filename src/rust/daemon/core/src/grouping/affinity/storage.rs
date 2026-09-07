@@ -18,12 +18,8 @@ pub(crate) fn blob_to_embedding(blob: &[u8], dim: usize) -> Option<Vec<f32>> {
     if blob.len() != dim * 4 {
         return None;
     }
-    let mut vec = Vec::with_capacity(dim);
-    for chunk in blob.chunks_exact(4) {
-        let arr: [u8; 4] = chunk.try_into().ok()?;
-        vec.push(f32::from_le_bytes(arr));
-    }
-    Some(vec)
+    let (chunks, _) = blob.as_chunks::<4>();
+    Some(chunks.iter().map(|arr| f32::from_le_bytes(*arr)).collect())
 }
 
 // ---- Embedding CRUD --------------------------------------------------------

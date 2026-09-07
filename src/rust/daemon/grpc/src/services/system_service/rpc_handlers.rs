@@ -322,7 +322,7 @@ impl SystemService for SystemServiceImpl {
 
         // Insert diagnostic entry into unified_queue for audit trail
         let now = timestamps::now_utc();
-        let queue_id = format!("pause-{}", &now);
+        let queue_id = format!("pause-{}", now);
         let metadata = serde_json::json!({
             "action": "pause",
             "affected_watchers": affected,
@@ -382,7 +382,7 @@ impl SystemService for SystemServiceImpl {
 
         // Insert diagnostic entry into unified_queue for audit trail
         let now = timestamps::now_utc();
-        let queue_id = format!("resume-{}", &now);
+        let queue_id = format!("resume-{}", now);
         let metadata = serde_json::json!({
             "action": "resume",
             "affected_watchers": affected,

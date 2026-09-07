@@ -28,13 +28,8 @@ fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
 
 /// Deserialise little-endian bytes from a SQLite BLOB back to `Vec<f32>`.
 fn bytes_to_embedding(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| {
-            let arr: [u8; 4] = chunk.try_into().expect("chunk is exactly 4 bytes");
-            f32::from_le_bytes(arr)
-        })
-        .collect()
+    let (chunks, _) = bytes.as_chunks::<4>();
+    chunks.iter().map(|arr| f32::from_le_bytes(*arr)).collect()
 }
 
 /// Result of a cache lookup: either a full cache hit with entries + embeddings,

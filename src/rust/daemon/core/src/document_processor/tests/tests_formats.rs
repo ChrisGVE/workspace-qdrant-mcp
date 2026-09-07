@@ -228,7 +228,7 @@ fn test_extract_jupyter_basic() {
     .to_string();
 
     let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
-    write!(tmp, "{}", &notebook).unwrap();
+    write!(tmp, "{}", notebook).unwrap();
     let result = extract_jupyter(tmp.path());
     assert!(result.is_ok());
     let (text, metadata) = result.unwrap();
@@ -254,7 +254,7 @@ fn test_extract_jupyter_source_as_string() {
     .to_string();
 
     let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
-    write!(tmp, "{}", &notebook).unwrap();
+    write!(tmp, "{}", notebook).unwrap();
     let result = extract_jupyter(tmp.path());
     assert!(result.is_ok());
     let (text, metadata) = result.unwrap();
@@ -274,7 +274,7 @@ fn test_extract_jupyter_invalid_json() {
 fn test_extract_jupyter_no_cells() {
     let notebook = serde_json::json!({ "metadata": {}, "nbformat": 4 }).to_string();
     let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
-    write!(tmp, "{}", &notebook).unwrap();
+    write!(tmp, "{}", notebook).unwrap();
     let result = extract_jupyter(tmp.path());
     assert!(result.is_err());
 }
