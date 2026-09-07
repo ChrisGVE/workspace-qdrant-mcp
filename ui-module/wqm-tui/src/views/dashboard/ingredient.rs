@@ -138,10 +138,25 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
             None,
         )),
+        // The three cases the foot has, one frame each — a cell with many rows, one with a
+        // single row, and one with none. They are browsable together because "the foot follows
+        // the focused cell" is a rule about the SET, and one frame cannot show a set.
         Box::new(Variant(
             "Focus on Rules",
-            "The zone accent on cell 3 of 6 — the `▌` bar, and nothing else changed",
+            "Eight rows: the heading takes the selector block, the first row takes the cursor, and the foot offers Navigate and Enter",
             || populated().attention(Attention::Zone(3)),
+            None,
+        )),
+        Box::new(Variant(
+            "Focus on Libraries",
+            "One row: the cursor has nowhere to go, so the foot offers Enter and no navigation",
+            || populated().attention(Attention::Zone(1)),
+            None,
+        )),
+        Box::new(Variant(
+            "Focus on Scratchpad",
+            "No rows: the heading still takes the block, nothing is highlighted below it, and the foot is unchanged",
+            || populated().attention(Attention::Zone(2)),
             None,
         )),
         Box::new(Variant(

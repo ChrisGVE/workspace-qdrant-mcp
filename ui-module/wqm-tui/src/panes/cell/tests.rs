@@ -45,6 +45,16 @@ fn line(buf: &Buffer, y: u16) -> String {
         .to_string()
 }
 
+/// One row of the table's BODY — the marker column stripped off the front.
+///
+/// Every row is indented by [`GUTTER`], cursor or not, so a test asserting what a row says has
+/// to look past the gutter. Stripped by width rather than by trimming: the cursor row's marker
+/// is `▸ ` and trimming would silently drop it too, which is the one thing a cursor test needs
+/// to see.
+fn body(buf: &Buffer, y: u16) -> String {
+    line(buf, y).chars().skip(GUTTER as usize).collect()
+}
+
 /// §18: a cell scrolls inside itself and the grid keeps its shape, so a cell that cannot show
 /// everything must say how much it hid. The two halves are asserted together — a tail reading
 /// `… 22 more` above a body that drew one row more than it counted is a lie nothing catches.
@@ -59,9 +69,9 @@ fn an_overflowing_cell_spends_its_last_line_saying_how_much_it_hid() {
     assert!(hidden > 0, "29 rows into this cell must overflow");
 
     let buf = render(CellPane::new("Projects", Some(29), table), WIDE, TALL);
-    assert_eq!(line(&buf, TALL - 1), format!("… {hidden} more"));
+    assert_eq!(body(&buf, TALL - 1), format!("… {hidden} more"));
     // The last DRAWN row is the one the budget says it is, and no further.
-    assert!(line(&buf, TALL - 2).starts_with(&format!("row-{}", shown - 1)));
+    assert!(body(&buf, TALL - 2).starts_with(&format!("row-{}", shown - 1)));
 }
 
 /// A projection with nothing in it must read as empty rather than as broken — v0.1's own word.
@@ -77,7 +87,7 @@ fn an_empty_projection_says_no_data() {
     );
     assert!(line(&buf, 0).contains("Scratchpad (0)"));
     assert!(line(&buf, 1).contains("Name"), "the header survives an empty table");
-    assert_eq!(line(&buf, 2), EMPTY);
+    assert_eq!(body(&buf, 2), EMPTY);
 }
 
 /// Text elides; figures never do. An elided name is still recognisable and the `…` says so; an
@@ -103,9 +113,9 @@ fn text_elides_with_an_ellipsis_and_never_grows_the_column() {
     );
     let buf = render(CellPane::new("Projects", Some(1), table), WIDE, TALL);
     assert!(
-        line(&buf, 2).starts_with("eleve…"),
+        body(&buf, 2).starts_with("eleve…"),
         "the table must elide its text, not merely be able to: {:?}",
-        line(&buf, 2)
+        body(&buf, 2)
     );
 }
 
@@ -161,8 +171,8 @@ fn figures_are_flush_right_and_words_flush_left() {
     );
     let buf = render(CellPane::new("Projects", Some(2), table), WIDE, TALL);
 
-    assert!(line(&buf, 2).starts_with("a "), "a word starts at its column");
-    assert!(line(&buf, 3).starts_with("bb "));
+    assert!(body(&buf, 2).starts_with("a "), "a word starts at its column");
+    assert!(body(&buf, 3).starts_with("bb "));
 
     // Both figures end on the SAME cell whatever their width — the whole point of right
     // alignment, and the thing a left-aligned column would silently lose.

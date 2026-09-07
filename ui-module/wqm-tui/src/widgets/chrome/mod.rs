@@ -46,7 +46,7 @@ pub use pane_selector::PaneSelector;
 pub use rule::{Rule, Weight};
 pub use status_line::StatusLine;
 pub use title_bar::{format_age, Freshness, TitleBar};
-pub use zone_heading::{accent, Attention, ZoneHeading};
+pub use zone_heading::{accent, Attention, FocusMark, ZoneHeading};
 
 /// Columns of quiet at each edge of a screen.
 ///

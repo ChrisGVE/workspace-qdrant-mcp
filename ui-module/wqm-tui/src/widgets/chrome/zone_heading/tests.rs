@@ -220,3 +220,77 @@ fn a_modal_takes_the_key_letters_hue_and_leaves_its_weight() {
         row(&under, 0)
     );
 }
+
+/// R6: with [`FocusMark::Block`] the live zone's heading is the tab line's inverse block, and
+/// the key letter is gone — there is no letter left outside the block to accent.
+#[test]
+fn the_block_mark_inverts_the_whole_heading_and_drops_the_key() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(
+        ZoneHeading::new("Rules (11)", 1, Attention::Zone(1))
+            .hotkey('r')
+            .focus_mark(FocusMark::Block),
+    );
+    let line = row(&buf, 0);
+    assert!(line.starts_with(" Rules (11) "), "{line:?}");
+    assert!(!line.contains(FOCUS_BAR), "the block replaces the bar: {line:?}");
+
+    for x in 0.." Rules (11) ".chars().count() as u16 {
+        assert_eq!(style_at(&buf, x).bg, Some(tokens::selector()), "column {x}");
+        assert_ne!(
+            style_at(&buf, x).fg,
+            Some(tokens::accent()),
+            "column {x} still lights a key inside the block: {line:?}"
+        );
+    }
+}
+
+/// Under a modal the block gives way to muted bold text, keeping its two spaces so nothing on
+/// the row moves — exactly what the tab bar does with the selected tab (VL §6).
+#[test]
+fn a_modal_takes_the_blocks_fill_and_leaves_its_weight() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let live = render(
+        ZoneHeading::new("Rules (11)", 1, Attention::Zone(1)).focus_mark(FocusMark::Block),
+    );
+    let under = render(
+        ZoneHeading::new("Rules (11)", 1, Attention::Zone(1))
+            .focus_mark(FocusMark::Block)
+            .under_modal(true),
+    );
+
+    assert_eq!(row(&under, 0), row(&live, 0), "a modal moves nothing");
+    assert_eq!(style_at(&live, 1).bg, Some(tokens::selector()));
+    assert_ne!(
+        style_at(&under, 1).bg,
+        Some(tokens::selector()),
+        "the fill goes — a modal leaves no selector behind it"
+    );
+    assert_eq!(style_at(&under, 1).fg, Some(tokens::muted()));
+    assert!(style_at(&under, 1).add_modifier.contains(Modifier::BOLD));
+}
+
+/// An UNFOCUSED zone is unaffected by the mark it would wear if it were live — same treatment,
+/// same key letter, whichever mark it carries.
+#[test]
+fn the_mark_changes_nothing_about_a_zone_that_is_not_live() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    for attention in [Attention::None, Attention::Zone(1)] {
+        let bar = render(ZoneHeading::new("Rules (11)", 0, attention).hotkey('r'));
+        let block = render(
+            ZoneHeading::new("Rules (11)", 0, attention)
+                .hotkey('r')
+                .focus_mark(FocusMark::Block),
+        );
+        assert_eq!(row(&bar, 0), row(&block, 0), "{attention:?}");
+        for x in 0..crate::widgets::chrome::test_support::AREA.width {
+            assert_eq!(style_at(&bar, x), style_at(&block, x), "{attention:?} column {x}");
+        }
+    }
+}

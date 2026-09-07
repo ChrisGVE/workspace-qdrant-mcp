@@ -51,6 +51,31 @@ pub fn accent(index: usize, attention: Attention) -> Option<Span<'static>> {
     }
 }
 
+/// How a zone says it is the live one.
+///
+/// Two answers, because the Dashboard's cells and the Service hub's zones are different shapes
+/// of thing. A hub zone is a band of the screen and the `▌` sits in the margin beside its
+/// heading; a Dashboard cell is one of six tiles, and Chris ruled (2026-09-07) that the focused
+/// one takes **the tab line's own selector treatment** — the heading in an inverse block, in the
+/// selector hue, one space each side, exactly as the active tab is drawn.
+///
+/// The bar is NOT drawn with the block. Two marks on one heading is noise, and the block is
+/// already the strongest signal on the screen. The key letter goes with it: the whole title
+/// sits inside the block, so there is no letter left outside to accent — and a cell you are
+/// already on does not need to be told which key gets you there.
+///
+/// [`FocusMark::Bar`] is the default so that every existing caller — `panes::status_band`,
+/// `panes::storage`, and the Service hub's zones — renders exactly what it rendered before this
+/// enum existed. `panes::tests` holds the digests that prove it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FocusMark {
+    /// `▌ Heading` — the bar in the margin, the heading bold beside it.
+    #[default]
+    Bar,
+    /// ` Heading ` inverted in the selector hue — the tab line's treatment, on a cell.
+    Block,
+}
+
 /// A zone's heading, in the treatment [`Attention`] implies for it.
 ///
 /// # The body is not dimmed, and that is a stated gap
@@ -68,6 +93,7 @@ pub struct ZoneHeading {
     /// nothing jumps to — the Service hub's zones are reached by tab, not by letter.
     hotkey: Option<char>,
     modal: bool,
+    mark: FocusMark,
 }
 
 impl ZoneHeading {
@@ -78,7 +104,20 @@ impl ZoneHeading {
             attention,
             hotkey: None,
             modal: false,
+            mark: FocusMark::default(),
         }
+    }
+
+    /// Which mark this heading wears when it is the live zone. See [`FocusMark`]; the default
+    /// is the `▌` bar, so a caller that says nothing keeps the treatment it had.
+    pub fn focus_mark(mut self, mark: FocusMark) -> Self {
+        self.mark = mark;
+        self
+    }
+
+    /// Whether the screen says THIS zone is the live one.
+    fn is_live(&self) -> bool {
+        matches!(self.attention, Attention::Zone(live) if live == self.index)
     }
 
     /// The key that focuses this zone. Its FIRST case-insensitive occurrence in the title is
@@ -156,7 +195,29 @@ impl ZoneHeading {
         spans
     }
 
+    /// The focused heading as the tab line draws its active tab: the title in an inverse block,
+    /// one space each side inside it.
+    ///
+    /// Under a modal it gives way to muted bold text, keeping the two spaces so nothing on the
+    /// row moves — which is exactly what [`crate::widgets::tab_bar`] does with the selected tab,
+    /// and for the same reason (VL §6: the page beneath a modal drops every highlight, and
+    /// weight is not a highlight).
+    fn block_spans(&self) -> Vec<Span<'static>> {
+        let text = format!(" {} ", self.title);
+        vec![Span::styled(
+            text,
+            if self.modal {
+                tokens::muted_style().add_modifier(Modifier::BOLD)
+            } else {
+                tokens::inverted(tokens::selector())
+            },
+        )]
+    }
+
     fn spans(&self) -> Vec<Span<'static>> {
+        if self.mark == FocusMark::Block && self.is_live() {
+            return self.block_spans();
+        }
         accent(self.index, self.attention)
             .into_iter()
             .chain(self.title_spans())

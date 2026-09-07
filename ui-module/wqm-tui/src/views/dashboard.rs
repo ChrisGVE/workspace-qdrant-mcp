@@ -76,6 +76,16 @@ const COLUMN_GAP: u16 = 3;
 /// a column header and one data row, plus the two rules between them.
 const MIN_GRID_ROWS: u16 = GRID_ROWS as u16 * 3 + (GRID_ROWS as u16 - 1);
 
+/// The keys that move the data cursor within a cell — Chris's own spelling (2026-09-07),
+/// *"up/k down/j"*, with the arrows this crate writes beside their vim letters.
+///
+/// **This is not the crate's existing spelling**, and that is deliberate rather than an
+/// oversight: `views::service` and the modals write `j/k move`, lowercase and arrowless, in a
+/// hint row whose other entries are lowercase too. The Dashboard's foot is Title Case
+/// (`Enter Detail`, `? Help`), so it takes the ruled form. If the two should converge, that is
+/// a decision about the whole crate rather than about this screen.
+const NAVIGATE_KEYS: &str = "↑/k ↓/j";
+
 /// The keys that focus each cell, in the grid's own order — the hint v0.1 spells
 /// `p/l/s/r/a/e`. Letters, not numbers, because the digits are already the tab jumps.
 pub const FOCUS_KEYS: [char; CELLS] = ['p', 'l', 's', 'r', 'a', 'e'];
@@ -142,8 +152,34 @@ impl Dashboard {
     /// `F Global` was in v0.1's hint line and has never been here: nothing this crate has built
     /// makes a global filter mean anything yet, and a hint for an action that does nothing is
     /// the storyboard depicting a screen that does not exist.
+    /// # The foot follows the focused cell (Chris, 2026-09-07)
+    ///
+    /// Three cases, decided by how many rows the live cell holds — because a hint is a promise
+    /// that the key does something, and both of these keys are promises about rows:
+    ///
+    /// | rows in the focused cell | what the foot adds |
+    /// |---|---|
+    /// | none, or no cell focused | nothing |
+    /// | exactly one | `Enter Detail` |
+    /// | more than one | `↑/k ↓/j Navigate` and `Enter Detail` |
+    ///
+    /// A one-row cell offers no navigation because there is nowhere to navigate to, and an
+    /// empty one offers neither.
     fn hints(&self) -> Vec<(&'static str, &'static str)> {
-        vec![("?", "Help"), ("q", "Quit")]
+        let mut hints = Vec::new();
+        if let Attention::Zone(zone) = self.attention {
+            match self.cells.get(zone).map_or(0, |cell| cell.table().len()) {
+                0 => {}
+                1 => hints.push(("Enter", "Detail")),
+                _ => {
+                    hints.push((NAVIGATE_KEYS, "Navigate"));
+                    hints.push(("Enter", "Detail"));
+                }
+            }
+        }
+        hints.push(("?", "Help"));
+        hints.push(("q", "Quit"));
+        hints
     }
 }
 

@@ -32,6 +32,9 @@ pub mod status_band;
 pub mod status_block;
 pub mod storage;
 
+#[cfg(test)]
+mod tests;
+
 pub use cell::{CellPane, CellTable};
 pub use config::ConfigPane;
 pub use status_band::StatusBand;

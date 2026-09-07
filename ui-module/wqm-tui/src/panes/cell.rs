@@ -35,7 +35,7 @@ use ratatui::{
 
 use crate::format::{count_span, grouped};
 use crate::tokens;
-use crate::widgets::chrome::{Attention, ZoneHeading};
+use crate::widgets::chrome::{Attention, FocusMark, ZoneHeading};
 
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
@@ -62,6 +62,18 @@ pub const EMPTY: &str = "No data";
 
 /// Columns between one column of the table and the next.
 const COLUMN_GAP: u16 = 1;
+
+/// The marker column at the head of every row, cursor or not.
+///
+/// **Always present**, which is [`crate::panes::collections`]'s own answer to the same question
+/// and the reason this is a constant rather than a conditional inset: a gutter that appeared
+/// only on the focused cell would shift every name two columns to the right the moment a cell
+/// took focus, and the point of the cursor is to say *which row*, not to move the table.
+pub(crate) const GUTTER: u16 = 2;
+
+/// The mark on the row the cursor is on. Same glyph and same rung as
+/// [`crate::panes::collections`] — one data cursor in this crate, not two.
+const CURSOR_MARK: &str = "▸ ";
 
 /// Which edge a column's content is flush with.
 ///
@@ -227,6 +239,9 @@ pub struct CellTable {
     columns: Vec<Column>,
     rows: Vec<Vec<Cell>>,
     offset: usize,
+    /// Which drawn row carries the data cursor, counted from the first row on screen. `None`
+    /// on every cell but the focused one — §3 puts one cursor on a screen, not one per list.
+    cursor: Option<usize>,
 }
 
 impl CellTable {
@@ -235,7 +250,15 @@ impl CellTable {
             columns,
             rows,
             offset: 0,
+            cursor: None,
         }
+    }
+
+    /// Put the data cursor on a row. Taken from the pane rather than decided here: which cell
+    /// is live is the screen's fact, and a table that chose its own would be a second copy of it.
+    pub fn cursor(mut self, cursor: Option<usize>) -> Self {
+        self.cursor = cursor;
+        self
     }
 
     /// Scroll within the cell. The grid does not move; see the module docs.
@@ -290,25 +313,71 @@ impl CellTable {
 
 impl Widget for CellTable {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.is_empty() || area.height == 0 {
+        if area.is_empty() || area.height == 0 || area.width <= GUTTER {
             return;
         }
+        // Everything but the marker column is drawn in `body`; the marker column is the
+        // leftmost [`GUTTER`] columns of `area`, and stays empty except on the cursor row.
+        let body = Rect {
+            x: area.x + GUTTER,
+            width: area.width - GUTTER,
+            ..area
+        };
         let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
         let columns = Layout::horizontal(constraints)
             .spacing(COLUMN_GAP)
-            .split(Rect { height: 1, ..area });
+            .split(Rect { height: 1, ..body });
 
         self.header(&columns, buf);
 
+        let text_row = |offset: u16, text: String| {
+            (
+                Paragraph::new(Line::from(Span::styled(text, tokens::faint_style()))),
+                Rect {
+                    y: body.y + offset,
+                    height: 1,
+                    ..body
+                },
+            )
+        };
+
         if self.rows.is_empty() {
-            Paragraph::new(Line::from(Span::styled(EMPTY, tokens::faint_style())))
-                .render(crate::views::top::row(area, 1), buf);
+            let (paragraph, at) = text_row(1, EMPTY.to_string());
+            paragraph.render(at, buf);
             return;
         }
 
         let (shown, hidden) = self.budget(area.height);
         for (i, row) in self.rows.iter().skip(self.offset).take(shown).enumerate() {
             let y = area.y + 1 + i as u16;
+
+            // The tint goes down FIRST and across the cell's whole width, marker column
+            // included. Ratatui styles patch rather than replace, so every span drawn over it
+            // keeps its own hue and inherits this background.
+            if self.cursor == Some(i) {
+                buf.set_style(
+                    Rect {
+                        y,
+                        height: 1,
+                        ..area
+                    },
+                    Style::default().bg(tokens::cursor_bg()),
+                );
+                Paragraph::new(Line::from(Span::styled(
+                    CURSOR_MARK,
+                    Style::default().fg(tokens::cursor_mark()),
+                )))
+                .render(
+                    Rect {
+                        y,
+                        height: 1,
+                        width: GUTTER,
+                        ..area
+                    },
+                    buf,
+                );
+            }
+
             // Indexed rather than zipped by reference: a row may carry fewer cells than the
             // table has columns, and the column its value belongs to is its POSITION.
             for (at, (cell, column)) in row.iter().zip(&self.columns).enumerate() {
@@ -326,11 +395,8 @@ impl Widget for CellTable {
         }
 
         if hidden > 0 {
-            Paragraph::new(Line::from(Span::styled(
-                format!("… {hidden} more"),
-                tokens::faint_style(),
-            )))
-            .render(crate::views::top::row(area, 1 + shown as u16), buf);
+            let (paragraph, at) = text_row(1 + shown as u16, format!("… {hidden} more"));
+            paragraph.render(at, buf);
         }
     }
 }
@@ -399,19 +465,36 @@ impl CellPane {
     }
 }
 
+impl CellPane {
+    /// Whether the screen says THIS cell is the live one.
+    ///
+    /// Asked once and spent twice — on the heading's block and on the row that takes the data
+    /// cursor. Two readings of `attention` would be two chances for a cell to wear the block
+    /// and put the cursor somewhere else.
+    fn is_live(&self) -> bool {
+        matches!(self.attention, Attention::Zone(zone) if zone == self.zone)
+    }
+}
+
 impl Widget for CellPane {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if area.is_empty() {
             return;
         }
+        // [`FocusMark::Block`] is set HERE rather than passed in by the view, because a
+        // `CellPane` *is* a Dashboard grid cell — there is no other kind. Letting the view
+        // choose would make "a grid cell wearing the `▌` bar" a frame someone could build, and
+        // Chris ruled the block for these cells specifically (2026-09-07).
         let mut heading = ZoneHeading::new(self.heading(), self.zone, self.attention)
+            .focus_mark(FocusMark::Block)
             .under_modal(self.modal);
         if let Some(key) = self.hotkey {
             heading = heading.hotkey(key);
         }
+        let cursor = self.is_live().then_some(0);
         heading.render(crate::views::top::row(area, 0), buf);
         if area.height > 1 {
-            self.table.render(
+            self.table.cursor(cursor).render(
                 Rect {
                     y: area.y + 1,
                     height: area.height - 1,
