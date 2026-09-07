@@ -203,15 +203,13 @@ impl Widget for Dashboard {
             ..body
         };
         let (cells, rules) = grid(inset(grid_area));
+        // Read before the cells are consumed below. Every row has the same two x-ranges, so
+        // the first row's pair is the whole geometry a rule needs.
+        let (left, right) = (cells[0], cells[1]);
         for rule in rules {
-            crate::widgets::chrome::Rule::internal().render(
-                Rect {
-                    x: area.x,
-                    width: area.width,
-                    ..rule
-                },
-                buf,
-            );
+            for segment in rule_segments(area, rule, left, right) {
+                crate::widgets::chrome::Rule::internal().render(segment, buf);
+            }
         }
         for (zone, (pane, at)) in self.cells.into_iter().zip(cells).enumerate() {
             pane.placed(zone, self.attention)
@@ -229,6 +227,39 @@ impl Widget for Dashboard {
             buf,
         );
     }
+}
+
+/// The two segments one row rule is drawn in — the rule BREAKS over the column gap.
+///
+/// Chris, 2026-09-07: *"while the top separation and the bottom separation lines are
+/// continuous, the lines separating the columns should be discontinued with a blank in between
+/// marking the limits of the two columns"*. A continuous rule under a two-column grid draws one
+/// wide zone with a line across it; two segments draw two columns, and the gap between them
+/// says where one ends and the other begins — the same job the whitespace between the cells
+/// does, carried down through the seam instead of stopping at it.
+///
+/// **Only the ROW rules break.** The frame rules above and below the status block still run
+/// edge to edge, because they divide the screen rather than the grid.
+///
+/// Each segment runs from the screen's own edge to the far side of its column: the margin is
+/// inside the rule, as it has always been, so the seam still reaches the edge of the page. What
+/// it does not reach is the [`COLUMN_GAP`] columns in the middle, which are exactly the columns
+/// no cell occupies. Derived from the cell rectangles rather than from the margin and the gap
+/// width, so a layout change cannot leave the rule breaking somewhere the cells do not.
+pub fn rule_segments(screen: Rect, rule: Rect, left: Rect, right: Rect) -> [Rect; 2] {
+    let screen_end = screen.x + screen.width;
+    [
+        Rect {
+            x: screen.x,
+            width: (left.x + left.width).saturating_sub(screen.x),
+            ..rule
+        },
+        Rect {
+            x: right.x,
+            width: screen_end.saturating_sub(right.x),
+            ..rule
+        },
+    ]
 }
 
 /// The roll-up the Dashboard shows, from the same inputs its status block is built from.

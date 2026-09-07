@@ -126,20 +126,97 @@ fn nothing_is_drawn_between_the_two_columns() {
     assert!(checked >= 20, "only {checked} grid rows were checked");
 }
 
-/// The rules divide the ROWS and run edge to edge, as every other rule on this surface does.
+/// R3 (Chris, 2026-09-07): a row rule BREAKS over the column gap, and the frame rules do not.
+///
+/// *"while the top separation and the bottom separation lines are continuous, the lines
+/// separating the columns should be discontinued with a blank in between marking the limits of
+/// the two columns"*.
+///
+/// The two kinds are counted as well as inspected: exactly two rows on the screen are a rule
+/// from edge to edge, and they are the constant top's, not the grid's.
 #[test]
-fn the_row_separators_span_the_whole_width() {
+fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
     let buf = render(view(frames::populated()), WIDE, TALL);
     let full = RULE.repeat(WIDE as usize);
-    let separators = (0..TALL).filter(|y| line(&buf, *y) == full).count();
-    // Two frame-level rules from the constant top, plus the grid's own two.
+
+    // The full-width rules are the constant top's two — the top rule and the one that closes
+    // the status block. The grid's own two are no longer among them.
+    let continuous: Vec<u16> = (0..TALL).filter(|y| line(&buf, *y) == full).collect();
     assert_eq!(
-        separators,
-        2 + (GRID_ROWS - 1),
-        "expected the top rule, the block's closing rule and one rule per row seam"
+        continuous.len(),
+        2,
+        "the top rule and the block's closing rule, and nothing else: {continuous:?}"
+    );
+    let block_rule = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
+    assert!(
+        continuous.contains(&block_rule),
+        "the status block still closes with a rule across the full width: {continuous:?}"
+    );
+
+    // The grid's own rule rows, located from the layout the renderer uses rather than from a
+    // remembered y — a fixture of numbers would keep passing after the grid moved.
+    let (_, rules) = grid(crate::widgets::chrome::inset(Rect::new(
+        0,
+        crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL,
+        WIDE,
+        TALL - 1 - (crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
+    )));
+    let (_, cells) = heading_rows();
+    let gap = cells[0].x + cells[0].width..cells[1].x;
+    assert_eq!(rules.len(), GRID_ROWS - 1);
+    assert!(!gap.is_empty(), "there must be a gap for the rule to break over");
+
+    for rule in &rules {
+        let drawn = line(&buf, rule.y);
+        assert_ne!(drawn, full, "row {} runs straight through the gap", rule.y);
+        for x in gap.clone() {
+            assert_eq!(
+                buf.cell((x, rule.y)).expect("cell in area").symbol(),
+                " ",
+                "the gap column {x} of row {} carries a rule glyph",
+                rule.y
+            );
+        }
+        // Every column a cell occupies IS ruled, margins included: the break is the gap and
+        // nothing else. Checked at both ends of both segments, which is where an off-by-one in
+        // the arithmetic would land.
+        for x in [0, cells[0].x, cells[0].x + cells[0].width - 1, cells[1].x, WIDE - 1] {
+            assert_eq!(
+                buf.cell((x, rule.y)).expect("cell in area").symbol(),
+                RULE,
+                "column {x} of row {} is under a cell and should be ruled: {drawn:?}",
+                rule.y
+            );
+        }
+    }
+}
+
+/// The segments are derived from the cells, so the arithmetic is checked without a render.
+#[test]
+fn the_two_rule_segments_cover_every_column_except_the_gap() {
+    let screen = Rect::new(0, 0, WIDE, 1);
+    let (cells, rules) = grid(crate::widgets::chrome::inset(Rect::new(0, 0, WIDE, 27)));
+    let [left, right] = rule_segments(screen, rules[0], cells[0], cells[1]);
+
+    assert_eq!(left.x, screen.x, "the left segment starts at the page edge");
+    assert_eq!(
+        left.x + left.width,
+        cells[0].x + cells[0].width,
+        "and stops where the left cell does"
+    );
+    assert_eq!(right.x, cells[1].x, "the right segment starts where the right cell does");
+    assert_eq!(
+        right.x + right.width,
+        screen.x + screen.width,
+        "and runs to the page edge"
+    );
+    assert_eq!(
+        WIDE - left.width - right.width,
+        cells[1].x - (cells[0].x + cells[0].width),
+        "what the two segments leave uncovered is exactly the gap"
     );
 }
 
