@@ -88,6 +88,7 @@ pub struct Dashboard {
     /// the status block was built from, so the dot and the block cannot disagree.
     rollup: Rollup,
     attention: Attention,
+    modal: bool,
 }
 
 impl Dashboard {
@@ -108,11 +109,21 @@ impl Dashboard {
                 },
             },
             attention: Attention::None,
+            modal: false,
         }
     }
 
     pub fn attention(mut self, attention: Attention) -> Self {
         self.attention = attention;
+        self
+    }
+
+    /// Whether a modal owns the input. Told to the constant top **and** to every cell, because
+    /// VL §6's rule is about the whole page beneath the modal: the tab bar's jump digits and
+    /// the cells' key letters are the same affordance, and one going muted while the other
+    /// stayed lit would say the page was half live.
+    pub fn under_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
         self
     }
 
@@ -177,6 +188,7 @@ impl Widget for Dashboard {
         let hints = self.hints();
         let body = ConstantTop::new(DASHBOARD_TAB)
             .status(self.status)
+            .under_modal(self.modal)
             .content_floor(MIN_GRID_ROWS + 1)
             .draw(area, buf);
         if body.height < MIN_GRID_ROWS + 1 {
@@ -201,7 +213,10 @@ impl Widget for Dashboard {
             );
         }
         for (zone, (pane, at)) in self.cells.into_iter().zip(cells).enumerate() {
-            pane.placed(zone, self.attention).render(at, buf);
+            pane.placed(zone, self.attention)
+                .hotkey(FOCUS_KEYS[zone])
+                .under_modal(self.modal)
+                .render(at, buf);
         }
 
         let mut status = StatusLine::new(self.rollup);

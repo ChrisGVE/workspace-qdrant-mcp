@@ -343,6 +343,10 @@ pub struct CellPane {
     table: CellTable,
     zone: usize,
     attention: Attention,
+    /// The key that focuses this cell, accented in the heading. The **view** owns which key
+    /// that is — a cell that named its own would be a second copy of the screen's key table.
+    hotkey: Option<char>,
+    modal: bool,
 }
 
 impl CellPane {
@@ -353,6 +357,8 @@ impl CellPane {
             table,
             zone: 0,
             attention: Attention::None,
+            hotkey: None,
+            modal: false,
         }
     }
 
@@ -361,6 +367,21 @@ impl CellPane {
     pub fn placed(mut self, zone: usize, attention: Attention) -> Self {
         self.zone = zone;
         self.attention = attention;
+        self
+    }
+
+    /// The key that focuses this cell. Passed in rather than derived here for the same reason
+    /// `placed` takes the zone: the grid's key order is the view's fact, and the view reads it
+    /// from one table ([`crate::views::dashboard::FOCUS_KEYS`]).
+    pub fn hotkey(mut self, key: char) -> Self {
+        self.hotkey = Some(key);
+        self
+    }
+
+    /// Whether a modal owns the input — screen-level, and passed straight through to the
+    /// heading, which mutes its key letter under one.
+    pub fn under_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
         self
     }
 
@@ -382,8 +403,12 @@ impl Widget for CellPane {
         if area.is_empty() {
             return;
         }
-        ZoneHeading::new(self.heading(), self.zone, self.attention)
-            .render(crate::views::top::row(area, 0), buf);
+        let mut heading = ZoneHeading::new(self.heading(), self.zone, self.attention)
+            .under_modal(self.modal);
+        if let Some(key) = self.hotkey {
+            heading = heading.hotkey(key);
+        }
+        heading.render(crate::views::top::row(area, 0), buf);
         if area.height > 1 {
             self.table.render(
                 Rect {

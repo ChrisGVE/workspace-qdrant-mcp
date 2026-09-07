@@ -3,7 +3,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -64,6 +64,10 @@ pub struct ZoneHeading {
     title: String,
     index: usize,
     attention: Attention,
+    /// The one key that focuses this zone, when the screen offers one. `None` on a heading
+    /// nothing jumps to — the Service hub's zones are reached by tab, not by letter.
+    hotkey: Option<char>,
+    modal: bool,
 }
 
 impl ZoneHeading {
@@ -72,21 +76,83 @@ impl ZoneHeading {
             title: title.into(),
             index,
             attention,
+            hotkey: None,
+            modal: false,
         }
     }
 
-    fn spans(&self) -> Vec<Span<'static>> {
-        let style = match self.attention {
+    /// The key that focuses this zone. Its FIRST case-insensitive occurrence in the title is
+    /// drawn in [`tokens::accent`] — the same treatment the tab bar gives its jump digits
+    /// (Chris, 20260907).
+    ///
+    /// Derived, not listed: the letter is found in the title rather than carried beside it as
+    /// an index, so a heading that gains a count (`Projects` → `Projects (29)`) or is
+    /// relabelled from the collection registry cannot leave the accent pointing at the wrong
+    /// character. A key that is not in the title accents nothing, which is the honest frame:
+    /// there is no letter to press.
+    pub fn hotkey(mut self, key: char) -> Self {
+        self.hotkey = Some(key);
+        self
+    }
+
+    /// Whether a modal owns the input. Under one the key letter goes muted, as the tab bar's
+    /// digits do (VL §6) — nothing else about the heading changes, because the `▌` bar and
+    /// the weight are structure rather than highlight (§3).
+    pub fn under_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
+        self
+    }
+
+    /// The heading's own style — what every part of the title that is not the key wears.
+    fn title_style(&self) -> Style {
+        match self.attention {
             // §3's third row: the default view leaves every heading at the baseline.
             Attention::None => tokens::normal_style(),
             Attention::Zone(live) if live == self.index => {
                 tokens::normal_style().add_modifier(Modifier::BOLD)
             }
             Attention::Zone(_) => tokens::muted_style(),
+        }
+    }
+
+    /// The title, split around the one letter that focuses this zone.
+    ///
+    /// The letter keeps the heading's weight and takes only its hue, so a focused zone's key
+    /// is bold-and-accent and an unfocused one's is normal-and-accent. Replacing the whole
+    /// style would have made the key the same on every zone, which is the one thing the
+    /// heading's own rung is there to say.
+    fn title_spans(&self) -> Vec<Span<'static>> {
+        let style = self.title_style();
+        let at = self.hotkey.and_then(|key| {
+            self.title
+                .char_indices()
+                .find(|(_, c)| c.eq_ignore_ascii_case(&key))
+        });
+        let Some((at, letter)) = at else {
+            return vec![Span::styled(self.title.clone(), style)];
         };
+        let key_style = style.fg(if self.modal {
+            tokens::muted()
+        } else {
+            tokens::accent()
+        });
+        let before = &self.title[..at];
+        let after = &self.title[at + letter.len_utf8()..];
+        let mut spans = Vec::with_capacity(3);
+        if !before.is_empty() {
+            spans.push(Span::styled(before.to_string(), style));
+        }
+        spans.push(Span::styled(letter.to_string(), key_style));
+        if !after.is_empty() {
+            spans.push(Span::styled(after.to_string(), style));
+        }
+        spans
+    }
+
+    fn spans(&self) -> Vec<Span<'static>> {
         accent(self.index, self.attention)
             .into_iter()
-            .chain(std::iter::once(Span::styled(self.title.clone(), style)))
+            .chain(self.title_spans())
             .collect()
     }
 }
@@ -171,6 +237,95 @@ mod tests {
             2,
             "the accent is a PREFIX (r02), so focus moves the text: {idle:?} / {live:?}"
         );
+    }
+
+    /// The accent is ONE letter — the key — and every other cell of the heading keeps the
+    /// heading's own rung. A title whose key is not its initial is used deliberately, so the
+    /// "before" half of the split is not empty and can be checked.
+    #[test]
+    fn the_key_letter_is_accented_and_nothing_beside_it_is() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let buf = render(ZoneHeading::new("Last Errors", 0, Attention::Zone(0)).hotkey('e'));
+        let line = row(&buf, 0);
+        // `▌ Last Errors` — counted in CHARACTERS, since `▌` is three bytes and one column.
+        let x = line
+            .chars()
+            .position(|c| c == 'E')
+            .expect("the key letter is drawn") as u16;
+        assert_eq!(
+            style_at(&buf, x).fg,
+            Some(tokens::accent()),
+            "the key letter carries the accent: {line:?}"
+        );
+        // The heading's WEIGHT is untouched — a focused zone is bold, key letter included.
+        assert!(style_at(&buf, x).add_modifier.contains(Modifier::BOLD));
+        assert_eq!(
+            style_at(&buf, x).add_modifier,
+            style_at(&buf, x + 1).add_modifier,
+            "the letter wears the heading's modifiers, only its hue differs"
+        );
+        assert!(
+            !style_at(&buf, x).add_modifier.contains(Modifier::UNDERLINED),
+            "no underline — the tab bar's digits carry none either"
+        );
+
+        for neighbour in [x - 1, x + 1] {
+            assert_eq!(
+                style_at(&buf, neighbour).fg,
+                Some(tokens::normal()),
+                "column {neighbour} is heading text, not the key: {line:?}"
+            );
+        }
+    }
+
+    /// VL §6: under a modal the page drops every highlight. The key letter goes muted, and the
+    /// `▌` and the weight — structure, not highlight — do not move.
+    #[test]
+    fn a_modal_mutes_the_key_letter_and_leaves_the_bar_and_the_weight() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let live = render(ZoneHeading::new("Rules (0)", 1, Attention::Zone(1)).hotkey('r'));
+        let under = render(
+            ZoneHeading::new("Rules (0)", 1, Attention::Zone(1))
+                .hotkey('r')
+                .under_modal(true),
+        );
+
+        let line = row(&live, 0);
+        let x = line
+            .chars()
+            .position(|c| c == 'R')
+            .expect("the key letter is drawn") as u16;
+        assert_eq!(style_at(&live, x).fg, Some(tokens::accent()));
+        assert_eq!(style_at(&under, x).fg, Some(tokens::muted()));
+
+        assert_eq!(row(&under, 0), line, "a modal moves nothing");
+        assert!(row(&under, 0).starts_with(&format!("{FOCUS_BAR} ")));
+        assert!(
+            style_at(&under, x).add_modifier.contains(Modifier::BOLD),
+            "the focused zone keeps its weight under a modal"
+        );
+    }
+
+    /// A key that is not in the title accents nothing at all. The honest frame: there is no
+    /// letter to press, so no letter is lit — and nothing panics looking for one.
+    #[test]
+    fn a_key_absent_from_the_title_accents_no_cell() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let buf = render(ZoneHeading::new("Rules", 0, Attention::None).hotkey('z'));
+        assert_eq!(row(&buf, 0).trim_end(), "Rules");
+        for x in 0..crate::widgets::chrome::test_support::AREA.width {
+            assert_ne!(
+                style_at(&buf, x).fg,
+                Some(tokens::accent()),
+                "column {x} was accented for a key the title does not contain"
+            );
+        }
     }
 }
 
@@ -269,6 +424,48 @@ pub mod ingredient {
         }
     }
 
+    /// A heading whose key letter is lit, in the three states it can be in. The key is
+    /// *derived* from the title, so the frame shows a heading that carries a count — the
+    /// shape the Dashboard's cells actually have.
+    struct Keyed;
+
+    impl Ingredient for Keyed {
+        fn group(&self) -> &str {
+            "Zone Heading"
+        }
+        fn name(&self) -> &str {
+            "Keyed"
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::widgets::chrome::zone_heading"
+        }
+        fn description(&self) -> &str {
+            "The letter that focuses the zone carries `accent` — unfocused, focused, and muted under a modal"
+        }
+        fn props(&self) -> &[PropInfo] {
+            PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            let rows = Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .split(area);
+            ZoneHeading::new("Projects (29)", 0, Attention::None)
+                .hotkey('p')
+                .render(rows[0], buf);
+            ZoneHeading::new("Projects (29)", 0, Attention::Zone(0))
+                .hotkey('p')
+                .render(rows[1], buf);
+            ZoneHeading::new("Projects (29)", 0, Attention::Zone(0))
+                .hotkey('p')
+                .under_modal(true)
+                .render(rows[2], buf);
+        }
+    }
+
     pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         vec![
             Box::new(Pair {
@@ -281,6 +478,7 @@ pub mod ingredient {
                 description: "The lower zone is live: it takes the bar and the weight, the other recedes to muted",
                 attention: Attention::Zone(1),
             }),
+            Box::new(Keyed),
             Box::new(FocusShift),
         ]
     }

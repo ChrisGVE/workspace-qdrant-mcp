@@ -145,6 +145,12 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
+            "Under modal",
+            "The page beneath a modal: digits and cell keys muted, nothing else moves",
+            || populated().under_modal(true),
+            None,
+        )),
+        Box::new(Variant(
             "Small 80x24",
             "Eighty by twenty-four: the block collapses, the tab row runs off, and the cells lose rows before they lose columns",
             populated,

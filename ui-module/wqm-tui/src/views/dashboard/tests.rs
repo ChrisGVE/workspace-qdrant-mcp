@@ -263,3 +263,136 @@ fn a_narrow_cell_starves_its_flexible_column_rather_than_dropping_a_fixed_one() 
         line(&buf, 2)
     );
 }
+
+/// The first grid row, and the six cell rectangles as the renderer lays them out.
+///
+/// Reconstructed from the view's own `grid` over the same area the render uses, rather than
+/// from a table of coordinates: a fixture of numbers would keep passing after the layout moved
+/// and would then be checking the wrong columns.
+fn heading_rows() -> (u16, Vec<Rect>) {
+    let first = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL;
+    let (cells, _) = grid(crate::widgets::chrome::inset(Rect::new(
+        0,
+        first,
+        WIDE,
+        TALL - 1 - first,
+    )));
+    (first, cells)
+}
+
+/// One heading row, read back out of the buffer.
+fn heading_text(buf: &Buffer, cell: Rect) -> String {
+    (cell.x..cell.x + cell.width)
+        .map(|x| buf.cell((x, cell.y)).expect("cell in area").symbol())
+        .collect()
+}
+
+/// The structural guard that [`FOCUS_KEYS`] and the fixture's titles agree: every cell's
+/// heading contains the letter that focuses it, that letter carries the accent, and it is the
+/// only accented cell in the heading.
+///
+/// Written against the KEY TABLE rather than against a list of letters — a second list would
+/// pass while the screen offered `p/l/s/r/a/e` and lit something else.
+#[test]
+fn every_cell_accents_the_key_that_focuses_it() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(view(frames::populated()), WIDE, TALL);
+    let (_, cells) = heading_rows();
+
+    for (zone, cell) in cells.iter().enumerate() {
+        let key = FOCUS_KEYS[zone];
+        let text = heading_text(&buf, *cell);
+        let offset = text
+            .chars()
+            .position(|c| c.eq_ignore_ascii_case(&key))
+            .unwrap_or_else(|| {
+                panic!("zone {zone}'s heading {text:?} has no `{key}` for the foot to offer")
+            }) as u16;
+        for x in cell.x..cell.x + cell.width {
+            let fg = buf.cell((x, cell.y)).expect("cell in area").style().fg;
+            if x == cell.x + offset {
+                assert_eq!(
+                    fg,
+                    Some(crate::tokens::accent()),
+                    "zone {zone}: the `{key}` of {text:?} is what the foot says to press"
+                );
+            } else {
+                assert_ne!(
+                    fg,
+                    Some(crate::tokens::accent()),
+                    "zone {zone}: column {x} of {text:?} is accented, and it is not the key"
+                );
+            }
+        }
+    }
+}
+
+/// A focused cell carries BOTH marks: the `▌` that says which zone is live, and the accent on
+/// the letter that gets you there. They answer different questions, so neither replaces the
+/// other.
+#[test]
+fn a_focused_cell_keeps_its_bar_and_its_key() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    const RULES: usize = 3;
+    let buf = render(
+        view(frames::populated()).attention(Attention::Zone(RULES)),
+        WIDE,
+        TALL,
+    );
+    let (_, cells) = heading_rows();
+    let text = heading_text(&buf, cells[RULES]);
+    assert!(
+        text.starts_with(&format!(
+            "{} Rules",
+            crate::widgets::chrome::zone_heading::FOCUS_BAR
+        )),
+        "the focused cell keeps the bar: {text:?}"
+    );
+
+    let x = cells[RULES].x
+        + text
+            .chars()
+            .position(|c| c.eq_ignore_ascii_case(&FOCUS_KEYS[RULES]))
+            .expect("the key letter is drawn") as u16;
+    assert_eq!(
+        buf.cell((x, cells[RULES].y)).expect("cell in area").style().fg,
+        Some(crate::tokens::accent()),
+        "focus does not take the key's accent away: {text:?}"
+    );
+}
+
+/// VL §6: the page under a modal drops every highlight. No cell key is lit anywhere in the
+/// grid, and not one row moves — the same pairing `views::shell` pins for the tab bar.
+#[test]
+fn a_modal_mutes_every_cell_key_without_moving_a_row() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let live = render(view(frames::populated()), WIDE, TALL);
+    let under = render(view(frames::populated()).under_modal(true), WIDE, TALL);
+    let (first, _) = heading_rows();
+
+    let accented = |buf: &Buffer| {
+        (first..TALL - 1)
+            .flat_map(|y| (0..WIDE).map(move |x| (x, y)))
+            .filter(|(x, y)| {
+                buf.cell((*x, *y)).expect("cell in area").style().fg
+                    == Some(crate::tokens::accent())
+            })
+            .count()
+    };
+    assert_eq!(
+        accented(&live),
+        CELLS,
+        "one accented letter per cell, or this guard is checking nothing"
+    );
+    assert_eq!(accented(&under), 0, "a modal leaves no lit key behind it");
+
+    for y in 0..TALL {
+        assert_eq!(line(&live, y), line(&under, y), "row {y} moved under a modal");
+    }
+}
