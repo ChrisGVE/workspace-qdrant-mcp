@@ -77,14 +77,20 @@ const COLUMN_GAP: u16 = 3;
 const MIN_GRID_ROWS: u16 = GRID_ROWS as u16 * 3 + (GRID_ROWS as u16 - 1);
 
 /// The keys that move the data cursor within a cell — Chris's own spelling (2026-09-07),
-/// *"up/k down/j"*, with the arrows this crate writes beside their vim letters.
+/// *"down up/j k (without the spaces)"*: the two arrows, then the two vim letters, one token
+/// with a single slash between the pairs.
+///
+/// The first cut wrote `↑/k ↓/j` — each arrow paired with its own letter, the pairs separated
+/// by a space. That reads as **two** hints sharing one label, and it puts up before down when
+/// the letters underneath run j before k. Pairing arrow-with-arrow and letter-with-letter says
+/// the hint is one thing with two spellings, and both spellings then run in the same order.
 ///
 /// **This is not the crate's existing spelling**, and that is deliberate rather than an
 /// oversight: `views::service` and the modals write `j/k move`, lowercase and arrowless, in a
 /// hint row whose other entries are lowercase too. The Dashboard's foot is Title Case
 /// (`Enter Detail`, `? Help`), so it takes the ruled form. If the two should converge, that is
 /// a decision about the whole crate rather than about this screen.
-const NAVIGATE_KEYS: &str = "↑/k ↓/j";
+const NAVIGATE_KEYS: &str = "↓↑/jk";
 
 /// The keys that focus each cell, in the grid's own order — the hint v0.1 spells
 /// `p/l/s/r/a/e`. Letters, not numbers, because the digits are already the tab jumps.
@@ -161,7 +167,7 @@ impl Dashboard {
     /// |---|---|
     /// | none, or no cell focused | nothing |
     /// | exactly one | `Enter Detail` |
-    /// | more than one | `↑/k ↓/j Navigate` and `Enter Detail` |
+    /// | more than one | `↓↑/jk Navigate` and `Enter Detail` |
     ///
     /// A one-row cell offers no navigation because there is nowhere to navigate to, and an
     /// empty one offers neither.

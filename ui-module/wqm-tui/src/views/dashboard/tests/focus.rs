@@ -265,7 +265,7 @@ fn focusing_a_many_row_cell_offers_navigation_and_enter() {
         TALL - 1,
     );
     assert!(
-        foot.ends_with("↑/k ↓/j Navigate   Enter Detail   ? Help   q Quit"),
+        foot.ends_with("↓↑/jk Navigate   Enter Detail   ? Help   q Quit"),
         "{foot:?}"
     );
 }
