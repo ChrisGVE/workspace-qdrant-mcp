@@ -174,6 +174,49 @@ impl QueueState {
         }
     }
 
+    /// Enter on a search: count the hits over the projection and put the cursor on the first.
+    ///
+    /// **The counts are computed, never stated.** A frame that wrote `hits: 4` beside a
+    /// projection holding five would be a screen telling its reader something false, and no
+    /// guard reading the same frame could tell. So `3/17` and the cursor both come out of
+    /// [`hits`], and a guard checks the drawn numbers against it rather than against a literal.
+    ///
+    /// A term nobody matches gives `0/0` and leaves the cursor where it was: there is no first
+    /// hit to move to, and moving to row one would look like a hit.
+    pub fn accept_search(&self, buffer: &[QueueRow]) -> Self {
+        let term = self.dialog.term().unwrap_or_default().to_string();
+        let found = hits(&project(buffer, self), &term);
+        Self {
+            cursor: found.first().copied().unwrap_or(self.cursor),
+            dialog: Dialog::SearchOn {
+                hit: usize::from(!found.is_empty()),
+                hits: found.len(),
+                term,
+            },
+            ..self.clone()
+        }
+    }
+
+    /// Enter on a filter: the list reloads as the first page of what matched, and the count is
+    /// read off that reload rather than stated. The cursor goes back to the top, because the row
+    /// it was on may not have survived.
+    pub fn accept_filter(&self, buffer: &[QueueRow]) -> Self {
+        let term = self.dialog.term().unwrap_or_default().to_string();
+        let settled = Self {
+            dialog: Dialog::FilterOn { term, rows: 0 },
+            cursor: 0,
+            ..self.clone()
+        };
+        let rows = project(buffer, &settled).len();
+        match settled.dialog {
+            Dialog::FilterOn { term, .. } => Self {
+                dialog: Dialog::FilterOn { term, rows },
+                ..settled
+            },
+            _ => unreachable!("just built as FilterOn"),
+        }
+    }
+
     /// Esc: leave the dialog, and leave the selectors alone. See the module docs.
     pub fn escape(&self) -> Self {
         Self {

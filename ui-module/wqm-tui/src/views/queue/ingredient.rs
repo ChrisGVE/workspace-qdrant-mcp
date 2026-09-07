@@ -27,6 +27,24 @@ const PROPS: &[PropInfo] = &[
     },
 ];
 
+/// A search that has been accepted, with its counts read off the projection rather than typed.
+fn searching(term: &str) -> QueueState {
+    QueueState {
+        dialog: Dialog::SearchInput(term.into()),
+        ..QueueState::default()
+    }
+    .accept_search(&fixture::ROWS)
+}
+
+/// Likewise a filter.
+fn filtering(term: &str) -> QueueState {
+    QueueState {
+        dialog: Dialog::FilterInput(term.into()),
+        ..QueueState::default()
+    }
+    .accept_filter(&fixture::ROWS)
+}
+
 /// A Queue tab on the captured workspace, showing `state`.
 pub fn queue(state: QueueState) -> Queue {
     let (status, overall) = block(CAPTURED_ENTRIES, captured_queue());
@@ -112,6 +130,70 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
                 queue(QueueState {
                     cursor: crate::panes::list::LIST_PAGE,
                     ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        // --- the dialog slot's five states, and the selectors beside them ---------------
+        Box::new(Variant(
+            "Search input",
+            "`/` pressed: the prompt, then the crate's own edit-in-place field running to the end of the row",
+            || {
+                queue(QueueState {
+                    dialog: Dialog::SearchInput("reading_gui".into()),
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Search input, reloaded",
+            "`/` pressed again while a search is on: the same field, carrying the term rather than empty",
+            || queue(searching("reading_guide").open_search()),
+            None,
+        )),
+        Box::new(Variant(
+            "Search on",
+            "Enter: the term, which hit of how many, and how to leave — and the cursor on the first hit, ninety rows into the list",
+            || queue(searching("reading_guide")),
+            None,
+        )),
+        Box::new(Variant(
+            "Filter input",
+            "`f` pressed: the same field with the other verb — the two dialogs differ in one word, which is the point",
+            || {
+                queue(QueueState {
+                    dialog: Dialog::FilterInput("open-book".into()),
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Filter on",
+            "The list reloaded as what matched: a row count rather than a hit, and no n/N in the foot",
+            || queue(filtering("open-books")),
+            None,
+        )),
+        Box::new(Variant(
+            "Type P, status failed",
+            "Two selectors at the right of the slot, cumulative: three rows left, and the foot loses Navigate",
+            || {
+                queue(QueueState {
+                    kind: Some(Kind::Project),
+                    status: Some(Status::Failed),
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Search on, type P",
+            "A dialog and a selector on one row: does the slot read as two things, or as one long sentence?",
+            || {
+                queue(QueueState {
+                    kind: Some(Kind::Project),
+                    ..searching("reading_guide")
                 })
             },
             None,
