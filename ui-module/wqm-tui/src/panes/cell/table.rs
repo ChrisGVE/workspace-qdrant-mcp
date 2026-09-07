@@ -15,6 +15,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+use super::sort::{compare, grown, Direction, Sort};
 use crate::format::{count_span, grouped};
 use crate::tokens;
 
@@ -72,11 +73,20 @@ impl Align {
     }
 }
 
-/// One column: what it is called, which way it sits, and how wide it wants to be.
+/// One column: what it is called, which way it sits, how wide it wants to be, and the letter
+/// that sorts by it.
 pub struct Column {
     pub title: &'static str,
     pub align: Align,
     pub width: Constraint,
+    /// The key that sorts the table by this column, lit in the header while the table is
+    /// sortable. `None` on a column nothing sorts by.
+    ///
+    /// The letter is found in the TITLE ([`crate::widgets::chrome::keyed_spans`]) rather than
+    /// carried as an index, so a renamed column cannot leave the lit letter pointing at the
+    /// wrong character — and a key that is not in its own title lights nothing, which is the
+    /// honest frame for a key nobody can see to press.
+    pub sort_key: Option<char>,
 }
 
 impl Column {
@@ -86,6 +96,7 @@ impl Column {
             title,
             align: Align::Left,
             width: Constraint::Fill(1),
+            sort_key: None,
         }
     }
 
@@ -95,6 +106,7 @@ impl Column {
             title,
             align: Align::Right,
             width: Constraint::Length(width),
+            sort_key: None,
         }
     }
 
@@ -104,7 +116,23 @@ impl Column {
             title,
             align: Align::Left,
             width: Constraint::Length(width),
+            sort_key: None,
         }
+    }
+
+    /// The letter that sorts by this column (Chris, 2026-09-07): *"we highlight (using the
+    /// selection color) one letter of the column name, non-ambiguous with another of the 5
+    /// sections; when pressing on that letter the user can sort by the column: first press
+    /// ascending, second press descending"*.
+    ///
+    /// *Non-ambiguous* is a claim about a whole screen, not about a column, so it is checked
+    /// where the screen is — `views::dashboard::tests::sort` asserts every cell's keys are
+    /// unique within the cell and disjoint from
+    /// [`crate::views::dashboard::DASHBOARD_BOUND_KEYS`]. A column cannot know what else the
+    /// screen has bound, so it does not pretend to.
+    pub fn sort(mut self, key: char) -> Self {
+        self.sort_key = Some(key);
+        self
     }
 }
 
@@ -220,6 +248,14 @@ pub struct CellTable {
     /// Which drawn row carries the data cursor, counted from the first row on screen. `None`
     /// on every cell but the focused one — §3 puts one cursor on a screen, not one per list.
     cursor: Option<usize>,
+    /// Whether the sort keys are OFFERED — lit in the header, so the user can see what to
+    /// press. Taken from the pane, which reads it off the screen: a cell is sortable when it
+    /// is the live one AND holds more than one row, because a lit letter is a promise that the
+    /// key does something and there is nothing to reorder in a list of one.
+    sortable: bool,
+    /// How the table is sorted, if it is. Independent of `sortable`: the mark stays on the
+    /// column while the cell is read, and the offer only stands while it is live.
+    sort: Option<Sort>,
 }
 
 impl CellTable {
@@ -229,7 +265,45 @@ impl CellTable {
             rows,
             offset: 0,
             cursor: None,
+            sortable: false,
+            sort: None,
         }
+    }
+
+    /// Whether this table OFFERS its sort keys. See the field: the pane decides, from the
+    /// screen's own facts, and a table that decided for itself would be a second copy of them.
+    pub fn sortable(mut self, sortable: bool) -> Self {
+        self.sortable = sortable;
+        self
+    }
+
+    /// Sort the rows by one column, and remember which one for the header's mark.
+    ///
+    /// The rows are reordered HERE rather than at render time, so [`CellTable::rows`] answers
+    /// with what the cell will actually draw — a guard reading the data and a reader reading
+    /// the screen are then looking at one order rather than at two that ought to agree.
+    ///
+    /// Stable, so rows that compare equal keep the order the projection handed them in: the
+    /// eight rules all carry `0/0/0`, and sorting by `Queue` must not shuffle them into an
+    /// order nothing chose.
+    pub fn sorted(mut self, sort: Sort) -> Self {
+        let column = sort.column;
+        self.rows.sort_by(|a, b| {
+            let ordering = match (a.get(column), b.get(column)) {
+                (Some(a), Some(b)) => compare(a, b),
+                // A row too short to reach the sorted column has no value to compare, and
+                // sorts before one that has. Only reachable from a malformed fixture.
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            };
+            match sort.direction {
+                Direction::Asc => ordering,
+                Direction::Desc => ordering.reverse(),
+            }
+        });
+        self.sort = Some(sort);
+        self
     }
 
     /// Put the data cursor on a row. Taken from the pane rather than decided here: which cell
@@ -280,12 +354,47 @@ impl CellTable {
         (shown, remaining - shown)
     }
 
-    fn header(&self, cells: &[Rect], buf: &mut Buffer) {
-        for (column, area) in self.columns.iter().zip(cells) {
-            Paragraph::new(Line::from(Span::styled(column.title, Style::default().fg(tokens::header()))))
+    fn header(&self, body: Rect, cells: &[Rect], buf: &mut Buffer) {
+        for (at, (column, area)) in self.columns.iter().zip(cells).enumerate() {
+            let mark = self.sort.filter(|sort| sort.column == at);
+            let spans = self.header_spans(column, mark);
+            let needed: u16 = spans
+                .iter()
+                .map(|span| span.content.chars().count() as u16)
+                .sum();
+            // **Only the MARK may take room beyond the column.** A title too long for its own
+            // column is clipped, exactly as it was before there were marks — at 80 × 24 the
+            // `Active Projects` cell gives `Name` two columns and draws `Na`, and a header that
+            // grew to fit its own title would reach across `Branch` on every screen too narrow
+            // for it, sorted or not.
+            let at_rect = if mark.is_some() { grown(*area, body, needed) } else { *area };
+            Paragraph::new(Line::from(spans))
                 .alignment(column.align.to_ratatui())
-                .render(*area, buf);
+                .render(at_rect, buf);
         }
+    }
+
+    /// One column header: its title, the sort key lit if the table is offering its keys, and
+    /// the sort mark if this is the column the table is sorted by.
+    ///
+    /// The lit letter changes the HUE and nothing else (Chris, 2026-09-07): a column header on
+    /// this screen is not bold, and a key that arrived bold would read as a heading rather than
+    /// as a letter to press. [`tokens::selector`] is the reserved selection hue — the same one
+    /// the focused cell's block is filled with — so the screen says *selected* in one colour
+    /// whether it is naming a cell or a column.
+    ///
+    /// The mark is muted: it says which column is sorted, and it is never the thing being read.
+    /// It is appended with no space between it and the title — see [`grown`] for why the space
+    /// is what a five-column `Files` cannot afford.
+    fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
+        let rest = Style::default().fg(tokens::header());
+        let key = self.sortable.then_some(column.sort_key).flatten();
+        let mut spans =
+            crate::widgets::chrome::keyed_spans(column.title, key, rest.fg(tokens::selector()), rest);
+        if let Some(sort) = mark {
+            spans.push(Span::styled(sort.direction.glyph(), tokens::muted_style()));
+        }
+        spans
     }
 }
 
@@ -312,7 +421,7 @@ impl Widget for CellTable {
             .spacing(COLUMN_GAP)
             .split(Rect { height: 1, ..body });
 
-        self.header(&columns, buf);
+        self.header(body, &columns, buf);
 
         let text_row = |offset: u16, text: String| {
             (

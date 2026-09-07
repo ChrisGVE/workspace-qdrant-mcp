@@ -191,26 +191,12 @@ impl ZoneHeading {
     /// This heading asks no question about modals — [`crate::tokens::modal`] answers it.
     fn title_spans(&self) -> Vec<Span<'static>> {
         let style = self.title_style();
-        let at = self.hotkey.and_then(|key| {
-            self.title
-                .char_indices()
-                .find(|(_, c)| c.eq_ignore_ascii_case(&key))
-        });
-        let Some((at, letter)) = at else {
-            return vec![Span::styled(self.title.clone(), style)];
-        };
-        let key_style = style.fg(tokens::accent()).add_modifier(Modifier::BOLD);
-        let before = &self.title[..at];
-        let after = &self.title[at + letter.len_utf8()..];
-        let mut spans = Vec::with_capacity(3);
-        if !before.is_empty() {
-            spans.push(Span::styled(before.to_string(), style));
-        }
-        spans.push(Span::styled(letter.to_string(), key_style));
-        if !after.is_empty() {
-            spans.push(Span::styled(after.to_string(), style));
-        }
-        spans
+        crate::widgets::chrome::keyed_spans(
+            &self.title,
+            self.hotkey,
+            style.fg(tokens::accent()).add_modifier(Modifier::BOLD),
+            style,
+        )
     }
 
     /// The focused heading as the tab line draws its active tab: the title in an inverse block,

@@ -20,7 +20,7 @@
 //! produces the overflow tail, and `2'635/0/0` is what proves the queue triple's three hues
 //! survive being crammed into a nine-column field.
 
-use crate::panes::cell::{Cell, CellPane, CellTable, Column};
+use crate::panes::cell::{Cell, CellPane, CellTable, Column, Direction, Sort};
 
 /// A project as the Dashboard's first cell shows it. **NOT contract-bound (UIQ pending).**
 pub struct ProjectRow {
@@ -89,10 +89,10 @@ fn queue(triple: (u64, u64, u64)) -> Cell {
 pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::flex("Name"),
-            Column::number("Bch", 3),
-            Column::number("Files", 5),
-            Column::number("Queue", 9),
+            Column::flex("Name").sort('n'),
+            Column::number("Bch", 3).sort('b'),
+            Column::number("Files", 5).sort('f'),
+            Column::number("Queue", 9).sort('u'),
         ],
         rows.iter()
             .map(|r| {
@@ -111,10 +111,14 @@ pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
 pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::flex("Name"),
-            Column::number("Files", 5),
-            Column::number("Queue", 7),
-            Column::text("Sync", 4),
+            Column::flex("Name").sort('n'),
+            Column::number("Files", 5).sort('f'),
+            Column::number("Queue", 7).sort('u'),
+            // Five columns for a four-letter title: this is the LAST column of its cell, so
+            // there is no gap to its right for the sort mark to borrow, and a column that
+            // cannot show its own mark must not offer a key. The one column comes out of the
+            // flex `Name` beside it, which has forty to spare.
+            Column::text("Sync", 5).sort('y'),
         ],
         rows.iter()
             .map(|r| {
@@ -161,9 +165,9 @@ const ITEM_QUEUE_WIDTH: u16 = 7;
 pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::flex("Note"),
-            Column::text("Scope", SCOPE_WIDTH),
-            Column::number("Queue", ITEM_QUEUE_WIDTH),
+            Column::flex("Note").sort('n'),
+            Column::text("Scope", SCOPE_WIDTH).sort('c'),
+            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u'),
         ],
         rows.iter()
             .map(|r| {
@@ -186,9 +190,9 @@ pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
 pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::flex("Rule name"),
-            Column::text("Scope", SCOPE_WIDTH),
-            Column::number("Queue", ITEM_QUEUE_WIDTH),
+            Column::flex("Rule name").sort('n'),
+            Column::text("Scope", SCOPE_WIDTH).sort('c'),
+            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u'),
         ],
         rows.iter()
             .map(|r| {
@@ -206,10 +210,10 @@ pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
 pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::flex("Name"),
-            Column::text("Branch", 19),
-            Column::number("Files", 5),
-            Column::number("Queue", 8),
+            Column::flex("Name").sort('n'),
+            Column::text("Branch", 19).sort('b'),
+            Column::number("Files", 5).sort('f'),
+            Column::number("Queue", 8).sort('u'),
         ],
         rows.iter()
             .map(|r| {
@@ -230,7 +234,10 @@ pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
 /// a list of the most recent ones cannot make.
 pub fn last_errors(rows: &[ErrorRow]) -> CellPane {
     let table = CellTable::new(
-        vec![Column::text("Collection", 13), Column::flex("Error")],
+        vec![
+            Column::text("Collection", 13).sort('c'),
+            Column::flex("Error").sort('o'),
+        ],
         rows.iter()
             .map(|r| {
                 vec![
@@ -308,6 +315,15 @@ pub const ERRORS: [ErrorRow; 3] = [
     ErrorRow { collection: "[P] PlotSwift", error: "destination failure on success path (qdrant unreachable at QDRANT_URL)" },
 ];
 
+/// Which column of the Projects cell is `Files`, for the frame that sorts by it.
+///
+/// Named rather than written as `2` at the call site: the day a column is added ahead of it,
+/// a bare index sorts by a different column and nothing says so.
+pub const PROJECTS_FILES: usize = 2;
+/// Likewise `Name` and `Queue`, for the guards that exercise the other two comparators.
+pub const PROJECTS_NAME: usize = 0;
+pub const PROJECTS_QUEUE: usize = 3;
+
 /// The six cells of the captured workspace, row-major.
 pub fn populated() -> Vec<CellPane> {
     vec![
@@ -318,6 +334,20 @@ pub fn populated() -> Vec<CellPane> {
         active_projects(&ACTIVE, 2),
         last_errors(&ERRORS),
     ]
+}
+
+/// The captured workspace with its Projects cell sorted by `Files`, descending — the frame the
+/// sort ruling is judged from.
+///
+/// `Files` on purpose: it is the narrowest column that can be sorted, so it is the one that
+/// answers whether the `↓` mark can be shown at all without the table giving up a column.
+pub fn sorted_by_files() -> Vec<CellPane> {
+    let mut cells = populated();
+    cells[0] = projects(&PROJECTS, PROJECT_TOTAL).sorted(Sort {
+        column: PROJECTS_FILES,
+        direction: Direction::Desc,
+    });
+    cells
 }
 
 /// Six empty projections — the screen a fresh install shows, and the one place `No data`

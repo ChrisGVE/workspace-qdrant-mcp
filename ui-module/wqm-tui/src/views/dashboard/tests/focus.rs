@@ -439,6 +439,13 @@ fn dropping_pts_gives_its_columns_to_the_name() {
         bch, NAME_WIDTH + 1,
         "the Name column is {NAME_WIDTH} wide with one gap after it: {header:?}"
     );
+    // Measured from the cell's own left edge, so the header has to START there — with the old
+    // two-column gutter back, the gutter takes exactly the two columns `Name` gained and `Bch`
+    // lands on the very same x, which would leave the assertion above green.
+    assert!(
+        header.starts_with('N'),
+        "the Name column starts at the cell's own first column: {header:?}"
+    );
     assert!(
         bch - 1 > NAME_WIDTH_WITH_PTS,
         "the measured Name column must be wider than the {NAME_WIDTH_WITH_PTS} it had while \

@@ -35,6 +35,7 @@
 
 pub mod app_bar;
 pub mod freshness;
+pub mod keyed;
 pub mod pane_selector;
 pub mod rule;
 pub mod status_line;
@@ -42,6 +43,7 @@ pub mod title_bar;
 pub mod zone_heading;
 
 pub use app_bar::AppBar;
+pub use keyed::keyed_spans;
 pub use pane_selector::PaneSelector;
 pub use rule::{Rule, Weight};
 pub use status_line::StatusLine;

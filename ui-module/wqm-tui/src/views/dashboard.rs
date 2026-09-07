@@ -103,6 +103,30 @@ const NAVIGATE_KEYS: &str = "↓↑/jk";
 /// `p/l/s/r/a/e`. Letters, not numbers, because the digits are already the tab jumps.
 pub const FOCUS_KEYS: [char; CELLS] = ['p', 'l', 's', 'r', 'a', 'e'];
 
+/// **Every key this screen has already spoken for.** A column's sort key must not be one of
+/// them — Chris's own requirement (2026-09-07): the lit letter is *"non-ambiguous with another
+/// of the 5 sections"*.
+///
+/// One list rather than a rule someone applies from memory, so the day a key is bound the
+/// collision is a red test rather than a surprise on the screen
+/// (`views::dashboard::tests::sort`). [`FOCUS_KEYS`] is spread into it rather than repeated:
+/// two lists of the six focus letters is two places for them to disagree.
+///
+/// `Enter` is bound too and is not in here, because it is not a letter — a column cannot
+/// collide with it, and a `char` list is the wrong shape to say so.
+pub const DASHBOARD_BOUND_KEYS: [char; CELLS + 4] = [
+    FOCUS_KEYS[0],
+    FOCUS_KEYS[1],
+    FOCUS_KEYS[2],
+    FOCUS_KEYS[3],
+    FOCUS_KEYS[4],
+    FOCUS_KEYS[5],
+    'q', // quit
+    '?', // help
+    'j', // cursor down
+    'k', // cursor up
+];
+
 /// The Dashboard, composed.
 pub struct Dashboard {
     cells: Vec<CellPane>,

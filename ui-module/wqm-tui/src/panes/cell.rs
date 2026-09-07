@@ -31,10 +31,12 @@ use crate::widgets::chrome::{Attention, FocusMark, ZoneHeading};
 
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
+pub mod sort;
 pub mod table;
 #[cfg(test)]
 mod tests;
 
+pub use sort::{Direction, Sort};
 pub use table::{Align, Cell, CellTable, Column, EMPTY};
 
 /// A cell of the grid: [`ZoneHeading`] over a [`CellTable`].
@@ -49,6 +51,18 @@ pub struct CellPane {
     /// The key that focuses this cell, accented in the heading. The **view** owns which key
     /// that is — a cell that named its own would be a second copy of the screen's key table.
     hotkey: Option<char>,
+}
+
+impl CellPane {
+    /// Sort this cell's rows by one of its columns.
+    ///
+    /// Applied to the table straight away rather than held here and passed down at render
+    /// time, so [`CellPane::table`] answers with the order the cell will draw — a guard reading
+    /// the data and a reader reading the screen then look at one order rather than two.
+    pub fn sorted(mut self, sort: Sort) -> Self {
+        self.table = self.table.sorted(sort);
+        self
+    }
 }
 
 impl CellPane {
@@ -122,9 +136,14 @@ impl Widget for CellPane {
             heading = heading.hotkey(key);
         }
         let cursor = self.is_live().then_some(0);
+        // A cell offers its sort keys only while it is the live one AND holds more than one
+        // row: a lit letter is a promise that the key does something, and there is nothing to
+        // reorder in a list of one. Same shape as the foot's own three cases, and read off the
+        // same two facts, so the screen cannot offer a key the foot does not.
+        let sortable = self.is_live() && self.table.len() > 1;
         heading.render(crate::views::top::row(area, 0), buf);
         if area.height > 1 {
-            self.table.cursor(cursor).render(
+            self.table.sortable(sortable).cursor(cursor).render(
                 Rect {
                     y: area.y + 1,
                     height: area.height - 1,

@@ -107,9 +107,17 @@ fn at_80x24_the_active_projects_name_column_is_two_columns_rather_than_none() {
     // `Branch` is left-aligned in the column after `Name`, and one gap column separates them.
     let measured = branch - heading_x - 1;
     assert_eq!(measured, NAME_WIDTH, "the Name column is {NAME_WIDTH} wide at 80x24: {header:?}");
-    assert!(
-        measured > NAME_WIDTH_WITH_GUTTER,
-        "a Name column of {NAME_WIDTH_WITH_GUTTER} columns is a column that draws nothing: \
-         {header:?}"
+
+    // The width alone does not say it: with the two-column gutter back, the gutter takes
+    // exactly the two columns `Name` has and `Branch` lands on the very same x — the distance
+    // between the heading and `Branch` is invariant across the change it is meant to detect.
+    // What is NOT invariant is whether the Name column draws anything, so that is what is read:
+    // the header row must begin, at the cell's own first column, with the (clipped) title.
+    let drawn: String = (heading_x..heading_x + NAME_WIDTH + 1)
+        .map(|x| buf.cell((x, heading_y + 1)).expect("cell in area").symbol())
+        .collect();
+    assert_eq!(
+        drawn, "Na ",
+        "a Name column of {NAME_WIDTH_WITH_GUTTER} columns draws nothing at all: {header:?}"
     );
 }

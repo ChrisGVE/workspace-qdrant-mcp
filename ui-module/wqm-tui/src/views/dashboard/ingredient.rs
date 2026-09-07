@@ -143,13 +143,26 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         // the focused cell" is a rule about the SET, and one frame cannot show a set.
         Box::new(Variant(
             "Focus on Rules",
-            "Eight rows: the heading takes the selector block, the first row takes the cursor, and the foot offers Navigate and Enter",
+            "Eight rows: the heading takes the block, the first row takes the cursor, the column keys light up, and the foot offers Navigate and Enter",
             || populated().attention(Attention::Zone(3)),
             None,
         )),
         Box::new(Variant(
+            "Focus on Projects, sorted by Files ↓",
+            "The sort ruling in one frame: `f` lit in the selector hue, `↓` after the name, and the seven projects in Files order",
+            || {
+                dashboard(
+                    frames::sorted_by_files(),
+                    captured_queue(),
+                    [Health::Healthy, Health::Degraded, Health::Healthy, Health::Healthy],
+                )
+                .attention(Attention::Zone(0))
+            },
+            None,
+        )),
+        Box::new(Variant(
             "Focus on Libraries",
-            "One row: the cursor has nowhere to go, so the foot offers Enter and no navigation",
+            "One row: nothing to navigate and nothing to sort, so no column key is lit and the foot offers Enter alone",
             || populated().attention(Attention::Zone(1)),
             None,
         )),
