@@ -98,13 +98,9 @@ fn the_key_letter_is_accented_and_nothing_beside_it_is() {
         Some(tokens::accent()),
         "the key letter carries the accent: {line:?}"
     );
-    // The heading's WEIGHT is untouched — a focused zone is bold, key letter included.
+    // A focused zone is bold, key letter included — and the letter is bold on its own account
+    // too, which the default-heading guard below is what actually measures.
     assert!(style_at(&buf, x).add_modifier.contains(Modifier::BOLD));
-    assert_eq!(
-        style_at(&buf, x).add_modifier,
-        style_at(&buf, x + 1).add_modifier,
-        "the letter wears the heading's modifiers, only its hue differs"
-    );
     assert!(
         !style_at(&buf, x).add_modifier.contains(Modifier::UNDERLINED),
         "no underline — the tab bar's digits carry none either"
@@ -165,4 +161,62 @@ fn a_key_absent_from_the_title_accents_no_cell() {
             "column {x} was accented for a key the title does not contain"
         );
     }
+}
+
+/// R1 (Chris, 2026-09-07: *"so that they are more visible on the screen"*): the key letter
+/// carries BOTH the accent hue and bold, and the bold is the letter's own rather than the
+/// heading's.
+///
+/// Measured on a heading at the DEFAULT rung, which is the only frame where the two can be
+/// told apart: on a focused heading every cell is bold already, so a letter that had lost its
+/// weight would still read as bold and the guard would pass on a broken screen.
+#[test]
+fn the_key_letter_is_bold_where_the_heading_around_it_is_not() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(ZoneHeading::new("Projects (29)", 0, Attention::None).hotkey('p'));
+    let line = row(&buf, 0);
+    let x = line
+        .chars()
+        .position(|c| c == 'P')
+        .expect("the key letter is drawn") as u16;
+
+    let key = style_at(&buf, x);
+    assert_eq!(key.fg, Some(tokens::accent()), "hue: {line:?}");
+    assert!(key.add_modifier.contains(Modifier::BOLD), "weight: {line:?}");
+    assert!(
+        !key.add_modifier.contains(Modifier::UNDERLINED),
+        "bold was added, not underline: {line:?}"
+    );
+
+    // The cell AFTER the letter is ordinary heading text, and stays ordinary.
+    let after = style_at(&buf, x + 1);
+    assert!(
+        !after.add_modifier.contains(Modifier::BOLD),
+        "column {} is the `r` of Projects, not the key: {line:?}",
+        x + 1
+    );
+    assert_eq!(after.fg, Some(tokens::normal()));
+}
+
+/// Under a modal the letter's HUE drops and its WEIGHT does not — the same split the selected
+/// tab has always had (VL §6). Weight is structure; hue is highlight.
+#[test]
+fn a_modal_takes_the_key_letters_hue_and_leaves_its_weight() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let under = render(
+        ZoneHeading::new("Projects (29)", 0, Attention::None)
+            .hotkey('p')
+            .under_modal(true),
+    );
+    let style = style_at(&under, 0);
+    assert_eq!(style.fg, Some(tokens::muted()), "the hue goes");
+    assert!(
+        style.add_modifier.contains(Modifier::BOLD),
+        "the weight stays: {:?}",
+        row(&under, 0)
+    );
 }

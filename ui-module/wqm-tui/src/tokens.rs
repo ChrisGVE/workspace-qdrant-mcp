@@ -871,8 +871,10 @@ fn role(from_theme: fn(&ThemePalette) -> Color, slot: Color) -> Color {
 /// spend here precisely because it is not reserved: a digit painted in the selector's `info`
 /// would read as a selection, and one painted in a health hue would read as an alarm.
 ///
-/// No underline and no bold with it (Chris, 20260906) — the hue is the whole signal, so the
-/// digit stays quieter than the inverted block beside it.
+/// No underline, but **bold** with it (Chris, 20260907: *"so that they are more visible on the
+/// screen"*) — superseding 20260906's *"the hue is the whole signal"*, which left the digit
+/// quieter than the block beside it and, at one column wide, quieter than it needed to be. The
+/// weight survives a modal; the hue does not (VL §6).
 ///
 /// Magenta where no theme is chosen: the bare-library fallbacks are ANSI slots, and magenta is
 /// the only one left after cyan (the selector) and green/yellow/red (the three health states).

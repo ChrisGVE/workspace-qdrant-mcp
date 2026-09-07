@@ -95,9 +95,10 @@ impl ZoneHeading {
         self
     }
 
-    /// Whether a modal owns the input. Under one the key letter goes muted, as the tab bar's
-    /// digits do (VL §6) — nothing else about the heading changes, because the `▌` bar and
-    /// the weight are structure rather than highlight (§3).
+    /// Whether a modal owns the input. Under one the key letter's HUE goes muted, as the tab
+    /// bar's digits do (VL §6) — nothing else about the heading changes, because the `▌` bar
+    /// and the weight, the key letter's bold included, are structure rather than highlight
+    /// (§3).
     pub fn under_modal(mut self, modal: bool) -> Self {
         self.modal = modal;
         self
@@ -117,10 +118,14 @@ impl ZoneHeading {
 
     /// The title, split around the one letter that focuses this zone.
     ///
-    /// The letter keeps the heading's weight and takes only its hue, so a focused zone's key
-    /// is bold-and-accent and an unfocused one's is normal-and-accent. Replacing the whole
-    /// style would have made the key the same on every zone, which is the one thing the
-    /// heading's own rung is there to say.
+    /// The letter takes the accent hue **and bold** (Chris, 2026-09-07: *"so that they are
+    /// more visible on the screen"*), and keeps everything else the heading wears. Weight is
+    /// added rather than substituted, so a focused zone's key is still distinguishable from an
+    /// unfocused one's by the rung underneath it — replacing the whole style would have made
+    /// the key identical on every zone, which is the one thing the heading's own rung says.
+    ///
+    /// Bold is not a highlight, so it survives a modal (§6): under one the hue drops to muted
+    /// and the weight stays, exactly as the selected tab keeps its bold.
     fn title_spans(&self) -> Vec<Span<'static>> {
         let style = self.title_style();
         let at = self.hotkey.and_then(|key| {
@@ -131,11 +136,13 @@ impl ZoneHeading {
         let Some((at, letter)) = at else {
             return vec![Span::styled(self.title.clone(), style)];
         };
-        let key_style = style.fg(if self.modal {
-            tokens::muted()
-        } else {
-            tokens::accent()
-        });
+        let key_style = style
+            .fg(if self.modal {
+                tokens::muted()
+            } else {
+                tokens::accent()
+            })
+            .add_modifier(Modifier::BOLD);
         let before = &self.title[..at];
         let after = &self.title[at + letter.len_utf8()..];
         let mut spans = Vec::with_capacity(3);

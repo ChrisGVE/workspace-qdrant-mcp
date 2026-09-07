@@ -243,11 +243,16 @@ impl Widget for TabBar {
             }
             spans.push(Span::styled(
                 tab.hotkey_char().to_string(),
-                Style::default().fg(if self.modal {
-                    tokens::muted()
-                } else {
-                    tokens::accent()
-                }),
+                Style::default()
+                    .fg(if self.modal {
+                        tokens::muted()
+                    } else {
+                        tokens::accent()
+                    })
+                    // Bold as well as the hue (Chris, 2026-09-07). Weight is not a highlight —
+                    // the selected tab keeps its own under a modal — so the digit keeps this
+                    // when the accent drops to muted.
+                    .add_modifier(Modifier::BOLD),
             ));
 
             if i == self.active {
@@ -330,6 +335,52 @@ mod tests {
         let buf = render(TabBar::new(vec![Tab::new(1, "Dashboard"), Tab::new(2, "Queue")], 0), 40);
         assert_eq!(style_of(&buf, "2").fg, Some(tokens::accent()));
         assert_eq!(style_of(&buf, "Queue").fg, Some(tokens::muted()));
+    }
+
+    /// R1 (Chris, 2026-09-07): the jump digit is bold as well as accented, and the label beside
+    /// it is neither.
+    ///
+    /// Read off an UNSELECTED tab: the selected tab's label is bold in its own right, so a
+    /// digit measured there would be surrounded by weight and the guard could not tell a bold
+    /// digit from a bold neighbourhood.
+    #[test]
+    fn the_jump_digit_is_bold_and_the_label_beside_it_is_not() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let buf = render(TabBar::new(vec![Tab::new(1, "Dashboard"), Tab::new(2, "Queue")], 0), 40);
+        let digit = style_of(&buf, "2");
+        assert_eq!(digit.fg, Some(tokens::accent()));
+        assert!(digit.add_modifier.contains(Modifier::BOLD), "{:?}", row(&buf));
+        assert!(
+            !digit.add_modifier.contains(Modifier::UNDERLINED),
+            "bold, never underline — §3 keeps the hue and the weight and nothing else"
+        );
+        assert!(
+            !style_of(&buf, "Queue").add_modifier.contains(Modifier::BOLD),
+            "the label is not part of the jump hint: {:?}",
+            row(&buf)
+        );
+    }
+
+    /// A modal takes the digit's hue and leaves its weight — the split VL §6 already draws for
+    /// the selected tab, now applied to the hint beside it.
+    #[test]
+    fn a_modal_takes_the_jump_digits_hue_and_leaves_its_weight() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let buf = render(
+            TabBar::new(vec![Tab::new(1, "Dashboard"), Tab::new(2, "Queue")], 0).under_modal(true),
+            40,
+        );
+        let digit = style_of(&buf, "2");
+        assert_eq!(digit.fg, Some(tokens::muted()), "the hue goes");
+        assert!(
+            digit.add_modifier.contains(Modifier::BOLD),
+            "the weight stays: {:?}",
+            row(&buf)
+        );
     }
 
     /// Tab 10 paints ONLY the `0`; the leading `1` recedes with the label.
