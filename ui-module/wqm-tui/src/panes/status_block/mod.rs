@@ -74,7 +74,14 @@ pub const QUEUE_LABELS: [&str; 3] = ["pending", "in progress", "failed"];
 /// not on any one of its counts.
 pub const QUEUE_HEAD: &str = "queue";
 
-/// Cells a count is right-aligned into: enough for `9 999 999`, grouped.
+/// What separates one group of three digits from the next — see [`grouped`].
+///
+/// Named rather than inlined so the one character the whole rule is about is greppable, and so
+/// a test can assert against the constant instead of retyping a literal that would then agree
+/// with itself.
+pub const GROUP_SEPARATOR: char = '\'';
+
+/// Cells a count is right-aligned into: enough for `9'999'999`, grouped.
 ///
 /// A fixed field rather than a measured one so that every count on the row ends on the same
 /// relative cell whatever its magnitude — a right edge that moved with the number would undo
@@ -246,18 +253,38 @@ pub fn column_width(area_width: u16) -> u16 {
     even_share(area_width).clamp(MIN_COLUMN, MAX_COLUMN)
 }
 
-/// A count, grouped in threes with a **plain** space: `1 240`, `9 999 999`.
+/// A count, grouped in threes with an **ASCII apostrophe**: `1'240`, `9'999'999`.
 ///
-/// Chris's standing rule for an isolated number. Plain rather than thin or narrow because
-/// `U+2009`/`U+202F` are not width-1 in every terminal, and a separator whose width depends on
-/// the emulator changes the cell a right-aligned number ends on — which is the one property
-/// this row is built around.
+/// Chris's standing rule for an isolated number anywhere in this TUI, set 20260907. Swiss
+/// style, and `U+0027` specifically — **not** `U+2019` (the typographic right single quote,
+/// which is what a word processor substitutes) and no longer a space.
+///
+/// # Three separators have been considered and two are wrong
+///
+/// A **thin or narrow space** (`U+2009`, `U+202F`) is what typography asks for and is unusable
+/// here: neither is width-1 in every terminal, and a separator whose width depends on the
+/// emulator changes the cell a right-aligned number ends on — which is the one property the
+/// queue row is built around. A **plain space** was the first answer and survives that test,
+/// but it makes one figure look like two: `1 240 pending` reads as a count of 1 beside a count
+/// of 240 until the eye resolves it. The apostrophe is width-1 like the space and *binds*
+/// rather than separates, so the number reads as one thing.
+///
+/// `U+2019` would look right and behave badly: it is width-1 in most terminals and not all,
+/// and it is what an autocorrecting editor produces from `'`, so a figure copied off the screen
+/// and back into a config would not round-trip. The guard names both rejects.
+///
+/// # This is the TUI's rule, not this pane's
+///
+/// It lives here because the queue row is the only thing that currently renders a count. **Any
+/// future figure — a graph's node count, a tag tally, a byte size — calls this rather than
+/// formatting its own**, or the surface acquires two number styles and nobody notices which
+/// screen has which. When a second consumer arrives this belongs in a module of its own.
 pub fn grouped(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, digit) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(' ');
+            out.push(GROUP_SEPARATOR);
         }
         out.push(digit);
     }

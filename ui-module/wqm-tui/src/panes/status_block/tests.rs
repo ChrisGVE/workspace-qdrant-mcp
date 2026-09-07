@@ -245,7 +245,7 @@ fn a_count_ends_under_its_own_columns_glyph() {
     let line = row(&buf, QUEUE_ROW);
     let chars: Vec<char> = line.chars().collect();
 
-    for (i, drawn) in ["1 240", "8", "3"].iter().enumerate() {
+    for (i, drawn) in ["1'240", "8", "3"].iter().enumerate() {
         let glyph_column = MARGIN + column * (i as u16 + 1);
         let end = glyph_column as usize;
         let start = end + 1 - drawn.chars().count();
@@ -263,25 +263,38 @@ fn a_count_ends_under_its_own_columns_glyph() {
     }
 }
 
-/// Chris's standing rule for an isolated number: grouped in threes, with a PLAIN space.
+/// Chris's standing rule for an isolated number (20260907): grouped in threes, separated by an
+/// ASCII apostrophe — Swiss style.
 ///
-/// Plain, not thin or narrow: those are not width-1 in every terminal, and a separator that
-/// changes width changes the column a right-aligned number ends on.
+/// Every reject is named, because each is wrong for a different reason and a guard checking
+/// only the accepted value would pass against all of them. `U+2019` looks identical in most
+/// fonts and is what an autocorrecting editor substitutes for `'`, so a figure copied off the
+/// screen would not round-trip. The plain space was the previous answer and is width-1 like the
+/// apostrophe, so no measurement catches it — only this assertion does. The thin and narrow
+/// spaces are not width-1 everywhere, which would move the cell a right-aligned count ends on.
 #[test]
-fn a_count_is_grouped_in_threes_with_a_plain_space() {
+fn a_count_is_grouped_in_threes_with_an_ascii_apostrophe() {
     assert_eq!(grouped(0), "0");
     assert_eq!(grouped(999), "999");
-    assert_eq!(grouped(1_240), "1 240");
-    assert_eq!(grouped(9_999_999), "9 999 999");
+    assert_eq!(grouped(1_240), "1'240");
+    assert_eq!(grouped(9_999_999), "9'999'999");
+    assert_eq!(GROUP_SEPARATOR, '\u{27}', "the rule is U+0027 exactly");
     assert_eq!(
         grouped(9_999_999).chars().count() as u16,
         COUNT_WIDTH,
         "COUNT_WIDTH is the width of the widest count the field is sized for"
     );
-    assert!(
-        !grouped(1_240).contains('\u{202f}') && !grouped(1_240).contains('\u{2009}'),
-        "the separator is a plain space, not a narrow or thin one"
-    );
+    for (reject, what) in [
+        ('\u{2019}', "the typographic right single quote"),
+        (' ', "a plain space"),
+        ('\u{202f}', "a narrow no-break space"),
+        ('\u{2009}', "a thin space"),
+    ] {
+        assert!(
+            !grouped(1_240).contains(reject),
+            "the separator must not be {what}"
+        );
+    }
 }
 
 /// The reason `MIN_COLUMN` had to grow: at the narrowest aligned width, a full-width count
