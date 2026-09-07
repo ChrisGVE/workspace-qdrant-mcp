@@ -9,7 +9,7 @@
 
 use ratatui::layout::Rect;
 
-use super::table::Cell;
+use super::value::Cell;
 
 /// Which way a sorted column runs. Chris's own sequence (2026-09-07): *"first press
 /// ascending, second press descending"*.
@@ -48,13 +48,23 @@ pub struct Sort {
 /// reads is alphabetical, not ASCII), and **a queue triple by its first number** — the pending
 /// count, which is the one that says how much work is waiting.
 ///
+/// The Queue tab added two more, and both are the same rule read again: **a value is ordered by
+/// what it MEANS, never by how it prints.** A [`Cell::Measured`] compares on the magnitude it
+/// carries, so `4.0 MB` sorts above `903.5 KB` where a string comparison would file it under
+/// `9`; a [`Cell::Tinted`] compares on its word, case-insensitively, exactly as text does —
+/// its hue is a fact about the state, not a rank, and ordering by colour would invent one.
+///
 /// Two values of different shapes compare equal. A column holding both is a defect in the
 /// projection that built it, and inventing an order between a name and a number would hide it.
-pub(super) fn compare(a: &Cell, b: &Cell) -> std::cmp::Ordering {
+pub(crate) fn compare(a: &Cell, b: &Cell) -> std::cmp::Ordering {
     match (a, b) {
         (Cell::Num(a), Cell::Num(b)) => a.cmp(b),
         (Cell::Text(a), Cell::Text(b)) => a.to_lowercase().cmp(&b.to_lowercase()),
         (Cell::Queue { pending: a, .. }, Cell::Queue { pending: b, .. }) => a.cmp(b),
+        (Cell::Measured { order: a, .. }, Cell::Measured { order: b, .. }) => a.cmp(b),
+        (Cell::Tinted { text: a, .. }, Cell::Tinted { text: b, .. }) => {
+            a.to_lowercase().cmp(&b.to_lowercase())
+        }
         _ => std::cmp::Ordering::Equal,
     }
 }
@@ -82,7 +92,7 @@ pub(super) fn compare(a: &Cell, b: &Cell) -> std::cmp::Ordering {
 /// A last column must hold its own mark, which is why `Sync` is five columns wide for a
 /// four-letter title — `views::dashboard::tests::sort` guards that every sortable column can
 /// actually show its mark, and that none of them clips a neighbour to do it.
-pub(super) fn grown(area: Rect, body: Rect, needed: u16) -> Rect {
+pub(crate) fn grown(area: Rect, body: Rect, needed: u16) -> Rect {
     if needed <= area.width {
         return area;
     }

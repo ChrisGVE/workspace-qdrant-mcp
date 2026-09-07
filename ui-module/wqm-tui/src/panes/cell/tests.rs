@@ -1,6 +1,6 @@
 //! What a cell is pinned to.
 
-use super::table::fit;
+use super::value::fit;
 use super::*;
 use crate::tokens;
 use crate::widgets::chrome::test_support::Restore;
@@ -262,4 +262,59 @@ fn a_cell_without_a_count_shows_no_parentheses() {
         TALL,
     );
     assert_eq!(line(&buf, 0), "Last Errors");
+}
+
+/// The two values the Queue tab added, each pinned to the thing that would break it.
+///
+/// A [`Cell::Measured`] prints one thing and orders by another, so the failure to catch is a
+/// comparator that read the printed form: `4.0 MB` sorts under `9` as text and above
+/// `903.5 KB` as a size. A [`Cell::Tinted`] carries a hue that is a FACT rather than a rank, so
+/// the failure to catch is a comparator that ordered by it — the three queue states would then
+/// sort in whatever order the palette happens to list them.
+#[test]
+fn a_measured_value_orders_by_its_magnitude_and_a_tinted_one_by_its_word() {
+    fn measured(shown: &str, order: u64) -> Cell {
+        Cell::Measured {
+            shown: shown.into(),
+            order,
+        }
+    }
+
+    let mb = measured("4.0 MB", 4_194_304);
+    let kb = measured("903.5 KB", 925_184);
+    assert_eq!(
+        super::sort::compare(&mb, &kb),
+        std::cmp::Ordering::Greater,
+        "read as text, `4.0 MB` files under `9` and this is Less"
+    );
+
+    // A blank size — v0.1 leaves it empty on a delete — orders as nothing at all, not as a
+    // string that sorts before every digit.
+    assert_eq!(
+        super::sort::compare(&measured("", 0), &kb),
+        std::cmp::Ordering::Less
+    );
+
+    let pending = Cell::Tinted {
+        text: "pending".into(),
+        hue: crate::tokens::degraded,
+    };
+    let failed = Cell::Tinted {
+        text: "failed".into(),
+        hue: crate::tokens::offline,
+    };
+    assert_eq!(
+        super::sort::compare(&pending, &failed),
+        std::cmp::Ordering::Greater,
+        "`failed` before `pending`, alphabetically — the hue is a state, not a rank"
+    );
+
+    // And both are figures for the purpose of eliding: a shortened `4.0 M` is a unitless
+    // number, so a column too narrow for one shows `…` rather than a plausible wrong value.
+    assert!(mb.is_figure());
+    assert_eq!(
+        mb.spans(5, crate::panes::cell::Elide::Right)[0].content,
+        "…"
+    );
+    assert!(!pending.is_figure(), "a state word elides like any other word");
 }

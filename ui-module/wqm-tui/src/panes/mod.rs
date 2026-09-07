@@ -28,6 +28,7 @@
 pub mod cell;
 pub mod collections;
 pub mod config;
+pub mod list;
 pub mod status_band;
 pub mod status_block;
 pub mod storage;
@@ -36,6 +37,7 @@ pub mod storage;
 mod tests;
 
 pub use cell::{CellPane, CellTable};
+pub use list::ListPane;
 pub use config::ConfigPane;
 pub use status_band::StatusBand;
 pub use status_block::StatusBlock;

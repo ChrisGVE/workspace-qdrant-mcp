@@ -59,6 +59,7 @@ mod tier {
             crate::panes::cell::ingredient::ingredients(),
             crate::panes::collections::ingredient::ingredients(),
             crate::panes::config::ingredient::ingredients(),
+            crate::panes::list::ingredient::ingredients(),
             crate::panes::status_band::ingredient::ingredients(),
             crate::panes::status_block::ingredient::ingredients(),
             crate::panes::storage::ingredient::ingredients(),

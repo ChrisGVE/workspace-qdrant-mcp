@@ -51,6 +51,8 @@ modules = [
     "panes::cell",
     "panes::collections",
     "panes::config",
+    # The full-width list: one table filling a tab's body, and the shape every list tab takes.
+    "panes::list",
     "panes::status_band",
     "panes::status_block",
     "panes::storage",

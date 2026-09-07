@@ -16,29 +16,19 @@ use ratatui::{
 };
 
 use super::sort::{compare, grown, Direction, Sort};
-use crate::format::{count_span, grouped};
+use super::value::{Cell, Elide};
 use crate::tokens;
-
-/// `text` cut to `width`, ending in `…` when it did not fit.
-///
-/// Counted in CHARACTERS — the mistake this crate has already made once — and the ellipsis
-/// takes one of them, so the result is never wider than the column it was measured against.
-pub(super) fn fit(text: &str, width: u16) -> String {
-    let width = width as usize;
-    if text.chars().count() <= width || width == 0 {
-        return text.to_string();
-    }
-    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
-    out.push('…');
-    out
-}
 
 /// What a cell says when its projection is empty. v0.1's own words, kept: an empty cell that
 /// said nothing at all would be indistinguishable from one that failed to load.
 pub const EMPTY: &str = "No data";
 
 /// Columns between one column of the table and the next.
-const COLUMN_GAP: u16 = 1;
+///
+/// Shared with [`crate::panes::list`] rather than restated there: it is also the gap a sort
+/// mark borrows ([`super::sort::grown`]), so two tables holding two copies of it would be two
+/// tables that disagreed about whether a mark fits.
+pub(crate) const COLUMN_GAP: u16 = 1;
 
 // # There is no marker gutter here, and that is a ruling with a date on it
 //
@@ -65,7 +55,7 @@ pub enum Align {
 }
 
 impl Align {
-    const fn to_ratatui(self) -> Alignment {
+    pub(crate) const fn to_ratatui(self) -> Alignment {
         match self {
             Align::Left => Alignment::Left,
             Align::Right => Alignment::Right,
@@ -87,6 +77,9 @@ pub struct Column {
     /// wrong character — and a key that is not in its own title lights nothing, which is the
     /// honest frame for a key nobody can see to press.
     pub sort_key: Option<char>,
+    /// Which end of an over-long value this column drops. See [`Elide`]: it is a fact about
+    /// what the column holds, so every value in it answers the question the same way.
+    pub elide: Elide,
 }
 
 impl Column {
@@ -97,6 +90,7 @@ impl Column {
             align: Align::Left,
             width: Constraint::Fill(1),
             sort_key: None,
+            elide: Elide::Right,
         }
     }
 
@@ -107,6 +101,7 @@ impl Column {
             align: Align::Right,
             width: Constraint::Length(width),
             sort_key: None,
+            elide: Elide::Right,
         }
     }
 
@@ -117,7 +112,15 @@ impl Column {
             align: Align::Left,
             width: Constraint::Length(width),
             sort_key: None,
+            elide: Elide::Right,
         }
+    }
+
+    /// Shorten this column's values from the LEFT — the file-path rule, and so far the Queue
+    /// tab's `Object` column alone. See [`crate::panes::cell::value::fit_left`].
+    pub fn elide_left(mut self) -> Self {
+        self.elide = Elide::Left;
+        self
     }
 
     /// The letter that sorts by this column (Chris, 2026-09-07): *"we highlight (using the
@@ -133,100 +136,6 @@ impl Column {
     pub fn sort(mut self, key: char) -> Self {
         self.sort_key = Some(key);
         self
-    }
-}
-
-/// One value in a row.
-pub enum Cell {
-    Text(String),
-    Num(u64),
-    /// The queue triple v0.1 writes as `2'635/0/0` — three figures that are three different
-    /// facts, so they carry three different hues rather than being one string.
-    Queue {
-        pending: u64,
-        in_flight: u64,
-        failed: u64,
-    },
-}
-
-impl Cell {
-    /// The spans this value is drawn with, for a column `width` columns wide.
-    ///
-    /// A queue triple is several spans on purpose: its three numbers mean waiting, moving and
-    /// lost, and a single-coloured `2'635/0/0` would throw away the only thing that
-    /// distinguishes them.
-    ///
-    /// **Text elides to a shorter name; a figure that does not fit is replaced outright.** An
-    /// elided name is still recognisable and the `…` says it was shortened. There is no such
-    /// thing as a shortened number — `11'236` cut to five cells is `11'23`, a different value
-    /// with nothing to mark it — so a figure too wide for its column is drawn as `…` and the
-    /// column width is treated as the defect it is.
-    ///
-    /// The zero rule is the queue triple's alone: `count_span` mutes a zero because *no work
-    /// waiting* is not news. A plain figure column keeps its zeros at the normal rung — v0.1's
-    /// `Pts` column was all zeros, and muting them would have made the column disappear rather
-    /// than recede. (That column has since been dropped altogether, 2026-09-07: a field that is
-    /// always zero is better removed than styled.)
-    fn spans(&self, width: u16) -> Vec<Span<'static>> {
-        match self {
-            Cell::Text(text) => vec![Span::styled(fit(text, width), tokens::normal_style())],
-            // A figure that does not fit becomes `…` — NEVER a clipped one. Right-aligning
-            // `11'236` into five cells renders `11'23`, which is not a truncated number, it is
-            // a DIFFERENT number, displayed with no mark to say so. `…` says "there is a value
-            // here and it did not fit", which is the only honest thing a too-narrow column can
-            // say. The real fix is always the column width, and
-            // `views::dashboard::tests` guards that every frame's figure columns are wide
-            // enough — this is the net under that guard, not a substitute for it.
-            Cell::Num(value) => {
-                let text = grouped(*value);
-                let text = if text.chars().count() > width as usize {
-                    "…".to_string()
-                } else {
-                    text
-                };
-                vec![Span::styled(text, tokens::normal_style())]
-            }
-            Cell::Queue {
-                pending,
-                in_flight,
-                failed,
-            } => vec![
-                count_span(*pending, tokens::degraded),
-                Span::styled("/", tokens::muted_style()),
-                count_span(*in_flight, tokens::in_flight),
-                Span::styled("/", tokens::muted_style()),
-                count_span(*failed, tokens::offline),
-            ],
-        }
-    }
-}
-
-impl Cell {
-    /// How wide this value wants to be, before any column has a say.
-    ///
-    /// Exists so a guard can ask "does every figure fit its column" of the DATA rather than of
-    /// a rendered screen. Read off the render, a figure's ellipsis is indistinguishable from a
-    /// name's — both are `…` — and the guard that matters is about numbers only.
-    pub fn natural_width(&self) -> usize {
-        match self {
-            Cell::Text(text) => text.chars().count(),
-            Cell::Num(value) => grouped(*value).chars().count(),
-            Cell::Queue {
-                pending,
-                in_flight,
-                failed,
-            } => {
-                grouped(*pending).chars().count()
-                    + grouped(*in_flight).chars().count()
-                    + grouped(*failed).chars().count()
-                    + 2
-            }
-        }
-    }
-
-    /// Whether this value is a figure — the kind that must never be shortened.
-    pub fn is_figure(&self) -> bool {
-        !matches!(self, Cell::Text(_))
     }
 }
 
@@ -451,7 +360,7 @@ impl Widget for CellTable {
             // Indexed rather than zipped by reference: a row may carry fewer cells than the
             // table has columns, and the column its value belongs to is its POSITION.
             for (at, (cell, column)) in row.iter().zip(&self.columns).enumerate() {
-                Paragraph::new(Line::from(cell.spans(columns[at].width)))
+                Paragraph::new(Line::from(cell.spans(columns[at].width, column.elide)))
                     .alignment(column.align.to_ratatui())
                     .render(
                         Rect {

@@ -33,11 +33,13 @@ use crate::widgets::chrome::{Attention, FocusMark, ZoneHeading};
 pub mod ingredient;
 pub mod sort;
 pub mod table;
+pub mod value;
 #[cfg(test)]
 mod tests;
 
 pub use sort::{Direction, Sort};
-pub use table::{Align, Cell, CellTable, Column, EMPTY};
+pub use table::{Align, CellTable, Column, EMPTY};
+pub use value::{Cell, Elide};
 
 /// A cell of the grid: [`ZoneHeading`] over a [`CellTable`].
 pub struct CellPane {
