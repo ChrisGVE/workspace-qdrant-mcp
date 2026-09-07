@@ -53,6 +53,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+use crate::format::count_span;
 use crate::tokens::{self, Health};
 use crate::widgets::chrome::{inset, Freshness, Rule, MARGIN};
 
@@ -73,13 +74,6 @@ pub const QUEUE_LABELS: [&str; 3] = ["pending", "in progress", "failed"];
 /// Column 0's word — the one the glyph belongs to, because the glyph reports on the queue and
 /// not on any one of its counts.
 pub const QUEUE_HEAD: &str = "queue";
-
-/// What separates one group of three digits from the next — see [`grouped`].
-///
-/// Named rather than inlined so the one character the whole rule is about is greppable, and so
-/// a test can assert against the constant instead of retyping a literal that would then agree
-/// with itself.
-pub const GROUP_SEPARATOR: char = '\'';
 
 /// Cells a count is right-aligned into: enough for `9'999'999`, grouped.
 ///
@@ -251,44 +245,6 @@ fn even_share(area_width: u16) -> u16 {
 /// rather than measure it off the other row.
 pub fn column_width(area_width: u16) -> u16 {
     even_share(area_width).clamp(MIN_COLUMN, MAX_COLUMN)
-}
-
-/// A count, grouped in threes with an **ASCII apostrophe**: `1'240`, `9'999'999`.
-///
-/// Chris's standing rule for an isolated number anywhere in this TUI, set 20260907. Swiss
-/// style, and `U+0027` specifically — **not** `U+2019` (the typographic right single quote,
-/// which is what a word processor substitutes) and no longer a space.
-///
-/// # Three separators have been considered and two are wrong
-///
-/// A **thin or narrow space** (`U+2009`, `U+202F`) is what typography asks for and is unusable
-/// here: neither is width-1 in every terminal, and a separator whose width depends on the
-/// emulator changes the cell a right-aligned number ends on — which is the one property the
-/// queue row is built around. A **plain space** was the first answer and survives that test,
-/// but it makes one figure look like two: `1 240 pending` reads as a count of 1 beside a count
-/// of 240 until the eye resolves it. The apostrophe is width-1 like the space and *binds*
-/// rather than separates, so the number reads as one thing.
-///
-/// `U+2019` would look right and behave badly: it is width-1 in most terminals and not all,
-/// and it is what an autocorrecting editor produces from `'`, so a figure copied off the screen
-/// and back into a config would not round-trip. The guard names both rejects.
-///
-/// # This is the TUI's rule, not this pane's
-///
-/// It lives here because the queue row is the only thing that currently renders a count. **Any
-/// future figure — a graph's node count, a tag tally, a byte size — calls this rather than
-/// formatting its own**, or the surface acquires two number styles and nobody notices which
-/// screen has which. When a second consumer arrives this belongs in a module of its own.
-pub fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, digit) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(GROUP_SEPARATOR);
-        }
-        out.push(digit);
-    }
-    out
 }
 
 /// The block's two shapes. On or off — see the module docs for why there is no third.
@@ -463,13 +419,7 @@ impl StatusBlock {
 
         for (i, ((value, hue), label)) in counts.iter().zip(QUEUE_LABELS).enumerate() {
             let origin = column * (i as u16 + 1);
-            // A count of nothing is not news, so it recedes to its own label's rung.
-            let style = if *value == 0 {
-                tokens::muted_style()
-            } else {
-                Style::default().fg(hue())
-            };
-            Paragraph::new(Line::from(Span::styled(grouped(*value), style)))
+            Paragraph::new(Line::from(count_span(*value, *hue)))
                 .alignment(Alignment::Right)
                 .render(
                     Rect {

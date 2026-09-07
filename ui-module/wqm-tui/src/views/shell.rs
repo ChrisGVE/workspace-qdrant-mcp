@@ -34,15 +34,8 @@ use ratatui::{
 };
 
 use crate::panes::status_block::{self, StatusBlock};
-use crate::tokens::{self, Condition};
-use crate::widgets::chrome::{inset, AppBar, Rule};
-use crate::widgets::surface::Surface;
-
-/// The two rows every screen carries above whatever comes next: the app bar and the frame
-/// rule under it. Constant because the Service tab has these two and nothing else.
-pub const APP_BAR_ROW: u16 = 0;
-pub const TOP_RULE_ROW: u16 = 1;
-pub const CONSTANT_ROWS: u16 = 2;
+use crate::tokens;
+use crate::views::top::{row, ConstantTop};
 
 /// What the content region says while no tab is built. One muted line — see the module docs
 /// for why it is not a mock-up.
@@ -96,56 +89,13 @@ impl ShellView {
 
 impl Widget for ShellView {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.height < CONSTANT_ROWS + 1 {
-            return;
-        }
-        // §15: the theme owns the background, and every full screen paints it first. Stated
-        // rather than read from the process, because a frame is a still.
-        Surface::with_condition(Condition::Nominal).render(area, buf);
-
-        AppBar::new(self.active)
+        let mut top = ConstantTop::new(self.active)
             .under_modal(self.modal)
-            .render(inset(row(area, APP_BAR_ROW)), buf);
-        Rule::frame().render(row(area, TOP_RULE_ROW), buf);
-
-        // What the block and the content share. The block answers how much of it it takes;
-        // whatever is left is the content's, and the block never takes the last of it.
-        let body = Rect {
-            y: area.y + CONSTANT_ROWS,
-            height: area.height - CONSTANT_ROWS,
-            ..area
-        };
-
-        let taken = match self.status {
-            Some(block) => {
-                let rows = StatusBlock::rows_for(body, self.content_floor);
-                block.render(
-                    Rect {
-                        height: rows,
-                        ..body
-                    },
-                    buf,
-                );
-                rows
-            }
-            None => 0,
-        };
-
-        let content = Rect {
-            y: body.y + taken,
-            height: body.height - taken,
-            ..body
-        };
-        placeholder(content, buf);
-    }
-}
-
-/// One row of a screen, by index.
-fn row(area: Rect, n: u16) -> Rect {
-    Rect {
-        y: area.y + n,
-        height: 1,
-        ..area
+            .content_floor(self.content_floor);
+        if let Some(block) = self.status {
+            top = top.status(block);
+        }
+        placeholder(top.draw(area, buf), buf);
     }
 }
 
@@ -334,9 +284,10 @@ mod tests {
     use crate::tokens::Health;
     use crate::widgets::chrome::rule::RULE;
     use crate::widgets::chrome::test_support::Restore;
+    use crate::views::top::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
     use crate::widgets::chrome::MARGIN;
 
-    fn render(view: ShellView, width: u16, height: u16) -> Buffer {
+        fn render(view: ShellView, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         view.render(area, &mut buf);

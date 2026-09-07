@@ -22,4 +22,5 @@
 //! the same thing twice.
 
 pub mod service;
+pub mod top;
 pub mod shell;

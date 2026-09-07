@@ -11,6 +11,7 @@
 pub mod capture;
 pub mod categorical;
 pub mod encoding;
+pub mod format;
 pub mod health;
 pub mod names;
 pub mod panes;

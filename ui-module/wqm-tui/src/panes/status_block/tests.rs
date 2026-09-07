@@ -6,6 +6,7 @@
 //! rule is stated with, never against a second measurement.
 
 use super::*;
+use crate::format::{grouped, GROUP_SEPARATOR};
 use crate::widgets::chrome::test_support::Restore;
 use std::time::Duration;
 
