@@ -30,7 +30,7 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::panes::list::NAV_HELP;
+use crate::panes::list::help::{general, navigation, HelpSection};
 use crate::panes::status_block::StatusBlock;
 use crate::tokens::Health;
 use crate::views::top::{self, ConstantTop};
@@ -76,14 +76,16 @@ const NAVIGATE_KEYS: &str = "↓↑/jk";
 /// [`crate::widgets::chrome::keyed_spans`] finds a sort key in a title without regard to case —
 /// so a column offering `N` would light the `n` in its own name and a reader would press the one
 /// that moves the search.
-pub const QUEUE_BOUND_KEYS: [char; 16] = [
+pub const QUEUE_BOUND_KEYS: [char; 18] = [
     '/', // open search
     'n', // next hit
     'N', // previous hit
     'o', // operation selector
     's', // status selector
+    't', // type selector
     'f', // filter — opens it, and clears it once it is on
-    'r', // retry
+    'r', // relative row numbers, on and off
+    'y', // retry
     'c', // cancel
     'x', // remove
     'q', // quit
@@ -164,7 +166,7 @@ impl Queue {
             ("f", "Filter"),
             ("o", "Op"),
             ("s", "Status"),
-            ("r", "Retry"),
+            ("y", "Retry"),
             ("c", "Cancel"),
             ("x", "Remove"),
             ("?", "Help"),
@@ -175,54 +177,56 @@ impl Queue {
         hints
     }
 
-    /// Every key this view has, in the order the help lists them.
+    /// Every key this view has, grouped into named sections.
     ///
     /// Exposed rather than built inline so a guard can read what the window DECLARES rather than
-    /// scraping it back out of a rendered box — where `r` and `c` are indistinguishable from the
-    /// hundreds of `r`s and `c`s in the list behind it.
+    /// scraping it back out of a rendered box — where `y` and `c` are indistinguishable from the
+    /// hundreds of `y`s and `c`s in the list behind it.
     ///
-    /// The paging chords come from [`NAV_HELP`] (Chris, 2026-09-07: *"shown only in the help…
-    /// valid for all lists including the dashboard"*), so the day the Dashboard grows a help
-    /// modal the two say the same words. `?` and `q` are in here too: the foot offers them, and
-    /// a window that claimed to list every key while omitting the two on every screen would be
-    /// the one place a reader could not check.
-    pub fn help_keys() -> Vec<(&'static str, &'static str)> {
+    /// The navigation and general sections come from [`crate::panes::list::help`] so every list
+    /// says the same words for the same chords. The paging chords themselves live in
+    /// [`crate::panes::list::NAV_HELP`], consumed here and never duplicated.
+    pub fn help_sections() -> Vec<HelpSection> {
         vec![
-            ("↓↑ / j k", "Move the cursor"),
-            ("Home / gg", "Top"),
-            ("End / G", "Bottom"),
-            ("<n>g", "Go to row n"),
-            ("<n>↓↑", "Repeat the move n times"),
-            NAV_HELP[0],
-            NAV_HELP[1],
-            ("Enter", "Open the item, or load the next page"),
-            ("/  n N", "Search; next and previous hit"),
-            ("f", "Filter the list; again clears it"),
-            ("o", "Cycle the operation"),
-            ("s", "Cycle the status"),
-            ("r  c  x", "Retry, cancel, remove"),
-            ("Esc", "Leave the search"),
-            ("?", "This window"),
-            ("q", "Quit"),
+            navigation(),
+            HelpSection {
+                title: "Search / Filter",
+                entries: vec![
+                    ("/", "Search for an exact string or a regular expression"),
+                    ("f", "Filter by an exact string or a regular expression"),
+                    ("o", "Filter by operation type"),
+                    ("s", "Filter by status"),
+                    ("Esc", "While a search is on, cancel the search"),
+                    ("f", "While a filter is on, cancel the filter"),
+                ],
+                note: Some("Search and filter look at: Tenant, Object, Type"),
+            },
+            HelpSection {
+                title: "Selection",
+                entries: vec![
+                    ("v", "Start a selection at the cursor; v again ends it"),
+                    ("Space", "Select the item under the cursor"),
+                    ("V", "Reset the selection"),
+                ],
+                note: None,
+            },
+            HelpSection {
+                title: "Action",
+                entries: vec![
+                    ("Enter", "Open the selected item"),
+                    ("y", "Retry the selected item, or the whole selection"),
+                    ("c", "Cancel"),
+                    ("x", "Remove"),
+                ],
+                note: None,
+            },
+            general(),
         ]
     }
 
-    /// The help modal: [`Queue::help_keys`], laid out, over the quietened page.
+    /// The help modal: [`Queue::help_sections`], rendered, over the quietened page.
     pub fn help() -> Modal {
-        let keys = Self::help_keys();
-        // The key column is as wide as the widest key plus two, MEASURED rather than stated: the
-        // paging chords are the longest entries and they come from another module, so a number
-        // written here would be a number that silently stopped fitting.
-        let column = keys
-            .iter()
-            .map(|(key, _)| key.chars().count())
-            .max()
-            .unwrap_or(0)
-            + 2;
-        let mut body: Vec<String> = keys
-            .iter()
-            .map(|(key, what)| format!("{key:<column$}{what}"))
-            .collect();
+        let mut body = crate::panes::list::help::render(&Self::help_sections());
         body.push(String::new());
         body.push("The selectors survive Esc; the search leaves on Esc, the filter on f.".to_string());
         Modal::with_body("Queue — keys", body).action("Esc", "close")

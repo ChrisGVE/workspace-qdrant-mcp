@@ -38,6 +38,7 @@
 
 use ratatui::layout::Rect;
 
+pub mod help;
 pub mod table;
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
@@ -62,21 +63,22 @@ pub use table::ListPane;
 /// reproduce a page a reader has already seen rather than a page this crate invented.
 pub const LIST_PAGE: usize = 200;
 
-/// The paging keys, spelled once for every list's help modal.
+/// The paging keys, spelled once for every list's help modal — [`help::navigation`] consumes
+/// these two pairs rather than re-spelling the chords.
 ///
 /// Chris, 2026-09-07: these are *"shown only in the help… valid for all lists including the
 /// dashboard"*. Both halves are load-bearing. **Help-only**, because the foot line is the
 /// screen's scarcest row and a key that does the obvious thing faster does not earn a place on
 /// it — `↓↑/jk Navigate` already tells the reader the list moves. **Every list**, because the
-/// day the Dashboard grows a help modal it must offer the same two pairs in the same words, and
+/// day the Dashboard grows a help modal it must offer the same pairs in the same words, and
 /// the only way to guarantee that is for there to be one copy of the words.
 ///
 /// The spelling is v0.1's own, read off its help modal: `^d/^u ^f/^b  Half / full page
 /// down/up`. What is added is the two names a reader who has never used vim already knows —
 /// `PgDn`/`PgUp` — because `^F` is discoverable only to someone who already knows it.
 pub const NAV_HELP: [(&str, &str); 2] = [
-    ("^D/^U", "half page down/up"),
-    ("^F/^B, PgDn/PgUp", "full page down/up"),
+    ("^D/^U", "Half page down/up"),
+    ("^F/^B, PgDn/PgUp", "Full page down/up"),
 ];
 
 /// One row of an area, by index — the same helper [`crate::views::top::row`] is, kept local so a

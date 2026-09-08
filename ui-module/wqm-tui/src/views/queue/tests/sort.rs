@@ -23,7 +23,7 @@ fn the_columns_are_v01s_in_v01s_order_with_the_ruled_sort_keys() {
             ("T", None),
             ("Tenant", Some('e')),
             ("Object", Some('b')),
-            ("Type", Some('y')),
+            ("Type", None),
             ("Op", Some('p')),
             ("Status", Some('u')),
             ("Size", Some('z')),
@@ -75,7 +75,7 @@ fn every_sort_key_is_unique_and_free_of_the_keys_the_screen_has_bound() {
         .iter()
         .filter_map(|column| column.sort_key)
         .collect();
-    assert_eq!(keys.len(), 7, "seven of the nine columns sort");
+    assert_eq!(keys.len(), 6, "six of the nine columns sort");
     for (at, key) in keys.iter().enumerate() {
         let lower: Vec<char> = key.to_lowercase().collect();
         assert!(

@@ -99,7 +99,7 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
             ("f", "Filter"),
             ("o", "Op"),
             ("s", "Status"),
-            ("r", "Retry"),
+            ("y", "Retry"),
             ("c", "Cancel"),
             ("x", "Remove"),
             ("?", "Help"),

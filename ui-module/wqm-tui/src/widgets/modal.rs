@@ -27,7 +27,7 @@ use crate::tokens;
 /// Border, plus one cell of padding inside each border.
 const CHROME: u16 = 4;
 /// The widest a modal's text may be before it wraps. Past this a modal is a screen.
-const MAX_TEXT_WIDTH: u16 = 56;
+const MAX_TEXT_WIDTH: u16 = 78;
 
 /// Which of §6's background fills the window carries.
 ///
