@@ -76,13 +76,12 @@ const NAVIGATE_KEYS: &str = "↓↑/jk";
 /// [`crate::widgets::chrome::keyed_spans`] finds a sort key in a title without regard to case —
 /// so a column offering `N` would light the `n` in its own name and a reader would press the one
 /// that moves the search.
-pub const QUEUE_BOUND_KEYS: [char; 18] = [
+pub const QUEUE_BOUND_KEYS: [char; 17] = [
     '/', // open search
     'n', // next hit
     'N', // previous hit
     'o', // operation selector
     's', // status selector
-    't', // type selector
     'f', // filter — opens it, and clears it once it is on
     'r', // relative row numbers, on and off
     'y', // retry

@@ -56,7 +56,7 @@ pub fn columns() -> Vec<Column> {
         // The one column that shortens from the LEFT: the end of a path is the file, and the
         // file is what a reader is looking for. v0.1 does the same.
         Column::flex("Object").sort('b').elide_left(),
-        Column::text("Type", 6),
+        Column::text("Type", 6).sort('t'),
         Column::text("Op", 6).sort('p'),
         Column::text("Status", 11).sort('u'),
         Column::number("Size", 8).sort('z'),
