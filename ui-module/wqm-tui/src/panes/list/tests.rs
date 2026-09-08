@@ -1,4 +1,4 @@
-//! What a list is pinned to: its bold header, its free cursor, and the line that offers a page.
+//! What a list is pinned to: its italic header, its free cursor, and the line that offers a page.
 
 use super::*;
 use crate::panes::cell::{Align, Cell, Column, Direction, Sort};
@@ -47,21 +47,21 @@ fn text(buf: &Buffer, y: u16) -> String {
         .to_string()
 }
 
-/// The header is bold at every rung, and the sort letter is the only thing on it wearing the
-/// selector hue — offered only while there is something to reorder.
+/// The header is italic at every rung, and the sort letter is the only thing on it wearing the
+/// accent hue — offered only while there is something to reorder.
 ///
 /// Both halves in one guard because they are one sentence: the header says *this is structure*
-/// with weight, and *this letter sorts it* with hue. A frame that lost either would still look
-/// like a header.
+/// with slant, and *this letter sorts it* with the accent hue and weight. A frame that lost
+/// either would still look like a header.
 #[test]
-fn the_header_is_bold_and_lights_its_sort_key_only_when_there_is_more_than_one_row() {
+fn the_header_is_italic_and_lights_its_sort_key_only_when_there_is_more_than_one_row() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
     let many = render(ListPane::new(columns(), rows(5)), WIDE, 8);
     let lit: Vec<String> = (0..WIDE)
         .filter(|x| {
-            many.cell((*x, 0)).expect("cell in area").style().fg == Some(tokens::selector())
+            many.cell((*x, 0)).expect("cell in area").style().fg == Some(tokens::accent())
         })
         .map(|x| {
             many.cell((x, 0))
@@ -76,15 +76,23 @@ fn the_header_is_bold_and_lights_its_sort_key_only_when_there_is_more_than_one_r
         "the lit letters are the three columns' sort keys, left to right"
     );
 
-    // Every painted cell of the header row is bold — the key included.
+    // Every painted cell of the header row is italic, and bold is the sort key's alone — weight
+    // is what marks the key out from the slanted label around it.
     for x in 0..WIDE {
         let cell = many.cell((x, 0)).expect("cell in area");
         if cell.symbol().trim().is_empty() {
             continue;
         }
         assert!(
+            cell.style().add_modifier.contains(Modifier::ITALIC),
+            "column {x} ({:?}) is not italic",
+            cell.symbol()
+        );
+        let is_key = cell.style().fg == Some(tokens::accent());
+        assert_eq!(
             cell.style().add_modifier.contains(Modifier::BOLD),
-            "column {x} ({:?}) is not bold",
+            is_key,
+            "column {x} ({:?}): bold is the sort key's alone",
             cell.symbol()
         );
     }
@@ -92,9 +100,46 @@ fn the_header_is_bold_and_lights_its_sort_key_only_when_there_is_more_than_one_r
     // One row: nothing to reorder, so nothing is offered.
     let one = render(ListPane::new(columns(), rows(1)), WIDE, 8);
     let lit_on_one = (0..WIDE)
-        .filter(|x| one.cell((*x, 0)).expect("cell in area").style().fg == Some(tokens::selector()))
+        .filter(|x| one.cell((*x, 0)).expect("cell in area").style().fg == Some(tokens::accent()))
         .count();
     assert_eq!(lit_on_one, 0, "a list of one offers no sort key");
+}
+
+/// A header span is italic and NOT bold; its sort key is the accent hue AND bold, on top of the
+/// same italic.
+///
+/// The header marks itself as structure with slant, never with weight (Chris, 2026-09-07) — a
+/// bold header reads as a heading rather than as a label under it. The one exception is the key
+/// letter, which adds weight on top of the slant so a single letter of an italic word reads as
+/// the key to press rather than as a gap in the label.
+#[test]
+fn a_header_span_is_italic_not_bold_while_its_sort_key_is_accent_and_bold() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let buf = render(
+        ListPane::new(vec![Column::flex("Object").sort('b')], rows(2)),
+        WIDE,
+        8,
+    );
+
+    // `Object`: the `b` is the sort key, so the leading `O` is header text and the `b` is the key.
+    let rest = buf.cell((0, 0)).expect("cell in area").style();
+    assert_eq!(
+        rest.fg,
+        Some(tokens::header()),
+        "the header text sits at the text rung"
+    );
+    assert!(rest.add_modifier.contains(Modifier::ITALIC), "the header is italic");
+    assert!(!rest.add_modifier.contains(Modifier::BOLD), "the header is not bold");
+
+    let key = buf.cell((1, 0)).expect("cell in area").style();
+    assert_eq!(key.fg, Some(tokens::accent()), "the sort key is the accent hue");
+    assert!(key.add_modifier.contains(Modifier::BOLD), "the sort key is bold");
+    assert!(
+        key.add_modifier.contains(Modifier::ITALIC),
+        "the sort key keeps the header's italic"
+    );
 }
 
 /// The cursor sits on ANY row, and the list scrolls the minimum distance to keep it visible.

@@ -28,10 +28,17 @@
 //!
 //! # What it does NOT touch
 //!
-//! The neutral rungs, all of them. Emphasis is not highlight (§1's two axes): weight, the
-//! `▌` bar, the two rule weights, the data cursor's grey tint and the modal's own layer fills
-//! are structure, and structure survives. What goes is **hue** — every one of them, and every
-//! fill that carried one.
+//! The *quiet* neutral rungs — everything at or below [`crate::tokens::muted`]: `faint`, the two
+//! rule weights, the data cursor's grey tint and the modal's own layer fills. Emphasis is not
+//! highlight (§1's two axes): weight, the `▌` bar and the fills are structure, and structure
+//! survives.
+//!
+//! What goes is **hue** (every one of them, and every fill that carried one) **and the bright
+//! text rungs**. Chris, 2026-09-07, looking at a Dashboard under a modal: *"we still have colors
+//! on the screen while all should be muted"* — emphasis is a highlight too, so a page beneath a
+//! modal carries no text brighter than `muted`. The three rungs that would — `normal`, `strong`
+//! and the cursor mark — collapse onto it, alongside [`crate::tokens::header`], which is
+//! `normal` by construction.
 //!
 //! And **the modal itself**. The scope names the page *beneath* one, so a view that draws both
 //! closes the scope before it draws the box on top — a modal muted by the rule that mutes what
@@ -87,12 +94,14 @@ impl Drop for ModalScope {
     }
 }
 
-/// A reserved hue, or [`crate::tokens::muted`] while a modal owns the input.
+/// A colour, or [`crate::tokens::muted`] while a modal owns the input.
 ///
 /// The whole rule, in one function, so that "which colours drop under a modal" has exactly one
 /// answer. [`crate::tokens::hue`] is its main caller — every reserved hue in the vocabulary is
-/// emitted through that — and [`crate::categorical::Categorical`] is the other, since a data
-/// hue is not a role and so does not pass through it.
+/// emitted through that — and [`crate::categorical::Categorical`] is another, since a data hue is
+/// not a role and so does not pass through it. The bright text rungs
+/// ([`crate::tokens::normal`], [`crate::tokens::strong`], [`crate::tokens::cursor_mark`]) pass
+/// through it too: a page beneath a modal carries no emphasis, and emphasis is not only hue.
 pub(crate) fn or_muted(colour: Color) -> Color {
     if under_modal() {
         super::muted()

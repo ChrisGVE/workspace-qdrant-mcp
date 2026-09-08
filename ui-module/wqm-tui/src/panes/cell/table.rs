@@ -181,6 +181,12 @@ pub struct CellTable {
     /// is the live one AND holds more than one row, because a lit letter is a promise that the
     /// key does something and there is nothing to reorder in a list of one.
     sortable: bool,
+    /// Whether this cell has RECEDED — some other cell is the live one, so this one's header
+    /// drops to the muted rung. Taken from the pane, which reads the screen's [`Attention`] off
+    /// the view: the header follows the cell's focus exactly as the heading above it does.
+    ///
+    /// [`Attention`]: crate::widgets::chrome::Attention
+    receded: bool,
     /// How the table is sorted, if it is. Independent of `sortable`: the mark stays on the
     /// column while the cell is read, and the offer only stands while it is live.
     sort: Option<Sort>,
@@ -199,6 +205,7 @@ impl CellTable {
             offset: 0,
             cursor: None,
             sortable: false,
+            receded: false,
             sort: None,
             min_flex: 12,
         }
@@ -214,6 +221,12 @@ impl CellTable {
     /// screen's own facts, and a table that decided for itself would be a second copy of them.
     pub fn sortable(mut self, sortable: bool) -> Self {
         self.sortable = sortable;
+        self
+    }
+
+    /// Whether this cell has receded behind the live one. See the field.
+    pub fn receded(mut self, receded: bool) -> Self {
+        self.receded = receded;
         self
     }
 
@@ -361,20 +374,32 @@ impl CellTable {
     /// The header wears the SAME foreground the data under it wears and distinguishes itself
     /// with italics (Chris, 2026-09-07): a column header on this screen is not bold, and a key
     /// that arrived bold would read as a heading rather than as a letter to press. The lit
-    /// letter changes the HUE and nothing else — [`tokens::selector`] is the reserved selection
-    /// hue, the same one the focused cell's block is filled with, so the screen says *selected*
-    /// in one colour whether it is naming a cell or a column.
+    /// letter changes the HUE to [`tokens::accent`] and adds weight — **bold**, like a jump
+    /// digit — so one letter of an italic header reads as the key to press rather than as a gap
+    /// in the label. The hue is the unclaimed `accent` field (§10), not the reserved selector:
+    /// a sort key is a hint, not a selection.
     ///
-    /// The mark is muted: it says which column is sorted, and it is never the thing being read.
-    /// It is appended with no space between it and the title — see [`grown`] for why the space
-    /// is what a five-column `Files` cannot afford.
+    /// In a cell that has receded behind the live one the title drops to the muted rung — the
+    /// identical rule the heading above it follows — and the sort key is not offered anyway,
+    /// since only the live cell offers its keys. A receded header is muted italic.
+    ///
+    /// The mark is muted and un-italic: it says which column is sorted, and it is never the
+    /// thing being read. It is appended with no space between it and the title — see [`grown`]
+    /// for why the space is what a five-column `Files` cannot afford.
     fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
-        let rest = Style::default()
-            .fg(tokens::header())
-            .add_modifier(Modifier::ITALIC);
+        let text = if self.receded {
+            tokens::muted()
+        } else {
+            tokens::header()
+        };
+        let rest = Style::default().fg(text).add_modifier(Modifier::ITALIC);
         let key = self.sortable.then_some(column.sort_key).flatten();
-        let mut spans =
-            crate::widgets::chrome::keyed_spans(column.title, key, rest.fg(tokens::selector()), rest);
+        let mut spans = crate::widgets::chrome::keyed_spans(
+            column.title,
+            key,
+            rest.fg(tokens::accent()).add_modifier(Modifier::BOLD),
+            rest,
+        );
         if let Some(sort) = mark {
             spans.push(Span::styled(sort.direction.glyph(), tokens::muted_style()));
         }

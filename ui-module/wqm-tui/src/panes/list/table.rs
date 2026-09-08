@@ -177,22 +177,26 @@ impl ListPane {
         self.rows.len() > 1
     }
 
-    /// One column header: the title in bold at the header rung, its sort key lit in the
-    /// selector hue, and the sort mark when this is the column the list is sorted by.
+    /// One column header: the title in the body foreground with [`Modifier::ITALIC`], its sort
+    /// key lit in the accent hue, and the sort mark when this is the column the list is sorted
+    /// by.
     ///
-    /// The key keeps the bold — it is one letter of a bold word, and a letter that dropped back
-    /// to normal weight to change hue would read as a gap in the heading rather than as a key.
-    /// The mark stays muted and un-bold: it says which column is sorted, and it is never the
-    /// thing being read.
+    /// A header is not bold (Chris, 2026-09-07) — that reads as a heading rather than as a label
+    /// under it — so it keeps the body foreground and marks itself with italics instead. The key
+    /// is **bold** on top of the italic: one letter of an italic header that changed hue alone
+    /// would read as a gap in the heading rather than as a key to press. Its hue is
+    /// [`tokens::accent`], the unclaimed §10 field, not the reserved selector — a sort key is a
+    /// hint, not a selection. The mark stays muted, un-bold and un-italic: it says which column
+    /// is sorted, and it is never the thing being read.
     fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
         let rest = Style::default()
             .fg(tokens::header())
-            .add_modifier(Modifier::BOLD);
+            .add_modifier(Modifier::ITALIC);
         let key = self.sortable().then_some(column.sort_key).flatten();
         let mut spans = crate::widgets::chrome::keyed_spans(
             column.title,
             key,
-            rest.fg(tokens::selector()),
+            rest.fg(tokens::accent()).add_modifier(Modifier::BOLD),
             rest,
         );
         if let Some(sort) = mark {

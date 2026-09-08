@@ -4,6 +4,7 @@ use super::value::fit;
 use super::*;
 use crate::tokens;
 use crate::widgets::chrome::test_support::Restore;
+use crate::widgets::chrome::Attention;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
@@ -367,11 +368,13 @@ fn a_priority_tie_drops_the_rightmost_column_first() {
 }
 
 /// A column header wears the body foreground in italics — the same colour the data under it
-/// wears, marked as structure by slant rather than by a different rung (Chris, 2026-09-07).
+/// wears, marked as structure by slant rather than by a different rung or by weight
+/// (Chris, 2026-09-07).
 ///
 /// Pinned on the rendered header rather than on [`tokens::header`] alone: the token returning
 /// the body foreground is half the rule and the [`Modifier::ITALIC`] the table applies is the
-/// other, and a guard reading only one of them would pass on a header that lost the other.
+/// other, and a guard reading only one of them would pass on a header that lost the other. The
+/// not-bold half is the weight the ruling rules out: a bold header reads as a heading.
 #[test]
 fn a_column_header_wears_the_body_foreground_in_italics() {
     let _serial = crate::global_state_lock();
@@ -395,6 +398,11 @@ fn a_column_header_wears_the_body_foreground_in_italics() {
             "column {x} ({:?}) of the header is not italic",
             cell.symbol()
         );
+        assert!(
+            !cell.style().add_modifier.contains(Modifier::BOLD),
+            "column {x} ({:?}) of the header is bold — a header is not a heading",
+            cell.symbol()
+        );
         assert_eq!(
             cell.style().fg,
             Some(tokens::normal()),
@@ -404,4 +412,55 @@ fn a_column_header_wears_the_body_foreground_in_italics() {
         painted += 1;
     }
     assert!(painted > 0, "the header drew nothing at all");
+}
+
+/// A cell's column header follows the cell's focus exactly as its heading does: the live cell's
+/// header — and every header while no cell is focused — sits at the text rung, while a cell that
+/// has receded behind the live one drops to muted.
+#[test]
+fn a_receded_cells_header_is_muted_while_the_live_cells_is_at_the_text_rung() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let live = render(
+        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1)))
+            .placed(0, Attention::Zone(0)),
+        WIDE,
+        TALL,
+    );
+    let idle = render(
+        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1))),
+        WIDE,
+        TALL,
+    );
+    let receded = render(
+        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1)))
+            .placed(0, Attention::Zone(1)),
+        WIDE,
+        TALL,
+    );
+
+    // The header is the row under the heading, so line 1. Every painted cell of the live and the
+    // idle header is at the text rung; every painted cell of the receded header is muted.
+    for (buf, rung, label) in [
+        (&live, tokens::normal(), "live"),
+        (&idle, tokens::normal(), "idle (no cell focused)"),
+        (&receded, tokens::muted(), "receded"),
+    ] {
+        let mut painted = 0;
+        for x in 0..WIDE {
+            let cell = buf.cell((x, 1)).expect("cell in area");
+            if cell.symbol().trim().is_empty() {
+                continue;
+            }
+            assert_eq!(
+                cell.style().fg,
+                Some(rung),
+                "the {label} header's column {x} ({:?}) is not at the {label} rung",
+                cell.symbol()
+            );
+            painted += 1;
+        }
+        assert!(painted > 0, "the {label} header drew nothing at all");
+    }
 }

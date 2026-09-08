@@ -1,9 +1,10 @@
 //! What the modal switch is pinned to.
 //!
 //! These guards are about the **switch** — every hue answers muted, the block loses its fill,
-//! the neutral ladder is untouched, the scope restores and nests. The two guards that sweep a
-//! whole 125 × 34 frame live beside the screens they sweep (`views::dashboard::tests::modal`
-//! and `views::shell`), because they are readings of those screens rather than of this module.
+//! the bright text rungs collapse to muted while the quiet neutrals survive, the scope restores
+//! and nests. The two guards that sweep a whole 125 × 34 frame live beside the screens they
+//! sweep (`views::dashboard::tests::modal` and `views::shell`), because they are readings of
+//! those screens rather than of this module.
 //!
 //! # Every one of these reads its tokens OUTSIDE the scope first
 //!
@@ -17,7 +18,7 @@ use ratatui::style::{Color, Modifier};
 use crate::categorical::Categorical;
 use crate::encoding::Encoding;
 use crate::tokens::{self, Health, ModalScope, Palette, DISC};
-use crate::widgets::chrome::test_support::{neutral_rungs, Restore};
+use crate::widgets::chrome::test_support::Restore;
 
 /// Every hue the vocabulary can emit, by the accessor a widget would reach for.
 ///
@@ -62,17 +63,73 @@ fn every_hue_the_vocabulary_can_emit_goes_muted_under_a_modal() {
     }
 }
 
-/// The neutral rungs are NOT touched — the other half of the rule, and the half a heavy-handed
-/// implementation would break. A page under a modal is grey, not blank: the emphasis ladder,
-/// the two rule weights and the data cursor's tint are structure, and structure survives (§1).
+/// The bright text rungs are NOT exempt — the other half of the rule, and the half a
+/// heavy-handed implementation of the *first* half would miss. A page under a modal is grey
+/// **and quiet**: emphasis is a highlight too (VL §6, Chris 2026-09-07: *"we still have colors
+/// on the screen while all should be muted"*), so every text rung brighter than `muted` — the
+/// baseline, the strong rung, the header and the cursor mark — collapses onto `muted`.
 #[test]
-fn the_neutral_ladder_is_the_same_ladder_under_a_modal() {
+fn the_bright_text_rungs_collapse_onto_muted_under_a_modal() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    let live = neutral_rungs();
+    let muted = tokens::muted();
+    // Read live first: if a rung were already muted with no modal open, the guard below would
+    // pass on nothing.
+    let live = [
+        ("normal", tokens::normal()),
+        ("strong", tokens::strong()),
+        ("header", tokens::header()),
+        ("cursor_mark", tokens::cursor_mark()),
+    ];
+    assert!(
+        live.iter().all(|(_, colour)| *colour != muted),
+        "a bright rung is already muted with no modal open — this guard checks nothing"
+    );
+
     let _modal = ModalScope::enter();
-    assert_eq!(neutral_rungs(), live, "a modal moved a neutral rung");
+    for (name, colour) in [
+        ("normal", tokens::normal()),
+        ("strong", tokens::strong()),
+        ("header", tokens::header()),
+        ("cursor_mark", tokens::cursor_mark()),
+    ] {
+        assert_eq!(colour, muted, "`{name}` stayed bright under a modal");
+    }
+}
+
+/// The quiet neutral rungs are NOT touched — structure survives. The emphasis ladder's quiet
+/// half, the two rule weights, the data cursor's tint and the layer fills all sit at or below
+/// `muted` already, so a modal has nothing to take from them.
+#[test]
+fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let live = [
+        tokens::faint(),
+        tokens::muted(),
+        tokens::rule_frame(),
+        tokens::rule_internal(),
+        tokens::cursor_bg(),
+        tokens::edit_bg(),
+        tokens::layer1_bg(),
+        tokens::layer2_bg(),
+    ];
+
+    let _modal = ModalScope::enter();
+    let under = [
+        tokens::faint(),
+        tokens::muted(),
+        tokens::rule_frame(),
+        tokens::rule_internal(),
+        tokens::cursor_bg(),
+        tokens::edit_bg(),
+        tokens::layer1_bg(),
+        tokens::layer2_bg(),
+    ];
+
+    assert_eq!(under, live, "a quiet neutral rung moved under a modal");
 }
 
 /// Every health state's disc keeps its SHAPE and loses its hue (VL §4).

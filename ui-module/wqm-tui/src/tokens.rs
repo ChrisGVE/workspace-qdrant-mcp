@@ -753,11 +753,19 @@ pub fn muted() -> Color {
 /// light one — so before this, [`crate::capture`] produced frames whose baseline text was
 /// the one rung not derived from the theme. Under the slot-sourced palettes there is
 /// nothing better to reach for, so they keep `Reset`.
+///
+/// # Under a modal it is [`muted`]
+///
+/// VL §6 says a page beneath a modal carries no emphasis at all (Chris, 2026-09-07: *"we still
+/// have colors on the screen while all should be muted"*). The baseline is the brightest text a
+/// page wears by default, so it is the first thing to go — routed through
+/// [`crate::tokens::modal::or_muted`] like every other bright text rung, so a widget that draws
+/// its body with [`normal`] asks no question about modals.
 pub fn normal() -> Color {
-    match family() {
+    modal::or_muted(match family() {
         Family::Rgb => neutral(NORMAL_RUNG),
         _ => Color::Reset,
-    }
+    })
 }
 /// Primary figures, and any value that differs from its default. Weight does the work;
 /// the colour only stops it receding.
@@ -772,15 +780,21 @@ pub fn normal() -> Color {
 ///
 /// [`Palette::Derived`] can do better, because it is not picking from a fixed set: it
 /// extrapolates past the foreground and gets a rung that is genuinely above `normal`.
+///
+/// # Under a modal it is [`muted`]
+///
+/// The loudest rung on the screen is the one a modal is most obliged to quiet — emphasis is a
+/// highlight too (VL §6), so [`strong`] collapses onto [`muted`] with the rest of the bright
+/// text rungs.
 pub fn strong() -> Color {
-    match family() {
+    modal::or_muted(match family() {
         Family::Rgb => neutral(100),
         // Nothing brighter than slot 15 exists to reach for, and under `None` the bold
         // modifier in `strong_style` is the entire signal — which r02 says it mostly is
         // anyway ("weight does the work").
         Family::None => Color::Reset,
         _ => Color::White,
-    }
+    })
 }
 
 // --- §2 / §6 structure --------------------------------------------------------------
@@ -853,8 +867,14 @@ pub fn cursor_bg() -> Color {
     neutral(19)
 }
 /// The leading `▸` marker on the data cursor row.
+///
+/// # Under a modal it is [`muted`]
+///
+/// The mark sits above the muted rung to distinguish the cursor row from the rows around it,
+/// which makes it one of the bright text rungs — and a bright rung is exactly what a modal
+/// takes away (VL §6).
 pub fn cursor_mark() -> Color {
-    neutral(70)
+    modal::or_muted(neutral(70))
 }
 /// The editing cell fill — lighter than the cursor tint, so it reads as "you type HERE".
 pub fn edit_bg() -> Color {

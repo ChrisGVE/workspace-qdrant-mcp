@@ -401,3 +401,45 @@ mod grid;
 mod modal;
 mod sort;
 
+/// VL §6 extended (Chris, 2026-09-07): a page beneath a modal paints no text brighter than the
+/// muted rung.
+///
+/// The sweep in `modal` proves no HUE survives; this proves no bright NEUTRAL does either — the
+/// zone headings, column headers and data rows that used to stay at the `text` rung while a
+/// modal owned the input. The quiet rungs are enumerated here (everything at or below `muted`),
+/// and the sweep fails on any cell painted outside them: a bright rung under a modal is a
+/// highlight left on the page beneath one.
+#[test]
+fn a_page_under_a_modal_paints_no_text_brighter_than_muted() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    // Every neutral rung at or below `muted`, plus the unpainted ground. Anything outside this
+    // set is either a hue or a bright text rung — and both are what a modal takes away.
+    let quiet = [
+        ratatui::style::Color::Reset,
+        crate::tokens::faint(),
+        crate::tokens::muted(),
+        crate::tokens::rule_frame(),
+        crate::tokens::rule_internal(),
+        crate::tokens::cursor_bg(),
+        crate::tokens::edit_bg(),
+        crate::tokens::layer1_bg(),
+        crate::tokens::layer2_bg(),
+    ];
+
+    let live = render(view(frames::populated()), WIDE, TALL);
+    assert!(
+        !coloured_cells(&live, &quiet).is_empty(),
+        "the Dashboard paints no bright text even when live — this guard checks nothing"
+    );
+
+    let under = render(view(frames::populated()).under_modal(true), WIDE, TALL);
+    let survivors = coloured_cells(&under, &quiet);
+    assert!(
+        survivors.is_empty(),
+        "{} cells kept text brighter than muted under a modal, first ten: {:?}",
+        survivors.len(),
+        &survivors[..survivors.len().min(10)]
+    );
+}

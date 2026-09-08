@@ -143,16 +143,24 @@ impl Widget for CellPane {
         // reorder in a list of one. Same shape as the foot's own three cases, and read off the
         // same two facts, so the screen cannot offer a key the foot does not.
         let sortable = self.is_live() && self.table.len() > 1;
+        // The column header follows the cell's focus exactly as the heading does: a cell that
+        // is not the live one recedes to the muted rung, while no focus at all leaves every
+        // header at the text rung.
+        let receded = matches!(self.attention, Attention::Zone(zone) if zone != self.zone);
         heading.render(crate::views::top::row(area, 0), buf);
         if area.height > 1 {
-            self.table.sortable(sortable).cursor(cursor).render(
-                Rect {
-                    y: area.y + 1,
-                    height: area.height - 1,
-                    ..area
-                },
-                buf,
-            );
+            self.table
+                .sortable(sortable)
+                .cursor(cursor)
+                .receded(receded)
+                .render(
+                    Rect {
+                        y: area.y + 1,
+                        height: area.height - 1,
+                        ..area
+                    },
+                    buf,
+                );
         }
     }
 }
