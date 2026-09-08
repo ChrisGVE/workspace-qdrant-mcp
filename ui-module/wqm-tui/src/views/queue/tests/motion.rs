@@ -3,13 +3,13 @@
 use super::*;
 use crate::motion::Motion;
 
-/// The `No` values a projection holds, read through [`state::project`] — the one producer of the
-/// projection — so the guard reads the same rows the frames draw, not a copy of them.
+/// The `No` values a projection shows, counted through [`state::project`] — the one producer of
+/// the projection — so the guard reads the same rows the frames draw, not a copy of them.
+///
+/// The number is POSITIONAL (Chris, 2026-09-08): it is the row's place from the top of what is
+/// displayed, so this is the projection's length counted off rather than a field read off a row.
 fn nos(state: &QueueState) -> Vec<u16> {
-    state::project(&fixture::ROWS, state)
-        .iter()
-        .map(|row| row.no)
-        .collect()
+    (1..=state::project(&fixture::ROWS, state).len() as u16).collect()
 }
 
 #[test]
@@ -75,36 +75,37 @@ fn top_and_bottom_ignore_the_count() {
 }
 
 #[test]
-fn row_places_the_cursor_on_the_row_named_by_its_no() {
+fn row_places_the_cursor_on_the_row_at_that_position() {
     let numbers = nos(&QueueState::default());
 
-    // The unsorted projection leads with the rows in progress — No 188 first, No 200 last.
+    // The number is the row's PLACE (Chris, 2026-09-08), so `<n>g` counts from the top of what is
+    // displayed: row 1 is the first line, row 200 the last.
     assert_eq!(
         QueueState::default()
-            .moved(Motion::Row(188), 1, 10, &numbers)
+            .moved(Motion::Row(1), 1, 10, &numbers)
             .cursor,
         0,
-        "No 188 leads the projection"
+        "row 1 is the top of the projection"
     );
     assert_eq!(
         QueueState::default()
             .moved(Motion::Row(200), 1, 10, &numbers)
             .cursor,
         199,
-        "No 200 is the last row"
+        "row 200 is the last line"
     );
 }
 
 #[test]
-fn row_on_a_number_the_projection_does_not_hold_leaves_the_cursor_where_it_was() {
-    // A selector narrows to the three failed rows: No 198, 199, 200. A `<n>g` naming a row the
-    // projection dropped (188) must not move the cursor — there is no row to move to, and moving
-    // to the nearest neighbour would look like the row was found.
+fn row_past_the_end_of_the_projection_leaves_the_cursor_where_it_was() {
+    // A selector narrows to the three failed rows, which are therefore rows 1, 2 and 3. A `<n>g`
+    // naming a row past the end must not move the cursor — there is no such line, and moving to
+    // the nearest one would look like the row was found.
     let numbers = nos(&QueueState {
         status: Some(Status::Failed),
         ..QueueState::default()
     });
-    assert_eq!(numbers, vec![198, 199, 200], "the filtered projection");
+    assert_eq!(numbers, vec![1, 2, 3], "the filtered projection is renumbered");
 
     let state = QueueState {
         status: Some(Status::Failed),
@@ -114,6 +115,6 @@ fn row_on_a_number_the_projection_does_not_hold_leaves_the_cursor_where_it_was()
     assert_eq!(
         state.moved(Motion::Row(188), 1, 10, &numbers).cursor,
         1,
-        "No 188 is not in the projection, so the cursor stays"
+        "a row the projection does not reach leaves the cursor alone"
     );
 }

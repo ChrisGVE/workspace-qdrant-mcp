@@ -31,7 +31,7 @@ const PROPS: &[PropInfo] = &[
 
 fn columns() -> Vec<Column> {
     vec![
-        Column::number("No", 4).sort('o'),
+        Column::number("No", 4),
         Column::text("Tenant", 20).sort('e'),
         Column::flex("Object").sort('b').elide_left(),
         Column::text("Status", 11).sort('u'),
@@ -42,7 +42,6 @@ fn rows(n: usize) -> Vec<Vec<Cell>> {
     (0..n)
         .map(|i| {
             vec![
-                Cell::Num(i as u64 + 1),
                 Cell::Text("workspace-qdrant-mcp".into()),
                 Cell::Text(format!("docs/archives/prd-workspace/audit-report-r{i}.md")),
                 Cell::Tinted {

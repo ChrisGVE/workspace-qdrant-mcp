@@ -17,6 +17,11 @@ use crate::tokens;
 
 /// A full-width sortable list. See the module docs for how it differs from a Dashboard cell.
 pub struct ListPane {
+    /// The list's columns. The FIRST is the row-number column — untitled, on the left, and
+    /// filled by [`ListPane::render`] with each row's position rather than with a stored value,
+    /// so a sort or a filter renumbers the visible column 1, 2, 3 downward. The cells a row
+    /// carries answer to the columns AFTER it: one cell per data column, which is one fewer than
+    /// the length of this list.
     columns: Vec<Column>,
     rows: Vec<Vec<Cell>>,
     /// Which line the data cursor is on, counted over the whole buffer rather than over what is
@@ -34,6 +39,10 @@ pub struct ListPane {
     /// Whether the caller believes there is more behind this page. The pane cannot know — it
     /// holds a page, not a store — so the one fact it cannot derive is the one it is given.
     more: bool,
+    /// Whether the number column shows each row's DISTANCE from the cursor rather than its own
+    /// position. Off by default, and a still frame rather than a key handling: the `r` key the
+    /// live screen binds for it is not this crate's to press.
+    relative: bool,
 }
 
 impl ListPane {
@@ -45,7 +54,16 @@ impl ListPane {
             offset: 0,
             sort: None,
             more: false,
+            relative: false,
         }
+    }
+
+    /// Number each row by its distance from the cursor rather than by its position. See the
+    /// field: the mode the live screen's `r` key toggles, exposed here as a builder because a
+    /// still frame cannot handle the press.
+    pub fn relative(mut self, on: bool) -> Self {
+        self.relative = on;
+        self
     }
 
     /// Put the data cursor on a line. Clamped on render rather than here, so a caller that
@@ -79,7 +97,11 @@ impl ListPane {
     /// list that is not a nicety: a hundred and one of the two hundred captured rows are `21m
     /// ago`, and an unstable sort by `Age` would shuffle them into an order nothing chose.
     pub fn sorted(mut self, sort: Sort) -> Self {
-        let column = sort.column;
+        // `sort.column` names a column of the list; the cell a row holds for it sits one place
+        // left, because the number column (0) holds no cell. The number column is never a sort
+        // target — it offers no key, and a positional number is nothing that can be ordered — so
+        // `column` is always at least one here.
+        let column = sort.column.saturating_sub(1);
         self.rows.sort_by(|a, b| {
             let ordering = match (a.get(column), b.get(column)) {
                 (Some(a), Some(b)) => compare(a, b),
@@ -135,6 +157,21 @@ impl ListPane {
             grouped(self.rows.len() as u64),
             grouped(LIST_PAGE as u64)
         )
+    }
+
+    /// The number the column shows for the row at buffer index `index`, with the cursor at `at`.
+    ///
+    /// Positional and computed HERE rather than stored: `index + 1` is the row's place from the
+    /// top of the list as displayed, so the column always reads 1, 2, 3 downward whatever order
+    /// the rows are in. In the relative mode the cursor row alone keeps that absolute position —
+    /// the number a reader could point at — and every other row shows its distance from the
+    /// cursor, so the rows immediately above and below both read 1.
+    fn number_at(&self, index: usize, at: usize) -> u64 {
+        if self.relative && index != at {
+            index.abs_diff(at) as u64
+        } else {
+            (index + 1) as u64
+        }
     }
 
     /// Lines the buffer holds: its rows, plus the load-more line when there is one.
@@ -238,7 +275,9 @@ fn paint_cursor(row: Rect, buf: &mut Buffer) {
 
 impl Widget for ListPane {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.is_empty() || area.height == 0 {
+        // A list without its number column is malformed — the first column is the number, and
+        // nothing else has anywhere to stand.
+        if area.is_empty() || area.height == 0 || self.columns.is_empty() {
             return;
         }
         let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
@@ -266,14 +305,33 @@ impl Widget for ListPane {
                 // Indexed rather than zipped by reference: a row may carry fewer cells than the
                 // list has columns, and the column its value belongs to is its POSITION.
                 Some(cells) => {
-                    for (n, (cell, column)) in cells.iter().zip(&self.columns).enumerate() {
-                        Paragraph::new(Line::from(cell.spans(columns[n].width, column.elide)))
+                    // The number column first: the row's position, computed from the displayed
+                    // index rather than read off the row, and muted — it is there to be referred
+                    // to, not to be read down the page. The cursor row wears it too.
+                    Paragraph::new(Line::from(Span::styled(
+                        grouped(self.number_at(index, at)),
+                        tokens::muted_style(),
+                    )))
+                    .alignment(self.columns[0].align.to_ratatui())
+                    .render(
+                        Rect {
+                            y: row.y,
+                            height: 1,
+                            ..columns[0]
+                        },
+                        buf,
+                    );
+
+                    // Then the data columns, drawn from the row's cells — which sit one place
+                    // left of the column they answer to, the number column taking the first.
+                    for (n, (cell, column)) in cells.iter().zip(&self.columns[1..]).enumerate() {
+                        Paragraph::new(Line::from(cell.spans(columns[n + 1].width, column.elide)))
                             .alignment(column.align.to_ratatui())
                             .render(
                                 Rect {
                                     y: row.y,
                                     height: 1,
-                                    ..columns[n]
+                                    ..columns[n + 1]
                                 },
                                 buf,
                             );

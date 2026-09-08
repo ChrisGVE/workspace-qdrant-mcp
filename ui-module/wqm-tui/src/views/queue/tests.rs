@@ -130,52 +130,29 @@ fn the_status_column_carries_the_status_blocks_own_three_hues() {
     }
 }
 
-/// The reference number is invariant under a selector and under a filter, which is the whole of
-/// what "assigned at load" buys.
+/// The numbers read 1, 2, 3 downward under every narrowing, because they are POSITIONS.
 ///
-/// A `No` derived from the projection would come back `1, 2, 3` from every narrowing, and the
-/// number a reader wrote down would name a different row every time they looked.
+/// This is the exact reversal of what this guard asserted until 2026-09-08, when Chris ruled that
+/// the number is fixed with respect to the top of the list "regardless if it is sorted, filtered,
+/// etc." A number that travelled with its row was the old rule; what a reader now writes down is
+/// where a row SITS, and that is what a selector and a filter are entitled to change.
 #[test]
-fn the_reference_number_survives_the_selectors_and_a_filter() {
-    fn numbers(state: QueueState) -> Vec<u64> {
-        frames::pane(&state)
-            .rows()
-            .iter()
-            .map(|row| match &row[frames::NO] {
-                Cell::Num(no) => *no,
-                _ => panic!("the No column is a figure"),
-            })
-            .collect()
+fn the_numbers_are_positions_under_every_narrowing() {
+    fn drawn(state: QueueState) -> Vec<usize> {
+        (1..=frames::pane(&state).rows().len()).collect()
     }
 
-    let all = numbers(QueueState::default());
-    assert_eq!(
-        all[0], 188,
-        "with no sort chosen the rows in progress lead — row 188 is the first of them"
-    );
+    let all = drawn(QueueState::default());
+    assert_eq!(all[0], 1, "the top row is row one, whatever is in it");
     assert_eq!(all.len(), crate::panes::list::LIST_PAGE);
 
-    // The three failed rows are the last three of the captured page, so their numbers are the
-    // last three — not 1, 2, 3.
-    let failed = numbers(QueueState {
+    // The three failed rows are the last three of the captured page. Under a selector they are
+    // the only three left, so they are rows 1, 2 and 3 — where the old rule kept 198, 199, 200.
+    let failed = drawn(QueueState {
         status: Some(Status::Failed),
         ..QueueState::default()
     });
-    assert_eq!(
-        failed,
-        vec![198, 199, 200],
-        "a selector keeps each row's own number"
-    );
-
-    // And a filter, which reloads the list rather than narrowing it in place.
-    let filtered = numbers(QueueState {
-        filter: Some(Filter::On {
-            term: "PlotSwift".into(),
-            rows: 3,
-        }),
-        ..QueueState::default()
-    });
-    assert_eq!(filtered, vec![198, 199, 200], "a filter keeps them too");
+    assert_eq!(failed, vec![1, 2, 3], "a selector renumbers from the top");
 }
 
 /// The two conversations are independent, and each leaves by its own door.
@@ -300,12 +277,27 @@ fn with_no_sort_chosen_the_rows_in_progress_lead_in_buffer_order() {
             .all(|status| *status == Status::InProgress),
         "they lead"
     );
-    assert_eq!(rows[0].no, 188, "in buffer order among themselves");
+    // The number can no longer say this: it is POSITIONAL now (Chris, 2026-09-08), so it reads
+    // 1..200 whatever order the rows are in. The claim is about the ROWS, so it is made against
+    // the rows themselves — the ten in progress keep the buffer's order among themselves, and
+    // the rest follow in the buffer's order behind them.
+    let in_progress: Vec<&str> = fixture::ROWS
+        .iter()
+        .filter(|row| row.status == Status::InProgress)
+        .map(|row| row.object)
+        .collect();
+    let rest: Vec<&str> = fixture::ROWS
+        .iter()
+        .filter(|row| row.status != Status::InProgress)
+        .map(|row| row.object)
+        .collect();
+    let drawn: Vec<&str> = rows.iter().map(|row| row.object).collect();
+    assert_eq!(drawn[..10], in_progress[..], "in buffer order among themselves");
     assert_eq!(
-        rows[10].no, 1,
+        drawn[10..],
+        rest[..],
         "then the remaining rows in buffer order, from the top of the page"
     );
-    assert_eq!(rows[199].no, 200, "down to the last of them");
 
     // A chosen sort replaces the default rather than composing with it: ascending by age puts
     // row 1 — newest, and not in progress — back at the top.
@@ -316,8 +308,18 @@ fn with_no_sort_chosen_the_rows_in_progress_lead_in_buffer_order() {
         }),
         ..QueueState::default()
     });
+    // The newest row of the captured page is not one of the ten in progress, so if the chosen
+    // sort outranks the default it leads — named by its object, since the number now only says
+    // "first" and would say that either way.
+    let newest = fixture::ROWS
+        .iter()
+        .min_by_key(|row| row.seconds)
+        .expect("rows");
     assert!(
-        matches!(&sorted.rows()[0][frames::NO], Cell::Num(1)),
+        matches!(
+            &sorted.rows()[0][frames::cell_at(frames::OBJECT)],
+            Cell::Text(object) if object == newest.object
+        ),
         "a chosen sort outranks the in-progress-first default"
     );
 }
@@ -385,30 +387,23 @@ fn every_tenant_is_a_project_name_the_repository_already_publishes() {
         )
         .collect();
 
-    for row in fixture::ROWS.iter() {
+    for (at, row) in fixture::ROWS.iter().enumerate() {
         assert!(
             vetted.contains(&row.tenant),
             "row {} names `{}`, which this repository does not already publish",
-            row.no,
+            at + 1,
             row.tenant
         );
     }
 }
 
-/// The reference numbers are the fixture's own positions, 1-based, with none missing.
+/// The fixture is exactly one buffer page long.
 ///
-/// The invariance guards say a number moves with its row; this says the numbers were assigned
-/// at load in the first place. A fixture edited by hand into `1, 2, 2, 4` would satisfy every
-/// other guard here.
+/// It used to also assert that each row carried its own 1-based reference number. That number is
+/// gone (Chris, 2026-09-08): what a row shows is its position in what is DISPLAYED, computed at
+/// render time, so "the numbers are the positions" is now true by construction and cannot be
+/// falsified by a hand-edited fixture. What can still be got wrong is the page length.
 #[test]
-fn the_reference_numbers_are_the_fixtures_own_positions() {
-    for (at, row) in fixture::ROWS.iter().enumerate() {
-        assert_eq!(
-            row.no as usize,
-            at + 1,
-            "row {at} carries No {}, which is not where it sits",
-            row.no
-        );
-    }
+fn the_fixture_is_exactly_one_buffer_page() {
     assert_eq!(fixture::ROWS.len(), crate::panes::list::LIST_PAGE);
 }

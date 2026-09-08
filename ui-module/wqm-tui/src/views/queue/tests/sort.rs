@@ -164,7 +164,7 @@ fn size_orders_by_bytes_and_age_orders_by_seconds() {
 
     // Descending by size: the largest file in the captured page leads, and `4.0 MB` is above
     // every `KB` — which a comparison of the printed strings would file under `9`.
-    let sizes = shown(frames::SIZE, Direction::Desc, frames::SIZE);
+    let sizes = shown(frames::SIZE, Direction::Desc, frames::cell_at(frames::SIZE));
     let widest = fixture::ROWS
         .iter()
         .map(|row| row.bytes)
@@ -193,7 +193,7 @@ fn size_orders_by_bytes_and_age_orders_by_seconds() {
 
     // Ascending by age: the newest row first, and `19h ago` last — where a string comparison
     // would put `19h ago` above `1m ago`.
-    let ages = shown(frames::AGE, Direction::Asc, frames::AGE);
+    let ages = shown(frames::AGE, Direction::Asc, frames::cell_at(frames::AGE));
     assert_eq!(ages[0], "1m ago", "{:?}", &ages[..3]);
     assert_eq!(
         ages[ages.len() - 1],

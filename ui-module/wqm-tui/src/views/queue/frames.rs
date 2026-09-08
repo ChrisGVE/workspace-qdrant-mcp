@@ -32,11 +32,12 @@ pub const AGE: usize = 8;
 ///
 /// **`No` is untitled and offers no key, and both are the same decision.** v0.1 leads with an
 /// eight-character hash; Chris replaced it with `No` (2026-09-07), the number a person can
-/// actually say out loud — and the number is an INVARIANT: assigned at load, unmoved by every
-/// sort, filter and selector this screen has. It names the row; it is not a fact about the row
-/// that could be ordered. A sort key here would invite reordering the list by its own naming
-/// scheme, and a title would spend three columns saying so. `o`, freed by that decision, is the
-/// operation selector's now.
+/// actually say out loud — and the number is POSITIONAL: computed at render from each row's
+/// place in the list as displayed, so a sort or a filter renumbers the visible column 1, 2, 3
+/// downward. It names the position, not the row, so no number is stored on the row to survive a
+/// reorder. A sort key here would invite reordering the list by its own naming scheme, and a
+/// title would spend three columns saying so. `o`, freed by that decision, is the operation
+/// selector's now.
 ///
 /// **`T` offers no key.** The type selector is gone and the free-text filter covers narrowing
 /// by type — a reader who wants one type types the word — and `Type` next door sorts by the
@@ -48,6 +49,15 @@ pub const AGE: usize = 8;
 /// `workspace-qdrant-mcp` is twenty, and `Status` is eleven because `in progress` is eleven.
 /// Every sortable column holds its own `↓` inside its own width, so no header borrows the gap
 /// beside it — which is what `views::queue::tests` checks rather than assumes.
+/// The index of the CELL a column index names.
+///
+/// The row-number column is the list pane's own — it is drawn from each row's position and no row
+/// carries a cell for it — so a row's cells sit one place left of the columns they fill. Written
+/// once here rather than as a `- 1` at each call site, where it would read as an off-by-one.
+pub const fn cell_at(column: usize) -> usize {
+    column - 1
+}
+
 pub fn columns() -> Vec<Column> {
     vec![
         Column::number("", 3),
@@ -64,7 +74,8 @@ pub fn columns() -> Vec<Column> {
     ]
 }
 
-/// One row's nine values.
+/// One row's eight data values — the number column is drawn by the list itself, from the row's
+/// position, so no cell is produced for it here.
 ///
 /// `Size` and `Age` are [`Cell::Measured`] rather than text: both print in units and order by
 /// magnitude, and a `Size` column that sorted its own strings would file `4.0 MB` between
@@ -72,7 +83,6 @@ pub fn columns() -> Vec<Column> {
 /// three hues the status block gives its own counts.
 fn cells(row: &QueueRow) -> Vec<Cell> {
     vec![
-        Cell::Num(row.no as u64),
         Cell::Text(row.kind.letter().to_string()),
         Cell::Text(row.tenant.to_string()),
         Cell::Text(row.object.to_string()),
@@ -109,7 +119,8 @@ pub fn pane_over(buffer: &[QueueRow], state: &QueueState) -> ListPane {
     let full = rows.len() == LIST_PAGE;
     let mut pane = ListPane::new(columns(), rows.iter().map(|row| cells(row)).collect())
         .more(full)
-        .cursor(state.cursor);
+        .cursor(state.cursor)
+        .relative(state.relative);
     if let Some(sort) = state.sort {
         pane = pane.sorted(sort);
     }

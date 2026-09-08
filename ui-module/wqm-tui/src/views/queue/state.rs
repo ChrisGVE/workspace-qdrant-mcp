@@ -218,6 +218,9 @@ pub struct QueueState {
     pub status: Option<Status>,
     pub sort: Option<Sort>,
     pub cursor: usize,
+    /// Whether the row numbers count from the cursor rather than from the top — the `r` key
+    /// (Chris, 2026-09-08). A setting, so it survives every conversation and every narrowing.
+    pub relative: bool,
 }
 
 impl Default for QueueState {
@@ -225,6 +228,7 @@ impl Default for QueueState {
         Self {
             search: None,
             filter: None,
+            relative: false,
             // Arbitrary until the second conversation opens — `/` is the likelier first
             // press, so the default names the search. A value that cannot decide anything
             // until it is written again is not a value worth wrapping in an Option.
@@ -400,10 +404,10 @@ impl QueueState {
     ///
     /// The list half of the shared movement model ([`crate::motion`]): a [`Motion`] and a count
     /// arrive, and this turns them into the cursor the list will draw. `nos` are the projection's
-    /// invariant `No` values in drawn order — one per row — so the cursor's range is
-    /// `0..nos.len()` and [`Motion::Row`] can find the row a number names rather than guess a
-    /// drawn position. `page` is how many rows the list shows at once: the step
-    /// [`Motion::PageDown`] and [`Motion::PageUp`] take.
+    /// row numbers in drawn order — one per row, 1-based and POSITIONAL, so `1..=len` — so the
+    /// cursor's range is `0..nos.len()` and [`Motion::Row`] can find the row a number names
+    /// rather than guess a drawn position. `page` is how many rows the list shows at once: the
+    /// step [`Motion::PageDown`] and [`Motion::PageUp`] take.
     ///
     /// The count is passed even for the motions that ignore it — [`Motion::Top`],
     /// [`Motion::Bottom`] and [`Motion::Row`] — because [`crate::motion::Prefix::key`] returns it

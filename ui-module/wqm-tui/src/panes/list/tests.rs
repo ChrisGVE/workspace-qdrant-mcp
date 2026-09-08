@@ -13,18 +13,19 @@ const WIDE: u16 = 125;
 
 fn columns() -> Vec<Column> {
     vec![
-        Column::number("No", 4).sort('o'),
+        // The first column is the row-number column, which the pane draws itself from each
+        // row's position — untitled, unsorted, and carrying no cell.
+        Column::number("", 4),
         Column::flex("Object").sort('b').elide_left(),
         Column::text("Status", 11).sort('u'),
     ]
 }
 
-/// `n` rows, numbered from one exactly as a real load does.
+/// `n` rows. No number cell: the pane numbers the rows itself, from their positions.
 fn rows(n: usize) -> Vec<Vec<Cell>> {
     (0..n)
         .map(|i| {
             vec![
-                Cell::Num(i as u64 + 1),
                 Cell::Text(format!("a/very/long/path/that/will/not/fit/file-{i}.txt")),
                 Cell::Text("pending".into()),
             ]
@@ -72,8 +73,9 @@ fn the_header_is_italic_and_lights_its_sort_key_only_when_there_is_more_than_one
         .collect();
     assert_eq!(
         lit,
-        vec!["o", "b", "u"],
-        "the lit letters are the three columns' sort keys, left to right"
+        vec!["b", "u"],
+        "the lit letters are the two sortable columns' keys, left to right — the number column
+         offers none, because a positional number is nothing that can be ordered"
     );
 
     // Every painted cell of the header row is italic, and bold is the sort key's alone — weight
@@ -288,31 +290,37 @@ fn the_load_more_line_reads_its_numbers_and_takes_the_cursor_like_a_row() {
     );
 }
 
-/// `No` is a field of the row, so sorting by anything else leaves every number where it was.
+/// The numbers are POSITIONS, so a sort renumbers them 1, 2, 3 down the screen while the rows
+/// move underneath.
 ///
-/// The rule Chris asked for, stated as the thing that would break it: a `No` drawn from the
-/// row's POSITION would renumber 1, 2, 3 down the screen after every sort, which is a reference
-/// number that refers to nothing.
+/// This is the reversal of what this guard used to assert (Chris, 2026-09-08). The number used to
+/// be assigned at load and to travel with its row; it is now the row's place in what is
+/// displayed, computed at render. It is read off the drawn frame rather than off a cell, because
+/// no row carries it any more.
 #[test]
-fn the_reference_number_survives_a_sort_by_another_column() {
+fn a_sort_renumbers_the_rows_by_their_new_positions() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
     let pane = ListPane::new(columns(), rows(5)).sorted(Sort {
         column: 1,
         direction: Direction::Desc,
     });
-    let numbers: Vec<u64> = pane
-        .rows()
-        .iter()
-        .map(|row| match &row[0] {
-            Cell::Num(n) => *n,
-            _ => panic!("the No column is a figure"),
-        })
+    let buf = render(pane, WIDE, 7);
+
+    let drawn: Vec<String> = (1..=5)
+        .map(|row| text(&buf, row).split_whitespace().next().unwrap_or("").to_string())
         .collect();
-    // Object descending: file-4 … file-0, so the numbers come back 5, 4, 3, 2, 1 — the SAME
-    // numbers, reordered with their rows, rather than 1..5 re-assigned down the screen.
     assert_eq!(
-        numbers,
-        vec![5, 4, 3, 2, 1],
-        "the reference number moved with its row"
+        drawn,
+        vec!["1", "2", "3", "4", "5"],
+        "the column counts the screen, not the load order"
+    );
+    // Object descending: file-4 leads. The ROWS moved; the numbers did not follow them.
+    assert!(
+        text(&buf, 1).contains("file-4.txt"),
+        "the sort did not take: {:?}",
+        text(&buf, 1)
     );
 }
 
