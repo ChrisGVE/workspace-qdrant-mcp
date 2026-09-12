@@ -121,7 +121,7 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
         )),
         Box::new(Variant(
             "Sorted by Size ↓",
-            "`z` lit, `↓` after the name, and 4.0 MB at the top — the column that proves a size sorts by bytes and not by its own text",
+            "`z` lit, `↓` after the name, and 4 MB at the top — the column that proves a size sorts by bytes and not by its own text",
             || {
                 queue(QueueState {
                     sort: Some(Sort {

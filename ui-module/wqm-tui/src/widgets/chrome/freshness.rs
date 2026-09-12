@@ -65,14 +65,12 @@ impl Freshness {
 ///
 /// Coarse on purpose. The number is read peripherally to answer *"is this recent?"*, and a
 /// second of precision on an eighteen-minute age answers a question nobody asked.
+///
+/// A [`Duration`]-shaped door onto [`crate::format::age`], which is the surface's one age
+/// producer (20260912). The freshness line adds `ago` because it is writing a sentence; a table
+/// column prints the bare figure. One rule for how long is written, two phrasings around it.
 pub fn format_age(age: Duration) -> String {
-    let secs = age.as_secs();
-    match secs {
-        0..=59 => format!("{secs}s"),
-        60..=3_599 => format!("{}m", secs / 60),
-        3_600..=86_399 => format!("{}h", secs / 3_600),
-        _ => format!("{}d", secs / 86_400),
-    }
+    crate::format::age(age.as_secs())
 }
 
 #[cfg(test)]

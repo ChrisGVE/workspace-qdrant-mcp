@@ -75,3 +75,152 @@ pub fn count_span(value: u64, hue: fn() -> Color) -> Span<'static> {
     };
     Span::styled(grouped(value), style)
 }
+
+/// The unit field's width: two cells, so `B` occupies as much as `KB` and the space before it
+/// lands in the same column on every row.
+///
+/// Chris, 2026-09-07: sizes are *"right-aligned … aligned on the space"*. Right-alignment alone
+/// cannot do that when the unit is sometimes one character and sometimes two — `169 B` and
+/// `31 KB` right-aligned put their spaces one column apart — so the unit is padded here, where
+/// the figure is written, rather than at each column that draws one.
+const UNIT_WIDTH: usize = 2;
+
+/// The steps, largest first, with the divisor each one measures in.
+const UNITS: [(u64, &str); 4] = [
+    (1024 * 1024 * 1024, "GB"),
+    (1024 * 1024, "MB"),
+    (1024, "KB"),
+    (1, "B"),
+];
+
+/// A byte count as this surface writes it: **an integer and a unit**, `31 KB`, `4 MB`, `169 B`.
+///
+/// Chris, 2026-09-07: *"integer + unit"*, no decimal — a queue row is read down a column for its
+/// order of magnitude, and `30.8 KB` spends two cells saying what `31 KB` says. Rounded rather
+/// than truncated: `1023 B` is nearer a kilobyte than nothing, and a column that always rounded
+/// down would report `1.9 MB` as `1 MB`.
+///
+/// **`None` is not zero.** A queue item whose size is not yet known draws nothing at all, which
+/// is what v0.1 does and what the captured buffer holds; a file that really is empty draws
+/// `0 B`. The two are different facts and the column shows the difference.
+///
+/// The unit is padded to [`UNIT_WIDTH`], so every figure this returns is the same width and a
+/// right-aligned column lines up the space between the number and the unit.
+pub fn size(bytes: Option<u64>) -> String {
+    let Some(bytes) = bytes else {
+        return String::new();
+    };
+    let (divisor, unit) = UNITS
+        .iter()
+        .copied()
+        // The largest unit this figure reaches at least one whole of — and `B` catches
+        // everything below a kilobyte, itself included.
+        .find(|(divisor, _)| bytes >= *divisor)
+        .unwrap_or((1, "B"));
+    let scaled = (bytes as f64 / divisor as f64).round() as u64;
+    format!("{scaled} {unit:<UNIT_WIDTH$}")
+}
+
+/// An age as this surface writes it: **the coarsest unit that still says something**, and no
+/// `ago` — `12s`, `1m`, `3h`, `2d`.
+///
+/// Chris, 2026-09-07: the tables print `1m` / `3h` / `2d`, *"no `ago`"*, aligned on the unit.
+/// The unit is one character and the column is right-aligned, so it lands in the last cell
+/// whatever the number's width — nothing needs padding here, unlike [`size`].
+///
+/// The word `ago` belongs to a SENTENCE rather than to a figure: the title bar's freshness line
+/// reads *"updated 4s ago"* and adds the word itself
+/// ([`crate::widgets::chrome::freshness::format_age`]), which is why that line and this column
+/// can share one producer without sharing a phrasing.
+pub fn age(seconds: u64) -> String {
+    match seconds {
+        0..=59 => format!("{seconds}s"),
+        60..=3_599 => format!("{}m", seconds / 60),
+        3_600..=86_399 => format!("{}h", seconds / 3_600),
+        _ => format!("{}d", seconds / 86_400),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chris, 2026-09-07: an integer and a unit, and nothing between them but one space.
+    #[test]
+    fn a_size_is_an_integer_and_a_unit() {
+        assert_eq!(size(Some(169)).trim_end(), "169 B");
+        assert_eq!(size(Some(31_539)).trim_end(), "31 KB");
+        assert_eq!(size(Some(4_194_304)).trim_end(), "4 MB");
+        assert_eq!(size(Some(2_147_483_648)).trim_end(), "2 GB");
+        assert!(
+            !size(Some(31_539)).contains('.'),
+            "a decimal spends two cells saying what the integer says"
+        );
+    }
+
+    /// Rounded, not truncated — a column that always rounded down would call 1.9 MB one.
+    #[test]
+    fn a_size_rounds_to_the_nearest_whole_unit() {
+        assert_eq!(size(Some(1_992_294)).trim_end(), "2 MB");
+        assert_eq!(size(Some(1023)).trim_end(), "1023 B");
+    }
+
+    /// An unknown size and a size of zero are different facts, and the column shows both.
+    #[test]
+    fn no_size_draws_nothing_and_an_empty_file_draws_zero() {
+        assert_eq!(size(None), "");
+        assert_eq!(size(Some(0)).trim_end(), "0 B");
+    }
+
+    /// Every figure is the same width, so a right-aligned column puts every space in one place.
+    ///
+    /// The property, not three examples: `B` is one character where `KB` is two, and the whole
+    /// point of padding here is that the difference never reaches the column.
+    #[test]
+    fn every_size_is_the_same_width_after_its_number() {
+        for bytes in [0u64, 1, 999, 1024, 999_999, 5_000_000, 9_000_000_000] {
+            let drawn = size(Some(bytes));
+            let (number, unit) = drawn.split_once(' ').expect("one space, always");
+            assert_eq!(
+                unit.chars().count(),
+                UNIT_WIDTH,
+                "{drawn:?} pads its unit to {UNIT_WIDTH}"
+            );
+            assert!(
+                number.chars().all(|c| c.is_ascii_digit()),
+                "{drawn:?} writes a bare integer before the space"
+            );
+        }
+    }
+
+    /// The coarsest unit that still says something, and no `ago` (Chris, 2026-09-07).
+    #[test]
+    fn an_age_is_a_bare_figure_in_its_coarsest_unit() {
+        assert_eq!(age(0), "0s");
+        assert_eq!(age(59), "59s");
+        assert_eq!(age(60), "1m");
+        assert_eq!(age(3_599), "59m");
+        assert_eq!(age(3_600), "1h");
+        assert_eq!(age(86_399), "23h");
+        assert_eq!(age(86_400), "1d");
+        assert_eq!(age(172_800), "2d");
+        for seconds in [0, 59, 60, 3_600, 86_400, 1_000_000] {
+            assert!(!age(seconds).contains("ago"), "{}", age(seconds));
+        }
+    }
+
+    /// The unit is the last character, so a right-aligned column aligns on it with no padding —
+    /// which is why [`age`] pads nothing and [`size`] must.
+    #[test]
+    fn an_age_ends_in_its_unit() {
+        for seconds in [0, 90, 7_200, 300_000] {
+            let drawn = age(seconds);
+            let last = drawn.chars().last().expect("a unit");
+            assert!(last.is_ascii_alphabetic(), "{drawn:?}");
+            assert!(
+                drawn[..drawn.len() - 1].chars().all(|c| c.is_ascii_digit()),
+                "{drawn:?} is digits then one unit letter"
+            );
+        }
+    }
+}

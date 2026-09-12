@@ -10,6 +10,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
 mod dialog;
+mod figures;
 mod help;
 mod layout;
 mod motion;

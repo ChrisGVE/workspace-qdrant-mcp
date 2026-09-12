@@ -70,7 +70,10 @@ pub fn columns() -> Vec<Column> {
         Column::text("Op", 6).sort('p'),
         Column::text("Status", 11).sort('u'),
         Column::number("Size", 8).sort('z'),
-        Column::text("Age", 8).sort('a'),
+        // A figure, so right-aligned like every other figure (Chris, 2026-09-07, ruling 11) —
+        // it was `text` while the age was a phrase (`19h ago`), and left-aligned phrases put
+        // the unit in a different column on every row.
+        Column::number("Age", 8).sort('a'),
     ]
 }
 
@@ -78,8 +81,9 @@ pub fn columns() -> Vec<Column> {
 /// position, so no cell is produced for it here.
 ///
 /// `Size` and `Age` are [`Cell::Measured`] rather than text: both print in units and order by
-/// magnitude, and a `Size` column that sorted its own strings would file `4.0 MB` between
-/// `381.2 KB` and `460 B`. `Status` is [`Cell::Tinted`] because its hue is the fact — the same
+/// magnitude, and a `Size` column that sorted its own strings would file `4 MB` between
+/// `381 KB` and `460 B`. Both printed forms come from [`crate::format`] — the row carries the
+/// magnitude alone, so the column cannot show a figure the sort disagrees with. `Status` is [`Cell::Tinted`] because its hue is the fact — the same
 /// three hues the status block gives its own counts.
 fn cells(row: &QueueRow) -> Vec<Cell> {
     vec![
@@ -93,11 +97,14 @@ fn cells(row: &QueueRow) -> Vec<Cell> {
             hue: row.status.hue(),
         },
         Cell::Measured {
-            shown: row.size.to_string(),
-            order: row.bytes,
+            shown: crate::format::size(row.bytes),
+            // A row whose size is unknown orders as the smallest, which is where the blank cell
+            // reads naturally in a column of magnitudes — and it is what the buffer did when
+            // the blank was a hand-typed string beside a zero.
+            order: row.bytes.unwrap_or(0),
         },
         Cell::Measured {
-            shown: row.age.to_string(),
+            shown: crate::format::age(row.seconds),
             order: row.seconds,
         },
     ]

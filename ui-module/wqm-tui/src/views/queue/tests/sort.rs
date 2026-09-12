@@ -162,19 +162,17 @@ fn size_orders_by_bytes_and_age_orders_by_seconds() {
         .collect()
     }
 
-    // Descending by size: the largest file in the captured page leads, and `4.0 MB` is above
+    // Descending by size: the largest file in the captured page leads, and `4 MB` is above
     // every `KB` — which a comparison of the printed strings would file under `9`.
     let sizes = shown(frames::SIZE, Direction::Desc, frames::cell_at(frames::SIZE));
     let widest = fixture::ROWS
         .iter()
-        .map(|row| row.bytes)
+        .filter_map(|row| row.bytes)
         .max()
         .expect("rows");
-    let expected = fixture::ROWS
-        .iter()
-        .find(|row| row.bytes == widest)
-        .expect("rows")
-        .size;
+    // The figure the surface writes for that magnitude, asked of the producer rather than
+    // typed here — a literal would pin this guard to today's unit rule instead of to the sort.
+    let expected = crate::format::size(Some(widest));
     assert_eq!(
         sizes[0],
         expected,
@@ -191,14 +189,18 @@ fn size_orders_by_bytes_and_age_orders_by_seconds() {
         &sizes[..6]
     );
 
-    // Ascending by age: the newest row first, and `19h ago` last — where a string comparison
-    // would put `19h ago` above `1m ago`.
+    // Ascending by age: the newest row first, and `19h` last — where a string comparison would
+    // put `19h` above `1m`. No `ago` anywhere in the column (Chris, 2026-09-07).
     let ages = shown(frames::AGE, Direction::Asc, frames::cell_at(frames::AGE));
-    assert_eq!(ages[0], "1m ago", "{:?}", &ages[..3]);
+    assert_eq!(ages[0], "1m", "{:?}", &ages[..3]);
     assert_eq!(
         ages[ages.len() - 1],
-        "19h ago",
+        "19h",
         "{:?}",
         &ages[ages.len() - 3..]
+    );
+    assert!(
+        !ages.iter().any(|age| age.contains("ago")),
+        "the column prints figures, and `ago` belongs to a sentence"
     );
 }
