@@ -61,8 +61,10 @@ use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
 
 pub mod modal;
+mod modal_tint;
 
 pub use modal::{under_modal, ModalScope};
+pub use modal_tint::{modal_border, modal_fill, ModalTint};
 
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

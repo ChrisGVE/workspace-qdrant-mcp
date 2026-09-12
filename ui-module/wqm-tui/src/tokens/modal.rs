@@ -29,9 +29,9 @@
 //! # What it does NOT touch
 //!
 //! The *quiet* neutral rungs — everything at or below [`crate::tokens::muted`]: `faint`, the two
-//! rule weights, the data cursor's grey tint and the modal's own layer fills. Emphasis is not
-//! highlight (§1's two axes): weight, the `▌` bar and the fills are structure, and structure
-//! survives.
+//! rule weights, the data cursor's grey tint and the neutral layer fills. A modal may tint its
+//! own chrome through [`crate::tokens::modal_border`] and [`crate::tokens::modal_fill`]; those
+//! accessors deliberately sit outside this page-muting rule.
 //!
 //! What goes is **hue** (every one of them, and every fill that carried one) **and the bright
 //! text rungs**. Chris, 2026-09-07, looking at a Dashboard under a modal: *"we still have colors
@@ -42,8 +42,8 @@
 //!
 //! And **the modal itself**. The scope names the page *beneath* one, so a view that draws both
 //! closes the scope before it draws the box on top — a modal muted by the rule that mutes what
-//! is behind it would be a dialogue you cannot read. No view in this crate draws both yet: the
-//! two that carry the flag depict the page and leave the box out, deliberately.
+//! is behind it would be a dialogue you cannot read. Its chrome accessors also bypass this
+//! rule, so the same colour survives if a renderer still holds the page scope.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

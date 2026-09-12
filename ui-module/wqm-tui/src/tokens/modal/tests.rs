@@ -17,7 +17,7 @@ use ratatui::style::{Color, Modifier};
 
 use crate::categorical::Categorical;
 use crate::encoding::Encoding;
-use crate::tokens::{self, Health, ModalScope, Palette, DISC};
+use crate::tokens::{self, Health, ModalScope, ModalTint, Palette, DISC};
 use crate::widgets::chrome::test_support::Restore;
 
 /// Every hue the vocabulary can emit, by the accessor a widget would reach for.
@@ -52,14 +52,17 @@ fn every_hue_the_vocabulary_can_emit_goes_muted_under_a_modal() {
         "every hue is already muted with no modal open — this guard would check nothing: {live:?}"
     );
 
-    let _modal = ModalScope::enter();
-    for (name, _) in &live {
-        let under = hue_accessors()
-            .into_iter()
-            .find(|(n, _)| n == name)
-            .expect("the same accessors, re-read inside the scope")
-            .1;
-        assert_eq!(under, muted, "`{name}` survived a modal");
+    for tint in ModalTint::ALL {
+        ModalTint::set(tint);
+        let _modal = ModalScope::enter();
+        for (name, _) in &live {
+            let under = hue_accessors()
+                .into_iter()
+                .find(|(n, _)| n == name)
+                .expect("the same accessors, re-read inside the scope")
+                .1;
+            assert_eq!(under, muted, "`{name}` survived a {tint:?} modal");
+        }
     }
 }
 
@@ -120,19 +123,72 @@ fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
         tokens::layer2_bg(),
     ];
 
-    let _modal = ModalScope::enter();
-    let under = [
-        tokens::faint(),
-        tokens::muted(),
-        tokens::rule_frame(),
-        tokens::rule_internal(),
-        tokens::selection_bg(),
-        tokens::edit_bg(),
-        tokens::layer1_bg(),
-        tokens::layer2_bg(),
-    ];
+    for tint in ModalTint::ALL {
+        ModalTint::set(tint);
+        let _modal = ModalScope::enter();
+        let under = [
+            tokens::faint(),
+            tokens::muted(),
+            tokens::rule_frame(),
+            tokens::rule_internal(),
+            tokens::selection_bg(),
+            tokens::edit_bg(),
+            tokens::layer1_bg(),
+            tokens::layer2_bg(),
+        ];
 
-    assert_eq!(under, live, "a quiet neutral rung moved under a modal");
+        assert_eq!(under, live, "a quiet neutral rung moved under a {tint:?} modal");
+    }
+}
+
+#[test]
+fn modal_border_uses_each_selected_hue_even_inside_the_modal_scope() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+    Palette::set(Palette::Bundled);
+    tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+    for tint in ModalTint::ALL {
+        ModalTint::set(tint);
+        let border = tokens::modal_border();
+        let role = match tint {
+            ModalTint::Neutral => tokens::muted(),
+            ModalTint::Accent => tokens::accent(),
+            ModalTint::Selected => tokens::selected(),
+            ModalTint::InFlight => tokens::in_flight(),
+        };
+        assert_eq!(border, role, "{tint:?} uses the wrong role");
+        if tint == ModalTint::Neutral {
+            assert_eq!(border, tokens::muted());
+        } else {
+            assert_ne!(border, tokens::muted(), "{tint:?} has no border hue");
+        }
+        let _modal = ModalScope::enter();
+        assert_eq!(tokens::modal_border(), border, "{tint:?} chrome was muted");
+    }
+}
+
+#[test]
+fn modal_fill_is_a_subtle_wash_of_each_layer() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+    Palette::set(Palette::Bundled);
+    tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+    for tint in ModalTint::ALL {
+        ModalTint::set(tint);
+        for layer in [tokens::layer1_bg(), tokens::layer2_bg()] {
+            let fill = tokens::modal_fill(layer);
+            if tint == ModalTint::Neutral {
+                assert_eq!(fill, layer);
+            } else {
+                assert_ne!(fill, layer, "{tint:?} did not tint the layer");
+                assert!(tokens::delta_e(fill, layer) < 30.0, "{tint:?} wash is too strong");
+                let _modal = ModalScope::enter();
+                assert_eq!(tokens::modal_fill(layer), fill, "{tint:?} fill was muted");
+            }
+        }
+    }
 }
 
 /// Every health state's disc keeps its SHAPE and loses its hue (VL §4).

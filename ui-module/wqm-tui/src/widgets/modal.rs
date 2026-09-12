@@ -1,9 +1,8 @@
 //! The modal — the background depth model of VISUAL-LANGUAGE §6, and the toast's sibling.
 //!
-//! §6 says a box means one of exactly two things, **told apart by position and lifetime,
-//! never by their border**. The two therefore have to be built against each other: they
-//! share a fill, so anything that distinguishes them has to be something a still frame can
-//! carry. Two things are:
+//! §6 says a box means one of exactly two things, **told apart by position and lifetime**.
+//! A modal may now tint its own border and fill, but the structural distinction from a toast
+//! does not depend on that optional colour. Two things carry it in a still frame:
 //!
 //! - **where it is** — a modal is centred, a toast is welded to the lower-right corner;
 //! - **whether it says how it ends** — a modal is dismissed by the user, so it must show
@@ -27,7 +26,7 @@ use crate::tokens;
 /// Border, plus one cell of padding inside each border.
 const CHROME: u16 = 4;
 /// The widest a modal's text may be before it wraps. Past this a modal is a screen.
-const MAX_TEXT_WIDTH: u16 = 78;
+const MAX_TEXT_WIDTH: u16 = 100;
 
 /// Which of §6's background fills the window carries.
 ///
@@ -205,8 +204,8 @@ impl Widget for Modal {
                 tokens::normal_style(),
             ))
             .padding(Padding::horizontal(1))
-            .border_style(tokens::muted_style())
-            .style(Style::default().bg(self.fill.colour()));
+            .border_style(Style::default().fg(tokens::modal_border()))
+            .style(Style::default().bg(tokens::modal_fill(self.fill.colour())));
 
         Paragraph::new(lines).block(block).render(rect, buf);
     }
@@ -235,7 +234,21 @@ pub mod ingredient {
         },
     ];
 
-    struct Variant(&'static str, &'static str, fn() -> Modal);
+    struct Variant(&'static str, &'static str, fn() -> Modal, Option<tokens::ModalTint>);
+
+    struct RestoreTint(tokens::ModalTint);
+
+    impl Drop for RestoreTint {
+        fn drop(&mut self) {
+            tokens::ModalTint::set(self.0);
+        }
+    }
+
+    fn help() -> Modal {
+        Modal::new("Help", "j/k move   Enter edit   Tab switch pane")
+            .fill(Fill::Layer2)
+            .action("?", "close")
+    }
 
     impl Ingredient for Variant {
         fn group(&self) -> &str {
@@ -254,6 +267,11 @@ pub mod ingredient {
             PROPS
         }
         fn render(&self, area: Rect, buf: &mut Buffer) {
+            let _restore = self.3.map(|tint| {
+                let previous = tokens::ModalTint::current();
+                tokens::ModalTint::set(tint);
+                RestoreTint(previous)
+            });
             (self.2)().render(area, buf);
         }
     }
@@ -271,6 +289,7 @@ pub mod ingredient {
                     .action("↵", "discard")
                     .action("Esc", "keep editing")
                 },
+                None,
             )),
             Box::new(Variant(
                 "Layer 2",
@@ -281,24 +300,37 @@ pub mod ingredient {
                         .action("y", "yes")
                         .action("n", "no")
                 },
+                None,
             )),
             Box::new(Variant(
                 "Purpose-stable, on layer 1",
                 "Help pins its shade. Compare with the next entry: §6 says they must be identical",
-                || {
-                    Modal::new("Help", "j/k move   Enter edit   Tab switch pane")
-                        .fill(Fill::Layer2)
-                        .action("?", "close")
-                },
+                help,
+                None,
             )),
             Box::new(Variant(
                 "Purpose-stable, on layer 2",
                 "The same window opened one layer deeper — the shade must not have moved",
-                || {
-                    Modal::new("Help", "j/k move   Enter edit   Tab switch pane")
-                        .fill(Fill::Layer2)
-                        .action("?", "close")
-                },
+                help,
+                None,
+            )),
+            Box::new(Variant(
+                "Tint — accent",
+                "Help with the accent hue on its border and a subtle wash on its fill",
+                help,
+                Some(tokens::ModalTint::Accent),
+            )),
+            Box::new(Variant(
+                "Tint — selected",
+                "Help with the selected hue on its border and a subtle wash on its fill",
+                help,
+                Some(tokens::ModalTint::Selected),
+            )),
+            Box::new(Variant(
+                "Tint — in-flight",
+                "Help with the in-flight hue on its border and a subtle wash on its fill",
+                help,
+                Some(tokens::ModalTint::InFlight),
             )),
         ]
     }
@@ -314,11 +346,16 @@ mod tests {
     use ratatui::style::Color;
     use std::time::Instant;
 
-    struct Restore(Palette, Encoding, Endpoints);
+    struct Restore(Palette, Encoding, Endpoints, tokens::ModalTint);
 
     impl Restore {
         fn dark_truecolor() -> Self {
-            let restore = Restore(Palette::current(), Encoding::current(), tokens::endpoints());
+            let restore = Restore(
+                Palette::current(),
+                Encoding::current(),
+                tokens::endpoints(),
+                tokens::ModalTint::current(),
+            );
             Palette::set(Palette::Derived);
             Encoding::set(Encoding::TrueColor);
             tokens::set_endpoints(Endpoints {
@@ -334,6 +371,7 @@ mod tests {
             Palette::set(self.0);
             Encoding::set(self.1);
             tokens::set_endpoints(self.2);
+            tokens::ModalTint::set(self.3);
         }
     }
 
@@ -354,6 +392,32 @@ mod tests {
         let mut buf = Buffer::empty(AREA);
         widget.render(AREA, &mut buf);
         buf
+    }
+
+    #[test]
+    fn the_modal_paints_the_selected_border_and_fill() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+        Palette::set(Palette::Bundled);
+        tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+        for tint in tokens::ModalTint::ALL {
+            tokens::ModalTint::set(tint);
+            let rect = modal().rect(AREA);
+            let buf = render(modal());
+            assert_eq!(
+                buf.cell((rect.x, rect.y)).expect("border cell").fg,
+                tokens::modal_border(),
+                "{tint:?} border"
+            );
+            assert_eq!(
+                buf.cell((rect.x + 1, rect.y + 1))
+                    .expect("interior cell")
+                    .bg,
+                tokens::modal_fill(tokens::layer1_bg()),
+                "{tint:?} fill"
+            );
+        }
     }
 
     fn painted(buf: &Buffer) -> Vec<(u16, u16)> {

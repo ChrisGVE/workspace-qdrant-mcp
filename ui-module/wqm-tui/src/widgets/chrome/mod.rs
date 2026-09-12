@@ -117,13 +117,18 @@ pub(crate) mod test_support {
     };
 
     /// The global token state a guard swaps out, restored when it goes out of scope.
-    pub struct Restore(Palette, Encoding, Endpoints);
+    pub struct Restore(Palette, Encoding, Endpoints, tokens::ModalTint);
 
     impl Restore {
         /// Mocha's endpoints under `Derived` + truecolor: the combination every measurement
         /// in this crate was taken against.
         pub fn dark_truecolor() -> Self {
-            let restore = Restore(Palette::current(), Encoding::current(), tokens::endpoints());
+            let restore = Restore(
+                Palette::current(),
+                Encoding::current(),
+                tokens::endpoints(),
+                tokens::ModalTint::current(),
+            );
             Palette::set(Palette::Derived);
             Encoding::set(Encoding::TrueColor);
             tokens::set_endpoints(Endpoints {
@@ -139,6 +144,7 @@ pub(crate) mod test_support {
             Palette::set(self.0);
             Encoding::set(self.1);
             tokens::set_endpoints(self.2);
+            tokens::ModalTint::set(self.3);
         }
     }
 
