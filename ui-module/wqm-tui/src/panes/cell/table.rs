@@ -23,12 +23,60 @@ use crate::tokens;
 /// said nothing at all would be indistinguishable from one that failed to load.
 pub const EMPTY: &str = "No data";
 
-/// Columns between one column of the table and the next.
+/// Columns between one column of the table and the next — the baseline, before a sortable
+/// column claims its second.
 ///
 /// Shared with [`crate::panes::list`] rather than restated there: it is also the gap a sort
 /// mark borrows ([`super::sort::grown`]), so two tables holding two copies of it would be two
 /// tables that disagreed about whether a mark fits.
 pub(crate) const COLUMN_GAP: u16 = 1;
+
+/// The second column a SORTABLE column's gap carries. See [`gap_before`].
+pub(crate) const SORT_GAP: u16 = 1;
+
+/// The blank columns immediately before `column`.
+///
+/// Chris, 20260912, ruling 5(c), and it is a rule for every table on the surface: *"one space
+/// before every non-sortable column (never before the first), two before every sortable one —
+/// the second belongs to the sort mark, which is why sortable columns get it."* Before the
+/// ruling every gap was one column and the spacing a reader actually saw ran from one blank to
+/// five, because an over-wide right-aligned column pads its own value with the difference and
+/// the eye cannot tell a gap from a pad.
+///
+/// Read off `sort_key` — whether the column CAN be sorted — and never off whether the table is
+/// currently offering its keys. A gap that depended on focus would move every column on the row
+/// the moment a cell went live, which is the same defect [`super::sort::grown`] exists to avoid
+/// on a single header.
+pub(crate) const fn gap_before(column: &Column) -> u16 {
+    match column.sort_key {
+        Some(_) => COLUMN_GAP + SORT_GAP,
+        None => COLUMN_GAP,
+    }
+}
+
+/// The rects `columns` occupy across `area`, with ruling 5(c)'s gaps between them.
+///
+/// One implementation for both tables. `Layout`'s own `spacing` is a single number applied
+/// between every pair, so the gaps are laid out as spacer constraints instead and the column
+/// rects are every other element of the result — which is also why this is a function rather
+/// than two call sites each doing the interleave.
+pub(crate) fn laid_out(area: Rect, columns: &[&Column]) -> Vec<Rect> {
+    let mut constraints: Vec<Constraint> = Vec::with_capacity(columns.len() * 2);
+    for (at, column) in columns.iter().enumerate() {
+        // Never before the first (Chris, ruling 5(c)): the first column starts at the table's
+        // own left edge, which is what lines it up with the heading above it.
+        if at > 0 {
+            constraints.push(Constraint::Length(gap_before(column)));
+        }
+        constraints.push(column.width);
+    }
+    let split = Layout::horizontal(constraints).split(area);
+    split
+        .iter()
+        .enumerate()
+        .filter_map(|(at, rect)| (at == 0 || at.is_multiple_of(2)).then_some(*rect))
+        .collect()
+}
 
 // # There is no marker gutter here, and that is a ruling with a date on it
 //
@@ -311,7 +359,11 @@ impl CellTable {
                 .filter(|&&at| at != flex)
                 .filter_map(|&at| self.columns[at].fixed())
                 .sum();
-            let gaps = (active.len() as u16 - 1) * COLUMN_GAP;
+            let gaps: u16 = active
+                .iter()
+                .skip(1)
+                .map(|&at| gap_before(&self.columns[at]))
+                .sum();
             if width.saturating_sub(fixed).saturating_sub(gaps) >= self.min_flex {
                 break;
             }
@@ -435,11 +487,8 @@ impl Widget for CellTable {
         // header and every row line up under the first character of the heading above them.
         let body = area;
         let active = self.fitted(body.width);
-        let constraints: Vec<Constraint> =
-            active.iter().map(|&at| self.columns[at].width).collect();
-        let columns = Layout::horizontal(constraints)
-            .spacing(COLUMN_GAP)
-            .split(Rect { height: 1, ..body });
+        let surviving: Vec<&Column> = active.iter().map(|&at| &self.columns[at]).collect();
+        let columns = laid_out(Rect { height: 1, ..body }, &surviving);
 
         self.header(body, &active, &columns, buf);
 

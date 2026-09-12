@@ -412,32 +412,35 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
 /// At 125 columns the screen insets by [`crate::widgets::chrome::MARGIN`] on each side (121),
 /// splits into two cells with a three-column gap (59 each). The table now starts at the cell's
 /// own first column — the two-column marker gutter is gone (Chris, 2026-09-07) — so it has all
-/// 59. It spends `Bch` 3 + `Files` 5 + `Queue` 9 = 17 on fixed columns and three single-column
-/// gaps between its four columns, leaving 59 − 17 − 3 = **39** for `Name`. With `Pts` and the
-/// same 59 it would be 59 − 20 − 4 = 35; with `Pts` AND the old gutter it was 33.
+/// 59. It spends `Bch` 3 + `Files` 5 + `Queue` 9 = 17 on fixed columns, and every one of those
+/// three columns is sortable, so ruling 5(c) gives each a TWO-column gap: 59 − 17 − 6 = **36**
+/// for `Name`. It was 39 while every gap was one column. With `Pts` back it would be 32.
 #[test]
 fn dropping_pts_gives_its_columns_to_the_name() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    const NAME_WIDTH: u16 = 39;
-    /// What the same arithmetic would give if `Pts` came back: 59 − 20 − 4.
-    const NAME_WIDTH_WITH_PTS: u16 = 35;
+    const NAME_WIDTH: u16 = 36;
+    /// What the same arithmetic would give if `Pts` came back: 59 − 20 − 8.
+    const NAME_WIDTH_WITH_PTS: u16 = 31;
 
     let buf = render(view(frames::populated()), WIDE, TALL);
     let (_, cells) = heading_rows();
     let projects = cells[0];
 
     // `Bch` is right-aligned in the column after `Name`, and its column is exactly as wide as
-    // its title — so the first `B` sits one gap column past the end of `Name`.
+    // its title — so the first `B` sits the gap past the end of `Name`, and `Bch` is sortable,
+    // so the gap is two.
     let header = heading_text(&buf, Rect { y: projects.y + 1, ..projects });
     let bch = header
         .chars()
         .position(|c| c == 'B')
         .expect("the Bch header is drawn") as u16;
+    const GAP: u16 = crate::panes::cell::table::COLUMN_GAP + crate::panes::cell::table::SORT_GAP;
     assert_eq!(
-        bch, NAME_WIDTH + 1,
-        "the Name column is {NAME_WIDTH} wide with one gap after it: {header:?}"
+        bch,
+        NAME_WIDTH + GAP,
+        "the Name column is {NAME_WIDTH} wide with a {GAP}-column gap after it: {header:?}"
     );
     // Measured from the cell's own left edge, so the header has to START there — with the old
     // two-column gutter back, the gutter takes exactly the two columns `Name` gained and `Bch`
@@ -447,7 +450,7 @@ fn dropping_pts_gives_its_columns_to_the_name() {
         "the Name column starts at the cell's own first column: {header:?}"
     );
     assert!(
-        bch - 1 > NAME_WIDTH_WITH_PTS,
+        bch - GAP > NAME_WIDTH_WITH_PTS,
         "the measured Name column must be wider than the {NAME_WIDTH_WITH_PTS} it had while \
          `Pts` was drawn: {header:?}"
     );

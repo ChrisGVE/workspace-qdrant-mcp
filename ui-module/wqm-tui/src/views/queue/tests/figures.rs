@@ -8,14 +8,15 @@
 //! hundred rows, the space and the unit each land in one column.
 
 use super::*;
-use crate::panes::cell::table::COLUMN_GAP;
+use crate::panes::cell::table::gap_before;
 
 /// Where the two figure columns end, worked back from the right-hand edge of the drawn page.
 ///
 /// `Age` is the last column, so its right edge IS the content's; `Size` sits one gap to its
-/// left. Derived rather than written down: a column inserted at the end of [`frames::columns`]
-/// would move both, and a guard holding literals would keep passing while measuring the wrong
-/// cells.
+/// left — and the gap is asked of [`gap_before`] rather than assumed, because ruling 5(c) makes
+/// it two columns before a sortable column and one before any other. Derived rather than
+/// written down: a column inserted at the end of [`frames::columns`] would move both, and a
+/// guard holding literals would keep passing while measuring the wrong cells.
 fn right_edges() -> (usize, usize) {
     let columns = frames::columns();
     let width = |at: usize| match columns[at].width {
@@ -23,7 +24,7 @@ fn right_edges() -> (usize, usize) {
         other => panic!("{other:?} is not a fixed width"),
     };
     let age_right = (WIDE - MARGIN) as usize;
-    let size_right = age_right - width(frames::AGE) - COLUMN_GAP as usize;
+    let size_right = age_right - width(frames::AGE) - gap_before(&columns[frames::AGE]) as usize;
     (size_right, age_right)
 }
 

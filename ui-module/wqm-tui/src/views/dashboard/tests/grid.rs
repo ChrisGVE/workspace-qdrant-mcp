@@ -83,11 +83,23 @@ fn the_column_header_starts_on_the_same_column_as_the_heading_above_it() {
 /// the cell drops fixed columns rather than starve the flex `Name`.
 ///
 /// At 100 columns the grid insets to 96 and the two cells get 47 and 46; `Active Projects` is
-/// the left cell, and it spends `Branch` 11 + `Files` 5 + `Queue` 8 = 24 on fixed columns with
-/// three single-column gaps, leaving 47 − 24 − 3 = **20** for `Name` — exactly the width of
-/// `workspace-qdrant-mcp`, the longer of the two names.
+/// the left cell, and it spends `Branch` 11 + `Files` 5 + `Queue` 8 = 24 on fixed columns.
+///
+/// # Ruling 5(c) costs this cell three columns, and the floor is what pays
+///
+/// All three fixed columns are sortable, so each takes a TWO-column gap (Chris, 20260912) where
+/// each took one before: 47 − 24 − 6 = **17** for `Name`, down from 20. Twenty was exactly
+/// `workspace-qdrant-mcp`, so at the 100×30 floor that name now elides — the guard is renamed
+/// and says so rather than being deleted, because the fact worth holding is that **every column
+/// still survives** the floor and only the flex column gives.
+///
+/// **Surfaced to Chris, not decided here.** Two rulings of his meet at this cell — the 100×30
+/// design floor and the spacing rule — and the three columns have to come from somewhere. The
+/// cheap remedies are all his to choose: narrow `Branch` (already elided at 11, its fixture
+/// value is nineteen), spend the sort gap only where the mark cannot fit inside its own column,
+/// or accept the elision at the floor.
 #[test]
-fn at_100x30_the_active_projects_cell_shows_every_column_and_no_name_elides() {
+fn at_100x30_the_active_projects_cell_keeps_every_column_and_the_name_gives() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -104,14 +116,20 @@ fn at_100x30_the_active_projects_cell_shows_every_column_and_no_name_elides() {
         );
     }
 
-    // Both names draw whole — a name column of 20 holds `workspace-qdrant-mcp` exactly, so the
-    // full string is present in its row and no `…` stands in for its tail.
-    for name in ["open-books", "workspace-qdrant-mcp"] {
-        let whole = (heading_y + 2..heading_y + 4)
-            .map(|y| line(&buf, y))
-            .any(|row| row.contains(name));
-        assert!(whole, "{name} is not drawn whole at the 100x30 floor");
-    }
+    // The shorter name still draws whole: the flex column gives, it does not collapse.
+    let rows: Vec<String> = (heading_y + 2..heading_y + 4).map(|y| line(&buf, y)).collect();
+    assert!(
+        rows.iter().any(|row| row.contains("open-books")),
+        "a ten-character name no longer fits the floor — the flex column has collapsed, not \
+         given: {rows:?}"
+    );
+    // And the longer one elides rather than being clipped, which is the honest form of not
+    // fitting: the tail is replaced by `…` and the reader can see that it was.
+    assert!(
+        rows.iter().any(|row| row.contains('…')),
+        "`workspace-qdrant-mcp` is 20 characters and the Name column is 17 — it must elide, and \
+         an elision that left no mark would be a clip: {rows:?}"
+    );
 }
 
 /// 80 × 24 is a stress case, not a target: the cell drops the queue triple first — its counts

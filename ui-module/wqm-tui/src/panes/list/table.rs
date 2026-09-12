@@ -2,7 +2,7 @@
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
@@ -11,7 +11,6 @@ use ratatui::{
 use super::{line, LIST_PAGE};
 use crate::format::grouped;
 use crate::panes::cell::sort::{compare, grown};
-use crate::panes::cell::table::COLUMN_GAP;
 use crate::panes::cell::{Cell, Column, Sort, EMPTY};
 use crate::tokens;
 
@@ -347,10 +346,10 @@ impl Widget for ListPane {
             width: area.width.saturating_sub(GUTTER),
             ..area
         };
-        let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
-        let columns = Layout::horizontal(constraints)
-            .spacing(COLUMN_GAP)
-            .split(Rect { height: 1, ..table });
+        let columns = crate::panes::cell::table::laid_out(
+            Rect { height: 1, ..table },
+            &self.columns.iter().collect::<Vec<_>>(),
+        );
         self.header(table, &columns, buf);
 
         if self.rows.is_empty() {

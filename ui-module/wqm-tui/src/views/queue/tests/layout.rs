@@ -28,7 +28,9 @@ fn the_screen_is_the_constant_top_a_dialog_row_a_list_and_a_foot() {
     );
     let header = line(&buf, header_row());
     assert!(
-        header.starts_with("      T Tenant"),
+        // Two blanks before `Tenant`, one before `T`: ruling 5(c)'s gaps, and `T` is the one
+        // column of this list that offers no sort key.
+        header.starts_with("      T  Tenant"),
         "the column header follows the slot: {header:?}"
     );
 
@@ -174,4 +176,53 @@ fn at_eighty_columns_the_foot_keeps_only_the_two_keys_that_open_the_rest() {
     // And at 125 it does not fire — the fallback must be a fallback, not the normal case.
     let wide = line(&render(view(QueueState::default()), WIDE, TALL), TALL - 1);
     assert!(wide.contains("x Remove"), "{wide:?}");
+}
+
+/// Ruling 5(c) (Chris, 20260912): **one blank column before every non-sortable column, never
+/// before the first, and two before every sortable one.**
+///
+/// Measured off the column RECTS rather than off the drawn header, and the reason is the ruling
+/// itself. Chris's complaint was that the spacing *"is inconsistent, one to five blanks"* — and
+/// the blanks he counted are two different things the page cannot tell apart: the gap between
+/// two columns, and the padding a column puts around a value narrower than itself. `Op` is six
+/// columns wide because `update` is, so `add` is followed by three blanks of its own before the
+/// gap even begins. A guard reading blank runs off the header would therefore be measuring the
+/// sum and failing on a renderer that had obeyed the rule exactly.
+///
+/// The expectation is written out BY HAND from the Queue's own column list rather than asked of
+/// [`gap_before`]. Asking the function would be checking it against itself; this states what the
+/// ruling produces for these nine columns, which is a fact a reader can verify against Chris's
+/// sentence without running anything.
+///
+/// The Queue is where this is measured because it is the only table holding both kinds of
+/// column — `No` and `T` offer no sort key and the other seven do. On the Dashboard, whose every
+/// column sorts, the same guard would pass on a renderer that gave every gap two columns
+/// unconditionally.
+#[test]
+fn every_column_gap_is_one_blank_or_two_by_whether_the_column_sorts() {
+    /// `No`, `T`, `Tenant`, `Object`, `Type`, `Op`, `Status`, `Size`, `Age` — the gap BEFORE
+    /// each. The first has none; `T` is the one titled column offering no key.
+    const GAPS: [u16; 9] = [0, 1, 2, 2, 2, 2, 2, 2, 2];
+
+    let columns = frames::columns();
+    assert_eq!(columns.len(), GAPS.len(), "a column was added and this list did not move");
+
+    let table = Rect::new(0, 0, WIDE - MARGIN * 2 - crate::panes::list::GUTTER, 1);
+    let rects = crate::panes::cell::table::laid_out(table, &columns.iter().collect::<Vec<_>>());
+
+    for (at, (rect, want)) in rects.iter().zip(GAPS).enumerate() {
+        if at == 0 {
+            assert_eq!(rect.x, table.x, "the first column starts at the table's own left edge");
+            continue;
+        }
+        let previous = rects[at - 1];
+        let blanks = rect.x - (previous.x + previous.width);
+        assert_eq!(
+            blanks, want,
+            "{:?} is preceded by {blanks} blank columns and the ruling gives it {want} — it {} \
+             a sort key",
+            columns[at].title,
+            if columns[at].sort_key.is_some() { "offers" } else { "offers no" }
+        );
+    }
 }

@@ -69,11 +69,22 @@ pub fn columns() -> Vec<Column> {
         Column::text("Type", 6).sort('t'),
         Column::text("Op", 6).sort('p'),
         Column::text("Status", 11).sort('u'),
-        Column::number("Size", 8).sort('z'),
+        // Seven, which is exactly what [`crate::format::size`] can print: four digits and a
+        // space and a two-cell unit (`1023 KB`), never more — a figure reaching four digits in
+        // one unit is one step below the next. It was EIGHT while the formatter printed a
+        // decimal (`903.5 KB`), and the column that survived the change to an integer kept a
+        // column no value could ever reach. That is the width ruling 5(a) frees, and it goes
+        // where every freed column goes: the flex `Object`.
+        Column::number("Size", 7).sort('z'),
         // A figure, so right-aligned like every other figure (Chris, 2026-09-07, ruling 11) —
         // it was `text` while the age was a phrase (`19h ago`), and left-aligned phrases put
         // the unit in a different column on every row.
-        Column::number("Age", 8).sort('a'),
+        // Five. [`crate::format::age`] writes the coarsest unit that still says something, so
+        // three of its four units are bounded at two digits (`59s`, `59m`, `23h`) and only days
+        // runs on — five cells hold `999d`, two and three quarter years of queue, with the
+        // column widened rather than a figure clipped the day that is not enough. `Age↓` is
+        // four, so the sort mark fits inside the column and borrows nothing.
+        Column::number("Age", 5).sort('a'),
     ]
 }
 
