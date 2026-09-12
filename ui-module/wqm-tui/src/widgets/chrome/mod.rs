@@ -116,13 +116,24 @@ pub(crate) mod test_support {
         height: 1,
     };
 
-    pub struct Restore(Palette, Encoding, Endpoints);
+    /// The global token state a guard swaps out, restored when it goes out of scope.
+    ///
+    /// [`tokens::Selection`] is carried too, because ruling 4's three candidates are switched
+    /// through a global like the palette is: a guard that set one and panicked would leave the
+    /// next test rendering a frame nobody asked for, which is the failure mode this type exists
+    /// to make impossible for the other three.
+    pub struct Restore(Palette, Encoding, Endpoints, tokens::Selection);
 
     impl Restore {
         /// Mocha's endpoints under `Derived` + truecolor: the combination every measurement
         /// in this crate was taken against.
         pub fn dark_truecolor() -> Self {
-            let restore = Restore(Palette::current(), Encoding::current(), tokens::endpoints());
+            let restore = Restore(
+                Palette::current(),
+                Encoding::current(),
+                tokens::endpoints(),
+                tokens::Selection::current(),
+            );
             Palette::set(Palette::Derived);
             Encoding::set(Encoding::TrueColor);
             tokens::set_endpoints(Endpoints {
@@ -138,6 +149,7 @@ pub(crate) mod test_support {
             Palette::set(self.0);
             Encoding::set(self.1);
             tokens::set_endpoints(self.2);
+            tokens::Selection::set(self.3);
         }
     }
 

@@ -411,6 +411,20 @@ impl Widget for ListPane {
                                 buf,
                             );
                     }
+                    // The content inverts LAST, and only under `Selection::Fill` — see
+                    // [`tokens::selected_fg`]. It has to be last because the row's spans each
+                    // set their own foreground as they are drawn, so a colour laid down before
+                    // them would be the one thing on the row they all overwrite; ratatui styles
+                    // patch, so one `set_style` over the finished row reaches every span.
+                    //
+                    // The cursor row is excluded, which is ruling 4's own priority rule: where
+                    // the cursor and a selection land on one row the cursor is unchanged, and
+                    // the `▎` in the margin is what still says the row is selected.
+                    if let Some(fg) = tokens::selected_fg().filter(|_| {
+                        index != at && self.is_selected(index)
+                    }) {
+                        buf.set_style(row, Style::default().fg(fg));
+                    }
                 }
                 // Past the last row, so this is the load-more line — the only other line the
                 // buffer has. Muted: it is an offer, not a datum.

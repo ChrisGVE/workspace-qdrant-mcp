@@ -241,3 +241,83 @@ fn the_count_is_the_rightmost_thing_on_the_dialog_row() {
         "the count is not flush with the right margin: {row:?}"
     );
 }
+
+/// Ruling 4's three candidates (Chris, 20260912), and the two things NONE of them may change.
+///
+/// The ruling is exploratory about the colour — *"is it possible to select another colour"* — and
+/// fixed about everything else: *"the vertical bar in the gutter stays"*, and *"the cursor is
+/// unchanged and takes priority over a selected row"*. So the properties that are not open get
+/// a guard that runs over every candidate, and the property that IS open gets no assertion at
+/// all beyond being different from the cursor's grey, which is the complaint that started it.
+///
+/// Written over [`crate::tokens::Selection::ALL`] rather than as three tests, because the claim
+/// is about the SET: a fourth candidate added tomorrow is either covered by this or it is a
+/// candidate nobody checked.
+#[test]
+fn every_selection_candidate_keeps_the_bar_and_lets_the_cursor_win() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    for candidate in crate::tokens::Selection::ALL {
+        crate::tokens::Selection::set(candidate);
+        let label = candidate.label();
+
+        // The cursor on the first of two picked rows, so one row is both and one is only
+        // selected — the only arrangement in which "the cursor takes priority" means anything.
+        let state = QueueState {
+            cursor: 0,
+            ..picked(QueueState::default(), &[0, 1])
+        };
+        let buf = render(view(state), WIDE, TALL);
+        let first = header_row() + 1;
+        let bar = crate::widgets::chrome::MARGIN - GUTTER;
+
+        for y in [first, first + 1] {
+            let cell = buf.cell((bar, y)).expect("cell in area");
+            assert_eq!(
+                cell.symbol(),
+                crate::tokens::SELECTED_BAR.to_string(),
+                "the {label} candidate dropped the gutter bar at {y}"
+            );
+        }
+
+        let fill = |y: u16| buf.cell((crate::widgets::chrome::MARGIN, y)).expect("cell").bg;
+        assert_eq!(
+            fill(first),
+            crate::tokens::cursor_bg(),
+            "the {label} candidate took the cursor's row over"
+        );
+        let selected = crate::tokens::selected_bg().expect("truecolor has a fill");
+        assert_eq!(fill(first + 1), selected, "the {label} candidate did not fill a picked row");
+        assert_ne!(
+            selected,
+            crate::tokens::cursor_bg(),
+            "the {label} candidate fills a selected row with the cursor's own colour"
+        );
+
+        // And the inversion, which is what distinguishes the block from the two washes: under
+        // `Fill` the selected row's content is dark, and the CURSOR's row is not — the priority
+        // rule reaches the foreground as well as the fill.
+        let content = |y: u16| {
+            buf.cell((crate::widgets::chrome::MARGIN + GUTTER + 4, y))
+                .expect("cell in area")
+                .fg
+        };
+        match crate::tokens::selected_fg() {
+            Some(fg) => {
+                assert_eq!(content(first + 1), fg, "the {label} candidate did not invert its row");
+                assert_ne!(
+                    content(first),
+                    fg,
+                    "the {label} candidate inverted the cursor's row, which is unchanged by a \
+                     selection"
+                );
+            }
+            None => assert_ne!(
+                content(first + 1),
+                crate::tokens::selector_fg(),
+                "the {label} candidate inverted a row without asking to"
+            ),
+        }
+    }
+}

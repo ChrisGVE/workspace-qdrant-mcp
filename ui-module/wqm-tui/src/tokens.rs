@@ -932,6 +932,91 @@ pub fn selected() -> Color {
     }
 }
 
+/// How a selected row is filled — **an open question with candidates, not a setting.**
+///
+/// Chris, 20260912, ruling 4: *"the wash is too near the cursor tint to tell apart. Is it
+/// possible to select another colour for the selection and make the row read as a block?"* His
+/// wording is exploratory, and his standing preference is to judge size and colour from renders
+/// rather than from names or numbers — so the three readings of that sentence are built and put
+/// side by side in the pantry (`Queue / Selection — …`) instead of one being chosen for him.
+///
+/// What the ruling FIXES, and none of these three touches: the `▎` bar stays in the gutter, the
+/// cursor is unchanged, and the cursor takes PRIORITY over a selected row — where both land on
+/// one row the cursor's own tint is what shows and the margin bar is what still says the row is
+/// selected.
+///
+/// What is OPEN is exactly what varies below: how far from the terminal's background the fill
+/// sits, and whether the row's content inverts to dark on it.
+///
+/// [`Selection::Wash`] is the default, so nothing moves until he picks. When he does, this enum
+/// collapses to the one he took — it is scaffolding for a decision, not a user preference, and
+/// leaving it standing afterwards would be shipping three answers to one question.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Selection {
+    /// Today's: the background pulled toward [`selected`] by [`WASH_MIX`], content unchanged.
+    /// The one he says reads too close to the cursor's own tint.
+    Wash,
+    /// The same hue and the same mechanism, mixed to [`DEEP_MIX`] instead — the smallest
+    /// possible answer, which changes one number and keeps every other property of the wash.
+    Deep,
+    /// The selection hue at full strength with the content inverted to [`selector_fg`] — the
+    /// literal reading of *"make the row read as a block"*. The strongest separation from the
+    /// cursor's grey, and the one that spends a whole row of colour.
+    Fill,
+}
+
+static SELECTION: AtomicU8 = AtomicU8::new(Selection::Wash as u8);
+
+impl Selection {
+    /// The treatment in force.
+    pub fn current() -> Selection {
+        match SELECTION.load(Ordering::Relaxed) {
+            1 => Selection::Deep,
+            2 => Selection::Fill,
+            _ => Selection::Wash,
+        }
+    }
+
+    /// Every candidate, in the order the pantry compares them.
+    pub const ALL: [Selection; 3] = [Selection::Wash, Selection::Deep, Selection::Fill];
+
+    /// The name this candidate is spelled with in the pantry.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Selection::Wash => "wash",
+            Selection::Deep => "deep wash",
+            Selection::Fill => "fill",
+        }
+    }
+
+    /// Switch candidates, so one pantry can draw all three.
+    pub fn set(selection: Selection) {
+        SELECTION.store(selection as u8, Ordering::Relaxed);
+    }
+}
+
+/// [`Selection::Deep`]'s mix: two and a half times [`WASH_MIX`].
+///
+/// Not a round number chosen for its looks — it is the smallest step that puts the fill plainly
+/// past *"a different colour"* from the background ([`delta_e`]'s rule of thumb: 2.3 is just
+/// noticeable, above 5 is plainly different) while leaving [`table_row`] legible on it. The
+/// wash's own 0.14 lands at ΔE 16–19 from the background but only a few units from
+/// [`cursor_bg`], which is the complaint.
+pub const DEEP_MIX: f32 = 0.35;
+
+/// The foreground a selected row's content takes, or [`None`] where it keeps its own.
+///
+/// Only [`Selection::Fill`] inverts: a wash is a tint UNDER unchanged text, and a block is a
+/// colour the text sits on. The cursor row is excluded by the caller rather than here — the
+/// priority rule is about which of two marks wins on one row, which is the row's question and
+/// not the token's.
+pub fn selected_fg() -> Option<Color> {
+    match Selection::current() {
+        Selection::Fill if family() != Family::None => Some(selector_fg()),
+        _ => None,
+    }
+}
+
 /// A selected row's fill: the terminal's own background pulled toward [`selected`] by
 /// [`WASH_MIX`] — the same strength, and the same reasoning, as the unreachable-daemon wash.
 ///
@@ -953,10 +1038,18 @@ pub fn selected_bg() -> Option<Color> {
     // stand-in — the bar is then magenta over a lavender wash, which is two stand-ins agreeing
     // about what they stand for.
     let toward = Rgb::from_color(selected()).unwrap_or(Rgb::new(0xb4, 0xbe, 0xfe));
+    // How far toward the hue the background is pulled — the one number ruling 4 is about. A
+    // full fill is the same expression at t = 1, which is why the three candidates are three
+    // strengths of one mechanism rather than three code paths.
+    let strength = match Selection::current() {
+        Selection::Wash => WASH_MIX,
+        Selection::Deep => DEEP_MIX,
+        Selection::Fill => 1.0,
+    };
     Some(Color::Rgb(
-        mix(bg.r, toward.r, WASH_MIX),
-        mix(bg.g, toward.g, WASH_MIX),
-        mix(bg.b, toward.b, WASH_MIX),
+        mix(bg.r, toward.r, strength),
+        mix(bg.g, toward.g, strength),
+        mix(bg.b, toward.b, strength),
     ))
 }
 /// The leading `▸` marker on the data cursor row.

@@ -187,6 +187,49 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
             "Selection",
             "Four rows picked with Space, the cursor on one of them: the lavender wash and the `▎` bar, the cursor's own tint unchanged where the two meet, and the count at the right of the dialog row",
             || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Wash);
+                queue(QueueState {
+                    cursor: 3,
+                    ..picked(QueueState::default(), &[1, 3, 4, 7])
+                })
+            },
+            None,
+        )),
+        // Ruling 4 (Chris, 20260912) as three frames rather than one answer. His words are
+        // exploratory — *"is it possible to select another colour…"* — and he judges colour from
+        // renders, so the three readings of that sentence are browsable next to each other with
+        // the same four rows picked and the cursor on the same one of them. What is identical
+        // across all three is what the ruling fixed: the `▎` bar, and the cursor winning on the
+        // row it shares with a selection.
+        Box::new(Variant(
+            "Selection — A, the wash today",
+            "The one he says is too close to the cursor: the background pulled 14% toward lavender, content unchanged. Here for comparison, not as a candidate — look at rows 2 and 4 against row 3, which is the cursor",
+            || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Wash);
+                queue(QueueState {
+                    cursor: 3,
+                    ..picked(QueueState::default(), &[1, 3, 4, 7])
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Selection — B, the deep wash",
+            "The smallest answer: the same lavender and the same mechanism at 35% instead of 14%, content still its own colour. Is that far enough from the cursor's grey, and is the Status column still readable through it?",
+            || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Deep);
+                queue(QueueState {
+                    cursor: 3,
+                    ..picked(QueueState::default(), &[1, 3, 4, 7])
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Selection — C, the block",
+            "The literal reading of `make the row read as a block`: lavender at full strength with the content inverted to black. Strongest separation from the cursor, and it spends a whole row of colour — the Status hues go with it",
+            || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Fill);
                 queue(QueueState {
                     cursor: 3,
                     ..picked(QueueState::default(), &[1, 3, 4, 7])
@@ -198,6 +241,7 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
             "Selection range",
             "`v` at row 3 and five rows of motion: an open range, which is a selection like any other until `v` closes it",
             || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Wash);
                 let state = QueueState {
                     cursor: 2,
                     ..QueueState::default()
@@ -212,6 +256,7 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
             "Selection under modal",
             "The same four rows beneath a modal: a selection is a highlight, so its wash and its bar go quiet with everything else",
             || {
+                crate::tokens::Selection::set(crate::tokens::Selection::Wash);
                 queue(QueueState {
                     cursor: 3,
                     ..picked(QueueState::default(), &[1, 3, 4, 7])
