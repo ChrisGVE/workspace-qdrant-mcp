@@ -54,17 +54,59 @@ fn sections_appear_in_order_and_are_not_empty() {
     }
 }
 
-/// No key string repeats inside one section, except the intentional `f` in Search / Filter
-/// which both opens and clears the filter.
+#[test]
+fn help_entries_use_the_approved_wording() {
+    let sections = Queue::help_sections();
+    let entries = |title| -> Vec<(&str, &str)> {
+        sections
+            .iter()
+            .find(|section| section.title == title)
+            .expect("help section exists")
+            .entries
+            .clone()
+    };
+
+    assert!(entries("Navigation").ends_with(&[
+        ("g", "Top"),
+        ("G", "Bottom"),
+        ("#g", "Go to row #"),
+        ("r", "Toggle relative row numbers"),
+    ]));
+    assert_eq!(entries("Sorting"), vec![
+        ("<letter>", "Mode change per keypress: ascending -> descending -> off ->"),
+        ("⇧<letter>", "Reversed mode change"),
+    ]);
+    assert_eq!(entries("Focus"), vec![
+        ("1 … 9, 0", "Change tab"),
+        ("<letter>", "go to and activate an area of the screen"),
+    ]);
+    assert_eq!(entries("Search / Filter"), vec![
+        ("/", "Search for a string or regex, Enter to activate mode, Esc to deactivate"),
+        ("n", "Next hit, while a search is on"),
+        ("N", "Previous hit, while a search is on"),
+        ("f", "Filter for a string or regex, Enter to activate mode, f again to deactivate"),
+        ("o", "Filter by operation type"),
+        ("s", "Filter by status"),
+    ]);
+    assert_eq!(entries("General"), vec![
+        ("?", "Help"),
+        ("q", "Close the current window, or quit from the main screen"),
+    ]);
+    assert_eq!(crate::panes::list::help::MODIFIERS, [
+        ("⌃", "Control"),
+        ("⇧", "Shift"),
+        ("⌘", "Cmd/Super"),
+        ("⌥", "Opt"),
+    ]);
+}
+
+/// No key string repeats inside one section, including the filter key, whose label describes
+/// both opening and clearing the filter.
 #[test]
 fn no_key_string_repeats_inside_a_section() {
     for section in Queue::help_sections() {
         let mut seen = std::collections::HashSet::new();
         for (key, _) in &section.entries {
-            if section.title == "Search / Filter" && *key == "f" {
-                // `f` is intentionally listed twice: once to open the filter and once to clear it.
-                continue;
-            }
             assert!(
                 seen.insert(*key),
                 "`{key}` appears more than once in the {} section",
@@ -88,7 +130,7 @@ fn rendered_key_column_is_as_wide_as_the_widest_key() {
 
     // Flattened to plain text: this guard is about the key COLUMN's arithmetic, which is the
     // one property of a help line that survived ruling 6's styling unchanged.
-    let rendered: Vec<String> = crate::panes::list::help::render(&sections, None)
+    let rendered: Vec<String> = crate::panes::list::help::render(&sections)
         .iter()
         .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
         .collect();
@@ -261,7 +303,7 @@ fn a_title_is_bold_a_key_is_accented_and_a_note_is_italic() {
     let _restore = Restore::dark_truecolor();
 
     let sections = Queue::help_sections();
-    let lines = crate::panes::list::help::render(&sections, None);
+    let lines = crate::panes::list::help::render(&sections);
     let text = |line: &ratatui::text::Line| -> String {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
     };
@@ -331,7 +373,7 @@ fn the_legend_closes_the_window_and_its_shift_is_not_the_up_arrow() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    let lines = crate::panes::list::help::render(&Queue::help_sections(), Some("a tail"));
+    let lines = crate::panes::list::help::render(&Queue::help_sections());
     let last: String = lines
         .last()
         .expect("the window has lines")
@@ -345,18 +387,8 @@ fn the_legend_closes_the_window_and_its_shift_is_not_the_up_arrow() {
         assert!(last.contains(name), "the legend omits the word {name:?}: {last:?}");
     }
 
-    // The tail sits above the legend, never below it — ruling 6 puts the legend on the bottom
-    // row and a caller free to append after it is a caller free to get that wrong.
-    let tail_at = lines
-        .iter()
-        .position(|line| {
-            line.spans.iter().map(|s| s.content.as_ref()).collect::<String>() == "a tail"
-        })
-        .expect("the tail is drawn");
-    assert!(tail_at < lines.len() - 1, "the legend is not the bottom row");
-
     let shift = crate::panes::list::help::MODIFIERS[1].0;
-    assert_eq!(crate::panes::list::help::MODIFIERS[1].1, "shift");
+    assert_eq!(crate::panes::list::help::MODIFIERS[1].1, "Shift");
     // The up-arrow KEY's own spelling, read out of the navigation section rather than retyped
     // here: a literal in this file would agree with itself the day the foot's arrow changed,
     // which is the one day this assertion has any work to do.

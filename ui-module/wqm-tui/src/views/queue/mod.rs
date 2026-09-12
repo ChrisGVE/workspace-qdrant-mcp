@@ -195,17 +195,12 @@ impl Queue {
             focus(),
             HelpSection {
                 title: "Search / Filter",
-                // Chris's own order, 20260912 (ruling 6): `/ n N Esc f f o s`. It reads as two
-                // groups rather than eight keys — everything the SEARCH does, then everything
-                // the FILTER does — which is why `Esc` sits in the middle and not at the end
-                // beside its own kind.
+                // Search precedes filter; each entry says how to leave its mode.
                 entries: vec![
-                    ("/", "Search for an exact string or a regular expression"),
+                    ("/", "Search for a string or regex, Enter to activate mode, Esc to deactivate"),
                     ("n", "Next hit, while a search is on"),
                     ("N", "Previous hit, while a search is on"),
-                    ("Esc", "While a search is on, cancel the search"),
-                    ("f", "Filter by an exact string or a regular expression"),
-                    ("f", "While a filter is on, cancel the filter"),
+                    ("f", "Filter for a string or regex, Enter to activate mode, f again to deactivate"),
                     ("o", "Filter by operation type"),
                     ("s", "Filter by status"),
                 ],
@@ -239,10 +234,7 @@ impl Queue {
 
     /// The help modal: [`Queue::help_sections`], rendered, over the quietened page.
     pub fn help() -> Modal {
-        let body = crate::panes::list::help::render(
-            &Self::help_sections(),
-            Some("The selectors survive Esc; the search leaves on Esc, the filter on f."),
-        );
+        let body = crate::panes::list::help::render(&Self::help_sections());
         Modal::with_lines("Queue — keys", body).action("Esc", "close")
     }
 }

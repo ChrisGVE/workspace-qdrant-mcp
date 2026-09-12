@@ -42,10 +42,11 @@ pub fn navigation() -> HelpSection {
             // SEARCH HITS, which is a thing the search does, and a reader looking for them looks
             // where the search is.
             ("#<move>", "Repeat the move # times"),
-            ("Home / gg", "Top"),
-            ("End / G", "Bottom"),
+            ("g", "Top"),
+            // `G` is inferred as the bottom pair to the owner's `g`, not separately ruled.
+            ("G", "Bottom"),
             ("#g", "Go to row #"),
-            ("r", "Relative row numbers, on and off"),
+            ("r", "Toggle relative row numbers"),
         ],
         note: None,
     }
@@ -67,8 +68,8 @@ pub fn sorting() -> HelpSection {
     HelpSection {
         title: "Sorting",
         entries: vec![
-            ("<letter>", "Sort by that column: ascending, descending, then off"),
-            ("\u{21e7}<letter>", "The same cycle reversed: descending, ascending, then off"),
+            ("<letter>", "Mode change per keypress: ascending -> descending -> off ->"),
+            ("\u{21e7}<letter>", "Reversed mode change"),
         ],
         note: Some("A column that can be sorted lights one letter of its own name."),
     }
@@ -84,8 +85,8 @@ pub fn focus() -> HelpSection {
     HelpSection {
         title: "Focus",
         entries: vec![
-            ("1 … 9, 10", "Change tab"),
-            ("<letter>", "Go to an area of this screen"),
+            ("1 … 9, 0", "Change tab"),
+            ("<letter>", "go to and activate an area of the screen"),
         ],
         note: Some("Where several areas take focus, one letter of each name is accented."),
     }
@@ -97,8 +98,7 @@ pub fn general() -> HelpSection {
         title: "General",
         entries: vec![
             ("?", "Help"),
-            ("q", "Quit"),
-            ("Esc", "Close the current overlay window"),
+            ("q", "Close the current window, or quit from the main screen"),
         ],
         note: None,
     }
@@ -116,10 +116,10 @@ pub fn general() -> HelpSection {
 /// disagree about a glyph: an entry that spells a chord writes the character, and this names
 /// the character it wrote.
 pub const MODIFIERS: [(&str, &str); 4] = [
-    ("\u{2303}", "control"),
-    ("\u{21e7}", "shift"),
-    ("\u{2318}", "command"),
-    ("\u{2325}", "option"),
+    ("\u{2303}", "Control"),
+    ("\u{21e7}", "Shift"),
+    ("\u{2318}", "Cmd/Super"),
+    ("\u{2325}", "Opt"),
 ];
 
 /// The legend row: every glyph in [`MODIFIERS`] with its name beside it, glyphs accented like
@@ -152,19 +152,13 @@ fn key_style() -> Style {
 /// its key in the accent hue, padded to the width of the widest key ACROSS ALL SECTIONS —
 /// measured here rather than written down, so a chord that grows in another module cannot
 /// silently stop fitting — and a section's note, when it has one, is printed after its entries
-/// in *italic*. A blank line separates sections; then `tail` — a closing sentence about the
-/// whole window rather than about any one section — and then the [`legend`], which is always
-/// the last row.
-///
-/// The tail is a PARAMETER rather than something a caller appends afterwards, so the legend
-/// cannot end up in the middle of a window: ruling 6 asks for it *"on a bottom row"*, and a
-/// caller free to push lines after it is a caller free to get that wrong.
+/// in *italic*. A blank line separates sections and the [`legend`] closes the window.
 ///
 /// The three treatments are ruling 6's (Chris, 20260912) and they are three different KINDS of
 /// thing rather than decoration: a title names a group, a key is something to press, and a note
 /// is prose about the group rather than an entry in it. The italic is what stops a note being
 /// read as a nameless entry, which is how it read while everything was one colour.
-pub fn render(sections: &[HelpSection], tail: Option<&str>) -> Vec<Line<'static>> {
+pub fn render(sections: &[HelpSection]) -> Vec<Line<'static>> {
     let column = sections
         .iter()
         .flat_map(|section| section.entries.iter())
@@ -202,13 +196,6 @@ pub fn render(sections: &[HelpSection], tail: Option<&str>) -> Vec<Line<'static>
                 tokens::normal_style().add_modifier(Modifier::ITALIC),
             )));
         }
-    }
-    if let Some(tail) = tail {
-        body.push(Line::default());
-        body.push(Line::from(Span::styled(
-            tail.to_string(),
-            tokens::normal_style().add_modifier(Modifier::ITALIC),
-        )));
     }
     body.push(Line::default());
     body.push(legend());
