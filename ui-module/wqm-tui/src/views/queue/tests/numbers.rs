@@ -81,7 +81,7 @@ fn the_relative_mode_counts_from_the_cursor_and_the_cursor_keeps_its_position() 
 /// The cursor row is the one worth naming: it wears the cursor tint, and a number that took the
 /// row's emphasis with it would be the first thing to brighten.
 #[test]
-fn the_number_column_is_muted_on_every_row_the_cursors_included() {
+fn the_number_column_is_muted_on_every_row_but_the_cursors_block() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -97,6 +97,15 @@ fn the_number_column_is_muted_on_every_row_the_cursors_included() {
     let muted = crate::tokens::muted();
     let first = header_row() + 1;
     for i in 0..8u16 {
+        // The CURSOR's row is the exception, and it became one on 20260912 (ruling 7): the
+        // cursor is a block now, and a block inverts everything standing on it — the number
+        // column with the rest. The old name of this guard said "the cursor's included" and
+        // meant the opposite of what the surface now does.
+        let want = if i == 5 {
+            crate::tokens::selector_fg()
+        } else {
+            muted
+        };
         for x in MARGIN..MARGIN + NO_WIDTH {
             let cell = buf.cell((x, first + i)).expect("cell in area");
             if cell.symbol().trim().is_empty() {
@@ -104,8 +113,8 @@ fn the_number_column_is_muted_on_every_row_the_cursors_included() {
             }
             assert_eq!(
                 cell.fg,
-                muted,
-                "row {i} column {x} draws {:?} in {:?}, not the muted rung",
+                want,
+                "row {i} column {x} draws {:?} in {:?}",
                 cell.symbol(),
                 cell.fg
             );

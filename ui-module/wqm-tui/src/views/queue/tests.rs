@@ -120,7 +120,11 @@ fn the_status_column_carries_the_status_blocks_own_three_hues() {
             WIDE,
             TALL,
         );
-        let row = header_row() + 1;
+        // The SECOND data row, not the first: the default cursor sits on row 0 and a cursor row
+        // is a block now (ruling 7, 20260912) whose content is black — hues included. That is a
+        // consequence of the inversion rather than a fault in it, and it is what this guard had
+        // to move to keep measuring the thing it is about.
+        let row = header_row() + 2;
         let painted: Vec<String> = (0..WIDE)
             .filter(|x| buf.cell((*x, row)).expect("cell in area").style().fg == Some(hue))
             .map(|x| buf.cell((x, row)).expect("cell in area").symbol().to_string())

@@ -468,14 +468,27 @@ impl CellTable {
     }
 }
 
-/// Mark `row` as the one the data cursor is on: the tint across its whole width, and nothing
-/// else at all.
+/// Mark `row` as the one the data cursor is on: **the block** across its whole width, and
+/// nothing else at all.
 ///
-/// The tint goes down FIRST, before any span of the row is drawn. Ratatui styles patch rather
-/// than replace, so every span drawn over it afterwards keeps its own hue and inherits this
-/// background — which is what makes one `set_style` enough for a row of many spans.
+/// Chris, 20260912, ruling 7: the cursor is the block now, black and bold on a filled row. Same
+/// treatment as [`crate::panes::list::ListPane`]'s, because a reader who learns what a cursor
+/// looks like on the Queue must not learn it again on the Dashboard.
+///
+/// The fill goes down FIRST, before any span of the row is drawn. Ratatui styles patch rather
+/// than replace, so every span drawn over it afterwards inherits this background — which is what
+/// makes one `set_style` enough for a row of many spans. The black bold content goes down LAST,
+/// in [`invert_cursor`], for the mirror-image reason: each span sets its own foreground.
 fn paint_cursor(row: Rect, buf: &mut Buffer) {
     buf.set_style(row, Style::default().bg(tokens::cursor_bg()));
+}
+
+/// The block's content: the cursor row in black and **bold** over the fill. See
+/// [`crate::panes::list::table`]'s twin for why this cannot be done with the fill.
+fn invert_cursor(row: Rect, buf: &mut Buffer) {
+    if let Some(fg) = tokens::cursor_fg() {
+        buf.set_style(row, Style::default().fg(fg).add_modifier(Modifier::BOLD));
+    }
 }
 
 impl Widget for CellTable {
@@ -533,6 +546,9 @@ impl Widget for CellTable {
                         },
                         buf,
                     );
+            }
+            if self.cursor == Some(i) {
+                invert_cursor(Rect { y, height: 1, ..area }, buf);
             }
         }
 

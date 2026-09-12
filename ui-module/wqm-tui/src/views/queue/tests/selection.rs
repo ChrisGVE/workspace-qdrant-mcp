@@ -153,12 +153,13 @@ fn v_upper_resets_the_selection_past_a_search() {
     assert!(reset.search.is_some(), "`V` is not Esc and leaves the search");
 }
 
-/// A selected row wears the wash and the bar; the cursor's own row keeps the cursor's tint.
+/// A selected row wears the tint and the bar; the cursor's own row keeps the cursor's block.
 ///
 /// Both halves matter and only the second is a ruling: *"cursor unchanged"*. Read off the drawn
-/// page, because what this is really about is which of two fills wins one cell.
+/// page, because what this is really about is which of two fills wins one cell — and after
+/// ruling 7 (Chris, 20260912) the one that wins is the loud one.
 #[test]
-fn a_selected_row_wears_the_bar_and_the_wash_and_the_cursor_keeps_its_own_tint() {
+fn a_selected_row_wears_the_bar_and_the_tint_and_the_cursor_keeps_its_block() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -195,12 +196,12 @@ fn a_selected_row_wears_the_bar_and_the_wash_and_the_cursor_keeps_its_own_tint()
     );
     assert_eq!(
         fill(first + 1),
-        crate::tokens::selected_bg().expect("truecolor has a wash"),
-        "the selected row is not washed"
+        crate::tokens::selection_bg(),
+        "the selected row is not tinted"
     );
     assert_ne!(
         crate::tokens::cursor_bg(),
-        crate::tokens::selected_bg().expect("truecolor has a wash"),
+        crate::tokens::selection_bg(),
         "the two fills are the same colour, so the guard above proves nothing"
     );
 }
@@ -242,82 +243,54 @@ fn the_count_is_the_rightmost_thing_on_the_dialog_row() {
     );
 }
 
-/// Ruling 4's three candidates (Chris, 20260912), and the two things NONE of them may change.
+/// Ruling 7 (Chris, 20260912) on the drawn page: **the cursor row's content is black and bold,
+/// and a selected row's is not.**
 ///
-/// The ruling is exploratory about the colour — *"is it possible to select another colour"* — and
-/// fixed about everything else: *"the vertical bar in the gutter stays"*, and *"the cursor is
-/// unchanged and takes priority over a selected row"*. So the properties that are not open get
-/// a guard that runs over every candidate, and the property that IS open gets no assertion at
-/// all beyond being different from the cursor's grey, which is the complaint that started it.
-///
-/// Written over [`crate::tokens::Selection::ALL`] rather than as three tests, because the claim
-/// is about the SET: a fourth candidate added tomorrow is either covered by this or it is a
-/// candidate nobody checked.
+/// This is what replaces the candidate sweep ruling 4 needed. He has picked, so there is one
+/// treatment rather than three, and the claim worth holding is the one the inversion turns on:
+/// the block is the CURSOR's, and a selection under it stays quiet.
 #[test]
-fn every_selection_candidate_keeps_the_bar_and_lets_the_cursor_win() {
+fn the_cursor_rows_content_is_black_and_bold_and_a_selected_rows_is_not() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    for candidate in crate::tokens::Selection::ALL {
-        crate::tokens::Selection::set(candidate);
-        let label = candidate.label();
+    // The cursor on the first of two picked rows, so one row is both and one is only selected.
+    let state = QueueState {
+        cursor: 0,
+        ..picked(QueueState::default(), &[0, 1])
+    };
+    let buf = render(view(state), WIDE, TALL);
+    let first = header_row() + 1;
+    // Inside the Tenant column, which every row of the fixture fills — a cell holding a blank
+    // carries no foreground to judge.
+    let at = crate::widgets::chrome::MARGIN + GUTTER + 4;
 
-        // The cursor on the first of two picked rows, so one row is both and one is only
-        // selected — the only arrangement in which "the cursor takes priority" means anything.
-        let state = QueueState {
-            cursor: 0,
-            ..picked(QueueState::default(), &[0, 1])
-        };
-        let buf = render(view(state), WIDE, TALL);
-        let first = header_row() + 1;
-        let bar = crate::widgets::chrome::MARGIN - GUTTER;
+    let cursor = buf.cell((at, first)).expect("cell in area");
+    assert_eq!(
+        cursor.fg,
+        crate::tokens::selector_fg(),
+        "the cursor row's content is not black"
+    );
+    assert!(
+        cursor.modifier.contains(ratatui::style::Modifier::BOLD),
+        "the cursor row's content is not bold — his words were `black text but using bold font`"
+    );
 
-        for y in [first, first + 1] {
-            let cell = buf.cell((bar, y)).expect("cell in area");
-            assert_eq!(
-                cell.symbol(),
-                crate::tokens::SELECTED_BAR.to_string(),
-                "the {label} candidate dropped the gutter bar at {y}"
-            );
-        }
+    let selected = buf.cell((at, first + 1)).expect("cell in area");
+    assert_ne!(
+        selected.fg,
+        crate::tokens::selector_fg(),
+        "a selected row inverted its content — after ruling 7 that belongs to the cursor alone"
+    );
 
-        let fill = |y: u16| buf.cell((crate::widgets::chrome::MARGIN, y)).expect("cell").bg;
+    // And the gutter bar is on BOTH, which is what still distinguishes a selected cursor row
+    // from an unselected one.
+    let bar = crate::widgets::chrome::MARGIN - GUTTER;
+    for y in [first, first + 1] {
         assert_eq!(
-            fill(first),
-            crate::tokens::cursor_bg(),
-            "the {label} candidate took the cursor's row over"
+            buf.cell((bar, y)).expect("cell in area").symbol(),
+            crate::tokens::SELECTED_BAR.to_string(),
+            "row at {y} lost its selection bar"
         );
-        let selected = crate::tokens::selected_bg().expect("truecolor has a fill");
-        assert_eq!(fill(first + 1), selected, "the {label} candidate did not fill a picked row");
-        assert_ne!(
-            selected,
-            crate::tokens::cursor_bg(),
-            "the {label} candidate fills a selected row with the cursor's own colour"
-        );
-
-        // And the inversion, which is what distinguishes the block from the two washes: under
-        // `Fill` the selected row's content is dark, and the CURSOR's row is not — the priority
-        // rule reaches the foreground as well as the fill.
-        let content = |y: u16| {
-            buf.cell((crate::widgets::chrome::MARGIN + GUTTER + 4, y))
-                .expect("cell in area")
-                .fg
-        };
-        match crate::tokens::selected_fg() {
-            Some(fg) => {
-                assert_eq!(content(first + 1), fg, "the {label} candidate did not invert its row");
-                assert_ne!(
-                    content(first),
-                    fg,
-                    "the {label} candidate inverted the cursor's row, which is unchanged by a \
-                     selection"
-                );
-            }
-            None => assert_ne!(
-                content(first + 1),
-                crate::tokens::selector_fg(),
-                "the {label} candidate inverted a row without asking to"
-            ),
-        }
     }
 }

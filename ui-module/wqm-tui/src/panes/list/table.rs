@@ -301,26 +301,49 @@ impl ListPane {
     }
 }
 
-/// Mark `row` as the one the data cursor is on: the tint across the whole width, and nothing
-/// else at all.
+/// Mark `row` as the one the data cursor is on: **the block** across the whole width, and
+/// nothing else at all.
 ///
-/// The Dashboard's ruling, applied here (2026-09-07): no marker glyph, no gutter. The tint goes
-/// down FIRST so every span drawn over it keeps its own hue and inherits this background.
+/// Chris, 20260912, ruling 7 — the cursor and the selection swapped treatments, and this is the
+/// half that gained one. No marker glyph and no gutter still (2026-09-07): the fill IS the mark.
+///
+/// The fill goes down FIRST so every span drawn over it inherits this background; the black bold
+/// content that makes it a block goes on LAST, in [`invert_cursor`], because each span sets its
+/// own foreground as it is drawn.
 fn paint_cursor(row: Rect, buf: &mut Buffer) {
     buf.set_style(row, Style::default().bg(tokens::cursor_bg()));
 }
 
-/// Mark `row` as selected: the wash across its width, and the bar in the gutter column.
+/// The second half of the block: the cursor row's content in black and **bold**, over the fill
+/// [`paint_cursor`] laid down.
 ///
-/// Chris, 2026-09-07, ruling 10 — and **the cursor is unchanged**, which is why this is painted
-/// BEFORE the cursor tint and why the bar is drawn whether or not a wash was available. A row
-/// that is both selected and under the cursor therefore keeps the cursor's own fill and still
-/// carries the bar, so the two marks answer different questions rather than competing for one
-/// cell.
-fn paint_selected(gutter: Rect, row: Rect, buf: &mut Buffer) {
-    if let Some(fill) = tokens::selected_bg() {
-        buf.set_style(row, Style::default().bg(fill));
+/// Separate from `paint_cursor` and called after the row is drawn rather than with it, because
+/// ratatui styles patch and every span of the row sets its own foreground on the way past. A
+/// colour laid down with the fill is the one thing they all overwrite.
+///
+/// [`tokens::cursor_fg`] answers [`None`] where there is no block to invert against — a modal
+/// has taken the fill, or the encoding refuses colour and the fill was reverse video anyway.
+fn invert_cursor(row: Rect, buf: &mut Buffer) {
+    if let Some(fg) = tokens::cursor_fg() {
+        buf.set_style(
+            row,
+            Style::default().fg(fg).add_modifier(Modifier::BOLD),
+        );
     }
+}
+
+/// Mark `row` as selected: the tint across its width, and the bar in the gutter column.
+///
+/// Chris, 2026-09-07, ruling 10, with the fill swapped out by ruling 7 (20260912) — the tint is
+/// now [`tokens::selection_bg`], rung 19, which is the fill the CURSOR used to wear.
+///
+/// **The cursor is unchanged by a selection**, which is why this is painted BEFORE the cursor's
+/// block and why the bar is drawn either way. A row that is both keeps the cursor's block and
+/// still carries the bar, so the two marks answer different questions rather than competing for
+/// one cell — and after the inversion the louder mark belongs to the cursor, which is the one a
+/// reader is moving.
+fn paint_selected(gutter: Rect, row: Rect, buf: &mut Buffer) {
+    buf.set_style(row, Style::default().bg(tokens::selection_bg()));
     buf.set_string(
         gutter.x,
         gutter.y,
@@ -411,19 +434,12 @@ impl Widget for ListPane {
                                 buf,
                             );
                     }
-                    // The content inverts LAST, and only under `Selection::Fill` — see
-                    // [`tokens::selected_fg`]. It has to be last because the row's spans each
-                    // set their own foreground as they are drawn, so a colour laid down before
-                    // them would be the one thing on the row they all overwrite; ratatui styles
-                    // patch, so one `set_style` over the finished row reaches every span.
-                    //
-                    // The cursor row is excluded, which is ruling 4's own priority rule: where
-                    // the cursor and a selection land on one row the cursor is unchanged, and
-                    // the `▎` in the margin is what still says the row is selected.
-                    if let Some(fg) = tokens::selected_fg().filter(|_| {
-                        index != at && self.is_selected(index)
-                    }) {
-                        buf.set_style(row, Style::default().fg(fg));
+                    // The block's content, last — see [`invert_cursor`] for why it cannot go
+                    // down with the fill. A selected row is NOT inverted: after ruling 7 the
+                    // selection is the quiet mark of the two, and its tint sits under the row's
+                    // own colours exactly as the cursor's tint used to.
+                    if index == at {
+                        invert_cursor(row, buf);
                     }
                 }
                 // Past the last row, so this is the load-more line — the only other line the

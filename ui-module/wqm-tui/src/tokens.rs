@@ -904,8 +904,64 @@ pub fn inverted(fill: Color) -> Style {
         _ => Style::default().fg(selector_fg()).bg(fill),
     }
 }
-/// The data cursor's row tint — a subtle darker fill, deliberately not an inverse block.
+/// The data cursor's row fill — **an inverse block**, in the hue [`selected`] names.
+///
+/// Chris, 20260912 23:53, ruling 7: *"the cursor should be the block (black text but using bold
+/// font) and what is the selection would be what we use as cursor today, so role inversion."*
+/// The two marks have swapped: this was a subtle darker fill at rung 19 and is now the strongest
+/// row mark the surface has, while [`selection_bg`] has taken the rung 19 tint over.
+///
+/// # The hue is the one that was the selection's, and that is the inversion done whole
+///
+/// A cursor drawn as a block needs a hue, and inventing an eleventh would be inventing a role.
+/// The hue [`selected`] resolves — Catppuccin's `lavender` on a flavour — travels with the block
+/// rather than staying with the mark that no longer is one. So lavender now says *this is the
+/// row you are working with*, in two treatments that cannot be confused: a FILL under the cursor
+/// and the [`SELECTED_BAR`] in the margin under a selection.
+///
+/// ⚠ **A call of mine, and cheap to overturn**: the alternative was to leave the hue with the
+/// selection and give the cursor block a new one. That would have made the block the only
+/// element on the surface whose colour answers to nothing in §10.
+///
+/// Through [`hue`], so a modal takes the block away with every other highlight (VL §6) — which
+/// is why [`cursor_fg`] must go quiet in the same breath, and does.
 pub fn cursor_bg() -> Color {
+    hue(match active_theme() {
+        Some(palette) => crate::categorical::selected_of(&palette),
+        None => Color::Magenta,
+    })
+}
+
+/// The foreground the cursor row's content takes on the block — black and **bold** — or [`None`]
+/// where there is no block to put it on.
+///
+/// Chris's own words, ruling 7: *"black text but using bold font"*. Bold rather than the weight
+/// the row already had, because black on lavender at a normal weight reads thinner than the
+/// same text on the page did, and a cursor that made its own row harder to read would be a
+/// strange kind of emphasis.
+///
+/// [`None`] in two cases, and both are the same rule: where the encoding refuses colour there is
+/// no fill to invert against ([`Family::None`] gets `REVERSED` from the block instead), and
+/// under a modal the fill is gone (VL §6), so black text would sit on the page's own background.
+pub fn cursor_fg() -> Option<Color> {
+    match family() {
+        Family::None => None,
+        _ if under_modal() => None,
+        _ => Some(selector_fg()),
+    }
+}
+
+/// A SELECTED row's fill — the subtle darker tint, rung 19 of the ladder.
+///
+/// It was the data cursor's until ruling 7 (Chris, 20260912) swapped the two marks; the rung is
+/// unchanged, so the reference sheet's rung 19 still names exactly this colour and only the role
+/// beside it moved. A tint rather than a wash mixed toward a hue: the wash is what he said read
+/// too close to the cursor, and the answer was not a different mix but a different job.
+///
+/// Always available, unlike the wash it replaces: rung 19 is a neutral, and the ladder has an
+/// answer for it in every family. The [`SELECTED_BAR`] is still drawn beside it — on a terminal
+/// that collapses the ladder the bar is what carries the mark alone.
+pub fn selection_bg() -> Color {
     neutral(19)
 }
 
@@ -932,126 +988,6 @@ pub fn selected() -> Color {
     }
 }
 
-/// How a selected row is filled — **an open question with candidates, not a setting.**
-///
-/// Chris, 20260912, ruling 4: *"the wash is too near the cursor tint to tell apart. Is it
-/// possible to select another colour for the selection and make the row read as a block?"* His
-/// wording is exploratory, and his standing preference is to judge size and colour from renders
-/// rather than from names or numbers — so the three readings of that sentence are built and put
-/// side by side in the pantry (`Queue / Selection — …`) instead of one being chosen for him.
-///
-/// What the ruling FIXES, and none of these three touches: the `▎` bar stays in the gutter, the
-/// cursor is unchanged, and the cursor takes PRIORITY over a selected row — where both land on
-/// one row the cursor's own tint is what shows and the margin bar is what still says the row is
-/// selected.
-///
-/// What is OPEN is exactly what varies below: how far from the terminal's background the fill
-/// sits, and whether the row's content inverts to dark on it.
-///
-/// [`Selection::Wash`] is the default, so nothing moves until he picks. When he does, this enum
-/// collapses to the one he took — it is scaffolding for a decision, not a user preference, and
-/// leaving it standing afterwards would be shipping three answers to one question.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Selection {
-    /// Today's: the background pulled toward [`selected`] by [`WASH_MIX`], content unchanged.
-    /// The one he says reads too close to the cursor's own tint.
-    Wash,
-    /// The same hue and the same mechanism, mixed to [`DEEP_MIX`] instead — the smallest
-    /// possible answer, which changes one number and keeps every other property of the wash.
-    Deep,
-    /// The selection hue at full strength with the content inverted to [`selector_fg`] — the
-    /// literal reading of *"make the row read as a block"*. The strongest separation from the
-    /// cursor's grey, and the one that spends a whole row of colour.
-    Fill,
-}
-
-static SELECTION: AtomicU8 = AtomicU8::new(Selection::Wash as u8);
-
-impl Selection {
-    /// The treatment in force.
-    pub fn current() -> Selection {
-        match SELECTION.load(Ordering::Relaxed) {
-            1 => Selection::Deep,
-            2 => Selection::Fill,
-            _ => Selection::Wash,
-        }
-    }
-
-    /// Every candidate, in the order the pantry compares them.
-    pub const ALL: [Selection; 3] = [Selection::Wash, Selection::Deep, Selection::Fill];
-
-    /// The name this candidate is spelled with in the pantry.
-    pub const fn label(self) -> &'static str {
-        match self {
-            Selection::Wash => "wash",
-            Selection::Deep => "deep wash",
-            Selection::Fill => "fill",
-        }
-    }
-
-    /// Switch candidates, so one pantry can draw all three.
-    pub fn set(selection: Selection) {
-        SELECTION.store(selection as u8, Ordering::Relaxed);
-    }
-}
-
-/// [`Selection::Deep`]'s mix: two and a half times [`WASH_MIX`].
-///
-/// Not a round number chosen for its looks — it is the smallest step that puts the fill plainly
-/// past *"a different colour"* from the background ([`delta_e`]'s rule of thumb: 2.3 is just
-/// noticeable, above 5 is plainly different) while leaving [`table_row`] legible on it. The
-/// wash's own 0.14 lands at ΔE 16–19 from the background but only a few units from
-/// [`cursor_bg`], which is the complaint.
-pub const DEEP_MIX: f32 = 0.35;
-
-/// The foreground a selected row's content takes, or [`None`] where it keeps its own.
-///
-/// Only [`Selection::Fill`] inverts: a wash is a tint UNDER unchanged text, and a block is a
-/// colour the text sits on. The cursor row is excluded by the caller rather than here — the
-/// priority rule is about which of two marks wins on one row, which is the row's question and
-/// not the token's.
-pub fn selected_fg() -> Option<Color> {
-    match Selection::current() {
-        Selection::Fill if family() != Family::None => Some(selector_fg()),
-        _ => None,
-    }
-}
-
-/// A selected row's fill: the terminal's own background pulled toward [`selected`] by
-/// [`WASH_MIX`] — the same strength, and the same reasoning, as the unreachable-daemon wash.
-///
-/// # [`None`] below RGB, and the bar carries the selection alone
-///
-/// Only [`Family::Rgb`] can express "this background, but more lavender". A fixed substitute
-/// would be a full-row fill chosen without knowing the theme's polarity, which is unreadable
-/// exactly where it matters most. So below RGB this returns [`None`] and [`SELECTED_BAR`] is
-/// the whole of the mark — structure first, colour reserved, which is the rule the condition
-/// wash already follows.
-pub fn selected_bg() -> Option<Color> {
-    if family() != Family::Rgb {
-        return None;
-    }
-    let bg = ladder_endpoints().background;
-    // The same fallback shape as the condition wash: a named slot colour has no channels to mix,
-    // so where the hue cannot be read as RGB the mix goes toward a written-down lavender. It is
-    // reached only with no bundled theme in force, where `selected()` itself is the slot
-    // stand-in — the bar is then magenta over a lavender wash, which is two stand-ins agreeing
-    // about what they stand for.
-    let toward = Rgb::from_color(selected()).unwrap_or(Rgb::new(0xb4, 0xbe, 0xfe));
-    // How far toward the hue the background is pulled — the one number ruling 4 is about. A
-    // full fill is the same expression at t = 1, which is why the three candidates are three
-    // strengths of one mechanism rather than three code paths.
-    let strength = match Selection::current() {
-        Selection::Wash => WASH_MIX,
-        Selection::Deep => DEEP_MIX,
-        Selection::Fill => 1.0,
-    };
-    Some(Color::Rgb(
-        mix(bg.r, toward.r, strength),
-        mix(bg.g, toward.g, strength),
-        mix(bg.b, toward.b, strength),
-    ))
-}
 /// The leading `▸` marker on the data cursor row.
 ///
 /// # Under a modal it is [`muted`]
@@ -1062,7 +998,7 @@ pub fn selected_bg() -> Option<Color> {
 pub fn cursor_mark() -> Color {
     modal::or_muted(neutral(70))
 }
-/// The editing cell fill — lighter than the cursor tint, so it reads as "you type HERE".
+/// The editing cell fill — lighter than the selection tint, so it reads as "you type HERE".
 pub fn edit_bg() -> Color {
     neutral(35)
 }
@@ -1446,42 +1382,51 @@ mod tests {
         }
     }
 
-    /// A selected row is tinted toward the selection hue and stays legible: a WASH, not a fill.
+    /// The two row marks are the two ends of ruling 7 (Chris, 20260912): the CURSOR is a hue
+    /// block, the SELECTION is a neutral tint, and they are not each other.
     ///
-    /// The two ends are what this pins. It must not be the background (nothing would show) and
-    /// it must be far nearer the background than the hue itself (a full lavender row would put
-    /// the theme's text on a colour nothing was tuned against). [`WASH_MIX`] is the same
-    /// strength the condition wash was chosen at, and this is the guard that says so.
+    /// Three claims, and each fails on its own. The cursor's fill is the hue [`selected`] names,
+    /// which is what makes it a block rather than a darker row. The selection's fill is rung 19
+    /// of the neutral ladder, which is what makes it quiet. And they are plainly different
+    /// colours — the complaint that started the inversion was two marks nobody could tell apart,
+    /// so a guard that checked each in isolation would have passed on the very screen he
+    /// objected to.
     #[test]
-    fn a_selected_rows_fill_is_the_background_pulled_toward_the_selection_hue() {
+    fn the_cursor_is_a_hue_block_and_the_selection_is_a_neutral_tint() {
         let _serial = crate::global_state_lock();
         let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
         set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
 
-        let fill = selected_bg().expect("RGB can express a wash");
-        let background = neutral(0);
-        assert_ne!(fill, background, "the wash is invisible");
+        assert_eq!(
+            cursor_bg(),
+            selected(),
+            "the cursor's block is the hue the selection used to wear — that is the inversion"
+        );
+        assert_eq!(selection_bg(), neutral(19), "the selection's tint is rung 19");
         assert!(
-            delta_e(fill, background) < delta_e(fill, selected()),
-            "the fill is nearer the selection hue than the background — that is a fill, not a wash"
+            delta_e(cursor_bg(), selection_bg()) > 5.0,
+            "the two row marks are within a just-noticeable difference of each other, which is \
+             the complaint ruling 7 answered"
         );
     }
 
-    /// Below RGB there is no wash at all, and the gutter bar carries the selection alone.
+    /// The block's content is black and bold — *"black text but using bold font"* — and there is
+    /// no black text where there is no block to put it on.
     ///
-    /// The same rule the condition wash follows: a substitute fill would be chosen without
-    /// knowing the theme's polarity, which is unreadable exactly where it matters.
+    /// Below colour the fill is reverse video rather than a hue, and a modal takes the fill away
+    /// entirely (VL §6); in both cases a black foreground would be text on the page's own
+    /// background, which is the one thing worse than no cursor at all.
     #[test]
-    fn below_rgb_a_selection_has_no_wash_and_only_its_bar() {
+    fn the_blocks_content_is_black_only_where_there_is_a_block() {
         let _serial = crate::global_state_lock();
-        for encoding in [Encoding::Ansi16, Encoding::Ansi256] {
-            let _restore = Restore::set(Palette::Theme, encoding);
-            assert_eq!(
-                selected_bg(),
-                None,
-                "{encoding:?} cannot express a wash and must not invent one"
-            );
+        {
+            let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+            assert_eq!(cursor_fg(), Some(selector_fg()));
+            let _modal = ModalScope::enter();
+            assert_eq!(cursor_fg(), None, "a modal took the fill and the text went with it");
         }
+        let _restore = Restore::set(Palette::Theme, Encoding::NoColor);
+        assert_eq!(cursor_fg(), None, "there is no fill to invert against without colour");
     }
 
     /// A selection is a highlight, so a modal takes it away with every other colour (VL §6).

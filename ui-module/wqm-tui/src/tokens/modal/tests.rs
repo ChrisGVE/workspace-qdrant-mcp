@@ -99,8 +99,11 @@ fn the_bright_text_rungs_collapse_onto_muted_under_a_modal() {
 }
 
 /// The quiet neutral rungs are NOT touched — structure survives. The emphasis ladder's quiet
-/// half, the two rule weights, the data cursor's tint and the layer fills all sit at or below
+/// half, the two rule weights, the SELECTION's tint and the layer fills all sit at or below
 /// `muted` already, so a modal has nothing to take from them.
+///
+/// The data cursor's fill left this list on 20260912 (ruling 7): it is a hue now, not a rung,
+/// and a modal takes it like every other hue. `tokens`'s own guards hold that end.
 #[test]
 fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
     let _serial = crate::global_state_lock();
@@ -111,7 +114,7 @@ fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
         tokens::muted(),
         tokens::rule_frame(),
         tokens::rule_internal(),
-        tokens::cursor_bg(),
+        tokens::selection_bg(),
         tokens::edit_bg(),
         tokens::layer1_bg(),
         tokens::layer2_bg(),
@@ -123,7 +126,7 @@ fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
         tokens::muted(),
         tokens::rule_frame(),
         tokens::rule_internal(),
-        tokens::cursor_bg(),
+        tokens::selection_bg(),
         tokens::edit_bg(),
         tokens::layer1_bg(),
         tokens::layer2_bg(),

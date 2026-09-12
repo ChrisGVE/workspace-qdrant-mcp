@@ -16,7 +16,7 @@
 //!
 //! The ordering is what makes the two vocabularies legible against each other. `theme.selection`
 //! lands at 9% on Mocha and `theme.muted` at 38%, so they interleave with our rungs rather than
-//! coinciding with the two that share their names — `tokens::cursor_bg` at 19% and
+//! coinciding with the two that share their names — `tokens::selection_bg` at 19% and
 //! `tokens::muted` at 62%. Sorted into one list that is impossible to miss; drawn as two blocks
 //! it was invisible.
 //!
@@ -152,7 +152,7 @@ const NEUTRALS: [Neutral; 4] = [
     (
         "theme.selection",
         |p| p.selection,
-        "its cursor tint — NOT ours; cf tokens::cursor_bg",
+        "its cursor tint — NOT ours; cf tokens::selection_bg",
     ),
     (
         "theme.muted",
@@ -839,7 +839,7 @@ mod tests {
     /// a screen's text under the rung reserved for de-emphasised metadata.
     ///
     /// The bands are the rungs each candidate would have to fall between to be substitutable:
-    /// `cursor_bg` (19) sits between `layer1_bg` (15) and `layer2_bg` (23); `muted` (62) sits
+    /// `selection_bg` (19) sits between `layer1_bg` (15) and `layer2_bg` (23); `muted` (62) sits
     /// between `rule_frame` (54) and `cursor_mark` (70).
     ///
     /// **Asserted as a majority rather than as fifteen exact numbers**, because the finding is
@@ -861,7 +861,7 @@ mod tests {
         assert!(
             selection_fits * 2 < total,
             "the theme's `selection` now lands in the layer band on {selection_fits}/{total} \
-             themes — it may be substitutable for `cursor_bg` after all"
+             themes — it may be substitutable for `selection_bg` after all"
         );
         assert!(
             muted_fits * 2 < total,

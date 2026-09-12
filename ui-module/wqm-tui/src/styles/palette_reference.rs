@@ -73,7 +73,7 @@ const SLOTS: [(u8, &str, Option<&str>); 16] = [
 /// eleven on one scale, and a second copy of the table is a second thing to keep true.
 pub(crate) const RUNGS: [Rung; 11] = [
     (15, "layer1_bg", "§6 modal over a full screen"),
-    (19, "cursor_bg", "§3 data-cursor row fill"),
+    (19, "selection_bg", "§3 selected-row tint"),
     (23, "layer2_bg", "§6 modal over a modal — must read lighter"),
     (30, "rule_internal", "§2 divides within a screen"),
     (35, "edit_bg", "§3 editing cell — lighter than the cursor"),
