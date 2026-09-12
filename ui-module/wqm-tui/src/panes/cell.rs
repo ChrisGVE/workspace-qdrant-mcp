@@ -31,6 +31,7 @@ use crate::widgets::chrome::{Attention, FocusMark, ZoneHeading};
 
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
+pub(crate) mod fit;
 pub mod sort;
 pub mod table;
 pub mod value;

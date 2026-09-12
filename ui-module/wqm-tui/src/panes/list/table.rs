@@ -10,7 +10,8 @@ use ratatui::{
 
 use super::{line, LIST_PAGE};
 use crate::format::grouped;
-use crate::panes::cell::sort::{compare, grown};
+use crate::panes::cell::fit::{fit, laid_out, Fit, DEFAULT_MIN_FLEX};
+use crate::panes::cell::sort::{append_mark, compare, grown};
 use crate::panes::cell::{Cell, Column, Sort, EMPTY};
 use crate::tokens;
 
@@ -254,7 +255,7 @@ impl ListPane {
     /// [`tokens::accent`], the unclaimed §10 field rather than the reserved selector — a sort
     /// key is a hint, not a selection. The mark stays muted: it says which column is sorted, and
     /// it is never the thing being read.
-    fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
+    fn header_spans(&self, column: &Column, mark: Option<Sort>, room: u16) -> Vec<Span<'static>> {
         let rest = Style::default().fg(tokens::header());
         let key = self.sortable().then_some(column.sort_key).flatten();
         let mut spans = crate::widgets::chrome::keyed_spans(
@@ -263,13 +264,11 @@ impl ListPane {
             rest.fg(tokens::accent()).add_modifier(Modifier::BOLD),
             rest,
         );
-        if let Some(sort) = mark {
-            spans.push(Span::styled(sort.direction.glyph(), tokens::muted_style()));
-        }
+        append_mark(&mut spans, column.title, mark, room);
         spans
     }
 
-    fn header(&self, body: Rect, cells: &[Rect], buf: &mut Buffer) {
+    fn header(&self, body: Rect, active: &[usize], cells: &[Rect], buf: &mut Buffer) {
         // The rule under the header, across the whole row, gaps included — see
         // [`crate::panes::cell::table::CellTable::header`], which does the same for the same
         // reason. It stops at the table: the selection gutter is margin, not header.
@@ -280,9 +279,11 @@ impl ListPane {
             },
             Style::default().add_modifier(Modifier::UNDERLINED),
         );
-        for (at, (column, area)) in self.columns.iter().zip(cells).enumerate() {
+        for (position, (&at, area)) in active.iter().zip(cells).enumerate() {
+            let column = &self.columns[at];
             let mark = self.sort.filter(|sort| sort.column == at);
-            let spans = self.header_spans(column, mark);
+            let right = cells.get(position + 1).map_or(body.right(), |next| next.x);
+            let spans = self.header_spans(column, mark, right.saturating_sub(area.x));
             let needed: u16 = spans
                 .iter()
                 .map(|span| span.content.chars().count() as u16)
@@ -290,13 +291,41 @@ impl ListPane {
             // Only the MARK may take room beyond the column — the same rule the cell's header
             // follows, and for the same reason. See `panes::cell::sort::grown`.
             let at_rect = if mark.is_some() {
-                grown(*area, body, needed)
+                grown(*area, right, needed)
             } else {
                 *area
             };
             Paragraph::new(Line::from(spans))
                 .alignment(column.align.to_ratatui())
                 .render(at_rect, buf);
+        }
+    }
+
+    /// Draw a stored row against surviving column indices; the number column
+    /// has no stored cell and is handled separately.
+    fn draw_data_row(
+        &self, cells: &[Cell], index: usize, row: Rect, columns: &[Rect], fitted: &Fit,
+        buf: &mut Buffer,
+    ) {
+        if let Some(position) = fitted.active.iter().position(|&column| column == 0) {
+            Paragraph::new(Line::from(Span::styled(
+                grouped(self.number_at(index, self.at())),
+                tokens::muted_style(),
+            )))
+            .alignment(self.columns[0].align.to_ratatui())
+            .render(Rect { y: row.y, height: 1, ..columns[position] }, buf);
+        }
+        for (position, &column_at) in fitted.active.iter().enumerate() {
+            let Some(cell_at) = column_at.checked_sub(1) else { continue };
+            let Some(cell) = cells.get(cell_at) else { continue };
+            let column = &self.columns[column_at];
+            Paragraph::new(Line::from(cell.spans(columns[position].width, column.elide, false)))
+                .alignment(column.align.to_ratatui())
+                .render(Rect { y: row.y, height: 1, ..columns[position] }, buf);
+        }
+        // The block's content follows the spans so they cannot overwrite it.
+        if index == self.at() {
+            invert_cursor(row, buf);
         }
     }
 }
@@ -369,11 +398,9 @@ impl Widget for ListPane {
             width: area.width.saturating_sub(GUTTER),
             ..area
         };
-        let columns = crate::panes::cell::table::laid_out(
-            Rect { height: 1, ..table },
-            &self.columns.iter().collect::<Vec<_>>(),
-        );
-        self.header(table, &columns, buf);
+        let fitted = fit(&self.columns, &self.rows, table.width, DEFAULT_MIN_FLEX, 1);
+        let columns = laid_out(Rect { height: 1, ..table }, &fitted);
+        self.header(table, &fitted.active, &columns, buf);
 
         if self.rows.is_empty() {
             Paragraph::new(Line::from(Span::styled(EMPTY, tokens::faint_style())))
@@ -400,48 +427,7 @@ impl Widget for ListPane {
                 paint_cursor(row, buf);
             }
             match self.rows.get(index) {
-                // Indexed rather than zipped by reference: a row may carry fewer cells than the
-                // list has columns, and the column its value belongs to is its POSITION.
-                Some(cells) => {
-                    // The number column first: the row's position, computed from the displayed
-                    // index rather than read off the row, and muted — it is there to be referred
-                    // to, not to be read down the page. The cursor row wears it too.
-                    Paragraph::new(Line::from(Span::styled(
-                        grouped(self.number_at(index, at)),
-                        tokens::muted_style(),
-                    )))
-                    .alignment(self.columns[0].align.to_ratatui())
-                    .render(
-                        Rect {
-                            y: row.y,
-                            height: 1,
-                            ..columns[0]
-                        },
-                        buf,
-                    );
-
-                    // Then the data columns, drawn from the row's cells — which sit one place
-                    // left of the column they answer to, the number column taking the first.
-                    for (n, (cell, column)) in cells.iter().zip(&self.columns[1..]).enumerate() {
-                        Paragraph::new(Line::from(cell.spans(columns[n + 1].width, column.elide, false)))
-                            .alignment(column.align.to_ratatui())
-                            .render(
-                                Rect {
-                                    y: row.y,
-                                    height: 1,
-                                    ..columns[n + 1]
-                                },
-                                buf,
-                            );
-                    }
-                    // The block's content, last — see [`invert_cursor`] for why it cannot go
-                    // down with the fill. A selected row is NOT inverted: after ruling 7 the
-                    // selection is the quiet mark of the two, and its tint sits under the row's
-                    // own colours exactly as the cursor's tint used to.
-                    if index == at {
-                        invert_cursor(row, buf);
-                    }
-                }
+                Some(cells) => self.draw_data_row(cells, index, row, &columns, &fitted, buf),
                 // Past the last row, so this is the load-more line — the only other line the
                 // buffer has. Muted: it is an offer, not a datum.
                 None => {

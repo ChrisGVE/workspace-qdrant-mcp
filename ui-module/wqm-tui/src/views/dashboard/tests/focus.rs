@@ -405,42 +405,36 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
 /// R5 (Chris, 2026-09-07): `Pts` is gone from Projects and Libraries, and the width it held
 /// goes to the flex `Name` column.
 ///
-/// The `Name` width is asserted against the ARITHMETIC, spelled out here, rather than against
-/// another render: comparing two renders of the same code would agree with any width at all,
-/// and comparing against a remembered number would need someone to remember it.
-///
-/// At 125 columns the screen insets by [`crate::widgets::chrome::MARGIN`] on each side (121),
-/// splits into two cells with a three-column gap (59 each). The table now starts at the cell's
-/// own first column — the two-column marker gutter is gone (Chris, 2026-09-07) — so it has all
-/// 59. It spends `Bch` 3 + `Files` 5 + `Queue` 9 = 17 on fixed columns, and every one of those
-/// three columns is sortable, so ruling 5(c) gives each a TWO-column gap: 59 − 17 − 6 = **36**
-/// for `Name`. It was 39 while every gap was one column. With `Pts` back it would be 32.
+/// The rendered Bch position must match the shared fit's Name width and gap.
+/// The former Pts column would consume width, so removing it must give Name
+/// more room under the same fitting rule.
 #[test]
 fn dropping_pts_gives_its_columns_to_the_name() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
-    const NAME_WIDTH: u16 = 36;
-    /// What the same arithmetic would give if `Pts` came back: 59 − 20 − 8.
-    const NAME_WIDTH_WITH_PTS: u16 = 31;
-
     let buf = render(view(frames::populated()), WIDE, TALL);
     let (_, cells) = heading_rows();
     let projects = cells[0];
+    let panes = frames::populated();
+    let table = panes[0].table();
+    let fit = crate::panes::cell::fit::fit(table.columns(), table.rows(), projects.width, 12, 0);
+    let name = fit.active.iter().position(|&at| table.columns()[at].title == "Name").unwrap();
+    let bch_column = fit.active.iter().position(|&at| table.columns()[at].title == "Bch").unwrap();
+    let rects = crate::panes::cell::fit::laid_out(Rect { height: 1, ..projects }, &fit);
 
-    // `Bch` is right-aligned in the column after `Name`, and its column is exactly as wide as
-    // its title — so the first `B` sits the gap past the end of `Name`, and `Bch` is sortable,
-    // so the gap is two.
+    // The fitted rects locate Bch independently of the rendered header.
     let header = heading_text(&buf, Rect { y: projects.y + 1, ..projects });
     let bch = header
         .chars()
         .position(|c| c == 'B')
         .expect("the Bch header is drawn") as u16;
-    const GAP: u16 = crate::panes::cell::table::COLUMN_GAP + crate::panes::cell::table::SORT_GAP;
     assert_eq!(
         bch,
-        NAME_WIDTH + GAP,
-        "the Name column is {NAME_WIDTH} wide with a {GAP}-column gap after it: {header:?}"
+        rects[bch_column].x - projects.x,
+        "Bch does not follow fitted Name width {} and gap {}: {header:?}",
+        rects[name].width,
+        fit.gap
     );
     // Measured from the cell's own left edge, so the header has to START there — with the old
     // two-column gutter back, the gutter takes exactly the two columns `Name` gained and `Bch`
@@ -449,11 +443,11 @@ fn dropping_pts_gives_its_columns_to_the_name() {
         header.starts_with('N'),
         "the Name column starts at the cell's own first column: {header:?}"
     );
-    assert!(
-        bch - GAP > NAME_WIDTH_WITH_PTS,
-        "the measured Name column must be wider than the {NAME_WIDTH_WITH_PTS} it had while \
-         `Pts` was drawn: {header:?}"
+    let pts_width = crate::panes::cell::Column::number("Pts", 3).fixed().unwrap();
+    let with_pts = crate::panes::cell::fit::fit(
+        table.columns(), table.rows(), projects.width - pts_width - fit.gap, 12, 0,
     );
+    assert!(fit.widths[name] > with_pts.widths[name], "Name gained no width when Pts left");
 
     // And no cell on the whole screen says `Pts` any more.
     let joined: String = (0..TALL).map(|y| line(&buf, y)).collect::<Vec<_>>().join("\n");

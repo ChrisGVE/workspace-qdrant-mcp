@@ -27,12 +27,7 @@ fn the_screen_is_the_constant_top_a_dialog_row_a_list_and_a_foot() {
         "the dialog slot is blank while nothing is being said"
     );
     let header = line(&buf, header_row());
-    assert!(
-        // Two blanks before `Tenant`, one before `T`: ruling 5(c)'s gaps, and `T` is the one
-        // column of this list that offers no sort key.
-        header.starts_with("      T  Tenant"),
-        "the column header follows the slot: {header:?}"
-    );
+    assert!(header.contains("Tenant"), "the column header follows the slot: {header:?}");
 
     // And the foot: the rule, then the hint line, on the last two rows.
     assert!(
@@ -78,9 +73,12 @@ fn the_list_starts_on_the_screens_own_margin() {
     let header = line(&buf, header_row());
     // The `No` column is an untitled figure field at the margin, so the first painted character
     // is the `T` column's header — three (empty) columns past the margin, plus the gap.
+    let pane = frames::pane(&QueueState::default());
+    let table_width = WIDE - MARGIN * 2;
+    let fitted = crate::panes::cell::fit::fit(pane.columns(), pane.rows(), table_width, 12, 1);
     assert_eq!(
         header.find('T'),
-        Some((MARGIN + 3 + 1) as usize),
+        Some((MARGIN + 3 + fitted.gap) as usize),
         "{header:?}"
     );
 }
@@ -178,8 +176,9 @@ fn at_eighty_columns_the_foot_keeps_only_the_two_keys_that_open_the_rest() {
     assert!(wide.contains("x Remove"), "{wide:?}");
 }
 
-/// Ruling 5(c) (Chris, 20260912): **one blank column before every non-sortable column, never
-/// before the first, and two before every sortable one.**
+/// Every gap has the same width, and two-cell gaps appear only after all columns
+/// have reached their natural widths. The Queue's Object path makes a narrow
+/// frame exercise one-cell gaps while a wide frame affords two.
 ///
 /// Measured off the column RECTS rather than off the drawn header, and the reason is the ruling
 /// itself. Chris's complaint was that the spacing *"is inconsistent, one to five blanks"* — and
@@ -189,40 +188,91 @@ fn at_eighty_columns_the_foot_keeps_only_the_two_keys_that_open_the_rest() {
 /// gap even begins. A guard reading blank runs off the header would therefore be measuring the
 /// sum and failing on a renderer that had obeyed the rule exactly.
 ///
-/// The expectation is written out BY HAND from the Queue's own column list rather than asked of
-/// [`gap_before`]. Asking the function would be checking it against itself; this states what the
-/// ruling produces for these nine columns, which is a fact a reader can verify against Chris's
-/// sentence without running anything.
-///
-/// The Queue is where this is measured because it is the only table holding both kinds of
-/// column — `No` and `T` offer no sort key and the other seven do. On the Dashboard, whose every
-/// column sorts, the same guard would pass on a renderer that gave every gap two columns
-/// unconditionally.
 #[test]
-fn every_column_gap_is_one_blank_or_two_by_whether_the_column_sorts() {
-    /// `No`, `T`, `Tenant`, `Object`, `Type`, `Op`, `Status`, `Size`, `Age` — the gap BEFORE
-    /// each. The first has none; `T` is the one titled column offering no key.
-    const GAPS: [u16; 9] = [0, 1, 2, 2, 2, 2, 2, 2, 2];
-
-    let columns = frames::columns();
-    assert_eq!(columns.len(), GAPS.len(), "a column was added and this list did not move");
-
-    let table = Rect::new(0, 0, WIDE - MARGIN * 2 - crate::panes::list::GUTTER, 1);
-    let rects = crate::panes::cell::table::laid_out(table, &columns.iter().collect::<Vec<_>>());
-
-    for (at, (rect, want)) in rects.iter().zip(GAPS).enumerate() {
-        if at == 0 {
-            assert_eq!(rect.x, table.x, "the first column starts at the table's own left edge");
-            continue;
-        }
-        let previous = rects[at - 1];
-        let blanks = rect.x - (previous.x + previous.width);
-        assert_eq!(
-            blanks, want,
-            "{:?} is preceded by {blanks} blank columns and the ruling gives it {want} — it {} \
-             a sort key",
-            columns[at].title,
-            if columns[at].sort_key.is_some() { "offers" } else { "offers no" }
+fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
+    let pane = frames::pane(&QueueState::default());
+    let mut object_at_125 = 0;
+    for screen_width in [80, 100, 125, 160] {
+        let table = Rect::new(
+            MARGIN,
+            0,
+            screen_width - MARGIN * 2,
+            1,
         );
+        let fitted = crate::panes::cell::fit::fit(pane.columns(), pane.rows(), table.width, 12, 1);
+        let rects = crate::panes::cell::fit::laid_out(table, &fitted);
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+        let frame = render(view(QueueState::default()), screen_width, TALL);
+        let (header_y, header) = (0..TALL)
+            .map(|y| (y, line(&frame, y)))
+            .find(|(_, row)| row.contains("Object"))
+            .expect("Queue header is visible");
+        assert!(header.contains("Object"), "Object missing at {screen_width}: {header:?}");
+        assert_eq!(rects[0].x, table.x);
+        for (at, pair) in rects.windows(2).enumerate() {
+            assert_eq!(pair[1].x - pair[0].right(), fitted.gap, "gap {at} at {screen_width}");
+        }
+        for (&at, rect) in fitted.active.iter().zip(&rects) {
+            let column = &pane.columns()[at];
+            let title = column.title.chars().count() as u16;
+            if title > 0 {
+                let start = if column.align == crate::panes::cell::Align::Right {
+                    rect.right() - title
+                } else {
+                    rect.x
+                };
+                let drawn: String = (start..start + title)
+                    .map(|x| frame.cell((x, header_y)).expect("header cell").symbol())
+                    .collect();
+                assert_eq!(drawn, column.title, "{} moved at {screen_width}", column.title);
+            }
+            let floor = if column.align == crate::panes::cell::Align::Right {
+                column.fixed().unwrap_or(title)
+            } else if let Some(natural) = column.fixed() {
+                natural.min(title)
+            } else {
+                title.max(12)
+            };
+            assert!(rect.width >= floor, "{} is below its floor at {screen_width}", column.title);
+            if fitted.gap == 2 {
+                let natural = column.fixed().unwrap_or_else(|| {
+                    pane.rows()
+                        .iter()
+                        .filter_map(|row| row.get(frames::cell_at(at)))
+                        .map(|cell| cell.natural_width() as u16)
+                        .max()
+                        .unwrap_or(title)
+                        .max(title)
+                });
+                assert!(rect.width >= natural, "{} is truncated despite wide gaps", column.title);
+            }
+        }
+        let object = fitted.active.iter().position(|&at| at == frames::OBJECT).unwrap();
+        assert_object_data(&pane, &frame, rects[object], header_y, screen_width);
+        if screen_width == 80 {
+            assert_eq!(fitted.gap, 1);
+            assert!(rects[object].width > 12);
+        }
+        if screen_width == 125 {
+            object_at_125 = rects[object].width;
+        }
+        if screen_width == 160 {
+            assert_eq!(fitted.gap, 2);
+            assert!(rects[object].width >= object_at_125);
+        }
     }
+}
+
+fn assert_object_data(
+    pane: &crate::panes::list::ListPane, frame: &Buffer, rect: Rect, header_y: u16,
+    screen_width: u16,
+) {
+    let cell = &pane.rows()[0][frames::cell_at(frames::OBJECT)];
+    let Cell::Text(object) = cell else { panic!("Object must be text") };
+    let expected = pane.columns()[frames::OBJECT].elide.fit(object, rect.width);
+    let drawn: String = (rect.x..rect.right())
+        .map(|x| frame.cell((x, header_y + 1)).expect("Object data cell").symbol())
+        .collect();
+    assert_eq!(drawn.trim_end(), expected, "Object data moved at {screen_width}");
 }

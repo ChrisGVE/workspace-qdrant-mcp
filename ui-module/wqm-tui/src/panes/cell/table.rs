@@ -9,74 +9,20 @@
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
-use super::sort::{compare, grown, Direction, Sort};
+use super::fit::{fit, laid_out, DEFAULT_MIN_FLEX};
+use super::sort::{append_mark, compare, grown, Direction, Sort};
 use super::value::{Cell, Elide};
 use crate::tokens;
 
 /// What a cell says when its projection is empty. v0.1's own words, kept: an empty cell that
 /// said nothing at all would be indistinguishable from one that failed to load.
 pub const EMPTY: &str = "No data";
-
-/// Columns between one column of the table and the next — the baseline, before a sortable
-/// column claims its second.
-///
-/// Shared with [`crate::panes::list`] rather than restated there: it is also the gap a sort
-/// mark borrows ([`super::sort::grown`]), so two tables holding two copies of it would be two
-/// tables that disagreed about whether a mark fits.
-pub(crate) const COLUMN_GAP: u16 = 1;
-
-/// The second column a SORTABLE column's gap carries. See [`gap_before`].
-pub(crate) const SORT_GAP: u16 = 1;
-
-/// The blank columns immediately before `column`.
-///
-/// Chris, 20260912, ruling 5(c), and it is a rule for every table on the surface: *"one space
-/// before every non-sortable column (never before the first), two before every sortable one —
-/// the second belongs to the sort mark, which is why sortable columns get it."* Before the
-/// ruling every gap was one column and the spacing a reader actually saw ran from one blank to
-/// five, because an over-wide right-aligned column pads its own value with the difference and
-/// the eye cannot tell a gap from a pad.
-///
-/// Read off `sort_key` — whether the column CAN be sorted — and never off whether the table is
-/// currently offering its keys. A gap that depended on focus would move every column on the row
-/// the moment a cell went live, which is the same defect [`super::sort::grown`] exists to avoid
-/// on a single header.
-pub(crate) const fn gap_before(column: &Column) -> u16 {
-    match column.sort_key {
-        Some(_) => COLUMN_GAP + SORT_GAP,
-        None => COLUMN_GAP,
-    }
-}
-
-/// The rects `columns` occupy across `area`, with ruling 5(c)'s gaps between them.
-///
-/// One implementation for both tables. `Layout`'s own `spacing` is a single number applied
-/// between every pair, so the gaps are laid out as spacer constraints instead and the column
-/// rects are every other element of the result — which is also why this is a function rather
-/// than two call sites each doing the interleave.
-pub(crate) fn laid_out(area: Rect, columns: &[&Column]) -> Vec<Rect> {
-    let mut constraints: Vec<Constraint> = Vec::with_capacity(columns.len() * 2);
-    for (at, column) in columns.iter().enumerate() {
-        // Never before the first (Chris, ruling 5(c)): the first column starts at the table's
-        // own left edge, which is what lines it up with the heading above it.
-        if at > 0 {
-            constraints.push(Constraint::Length(gap_before(column)));
-        }
-        constraints.push(column.width);
-    }
-    let split = Layout::horizontal(constraints).split(area);
-    split
-        .iter()
-        .enumerate()
-        .filter_map(|(at, rect)| (at == 0 || at.is_multiple_of(2)).then_some(*rect))
-        .collect()
-}
 
 // # There is no marker gutter here, and that is a ruling with a date on it
 //
@@ -141,7 +87,7 @@ impl Column {
     /// A text column that takes what is left. At most one per table, or they share the slack.
     ///
     /// The flex column is the row's identity — it is never dropped when the cell narrows; the
-    /// fixed columns are, lowest [`Column::priority`] first. See [`CellTable::fitted`].
+    /// fixed columns are, lowest [`Column::priority`] first. See [`super::fit::fit`].
     pub fn flex(title: &'static str) -> Self {
         Self {
             title,
@@ -240,7 +186,7 @@ pub struct CellTable {
     sort: Option<Sort>,
     /// The fewest cells the flex column is allowed to end up with. Below this the table drops
     /// its lowest-priority fixed column rather than starve the row's identity — see
-    /// [`CellTable::fitted`]. Twelve (Chris, 2026-09-07): a name narrower than that is a name
+    /// [`super::fit::fit`]. Twelve (Chris, 2026-09-07): a name narrower than that is a name
     /// nobody can finish reading, and dropping a whole column is the cheaper loss.
     min_flex: u16,
 }
@@ -255,7 +201,7 @@ impl CellTable {
             sortable: false,
             receded: false,
             sort: None,
-            min_flex: 12,
+            min_flex: DEFAULT_MIN_FLEX,
         }
     }
 
@@ -338,48 +284,6 @@ impl CellTable {
         self.rows.is_empty()
     }
 
-    /// Which columns survive the fit, as indices into [`CellTable::columns`].
-    ///
-    /// The flex column is the row's identity and is never dropped. The fixed columns are
-    /// dropped — lowest [`Column::priority`] first, the rightmost first on a tie — until the
-    /// flex column would get at least [`CellTable::min_flex`] cells, or until no fixed column
-    /// remains. The surviving columns keep their widths: a dropped column takes its width and
-    /// its gap with it, and the slack goes to the flex column, nowhere else.
-    ///
-    /// A table with no flex column returns every column: there is no identity to protect, so
-    /// nothing gives.
-    pub(super) fn fitted(&self, width: u16) -> Vec<usize> {
-        let mut active: Vec<usize> = (0..self.columns.len()).collect();
-        let Some(flex) = self.columns.iter().position(|c| c.fixed().is_none()) else {
-            return active;
-        };
-        while active.len() > 1 {
-            let fixed: u16 = active
-                .iter()
-                .filter(|&&at| at != flex)
-                .filter_map(|&at| self.columns[at].fixed())
-                .sum();
-            let gaps: u16 = active
-                .iter()
-                .skip(1)
-                .map(|&at| gap_before(&self.columns[at]))
-                .sum();
-            if width.saturating_sub(fixed).saturating_sub(gaps) >= self.min_flex {
-                break;
-            }
-            // Lowest priority first; `Reverse` makes the rightmost of a tie the least, which is
-            // what `min_by_key` picks.
-            let drop = active
-                .iter()
-                .copied()
-                .filter(|&at| at != flex)
-                .min_by_key(|&at| (self.columns[at].priority, std::cmp::Reverse(at)))
-                .expect("a fixed column remains to drop");
-            active.retain(|&at| at != drop);
-        }
-        active
-    }
-
     /// How many data rows fit, and how many are left over, given `height` rows for the header
     /// and the body together.
     ///
@@ -409,10 +313,11 @@ impl CellTable {
             },
             Style::default().add_modifier(Modifier::UNDERLINED),
         );
-        for (&at, &area) in active.iter().zip(cells) {
+        for (position, (&at, &area)) in active.iter().zip(cells).enumerate() {
             let column = &self.columns[at];
             let mark = self.sort.filter(|sort| sort.column == at);
-            let spans = self.header_spans(column, mark);
+            let right = cells.get(position + 1).map_or(body.right(), |next| next.x);
+            let spans = self.header_spans(column, mark, right.saturating_sub(area.x));
             let needed: u16 = spans
                 .iter()
                 .map(|span| span.content.chars().count() as u16)
@@ -421,9 +326,9 @@ impl CellTable {
             // column is clipped, exactly as it was before there were marks — a header that grew
             // to fit its own title would reach across the next column on every screen too
             // narrow for it, sorted or not. The narrowest screens no longer clip `Name` to
-            // `Na`: [`CellTable::fitted`] drops a fixed column before the flex column falls
+            // `Na`: the shared fit drops a fixed column before the flex column falls
             // below [`CellTable::min_flex`].
-            let at_rect = if mark.is_some() { grown(area, body, needed) } else { area };
+            let at_rect = if mark.is_some() { grown(area, right, needed) } else { area };
             Paragraph::new(Line::from(spans))
                 .alignment(column.align.to_ratatui())
                 .render(at_rect, buf);
@@ -446,9 +351,8 @@ impl CellTable {
     /// not offered at all, since only the live cell offers its keys.
     ///
     /// The mark is muted: it says which column is sorted, and it is never the thing being read.
-    /// It is appended with no space between it and the title — see [`grown`] for why the space
-    /// is what a five-column `Files` cannot afford.
-    fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
+    /// A space precedes the mark when the column and its right gap can afford it.
+    fn header_spans(&self, column: &Column, mark: Option<Sort>, room: u16) -> Vec<Span<'static>> {
         let rest = if self.receded {
             tokens::muted_style()
         } else {
@@ -461,9 +365,7 @@ impl CellTable {
             rest.fg(tokens::accent()).add_modifier(Modifier::BOLD),
             rest,
         );
-        if let Some(sort) = mark {
-            spans.push(Span::styled(sort.direction.glyph(), tokens::muted_style()));
-        }
+        append_mark(&mut spans, column.title, mark, room);
         spans
     }
 }
@@ -499,11 +401,11 @@ impl Widget for CellTable {
         // The table starts at the cell's own first column — no marker gutter, so the column
         // header and every row line up under the first character of the heading above them.
         let body = area;
-        let active = self.fitted(body.width);
-        let surviving: Vec<&Column> = active.iter().map(|&at| &self.columns[at]).collect();
-        let columns = laid_out(Rect { height: 1, ..body }, &surviving);
+        let fitted = fit(&self.columns, &self.rows, body.width, self.min_flex, 0);
+        let active = &fitted.active;
+        let columns = laid_out(Rect { height: 1, ..body }, &fitted);
 
-        self.header(body, &active, &columns, buf);
+        self.header(body, active, &columns, buf);
 
         let text_row = |offset: u16, text: String| {
             (

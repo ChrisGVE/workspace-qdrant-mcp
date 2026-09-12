@@ -202,7 +202,7 @@ fn sorting_by_files_reorders_the_rows_and_marks_the_column_it_sorted_by() {
         TALL,
     );
     let header = heading_text(&buf, Rect { y: cells[0].y + 1, ..cells[0] });
-    assert!(header.contains("Files↓"), "the sorted column carries the mark: {header:?}");
+    assert!(header.contains("Files ↓"), "the sorted column carries a spaced mark: {header:?}");
     assert_eq!(header.matches('↓').count(), 1, "one column is sorted, not several: {header:?}");
     assert!(!header.contains('↑'), "{header:?}");
 

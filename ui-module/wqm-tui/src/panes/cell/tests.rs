@@ -152,15 +152,12 @@ fn a_figure_that_does_not_fit_is_replaced_rather_than_cut() {
     assert!(!line(&buf, 3).contains("11'23"), "{:?}", line(&buf, 3));
 }
 
-/// The geometry `columns()` produces at [`WIDE`], stated rather than measured.
-///
-/// `Fill(1)` + `Length(5)` + `Length(9)` with one column of spacing between each: the flex
-/// column takes what is left, so Files ends at 48 and Queue at 58. Every assertion below reads
-/// a cell by this arithmetic instead of searching for digits — `find("4")` lands inside `247`,
-/// which is a different span with a different hue, and the test would measure the wrong cell
-/// while looking perfectly correct.
-const FILES_RIGHT: u16 = WIDE - 9 - 1 - 1;
-const QUEUE_RIGHT: u16 = WIDE - 1;
+/// Figure edges follow the same fitted geometry the renderer uses.
+fn right_edges(table: &CellTable) -> (u16, u16) {
+    let fitted = super::fit::fit(table.columns(), table.rows(), WIDE, 12, 0);
+    let rects = super::fit::laid_out(Rect::new(0, 0, WIDE, 1), &fitted);
+    (rects[1].right() - 1, rects[2].right() - 1)
+}
 
 /// Numbers right, words left — the only alignment rule, and the one that lets a column of
 /// figures be compared down its last digit.
@@ -176,6 +173,7 @@ fn figures_are_flush_right_and_words_flush_left() {
             vec![Cell::Text("bb".into()), Cell::Num(2_790), Cell::Queue { pending: 2_635, in_flight: 0, failed: 0 }],
         ],
     );
+    let (files_right, queue_right) = right_edges(&table);
     let buf = render(CellPane::new("Projects", Some(2), table), WIDE, TALL);
 
     assert!(body(&buf, 2).starts_with("a "), "a word starts at its column");
@@ -184,9 +182,9 @@ fn figures_are_flush_right_and_words_flush_left() {
     // Both figures end on the SAME cell whatever their width — the whole point of right
     // alignment, and the thing a left-aligned column would silently lose.
     let at = |y: u16, x: u16| buf.cell((x, y)).expect("cell in area").symbol().to_string();
-    assert_eq!(at(2, FILES_RIGHT), "9");
-    assert_eq!(at(3, FILES_RIGHT), "0", "2'790 ends on the same cell 9 does");
-    assert_eq!(at(2, QUEUE_RIGHT), "0", "the queue triple is right-aligned too");
+    assert_eq!(at(2, files_right), "9");
+    assert_eq!(at(3, files_right), "0", "2'790 ends on the same cell 9 does");
+    assert_eq!(at(2, queue_right), "0", "the queue triple is right-aligned too");
 }
 
 /// The queue triple is three facts, so it is three hues — and a zero recedes in all three.
@@ -203,16 +201,17 @@ fn a_queue_triple_carries_three_hues_and_mutes_its_zeros() {
             Cell::Queue { pending: 247, in_flight: 4, failed: 0 },
         ]],
     );
+    let (files_right, queue_right) = right_edges(&table);
     let buf = render(CellPane::new("Projects", Some(1), table), WIDE, TALL);
     let fg = |x: u16| buf.cell((x, 2)).expect("cell in area").style().fg;
 
-    // `247/4/0` is seven cells ending at QUEUE_RIGHT, so each figure's position is arithmetic.
-    let start = QUEUE_RIGHT - 6;
+    // `247/4/0` is seven cells ending at the Queue rect's right edge.
+    let start = queue_right - 6;
     assert_eq!(fg(start), Some(tokens::degraded()), "waiting work is the warning hue");
     assert_eq!(fg(start + 4), Some(tokens::in_flight()), "work moving is the in-flight role");
-    assert_eq!(fg(QUEUE_RIGHT), Some(tokens::muted()), "a failure count of zero is not news");
+    assert_eq!(fg(queue_right), Some(tokens::muted()), "a failure count of zero is not news");
     assert_eq!(
-        fg(FILES_RIGHT),
+        fg(files_right),
         Some(tokens::table_row()),
         "the zero rule is the queue triple's alone — a plain figure column keeps its zeros at \
          the row rung, or v0.1's all-zero `Pts` column would vanish rather than recede"
@@ -337,17 +336,18 @@ fn a_narrow_table_drops_fixed_columns_in_priority_order_and_never_the_flex() {
     );
 
     // 47 columns leaves the flex 21, above its floor of 12: nothing drops.
-    assert_eq!(table.fitted(47), vec![0, 1, 2, 3]);
+    let fitted = |width| super::fit::fit(table.columns(), table.rows(), width, 12, 0).active;
+    assert_eq!(fitted(47), vec![0, 1, 2, 3]);
 
     // 30 leaves it 4, so the queue triple (priority 0) goes first.
-    assert_eq!(table.fitted(30), vec![0, 1, 2], "the lowest-priority column drops first");
+    assert_eq!(fitted(30), vec![0, 1, 2], "the lowest-priority column drops first");
 
-    // 25 leaves it 8 even after the queue goes, so the figure (priority 1) goes next.
-    assert_eq!(table.fitted(25), vec![0, 1], "then the figure");
+    // At 25 the Branch text truncates to its title, preserving Files and Name's floor.
+    assert_eq!(fitted(25), vec![0, 1, 2], "text truncates before a figure drops");
 
-    // 20 leaves it 9 even after that, so text (priority 2) goes too — and the flex identity is
-    // the one thing that never does.
-    assert_eq!(table.fitted(20), vec![0], "the flex column is never dropped");
+    // At 20 the figure drops, while Branch still fits at its title-width floor.
+    assert_eq!(fitted(20), vec![0, 1], "then the figure drops");
+    assert_eq!(fitted(17), vec![0], "the flex column is never dropped");
 }
 
 /// On a priority tie the RIGHTMOST column drops first — the one furthest from the flex identity.
@@ -364,149 +364,30 @@ fn a_priority_tie_drops_the_rightmost_column_first() {
 
     // 20 columns: fixed 5 + 5 and one gap is 11, leaving the flex 9 — below the floor, so one
     // of the two tied columns must go, and it is `B`, the rightmost.
-    assert_eq!(table.fitted(20), vec![0, 1], "the rightmost of the tie drops first");
+    assert_eq!(
+        super::fit::fit(table.columns(), table.rows(), 20, 12, 0).active,
+        vec![0, 1],
+        "the rightmost of the tie drops first"
+    );
 }
 
-/// A column header is WHITE, UPRIGHT and underlined from end to end, and the data under it is a
-/// light grey (Chris, 20260912, rulings 1 and 2).
-///
-/// This replaces the 20260907 rule outright — same rung as the data, distinguished by italics —
-/// which was tried and rejected: *"italic wasn't a good idea"*. Three things are pinned because
-/// the failure of any one of them leaves a header that looks nearly right: the rung, the absence
-/// of the slant, and the rule running under the GAPS as well as under the names. The last is why
-/// this reads every column of the row rather than one painted cell: an underline applied per
-/// span would pass a guard that only looked at letters.
 #[test]
-fn a_column_header_is_white_and_upright_over_a_light_grey_body() {
+fn a_sorted_header_uses_a_space_only_when_the_whole_gap_is_affordable() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
-
-    let buf = render(
-        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1))),
-        WIDE,
-        TALL,
-    );
-
-    // The header is the row under the heading, so line 1 — and every painted cell on it.
-    let mut painted = 0;
-    for x in 0..WIDE {
-        let cell = buf.cell((x, 1)).expect("cell in area");
-        if cell.symbol().trim().is_empty() {
-            continue;
-        }
-        assert!(
-            !cell.style().add_modifier.contains(Modifier::ITALIC),
-            "column {x} ({:?}) of the header is still italic",
-            cell.symbol()
-        );
-        assert!(
-            !cell.style().add_modifier.contains(Modifier::BOLD),
-            "column {x} ({:?}) of the header is bold — a header is not a heading",
-            cell.symbol()
-        );
-        assert_eq!(
-            cell.style().fg,
-            Some(tokens::header()),
-            "column {x} ({:?}) of the header is not white",
-            cell.symbol()
-        );
-        painted += 1;
-    }
-    assert!(painted > 0, "the header drew nothing at all");
-
-    // The rule runs under the whole row — the gaps between the names as well, which is the half
-    // an underline applied per span would fail.
-    let table = buf.cell((0, 1)).expect("cell in area").style();
-    assert!(
-        table.add_modifier.contains(Modifier::UNDERLINED),
-        "the header row carries no rule"
-    );
-    let mut gaps = 0;
-    for x in 0..WIDE {
-        let cell = buf.cell((x, 1)).expect("cell in area");
-        if !cell.symbol().trim().is_empty() {
-            continue;
-        }
-        gaps += 1;
-        assert!(
-            cell.style().add_modifier.contains(Modifier::UNDERLINED),
-            "the gap at column {x} breaks the rule under the header"
-        );
-    }
-    assert!(gaps > 0, "the header has no gaps, so this proves nothing");
-
-    // And the data under it is the lighter grey, not the header's white. Over the NAME column
-    // only: a figure column may carry a hue of its own (the queue triple does), and ruling 2 is
-    // about the rung plain content sits at, not about taking hues away.
-    let mut body = 0;
-    for x in 0..FILES_RIGHT - 9 {
-        let cell = buf.cell((x, 2)).expect("cell in area");
-        if cell.symbol().trim().is_empty() {
-            continue;
-        }
-        body += 1;
-        assert_eq!(
-            cell.style().fg,
-            Some(tokens::table_row()),
-            "column {x} ({:?}) of the first row is not the row rung",
-            cell.symbol()
-        );
-    }
-    assert!(body > 0, "the first row drew nothing at all");
-    assert_ne!(
-        tokens::table_row(),
-        tokens::header(),
-        "the row rung and the header are the same colour, so none of this separates them"
-    );
-}
-
-/// A cell's column header follows the cell's focus exactly as its heading does: the live cell's
-/// header — and every header while no cell is focused — sits at the text rung, while a cell that
-/// has receded behind the live one drops to muted.
-#[test]
-fn a_receded_cells_header_is_muted_while_the_live_cells_is_at_the_text_rung() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::dark_truecolor();
-
-    let live = render(
-        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1)))
-            .placed(0, Attention::Zone(0)),
-        WIDE,
-        TALL,
-    );
-    let idle = render(
-        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1))),
-        WIDE,
-        TALL,
-    );
-    let receded = render(
-        CellPane::new("Projects", Some(1), CellTable::new(columns(), rows(1)))
-            .placed(0, Attention::Zone(1)),
-        WIDE,
-        TALL,
-    );
-
-    // The header is the row under the heading, so line 1. Every painted cell of the live and the
-    // idle header is at the text rung; every painted cell of the receded header is muted.
-    for (buf, rung, label) in [
-        (&live, tokens::normal(), "live"),
-        (&idle, tokens::normal(), "idle (no cell focused)"),
-        (&receded, tokens::muted(), "receded"),
-    ] {
-        let mut painted = 0;
-        for x in 0..WIDE {
-            let cell = buf.cell((x, 1)).expect("cell in area");
-            if cell.symbol().trim().is_empty() {
-                continue;
-            }
-            assert_eq!(
-                cell.style().fg,
-                Some(rung),
-                "the {label} header's column {x} ({:?}) is not at the {label} rung",
-                cell.symbol()
-            );
-            painted += 1;
-        }
-        assert!(painted > 0, "the {label} header drew nothing at all");
+    for (width, expected) in [(9, "Files↓"), (10, "Files ↓")] {
+        let table = CellTable::new(
+            vec![Column::text("Files", 5), Column::number("N", 3)],
+            vec![vec![Cell::Text("entry".into()), Cell::Num(1)]],
+        )
+        .sorted(Sort { column: 0, direction: Direction::Desc });
+        let area = Rect::new(0, 0, width, 2);
+        let mut buf = Buffer::empty(area);
+        table.render(area, &mut buf);
+        let header = line(&buf, 0);
+        assert!(header.contains(expected), "{width}: {header:?}");
+        assert!(header.contains('N'), "the mark clipped its neighbour: {header:?}");
     }
 }
+
+mod header;

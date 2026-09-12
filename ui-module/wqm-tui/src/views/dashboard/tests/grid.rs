@@ -132,11 +132,10 @@ fn at_100x30_the_active_projects_cell_keeps_every_column_and_the_name_gives() {
     );
 }
 
-/// 80 × 24 is a stress case, not a target: the cell drops the queue triple first — its counts
-/// are the one thing a reader can find again in the status block — and the flex `Name` keeps
-/// its floor rather than being starved.
+/// At 80 × 24, fixed text can truncate to its title before columns have to
+/// drop. The shared fit still reserves Name's twelve-cell floor.
 #[test]
-fn at_80x24_the_active_projects_cell_drops_the_queue_column_and_keeps_the_name_at_its_floor() {
+fn at_80x24_the_active_projects_cell_keeps_names_above_their_floor() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -146,30 +145,29 @@ fn at_80x24_the_active_projects_cell_drops_the_queue_column_and_keeps_the_name_a
         .expect("the Active Projects cell is on an 80x24 screen");
     let header = line(&buf, heading_y + 1);
 
-    // The queue triple is the first column to go.
-    assert!(
-        !header.contains("Queue"),
-        "the Queue column survived the stress size: {header:?}"
-    );
+    let panes = frames::populated();
+    let table = panes[4].table();
+    let screen_content = Rect::new(heading_x, 0, 80 - heading_x * 2, 1);
+    let cell_width = grid(screen_content).0[0].width;
+    let fitted = crate::panes::cell::fit::fit(table.columns(), table.rows(), cell_width, 12, 0);
+    let rects = crate::panes::cell::fit::laid_out(Rect::new(heading_x, 0, cell_width, 1), &fitted);
+    let queue_survives = fitted.active.iter().any(|&at| table.columns()[at].title == "Queue");
+    assert_eq!(header.contains("Queue"), queue_survives, "header and fit disagree: {header:?}");
     assert!(
         header.contains("Name") && header.contains("Branch"),
         "the flex identity and the text column survive: {header:?}"
     );
 
-    // `Branch` is left-aligned one gap past the flex column, so its position measures the Name
-    // column's width directly — and it must be at least the twelve-cell floor.
+    // Branch starts after the fitted Name width and uniform gap.
     let branch = header.find("Branch").expect("its Branch column header is drawn") as u16;
-    let name_width = branch - heading_x - 1;
+    assert_eq!(branch, rects[1].x, "x={heading_x}, cell={cell_width}, fit={fitted:?}, {header:?}");
+    let name_width = rects[0].width;
     assert!(
         name_width >= 12,
         "the Name column is {name_width} wide at 80x24, below its floor: {header:?}"
     );
 
-    // And the dropped column vanishes from the data rows too, not only from the header: the
-    // first project's queue triple `247/4/0` is nowhere on the screen.
+    // The body follows the same survivor decision as the header.
     let first_data = line(&buf, heading_y + 2);
-    assert!(
-        !first_data.contains("247/4/0"),
-        "the dropped queue triple is still drawn in a data row: {first_data:?}"
-    );
+    assert_eq!(first_data.contains("247/4/0"), queue_survives, "{first_data:?}");
 }

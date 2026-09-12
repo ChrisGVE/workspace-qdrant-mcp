@@ -47,8 +47,8 @@ pub const AGE: usize = 8;
 ///
 /// The widths are sized to the captured data, not to the titles: `Tenant` is twenty because
 /// `workspace-qdrant-mcp` is twenty, and `Status` is eleven because `in progress` is eleven.
-/// Every sortable column holds its own `↓` inside its own width, so no header borrows the gap
-/// beside it — which is what `views::queue::tests` checks rather than assumes.
+/// A sorted header uses its right gap when its title and mark need the room;
+/// the shared table fit never gives a sort mark a permanent column.
 /// The index of the CELL a column index names.
 ///
 /// The row-number column is the list pane's own — it is drawn from each row's position and no row

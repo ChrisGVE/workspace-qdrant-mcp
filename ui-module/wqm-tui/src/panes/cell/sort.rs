@@ -8,6 +8,9 @@
 //! sitting on their own than buried under column arithmetic.
 
 use ratatui::layout::Rect;
+use ratatui::text::Span;
+
+use crate::tokens;
 
 use super::value::Cell;
 
@@ -81,24 +84,32 @@ pub(crate) fn compare(a: &Cell, b: &Cell) -> std::cmp::Ordering {
 /// a zero-width `Name` at 80 × 24. Widening it only while sorted would move every column on the
 /// row the moment a key was pressed.
 ///
-/// So the header borrows the [`COLUMN_GAP`] to its right — one column of deliberate whitespace
-/// that no value is ever drawn into — and never the column to its left. Leftwards was tried and
-/// is why this is written down: `Files` grown two columns left reached back through the gap into
-/// `Bch` and rendered `BcFiles ↓`, a neighbour silently truncated to make room for a mark. The
-/// mark is therefore appended with **no leading space**, so one gap column is always enough:
-/// the widest overflow any column in this crate has is exactly one.
+/// The header borrows only the uniform gap to its right and never the column to
+/// its left. A leading space is drawn when the title, space, and mark fit that
+/// room; otherwise the mark sits directly after the title.
 ///
-/// Clamped to the table's own body, so the last column can never grow off the end of the cell.
+/// Clamped to the next column's left edge, so no mark can clip a neighbour.
 /// A last column must hold its own mark, which is why `Sync` is five columns wide for a
 /// four-letter title — `views::dashboard::tests::sort` guards that every sortable column can
 /// actually show its mark, and that none of them clips a neighbour to do it.
-pub(crate) fn grown(area: Rect, body: Rect, needed: u16) -> Rect {
+pub(crate) fn grown(area: Rect, right: u16, needed: u16) -> Rect {
     if needed <= area.width {
         return area;
     }
-    let end = (area.x + needed).min(body.x + body.width);
+    let end = area.x.saturating_add(needed).min(right);
     Rect {
         width: end.saturating_sub(area.x),
         ..area
+    }
+}
+
+/// Add the mark with a separating space only when the column and its right gap
+/// can hold both. This one rule is shared by both table headers.
+pub(crate) fn append_mark(spans: &mut Vec<Span<'static>>, title: &str, mark: Option<Sort>, room: u16) {
+    if let Some(sort) = mark {
+        if title.chars().count() + 2 <= room as usize {
+            spans.push(Span::styled(" ", tokens::muted_style()));
+        }
+        spans.push(Span::styled(sort.direction.glyph(), tokens::muted_style()));
     }
 }

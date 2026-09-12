@@ -141,6 +141,23 @@ fn every_sortable_column_shows_its_mark_without_clipping_the_column_beside_it() 
     }
 }
 
+#[test]
+fn an_affordable_queue_header_separates_its_sort_mark() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+    let buf = render(
+        view(QueueState {
+            sort: Some(Sort { column: frames::TENANT, direction: Direction::Desc }),
+            ..QueueState::default()
+        }),
+        160,
+        TALL,
+    );
+    let header = line(&buf, header_row());
+    assert!(header.contains("Tenant ↓"), "{header:?}");
+    assert!(header.contains("Object"), "the mark clipped Object: {header:?}");
+}
+
 /// `Size` orders by bytes and `Age` by seconds — never by the text either of them prints.
 ///
 /// The expected order is built here from the fixture with the comparator spelled out, rather
