@@ -145,6 +145,29 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
             None,
         )),
         Box::new(Variant(
+            "Relative rows, cursor at the top",
+            "`r` on with the cursor on row 1: the column reads 1 then 1, 2, 3 downward — the one place the mode looks like an off-by-one and is not",
+            || {
+                queue(QueueState {
+                    relative: true,
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Relative rows, cursor mid-buffer",
+            "`r` on with the cursor five rows down: distances counting outward, and the cursor row alone keeping the position a reader can say out loud",
+            || {
+                queue(QueueState {
+                    relative: true,
+                    cursor: 5,
+                    ..QueueState::default()
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
             "Under modal",
             "The page beneath a modal, with no modal on it: does everything go quiet, or does the Status column stay alight?",
             || queue(QueueState::default()).under_modal(true),
