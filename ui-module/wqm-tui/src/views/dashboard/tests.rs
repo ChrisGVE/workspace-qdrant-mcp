@@ -399,6 +399,7 @@ fn heading_text(buf: &Buffer, cell: Rect) -> String {
 mod focus;
 mod grid;
 mod modal;
+mod recede;
 mod sort;
 
 /// VL §6 extended (Chris, 2026-09-07): a page beneath a modal paints no text brighter than the
