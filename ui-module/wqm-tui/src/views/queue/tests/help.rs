@@ -35,7 +35,15 @@ fn sections_appear_in_order_and_are_not_empty() {
     let titles: Vec<&str> = sections.iter().map(|s| s.title).collect();
     assert_eq!(
         titles,
-        vec!["Navigation", "Search / Filter", "Selection", "Action", "General"]
+        vec![
+            "Navigation",
+            "Sorting",
+            "Focus",
+            "Search / Filter",
+            "List Item Selection",
+            "Action",
+            "General"
+        ]
     );
     for section in &sections {
         assert!(

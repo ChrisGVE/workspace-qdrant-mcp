@@ -30,7 +30,7 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::panes::list::help::{general, navigation, HelpSection};
+use crate::panes::list::help::{focus, general, navigation, sorting, HelpSection};
 use crate::panes::status_block::StatusBlock;
 use crate::tokens::Health;
 use crate::views::top::{self, ConstantTop};
@@ -191,23 +191,34 @@ impl Queue {
     pub fn help_sections() -> Vec<HelpSection> {
         vec![
             navigation(),
+            sorting(),
+            focus(),
             HelpSection {
                 title: "Search / Filter",
+                // Chris's own order, 20260912 (ruling 6): `/ n N Esc f f o s`. It reads as two
+                // groups rather than eight keys — everything the SEARCH does, then everything
+                // the FILTER does — which is why `Esc` sits in the middle and not at the end
+                // beside its own kind.
                 entries: vec![
                     ("/", "Search for an exact string or a regular expression"),
+                    ("n", "Next hit, while a search is on"),
+                    ("N", "Previous hit, while a search is on"),
+                    ("Esc", "While a search is on, cancel the search"),
                     ("f", "Filter by an exact string or a regular expression"),
+                    ("f", "While a filter is on, cancel the filter"),
                     ("o", "Filter by operation type"),
                     ("s", "Filter by status"),
-                    ("Esc", "While a search is on, cancel the search"),
-                    ("f", "While a filter is on, cancel the filter"),
                 ],
                 note: Some("Search and filter look at: Tenant, Object, Type"),
             },
             HelpSection {
-                title: "Selection",
+                // Renamed on 20260912 (Chris: *"something like List Item Selection"*): a section
+                // called `Selection` sits three lines under a screen whose other selection is
+                // the SELECTOR — the cyan block — and the two are different things.
+                title: "List Item Selection",
                 entries: vec![
-                    ("v", "Start a selection at the cursor; v again ends it"),
                     ("Space", "Select the item under the cursor"),
+                    ("v", "Start a selection at the cursor; v again ends it"),
                     ("V", "Reset the selection"),
                 ],
                 note: None,

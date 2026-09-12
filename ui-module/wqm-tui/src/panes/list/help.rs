@@ -34,8 +34,9 @@ pub fn navigation() -> HelpSection {
             ("↑ / k", "Up one row"),
             NAV_HELP[0],
             NAV_HELP[1],
-            ("n", "Next hit, while a search is on"),
-            ("N", "Previous hit, while a search is on"),
+            // `n` and `N` left this section on 20260912 (Chris, ruling 6): they move between
+            // SEARCH HITS, which is a thing the search does, and a reader looking for them looks
+            // where the search is.
             ("#<move>", "Repeat the move # times"),
             ("Home / gg", "Top"),
             ("End / G", "Bottom"),
@@ -43,6 +44,46 @@ pub fn navigation() -> HelpSection {
             ("r", "Relative row numbers, on and off"),
         ],
         note: None,
+    }
+}
+
+/// How a table is sorted — shared by every list, because the rule is the surface's.
+///
+/// Chris, 20260912, ruling 6: *"a column's highlighted letter cycles ascending → descending → no
+/// sort, and Shift+letter cycles the other way round."*
+///
+/// ⚠ **The cycle is not modelled in state yet.** Sorting reaches a table today by construction
+/// — `CellTable::sorted(Sort { .. })`, which is what the frames and the pantry set — and no
+/// keypress advances it, because this crate is a storyboard and its state machines cover only
+/// what a frame has needed. So this section states the BINDING, which is what the ruling is
+/// about and what the header's lit letter already promises; the state machine behind it is
+/// owed. Written down here rather than left to be noticed, because a help window is the one
+/// place a promise the code does not keep is invisible.
+pub fn sorting() -> HelpSection {
+    HelpSection {
+        title: "Sorting",
+        entries: vec![
+            ("<letter>", "Sort by that column: ascending, descending, then off"),
+            ("\u{21e7}<letter>", "The same cycle reversed: descending, ascending, then off"),
+        ],
+        note: Some("A column that can be sorted lights one letter of its own name."),
+    }
+}
+
+/// What takes the focus — shared by every list.
+///
+/// Chris, 20260912, ruling 6: *"number keys change tab, and where several areas can take focus
+/// one letter of each name is accented."* The second half is the Dashboard's rule stated
+/// generally: a screen divided into zones accents the letter that jumps to each one, and a zone
+/// that has receded still lights its letter, which is what keeps it reachable.
+pub fn focus() -> HelpSection {
+    HelpSection {
+        title: "Focus",
+        entries: vec![
+            ("1 … 9, 10", "Change tab"),
+            ("<letter>", "Go to an area of this screen"),
+        ],
+        note: Some("Where several areas take focus, one letter of each name is accented."),
     }
 }
 
