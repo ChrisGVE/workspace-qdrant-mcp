@@ -866,6 +866,52 @@ pub fn inverted(fill: Color) -> Style {
 pub fn cursor_bg() -> Color {
     neutral(19)
 }
+
+/// The glyph a selected row wears in its gutter (Chris, 20260907, ruling 10).
+///
+/// A left half-block rather than a full one: it marks the row's edge without becoming a column
+/// of its own, and it survives an encoding that refuses colour, which is the whole reason the
+/// ruling names a glyph AND a hue rather than a hue alone.
+pub const SELECTED_BAR: char = '▎';
+
+/// The **selection** hue — the gutter bar's colour, and what the row's wash is mixed toward.
+///
+/// Catppuccin's `lavender` on a flavour, `secondary` on every other theme; the rule itself is
+/// [`crate::categorical::selected_of`], because deciding it means knowing what a flavour is.
+/// Magenta is the slot-family stand-in, chosen the way every other slot value is: a hue no role
+/// in the ten already spends.
+///
+/// Through [`hue`] like every reserved field, so a modal takes it away with everything else
+/// (VL §6) — a selection is a highlight, not a system condition.
+pub fn selected() -> Color {
+    match active_theme() {
+        Some(palette) => hue(crate::categorical::selected_of(&palette)),
+        None => hue(Color::Magenta),
+    }
+}
+
+/// A selected row's fill: the terminal's own background pulled toward [`selected`] by
+/// [`WASH_MIX`] — the same strength, and the same reasoning, as the unreachable-daemon wash.
+///
+/// # [`None`] below RGB, and the bar carries the selection alone
+///
+/// Only [`Family::Rgb`] can express "this background, but more lavender". A fixed substitute
+/// would be a full-row fill chosen without knowing the theme's polarity, which is unreadable
+/// exactly where it matters most. So below RGB this returns [`None`] and [`SELECTED_BAR`] is
+/// the whole of the mark — structure first, colour reserved, which is the rule the condition
+/// wash already follows.
+pub fn selected_bg() -> Option<Color> {
+    if family() != Family::Rgb {
+        return None;
+    }
+    let bg = ladder_endpoints().background;
+    let toward = Rgb::from_color(selected())?;
+    Some(Color::Rgb(
+        mix(bg.r, toward.r, WASH_MIX),
+        mix(bg.g, toward.g, WASH_MIX),
+        mix(bg.b, toward.b, WASH_MIX),
+    ))
+}
 /// The leading `▸` marker on the data cursor row.
 ///
 /// # Under a modal it is [`muted`]
@@ -1258,6 +1304,60 @@ mod tests {
             Palette::set(self.0);
             Encoding::set(self.1);
         }
+    }
+
+    /// A selected row is tinted toward the selection hue and stays legible: a WASH, not a fill.
+    ///
+    /// The two ends are what this pins. It must not be the background (nothing would show) and
+    /// it must be far nearer the background than the hue itself (a full lavender row would put
+    /// the theme's text on a colour nothing was tuned against). [`WASH_MIX`] is the same
+    /// strength the condition wash was chosen at, and this is the guard that says so.
+    #[test]
+    fn a_selected_rows_fill_is_the_background_pulled_toward_the_selection_hue() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+        set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+        let fill = selected_bg().expect("RGB can express a wash");
+        let background = neutral(0);
+        assert_ne!(fill, background, "the wash is invisible");
+        assert!(
+            delta_e(fill, background) < delta_e(fill, selected()),
+            "the fill is nearer the selection hue than the background — that is a fill, not a wash"
+        );
+    }
+
+    /// Below RGB there is no wash at all, and the gutter bar carries the selection alone.
+    ///
+    /// The same rule the condition wash follows: a substitute fill would be chosen without
+    /// knowing the theme's polarity, which is unreadable exactly where it matters.
+    #[test]
+    fn below_rgb_a_selection_has_no_wash_and_only_its_bar() {
+        let _serial = crate::global_state_lock();
+        for encoding in [Encoding::Ansi16, Encoding::Ansi256] {
+            let _restore = Restore::set(Palette::Theme, encoding);
+            assert_eq!(
+                selected_bg(),
+                None,
+                "{encoding:?} cannot express a wash and must not invent one"
+            );
+        }
+    }
+
+    /// A selection is a highlight, so a modal takes it away with every other colour (VL §6).
+    #[test]
+    fn a_modal_takes_the_selection_hue_with_everything_else() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
+        set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
+
+        let live = selected();
+        let under = {
+            let _scope = modal::ModalScope::enter();
+            selected()
+        };
+        assert_ne!(under, live, "the selection kept its hue under a modal");
+        assert_eq!(under, muted(), "a quietened highlight is the muted rung");
     }
 
     #[test]

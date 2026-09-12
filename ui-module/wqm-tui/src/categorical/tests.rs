@@ -14,29 +14,37 @@ use ratatui_themes::ThemeName;
 /// set: the jump digits carry `accent` on **every** screen, so a data hue equal to it collides
 /// everywhere rather than on one view, and that beats the earlier "affordance, not data"
 /// argument. `lavender` went with it — see [`MOCHA_LAVENDER_TO_BLUE`].
+///
+/// **The ORDER moved on 20260912 without the SET moving**, which is the shape worth
+/// recognising: `selected` reserved `lavender` explicitly (ruling 10), and on Mocha lavender
+/// was already excluded — so nothing left the pool, but every survivor's distance to the
+/// reserved set was recomputed against one more colour, and farthest-first re-sorted them.
+/// `pink` led while the nearest reserved hue to it was `red`; `flamingo` leads now.
 const MOCHA_ORDER: [&str; 7] = [
+    "flamingo",
+    "peach",
     "pink",
     "mauve",
-    "peach",
-    "rosewater",
     "sky",
     "maroon",
-    "flamingo",
+    "rosewater",
 ];
 
 /// Every flavour's count, computed the same way. They differ because the exclusion is a
 /// measurement against that flavour's own reserved roles, not a fixed list of names.
 ///
-/// Two reservations have moved these numbers. `accent` (20260906) cost every flavour its
+/// Three reservations have moved these numbers. `accent` (20260906) cost every flavour its
 /// `blue`, and Mocha alone a second hue. `in flight` (20260907) costs each flavour its
 /// `sapphire` — except Latte, whose sapphire was already excluded for sitting ΔE 10.1 from its
-/// `teal`, which is why Latte alone is unchanged at 7. Frappé pays twice: its `sky` sits ΔE
-/// 10.8 from its `sapphire` and goes with it, which is the whole reason Frappé is 6.
+/// `teal`. `selected` (20260912, ruling 10) costs `lavender`, and it is the reservation Mocha
+/// does NOT pay for: Mocha had already lost lavender to the `accent` floor, so the other three
+/// each drop one here and Mocha holds at seven. Frappé pays a second time over: its `sky` sits
+/// ΔE 10.8 from its `sapphire` and went with it, which is why Frappé is the smallest at five.
 const COUNTS: [(&str, usize); 4] = [
     ("mocha", 7),
-    ("macchiato", 7),
-    ("frappe", 6),
-    ("latte", 7),
+    ("macchiato", 6),
+    ("frappe", 5),
+    ("latte", 6),
 ];
 
 /// Why Mocha lost two hues where the others lost one.
@@ -219,20 +227,29 @@ fn the_order_never_improves_as_it_goes() {
     }
 }
 
-/// A theme with no flavour still answers, honestly and very small.
+/// A theme with no flavour now answers with NOTHING, and that is the rule working rather than
+/// failing.
 ///
-/// One candidate now, not two: `accent` became a reserved role on 20260906, and a reserved
-/// role cannot be its own alternative — it sits ΔE 0 from itself and fails the floor by
-/// construction. So the fallback is `secondary` alone, and Everforest yields exactly one hue.
+/// The candidates went two → one → none, each time for the same reason: a reserved role cannot
+/// be its own alternative, because it sits ΔE 0 from itself and fails the floor by
+/// construction. `accent` went that way on 20260906. `secondary` goes the same way on
+/// 20260912: ruling 10 makes it the `selected` hue on every theme that has no `lavender` to
+/// spend, so the one field §10 left carrying no meaning now carries one.
+///
+/// ⚠ **A consequence Chris has not seen, and it is not what he ruled on.** He ruled that
+/// lavender leaves the pool; the eleven non-Catppuccin themes losing their extended tier
+/// entirely follows from the fallback he named, not from a decision he took. It costs nothing
+/// today — the tier has no consumer, and [`Categorical::len`] is documented as the thing a
+/// consumer must read — but the graph and tag views will meet it. Flagged in the handover.
 #[test]
-fn a_non_catppuccin_theme_falls_back_to_secondary_alone() {
+fn a_non_catppuccin_theme_has_no_extended_tier_at_all() {
     let categorical = Categorical::for_theme(&ThemeName::Everforest.palette());
     assert_eq!(
         categorical.len(),
-        1,
-        "the fallback is `secondary` and nothing else"
+        0,
+        "`secondary` is the selection hue now, so nothing is left to offer"
     );
-    assert_eq!(categorical.name(0), Some("secondary"));
+    assert_eq!(categorical.name(0), None);
     assert!(
         categorical.iter().all(|(name, _)| name != "accent"),
         "`accent` is reserved and can never be offered as a data hue"
@@ -432,5 +449,44 @@ fn an_encoding_that_refuses_colour_has_no_categorical_tier() {
     Encoding::set(previous.1);
     if let Some(theme) = previous.2 {
         crate::tokens::set_theme(theme);
+    }
+}
+
+/// On a flavour the selection hue is that flavour's own `lavender` (Chris, 20260907, ruling 10).
+#[test]
+fn on_a_flavour_the_selected_role_is_that_flavours_lavender() {
+    for flavour in catppuccin::PALETTE.all_flavors() {
+        let theme = flavour_palette(flavour);
+        assert_eq!(
+            selected_of(&theme),
+            Color::from(flavour.colors.lavender),
+            "{}",
+            flavour.identifier()
+        );
+    }
+}
+
+/// Off a flavour it is `secondary` — §10's one field carrying no meaning, which is what a
+/// selection needs and why the fallback is not a health hue.
+#[test]
+fn off_a_flavour_the_selected_role_is_secondary() {
+    let theme = ThemeName::Everforest.palette();
+    assert_eq!(selected_of(&theme), theme.secondary);
+}
+
+/// No flavour offers its `lavender` as a data hue any more — *"lavender leaves the categorical
+/// pool everywhere"*, and on three of the four that is a hue actually leaving rather than one
+/// that had already gone.
+#[test]
+fn lavender_is_a_data_hue_on_no_flavour() {
+    for flavour in catppuccin::PALETTE.all_flavors() {
+        let theme = flavour_palette(flavour);
+        assert!(
+            Categorical::for_theme(&theme)
+                .iter()
+                .all(|(name, _)| name != "lavender"),
+            "{} still offers lavender",
+            flavour.identifier()
+        );
     }
 }

@@ -77,13 +77,14 @@ mod tests;
 /// `lavender` too — Mocha's lavender sits ΔE 11.0 from its blue, just inside the floor, where
 /// the other three flavours clear it. Mocha therefore drops from ten hues to eight while the
 /// others drop to eight and seven from nine and eight.
-pub const RESERVED_ROLES: [&str; 6] = [
+pub const RESERVED_ROLES: [&str; 7] = [
     "success",
     "warning",
     "error",
     "info",
     "accent",
     "in flight",
+    "selected",
 ];
 
 /// [`RESERVED_ROLES`] resolved against a theme, in the same order.
@@ -93,7 +94,7 @@ pub const RESERVED_ROLES: [&str; 6] = [
 /// On a non-Catppuccin theme it resolves to `info`, which the fourth entry already holds — a
 /// harmless duplicate, and cheaper than a variable-length reserved set that every caller would
 /// have to reason about.
-fn reserved_of(theme: &ThemePalette) -> [Color; 6] {
+fn reserved_of(theme: &ThemePalette) -> [Color; 7] {
     [
         theme.success,
         theme.warning,
@@ -101,6 +102,7 @@ fn reserved_of(theme: &ThemePalette) -> [Color; 6] {
         theme.info,
         theme.accent,
         in_flight_of(theme),
+        selected_of(theme),
     ]
 }
 
@@ -124,6 +126,27 @@ pub(crate) fn in_flight_of(theme: &ThemePalette) -> Color {
     match flavour_of(theme) {
         Some(flavour) => Color::from(flavour.colors.sapphire),
         None => theme.info,
+    }
+}
+
+/// The hue for a **selected row** — Chris, 20260907, ruling 10: *"new role `selected` =
+/// Catppuccin `lavender` wash + `▎` gutter bar, fallback `secondary`; lavender leaves the
+/// categorical pool everywhere"*.
+///
+/// Same two-resolution shape as [`in_flight_of`], and here for the same reason: knowing whether
+/// there is a `lavender` to spend means knowing what a flavour is.
+///
+/// - **A Catppuccin flavour** spends its `lavender`. Mocha had already lost it to the `accent`
+///   floor (ΔE 11.0 from its blue); the other three flavours cleared that floor and lose it
+///   here instead — which is what *"everywhere"* means, and it is deliberate rather than
+///   incidental: a selection that is one flavour's data hue and another's role hue is a rule
+///   nobody could hold in their head.
+/// - **Any other theme** has `secondary`, §10's one field carrying no meaning — which is
+///   exactly what a selection needs, and why the fallback is not a health hue.
+pub(crate) fn selected_of(theme: &ThemePalette) -> Color {
+    match flavour_of(theme) {
+        Some(flavour) => Color::from(flavour.colors.lavender),
+        None => theme.secondary,
     }
 }
 
