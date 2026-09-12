@@ -734,6 +734,25 @@ pub fn faint() -> Color {
 pub fn muted() -> Color {
     neutral(62)
 }
+/// A TABLE's data rows — a light grey, one step under the white its header wears.
+///
+/// Chris, 20260912: *"the content of a table will be displayed in a light grey to differentiate
+/// it from the header column, and still allowing good readability with the selection bar."*
+/// Two constraints, and they pull against each other: far enough under [`normal`] that the
+/// header reads as a different kind of thing, and high enough that a row is comfortable to read
+/// for a page at a time — and legible where a selection puts a fill behind it. Rung 75 of 85 is
+/// where those meet; [`muted`] at 62 is metadata rather than content, and would make a table of
+/// two hundred rows read as a footnote.
+///
+/// Through [`modal::or_muted`] like [`normal`] and [`strong`]: it is a BRIGHT rung, and a modal
+/// takes bright rungs away as surely as it takes hues (VL §6) — the neutral marks that survive
+/// a modal are the structural ones below `muted`, not the text above it. A table that has
+/// RECEDED behind a live one drops to [`muted`] too, body and all, by the other route entirely
+/// (Chris, 20260912, ruling 3).
+pub fn table_row() -> Color {
+    modal::or_muted(neutral(75))
+}
+
 /// Body text of the focused zone; the baseline.
 ///
 /// This rung is the terminal's own foreground in every mode. The baseline is precisely the
@@ -816,6 +835,29 @@ pub fn rule_internal() -> Color {
 /// exactly, so a header can never land on a rung the data beneath it does not use.
 pub fn header() -> Color {
     normal()
+}
+
+/// [`table_row`] as a style, which is how every table cell asks for it.
+pub fn table_row_style() -> Style {
+    Style::default().fg(table_row())
+}
+
+/// A table's header row: white, UPRIGHT, and underlined from end to end.
+///
+/// Chris, 20260912, ruling 1 — and it replaces the 20260907 rule outright. That one made a
+/// header the same rung as its data and distinguished it with italics, on the reasoning that a
+/// bold header reads as a heading; the italics were tried and rejected (*"italic wasn't a good
+/// idea"*). The separation now comes from two things a reader sees before they read a word: the
+/// header is WHITE where the data is light grey ([`table_row`]), and a rule runs under the whole
+/// row — through the gaps between columns as well, so it reads as one line under one header
+/// rather than as a mark under each name.
+///
+/// The underline is applied to the row, not to the spans, which is what carries it across the
+/// gaps; a sort key drawn in [`accent`] and bold keeps both on top of it.
+pub fn header_style() -> Style {
+    Style::default()
+        .fg(header())
+        .add_modifier(Modifier::UNDERLINED)
 }
 
 // --- §3 highlight roles -------------------------------------------------------------

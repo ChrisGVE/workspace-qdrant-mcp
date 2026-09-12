@@ -16,23 +16,25 @@ use ratatui::style::Modifier;
 /// The Dashboard's cell geometry at 125 × 34, for the guards that judge one cell alone.
 const CELL: Rect = Rect { x: 0, y: 0, width: 59, height: 9 };
 
-/// Every cell of the grid whose foreground is the sort key's signature — the accent hue AND
-/// italic — as `(x, y, symbol)`.
+/// Every cell of the grid whose foreground is the sort key's signature — the accent hue AND the
+/// header's underline — as `(x, y, symbol)`.
 ///
 /// Scanned over the grid only. The constant top has a selector of its own — the active tab —
 /// and it is drawn as an inverted block, so its letters carry the selector as a BACKGROUND;
 /// scanning the whole screen for a selector foreground would still be correct today and would
 /// stop being correct the day anything above the grid lights a letter.
 ///
-/// The italic is what tells a sort key from a heading's focus key: both wear the accent hue, but
-/// only the sort key adds the header's slant.
+/// The UNDERLINE is what tells a sort key from a heading's focus key: both wear the accent hue
+/// and both are bold, but only the sort key sits on the header row, and the header row carries a
+/// rule under the whole of it (Chris, 20260912, ruling 1). It was the italic until that ruling
+/// retired it.
 fn lit(buf: &Buffer, first: u16) -> Vec<(u16, u16, String)> {
     let mut found = Vec::new();
     for y in first..TALL {
         for x in 0..WIDE {
             let cell = buf.cell((x, y)).expect("cell in area");
             if cell.style().fg == Some(crate::tokens::accent())
-                && cell.style().add_modifier.contains(Modifier::ITALIC)
+                && cell.style().add_modifier.contains(Modifier::UNDERLINED)
             {
                 found.push((x, y, cell.symbol().to_string()));
             }

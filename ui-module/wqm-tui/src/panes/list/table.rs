@@ -245,21 +245,18 @@ impl ListPane {
         self.rows.len() > 1
     }
 
-    /// One column header: the title in the body foreground with [`Modifier::ITALIC`], its sort
-    /// key lit in the accent hue, and the sort mark when this is the column the list is sorted
-    /// by.
+    /// One column header: the title WHITE and upright, its sort key lit in the accent hue, and
+    /// the sort mark when this is the column the list is sorted by.
     ///
-    /// A header is not bold (Chris, 2026-09-07) — that reads as a heading rather than as a label
-    /// under it — so it keeps the body foreground and marks itself with italics instead. The key
-    /// is **bold** on top of the italic: one letter of an italic header that changed hue alone
-    /// would read as a gap in the heading rather than as a key to press. Its hue is
-    /// [`tokens::accent`], the unclaimed §10 field, not the reserved selector — a sort key is a
-    /// hint, not a selection. The mark stays muted, un-bold and un-italic: it says which column
-    /// is sorted, and it is never the thing being read.
+    /// The list's half of ruling 1 (Chris, 20260912), identical to the cell table's by design —
+    /// *"that's the baseline that applies to every table"*. White against the light grey of
+    /// [`tokens::table_row`] under it, no italics (tried on 20260907 and rejected), and the rule
+    /// under the whole row drawn by [`ListPane::header`]. The key is **bold** in
+    /// [`tokens::accent`], the unclaimed §10 field rather than the reserved selector — a sort
+    /// key is a hint, not a selection. The mark stays muted: it says which column is sorted, and
+    /// it is never the thing being read.
     fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
-        let rest = Style::default()
-            .fg(tokens::header())
-            .add_modifier(Modifier::ITALIC);
+        let rest = Style::default().fg(tokens::header());
         let key = self.sortable().then_some(column.sort_key).flatten();
         let mut spans = crate::widgets::chrome::keyed_spans(
             column.title,
@@ -274,6 +271,16 @@ impl ListPane {
     }
 
     fn header(&self, body: Rect, cells: &[Rect], buf: &mut Buffer) {
+        // The rule under the header, across the whole row, gaps included — see
+        // [`crate::panes::cell::table::CellTable::header`], which does the same for the same
+        // reason. It stops at the table: the selection gutter is margin, not header.
+        buf.set_style(
+            Rect {
+                height: 1,
+                ..body
+            },
+            Style::default().add_modifier(Modifier::UNDERLINED),
+        );
         for (at, (column, area)) in self.columns.iter().zip(cells).enumerate() {
             let mark = self.sort.filter(|sort| sort.column == at);
             let spans = self.header_spans(column, mark);
@@ -394,7 +401,7 @@ impl Widget for ListPane {
                     // Then the data columns, drawn from the row's cells — which sit one place
                     // left of the column they answer to, the number column taking the first.
                     for (n, (cell, column)) in cells.iter().zip(&self.columns[1..]).enumerate() {
-                        Paragraph::new(Line::from(cell.spans(columns[n + 1].width, column.elide)))
+                        Paragraph::new(Line::from(cell.spans(columns[n + 1].width, column.elide, false)))
                             .alignment(column.align.to_ratatui())
                             .render(
                                 Rect {

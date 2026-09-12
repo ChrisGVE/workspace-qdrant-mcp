@@ -179,6 +179,7 @@ pub(crate) mod test_support {
             tokens::rule_frame(),
             tokens::rule_internal(),
             tokens::header(),
+            tokens::table_row(),
             tokens::cursor_bg(),
             tokens::cursor_mark(),
             tokens::edit_bg(),

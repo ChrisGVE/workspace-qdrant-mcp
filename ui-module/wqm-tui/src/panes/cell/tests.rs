@@ -213,9 +213,9 @@ fn a_queue_triple_carries_three_hues_and_mutes_its_zeros() {
     assert_eq!(fg(QUEUE_RIGHT), Some(tokens::muted()), "a failure count of zero is not news");
     assert_eq!(
         fg(FILES_RIGHT),
-        Some(tokens::normal()),
-        "the zero rule is the queue triple's alone — a plain figure column keeps its zeros, \
-         or v0.1's all-zero `Pts` column would vanish rather than recede"
+        Some(tokens::table_row()),
+        "the zero rule is the queue triple's alone — a plain figure column keeps its zeros at \
+         the row rung, or v0.1's all-zero `Pts` column would vanish rather than recede"
     );
     // The separators are structure, not data.
     assert_eq!(fg(start + 3), Some(tokens::muted()));
@@ -315,7 +315,7 @@ fn a_measured_value_orders_by_its_magnitude_and_a_tinted_one_by_its_word() {
     // number, so a column too narrow for one shows `…` rather than a plausible wrong value.
     assert!(mb.is_figure());
     assert_eq!(
-        mb.spans(5, crate::panes::cell::Elide::Right)[0].content,
+        mb.spans(5, crate::panes::cell::Elide::Right, false)[0].content,
         "…"
     );
     assert!(!pending.is_figure(), "a state word elides like any other word");
@@ -367,16 +367,17 @@ fn a_priority_tie_drops_the_rightmost_column_first() {
     assert_eq!(table.fitted(20), vec![0, 1], "the rightmost of the tie drops first");
 }
 
-/// A column header wears the body foreground in italics — the same colour the data under it
-/// wears, marked as structure by slant rather than by a different rung or by weight
-/// (Chris, 2026-09-07).
+/// A column header is WHITE, UPRIGHT and underlined from end to end, and the data under it is a
+/// light grey (Chris, 20260912, rulings 1 and 2).
 ///
-/// Pinned on the rendered header rather than on [`tokens::header`] alone: the token returning
-/// the body foreground is half the rule and the [`Modifier::ITALIC`] the table applies is the
-/// other, and a guard reading only one of them would pass on a header that lost the other. The
-/// not-bold half is the weight the ruling rules out: a bold header reads as a heading.
+/// This replaces the 20260907 rule outright — same rung as the data, distinguished by italics —
+/// which was tried and rejected: *"italic wasn't a good idea"*. Three things are pinned because
+/// the failure of any one of them leaves a header that looks nearly right: the rung, the absence
+/// of the slant, and the rule running under the GAPS as well as under the names. The last is why
+/// this reads every column of the row rather than one painted cell: an underline applied per
+/// span would pass a guard that only looked at letters.
 #[test]
-fn a_column_header_wears_the_body_foreground_in_italics() {
+fn a_column_header_is_white_and_upright_over_a_light_grey_body() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -394,8 +395,8 @@ fn a_column_header_wears_the_body_foreground_in_italics() {
             continue;
         }
         assert!(
-            cell.style().add_modifier.contains(Modifier::ITALIC),
-            "column {x} ({:?}) of the header is not italic",
+            !cell.style().add_modifier.contains(Modifier::ITALIC),
+            "column {x} ({:?}) of the header is still italic",
             cell.symbol()
         );
         assert!(
@@ -405,13 +406,58 @@ fn a_column_header_wears_the_body_foreground_in_italics() {
         );
         assert_eq!(
             cell.style().fg,
-            Some(tokens::normal()),
-            "column {x} ({:?}) of the header is not the body foreground",
+            Some(tokens::header()),
+            "column {x} ({:?}) of the header is not white",
             cell.symbol()
         );
         painted += 1;
     }
     assert!(painted > 0, "the header drew nothing at all");
+
+    // The rule runs under the whole row — the gaps between the names as well, which is the half
+    // an underline applied per span would fail.
+    let table = buf.cell((0, 1)).expect("cell in area").style();
+    assert!(
+        table.add_modifier.contains(Modifier::UNDERLINED),
+        "the header row carries no rule"
+    );
+    let mut gaps = 0;
+    for x in 0..WIDE {
+        let cell = buf.cell((x, 1)).expect("cell in area");
+        if !cell.symbol().trim().is_empty() {
+            continue;
+        }
+        gaps += 1;
+        assert!(
+            cell.style().add_modifier.contains(Modifier::UNDERLINED),
+            "the gap at column {x} breaks the rule under the header"
+        );
+    }
+    assert!(gaps > 0, "the header has no gaps, so this proves nothing");
+
+    // And the data under it is the lighter grey, not the header's white. Over the NAME column
+    // only: a figure column may carry a hue of its own (the queue triple does), and ruling 2 is
+    // about the rung plain content sits at, not about taking hues away.
+    let mut body = 0;
+    for x in 0..FILES_RIGHT - 9 {
+        let cell = buf.cell((x, 2)).expect("cell in area");
+        if cell.symbol().trim().is_empty() {
+            continue;
+        }
+        body += 1;
+        assert_eq!(
+            cell.style().fg,
+            Some(tokens::table_row()),
+            "column {x} ({:?}) of the first row is not the row rung",
+            cell.symbol()
+        );
+    }
+    assert!(body > 0, "the first row drew nothing at all");
+    assert_ne!(
+        tokens::table_row(),
+        tokens::header(),
+        "the row rung and the header are the same colour, so none of this separates them"
+    );
 }
 
 /// A cell's column header follows the cell's focus exactly as its heading does: the live cell's

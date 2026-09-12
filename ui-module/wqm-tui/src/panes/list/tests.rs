@@ -63,7 +63,7 @@ fn text(buf: &Buffer, y: u16) -> String {
 /// with slant, and *this letter sorts it* with the accent hue and weight. A frame that lost
 /// either would still look like a header.
 #[test]
-fn the_header_is_italic_and_lights_its_sort_key_only_when_there_is_more_than_one_row() {
+fn the_header_lights_its_sort_key_only_when_there_is_more_than_one_row() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -86,16 +86,24 @@ fn the_header_is_italic_and_lights_its_sort_key_only_when_there_is_more_than_one
          offers none, because a positional number is nothing that can be ordered"
     );
 
-    // Every painted cell of the header row is italic, and bold is the sort key's alone — weight
-    // is what marks the key out from the slanted label around it.
-    for x in 0..WIDE {
+    // Every cell of the header row carries the rule — the gaps between the names included — and
+    // bold is the sort key's alone: weight is what marks the key out from the white label
+    // around it (Chris, 20260912, ruling 1).
+    // From the table's first column: the one before it is the selection gutter, which is margin
+    // and carries no header.
+    for x in super::GUTTER..WIDE {
         let cell = many.cell((x, 0)).expect("cell in area");
+        assert!(
+            cell.style().add_modifier.contains(Modifier::UNDERLINED),
+            "column {x} ({:?}) breaks the rule under the header",
+            cell.symbol()
+        );
         if cell.symbol().trim().is_empty() {
             continue;
         }
         assert!(
-            cell.style().add_modifier.contains(Modifier::ITALIC),
-            "column {x} ({:?}) is not italic",
+            !cell.style().add_modifier.contains(Modifier::ITALIC),
+            "column {x} ({:?}) is still italic",
             cell.symbol()
         );
         let is_key = cell.style().fg == Some(tokens::accent());
@@ -115,15 +123,13 @@ fn the_header_is_italic_and_lights_its_sort_key_only_when_there_is_more_than_one
     assert_eq!(lit_on_one, 0, "a list of one offers no sort key");
 }
 
-/// A header span is italic and NOT bold; its sort key is the accent hue AND bold, on top of the
-/// same italic.
+/// A header span is white, upright and NOT bold; its sort key is the accent hue AND bold.
 ///
-/// The header marks itself as structure with slant, never with weight (Chris, 2026-09-07) — a
-/// bold header reads as a heading rather than as a label under it. The one exception is the key
-/// letter, which adds weight on top of the slant so a single letter of an italic word reads as
-/// the key to press rather than as a gap in the label.
+/// Ruling 1 (Chris, 20260912) retired the slant the 20260907 rule marked a header with. What
+/// stayed is the exception: the key letter adds weight and a hue, so one letter of the label
+/// reads as the key to press rather than as a gap in it.
 #[test]
-fn a_header_span_is_italic_not_bold_while_its_sort_key_is_accent_and_bold() {
+fn a_header_span_is_white_and_upright_while_its_sort_key_is_accent_and_bold() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -140,15 +146,22 @@ fn a_header_span_is_italic_not_bold_while_its_sort_key_is_accent_and_bold() {
         Some(tokens::header()),
         "the header text sits at the text rung"
     );
-    assert!(rest.add_modifier.contains(Modifier::ITALIC), "the header is italic");
+    assert!(
+        !rest.add_modifier.contains(Modifier::ITALIC),
+        "the header is still italic"
+    );
     assert!(!rest.add_modifier.contains(Modifier::BOLD), "the header is not bold");
+    assert!(
+        rest.add_modifier.contains(Modifier::UNDERLINED),
+        "the header carries no rule"
+    );
 
     let key = buf.cell((super::GUTTER + 1, 0)).expect("cell in area").style();
     assert_eq!(key.fg, Some(tokens::accent()), "the sort key is the accent hue");
     assert!(key.add_modifier.contains(Modifier::BOLD), "the sort key is bold");
     assert!(
-        key.add_modifier.contains(Modifier::ITALIC),
-        "the sort key keeps the header's italic"
+        key.add_modifier.contains(Modifier::UNDERLINED),
+        "the sort key keeps the header's rule — it is on the header row like everything else"
     );
 }
 

@@ -138,9 +138,20 @@ impl Cell {
     /// `Pts` column was all zeros, and muting them would have made the column disappear rather
     /// than recede. (That column has since been dropped altogether, 2026-09-07: a field that is
     /// always zero is better removed than styled.)
-    pub fn spans(&self, width: u16, elide: Elide) -> Vec<Span<'static>> {
+    pub fn spans(&self, width: u16, elide: Elide, recede: bool) -> Vec<Span<'static>> {
+        // A table that has receded behind the live one is dull in its ENTIRETY (Chris,
+        // 20260912, ruling 3) — the hues go with the text, because a status column still
+        // painting red beside a grey one is the one thing on the receded table still claiming
+        // to be live. One branch here rather than a rule at each call site: the cell is what
+        // knows how many spans it has and which of them carry hues.
+        if recede {
+            return vec![Span::styled(
+                elide.fit(&self.plain(), width),
+                tokens::muted_style(),
+            )];
+        }
         match self {
-            Cell::Text(text) => vec![Span::styled(elide.fit(text, width), tokens::normal_style())],
+            Cell::Text(text) => vec![Span::styled(elide.fit(text, width), tokens::table_row_style())],
             Cell::Tinted { text, hue } => vec![Span::styled(
                 elide.fit(text, width),
                 Style::default().fg(hue()),
@@ -155,13 +166,13 @@ impl Cell {
             Cell::Num(value) => {
                 vec![Span::styled(
                     too_wide(grouped(*value), width),
-                    tokens::normal_style(),
+                    tokens::table_row_style(),
                 )]
             }
             Cell::Measured { shown, .. } => {
                 vec![Span::styled(
                     too_wide(shown.clone(), width),
-                    tokens::normal_style(),
+                    tokens::table_row_style(),
                 )]
             }
             Cell::Queue {
@@ -175,6 +186,26 @@ impl Cell {
                 Span::styled("/", tokens::muted_style()),
                 count_span(*failed, tokens::offline),
             ],
+        }
+    }
+
+    /// The value as one plain string — what a receded table draws, where nothing is coloured
+    /// and the queue triple's three counts are one grey figure like any other.
+    fn plain(&self) -> String {
+        match self {
+            Cell::Text(text) | Cell::Tinted { text, .. } => text.clone(),
+            Cell::Num(value) => grouped(*value),
+            Cell::Measured { shown, .. } => shown.clone(),
+            Cell::Queue {
+                pending,
+                in_flight,
+                failed,
+            } => format!(
+                "{}/{}/{}",
+                grouped(*pending),
+                grouped(*in_flight),
+                grouped(*failed)
+            ),
         }
     }
 

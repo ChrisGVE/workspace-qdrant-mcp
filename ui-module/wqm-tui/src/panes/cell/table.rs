@@ -346,6 +346,17 @@ impl CellTable {
     }
 
     fn header(&self, body: Rect, active: &[usize], cells: &[Rect], buf: &mut Buffer) {
+        // The rule under the header, FIRST and across the whole row — the gaps between columns
+        // included (Chris, 20260912, ruling 1). Applied to the row rather than to each span,
+        // which is the only way it reaches the gaps; ratatui styles patch, so every title drawn
+        // over it keeps its own hue and adds this underline to it.
+        buf.set_style(
+            Rect {
+                height: 1,
+                ..body
+            },
+            Style::default().add_modifier(Modifier::UNDERLINED),
+        );
         for (&at, &area) in active.iter().zip(cells) {
             let column = &self.columns[at];
             let mark = self.sort.filter(|sort| sort.column == at);
@@ -367,32 +378,30 @@ impl CellTable {
         }
     }
 
-    /// One column header: its title in the body foreground with [`Modifier::ITALIC`], the sort
-    /// key lit if the table is offering its keys, and the sort mark if this is the column the
-    /// table is sorted by.
+    /// One column header: its title WHITE and upright, the sort key lit if the table is
+    /// offering its keys, and the sort mark if this is the column the table is sorted by.
     ///
-    /// The header wears the SAME foreground the data under it wears and distinguishes itself
-    /// with italics (Chris, 2026-09-07): a column header on this screen is not bold, and a key
-    /// that arrived bold would read as a heading rather than as a letter to press. The lit
-    /// letter changes the HUE to [`tokens::accent`] and adds weight — **bold**, like a jump
-    /// digit — so one letter of an italic header reads as the key to press rather than as a gap
-    /// in the label. The hue is the unclaimed `accent` field (§10), not the reserved selector:
-    /// a sort key is a hint, not a selection.
+    /// **The italics are gone** (Chris, 20260912, ruling 1: *"the column names are white and
+    /// upright — italic wasn't a good idea"*), and with them the 20260907 rule that a header
+    /// wears the same rung as its data. The separation is now white against the light grey of
+    /// [`tokens::table_row`], plus the rule under the whole row that [`CellTable::header`]
+    /// draws. A lit sort key keeps what it had: the [`tokens::accent`] hue and **bold**, the
+    /// unclaimed §10 field rather than the reserved selector, because a sort key is a hint and
+    /// not a selection.
     ///
     /// In a cell that has receded behind the live one the title drops to the muted rung — the
-    /// identical rule the heading above it follows — and the sort key is not offered anyway,
-    /// since only the live cell offers its keys. A receded header is muted italic.
+    /// identical rule the heading above it and the rows under it follow — and the sort key is
+    /// not offered at all, since only the live cell offers its keys.
     ///
-    /// The mark is muted and un-italic: it says which column is sorted, and it is never the
-    /// thing being read. It is appended with no space between it and the title — see [`grown`]
-    /// for why the space is what a five-column `Files` cannot afford.
+    /// The mark is muted: it says which column is sorted, and it is never the thing being read.
+    /// It is appended with no space between it and the title — see [`grown`] for why the space
+    /// is what a five-column `Files` cannot afford.
     fn header_spans(&self, column: &Column, mark: Option<Sort>) -> Vec<Span<'static>> {
-        let text = if self.receded {
-            tokens::muted()
+        let rest = if self.receded {
+            tokens::muted_style()
         } else {
-            tokens::header()
+            Style::default().fg(tokens::header())
         };
-        let rest = Style::default().fg(text).add_modifier(Modifier::ITALIC);
         let key = self.sortable.then_some(column.sort_key).flatten();
         let mut spans = crate::widgets::chrome::keyed_spans(
             column.title,
@@ -465,7 +474,7 @@ impl Widget for CellTable {
             for (n, &at) in active.iter().enumerate() {
                 let Some(cell) = row.get(at) else { continue };
                 let column = &self.columns[at];
-                Paragraph::new(Line::from(cell.spans(columns[n].width, column.elide)))
+                Paragraph::new(Line::from(cell.spans(columns[n].width, column.elide, self.receded)))
                     .alignment(column.align.to_ratatui())
                     .render(
                         Rect {
