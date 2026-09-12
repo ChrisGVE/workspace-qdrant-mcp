@@ -7,7 +7,11 @@
 //! live here, so the day the Dashboard grows a help modal it offers the same words in the same
 //! order rather than its own recollection of them.
 
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+
 use super::NAV_HELP;
+use crate::tokens;
 
 /// One named group of key entries in a list's help window.
 pub struct HelpSection {
@@ -100,13 +104,67 @@ pub fn general() -> HelpSection {
     }
 }
 
+/// The modifier glyphs this surface spells keys with, and what each one names.
+///
+/// Chris, 20260912, ruling 6: a row at the foot of the help explaining the glyphs for control,
+/// shift, command and option — *"the shift glyph must NOT be the same arrow as the up-arrow
+/// key."* It is `⇧` U+21E7, a hollow outline; the up-arrow key is `↑` U+2191, the same solid
+/// arrow the foot draws in `↓↑/jk`. Two different marks, and the legend is what tells a reader
+/// which is which the first time they meet one.
+///
+/// Stated as a table rather than as a sentence so a key entry and this legend cannot come to
+/// disagree about a glyph: an entry that spells a chord writes the character, and this names
+/// the character it wrote.
+pub const MODIFIERS: [(&str, &str); 4] = [
+    ("\u{2303}", "control"),
+    ("\u{21e7}", "shift"),
+    ("\u{2318}", "command"),
+    ("\u{2325}", "option"),
+];
+
+/// The legend row: every glyph in [`MODIFIERS`] with its name beside it, glyphs accented like
+/// any other key and the names muted, three spaces between pairs.
+pub fn legend() -> Line<'static> {
+    let mut spans = Vec::new();
+    for (at, (glyph, name)) in MODIFIERS.iter().enumerate() {
+        if at > 0 {
+            spans.push(Span::styled("   ", tokens::muted_style()));
+        }
+        spans.push(Span::styled(*glyph, key_style()));
+        spans.push(Span::styled(format!(" {name}"), tokens::muted_style()));
+    }
+    Line::from(spans)
+}
+
+/// What a key is drawn in: the accent hue, the unclaimed §10 field, which is what a sortable
+/// column's lit letter already wears.
+///
+/// Chris, 20260912, ruling 6: *"keys in the accent hue"*. The same field rather than the
+/// reserved selector, and for the same reason the sort key uses it — a key you may press is a
+/// hint, not a selection.
+fn key_style() -> Style {
+    Style::default().fg(tokens::accent())
+}
+
 /// Lay `sections` out into a help window's body lines.
 ///
-/// Each section title is on its own line; each entry is indented two spaces, with the key padded
-/// to the width of the widest key ACROSS ALL SECTIONS — measured here rather than written down,
-/// so a chord that grows in another module cannot silently stop fitting — and a section's note,
-/// when it has one, is printed after its entries. A blank line separates sections.
-pub fn render(sections: &[HelpSection]) -> Vec<String> {
+/// Each section title is on its own line and **bold**; each entry is indented two spaces with
+/// its key in the accent hue, padded to the width of the widest key ACROSS ALL SECTIONS —
+/// measured here rather than written down, so a chord that grows in another module cannot
+/// silently stop fitting — and a section's note, when it has one, is printed after its entries
+/// in *italic*. A blank line separates sections; then `tail` — a closing sentence about the
+/// whole window rather than about any one section — and then the [`legend`], which is always
+/// the last row.
+///
+/// The tail is a PARAMETER rather than something a caller appends afterwards, so the legend
+/// cannot end up in the middle of a window: ruling 6 asks for it *"on a bottom row"*, and a
+/// caller free to push lines after it is a caller free to get that wrong.
+///
+/// The three treatments are ruling 6's (Chris, 20260912) and they are three different KINDS of
+/// thing rather than decoration: a title names a group, a key is something to press, and a note
+/// is prose about the group rather than an entry in it. The italic is what stops a note being
+/// read as a nameless entry, which is how it read while everything was one colour.
+pub fn render(sections: &[HelpSection], tail: Option<&str>) -> Vec<Line<'static>> {
     let column = sections
         .iter()
         .flat_map(|section| section.entries.iter())
@@ -118,15 +176,41 @@ pub fn render(sections: &[HelpSection]) -> Vec<String> {
     let mut body = Vec::new();
     for (at, section) in sections.iter().enumerate() {
         if at > 0 {
-            body.push(String::new());
+            body.push(Line::default());
         }
-        body.push(section.title.to_string());
+        body.push(Line::from(Span::styled(
+            section.title.to_string(),
+            tokens::normal_style().add_modifier(Modifier::BOLD),
+        )));
         for (key, what) in &section.entries {
-            body.push(format!("  {key:<column$}{what}"));
+            body.push(Line::from(vec![
+                Span::styled("  ", tokens::normal_style()),
+                // The key and its padding are ONE span, so the accent stops where the key does
+                // and the gap after it is not a coloured run of blanks — invisible on most
+                // terminals and not on all of them.
+                Span::styled(key.to_string(), key_style()),
+                Span::styled(
+                    " ".repeat(column - key.chars().count()),
+                    tokens::normal_style(),
+                ),
+                Span::styled(what.to_string(), tokens::normal_style()),
+            ]));
         }
         if let Some(note) = section.note {
-            body.push(note.to_string());
+            body.push(Line::from(Span::styled(
+                note.to_string(),
+                tokens::normal_style().add_modifier(Modifier::ITALIC),
+            )));
         }
     }
+    if let Some(tail) = tail {
+        body.push(Line::default());
+        body.push(Line::from(Span::styled(
+            tail.to_string(),
+            tokens::normal_style().add_modifier(Modifier::ITALIC),
+        )));
+    }
+    body.push(Line::default());
+    body.push(legend());
     body
 }

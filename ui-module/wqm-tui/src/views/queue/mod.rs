@@ -239,10 +239,11 @@ impl Queue {
 
     /// The help modal: [`Queue::help_sections`], rendered, over the quietened page.
     pub fn help() -> Modal {
-        let mut body = crate::panes::list::help::render(&Self::help_sections());
-        body.push(String::new());
-        body.push("The selectors survive Esc; the search leaves on Esc, the filter on f.".to_string());
-        Modal::with_body("Queue — keys", body).action("Esc", "close")
+        let body = crate::panes::list::help::render(
+            &Self::help_sections(),
+            Some("The selectors survive Esc; the search leaves on Esc, the filter on f."),
+        );
+        Modal::with_lines("Queue — keys", body).action("Esc", "close")
     }
 }
 

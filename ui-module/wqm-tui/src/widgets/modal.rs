@@ -74,7 +74,12 @@ impl Action {
 /// A centred window that takes focus and waits to be dismissed.
 pub struct Modal {
     title: String,
-    body: Vec<String>,
+    /// The body, already styled. A [`Line`] rather than a `String` because ruling 6 (Chris,
+    /// 20260912) asks the help window for keys in the accent hue, bold section titles and
+    /// italic notes — three treatments on one line, which a string cannot carry and which only
+    /// the caller knows how to apply. [`Modal::with_body`] keeps the plain-text door open for
+    /// the confirm dialogs, which have nothing to style.
+    body: Vec<Line<'static>>,
     actions: Vec<Action>,
     fill: Fill,
 }
@@ -86,7 +91,20 @@ impl Modal {
 
     /// A modal whose body is already broken into lines — the caller wraps, because only the
     /// caller knows whether a line break is cosmetic or meaningful.
+    ///
+    /// Every line takes [`tokens::normal_style`]. A body that needs more than one treatment
+    /// builds its own lines and goes through [`Modal::with_lines`].
     pub fn with_body(title: impl Into<String>, body: Vec<String>) -> Self {
+        Self::with_lines(
+            title,
+            body.into_iter()
+                .map(|line| Line::from(Span::styled(line, tokens::normal_style())))
+                .collect(),
+        )
+    }
+
+    /// A modal whose body is already styled, line by line. See [`Modal::body`].
+    pub fn with_lines(title: impl Into<String>, body: Vec<Line<'static>>) -> Self {
         Self {
             title: title.into(),
             body,
@@ -129,7 +147,7 @@ impl Modal {
         let text_width = self
             .body
             .iter()
-            .map(|line| line.chars().count() as u16)
+            .map(|line| line.width() as u16)
             .chain(std::iter::once(self.title.chars().count() as u16))
             .chain(std::iter::once(self.action_width()))
             .max()
@@ -165,11 +183,7 @@ impl Widget for Modal {
             return;
         }
 
-        let mut lines: Vec<Line> = self
-            .body
-            .iter()
-            .map(|line| Line::from(Span::styled(line.clone(), tokens::normal_style())))
-            .collect();
+        let mut lines: Vec<Line> = self.body.clone();
 
         if !self.actions.is_empty() {
             lines.push(Line::default());

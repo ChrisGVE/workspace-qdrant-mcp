@@ -86,7 +86,12 @@ fn rendered_key_column_is_as_wide_as_the_widest_key() {
         .unwrap_or(0);
     assert!(widest > 0, "there should be at least one key");
 
-    let rendered = crate::panes::list::help::render(&sections);
+    // Flattened to plain text: this guard is about the key COLUMN's arithmetic, which is the
+    // one property of a help line that survived ruling 6's styling unchanged.
+    let rendered: Vec<String> = crate::panes::list::help::render(&sections, None)
+        .iter()
+        .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
+        .collect();
 
     // Every entry line is "  <key-padded><what>". The padded key field must be at least
     // `widest + 2` characters wide (the measured width plus the gap before the meaning).
@@ -241,5 +246,128 @@ fn opening_the_help_quiets_the_page_under_it() {
         "{} cells outside the modal kept a colour, first ten: {:?}",
         survivors.len(),
         &survivors[..survivors.len().min(10)]
+    );
+}
+
+/// Ruling 6's presentation (Chris, 20260912): **keys in the accent hue, section titles bold,
+/// complementary notes italic.**
+///
+/// Read off the built lines rather than off the drawn window, because what is being checked is
+/// which SPAN carries which treatment — on the page a bold title and a bold key are two runs of
+/// cells and nothing says which line either belongs to.
+#[test]
+fn a_title_is_bold_a_key_is_accented_and_a_note_is_italic() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let sections = Queue::help_sections();
+    let lines = crate::panes::list::help::render(&sections, None);
+    let text = |line: &ratatui::text::Line| -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    };
+
+    for section in &sections {
+        let title = lines
+            .iter()
+            .find(|line| text(line) == section.title)
+            .unwrap_or_else(|| panic!("{:?} is not drawn on a line of its own", section.title));
+        assert!(
+            title.spans[0]
+                .style
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD),
+            "the {:?} title is not bold",
+            section.title
+        );
+
+        for (key, what) in &section.entries {
+            let line = lines
+                .iter()
+                .find(|line| text(line).ends_with(*what))
+                .unwrap_or_else(|| panic!("{what:?} is not drawn"));
+            // The indent, the key, its padding, the meaning — the key is the second span and
+            // it is the only one wearing the accent.
+            assert_eq!(line.spans[1].content, *key, "the key is not its own span");
+            assert_eq!(
+                line.spans[1].style.fg,
+                Some(crate::tokens::accent()),
+                "the key {key:?} is not in the accent hue"
+            );
+            assert!(
+                line.spans
+                    .iter()
+                    .skip(2)
+                    .all(|span| span.style.fg != Some(crate::tokens::accent())),
+                "something past the key is accented on the {what:?} line"
+            );
+        }
+
+        if let Some(note) = section.note {
+            let line = lines
+                .iter()
+                .find(|line| text(line) == note)
+                .unwrap_or_else(|| panic!("the {:?} note is not drawn", section.title));
+            assert!(
+                line.spans[0]
+                    .style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::ITALIC),
+                "the {:?} note is not italic",
+                section.title
+            );
+        }
+    }
+}
+
+/// The modifier legend is the LAST row of the window, it names all four modifiers, and its shift
+/// glyph is not the arrow the arrow keys are spelled with.
+///
+/// The last clause is the only thing ruling 6 says about a specific character — *"the shift
+/// glyph must NOT be the same arrow as the up-arrow key"* — so it is asserted against the arrow
+/// the crate actually draws elsewhere rather than against a literal retyped here, which would
+/// agree with itself if the foot's arrow ever changed.
+#[test]
+fn the_legend_closes_the_window_and_its_shift_is_not_the_up_arrow() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    let lines = crate::panes::list::help::render(&Queue::help_sections(), Some("a tail"));
+    let last: String = lines
+        .last()
+        .expect("the window has lines")
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+
+    for (glyph, name) in crate::panes::list::help::MODIFIERS {
+        assert!(last.contains(glyph), "the legend omits {name}: {last:?}");
+        assert!(last.contains(name), "the legend omits the word {name:?}: {last:?}");
+    }
+
+    // The tail sits above the legend, never below it — ruling 6 puts the legend on the bottom
+    // row and a caller free to append after it is a caller free to get that wrong.
+    let tail_at = lines
+        .iter()
+        .position(|line| {
+            line.spans.iter().map(|s| s.content.as_ref()).collect::<String>() == "a tail"
+        })
+        .expect("the tail is drawn");
+    assert!(tail_at < lines.len() - 1, "the legend is not the bottom row");
+
+    let shift = crate::panes::list::help::MODIFIERS[1].0;
+    assert_eq!(crate::panes::list::help::MODIFIERS[1].1, "shift");
+    // The up-arrow KEY's own spelling, read out of the navigation section rather than retyped
+    // here: a literal in this file would agree with itself the day the foot's arrow changed,
+    // which is the one day this assertion has any work to do.
+    let up = crate::panes::list::help::navigation()
+        .entries
+        .iter()
+        .find(|(_, what)| *what == "Up one row")
+        .map(|(key, _)| *key)
+        .expect("the navigation section spells the up-arrow key");
+    assert!(
+        !up.contains(shift),
+        "the shift glyph {shift:?} is the arrow the up-arrow key {up:?} is drawn with"
     );
 }
