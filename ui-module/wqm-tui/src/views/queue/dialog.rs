@@ -93,6 +93,34 @@ impl<'a> DialogSlot<'a> {
             spans.push(Span::styled(format!("{label} "), tokens::muted_style()));
             spans.push(Span::styled(value, tokens::normal_style()));
         }
+        spans.extend(self.count());
+        spans
+    }
+
+    /// How many rows are selected, at the right-hand end of the row (Chris, 20260907,
+    /// ruling 10: *"count right-aligned on the dialog row"*).
+    ///
+    /// **Rightmost of the right-hand group, after the selectors.** A selector is a setting that
+    /// stays until it is changed; a count changes on every press, and a number that moves the
+    /// two settled words beside it every time a row is picked is a wobble a reader cannot stop
+    /// noticing. Last, it moves nothing.
+    ///
+    /// Absent at zero rather than reading `0 selected`: the whole slot is silent when nothing
+    /// has been said to it, and an empty selection is nothing said.
+    fn count(&self) -> Vec<Span<'static>> {
+        let selected = self.state.selection.len();
+        if selected == 0 {
+            return Vec::new();
+        }
+        let mut spans = Vec::new();
+        if self.state.op.is_some() || self.state.status.is_some() {
+            spans.push(Span::styled(" · ", tokens::muted_style()));
+        }
+        spans.push(Span::styled(
+            crate::format::grouped(selected as u64),
+            ratatui::style::Style::default().fg(tokens::selected()),
+        ));
+        spans.push(Span::styled(" selected", tokens::muted_style()));
         spans
     }
 

@@ -905,7 +905,12 @@ pub fn selected_bg() -> Option<Color> {
         return None;
     }
     let bg = ladder_endpoints().background;
-    let toward = Rgb::from_color(selected())?;
+    // The same fallback shape as the condition wash: a named slot colour has no channels to mix,
+    // so where the hue cannot be read as RGB the mix goes toward a written-down lavender. It is
+    // reached only with no bundled theme in force, where `selected()` itself is the slot
+    // stand-in — the bar is then magenta over a lavender wash, which is two stand-ins agreeing
+    // about what they stand for.
+    let toward = Rgb::from_color(selected()).unwrap_or(Rgb::new(0xb4, 0xbe, 0xfe));
     Some(Color::Rgb(
         mix(bg.r, toward.r, WASH_MIX),
         mix(bg.g, toward.g, WASH_MIX),

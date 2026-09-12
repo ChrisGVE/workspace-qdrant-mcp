@@ -24,6 +24,8 @@
 //! conversation, because losing a setting by walking out of an unrelated conversation is the
 //! failure this separation exists to prevent.
 
+use std::collections::BTreeSet;
+
 use super::fixture::QueueRow;
 use crate::motion::Motion;
 use crate::panes::cell::Sort;
@@ -203,6 +205,109 @@ pub enum First {
     Filter,
 }
 
+/// Which rows are selected, and whether a range is being extended (Chris, 20260907, ruling 10).
+///
+/// # Rows are named by their place in the BUFFER, never by their place on the screen
+///
+/// *"survives search/filter even when hidden"* is the whole design constraint, and it rules out
+/// the obvious representation. A projection index means a different row the moment a filter
+/// changes, so a selection stored that way would silently move to other rows rather than
+/// survive — and it would do it invisibly, because the count on the dialog row would still read
+/// the same. A buffer index names one row for as long as the buffer is the buffer.
+///
+/// # The anchor is a range in progress, not a second selection
+///
+/// `v` records where the range began and every motion re-derives the span from there to the
+/// cursor. Re-derived rather than accumulated: a reader who overshoots and comes back expects
+/// the rows they passed to be released, and an accumulating range cannot release anything.
+/// **Additive** all the same — the span is added to whatever was already selected, so `v` twice
+/// in two places gives two ranges. `v` again ends the range and keeps every row it added.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Selection {
+    /// Buffer indices, ordered so the count and any iteration are deterministic.
+    rows: BTreeSet<usize>,
+    /// Where the range in progress began, as a buffer index, or [`None`] when no range is open.
+    anchor: Option<usize>,
+    /// The rows the open range has contributed so far — held apart so re-deriving the span can
+    /// release what the reader passed and came back over, without touching rows selected
+    /// before the range began.
+    ranged: BTreeSet<usize>,
+}
+
+impl Selection {
+    /// Whether the row at buffer index `row` is selected.
+    pub fn contains(&self, row: usize) -> bool {
+        self.rows.contains(&row)
+    }
+
+    /// How many rows are selected — what the dialog row's count says.
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Whether a range is open — `v` pressed once, not yet twice.
+    pub fn extending(&self) -> bool {
+        self.anchor.is_some()
+    }
+
+    /// `Space`: the row under the cursor joins the selection, or leaves it.
+    ///
+    /// Independent of any open range: inverting a row the range contributed removes it, and the
+    /// next motion puts it back, which is what "the range is the span from the anchor" means.
+    fn inverted(&self, row: usize) -> Self {
+        let mut next = self.clone();
+        if !next.rows.remove(&row) {
+            next.rows.insert(row);
+        }
+        next
+    }
+
+    /// `v`: open a range at `row`, or close the one that is open and keep what it selected.
+    fn toggled_range(&self, row: usize) -> Self {
+        let mut next = self.clone();
+        if next.anchor.is_some() {
+            next.anchor = None;
+            next.ranged.clear();
+        } else {
+            next.anchor = Some(row);
+            next.ranged.clear();
+            next.rows.insert(row);
+            next.ranged.insert(row);
+        }
+        next
+    }
+
+    /// Re-derive the open range's span: every row of `projection` between the anchor and the
+    /// cursor, in the order the rows are DRAWN in.
+    ///
+    /// Over the projection rather than over the buffer, because a range is what the reader
+    /// dragged across — and what they dragged across is the rows they could see. An anchor that
+    /// has since been filtered out leaves the range where it was rather than growing to the
+    /// whole list.
+    fn extended(&self, projection: &[usize], cursor: usize) -> Self {
+        let Some(anchor) = self.anchor else {
+            return self.clone();
+        };
+        let Some(from) = projection.iter().position(|row| *row == anchor) else {
+            return self.clone();
+        };
+        let to = cursor.min(projection.len().saturating_sub(1));
+        let (low, high) = if from <= to { (from, to) } else { (to, from) };
+        let span: BTreeSet<usize> = projection[low..=high].iter().copied().collect();
+        let mut next = self.clone();
+        for row in next.ranged.difference(&span) {
+            next.rows.remove(row);
+        }
+        next.rows.extend(span.iter().copied());
+        next.ranged = span;
+        next
+    }
+}
+
 /// Everything the Queue tab is showing that is not the data.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct QueueState {
@@ -221,6 +326,8 @@ pub struct QueueState {
     /// Whether the row numbers count from the cursor rather than from the top — the `r` key
     /// (Chris, 2026-09-08). A setting, so it survives every conversation and every narrowing.
     pub relative: bool,
+    /// Which rows are selected. See [`Selection`].
+    pub selection: Selection,
 }
 
 impl Default for QueueState {
@@ -237,6 +344,7 @@ impl Default for QueueState {
             status: None,
             sort: None,
             cursor: 0,
+            selection: Selection::default(),
         }
     }
 }
@@ -370,12 +478,62 @@ impl QueueState {
         }
     }
 
-    /// Esc: the search leaves — typing or settled — and everything else stays. See the module
-    /// docs: the search is the moving thing, and the filter unbuilds with the key that built
-    /// it.
+    /// Esc: **the most recent layer, and only that one** (Chris, 20260907, rulings 7 and 10).
+    ///
+    /// A search first; with no search, the selection. Layered rather than a single clear-all
+    /// because the two were built at different moments and Esc undoes the last thing done, not
+    /// everything done — a reader who searches inside a selection they spent ten presses
+    /// building expects Esc to close the search and leave the selection standing.
+    ///
+    /// The filter is in neither layer: it unbuilds with `f`, the key that built it (see the
+    /// module docs), and always did.
     pub fn escape(&self) -> Self {
+        if self.search.is_some() {
+            return Self {
+                search: None,
+                ..self.clone()
+            };
+        }
         Self {
-            search: None,
+            selection: Selection::default(),
+            ..self.clone()
+        }
+    }
+
+    /// `v`: open an additive range at the cursor, or close the open one and keep its rows.
+    ///
+    /// Takes the projection's buffer indices because the cursor is a position on the SCREEN and
+    /// the selection names rows in the buffer — this is the one place the two are converted,
+    /// and doing it here means no caller can convert it differently.
+    pub fn toggle_range(&self, projection: &[usize]) -> Self {
+        let Some(row) = projection.get(self.cursor).copied() else {
+            return self.clone();
+        };
+        Self {
+            selection: self.selection.toggled_range(row),
+            ..self.clone()
+        }
+    }
+
+    /// `V`: the selection goes, whatever else is on the screen.
+    ///
+    /// The direct form of what [`QueueState::escape`]'s second layer does. Both exist because
+    /// Chris's own key list names `V` and his ruling names Esc: Esc undoes the most recent
+    /// layer, `V` says *this* one.
+    pub fn reset_selection(&self) -> Self {
+        Self {
+            selection: Selection::default(),
+            ..self.clone()
+        }
+    }
+
+    /// `Space`: the row under the cursor joins the selection, or leaves it.
+    pub fn invert_row(&self, projection: &[usize]) -> Self {
+        let Some(row) = projection.get(self.cursor).copied() else {
+            return self.clone();
+        };
+        Self {
+            selection: self.selection.inverted(row),
             ..self.clone()
         }
     }
@@ -403,19 +561,24 @@ impl QueueState {
     /// Apply a motion to the cursor, `count` times, clamped to the projection.
     ///
     /// The list half of the shared movement model ([`crate::motion`]): a [`Motion`] and a count
-    /// arrive, and this turns them into the cursor the list will draw. `nos` are the projection's
-    /// row numbers in drawn order — one per row, 1-based and POSITIONAL, so `1..=len` — so the
-    /// cursor's range is `0..nos.len()` and [`Motion::Row`] can find the row a number names
-    /// rather than guess a drawn position. `page` is how many rows the list shows at once: the
-    /// step [`Motion::PageDown`] and [`Motion::PageUp`] take.
+    /// arrive, and this turns them into the cursor the list will draw. `projection` is the
+    /// buffer index of each drawn row, in drawn order, so the cursor's range is
+    /// `0..projection.len()`; `page` is how many rows the list shows at once, the step
+    /// [`Motion::PageDown`] and [`Motion::PageUp`] take.
+    ///
+    /// It takes buffer indices rather than the row NUMBERS it used to, and the reason is a
+    /// ruling rather than a refactor: since 20260908 the number is a POSITION, so a list of
+    /// numbers is `1..=len` and says nothing a length does not — while the selection needs to
+    /// name rows in the buffer, and a motion may extend an open range ([`Selection`]). One list,
+    /// carrying the fact both halves actually need.
     ///
     /// The count is passed even for the motions that ignore it — [`Motion::Top`],
     /// [`Motion::Bottom`] and [`Motion::Row`] — because [`crate::motion::Prefix::key`] returns it
-    /// uniformly and only the repeating motions consume it. A [`Motion::Row`] whose number is not
-    /// in the projection leaves the cursor where it was: there is no row to move to, and moving to
-    /// the nearest neighbour would look like the row was found.
-    pub fn moved(&self, motion: Motion, count: usize, page: usize, nos: &[u16]) -> Self {
-        let last = nos.len().saturating_sub(1);
+    /// uniformly and only the repeating motions consume it. A [`Motion::Row`] past the end of the
+    /// projection leaves the cursor where it was: there is no row to move to, and moving to the
+    /// last row would look like the row was found.
+    pub fn moved(&self, motion: Motion, count: usize, page: usize, projection: &[usize]) -> Self {
+        let last = projection.len().saturating_sub(1);
         let cursor = match motion {
             Motion::Up => self.cursor.saturating_sub(count),
             Motion::Down => self.cursor.saturating_add(count).min(last),
@@ -423,13 +586,18 @@ impl QueueState {
             Motion::PageDown => self.cursor.saturating_add(count.saturating_mul(page)).min(last),
             Motion::Top => 0,
             Motion::Bottom => last,
-            Motion::Row(n) => nos
-                .iter()
-                .position(|&no| usize::from(no) == n)
+            // The number IS the position (20260908), so row n is the nth drawn row and a number
+            // past the end names nothing.
+            Motion::Row(n) => n
+                .checked_sub(1)
+                .filter(|at| *at < projection.len())
                 .unwrap_or(self.cursor),
         };
         Self {
             cursor,
+            // A motion with a range open extends it. Any motion — that is the ruling's own word
+            // — so the extension lives here rather than in each key that moves the cursor.
+            selection: self.selection.extended(projection, cursor),
             ..self.clone()
         }
     }
@@ -496,20 +664,36 @@ pub fn matches(row: &QueueRow, term: &str) -> bool {
 /// A search does NOT appear here. It moves the cursor within the rows a filter already chose;
 /// see [`hits`].
 pub fn project<'a>(buffer: &'a [QueueRow], state: &QueueState) -> Vec<&'a QueueRow> {
-    let mut rows: Vec<&'a QueueRow> = buffer
+    project_indices(buffer, state)
+        .into_iter()
+        .map(|at| &buffer[at])
+        .collect()
+}
+
+/// The same projection, as the BUFFER INDEX of each drawn row.
+///
+/// The primitive [`project`] is written in terms of, because the selection names rows by their
+/// place in the buffer and the cursor names them by their place on the screen — and something
+/// has to hold both at once. Two functions computing the same order independently is exactly
+/// the failure this crate keeps writing guards against, so there is one, and it produces the
+/// indices.
+pub fn project_indices(buffer: &[QueueRow], state: &QueueState) -> Vec<usize> {
+    let mut rows: Vec<usize> = buffer
         .iter()
-        .filter(|row| state.op.is_none_or(|op| row.op == op))
-        .filter(|row| state.status.is_none_or(|status| row.status == status))
-        .filter(|row| match state.filter.as_ref() {
+        .enumerate()
+        .filter(|(_, row)| state.op.is_none_or(|op| row.op == op))
+        .filter(|(_, row)| state.status.is_none_or(|status| row.status == status))
+        .filter(|(_, row)| match state.filter.as_ref() {
             Some(filter) => matches(row, filter.term()),
             None => true,
         })
+        .map(|(at, _)| at)
         .take(LIST_PAGE)
         .collect();
     if state.sort.is_none() {
         // Stable, so the in-progress rows keep the buffer's order among themselves and so do
         // the rest — a partition, spelled as the sort it is implemented by.
-        rows.sort_by_key(|row| row.status != Status::InProgress);
+        rows.sort_by_key(|at| buffer[*at].status != Status::InProgress);
     }
     rows
 }

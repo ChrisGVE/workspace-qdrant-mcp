@@ -34,7 +34,7 @@ use crate::panes::list::help::{general, navigation, HelpSection};
 use crate::panes::status_block::StatusBlock;
 use crate::tokens::Health;
 use crate::views::top::{self, ConstantTop};
-use crate::widgets::chrome::{inset, StatusLine};
+use crate::widgets::chrome::{inset, with_gutter, StatusLine};
 use crate::widgets::modal::Modal;
 
 pub mod dialog;
@@ -46,7 +46,7 @@ pub mod state;
 #[cfg(test)]
 mod tests;
 
-pub use state::{Filter, First, Kind, Op, QueueState, Search, Status};
+pub use state::{Filter, First, Kind, Op, QueueState, Search, Selection, Status};
 
 /// The Queue's index in [`crate::widgets::tab_bar::TabBar::storyboard_tabs`] — tab 2.
 pub const QUEUE_TAB: usize = 1;
@@ -76,8 +76,11 @@ const NAVIGATE_KEYS: &str = "↓↑/jk";
 /// [`crate::widgets::chrome::keyed_spans`] finds a sort key in a title without regard to case —
 /// so a column offering `N` would light the `n` in its own name and a reader would press the one
 /// that moves the search.
-pub const QUEUE_BOUND_KEYS: [char; 17] = [
+pub const QUEUE_BOUND_KEYS: [char; 20] = [
     '/', // open search
+    'v', // start a selection range; `v` again ends it
+    'V', // reset the selection
+    ' ', // invert the row under the cursor
     'n', // next hit
     'N', // previous hit
     'o', // operation selector
@@ -255,7 +258,7 @@ impl Widget for Queue {
             ..body
         };
         let (list_area, foot_row) = top::foot(below, buf);
-        pane.render(inset(list_area), buf);
+        pane.render(with_gutter(list_area), buf);
 
         let mut status = StatusLine::new();
         for (key, label) in hints {

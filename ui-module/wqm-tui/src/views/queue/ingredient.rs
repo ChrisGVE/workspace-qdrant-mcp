@@ -51,6 +51,22 @@ fn filtering(term: &str) -> QueueState {
     .accept_filter(&fixture::ROWS)
 }
 
+/// A state with `rows` (positions in the projection) picked one by one, exactly as `Space`
+/// would pick them.
+///
+/// Through the real transition rather than by writing a selection down: a frame built from a
+/// hand-made selection would be a picture of a state the keys cannot reach.
+fn picked(state: QueueState, rows: &[usize]) -> QueueState {
+    let projection = state::project_indices(&fixture::ROWS, &state);
+    rows.iter().fold(state, |state, at| {
+        QueueState {
+            cursor: *at,
+            ..state
+        }
+        .invert_row(&projection)
+    })
+}
+
 /// A Queue tab on the captured workspace, showing `state`.
 pub fn queue(state: QueueState) -> Queue {
     Queue::new(state, block(CAPTURED_ENTRIES, captured_queue()))
@@ -164,6 +180,43 @@ fn list_frames() -> Vec<Box<dyn Ingredient>> {
                     cursor: 5,
                     ..QueueState::default()
                 })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Selection",
+            "Four rows picked with Space, the cursor on one of them: the lavender wash and the `▎` bar, the cursor's own tint unchanged where the two meet, and the count at the right of the dialog row",
+            || {
+                queue(QueueState {
+                    cursor: 3,
+                    ..picked(QueueState::default(), &[1, 3, 4, 7])
+                })
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Selection range",
+            "`v` at row 3 and five rows of motion: an open range, which is a selection like any other until `v` closes it",
+            || {
+                let state = QueueState {
+                    cursor: 2,
+                    ..QueueState::default()
+                };
+                let projection = state::project_indices(&fixture::ROWS, &state);
+                let state = state.toggle_range(&projection);
+                queue(state.moved(crate::motion::Motion::Down, 5, 10, &projection))
+            },
+            None,
+        )),
+        Box::new(Variant(
+            "Selection under modal",
+            "The same four rows beneath a modal: a selection is a highlight, so its wash and its bar go quiet with everything else",
+            || {
+                queue(QueueState {
+                    cursor: 3,
+                    ..picked(QueueState::default(), &[1, 3, 4, 7])
+                })
+                .under_modal(true)
             },
             None,
         )),

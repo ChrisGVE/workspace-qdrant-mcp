@@ -65,6 +65,22 @@ pub const MARGIN: u16 = 2;
 /// A row inset by [`MARGIN`] on both sides.
 ///
 /// Everything except the rules, which underline the whole screen and so run edge to edge.
+/// [`inset`], with one column of the LEFT margin handed back.
+///
+/// For a pane that draws a gutter mark beside its content — today the list's selection bar
+/// ([`crate::panes::list::GUTTER`]). The mark then sits in the margin rather than in a column
+/// of the table, so the content still begins on [`MARGIN`] and lines up with every other
+/// screen. Chris removed a permanent two-column gutter on 2026-09-07 to regain the width; this
+/// is what stops a selection quietly handing the bill back.
+pub fn with_gutter(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    let inner = inset(area);
+    ratatui::layout::Rect {
+        x: inner.x - crate::panes::list::GUTTER,
+        width: inner.width + crate::panes::list::GUTTER,
+        ..inner
+    }
+}
+
 pub fn inset(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
     ratatui::layout::Rect {
         x: area.x + MARGIN,

@@ -3,18 +3,20 @@
 use super::*;
 use crate::motion::Motion;
 
-/// The `No` values a projection shows, counted through [`state::project`] — the one producer of
-/// the projection — so the guard reads the same rows the frames draw, not a copy of them.
+/// The projection this state draws, as the buffer index of each row — read through
+/// [`state::project_indices`], the one producer of the order, so the guard moves over the same
+/// rows the frames draw rather than over a copy of them.
 ///
-/// The number is POSITIONAL (Chris, 2026-09-08): it is the row's place from the top of what is
-/// displayed, so this is the projection's length counted off rather than a field read off a row.
-fn nos(state: &QueueState) -> Vec<u16> {
-    (1..=state::project(&fixture::ROWS, state).len() as u16).collect()
+/// The row NUMBER is positional (Chris, 2026-09-08), so it is the position in this list plus
+/// one and there is nothing else to hold; what a motion needs to be handed is the identity of
+/// each drawn row, which is what this is.
+fn rows(state: &QueueState) -> Vec<usize> {
+    state::project_indices(&fixture::ROWS, state)
 }
 
 #[test]
 fn moved_clamps_the_cursor_at_both_ends() {
-    let numbers = nos(&QueueState::default());
+    let numbers = rows(&QueueState::default());
     let last = numbers.len() - 1;
 
     assert_eq!(
@@ -38,7 +40,7 @@ fn moved_clamps_the_cursor_at_both_ends() {
 
 #[test]
 fn paging_moves_by_the_number_of_visible_rows() {
-    let numbers = nos(&QueueState::default());
+    let numbers = rows(&QueueState::default());
 
     assert_eq!(
         QueueState::default()
@@ -65,7 +67,7 @@ fn top_and_bottom_ignore_the_count() {
         cursor: 7,
         ..QueueState::default()
     };
-    let numbers = nos(&state);
+    let numbers = rows(&state);
 
     assert_eq!(state.moved(Motion::Top, 9, 10, &numbers).cursor, 0);
     assert_eq!(
@@ -76,7 +78,7 @@ fn top_and_bottom_ignore_the_count() {
 
 #[test]
 fn row_places_the_cursor_on_the_row_at_that_position() {
-    let numbers = nos(&QueueState::default());
+    let numbers = rows(&QueueState::default());
 
     // The number is the row's PLACE (Chris, 2026-09-08), so `<n>g` counts from the top of what is
     // displayed: row 1 is the first line, row 200 the last.
@@ -101,11 +103,11 @@ fn row_past_the_end_of_the_projection_leaves_the_cursor_where_it_was() {
     // A selector narrows to the three failed rows, which are therefore rows 1, 2 and 3. A `<n>g`
     // naming a row past the end must not move the cursor — there is no such line, and moving to
     // the nearest one would look like the row was found.
-    let numbers = nos(&QueueState {
+    let numbers = rows(&QueueState {
         status: Some(Status::Failed),
         ..QueueState::default()
     });
-    assert_eq!(numbers, vec![1, 2, 3], "the filtered projection is renumbered");
+    assert_eq!(numbers.len(), 3, "the selector leaves three rows");
 
     let state = QueueState {
         status: Some(Status::Failed),

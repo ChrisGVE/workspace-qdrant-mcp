@@ -15,6 +15,14 @@ use crate::panes::cell::table::COLUMN_GAP;
 use crate::panes::cell::{Cell, Column, Sort, EMPTY};
 use crate::tokens;
 
+/// The selection gutter: one column, at the left of whatever area the pane is given.
+///
+/// One, not two — it holds [`crate::tokens::SELECTED_BAR`], which is a half-block and needs no
+/// separator after it. The caller supplies it out of its own margin
+/// ([`crate::widgets::chrome::with_gutter`]), so the table's columns are exactly as wide as
+/// they were before a selection existed.
+pub const GUTTER: u16 = 1;
+
 /// A full-width sortable list. See the module docs for how it differs from a Dashboard cell.
 pub struct ListPane {
     /// The list's columns. The FIRST is the row-number column — untitled, on the left, and
@@ -43,6 +51,12 @@ pub struct ListPane {
     /// position. Off by default, and a still frame rather than a key handling: the `r` key the
     /// live screen binds for it is not this crate's to press.
     relative: bool,
+    /// Which drawn rows are selected, by their position in [`ListPane::rows`].
+    ///
+    /// Positions rather than row identities: by the time a pane exists the projection is fixed,
+    /// so the caller — which knows what a row IS — has already answered the hard half. See
+    /// [`crate::views::queue::Selection`], which is where a selection survives a narrowing.
+    selected: Vec<bool>,
 }
 
 impl ListPane {
@@ -55,6 +69,7 @@ impl ListPane {
             sort: None,
             more: false,
             relative: false,
+            selected: Vec::new(),
         }
     }
 
@@ -64,6 +79,22 @@ impl ListPane {
     pub fn relative(mut self, on: bool) -> Self {
         self.relative = on;
         self
+    }
+
+    /// Mark rows as selected, by their position in the rows this pane was given.
+    ///
+    /// Call it AFTER [`ListPane::sorted`] or not at all: a sort reorders the rows, and a mark
+    /// stated against the order before it would land on other rows. The frame builder does
+    /// exactly that, which is why nothing here tries to defend it — a pane cannot tell a stale
+    /// position from a fresh one.
+    pub fn selected(mut self, selected: Vec<bool>) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    /// Whether the row at `index` wears the selection.
+    fn is_selected(&self, index: usize) -> bool {
+        self.selected.get(index).copied().unwrap_or(false)
     }
 
     /// Put the data cursor on a line. Clamped on render rather than here, so a caller that
@@ -273,6 +304,25 @@ fn paint_cursor(row: Rect, buf: &mut Buffer) {
     buf.set_style(row, Style::default().bg(tokens::cursor_bg()));
 }
 
+/// Mark `row` as selected: the wash across its width, and the bar in the gutter column.
+///
+/// Chris, 2026-09-07, ruling 10 — and **the cursor is unchanged**, which is why this is painted
+/// BEFORE the cursor tint and why the bar is drawn whether or not a wash was available. A row
+/// that is both selected and under the cursor therefore keeps the cursor's own fill and still
+/// carries the bar, so the two marks answer different questions rather than competing for one
+/// cell.
+fn paint_selected(gutter: Rect, row: Rect, buf: &mut Buffer) {
+    if let Some(fill) = tokens::selected_bg() {
+        buf.set_style(row, Style::default().bg(fill));
+    }
+    buf.set_string(
+        gutter.x,
+        gutter.y,
+        tokens::SELECTED_BAR.to_string(),
+        Style::default().fg(tokens::selected()),
+    );
+}
+
 impl Widget for ListPane {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // A list without its number column is malformed — the first column is the number, and
@@ -280,24 +330,43 @@ impl Widget for ListPane {
         if area.is_empty() || area.height == 0 || self.columns.is_empty() {
             return;
         }
+        // The first column of the given area is the SELECTION GUTTER and belongs to no column
+        // of the table: the caller hands over one column of its own margin
+        // ([`crate::widgets::chrome::with_gutter`]), so a selection bar costs the table nothing.
+        // Chris removed a permanent two-column data-cursor gutter on 2026-09-07 to regain the
+        // width; this must not quietly hand the bill back.
+        let table = Rect {
+            x: area.x + GUTTER,
+            width: area.width.saturating_sub(GUTTER),
+            ..area
+        };
         let constraints: Vec<Constraint> = self.columns.iter().map(|c| c.width).collect();
         let columns = Layout::horizontal(constraints)
             .spacing(COLUMN_GAP)
-            .split(Rect { height: 1, ..area });
-        self.header(area, &columns, buf);
+            .split(Rect { height: 1, ..table });
+        self.header(table, &columns, buf);
 
         if self.rows.is_empty() {
             Paragraph::new(Line::from(Span::styled(EMPTY, tokens::faint_style())))
-                .render(line(area, 1), buf);
+                .render(line(table, 1), buf);
             return;
         }
 
+        let gutter = Rect {
+            width: GUTTER,
+            ..area
+        };
         let body = area.height.saturating_sub(1) as usize;
         let offset = self.window(body);
         let at = self.at();
 
         for (i, index) in (offset..self.lines()).take(body).enumerate() {
-            let row = line(area, 1 + i as u16);
+            let row = line(table, 1 + i as u16);
+            // The selection first, the cursor over it: the cursor is unchanged by a selection
+            // (ruling 10), so where both land on one row the cursor's fill is what shows.
+            if self.is_selected(index) {
+                paint_selected(line(gutter, 1 + i as u16), row, buf);
+            }
             if index == at {
                 paint_cursor(row, buf);
             }
@@ -345,6 +414,7 @@ impl Widget for ListPane {
                         tokens::muted_style(),
                     )))
                     .render(row, buf);
+
                 }
             }
         }

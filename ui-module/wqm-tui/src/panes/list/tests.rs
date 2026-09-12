@@ -33,15 +33,23 @@ fn rows(n: usize) -> Vec<Vec<Cell>> {
         .collect()
 }
 
+/// Render into a `width`-wide TABLE, with the selection gutter beside it.
+///
+/// The pane takes its first column for the gutter ([`super::GUTTER`]), which the caller hands
+/// over out of its own margin. So the area is one wider than the width asked for and the buffer
+/// is read one column in — a guard measuring the table's columns should state the table's
+/// width, not remember to add one every time.
 fn render(pane: ListPane, width: u16, height: u16) -> Buffer {
-    let area = Rect::new(0, 0, width, height);
+    let area = Rect::new(0, 0, width + super::GUTTER, height);
     let mut buf = Buffer::empty(area);
     pane.render(area, &mut buf);
     buf
 }
 
+/// One drawn line of the TABLE — the gutter column dropped, so a guard reads the columns it
+/// stated rather than an offset it has to remember.
 fn text(buf: &Buffer, y: u16) -> String {
-    (0..buf.area.width)
+    (super::GUTTER..buf.area.width)
         .map(|x| buf.cell((x, y)).expect("cell in area").symbol())
         .collect::<String>()
         .trim_end()
@@ -126,7 +134,7 @@ fn a_header_span_is_italic_not_bold_while_its_sort_key_is_accent_and_bold() {
     );
 
     // `Object`: the `b` is the sort key, so the leading `O` is header text and the `b` is the key.
-    let rest = buf.cell((0, 0)).expect("cell in area").style();
+    let rest = buf.cell((super::GUTTER, 0)).expect("cell in area").style();
     assert_eq!(
         rest.fg,
         Some(tokens::header()),
@@ -135,7 +143,7 @@ fn a_header_span_is_italic_not_bold_while_its_sort_key_is_accent_and_bold() {
     assert!(rest.add_modifier.contains(Modifier::ITALIC), "the header is italic");
     assert!(!rest.add_modifier.contains(Modifier::BOLD), "the header is not bold");
 
-    let key = buf.cell((1, 0)).expect("cell in area").style();
+    let key = buf.cell((super::GUTTER + 1, 0)).expect("cell in area").style();
     assert_eq!(key.fg, Some(tokens::accent()), "the sort key is the accent hue");
     assert!(key.add_modifier.contains(Modifier::BOLD), "the sort key is bold");
     assert!(
@@ -159,7 +167,8 @@ fn the_cursor_sits_on_any_row_and_the_list_scrolls_the_minimum_to_keep_it_visibl
     let tinted = |buf: &Buffer| -> Vec<u16> {
         (0..HEIGHT)
             .filter(|y| {
-                buf.cell((0, *y)).expect("cell in area").style().bg == Some(tokens::cursor_bg())
+                buf.cell((super::GUTTER, *y)).expect("cell in area").style().bg
+                    == Some(tokens::cursor_bg())
             })
             .collect()
     };
@@ -278,7 +287,10 @@ fn the_load_more_line_reads_its_numbers_and_takes_the_cursor_like_a_row() {
         "{last:?}"
     );
     assert_eq!(
-        buf.cell((0, HEIGHT - 1)).expect("cell in area").style().bg,
+        buf.cell((super::GUTTER, HEIGHT - 1))
+            .expect("cell in area")
+            .style()
+            .bg,
         Some(tokens::cursor_bg()),
         "the offer takes the cursor tint like any other line"
     );

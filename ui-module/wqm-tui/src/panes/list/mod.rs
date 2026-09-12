@@ -45,7 +45,7 @@ pub mod ingredient;
 #[cfg(test)]
 mod tests;
 
-pub use table::ListPane;
+pub use table::{ListPane, GUTTER};
 
 /// How many rows a list holds in memory at once — the **buffer page**.
 ///

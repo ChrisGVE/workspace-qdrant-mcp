@@ -5,7 +5,7 @@
 //! for exactly as long as they were wrong in the same way.
 
 use super::fixture::{QueueRow, ROWS};
-use super::state::{project, QueueState};
+use super::state::{project_indices, QueueState};
 use crate::panes::cell::{Cell, Column};
 use crate::panes::list::{ListPane, LIST_PAGE};
 
@@ -122,7 +122,8 @@ pub fn pane(state: &QueueState) -> ListPane {
 /// means the filter found everything there was. The pane then applies its own half of the rule
 /// ([`crate::panes::list::ListPane::shows_load_more`]) — two facts, neither sufficient alone.
 pub fn pane_over(buffer: &[QueueRow], state: &QueueState) -> ListPane {
-    let rows = project(buffer, state);
+    let indices = project_indices(buffer, state);
+    let rows: Vec<&QueueRow> = indices.iter().map(|at| &buffer[*at]).collect();
     let full = rows.len() == LIST_PAGE;
     let mut pane = ListPane::new(columns(), rows.iter().map(|row| cells(row)).collect())
         .more(full)
@@ -131,5 +132,42 @@ pub fn pane_over(buffer: &[QueueRow], state: &QueueState) -> ListPane {
     if let Some(sort) = state.sort {
         pane = pane.sorted(sort);
     }
-    pane
+    // AFTER the sort, and that is not an ordering preference: a sort reorders the pane's rows,
+    // so a mark stated before it would land on other rows. The marks are positions; the
+    // selection they come from names rows in the BUFFER, which is what survives the narrowing.
+    pane.selected(
+        sorted_indices(buffer, &indices, state)
+            .iter()
+            .map(|at| state.selection.contains(*at))
+            .collect(),
+    )
+}
+
+/// The buffer indices in the order the PANE will draw them — the projection, then the sort the
+/// pane applies to it.
+///
+/// The sort is re-derived here rather than read off the pane because the pane holds cells, not
+/// identities: it knows which row is third, not which row that is. Both go through the same
+/// comparison ([`crate::panes::cell::sort::compare`]) over the same cells, so the two orders
+/// agree by construction rather than by luck — and a guard checks that they do.
+fn sorted_indices(buffer: &[QueueRow], indices: &[usize], state: &QueueState) -> Vec<usize> {
+    let Some(sort) = state.sort else {
+        return indices.to_vec();
+    };
+    let mut order = indices.to_vec();
+    let column = cell_at(sort.column);
+    order.sort_by(|a, b| {
+        let (left, right) = (cells(&buffer[*a]), cells(&buffer[*b]));
+        let ordering = match (left.get(column), right.get(column)) {
+            (Some(a), Some(b)) => crate::panes::cell::sort::compare(a, b),
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        };
+        match sort.direction {
+            crate::panes::cell::Direction::Asc => ordering,
+            crate::panes::cell::Direction::Desc => ordering.reverse(),
+        }
+    });
+    order
 }

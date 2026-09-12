@@ -15,6 +15,7 @@ mod help;
 mod layout;
 mod motion;
 mod numbers;
+mod selection;
 mod sort;
 
 pub(super) const WIDE: u16 = 125;
