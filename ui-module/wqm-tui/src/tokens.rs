@@ -60,11 +60,14 @@ use ratatui_themes::ThemePalette;
 use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
 
+pub mod field;
 pub mod modal;
 mod modal_tint;
 
 pub use modal::{under_modal, ModalScope};
-pub use modal_tint::{modal_border, modal_fill, ModalTint};
+pub use modal_tint::{
+    modal_border, modal_fill, set_tint_strength, tint_strength, ModalTint, DEFAULT_TINT_STRENGTH,
+};
 
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -315,7 +318,6 @@ fn neutral(percent: u8) -> Color {
     }
 }
 
-
 /// The ladder as a **straight chord** between two endpoints.
 ///
 /// What every source but [`Palette::Bundled`] gets, because two endpoints is all they have:
@@ -364,17 +366,15 @@ fn along_curve(percent: u8, theme: &ThemePalette) -> Color {
 
     // Past the last anchor there is nothing to interpolate toward, so `strong` continues along
     // the ladder's overall axis — see `into_gamut` for what stops it from turning warm.
-    let (base, target, span_start, span_len) = match anchors
-        .windows(2)
-        .find(|w| p >= w[0].0 && p <= w[1].0)
-    {
-        Some(w) => (w[0].1, w[1].1, w[0].0, w[1].0 - w[0].0),
-        None => {
-            let first = anchors[0];
-            let last = anchors[anchors.len() - 1];
-            (first.1, last.1, first.0, last.0 - first.0)
-        }
-    };
+    let (base, target, span_start, span_len) =
+        match anchors.windows(2).find(|w| p >= w[0].0 && p <= w[1].0) {
+            Some(w) => (w[0].1, w[1].1, w[0].0, w[1].0 - w[0].0),
+            None => {
+                let first = anchors[0];
+                let last = anchors[anchors.len() - 1];
+                (first.1, last.1, first.0, last.0 - first.0)
+            }
+        };
 
     let t = if span_len > 0.0 {
         (p - span_start) / span_len
@@ -542,7 +542,6 @@ pub(crate) fn lab(colour: Color) -> (f32, f32, f32) {
     (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
 }
 
-
 /// Both ends of the ladder are the theme's own colours, exactly, on every theme.
 ///
 /// [`screen_bg`] returns `bg` and [`normal`] returns `fg`, and both are *documented* as
@@ -560,7 +559,11 @@ fn the_ladder_still_begins_and_ends_exactly_on_the_themes_own_anchors() {
     for name in ratatui_themes::ThemeName::all() {
         let theme = name.palette();
         set_theme(theme);
-        assert_eq!(neutral(0), theme.bg, "{name:?}: rung 0 is not the background");
+        assert_eq!(
+            neutral(0),
+            theme.bg,
+            "{name:?}: rung 0 is not the background"
+        );
         assert_eq!(
             neutral(NORMAL_RUNG),
             theme.fg,
@@ -602,11 +605,7 @@ fn strong_stays_on_the_themes_own_axis_rather_than_clamping_toward_warm() {
         let top = strong();
         let (bg, fg, top_ch) = (channels(theme.bg), channels(theme.fg), channels(top));
         let axis = [fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]];
-        let reached = [
-            top_ch[0] - bg[0],
-            top_ch[1] - bg[1],
-            top_ch[2] - bg[2],
-        ];
+        let reached = [top_ch[0] - bg[0], top_ch[1] - bg[1], top_ch[2] - bg[2]];
 
         // Colinearity: the cross product of the two offsets is zero when `strong` lies on
         // the axis. Scaled by the axis length so the tolerance means the same on a theme
@@ -1404,7 +1403,11 @@ mod tests {
             selected(),
             "the cursor's block is the hue the selection used to wear — that is the inversion"
         );
-        assert_eq!(selection_bg(), neutral(19), "the selection's tint is rung 19");
+        assert_eq!(
+            selection_bg(),
+            neutral(19),
+            "the selection's tint is rung 19"
+        );
         assert!(
             delta_e(cursor_bg(), selection_bg()) > 5.0,
             "the two row marks are within a just-noticeable difference of each other, which is \
@@ -1425,10 +1428,18 @@ mod tests {
             let _restore = Restore::set(Palette::Bundled, Encoding::TrueColor);
             assert_eq!(cursor_fg(), Some(selector_fg()));
             let _modal = ModalScope::enter();
-            assert_eq!(cursor_fg(), None, "a modal took the fill and the text went with it");
+            assert_eq!(
+                cursor_fg(),
+                None,
+                "a modal took the fill and the text went with it"
+            );
         }
         let _restore = Restore::set(Palette::Theme, Encoding::NoColor);
-        assert_eq!(cursor_fg(), None, "there is no fill to invert against without colour");
+        assert_eq!(
+            cursor_fg(),
+            None,
+            "there is no fill to invert against without colour"
+        );
     }
 
     /// A selection is a highlight, so a modal takes it away with every other colour (VL §6).
