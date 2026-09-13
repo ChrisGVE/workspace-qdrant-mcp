@@ -180,24 +180,60 @@ fn a_drilled_in_view_drops_the_column_it_was_pinned_by() {
 fn the_dropped_width_goes_to_the_column_the_reader_is_reading() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let long = |cells: &[Vec<Cell>]| {
-        cells
-            .iter()
-            .map(|row| row[1].plain().chars().count())
+
+    // A path far too long for either arm, so BOTH elide it and the question becomes *how
+    // much* survives rather than *whether* it does. With a path that happens to fit, this
+    // test passes whatever the column policy does — which is what the first version of it
+    // did: it asserted the path was present, which is the row's NAME, not its geometry.
+    const PATH: &str =
+        "book_building/common/stage_b/generated/reading_guide_variants/VARIANTS_expanded.md";
+    let long_row = || {
+        vec![
+            Cell::Text("open-books".into()),
+            Cell::Text(PATH.into()),
+            Cell::Text("pending".into()),
+        ]
+    };
+    let with_long_path = |show_pinned: bool| {
+        TableView::new(columns(), vec![long_row()])
+            .pinned(Pin::new(TENANT, "open-books"))
+            .show_pinned_column(show_pinned)
+    };
+
+    // How much of the path survived, read off the rendered row: the longest PREFIX of it
+    // still on screen.
+    //
+    // A prefix and not a suffix, and that was worth rendering to find out. A plain
+    // `Column::flex` elides from the right; the Queue's own `Object` adds `.elide_left()`
+    // because the end of a path is the file — but that is the Queue's choice, not this
+    // policy's, and this fixture keeps the default. The first version of this measurement
+    // searched for the wrong end and reported one character for both arms.
+    let visible_path = |show_pinned: bool| {
+        let drawn = screen(with_long_path(show_pinned));
+        let row = drawn.lines().nth(1).expect("the one data row").to_string();
+        (1..=PATH.chars().count())
+            .filter(|n| {
+                let head: String = PATH.chars().take(*n).collect();
+                row.contains(&head)
+            })
             .max()
             .unwrap_or(0)
     };
-    let _ = long(&rows());
-    let dropped = screen(view());
-    let shown = screen(view().show_pinned_column(true));
-    // The same path, drawn with more of it visible once the pinned column is gone.
+
+    let dropped = visible_path(false);
+    let shown = visible_path(true);
     assert!(
-        dropped.contains("stage_b/reading_guide.py"),
-        "the path should be whole once the width is freed:\n{dropped}"
+        shown > 0 && dropped > shown,
+        "dropping the pinned column must hand its width to the flex column: {dropped} \
+         characters of the path visible with it dropped, {shown} with it shown"
     );
+    // …and the width handed over is the pinned column's own, give or take the gap between
+    // columns. Stated as a floor rather than an equality so a change to the inter-column gap
+    // does not fail a test about column policy.
     assert!(
-        shown.len() == dropped.len(),
-        "both are the same screen size"
+        dropped - shown >= 18,
+        "only {} characters were handed over; the Tenant column is 20 wide",
+        dropped - shown
     );
 }
 
