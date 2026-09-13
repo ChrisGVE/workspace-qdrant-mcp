@@ -411,6 +411,49 @@ fn the_adversarial_theme_frame_shows_the_thin_ladder_it_claims_to() {
     );
 }
 
+/// **A frame does not depend on the ambient terminal endpoints**, which is what lets the PNG
+/// generator drop the env pair it used to need.
+///
+/// Under a bundled theme the ladder is built between the THEME's background and foreground, so
+/// `tokens::set_endpoints` — what `WQM_TUI_TERM_BG`/`FG` reach — should change nothing at all.
+/// Stated as a render: the same frame drawn against two wildly different ambient endpoints has
+/// to come out the same buffer.
+///
+/// It is the claim `examples/frame_png`'s module docs now make, and a doc claiming a
+/// measurement should fail with the measurement rather than quietly outlive it.
+#[test]
+fn a_themed_frame_ignores_the_terminals_own_endpoints() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let ambient = tokens::endpoints();
+
+    let render_against = |background, foreground| {
+        tokens::set_endpoints(crate::terminal::Endpoints {
+            background,
+            foreground,
+        });
+        draw(SCREEN, |area, buf| {
+            RecordFrame::default().draw(area, buf);
+        })
+    };
+
+    let black_on_white = render_against(
+        crate::terminal::Rgb::new(0, 0, 0),
+        crate::terminal::Rgb::new(0xff, 0xff, 0xff),
+    );
+    let mocha = render_against(
+        crate::terminal::Rgb::new(0x1e, 0x1e, 0x2e),
+        crate::terminal::Rgb::new(0xcd, 0xd6, 0xf4),
+    );
+    tokens::set_endpoints(ambient);
+
+    assert_eq!(
+        black_on_white, mocha,
+        "the ambient endpoints reached a themed frame, so the env pair still decides what the \
+         ladder is built between"
+    );
+}
+
 /// Every frame survives the encodings Chris may be reading them in, and the SET mark survives
 /// with them — which is why the underline is in.
 #[test]

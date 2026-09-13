@@ -163,8 +163,15 @@ pub struct RecordFrame {
     pub cursor_extent: CursorExtent,
     /// Draw the REJECTED arm A — the fill with no underline. **Evidence only**: see
     /// [`super::record::RecordView::rejected_arm_a`] for why A is not a shipping option, and
-    /// use `with_theme` to render it on the theme that decides the question rather than on the
-    /// roomy one the harness paints with.
+    /// use [`with_theme`] to render it on the theme that decides the question rather than on
+    /// the roomy one the harness paints with.
+    ///
+    /// ⚠ **The polarity reads backwards at a glance and is worth reading twice.** `true` draws
+    /// the arm that was THROWN OUT; the shipping frame is `false`. Every other flag on this
+    /// struct turns something on, and this one turns the SET mark off — which is how the first
+    /// version of `the_two_field_background_arms_differ_by_the_underline` came to assert the
+    /// exact opposite of what it meant. The test went red, but that was luck rather than
+    /// design, so the trap is written down here where the field is.
     pub arm_a: bool,
     pub offset: usize,
     /// Drawn as an empty record — the state the first round of frames did not show.

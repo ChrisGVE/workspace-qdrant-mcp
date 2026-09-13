@@ -2,16 +2,25 @@
 //!
 //! ```bash
 //! cargo run -p wqm-tui --features png-capture --example frame_png -- out/
-//! WQM_TUI_TERM_BG=#1e1e2e WQM_TUI_TERM_FG=#cdd6f4 \
-//!   cargo run -p wqm-tui --features png-capture --example frame_png -- out/
 //! ```
 //!
-//! The env pair matters more here than anywhere else in the crate. `Palette::Derived`
-//! interpolates between the terminal's own background and foreground, and this process has
-//! no terminal to ask — so without them every neutral is generated against the black-to-white
-//! fallback rather than against the theme the storyboard is judged on. Setting them is how a
-//! capture becomes reproducible *and* representative; leaving them off produces a valid frame
-//! of the wrong ladder.
+//! # `WQM_TUI_TERM_BG` / `WQM_TUI_TERM_FG` no longer change a single frame, and that is new
+//!
+//! They used to be the load-bearing thing here. `Palette::Derived` interpolates the neutral
+//! ladder between the terminal's own background and foreground, this process has no terminal
+//! to ask, and without the pair every rung was generated against the black-to-white fallback —
+//! so leaving them off produced a valid frame of the wrong ladder.
+//!
+//! That stopped being true when this example started stating its own theme (below). Under
+//! `Palette::Bundled` the ladder is built between the THEME's background and foreground
+//! (`tokens::ladder_endpoints`), and `capture` paints its ground from the same place, so
+//! nothing in the render path consults the ambient endpoints at all. **Measured: every frame
+//! this example writes is byte-identical with the pair set and with it unset.**
+//!
+//! Keeping the theme here rather than the env pair is the better of the two anyway — a
+//! reproducible capture should not depend on a variable the person running it has to remember,
+//! and a frame of *the wrong ladder* is precisely the failure that cannot be seen by looking
+//! at the frame.
 //!
 //! Read the output for layout, weight, glyph and neutral fidelity. Not for hue —
 //! `wqm_tui::capture`'s module docs give the measured reason.
