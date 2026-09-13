@@ -132,7 +132,9 @@ impl View {
         }
     }
 
-    fn render(&self, area: Rect, buf: &mut Buffer) {
+    /// Draw the view into `area` — public because the slide renders a view into an off-screen
+    /// buffer of its own before blitting it.
+    pub fn render_into(&self, area: Rect, buf: &mut Buffer) {
         match self {
             View::Record(record) => record.view().render(area, buf),
             View::Table(table) => table.pane().render(area, buf),
@@ -320,7 +322,7 @@ impl Stack {
         }
         let viewport = container.viewport(rect);
         container.render(rect, buf);
-        top.view.render(viewport, buf);
+        top.view.render_into(viewport, buf);
 
         if self.guard {
             discard_guard().render(rect, buf);

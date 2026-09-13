@@ -96,7 +96,12 @@ pub fn columns() -> Vec<Column> {
 /// `381 KB` and `460 B`. Both printed forms come from [`crate::format`] — the row carries the
 /// magnitude alone, so the column cannot show a figure the sort disagrees with. `Status` is [`Cell::Tinted`] because its hue is the fact — the same
 /// three hues the status block gives its own counts.
-fn cells(row: &QueueRow) -> Vec<Cell> {
+///
+/// Public because a drilled-in window builds the same rows
+/// ([`crate::views::modal_framework`]): a table reached by drilling into a library IS the
+/// Queue's table, so it has to be built from the Queue's own projection rather than from a
+/// second one that could come to disagree with it.
+pub fn cells(row: &QueueRow) -> Vec<Cell> {
     vec![
         Cell::Text(row.kind.letter().to_string()),
         Cell::Text(row.tenant.to_string()),

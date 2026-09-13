@@ -9,6 +9,9 @@
 //! Queue tab itself is the same view under a different trail. What differs between the two is
 //! the decoration wrapped around it, which is exactly why the decoration is a separate thing.
 
+pub mod frames;
+#[cfg(feature = "tui-pantry")]
+pub mod ingredient;
 pub mod record;
 pub mod stack;
 pub mod table;

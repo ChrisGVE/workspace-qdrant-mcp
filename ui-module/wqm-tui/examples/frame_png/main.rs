@@ -21,9 +21,9 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use wqm_tui::capture::capture;
+use wqm_tui::panes::collections::Collections;
 use wqm_tui::terminal;
 use wqm_tui::tokens;
-use wqm_tui::panes::collections::Collections;
 use wqm_tui::widgets::{
     config_table::{ConfigTable, Edit, Entry, Focus, Row, UNSET},
     daemon_status::DaemonPanel,
@@ -115,6 +115,380 @@ fn config_rows() -> Vec<Row> {
 /// The entry index of `watcher / Debounce [ms]` — the key the frame edits.
 const DEBOUNCE: usize = 2;
 
+/// The storyboard's screen, and the floor Chris named. Every modal-framework frame is a WHOLE
+/// screen at one of these two: a window judged on an empty buffer is judged against nothing,
+/// and *"is this window washed out and sad"* only has an answer over the page it covers.
+const SCREEN: (u16, u16) = (125, 34);
+const FLOOR: (u16, u16) = (100, 30);
+
+/// The modal framework's frames — round 1's deliverable.
+///
+/// The storyboard IS the product: a feature whose frame cannot be produced is not done, which
+/// is why these are generated from the same `Ingredient::render` the pantry browses rather
+/// than from a second path that could drift from it.
+fn modal_framework_frames() -> Vec<Frame> {
+    use wqm_tui::views::modal_framework::frames as mf;
+    use wqm_tui::views::modal_framework::record::{CursorExtent, Mode, Reference, Scheme};
+    use wqm_tui::widgets::edit_field::Edit;
+    use wqm_tui::widgets::modal_frame::Footprint;
+
+    /// The gate's proposal, in force for every frame but the brackets.
+    fn proposed(draw: impl FnOnce()) {
+        mf::with_tint(tokens::ModalTint::Accent, mf::PROPOSED_WASH, draw);
+    }
+
+    fn editing() -> Mode {
+        Mode::Edit {
+            at: 6,
+            edit: Some(Edit::insert("256")),
+        }
+    }
+
+    let mut frames: Vec<Frame> = Vec::new();
+    let mut add = |name: &'static str, size: (u16, u16), draw: Box<dyn Fn(&mut ratatui::Frame)>| {
+        frames.push((name, size.0, size.1, draw));
+    };
+
+    add(
+        "mf-01-record-view",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame::default().draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-02-record-edit",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame::view(editing()).draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-03-record-scrolled",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    offset: 5,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-04-record-empty",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    empty: true,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-05-table-in-modal",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::table_frame(area, f.buffer_mut(), false);
+            });
+        }),
+    );
+    add(
+        "mf-06-table-empty",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::empty_table_frame(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-07-slide-t00",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| mf::slide_frame(area, f.buffer_mut(), 0.0));
+        }),
+    );
+    add(
+        "mf-07-slide-t05",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| mf::slide_frame(area, f.buffer_mut(), 0.5));
+        }),
+    );
+    add(
+        "mf-07-slide-t10",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| mf::slide_frame(area, f.buffer_mut(), 1.0));
+        }),
+    );
+    add(
+        "mf-08-confirm-over-window",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::confirm_frame(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-09-dropdown-open",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::dropdown_frame(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-10-help",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::help_frame(area, f.buffer_mut());
+            });
+        }),
+    );
+
+    // The A/B pairs the gate keeps for Chris's look.
+    add(
+        "mf-11-footprint-A-literal",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    footprint: Footprint::HelpDerived,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-11-footprint-B-framework",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame::default().draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    for (name, tint, strength) in [
+        ("mf-12-tint-neutral", tokens::ModalTint::Neutral, 0.28f32),
+        ("mf-12-tint-blue-014", tokens::ModalTint::Accent, 0.14),
+        ("mf-12-tint-blue-028", tokens::ModalTint::Accent, 0.28),
+        ("mf-12-tint-blue-040", tokens::ModalTint::Accent, 0.40),
+        ("mf-12-tint-lavender", tokens::ModalTint::Selected, 0.28),
+    ] {
+        add(
+            name,
+            SCREEN,
+            Box::new(move |f: &mut ratatui::Frame| {
+                let area = f.area();
+                mf::with_tint(tint, strength, || {
+                    mf::RecordFrame::default().draw(area, f.buffer_mut());
+                });
+            }),
+        );
+    }
+    add(
+        "mf-12-fallback-neutral-window-washed-form",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            mf::with_tint(tokens::ModalTint::Neutral, mf::PROPOSED_WASH, || {
+                mf::RecordFrame {
+                    mode: editing(),
+                    scheme: Scheme::AccentWash,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-13-edit-fields-A",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    mode: editing(),
+                    underlined: false,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-13-edit-fields-Aplus",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    mode: editing(),
+                    underlined: true,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-13-edit-fields-C",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    mode: editing(),
+                    scheme: Scheme::SelectionDerived,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-14-third-column-A-text",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    reference: Reference::Text("DEFAULT"),
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-14-third-column-B-band",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame::default().draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-14-third-column-none",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    reference: Reference::None,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-15-cursor-band-A-full-row",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    mode: Mode::View { at: 6 },
+                    cursor_extent: CursorExtent::FullRow,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-15-cursor-band-B-to-value",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame {
+                    mode: Mode::View { at: 6 },
+                    cursor_extent: CursorExtent::ToValue,
+                    ..mf::RecordFrame::default()
+                }
+                .draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-16-table-pinned-shown",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::table_frame(area, f.buffer_mut(), true);
+            });
+        }),
+    );
+    add(
+        "mf-16-table-pinned-dropped",
+        SCREEN,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::table_frame(area, f.buffer_mut(), false);
+            });
+        }),
+    );
+
+    // The floor, where every argument about room has to hold too.
+    add(
+        "mf-17-floor-record",
+        FLOOR,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::RecordFrame::default().draw(area, f.buffer_mut());
+            });
+        }),
+    );
+    add(
+        "mf-17-floor-table",
+        FLOOR,
+        Box::new(|f: &mut ratatui::Frame| {
+            let area = f.area();
+            proposed(|| {
+                mf::table_frame(area, f.buffer_mut(), false);
+            });
+        }),
+    );
+
+    frames
+}
+
 fn main() {
     let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".to_string()));
     if let Err(e) = std::fs::create_dir_all(&out) {
@@ -142,6 +516,23 @@ fn main() {
              WQM_TUI_TERM_FG to capture against a real theme."
         ),
     }
+
+    // **The bundled theme has to be in force, or every hue falls back to an ANSI slot.**
+    //
+    // `tokens::active_theme` answers `None` for every source but `Palette::Bundled` — a theme
+    // that has been *chosen* is not a theme that is *in force* — so without these two lines
+    // `modal_border()` resolves to `Color::Magenta`, `Rgb::from_color` cannot read a slot, and
+    // `modal_fill` hands back the bare layer. Measured: the five tint frames came out
+    // byte-identical, and the existing modal frames grew a `#ff00ff` border. A capture that
+    // silently depicted the wrong palette is exactly the artifact `capture`'s module docs
+    // exist to stop producing, so the theme is stated here rather than left to whatever the
+    // process happened to be in.
+    //
+    // Catppuccin Mocha because that is what the harness paints with, what the tests pin, and
+    // what §15 made the shipping default. `Bundled` is an RGB source, so `capture`'s own
+    // RGB-only guard leaves it alone rather than overriding it with `Derived`.
+    tokens::Palette::set(tokens::Palette::Bundled);
+    tokens::set_theme(ratatui_themes::ThemeName::CatppuccinMocha.palette());
 
     let frames: Vec<Frame> = vec![
         (
@@ -399,7 +790,11 @@ fn main() {
             }),
         ),
     ];
-    let frames: Vec<Frame> = frames.into_iter().chain(gallery_frames()).collect();
+    let frames: Vec<Frame> = frames
+        .into_iter()
+        .chain(gallery_frames())
+        .chain(modal_framework_frames())
+        .collect();
 
     for (name, cols, rows, draw) in frames {
         let png = match capture(cols, rows, |f| draw(f)) {

@@ -67,6 +67,9 @@ modules = [
     # The Views tab: full-page layouts. A view composes the widgets above and the screen
     # chrome — it never renders anything of its own.
     "views::dashboard",
+    # The modal framework: whole screens, each a window over the quietened Queue page —
+    # because a window judged on an empty buffer is judged against nothing.
+    "views::modal_framework",
     "views::queue",
     "views::service",
     "views::shell",
