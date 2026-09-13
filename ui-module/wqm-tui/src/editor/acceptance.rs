@@ -4,6 +4,7 @@
 //! fed through `modalkit`'s vim table, the actions are dispatched onto a `TextBoxState`, and the
 //! text is read back. A bump of the `=0.0.27` pin that breaks one of these has changed the
 //! grammar Chris ruled on, whatever its changelog says.
+use modalkit::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modalkit::{
     actions::{Action, Editable, Jumpable, Scrollable},
     editing::{application::EmptyInfo, context::Resolve, key::KeyManager, store::Store},
@@ -13,7 +14,6 @@ use modalkit::{
 use modalkit::{key::TerminalKey, prelude::RepeatType};
 use modalkit_ratatui::textbox::{TextBox, TextBoxState};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
-use modalkit::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// The three things a field needs under it: the store, the binding machine, the buffer state.
 struct Probe {
@@ -28,14 +28,26 @@ impl Probe {
         let bindings = KeyManager::new(default_vim_keys::<EmptyInfo>());
         let mut tbox = TextBoxState::new(store.load_buffer("probe".to_string()));
         tbox.set_text(text);
-        Self { store, bindings, tbox }
+        Self {
+            store,
+            bindings,
+            tbox,
+        }
     }
 
     /// Feed keys; `\x1b` in `keys` is Escape, an ASCII uppercase letter carries SHIFT.
     fn feed(&mut self, keys: &str) {
         for ch in keys.chars() {
-            let code = if ch == '\x1b' { KeyCode::Esc } else { KeyCode::Char(ch) };
-            let mods = if ch.is_ascii_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE };
+            let code = if ch == '\x1b' {
+                KeyCode::Esc
+            } else {
+                KeyCode::Char(ch)
+            };
+            let mods = if ch.is_ascii_uppercase() {
+                KeyModifiers::SHIFT
+            } else {
+                KeyModifiers::NONE
+            };
             self.bindings.input_key(KeyEvent::new(code, mods).into());
             while let Some((act, ctx)) = self.bindings.pop() {
                 match act {
@@ -101,6 +113,8 @@ fn renders_headless_into_a_single_line_buffer() {
     let area = Rect::new(0, 0, 20, 1);
     let mut buf = Buffer::empty(area);
     TextBox::new().render(area, &mut buf, &mut p.tbox);
-    let row: String = (0..20).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+    let row: String = (0..20)
+        .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
+        .collect();
     assert_eq!(row, "X X three           ");
 }

@@ -6,7 +6,15 @@
 //! any motion or text object, counts on operators and motions, `t`/`T`/`f`/`F` with `;`/`,`, and
 //! counts composing inside visual mode (`v2t,` is valid) — and `modalkit` is the candidate that
 //! passes it without a fork. [`acceptance`] is the §E-2 probe as a test: it is what the pin in
-//! `Cargo.toml` has to keep satisfying.
+//! `Cargo.toml` has to keep satisfying. [`keymap`] owns the two binding tables;
+//! [`field`] dispatches their actions and derives the live edit snapshot. Storyboard frames
+//! construct [`crate::widgets::edit_field::Edit`] directly; a live field derives one.
+
+pub mod field;
+pub mod keymap;
+
+pub use field::{Field, Outcome};
+pub use keymap::Keymap;
 
 #[cfg(test)]
 mod acceptance;

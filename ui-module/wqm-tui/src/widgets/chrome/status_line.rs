@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use crate::tokens::Health;
     use crate::widgets::chrome::test_support::{render, row, style_at, Restore, AREA};
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
 
     /// The roll-up dot is gone (Chris, 2026-09-07) and §4's cap went absolute with it: not one
     /// cell of the foot carries a hue, health's included. The status block at the top of every
@@ -235,7 +235,10 @@ mod tests {
         }
 
         let wide = line(60);
-        assert!(wide.contains("/ Search") && wide.ends_with("? Help   q Quit"), "{wide:?}");
+        assert!(
+            wide.contains("/ Search") && wide.ends_with("? Help   q Quit"),
+            "{wide:?}"
+        );
 
         // Room for the two, and not for `/ Search` beside them.
         let narrow = line(30);
@@ -269,6 +272,18 @@ mod tests {
         // §3: bold, no hue — cyan is the selector's and this must not read as a selection.
         assert!(style_at(&editing, 0).add_modifier.contains(Modifier::BOLD));
         assert_ne!(style_at(&editing, 0).fg, Some(tokens::selector()));
+    }
+
+    #[test]
+    fn the_visual_indicator_is_bold_without_hue() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::dark_truecolor();
+
+        let editing = render(StatusLine::new().mode(Some(EditMode::Visual)));
+        assert!(row(&editing, 0).starts_with("-- VISUAL --"));
+        let indicator_style = style_at(&editing, 0);
+        assert!(indicator_style.add_modifier.contains(Modifier::BOLD));
+        assert!(matches!(indicator_style.fg, None | Some(Color::Reset)));
     }
 }
 

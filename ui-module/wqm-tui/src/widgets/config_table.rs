@@ -406,6 +406,14 @@ pub mod ingredient {
                 },
             )),
             Box::new(Variant(
+                "Editing (visual)",
+                "Visual selection reverses the selected characters inside the editing cell",
+                || {
+                    ConfigTable::new(rows())
+                        .focus(Focus::Editing(DEBOUNCE, Edit::visual("2000", 1..3)))
+                },
+            )),
+            Box::new(Variant(
                 "Editing, no underline",
                 "§3 asks for fill AND underline; the reviewed frame drew only the fill. This is that frame — compare with `Editing, Insert`",
                 || {
@@ -635,7 +643,7 @@ mod tests {
     #[test]
     fn the_mode_indicator_carries_weight_and_no_hue() {
         // Chris r06 #8: cyan is the selector's, so this may not use it — or any other hue.
-        for mode in [EditMode::Insert, EditMode::Normal] {
+        for mode in [EditMode::Insert, EditMode::Normal, EditMode::Visual] {
             let span = mode.indicator_span();
             assert!(span.style.add_modifier.contains(Modifier::BOLD));
             assert_eq!(span.style.fg, None, "the indicator must not be coloured");
