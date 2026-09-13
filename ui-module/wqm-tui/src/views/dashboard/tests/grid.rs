@@ -84,22 +84,22 @@ fn the_column_header_starts_on_the_same_column_as_the_heading_above_it() {
 ///
 /// At 100 columns the grid insets to 96 and the two cells get 47 and 46; `Active Projects` is
 /// the left cell, and it spends `Branch` 11 + `Files` 5 + `Queue` 8 = 24 on fixed columns.
+/// With the one-column base gap (ruling 8, 20260912) that is 47 − 24 − 3 = **20** for `Name`,
+/// which is exactly `workspace-qdrant-mcp`.
 ///
-/// # Ruling 5(c) costs this cell three columns, and the floor is what pays
+/// # Ruling 8 gave back what ruling 5(c) had taken
 ///
-/// All three fixed columns are sortable, so each takes a TWO-column gap (Chris, 20260912) where
-/// each took one before: 47 − 24 − 6 = **17** for `Name`, down from 20. Twenty was exactly
-/// `workspace-qdrant-mcp`, so at the 100×30 floor that name now elides — the guard is renamed
-/// and says so rather than being deleted, because the fact worth holding is that **every column
-/// still survives** the floor and only the flex column gives.
+/// Under 5(c) every sortable column took a two-column gap, the flex fell to 17 and the long
+/// name elided at the floor; that was surfaced to Chris as a question with three remedies.
+/// Ruling 8 retired the two-space gap before he had to choose (`panes::cell::fit`, `7285ec4df`),
+/// and the measurement on 20260913 shows the name whole again — so the question dissolved, and
+/// this guard says the floor claim in its original form rather than the interim one.
 ///
-/// **Surfaced to Chris, not decided here.** Two rulings of his meet at this cell — the 100×30
-/// design floor and the spacing rule — and the three columns have to come from somewhere. The
-/// cheap remedies are all his to choose: narrow `Branch` (already elided at 11, its fixture
-/// value is nineteen), spend the sort gap only where the mark cannot fit inside its own column,
-/// or accept the elision at the floor.
+/// The `…` that IS on these rows belongs to `Branch`: its fixture value is nineteen characters
+/// in an eleven-column field, and a branch is text and may elide. The guard names the column
+/// so a future elision of the name cannot hide behind the branch's.
 #[test]
-fn at_100x30_the_active_projects_cell_keeps_every_column_and_the_name_gives() {
+fn at_100x30_the_active_projects_cell_keeps_every_column_and_both_names_draw_whole() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
@@ -116,19 +116,25 @@ fn at_100x30_the_active_projects_cell_keeps_every_column_and_the_name_gives() {
         );
     }
 
-    // The shorter name still draws whole: the flex column gives, it does not collapse.
     let rows: Vec<String> = (heading_y + 2..heading_y + 4).map(|y| line(&buf, y)).collect();
+    for name in ["open-books", "workspace-qdrant-mcp"] {
+        assert!(
+            rows.iter().any(|row| row.contains(name)),
+            "`{name}` does not draw whole at the 100x30 floor — the flex column gave when it \
+             should not have to: {rows:?}"
+        );
+    }
+    // The one elision on the cell is the branch's, and it is marked rather than clipped.
+    let branch_x = header.find("Branch").expect("Branch header");
+    let name_end = branch_x;
     assert!(
-        rows.iter().any(|row| row.contains("open-books")),
-        "a ten-character name no longer fits the floor — the flex column has collapsed, not \
-         given: {rows:?}"
+        rows.iter().any(|row| row[name_end..].contains('…')),
+        "the nineteen-character branch fixture must elide inside its eleven columns, and an \
+         elision that left no mark would be a clip: {rows:?}"
     );
-    // And the longer one elides rather than being clipped, which is the honest form of not
-    // fitting: the tail is replaced by `…` and the reader can see that it was.
     assert!(
-        rows.iter().any(|row| row.contains('…')),
-        "`workspace-qdrant-mcp` is 20 characters and the Name column is 17 — it must elide, and \
-         an elision that left no mark would be a clip: {rows:?}"
+        rows.iter().all(|row| !row[..name_end].contains('…')),
+        "an ellipsis in the Name column at the floor: {rows:?}"
     );
 }
 
