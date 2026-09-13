@@ -10,4 +10,7 @@
 //! the decoration wrapped around it, which is exactly why the decoration is a separate thing.
 
 pub mod record;
+pub mod stack;
 pub mod table;
+
+pub use stack::{Layer, Pop, RecordState, Stack, View};

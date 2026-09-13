@@ -59,6 +59,11 @@ impl Align {
 
 /// One column: what it is called, which way it sits, how wide it wants to be, and the letter
 /// that sorts by it.
+///
+/// `Clone` for the same reason [`crate::panes::cell::Cell`] is: a view held on the drill-down
+/// stack is rendered again every time the window above it is popped, and a table widget takes
+/// its columns by value. Every field here is already `Copy` or a `&'static str`.
+#[derive(Clone)]
 pub struct Column {
     pub title: &'static str,
     pub align: Align,
@@ -307,10 +312,7 @@ impl CellTable {
         // which is the only way it reaches the gaps; ratatui styles patch, so every title drawn
         // over it keeps its own hue and adds this underline to it.
         buf.set_style(
-            Rect {
-                height: 1,
-                ..body
-            },
+            Rect { height: 1, ..body },
             Style::default().add_modifier(Modifier::UNDERLINED),
         );
         for (position, (&at, &area)) in active.iter().zip(cells).enumerate() {
@@ -328,7 +330,11 @@ impl CellTable {
             // narrow for it, sorted or not. The narrowest screens no longer clip `Name` to
             // `Na`: the shared fit drops a fixed column before the flex column falls
             // below [`CellTable::min_flex`].
-            let at_rect = if mark.is_some() { grown(area, right, needed) } else { area };
+            let at_rect = if mark.is_some() {
+                grown(area, right, needed)
+            } else {
+                area
+            };
             Paragraph::new(Line::from(spans))
                 .alignment(column.align.to_ratatui())
                 .render(at_rect, buf);
@@ -429,7 +435,14 @@ impl Widget for CellTable {
             let y = area.y + 1 + i as u16;
 
             if self.cursor == Some(i) {
-                paint_cursor(Rect { y, height: 1, ..area }, buf);
+                paint_cursor(
+                    Rect {
+                        y,
+                        height: 1,
+                        ..area
+                    },
+                    buf,
+                );
             }
 
             // Indexed rather than zipped by reference: a row may carry fewer cells than the
@@ -438,19 +451,30 @@ impl Widget for CellTable {
             for (n, &at) in active.iter().enumerate() {
                 let Some(cell) = row.get(at) else { continue };
                 let column = &self.columns[at];
-                Paragraph::new(Line::from(cell.spans(columns[n].width, column.elide, self.receded)))
-                    .alignment(column.align.to_ratatui())
-                    .render(
-                        Rect {
-                            y,
-                            height: 1,
-                            ..columns[n]
-                        },
-                        buf,
-                    );
+                Paragraph::new(Line::from(cell.spans(
+                    columns[n].width,
+                    column.elide,
+                    self.receded,
+                )))
+                .alignment(column.align.to_ratatui())
+                .render(
+                    Rect {
+                        y,
+                        height: 1,
+                        ..columns[n]
+                    },
+                    buf,
+                );
             }
             if self.cursor == Some(i) {
-                invert_cursor(Rect { y, height: 1, ..area }, buf);
+                invert_cursor(
+                    Rect {
+                        y,
+                        height: 1,
+                        ..area
+                    },
+                    buf,
+                );
             }
         }
 

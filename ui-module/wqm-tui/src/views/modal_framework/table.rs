@@ -209,19 +209,18 @@ impl TableView {
 
     /// The list this view draws — `ListPane`, unchanged, over the surviving rows and columns.
     ///
-    /// Consuming, because a `ListPane` takes its rows by value and this is the one place the
-    /// view's own rows are spent.
-    pub fn pane(self) -> ListPane {
+    /// Borrowing rather than consuming, because a view on the drill-down stack is drawn again
+    /// every time a window above it is popped. `ListPane` takes its columns and rows by value,
+    /// so this is where they are cloned.
+    pub fn pane(&self) -> ListPane {
         let visible = self.visible();
         let drop = self.drop_column();
-        // `into_iter`, not `iter`: `Column` is not `Clone` and this view's columns are spent
-        // here anyway — `pane` consumes, because a `ListPane` takes its own by value.
         let columns: Vec<Column> = self
             .columns
-            .into_iter()
+            .iter()
             .enumerate()
             .filter(|(at, _)| Some(*at) != drop)
-            .map(|(_, column)| column)
+            .map(|(_, column)| column.clone())
             .collect();
         let drop_cell = drop.map(|column| column.saturating_sub(1));
         let rows: Vec<Vec<Cell>> = visible
