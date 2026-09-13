@@ -24,6 +24,7 @@ pub mod daemon_status;
 pub mod edit_field;
 pub mod envelope;
 pub mod modal;
+pub mod modal_frame;
 pub mod store_health;
 pub mod surface;
 pub mod tab_bar;
