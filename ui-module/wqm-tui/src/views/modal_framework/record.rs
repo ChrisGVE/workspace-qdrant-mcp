@@ -269,9 +269,11 @@ pub enum CursorExtent {
 /// The edit-mode background pair, as arms so the choice is rendered rather than argued.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Scheme {
-    /// **A / A+, the gate's call.** Two neutral rungs: the set lifts off the window, the point
-    /// lifts off the set by more again. Costs no hue and degrades honestly — see
-    /// [`RecordView::underlined`], which is the half that survives an encoding with no ladder.
+    /// **A+, the gate's call.** Two neutral rungs plus [`tokens::field::EDITABLE_MARK`]: the
+    /// set lifts off the window, the point lifts off the set by more again, and the underline
+    /// carries the set where the lift is too thin to — which on four of the fifteen bundled
+    /// themes is always. Costs no hue. There is no arm without the underline: see
+    /// [`RecordView::rejected_arm_a`].
     #[default]
     Neutral,
     /// **B, the fallback.** The set is the layer fill washed toward `accent`; the point stays a
@@ -391,15 +393,32 @@ impl RecordView {
         self
     }
 
-    /// Underline every editable value cell as well as filling it — arm **A+**, and the half of
-    /// the two-tier scheme that survives an encoding with no ladder left.
+    /// **Draw the REJECTED arm A** — the fill with no underline under it.
     ///
-    /// On by default because the measurement says it has to be: at `CLICOLOR_FORCE=no_color`
-    /// and `=ansi16` the neutral ladder collapses onto four slots, the window and an editable
-    /// field land on the same one, and *which fields may I change* ends up carried by colour
-    /// alone. The knob exists so the pantry can render A beside A+ and show that it does.
-    pub fn underlined(mut self, on: bool) -> Self {
-        self.underline_editable = on;
+    /// It takes no argument and can only turn the mark OFF, which is the whole point: arm A is
+    /// not a choice a window may make, so there is no `underlined(bool)` for a caller to pass
+    /// `false` into from a setting. The only thing that may call this is the pantry's evidence
+    /// pair and the frame generator behind it. Same move as
+    /// [`crate::widgets::config_table::Focus`] — a state the language forbids should not be a
+    /// value a caller can build.
+    ///
+    /// # Why A stopped being an arm
+    ///
+    /// Round 1 sold the underline as `NO_COLOR` insurance. The measurement says it is more
+    /// than that: on **four of the fifteen bundled themes the fill is already thin before any
+    /// tint** — Solarized Dark and Solarized Light at ΔE 4.2, One Dark Pro at 4.7, against
+    /// Catppuccin Mocha's 6.8 — and the tint takes about 30% more. At the proposed strength
+    /// Solarized Dark's editable fill sits at **ΔE 2.6, one just-noticeable difference** off
+    /// the window it is on, in full truecolor.
+    ///
+    /// Neither knob rescues it. Halving the tint buys that theme 2.6 → 3.7, roughly one JND,
+    /// at the cost of exactly what Chris objected to (*"washed out and sad"*); and no rung
+    /// helps, because the ladder is fixed and `window → set` can only grow by shrinking
+    /// `set → point`. So on those themes [`tokens::field::EDITABLE_MARK`] is not the
+    /// supplement, it is the **primary** SET mark and the fill is what supports it. An edit
+    /// mode whose SET mark is invisible on a bundled theme is a defect rather than an option.
+    pub fn rejected_arm_a(mut self) -> Self {
+        self.underline_editable = false;
         self
     }
 

@@ -187,7 +187,15 @@ where
         // and the backend fills unpainted cells with `#050179`, a navy that would sit under
         // every frame and make the neutral ladder unjudgeable. Painting the background we
         // were *told* about is the faithful reading of layer 0, not an addition to it.
-        let background = tokens::endpoints().background;
+        //
+        // **`ladder_endpoints`, not `endpoints`.** Under a bundled theme the rungs are
+        // interpolated from the THEME's background, not from the one the terminal reported, so
+        // painting the ambient background puts a themed frame on a ground that belongs to a
+        // different theme. Identical whenever the two agree — which is every frame that sets
+        // no theme, and every Mocha frame captured with `WQM_TUI_TERM_BG` set to Mocha's own —
+        // and it only bites the case it was found in: a frame captured on Solarized Dark to
+        // judge its ladder, sitting on Mocha's ground.
+        let background = tokens::ladder_endpoints().background;
         frame.render_widget(
             Block::default().style(Style::default().bg(Color::Rgb(
                 background.r,

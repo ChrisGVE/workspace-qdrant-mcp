@@ -41,17 +41,35 @@
 //! trusting the reasoning, and it runs over all fifteen bundled themes because a curve that
 //! inverts once can invert again on a theme nobody looked at.
 //!
-//! # The tint COMPRESSES that ladder, and the table above was measured without it
+//! # The tint compresses that ladder — but the ladder was already thin
 //!
-//! The numbers above are the bare rungs. Once [`crate::tokens::ModalTint::Accent`] is in force
-//! at 0.28, every surface is pulled the same fraction toward one blue, which pulls them toward
-//! each other: on Mocha the SET lift falls from 6.8 to **4.8** and the POINT separation from
-//! 11.6 to **8.0**, about a 30% loss on each. The *ordering* survives on all fifteen themes —
-//! the point always separates by more than the set lifts, which is the property the scheme
-//! rests on — but the absolute gaps do not, and the worst bundled theme is **Solarized Dark at
-//! ΔE 2.6**, one just-noticeable difference. That is the measurement that makes
-//! [`EDITABLE_MARK`] load-bearing rather than a belt-and-braces extra: on a theme like that one
-//! the underline is not a second signal for the SET mark, it is the signal.
+//! The numbers above are Mocha's bare rungs. Two things happen to them, and only the second
+//! changes the design.
+//!
+//! Once [`crate::tokens::ModalTint::Accent`] is in force at 0.28, every surface is pulled the
+//! same fraction toward one blue, which pulls them toward each other: on Mocha the SET lift
+//! falls from 6.8 to **4.8** and the POINT separation from 11.6 to **8.0**, about 30% off each.
+//! The *ordering* survives on all fifteen themes — the point always separates by more than the
+//! set lifts, which is the property the scheme rests on.
+//!
+//! **The column that decides it is the untinted one**
+//! ([`tests::the_tint_compresses_the_field_ladder`] prints all four). On four of the fifteen
+//! bundled themes the fill is already thin *before* any blend — Solarized Dark and Solarized
+//! Light at ΔE 4.2, One Dark Pro at 4.7, Catppuccin Latte at 5.1 — while **Mocha's 6.8 is among
+//! the roomiest**, and Mocha is what the harness paints with and what this round was designed
+//! against. A reserved treatment defended on its best case has not been defended (§15).
+//!
+//! At the proposed strength Solarized Dark's editable fill sits at **ΔE 2.6 — one
+//! just-noticeable difference** — off the window it is on, in full truecolor. Neither knob
+//! rescues it: halving the tint buys that theme 3.7, about one ΔE, at the cost of exactly what
+//! Chris objected to; and no rung helps, because the ladder is fixed, so `window → set` grows
+//! only by shrinking `set → point`. At the bracket's far end, 0.40, it falls to **2.1 — below a
+//! JND**, which is a stronger objection to that arm than the faint rungs losing their ground.
+//!
+//! **So [`EDITABLE_MARK`] is not the `NO_COLOR` insurance it was first written up as.** On
+//! those themes, on a truecolor terminal, it is the **primary** SET mark and the fill is what
+//! supports it. That is why there is no arm without it: see
+//! [`crate::views::modal_framework::record::RecordView::rejected_arm_a`].
 //!
 //! # Colour alone cannot carry the SET mark, so it does not have to
 //!
@@ -65,6 +83,9 @@
 //! in. It buys a second thing that is only visible in a pixel render: consecutive editable
 //! fields share one fill and merge into a single rectangle, and the underline is the common
 //! -region boundary that tells one field from the next.
+//!
+//! That was the whole argument for it in round 1, and it understated the case — the section
+//! below is the measurement that turned the underline from a fallback into the mark itself.
 //!
 //! # Why the editable set is NOT the selection tint
 //!
@@ -245,6 +266,100 @@ mod tests {
                 name.display_name()
             );
         }
+    }
+
+    /// **How much of the SET mark the tint costs, and how much was there to begin with.**
+    ///
+    /// Printed as a table rather than asserted, because the interesting column is the one that
+    /// changes the conclusion and it is not the one the round was designed against. Run with
+    /// `--nocapture`.
+    ///
+    /// The first column is the ladder with no tint at all. Read it before reading the others:
+    /// on four of the fifteen bundled themes the fill is already thin *before* any blend, and
+    /// Catppuccin Mocha — the number this round was designed against, and what the harness
+    /// paints with — is one of the roomiest. A reserved treatment defended on its best case is
+    /// a treatment that has not been defended (§15).
+    #[test]
+    fn the_tint_compresses_the_field_ladder() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::mocha();
+        println!(
+            "{:<24} {:>9} {:>8} {:>8} {:>8}",
+            "theme", "tint off", "k=0.14", "k=0.28", "k=0.40"
+        );
+        for name in ratatui_themes::ThemeName::all() {
+            tokens::set_theme(name.palette());
+            let mut lift = Vec::new();
+            for (tint, strength) in [
+                (ModalTint::Neutral, 0.0f32),
+                (ModalTint::Accent, 0.14),
+                (ModalTint::Accent, 0.28),
+                (ModalTint::Accent, 0.40),
+            ] {
+                ModalTint::set(tint);
+                tokens::set_tint_strength(strength);
+                lift.push(delta_e(modal_fill(layer1_bg()), editable_bg()));
+            }
+            println!(
+                "{:<24} {:>9.1} {:>8.1} {:>8.1} {:>8.1}",
+                name.display_name(),
+                lift[0],
+                lift[1],
+                lift[2],
+                lift[3]
+            );
+        }
+    }
+
+    /// **The strength has a floor, and the theme that sets it is not the one we look at.**
+    ///
+    /// The ordering has to hold on every bundled theme, and the worst theme's SET lift has to
+    /// clear a just-noticeable difference. The test NAMES the worst theme, so a future tint or
+    /// rung change fails here — with the theme it broke on in the message — rather than being
+    /// noticed on somebody's terminal.
+    ///
+    /// It is deliberately not a Mocha test. Mocha is among the roomiest of the fifteen, so a
+    /// floor measured there would pass every change that matters.
+    #[test]
+    fn the_tint_strength_has_a_floor_and_it_is_not_mocha() {
+        let _serial = crate::global_state_lock();
+        let _restore = Restore::mocha();
+        ModalTint::set(ModalTint::Accent);
+        tokens::set_tint_strength(tokens::DEFAULT_TINT_STRENGTH);
+
+        let mut worst = (f32::MAX, "");
+        for name in ratatui_themes::ThemeName::all() {
+            tokens::set_theme(name.palette());
+            let lift = delta_e(modal_fill(layer1_bg()), editable_bg());
+            let separation = delta_e(editable_bg(), active_bg());
+            assert!(
+                separation > lift,
+                "{}: the point must separate by more than the set lifts — {separation:.1} vs \
+                 {lift:.1}",
+                name.display_name()
+            );
+            if lift < worst.0 {
+                worst = (lift, name.display_name());
+            }
+        }
+        println!(
+            "worst SET lift at k={:.2}: ΔE {:.1} on {}",
+            tokens::DEFAULT_TINT_STRENGTH,
+            worst.0,
+            worst.1
+        );
+        assert!(
+            worst.0 > 2.3,
+            "the fill is below a just-noticeable difference on {} (ΔE {:.1}), so on that theme \
+             the SET mark is carried by EDITABLE_MARK alone",
+            worst.1,
+            worst.0
+        );
+        assert_ne!(
+            worst.1, "Catppuccin Mocha",
+            "if Mocha is ever the worst theme, this floor has stopped measuring anything — it \
+             exists precisely because the harness's own theme is one of the roomiest"
+        );
     }
 
     /// The reference band is a quieter surface than any field, so it can never be mistaken

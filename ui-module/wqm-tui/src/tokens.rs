@@ -215,7 +215,14 @@ impl Palette {
 /// fills all read the base, and a base read from two different places is a base that can
 /// disagree with itself. It is also the whole of what `Bundled` changes about neutrals —
 /// `Derived`'s interpolation is reused verbatim, which is §15's *"nothing is thrown away"*.
-fn ladder_endpoints() -> Endpoints {
+/// The two ends the neutral ladder is actually built between — the THEME's background and
+/// foreground when one is in force, and the terminal's otherwise.
+///
+/// Public because a renderer with no terminal has to paint the ground itself, and the ground a
+/// themed frame sits on is the theme's rather than the ambient one. [`endpoints`] is what the
+/// terminal reported; this is what the rungs were derived from, and under a bundled theme the
+/// two are different colours. `crate::capture` learned the difference the hard way — see there.
+pub fn ladder_endpoints() -> Endpoints {
     match (Palette::current(), theme()) {
         (Palette::Bundled, Some(palette)) => Endpoints {
             background: Rgb::from_color(palette.bg).unwrap_or_else(|| endpoints().background),

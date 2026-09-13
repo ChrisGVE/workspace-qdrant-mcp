@@ -285,11 +285,11 @@ fn the_tint_bracket_renders_at_every_strength() {
 fn the_two_field_background_arms_differ_by_the_underline() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let mark_at = |underlined| {
+    let mark_at = |arm_a| {
         let buf = draw(SCREEN, |area, buf| {
             RecordFrame {
                 mode: Mode::Edit { at: 6, edit: None },
-                underlined,
+                arm_a,
                 ..RecordFrame::default()
             }
             .draw(area, buf);
@@ -305,8 +305,110 @@ fn the_two_field_background_arms_differ_by_the_underline() {
             .modifier
             .contains(tokens::field::EDITABLE_MARK)
     };
-    assert!(mark_at(true), "A+ rules its editable fields");
-    assert!(!mark_at(false), "A does not — which is the objection to A");
+    // `mark_at` answers *is the underline there*, and `arm_a` names the REJECTED arm — so the
+    // shipping frame is `arm_a: false` and it is the one that must carry the mark.
+    assert!(mark_at(false), "the shipping arm rules its editable fields");
+    assert!(
+        !mark_at(true),
+        "…and the rejected one does not, which is the objection to it"
+    );
+}
+
+/// **The shipping arm is the only one a window can draw.** Arm A is reachable from the frame
+/// generator, which is evidence, and from nowhere else — so it cannot be shipped by passing a
+/// flag down from a setting.
+///
+/// Stated as: a record view built the ordinary way rules its editable fields, and nothing
+/// short of the explicitly-named rejected-arm builder takes that away.
+#[test]
+fn a_window_cannot_be_asked_for_the_rejected_arm() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let rect = Container::footprint(SCREEN);
+    let stack = RecordFrame::view(Mode::Edit { at: 6, edit: None }).stack();
+    let viewport = Container::new(stack.decoration()).viewport(rect);
+
+    let mut buf = Buffer::empty(SCREEN);
+    stack.render(rect, &mut buf);
+    let y = viewport.y + 1 + 7;
+    let x = viewport.x + (super::super::record::GUTTER + W_LABEL) as u16;
+    assert!(
+        buf.cell((x, y))
+            .expect("an editable field")
+            .modifier
+            .contains(tokens::field::EDITABLE_MARK),
+        "a stack renders the shipping arm and has no way to be told otherwise"
+    );
+}
+
+/// **The adversarial frame really is adversarial** — verified off the rendered cells, not
+/// inferred from the theme having been set.
+///
+/// `with_theme` has a way to fail silently that would leave the evidence looking fine: set the
+/// theme without `Palette::Bundled` and `tokens::active_theme` answers `None`, so the hues fall
+/// back to slots AND the neutral ladder falls back to the ambient endpoints — the frame would
+/// then be Mocha's ladder wearing Solarized Dark's name. So this measures the two cells the
+/// argument is about, straight out of the buffer, and checks they are as thin as the table
+/// says.
+#[test]
+fn the_adversarial_theme_frame_shows_the_thin_ladder_it_claims_to() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let rect = Container::footprint(SCREEN);
+    let viewport = Container::new(RecordFrame::default().stack().decoration()).viewport(rect);
+    // `Watch for changes` — in the editable SET, not the active field, one row below the
+    // reference header.
+    let field = (
+        viewport.x + (super::super::record::GUTTER + W_LABEL) as u16,
+        viewport.y + 1 + 7,
+    );
+    let window = (rect.x + 1, rect.y + 1);
+
+    let lift_on = |theme| {
+        with_theme(theme, || {
+            let buf = draw(SCREEN, |area, buf| {
+                RecordFrame::view(Mode::Edit { at: 6, edit: None }).draw(area, buf);
+            });
+            tokens::delta_e(
+                buf.cell(window).expect("the window's fill").bg,
+                buf.cell(field).expect("an editable field").bg,
+            )
+        })
+    };
+
+    let thin = lift_on(ADVERSARIAL_THEME);
+    let roomy = lift_on(ratatui_themes::ThemeName::CatppuccinMocha);
+    println!("SET lift in the rendered frame: {thin:.1} adversarial, {roomy:.1} Mocha");
+
+    // The ground the whole frame sits on moved too, or the theme only reached the window and
+    // the page around it is still somebody else's. Both the screen fill and the ladder's own
+    // endpoints are checked, because they come from different accessors and either could be
+    // the one that did not take.
+    let ground = |theme| {
+        with_theme(theme, || {
+            (tokens::screen_bg(), tokens::ladder_endpoints().background)
+        })
+    };
+    let (adversarial_bg, adversarial_end) = ground(ADVERSARIAL_THEME);
+    let (mocha_bg, mocha_end) = ground(ratatui_themes::ThemeName::CatppuccinMocha);
+    println!("ground: adversarial {adversarial_bg:?} / {adversarial_end:?}, mocha {mocha_bg:?} / {mocha_end:?}");
+    assert_ne!(
+        adversarial_bg, mocha_bg,
+        "the page ground did not change theme"
+    );
+    assert_ne!(
+        adversarial_end, mocha_end,
+        "the ladder is still being built between the other theme's endpoints"
+    );
+    assert!(
+        thin < roomy,
+        "the adversarial theme must be the thinner one — {thin:.1} vs {roomy:.1}"
+    );
+    assert!(
+        thin < 3.0,
+        "the adversarial frame is showing a comfortable ladder (ΔE {thin:.1}), so either the \
+         theme did not take or it has stopped being the worst case"
+    );
 }
 
 /// Every frame survives the encodings Chris may be reading them in, and the SET mark survives

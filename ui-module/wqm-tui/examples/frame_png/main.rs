@@ -330,36 +330,56 @@ fn modal_framework_frames() -> Vec<Frame> {
             });
         }),
     );
-    add(
-        "mf-13-edit-fields-A",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame {
-                    mode: editing(),
-                    underlined: false,
-                    ..mf::RecordFrame::default()
+    // The four frames that retire arm A. Two themes, two arms, so the pair can be read the
+    // only way it settles anything: the harness's own Mocha is among the ROOMIEST of the
+    // fifteen ladders, so A looks survivable there — which is why it was proposed — and the
+    // thing to look at is the same pair on the thinnest one.
+    for (name, theme, arm_a) in [
+        ("mf-13-edit-fields-A-mocha", None, true),
+        (
+            "mf-13-edit-fields-A-solarized-dark",
+            Some(mf::ADVERSARIAL_THEME),
+            true,
+        ),
+        ("mf-13-edit-fields-Aplus-mocha", None, false),
+        (
+            "mf-13-edit-fields-Aplus-solarized-dark",
+            Some(mf::ADVERSARIAL_THEME),
+            false,
+        ),
+    ] {
+        add(
+            name,
+            SCREEN,
+            Box::new(move |f: &mut ratatui::Frame| {
+                let area = f.area();
+                let buf = f.buffer_mut();
+                // The frame, under whichever theme this entry names. Written twice rather
+                // than hoisted into a closure: the closure would capture `buf` mutably, which
+                // makes it `FnMut` and no longer something `with_theme`'s `FnOnce` can take.
+                match theme {
+                    Some(theme) => mf::with_theme(theme, || {
+                        proposed(|| {
+                            mf::RecordFrame {
+                                mode: editing(),
+                                arm_a,
+                                ..mf::RecordFrame::default()
+                            }
+                            .draw(area, buf);
+                        });
+                    }),
+                    None => proposed(|| {
+                        mf::RecordFrame {
+                            mode: editing(),
+                            arm_a,
+                            ..mf::RecordFrame::default()
+                        }
+                        .draw(area, buf);
+                    }),
                 }
-                .draw(area, f.buffer_mut());
-            });
-        }),
-    );
-    add(
-        "mf-13-edit-fields-Aplus",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame {
-                    mode: editing(),
-                    underlined: true,
-                    ..mf::RecordFrame::default()
-                }
-                .draw(area, f.buffer_mut());
-            });
-        }),
-    );
+            }),
+        );
+    }
     add(
         "mf-13-edit-fields-C",
         SCREEN,

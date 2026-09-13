@@ -297,13 +297,13 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "Edit fields: A (fill only)",
-            "The two rungs with no underline. Under NO_COLOR and ansi16 the SET mark disappears entirely — which is the objection",
+            "Edit fields: A (fill only) — REJECTED, on Mocha",
+            "Evidence, not a choice. On the harness's own theme A looks survivable, which is exactly why it was proposed — compare the next two",
             |area, buf| {
                 proposed(|| {
                     RecordFrame {
                         mode: editing(),
-                        underlined: false,
+                        arm_a: true,
                         ..RecordFrame::default()
                     }
                     .draw(area, buf);
@@ -311,13 +311,45 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "Edit fields: A+ (fill and underline)",
-            "PROPOSED. The underline survives every encoding, is already this crate's idiom for an editable cell, and separates two adjacent slots",
+            "Edit fields: A (fill only) — REJECTED, on Solarized Dark",
+            "The same arm on the thinnest of the fifteen ladders: dE 2.6, one JND, so the whole editable block is very nearly the window it sits on",
+            |area, buf| {
+                frames::with_theme(frames::ADVERSARIAL_THEME, || {
+                    proposed(|| {
+                        RecordFrame {
+                            mode: editing(),
+                            arm_a: true,
+                            ..RecordFrame::default()
+                        }
+                        .draw(area, buf);
+                    });
+                });
+            },
+        )),
+        Box::new(Variant(
+            "Edit fields: A+ (fill and underline) — on Solarized Dark",
+            "SHIPPING, and not an option. The same theme, the same tint: every editable field is unmistakable because the underline — not the fill — is the SET mark",
+            |area, buf| {
+                frames::with_theme(frames::ADVERSARIAL_THEME, || {
+                    proposed(|| {
+                        RecordFrame {
+                            mode: editing(),
+                            arm_a: false,
+                            ..RecordFrame::default()
+                        }
+                        .draw(area, buf);
+                    });
+                });
+            },
+        )),
+        Box::new(Variant(
+            "Edit fields: A+ (fill and underline) — on Mocha",
+            "SHIPPING. The roomy theme, for comparison with the pair above: the fill helps here and carries nothing on the theme that decides it",
             |area, buf| {
                 proposed(|| {
                     RecordFrame {
                         mode: editing(),
-                        underlined: true,
+                        arm_a: false,
                         ..RecordFrame::default()
                     }
                     .draw(area, buf);

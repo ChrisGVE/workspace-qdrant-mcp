@@ -161,7 +161,11 @@ pub struct RecordFrame {
     pub scheme: Scheme,
     pub footprint: Footprint,
     pub cursor_extent: CursorExtent,
-    pub underlined: bool,
+    /// Draw the REJECTED arm A — the fill with no underline. **Evidence only**: see
+    /// [`super::record::RecordView::rejected_arm_a`] for why A is not a shipping option, and
+    /// use `with_theme` to render it on the theme that decides the question rather than on the
+    /// roomy one the harness paints with.
+    pub arm_a: bool,
     pub offset: usize,
     /// Drawn as an empty record — the state the first round of frames did not show.
     pub empty: bool,
@@ -175,7 +179,7 @@ impl Default for RecordFrame {
             scheme: Scheme::default(),
             footprint: Footprint::default(),
             cursor_extent: CursorExtent::default(),
-            underlined: true,
+            arm_a: false,
             offset: 0,
             empty: false,
         }
@@ -226,35 +230,35 @@ impl RecordFrame {
         draw_page(area, buf);
         let rect = self.footprint.rect(area);
         let stack = self.stack();
-        // `underlined` is a knob on the view rather than on the state, so the A/A+ pair is
-        // built here where the frame is.
+        // Arm A is not something a `Stack` can be asked for — see `rejected_arm_a` — so the
+        // evidence frame is drawn here, outside the shipping path, rather than by handing the
+        // stack a flag it should not have.
         let viewport = Container::new(stack.decoration()).viewport(rect);
-        if self.underlined {
-            stack.render(rect, buf);
+        if self.arm_a {
+            draw_arm_a(&stack, rect, buf);
         } else {
-            render_without_underline(&stack, rect, buf);
+            stack.render(rect, buf);
         }
         (rect, viewport)
     }
 }
 
-/// Arm **A** of the field-background pair: the same window with the underline taken off.
+/// The REJECTED arm A, drawn so it can be looked at: the same window with no underline.
 ///
-/// It is worth rendering precisely because it is the arm the measurement rejects — under
-/// `NO_COLOR` and `ansi16` the SET mark disappears entirely, and a frame is how that stops
-/// being an argument.
-fn render_without_underline(stack: &Stack, rect: Rect, buf: &mut Buffer) {
-    let container = Container::new(stack.decoration());
+/// It is worth rendering precisely because it is the arm the measurement throws out, and a
+/// PNG settles it in a way the ΔE number does not — on a thin theme the whole block of
+/// editable fields is very nearly the window it sits on. Render it through
+/// [`with_theme`] on Solarized Dark, not on the harness's own Mocha, or the frame shows the
+/// best case of the thing being rejected.
+fn draw_arm_a(stack: &Stack, rect: Rect, buf: &mut Buffer) {
+    let mut container = Container::new(stack.decoration());
     let viewport = container.viewport(rect);
-    let banner = stack.top().view.editing();
-    let container = if banner {
-        Container::new(stack.decoration()).title_banner(super::stack::EDIT_BANNER)
-    } else {
-        container
-    };
+    if stack.top().view.editing() {
+        container = Container::new(stack.decoration()).title_banner(super::stack::EDIT_BANNER);
+    }
     container.render(rect, buf);
     if let View::Record(record) = &stack.top().view {
-        record.view().underlined(false).render(viewport, buf);
+        record.view().rejected_arm_a().render(viewport, buf);
     }
 }
 
@@ -420,6 +424,37 @@ pub fn slide_frame(area: Rect, buf: &mut Buffer, t: f32) {
         drilled_table().pane().render(area, buf);
     });
     slide(viewport, t, &outgoing, &incoming, buf);
+}
+
+/// The theme that decides the field-background question, which is **not** the one the harness
+/// paints with.
+///
+/// Solarized Dark has the thinnest neutral ladder of the fifteen: its editable fill sits ΔE
+/// 4.2 off the window before any tint and 2.6 at the proposed strength — one just-noticeable
+/// difference — where Catppuccin Mocha has 6.8 and 4.8. A reserved treatment judged on Mocha
+/// alone is a treatment judged on its best case, which is what §15 forbids.
+pub const ADVERSARIAL_THEME: ratatui_themes::ThemeName = ratatui_themes::ThemeName::SolarizedDark;
+
+/// Run `draw` under a stated theme, and put back the one that was in force.
+///
+/// So a frame can be judged on the theme that decides it rather than on the one we happen to
+/// be looking at. `Palette::Bundled` is set alongside, because `tokens::active_theme` answers
+/// `None` for every other source — a theme that has been *chosen* is not a theme that is *in
+/// force*, and setting one without the other renders the slot fallbacks instead.
+pub fn with_theme<T>(name: ratatui_themes::ThemeName, draw: impl FnOnce() -> T) -> T {
+    struct Restore(tokens::Palette, Option<ratatui_themes::ThemePalette>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            tokens::Palette::set(self.0);
+            if let Some(theme) = self.1 {
+                tokens::set_theme(theme);
+            }
+        }
+    }
+    let _restore = Restore(tokens::Palette::current(), tokens::theme());
+    tokens::Palette::set(tokens::Palette::Bundled);
+    tokens::set_theme(name.palette());
+    draw()
 }
 
 /// Run `draw` with a tint and a strength in force, and put back whatever was there — including
