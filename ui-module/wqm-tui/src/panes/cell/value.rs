@@ -82,6 +82,14 @@ impl Elide {
 }
 
 /// One value in a row.
+///
+/// **Clonable, because a view on the drill-down stack is rendered more than once.** A window
+/// that pops back to its parent has to draw the parent again from the rows it kept
+/// ([`crate::views::modal_framework`]), and a widget takes its rows by value. The alternative
+/// was a parallel plain-data row type converted at render, which is the forked table the
+/// composition ruling exists to prevent. Nothing here resists cloning: every variant is a
+/// `String`, a `u64`, or — for [`Cell::Tinted`] — a function pointer, which is `Copy`.
+#[derive(Clone)]
 pub enum Cell {
     Text(String),
     Num(u64),
@@ -151,7 +159,10 @@ impl Cell {
             )];
         }
         match self {
-            Cell::Text(text) => vec![Span::styled(elide.fit(text, width), tokens::table_row_style())],
+            Cell::Text(text) => vec![Span::styled(
+                elide.fit(text, width),
+                tokens::table_row_style(),
+            )],
             Cell::Tinted { text, hue } => vec![Span::styled(
                 elide.fit(text, width),
                 Style::default().fg(hue()),
@@ -191,7 +202,13 @@ impl Cell {
 
     /// The value as one plain string — what a receded table draws, where nothing is coloured
     /// and the queue triple's three counts are one grey figure like any other.
-    fn plain(&self) -> String {
+    ///
+    /// Public because a drilled-in table filters on it
+    /// ([`crate::views::modal_framework::table`]): the pre-filter floor is *this column reads
+    /// this value*, and reading it off the cell is what keeps the floor and the screen talking
+    /// about the same string. A filter that matched against the row's source type instead
+    /// could hold while the column showed something else.
+    pub fn plain(&self) -> String {
         match self {
             Cell::Text(text) | Cell::Tinted { text, .. } => text.clone(),
             Cell::Num(value) => grouped(*value),

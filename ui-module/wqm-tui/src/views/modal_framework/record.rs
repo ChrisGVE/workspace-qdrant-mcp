@@ -121,9 +121,15 @@ pub enum Value {
     /// presentation rather than the renderer inferring it from the count, because Chris called
     /// the four-choice threshold *"a rule of thumb but not universal"* — a renderer that
     /// branched on the count would have made it universal.
-    Radio { choices: Vec<String>, at: usize },
+    Radio {
+        choices: Vec<String>,
+        at: usize,
+    },
     /// Many choices: one displayed value, `↵`/Space opens a [`DropDown`].
-    Choice { choices: Vec<String>, at: usize },
+    Choice {
+        choices: Vec<String>,
+        at: usize,
+    },
 }
 
 impl Value {
@@ -523,7 +529,13 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
 impl RecordView {
     /// The spans of one value cell, padded to `width` and wearing `style`.
-    fn value_spans(&self, value: &Value, row: usize, width: usize, style: Style) -> Vec<Span<'static>> {
+    fn value_spans(
+        &self,
+        value: &Value,
+        row: usize,
+        width: usize,
+        style: Style,
+    ) -> Vec<Span<'static>> {
         match value {
             Value::Number(text) | Value::Text(text) => vec![Span::styled(fit(text, width), style)],
             Value::Multi(text) => {
@@ -561,10 +573,9 @@ impl RecordView {
         // whole highlight, and a second one under it would be two marks for one fact.
         if !self.mode.editing() {
             return match &field.reference {
-                Some(reference) => config_table::actual_style(
-                    field.value.as_text().unwrap_or_default(),
-                    reference,
-                ),
+                Some(reference) => {
+                    config_table::actual_style(field.value.as_text().unwrap_or_default(), reference)
+                }
                 None => tokens::normal_style(),
             };
         }
@@ -706,7 +717,13 @@ impl Widget for RecordView {
             let style = self.cell_style(*index, field);
             // The live caret exists only on the active cell of a text or numeric field.
             let caret = match (&self.mode, field.editable) {
-                (Mode::Edit { at, edit: Some(edit) }, true) if *at == *index => Some(edit),
+                (
+                    Mode::Edit {
+                        at,
+                        edit: Some(edit),
+                    },
+                    true,
+                ) if *at == *index => Some(edit),
                 _ => None,
             };
             match caret {
