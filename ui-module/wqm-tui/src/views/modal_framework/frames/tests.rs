@@ -174,20 +174,44 @@ fn every_frame_renders_at_both_sizes() {
     for (name, render) in frames {
         for area in [SCREEN, FLOOR] {
             let buf = draw(area, render);
-            let all = screen_text(&buf);
-            assert!(
-                all.chars().any(|c| !c.is_whitespace()),
-                "{name} at {}×{} produced an empty frame",
-                area.width,
-                area.height
-            );
-            // The window's border is on screen, whole, at both sizes.
             let window = Container::footprint(area);
+            let at = |size: Rect| format!("{name} at {}×{}", size.width, size.height);
+
+            // **The window was DRAWN**, all four corners of its border. The first version of
+            // this asked only whether the screen held any non-whitespace character — which a
+            // frame that drew one glyph would satisfy — and then checked that the footprint
+            // RECT fitted the screen, which is arithmetic that holds whether or not anything
+            // rendered at all. Neither assertion could tell a frame from an empty buffer.
+            for (corner, x, y) in [
+                ("\u{250c}", window.x, window.y),
+                ("\u{2510}", window.right() - 1, window.y),
+                ("\u{2514}", window.x, window.bottom() - 1),
+                ("\u{2518}", window.right() - 1, window.bottom() - 1),
+            ] {
+                assert_eq!(
+                    buf.cell((x, y)).expect("a cell on screen").symbol(),
+                    corner,
+                    "{}: no window corner at ({x}, {y})",
+                    at(area)
+                );
+            }
+
+            // …and the page is still readable ABOVE it, at both sizes. That is §6's depth
+            // model stated as a consequence rather than as geometry: a window never costs the
+            // reader the answer to *is anything wrong* (Nielsen #1), which is the whole
+            // argument for the framework footprint over the literal one.
+            let mut header = String::new();
+            for row in 0..window.y {
+                for x in 0..area.width {
+                    if let Some(cell) = buf.cell((x, row)) {
+                        header.push_str(cell.symbol());
+                    }
+                }
+            }
             assert!(
-                window.bottom() <= area.bottom() && window.right() <= area.right(),
-                "{name}: the window runs off a {}×{} screen",
-                area.width,
-                area.height
+                header.contains("daemon") && header.contains("pending"),
+                "{}: the page's own status block is not readable above the window: {header:?}",
+                at(area)
             );
         }
     }
