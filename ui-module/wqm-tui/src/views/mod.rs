@@ -22,6 +22,7 @@
 //! the same thing twice.
 
 pub mod dashboard;
+pub mod modal_framework;
 pub mod queue;
 pub mod service;
 pub mod top;

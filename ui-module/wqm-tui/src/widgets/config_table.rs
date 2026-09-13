@@ -30,10 +30,19 @@ pub use crate::widgets::edit_field::{Edit, EditMode};
 /// Padding is computed on the **visible** text and the style wrapped around the padded
 /// field, never the other way round — a trailing space inside a styled span is what breaks
 /// column alignment and bleeds a row background past the table.
-const MARGIN: usize = 2;
-const W_KEY: usize = 20;
-const W_ACTUAL: usize = 26;
-const W_DEFAULT: usize = 21;
+///
+/// # Public because a second widget now draws this shape, and must not draw its own
+///
+/// [`crate::views::modal_framework::record`] is the same three columns generalised — label,
+/// value, and an optional static third column carrying a default or a pre-edit value — which
+/// is exactly the shape the r06 frame settled here. It consumes these rather than choosing its
+/// own, so the config screen and a record window put their columns on the same cells. Two
+/// widgets with two sets of numbers is how the config table and the record view come to
+/// disagree about where a value starts, in a way only a screenshot would show.
+pub const MARGIN: usize = 2;
+pub const W_KEY: usize = 20;
+pub const W_ACTUAL: usize = 26;
+pub const W_DEFAULT: usize = 21;
 /// How far a key is indented under its group header.
 const INDENT: usize = 3;
 
@@ -82,7 +91,7 @@ impl Entry {
     /// two values instead removes that frame from the language: the mark and the fact it
     /// marks cannot disagree.
     pub fn is_changed(&self) -> bool {
-        self.actual != self.default
+        is_changed(&self.actual, &self.default)
     }
 
     /// Whether the value in force is [`UNSET`].
@@ -192,7 +201,7 @@ fn header_line() -> Line<'static> {
 /// is what §3 relies on to say "this cell, not that one", so the column wins and the text
 /// yields; the canonical dotted id is shown in full in the detail pane, so nothing said here
 /// is the only place it is said.
-pub(crate) fn fit(text: &str, width: usize) -> String {
+pub fn fit(text: &str, width: usize) -> String {
     let count = text.chars().count();
     if count <= width {
         return format!("{text:<width$}");
@@ -212,9 +221,23 @@ fn group_line(name: &str) -> Line<'static> {
     ])
 }
 
+/// Whether a value in force differs from the reference beside it.
+///
+/// **Derived, never a flag**, and lifted out of [`Entry`] so the record view marks a changed
+/// value by the same rule rather than by its own. The reviewed frame carried `changed` as a
+/// field beside the two values, which makes a frame showing `2000` against a default of `1500`
+/// in plain weight representable — a depiction of a state §3 forbids. Comparing the two values
+/// removes that frame from the language: the mark and the fact it marks cannot disagree.
+pub fn is_changed(actual: &str, reference: &str) -> bool {
+    actual != reference
+}
+
 /// The style an ACTUAL value is drawn in: weight when it differs from its default (§3),
 /// faint when there is no value at all, normal otherwise.
-fn actual_style(value: &str, default: &str) -> Style {
+///
+/// Public for the same reason the widths are: the record view's value column answers the
+/// same question and must answer it the same way.
+pub fn actual_style(value: &str, default: &str) -> Style {
     if value == UNSET {
         tokens::faint_style()
     } else if value != default {
