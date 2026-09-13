@@ -1219,3 +1219,171 @@ way no description would have mentioned. `PASS1-SCREEN.md` §6 records that four
 document's history a partial set stood in for a complete one. This is the neighbouring failure:
 **a self-description is a claim about intent, and a pass-2 verdict needs a claim about output.**
 The measurement cost one throwaway binary and twenty minutes.
+
+## E-2 — the editor engine, re-opened by the operator-grammar ruling (20260913). **Recommendation: adopt `modalkit` + `modalkit-ratatui` 0.0.27 as ONE engine with TWO keymaps — the vim table as shipped, a conventional table derived from its modeless one. Not adopted; Chris decides.**
+
+§E closed on 20260731 with `tui-input` for the single-line case and "decide the multi-line
+cell when it is drawn". Two rulings since then change the question. Chris, 2026-09-13 01:09:
+*"vim-mode applies to every text fields when selected"*. And 21:42, on the vim scope: *"I'm
+thinking B, you are missing motion like t,T,f,F, and multiples "v2t," is valid. This said,
+before you start writing all this, check if there is not a library that already exists, you'll
+need two anyways: a non-vim and a vim version."* Option B is the operator grammar: `d`/`c`/`y`
+over any motion and text object, counts on operators and motions, the find motions with `;`/`,`,
+and counts composing inside visual mode. That is no longer "a caret and two modes"; it is a
+parser with a test corpus, and the question is who has already written it.
+
+### What changed in the facts since §E
+
+- **`crossterm` is already in our tree** (`ratatui-crossterm 0.1.2` → `crossterm 0.29.0`, via
+  the `ratatui` facade's default features). §E's objection to `edtui` and `modalkit` — "an input
+  backend inside a widget crate" — no longer costs anything.
+- **`modalkit-ratatui` 0.0.27 was released 2026-09-11** against `ratatui ^0.30.0`, MSRV 1.88 —
+  our floor exactly. Pass 1's `DROP-VERSION` (0.0.25, `^0.29`) is stale.
+
+### The candidates, measured against ruling B
+
+| | `edtui` 0.11.7 | `modalkit` + `modalkit-ratatui` 0.0.27 | `hjkl-engine` 0.41.6 | build our own |
+|---|---|---|---|---|
+| counts (`2w`, `3dd`, `d2t,`) | **none** — no digit handling anywhere in `src/` (the two `digit` hits size the line-number gutter) | `Count::Contextual` on every operator, motion and range | yes (per docs) | to write |
+| `f` `t` | normal + visual | yes | yes | to write |
+| `T` `F` `;` `,` | **absent** from the key table | `VimMode::CharSearchSuffix`, `;`/`,` repeat | yes | to write |
+| `v2t,` | impossible without counts | **measured: works** (probe below) | untested | to write |
+| operators × motion, text objects | `dw` `diw` `df` `ct` `ci"` … a fixed list of two-key sequences | any operator × any motion/range | yes | to write |
+| dot-repeat, registers, macros | dot only | all three | dot, ex commands | to write |
+| non-vim keymap | "Emacs mode", less tested by its own README | modeless Emacs table **with shift-selection** (`start_shift_selection!`, `<C-S-Left>`), and `env/mixed.rs` switches flavour at runtime | none | to write |
+| ratatui | `ratatui-core ^0.1` + `ratatui-widgets ^0.3` | `^0.30.0` (adapter), engine has no ratatui dep | `^0.30`, MSRV **1.95** — above our 1.88 floor | — |
+| single-line face | `.single_line(true)` | `TextBox::force_single_line` | ? | ours |
+| caret | style only, not mode-dependent (§E) | `Modifier::REVERSED` on cursor and selection; no glyph | ? | ours |
+| crates added to our tree | ~8 | **25** (list below) | family of ~10, "pre-1.0 churn" | 0 |
+| test weight on the vim table | — | 637 assertions in `env/vim/keybindings.rs` (4,631 lines) | — | ours to invent |
+| licence | MIT | Apache-2.0 | MIT | — |
+
+The 25 crates `modalkit-ratatui` adds beyond what `wqm-tui --all-features` already pulls:
+`aho-corasick anymap2 dirs dirs-sys editor-types editor-types-macros editor-types-parser
+endian-type intervaltree keybindings modalkit modalkit-ratatui nibble_vec nom option-ext
+radix_trie regex regex-automata regex-syntax ropey shellexpand smawk str_indices textwrap
+unicode-linebreak` (157 → 182 unique crates).
+
+### The probe — ruling B run against the real crate, headless
+
+A scratch crate depending on `modalkit 0.0.27`, `modalkit-ratatui 0.0.27`, `ratatui 0.30.2`,
+`crossterm 0.29`, `rust-version = "1.88"`, `edition = "2024"`. It compiles on our toolchain, drives
+a `TextBoxState` through `KeyManager` + `default_vim_keys`, and renders into a `Buffer` with no
+terminal — the same shape as every test in this crate.
+
+| keys | before | after | proves |
+|---|---|---|---|
+| `0d2t,` | `alpha, beta, gamma, delta` | `, gamma, delta` | count on a find motion under an operator |
+| `0v2t,d` | same | `, gamma, delta` | **`v2t,`** — a count composing inside visual |
+| `$F,;x` | `a,b,c` | `ab,c` | `F`, `;` repeat |
+| `ciwX⎋w.` | `one two three` | `X X three` | text object + dot-repeat |
+| render 20×1 | — | `X X three           ` | headless single-line render |
+
+Probe source, kept here because it is the acceptance test the adoption would inherit:
+
+```rust
+use modalkit::{
+    actions::{Action, Editable, Jumpable, Scrollable},
+    editing::{application::EmptyInfo, context::Resolve, key::KeyManager, store::Store},
+    env::vim::keybindings::default_vim_keys,
+    keybindings::BindingMachine,
+};
+use modalkit_ratatui::textbox::{TextBox, TextBoxState};
+use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+macro_rules! feed {
+    ($keys:expr, $esc:expr, $bindings:expr, $tbox:expr, $store:expr) => {{
+        for (i, ch) in $keys.chars().enumerate() {
+            let code = if $esc.contains(&i) { KeyCode::Esc } else { KeyCode::Char(ch) };
+            let mods = if ch.is_ascii_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE };
+            $bindings.input_key(KeyEvent::new(code, mods).into());
+            while let Some((act, ctx)) = $bindings.pop() {
+                match act {
+                    Action::Editor(a) => { let _ = $tbox.editor_command(&a, &ctx, $store); }
+                    Action::Scroll(s) => { let _ = $tbox.scroll(&s, &ctx, $store); }
+                    Action::Jump(l, d, c) => { let _ = $tbox.jump(l, d, ctx.resolve(&c), &ctx); }
+                    Action::Repeat(rt) => { $bindings.repeat(rt, Some(ctx)); }
+                    _ => {}
+                }
+            }
+        }
+    }};
+}
+
+fn main() {
+    let mut store: Store<EmptyInfo> = Store::default();
+    let mut bindings = KeyManager::new(default_vim_keys::<EmptyInfo>());
+    let mut tbox = TextBoxState::new(store.load_buffer("probe".to_string()));
+    tbox.set_text("alpha, beta, gamma, delta");
+    // Case 1: `0d2t,` from normal mode -> deletes up to (not incl.) the 2nd comma.
+    feed!("0d2t,", [] as [usize;0], bindings, tbox, &mut store);
+    println!("d2t,  => {:?}", tbox.get_text());
+    // Case 2: `v2t,` then `d` on fresh text -> same result via visual with a count.
+    tbox.set_text("alpha, beta, gamma, delta");
+    feed!("0v2t,d", [] as [usize;0], bindings, tbox, &mut store);
+    println!("v2t,d => {:?}", tbox.get_text());
+    // Case 3: T and F and ; ,  : `$F,;x` -> from end, back to a comma, repeat, delete it.
+    tbox.set_text("a,b,c");
+    feed!("$F,;x", [] as [usize;0], bindings, tbox, &mut store);
+    println!("$F,;x => {:?}", tbox.get_text());
+    // Case 4: text object + count + dot repeat: `ciw` then `.`
+    tbox.set_text("one two three");
+    let keys = "ciwX\x1bw."; // \x1b marks Esc position
+    let esc: Vec<usize> = keys.char_indices().filter(|(_, c)| *c == '\x1b').map(|(i, _)| i).collect();
+    feed!(keys, esc, bindings, tbox, &mut store);
+    println!("ciwX. => {:?}", tbox.get_text());
+    // Case 5: render into a Buffer with no terminal, single-line forced.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
+    TextBox::new().render(Rect::new(0, 0, 20, 1), &mut buf, &mut tbox);
+    let row: String = (0..20).map(|x| buf.cell((x, 0)).unwrap().symbol().to_string()).collect();
+    println!("render => {row:?}");
+}
+```
+
+### Why one engine with two keymaps, rather than two libraries
+
+Chris said *"you'll need two anyways"*, and the reading that costs least is two **key tables**
+on one engine, not two engines. A field holds one buffer type, one undo history, one selection
+model and one caret wrapper whichever way the user types; only the table that turns keys into
+`Action`s differs. `modalkit` is built for exactly that split — the engine consumes `Action`s
+and knows nothing about keys, and `env/mixed.rs` exists to let a user choose the flavour at
+runtime. The conventional table is the modeless Emacs table re-bound: arrows, Home/End,
+Shift+arrows select, Backspace/Delete, Ctrl-Z/Ctrl-Y. Two engines (`edtui` + `ratatui-textarea`,
+say) would mean two carets to wrap, two selection renderings to keep in step with §3, and the
+count grammar written into `edtui` by us — a fork, since its key register matches fixed
+sequences and has nowhere to put a count.
+
+### What adopting it costs, honestly
+
+1. **25 crates**, several of them heavy for a widget crate (`nom`, `regex`, `ropey`,
+   `intervaltree`, `radix_trie`, `shellexpand`). §E called this "an application framework" and
+   it still is one; the difference is that ruling B asks for most of what the framework holds.
+2. **0.0.x.** The API has moved between 0.0.25 and 0.0.27 (MSRV 1.75 → 1.88 in five months).
+   Pin exactly, as `catppuccin` is pinned.
+3. **The caret is ours either way.** `TextBox` paints the cursor and the selection as
+   `REVERSED`; §3's `▏` insert caret and the mode-dependent switch are a render wrapper on top —
+   the same wrapper `tui-input` needed, and one that has to read the mode from the binding
+   machine rather than from the widget.
+4. **Scaffolding.** `Store<I>`, `KeyManager`, an `ApplicationInfo` type and the action-dispatch
+   loop (the probe's `feed!`) sit under every editable field. The pantry drives them the way the
+   probe does; the live app's event loop owns the same loop once.
+5. **`get_text()` returns a trailing `\n`** on a single-line buffer (rope convention); the
+   field model trims at the boundary.
+
+### The alternatives, so the choice is visible
+
+- **`edtui` + a fork for counts, `T`/`F`/`;`/`,`, and a conventional keymap.** Fewer crates,
+  MIT, single-line mode built in, 300K downloads. But every gap in the table above is ours to
+  write and maintain in a fork, and its "Emacs mode" is the non-vim half only if we re-key it too.
+- **Write it.** `motion.rs` already has counts and `g`/`G`; extending it to operator × motion ×
+  text object with visual composition and dot-repeat is the thing §E-2 exists to avoid: the
+  probe's four cases took an afternoon to *run* against `modalkit`; they would take weeks to
+  *pass* against our own, and the 637 assertions that make the vim table trustworthy would have
+  to be invented.
+- **`hjkl-engine`.** Closest in spirit (an FSM you drop into ratatui), but MSRV 1.95 is above our
+  floor and the README calls itself "pre-1.0 churn" on a 0.41 line.
+
+**Decision requested from Chris: adopt `modalkit` + `modalkit-ratatui`, pinned at 0.0.27, as
+the editor engine for task 4 (and therefore the text substrate of tasks 1 and 2).** Nothing is
+added to `Cargo.toml` until he says so.
