@@ -10,6 +10,7 @@
 #[cfg(feature = "png-capture")]
 pub mod capture;
 pub mod categorical;
+pub mod editor;
 pub mod encoding;
 pub mod format;
 pub mod health;
