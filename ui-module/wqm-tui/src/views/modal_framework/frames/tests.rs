@@ -109,8 +109,49 @@ fn the_fixture_exercises_every_field_kind_the_ruling_names() {
     );
 }
 
+/// The four corners a window's border draws. A frame guard reads these back to decide that a
+/// window was drawn at all.
+const CORNERS: [&str; 4] = ["\u{250c}", "\u{2510}", "\u{2514}", "\u{2518}"];
+
+/// **The detector, checked before anything is trusted to it.**
+///
+/// `every_frame_renders_at_both_sizes` concludes *a window was drawn* from a box corner in the
+/// window's rect. That inference is only sound if the PAGE draws no corner of its own —
+/// otherwise the guard passes on the fixture and reports nothing about the frame, which is
+/// exactly the hollowness it was rewritten to escape. So the page is rendered alone and
+/// required to produce none.
+///
+/// It is also a real invariant rather than a convenience: §6 gives a box exactly two meanings,
+/// a modal and a toast, and Chris ruled *"no frame around the table, valid for all views"*. A
+/// page that grew a border would be a design defect first and a broken detector second — and
+/// this would fail on the design, which is the right order to find out.
+#[test]
+fn a_window_corner_is_evidence_because_the_page_alone_draws_none() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    for area in [SCREEN, FLOOR] {
+        let buf = draw(area, |area, buf| page().render(area, buf));
+        for y in area.y..area.bottom() {
+            for x in area.x..area.right() {
+                let symbol = buf.cell((x, y)).expect("a cell on screen").symbol();
+                assert!(
+                    !CORNERS.contains(&symbol),
+                    "the page drew {symbol:?} at ({x}, {y}) on a {}×{} screen, so a corner is \
+                     no longer evidence that a window was drawn over it",
+                    area.width,
+                    area.height
+                );
+            }
+        }
+    }
+}
+
 /// Every frame the round is judged from renders at 125×34, and again at the 100×30 floor. The
 /// storyboard is the product: a frame that cannot be produced is a feature that is not done.
+///
+/// What makes the corner check mean anything is
+/// [`a_window_corner_is_evidence_because_the_page_alone_draws_none`], which establishes that
+/// the fixture underneath cannot produce one.
 #[test]
 fn every_frame_renders_at_both_sizes() {
     let _serial = crate::global_state_lock();
@@ -182,12 +223,13 @@ fn every_frame_renders_at_both_sizes() {
             // frame that drew one glyph would satisfy — and then checked that the footprint
             // RECT fitted the screen, which is arithmetic that holds whether or not anything
             // rendered at all. Neither assertion could tell a frame from an empty buffer.
-            for (corner, x, y) in [
-                ("\u{250c}", window.x, window.y),
-                ("\u{2510}", window.right() - 1, window.y),
-                ("\u{2514}", window.x, window.bottom() - 1),
-                ("\u{2518}", window.right() - 1, window.bottom() - 1),
-            ] {
+            let corners = [
+                (CORNERS[0], window.x, window.y),
+                (CORNERS[1], window.right() - 1, window.y),
+                (CORNERS[2], window.x, window.bottom() - 1),
+                (CORNERS[3], window.right() - 1, window.bottom() - 1),
+            ];
+            for (corner, x, y) in corners {
                 assert_eq!(
                     buf.cell((x, y)).expect("a cell on screen").symbol(),
                     corner,
