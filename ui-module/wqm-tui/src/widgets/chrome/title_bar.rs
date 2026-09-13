@@ -4,8 +4,6 @@
 //! [`super::freshness`] when [`crate::panes::status_block`] needed the same treatment on line
 //! 1 of every screen. Every path that already named them through this module still resolves.
 
-use std::time::Duration;
-
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -72,6 +70,7 @@ mod tests {
     use super::*;
     use crate::tokens::Health;
     use crate::widgets::chrome::test_support::{render, row, style_at, Restore};
+    use std::time::Duration;
 
     #[test]
     fn staleness_is_the_comparison_and_cannot_be_stated_against_it() {
@@ -123,6 +122,7 @@ mod tests {
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient {
     use super::*;
+    use std::time::Duration;
     use tui_pantry::{Ingredient, PropInfo};
 
     const PROPS: &[PropInfo] = &[
