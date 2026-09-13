@@ -125,6 +125,15 @@ const CORNERS: [&str; 4] = ["\u{250c}", "\u{2510}", "\u{2514}", "\u{2518}"];
 /// a modal and a toast, and Chris ruled *"no frame around the table, valid for all views"*. A
 /// page that grew a border would be a design defect first and a broken detector second — and
 /// this would fail on the design, which is the right order to find out.
+///
+/// # If this goes red, the fix is to the PAGE, not to this test
+///
+/// Said plainly because the obvious move on a red line here is to reach for a different
+/// marker, and that is repairing the instrument until it agrees with the defect. A corner on
+/// the page means the page has grown a box §6 does not allow it; the corner is the symptom and
+/// the border is the bug. Changing the detector would leave the design broken and
+/// [`every_frame_renders_at_both_sizes`] asserting nothing, which is where this pair started.
+/// The next reader meets this failure without the conversation that produced it.
 #[test]
 fn a_window_corner_is_evidence_because_the_page_alone_draws_none() {
     let _serial = crate::global_state_lock();
