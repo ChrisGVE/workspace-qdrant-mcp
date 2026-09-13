@@ -17,6 +17,13 @@
 //! nothing in the render path consults the ambient endpoints at all. **Measured: every frame
 //! this example writes is byte-identical with the pair set and with it unset.**
 //!
+//! Both halves of that are pinned, and it takes two tests because one would pass for the
+//! wrong reason. `views::modal_framework::frames::tests::a_themed_widget_render_ignores_the_terminals_own_endpoints`
+//! covers what the widgets draw; `capture::tests::a_themed_capture_paints_its_ground_from_the_theme_and_not_the_terminal`
+//! covers the ground underneath them, and captures an EMPTY grid to do it — a frame with a
+//! full-screen composition in it paints its own background edge to edge and would pass
+//! whether or not the ground were right.
+//!
 //! Keeping the theme here rather than the env pair is the better of the two anyway — a
 //! reproducible capture should not depend on a variable the person running it has to remember,
 //! and a frame of *the wrong ladder* is precisely the failure that cannot be seen by looking

@@ -411,18 +411,24 @@ fn the_adversarial_theme_frame_shows_the_thin_ladder_it_claims_to() {
     );
 }
 
-/// **A frame does not depend on the ambient terminal endpoints**, which is what lets the PNG
-/// generator drop the env pair it used to need.
+/// **A themed WIDGET RENDER does not depend on the ambient terminal endpoints.**
 ///
-/// Under a bundled theme the ladder is built between the THEME's background and foreground, so
-/// `tokens::set_endpoints` — what `WQM_TUI_TERM_BG`/`FG` reach — should change nothing at all.
-/// Stated as a render: the same frame drawn against two wildly different ambient endpoints has
-/// to come out the same buffer.
+/// Under a bundled theme every rung comes from `tokens::ladder_endpoints` — the theme's own
+/// background and foreground — so `tokens::set_endpoints`, which is what `WQM_TUI_TERM_BG`/`FG`
+/// reach, should change nothing a widget draws.
 ///
-/// It is the claim `examples/frame_png`'s module docs now make, and a doc claiming a
-/// measurement should fail with the measurement rather than quietly outlive it.
+/// # This is half the claim, and the half it is not covers the other one
+///
+/// It renders straight into a [`Buffer`] and never goes through [`crate::capture`], so it says
+/// nothing about the ground a PNG is painted on — that is
+/// `capture::tests::a_themed_capture_paints_its_ground_from_the_theme_and_not_the_terminal`,
+/// which captures an EMPTY grid for the purpose. Worth stating because the first version of
+/// this test was described as pinning the whole byte-identity claim and did not: this frame is
+/// a full-screen composition whose page paints `screen_bg()` edge to edge, so the ground has
+/// nothing to show through and it would pass either way. Inert by coverage, not by
+/// construction — the exact failure mode a test can wear as a green tick.
 #[test]
-fn a_themed_frame_ignores_the_terminals_own_endpoints() {
+fn a_themed_widget_render_ignores_the_terminals_own_endpoints() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
     let ambient = tokens::endpoints();

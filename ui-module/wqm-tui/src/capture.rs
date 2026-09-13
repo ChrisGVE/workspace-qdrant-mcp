@@ -346,6 +346,73 @@ mod tests {
         );
     }
 
+    /// **A themed capture paints its ground from the THEME, not from the terminal.**
+    ///
+    /// The regression guard for the defect this module had: the rungs are interpolated from
+    /// [`tokens::ladder_endpoints`] — the theme's own background and foreground under
+    /// [`Palette::Bundled`] — while the ground was painted from [`tokens::endpoints`], what
+    /// the terminal reported. A themed frame therefore sat on a ground belonging to a
+    /// different theme, and nothing said so.
+    ///
+    /// # It captures an EMPTY grid, and that is the whole design of the test
+    ///
+    /// A frame with a full-screen widget in it paints its own background edge to edge and
+    /// leaves the ground nothing to show through, so it would pass this test whether or not
+    /// the defect were fixed — inert by *coverage* rather than by *construction*. The bare
+    /// captures are the ones that took the defect square on (`tab-bar`, `store-health` and
+    /// their kind in `examples/frame_png`), so the test is a bare capture: nothing is drawn,
+    /// and every pixel is the ground.
+    ///
+    /// Two claims, because either alone has a hole. Byte-identity across two opposite ambient
+    /// endpoints says the terminal's background no longer reaches the frame — but a hardcoded
+    /// ground would satisfy that too, so the second says the ground still *follows the theme*.
+    #[test]
+    fn a_themed_capture_paints_its_ground_from_the_theme_and_not_the_terminal() {
+        use crate::terminal::{Endpoints, Rgb};
+
+        let _serial = serial();
+        let restore = (Palette::current(), Encoding::current(), tokens::endpoints());
+        Palette::set(Palette::Bundled);
+
+        // Nothing rendered: the whole grid is layer 0, which is the surface under test.
+        let ground = || capture(8, 2, |_frame| {}).expect("capture");
+
+        let under = |theme: ratatui_themes::ThemeName, ambient: Endpoints| {
+            tokens::set_theme(theme.palette());
+            tokens::set_endpoints(ambient);
+            ground()
+        };
+        let black = Endpoints {
+            background: Rgb::new(0, 0, 0),
+            foreground: Rgb::new(0xff, 0xff, 0xff),
+        };
+        let white = Endpoints {
+            background: Rgb::new(0xff, 0xff, 0xff),
+            foreground: Rgb::new(0, 0, 0),
+        };
+        let mocha = ratatui_themes::ThemeName::CatppuccinMocha;
+        let solarized = ratatui_themes::ThemeName::SolarizedDark;
+
+        let mocha_on_black = under(mocha, black);
+        let mocha_on_white = under(mocha, white);
+        let solarized_on_black = under(solarized, black);
+
+        Palette::set(restore.0);
+        Encoding::set(restore.1);
+        tokens::set_endpoints(restore.2);
+
+        assert_eq!(
+            mocha_on_black, mocha_on_white,
+            "the terminal's own background reached a themed capture — the ground is being \
+             painted from `endpoints` rather than from `ladder_endpoints`"
+        );
+        assert_ne!(
+            mocha_on_black, solarized_on_black,
+            "the ground did not follow the theme, so it is fixed rather than derived and the \
+             assertion above is passing for the wrong reason"
+        );
+    }
+
     #[test]
     fn bold_and_regular_are_distinguishable_in_the_pixels() {
         let _serial = serial();
