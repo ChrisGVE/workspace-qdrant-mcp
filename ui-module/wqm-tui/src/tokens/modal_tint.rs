@@ -130,10 +130,68 @@ pub fn modal_border() -> Color {
     }
 }
 
+/// How the blend moves a surface toward the tint — round 2's proposal, as a bracket.
+///
+/// # The two halves of Chris's 2026-09-14 message are the same event
+///
+/// He raised the strength (*"your Tint: blue 0.40 is much better"*) and called the text
+/// unreadable (*"the bottom help is similarly hard to read … that is what needs to be
+/// improved"*) in one breath. Measured, those are cause and effect:
+/// [`Straight`](TintBlend::Straight) mixes in sRGB, which moves **lightness together with hue**,
+/// and `accent` is a bright colour on every bundled theme — so a dark window fill pulled 40%
+/// toward it becomes a *mid* fill, and every text rung above it loses the ground it was standing
+/// on. At 0.40 body text clears the WCAG floor on **two of fifteen** themes
+/// ([`crate::tokens::contrast::tests`]).
+///
+/// # So the tint gives up the one axis it never wanted
+///
+/// A tint answers *what colour is this window*. That is hue and chroma; lightness belongs to
+/// the ladder, which is where the emphasis scheme and the field rungs read it from.
+/// [`HoldLuminance`](TintBlend::HoldLuminance) mixes `a*`/`b*` at the full strength and keeps
+/// `L*` exactly where the rung put it — so the window is as blue at 0.40 as Chris asked for and
+/// as dark as rung 15 has always been, and every legibility number goes back to its untinted
+/// value. It costs nothing anywhere else: the field rungs, the depth cue between `Layer1` and
+/// `Layer2`, and the reference band are all *lightness* differences, and this is the mode that
+/// stops spending them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TintBlend {
+    /// Round 1's blend, and the one Chris judged: a straight sRGB mix.
+    #[default]
+    Straight,
+    /// **Round 2's proposal**: the tint's hue at the surface's own lightness.
+    HoldLuminance,
+}
+
+static BLEND: AtomicU8 = AtomicU8::new(TintBlend::Straight as u8);
+
+impl TintBlend {
+    pub const ALL: [Self; 2] = [Self::Straight, Self::HoldLuminance];
+
+    pub fn current() -> Self {
+        match BLEND.load(Ordering::Relaxed) {
+            1 => Self::HoldLuminance,
+            _ => Self::Straight,
+        }
+    }
+
+    pub fn set(blend: Self) {
+        BLEND.store(blend as u8, Ordering::Relaxed);
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Straight => "straight sRGB mix",
+            Self::HoldLuminance => "hue only, lightness held",
+        }
+    }
+}
+
 /// Pull a surface inside a window toward the modal's tint at [`tint_strength`].
 ///
 /// **The one blend, and every surface inside a window takes it** — see the module docs for the
-/// depth-cue inversion that having two of these produced.
+/// depth-cue inversion that having two of these produced. [`TintBlend`] chooses how it moves,
+/// not how many blends there are: both arms go through this function, so the window, the field
+/// rungs, the reference band and the confirm guard still move together.
 ///
 /// Slot and indexed colours cannot be blended without knowing the terminal's actual RGB
 /// values, so those encodings keep the layer fill and still colour the border.
@@ -145,9 +203,19 @@ pub fn modal_fill(layer: Color) -> Color {
         return layer;
     };
     let strength = tint_strength();
-    Color::Rgb(
+    let mixed = Color::Rgb(
         mix(base.r, tint.r, strength),
         mix(base.g, tint.g, strength),
         mix(base.b, tint.b, strength),
-    )
+    );
+    match TintBlend::current() {
+        TintBlend::Straight => mixed,
+        TintBlend::HoldLuminance => {
+            // `lab` panics on a non-RGB colour; both of these came out of `Rgb::from_color`
+            // above and `mix` only ever produces `Color::Rgb`, so both are RGB by construction.
+            let base_lab = super::lab(Color::Rgb(base.r, base.g, base.b));
+            let (_, a, b) = super::lab(mixed);
+            super::lab_to_color((base_lab.0, a, b))
+        }
+    }
 }

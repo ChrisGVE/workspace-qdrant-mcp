@@ -60,13 +60,15 @@ use ratatui_themes::ThemePalette;
 use crate::encoding::{Encoding, Family};
 use crate::terminal::{Endpoints, Rgb};
 
+pub mod contrast;
 pub mod field;
 pub mod modal;
 mod modal_tint;
 
 pub use modal::{under_modal, ModalScope};
 pub use modal_tint::{
-    modal_border, modal_fill, set_tint_strength, tint_strength, ModalTint, DEFAULT_TINT_STRENGTH,
+    modal_border, modal_fill, set_tint_strength, tint_strength, ModalTint, TintBlend,
+    DEFAULT_TINT_STRENGTH,
 };
 
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
@@ -547,6 +549,58 @@ pub(crate) fn lab(colour: Color) -> (f32, f32, f32) {
     };
     let (fx, fy, fz) = (f(x), f(y), f(z));
     (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+}
+
+/// [`lab`] run backwards — CIELAB `(L*, a*, b*)` to an sRGB [`Color::Rgb`].
+///
+/// # Why the inverse had to exist
+///
+/// Every blend in this crate mixes in sRGB bytes, which moves **lightness and hue together**.
+/// That is correct for the ladder, whose whole job is to move lightness. It is wrong for a
+/// TINT, which is supposed to say *what colour this window is* and not *how bright it is* — and
+/// the difference is not academic: measured across the fifteen bundled themes, pulling the
+/// window's fill 40% toward `accent` in sRGB lifts the fill's luminance enough that body text on
+/// it fails the WCAG floor on thirteen of them ([`contrast::tests`]). Chris named both halves in
+/// one message on 2026-09-14 — *"your Tint: blue 0.40 is much better"* and *"the text is
+/// unreadable"* — and they are the same event seen from two sides.
+///
+/// Holding `L*` while mixing `a*`/`b*` is what lets both be true at once, and it needs a round
+/// trip out of Lab that the crate did not have.
+///
+/// Reference: CIE 15:2004 §8.2.1, the standard D65 inverse; the forward direction in [`lab`]
+/// uses the same white point and the same `f` so the pair round-trips.
+///
+/// Out-of-gamut results are **clamped per channel**, which is safe here in a way it is not in
+/// [`into_gamut`]: that one fixes an *extrapolation past the ladder's end*, where clamping turns
+/// the hue, while this one only ever puts back a colour whose `L*` came from a colour already in
+/// gamut, so the correction is small and its direction is not systematic.
+pub(crate) fn lab_to_color((l, a, b): (f32, f32, f32)) -> Color {
+    let fy = (l + 16.0) / 116.0;
+    let fx = fy + a / 500.0;
+    let fz = fy - b / 200.0;
+    let finv = |t: f32| {
+        let cube = t * t * t;
+        if cube > 0.008856 {
+            cube
+        } else {
+            (t - 16.0 / 116.0) / 7.787
+        }
+    };
+    let (x, y, z) = (finv(fx) * 0.95047, finv(fy), finv(fz) * 1.08883);
+
+    let r = 3.2406 * x - 1.5372 * y - 0.4986 * z;
+    let g = -0.9689 * x + 1.8758 * y + 0.0415 * z;
+    let bl = 0.0557 * x - 0.2040 * y + 1.0570 * z;
+    let encode = |u: f32| {
+        let u = u.clamp(0.0, 1.0);
+        let s = if u <= 0.003_130_8 {
+            12.92 * u
+        } else {
+            1.055 * u.powf(1.0 / 2.4) - 0.055
+        };
+        (s * 255.0).round().clamp(0.0, 255.0) as u8
+    };
+    Color::Rgb(encode(r), encode(g), encode(bl))
 }
 
 /// Both ends of the ladder are the theme's own colours, exactly, on every theme.
