@@ -1,10 +1,15 @@
-//! The constant top of the screen, on a real screen — what tabs 1–9 all begin with.
+//! The page's own chrome, on a real screen — what tabs 1–9 all begin and end with.
 //!
 //! Chris, 20260906: the first four rows of every tab are the same four rows. This view is
-//! where that claim is *looked at* rather than asserted — the app bar, the frame rule, the
-//! status block and the rule that closes it, over a content region that deliberately holds
-//! nothing. Everything below the closing rule belongs to a tab and none of it is built yet, so
-//! the region says so in one muted line instead of depicting a screen that does not exist.
+//! where that claim is *looked at* rather than asserted — the selector, the frame rule, the
+//! status frame and the hairline that closes it, and since 2026-09-14 the hairline and
+//! minimalist help line at the other end, over a content region that deliberately holds
+//! nothing. Everything between them belongs to a tab and none of it is built yet, so the
+//! region says so in one muted line instead of depicting a screen that does not exist.
+//!
+//! It draws none of that itself any more: it is [`crate::views::page::Page`] with a
+//! placeholder where a view goes, which is the cheapest possible demonstration that the frame
+//! and the view are separable.
 //!
 //! # Why the placeholder is a line and not a mock-up
 //!
@@ -13,12 +18,12 @@
 //! exactly that, and it would also be the thing the eye went to — which would make this frame
 //! useless for judging the four rows it exists to judge.
 //!
-//! # The Service tab is the one tab without a status block
+//! # The Service tab is the one tab without a status frame
 //!
 //! It has [`crate::panes::status_band`], which says the same thing in more detail and from the
 //! same readings. Two claims about one system, on one screen, is how the two come to disagree
 //! — the same rule that keeps the daemon out of the store list (§6.29). So the `Service tab`
-//! frame is app bar, rule, content: shorter by four rows, and that difference is the point.
+//! frame is selector, rule, content: shorter by four rows, and that difference is the point.
 //!
 //! # The content floor is the view's number, not the block's
 //!
@@ -35,7 +40,8 @@ use ratatui::{
 
 use crate::panes::status_block::{self, StatusBlock};
 use crate::tokens;
-use crate::views::top::{row, ConstantTop};
+use crate::views::page::{row, Page};
+use crate::widgets::chrome::status_line::ALWAYS;
 
 /// What the content region says while no tab is built. One muted line — see the module docs
 /// for why it is not a mock-up.
@@ -98,11 +104,18 @@ impl Widget for ShellView {
         // Held for the whole draw, so every token read beneath it answers as a page under a
         // modal — the bar, the block, its discs and its counts alike.
         let _modal = self.modal.then(tokens::ModalScope::enter);
-        let mut top = ConstantTop::new(self.active).content_floor(self.content_floor);
+        let mut page = Page::new(self.active).content_floor(self.content_floor);
         if let Some(block) = self.status {
-            top = top.status(block);
+            page = page.status(block);
         }
-        placeholder(top.draw(area, buf), buf);
+        // A page with no tab built has nothing of its own to offer, so the foot is the two
+        // hints every screen ends with. It is not empty: `? Help · q Quit` is the pair that
+        // survives a foot too narrow for anything else ([`StatusLine::ALWAYS`]), and the one
+        // that opens the window listing the rest.
+        for (key, label) in ALWAYS {
+            page = page.hint(key, label);
+        }
+        placeholder(page.draw(area, buf), buf);
     }
 }
 
@@ -209,7 +222,12 @@ pub mod ingredient {
 
     /// A frame, and the size it is drawn at. `None` fills the preview cell, which is how the
     /// storyboard's 125 × 34 is judged against the terminal actually running the pantry.
-    struct Variant(&'static str, &'static str, fn() -> ShellView, Option<(u16, u16)>);
+    struct Variant(
+        &'static str,
+        &'static str,
+        fn() -> ShellView,
+        Option<(u16, u16)>,
+    );
 
     impl Ingredient for Variant {
         fn tab(&self) -> &str {
@@ -289,12 +307,12 @@ pub mod ingredient {
 mod tests {
     use super::*;
     use crate::tokens::Health;
+    use crate::views::top::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
     use crate::widgets::chrome::rule::RULE;
     use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
-    use crate::views::top::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
     use crate::widgets::chrome::MARGIN;
 
-        fn render(view: ShellView, width: u16, height: u16) -> Buffer {
+    fn render(view: ShellView, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         view.render(area, &mut buf);
