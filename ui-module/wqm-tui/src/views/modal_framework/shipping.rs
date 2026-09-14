@@ -83,23 +83,29 @@ pub fn proposed<T>(draw: impl FnOnce() -> T) -> T {
     draw()
 }
 
-/// The window's decoration, with round 2's trail and the verbs for the mode it is in.
-fn decoration(crumbs: &[&str], title: &str, editing: bool) -> Decoration {
+/// The window's decoration: the trail, the title, and the verbs the VIEW actually offers.
+///
+/// # The hints are derived, and a hardcoded list is how a window lies
+///
+/// This function spelled its two hint lists out — one for view mode, one for edit — until a
+/// text dump caught it advertising `j/k Change` over `Chunk overlap`, which is a NUMBER field
+/// where `j` and `k` are characters to type. The keys a window offers depend on the kind of the
+/// field the cursor is on, and the only thing that knows that is the dispatcher. So the rows come
+/// from [`super::keys`] through [`super::stack::RecordState::hints`], exactly as a live window's
+/// do — which means a frame cannot advertise a key the running window does not answer to.
+fn decoration(
+    crumbs: &[&str],
+    title: &str,
+    fields: &[FieldRow],
+    mode: &Mode,
+) -> Decoration {
     let mut deco = Decoration::new(title)
         .crumbs(crumbs.to_vec())
         .crumb_style(CrumbStyle::Powerline);
-    deco = if editing {
-        deco.hint("\u{21b9}", "Next field")
-            .hint("\u{21e7}\u{21b9}", "Previous")
-            .hint("j/k", "Change")
-            .hint("Esc", "Leave edit")
-    } else {
-        deco.hint("\u{2193}\u{2191}/jk", "Move")
-            .hint("e", "Edit")
-            .hint("\u{232b}", "Back")
-            .hint("?", "Help")
-            .hint("q", "Close")
-    };
+    let state = super::stack::RecordState::new(fields.to_vec(), mode.clone());
+    for (key, label) in state.hints() {
+        deco = deco.hint(key, label);
+    }
     deco
 }
 
@@ -125,7 +131,7 @@ impl Default for Frame {
             // variant that is not about the third column at all.
             reference: Reference::Text("DEFAULT"),
             footprint: Footprint::Max,
-            edge: Edge::Bordered,
+            edge: Edge::default(),
             fields: frames::record(),
             title: "Queue item \u{2014} reading_guide.py",
             crumbs: &CRUMBS,
@@ -147,17 +153,16 @@ impl Frame {
         // the view's third column both sit inside it, which is the point of it being a scope
         // rather than a parameter. The page above was drawn OUTSIDE it and keeps its own ladder.
         let _window = tokens::WindowScope::enter();
-        let editing = self.mode.editing();
         let view =
             RecordView::new(self.fields.clone(), self.mode.clone()).reference(self.reference);
 
-        let probe = Container::new(decoration(self.crumbs, self.title, editing));
+        let deco = || decoration(self.crumbs, self.title, &self.fields, &self.mode);
+        let probe = Container::new(deco());
         let measured = probe.viewport(rect);
         let rows = view.rows(measured.width);
         let data_rows = view.data_height(measured.height);
 
-        let mut container =
-            Container::new(decoration(self.crumbs, self.title, editing)).edge(self.edge);
+        let mut container = Container::new(deco()).edge(self.edge);
         if rows > data_rows as usize {
             container = container.scroll(Scroll {
                 offset: 0,

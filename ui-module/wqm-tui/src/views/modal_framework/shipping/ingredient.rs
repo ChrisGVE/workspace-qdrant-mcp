@@ -526,7 +526,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "32 edge — spacing only",
+            "32 edge — spacing only (the default, shown alone)",
             "PROPOSED. Item (e): the same rect, fill and padding with no glyphs — the content does not move by a column, so the pair differs in ink alone",
             |area, buf| {
                 proposed(|| {

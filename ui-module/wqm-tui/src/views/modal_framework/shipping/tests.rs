@@ -90,42 +90,36 @@ fn the_window_leaves_five_of_page_on_every_side_at_every_size() {
                 Frame::default().draw(area, buf);
             });
         });
-        let painted = whole(&buf, area);
-        let rows: Vec<&str> = painted.split('\n').collect();
-
-        // The top border is the first row carrying the window's corner.
-        let top = rows
-            .iter()
-            .position(|r| r.contains('\u{250c}'))
-            .unwrap_or_else(|| panic!("{area:?}: no window drawn"));
-        let bottom = rows
-            .iter()
-            .rposition(|r| r.contains('\u{2514}'))
-            .expect("a bottom border");
-        assert_eq!(top, INSET as usize, "{area:?}: rows of page above");
+        // **Found by the FILL, not by a corner glyph.** Item (e) made the borderless edge the
+        // default, so there is no `┌` to look for any more — and that is the right instrument
+        // anyway: a border is ink the window may or may not draw, while the fill is the window.
+        //
+        // Read off the cells rather than off a text dump for the same reason the note in this
+        // file's header gives: a dump cannot show a background, and a background is the whole
+        // of what a borderless window paints.
+        let fill = tokens::modal_fill(tokens::layer1_bg());
+        let painted_at = |x: u16, y: u16| buf.cell((x, y)).is_some_and(|c| c.bg == fill);
+        let window_rows: Vec<u16> = (area.y..area.bottom())
+            .filter(|y| (area.x..area.right()).any(|x| painted_at(x, *y)))
+            .collect();
+        let top = *window_rows.first().unwrap_or_else(|| panic!("{area:?}: no window drawn"));
+        let bottom = *window_rows.last().expect("a bottom edge");
+        assert_eq!(top - area.y, INSET, "{area:?}: rows of page above");
         assert_eq!(
-            rows.len() - 1 - bottom,
-            INSET as usize,
+            area.bottom() - 1 - bottom,
+            INSET,
             "{area:?}: rows of page below"
         );
 
-        // **Character positions, not byte offsets.** `str::find` answers in bytes, and the
-        // page's rule is made of `─` at three bytes each — so the first version of this read the
-        // left margin as 15 on a frame whose margin is 5, and would have gone on reading it as
-        // 15 however wrong the frame got. This is the measurement trap the design's own render
-        // rules name, hit inside the instrument that checks for it.
-        let column_of = |glyph: char| {
-            rows[top]
-                .chars()
-                .position(|c| c == glyph)
-                .unwrap_or_else(|| panic!("{area:?}: no {glyph} on the border row"))
-        };
-        let left = column_of('\u{250c}');
-        let right = column_of('\u{2510}');
-        assert_eq!(left, INSET as usize, "{area:?}: columns of page left");
+        let window_cols: Vec<u16> = (area.x..area.right())
+            .filter(|x| (top..=bottom).any(|y| painted_at(*x, y)))
+            .collect();
+        let left = *window_cols.first().expect("a left edge");
+        let right = *window_cols.last().expect("a right edge");
+        assert_eq!(left - area.x, INSET, "{area:?}: columns of page left");
         assert_eq!(
-            rows[top].chars().count() - 1 - right,
-            INSET as usize,
+            area.right() - 1 - right,
+            INSET,
             "{area:?}: columns of page right"
         );
     }
