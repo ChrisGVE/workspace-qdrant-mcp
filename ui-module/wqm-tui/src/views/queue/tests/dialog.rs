@@ -176,11 +176,7 @@ fn opening_one_conversation_leaves_the_other_and_the_elder_sits_on_the_left() {
 
     let searching = searching("reading_guide");
     let both = searching.toggle_filter();
-    assert_eq!(
-        both.first,
-        First::Search,
-        "the search was opened first"
-    );
+    assert_eq!(both.first, First::Search, "the search was opened first");
     assert!(
         matches!(both.search, Some(Search::On { .. })),
         "opening the filter left the search alone"
@@ -203,7 +199,8 @@ fn opening_one_conversation_leaves_the_other_and_the_elder_sits_on_the_left() {
         "the first-opened search is on the left: {row:?}"
     );
     assert!(
-        row.trim_end().ends_with("filter on: open-books   38 rows   f to clear"),
+        row.trim_end()
+            .ends_with("filter on: open-books   38 rows   f to clear"),
         "the second-opened filter is to its right: {row:?}"
     );
 
@@ -236,7 +233,8 @@ fn opening_one_conversation_leaves_the_other_and_the_elder_sits_on_the_left() {
         "the first-opened filter is on the left: {row:?}"
     );
     assert!(
-        row.trim_end().ends_with("search on: reading_guide   1/6   Esc to cancel"),
+        row.trim_end()
+            .ends_with("search on: reading_guide   1/6   Esc to cancel"),
         "the second-opened search is to its right: {row:?}"
     );
 }

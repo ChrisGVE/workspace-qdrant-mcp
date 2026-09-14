@@ -176,10 +176,7 @@ pub enum Filter {
     /// A term being typed, narrowing as it grows.
     Input(String),
     /// A filter that has been accepted, and how many rows came back.
-    On {
-        term: String,
-        rows: usize,
-    },
+    On { term: String, rows: usize },
 }
 
 impl Filter {
@@ -583,7 +580,10 @@ impl QueueState {
             Motion::Up => self.cursor.saturating_sub(count),
             Motion::Down => self.cursor.saturating_add(count).min(last),
             Motion::PageUp => self.cursor.saturating_sub(count.saturating_mul(page)),
-            Motion::PageDown => self.cursor.saturating_add(count.saturating_mul(page)).min(last),
+            Motion::PageDown => self
+                .cursor
+                .saturating_add(count.saturating_mul(page))
+                .min(last),
             Motion::Top => 0,
             Motion::Bottom => last,
             // The number IS the position (20260908), so row n is the nth drawn row and a number

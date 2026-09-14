@@ -16,16 +16,15 @@ use crate::panes::cell::fit::{fit, laid_out};
 /// uniform gap and any width returned to the flex Object column.
 fn right_edges() -> (usize, usize) {
     let pane = frames::pane(&QueueState::default());
-    let area = Rect::new(
-        MARGIN,
-        0,
-        WIDE - MARGIN * 2,
-        1,
-    );
+    let area = Rect::new(MARGIN, 0, WIDE - MARGIN * 2, 1);
     let fitted = fit(pane.columns(), pane.rows(), area.width, 12, 1);
     let rects = laid_out(area, &fitted);
     let edge = |at| {
-        let position = fitted.active.iter().position(|&column| column == at).unwrap();
+        let position = fitted
+            .active
+            .iter()
+            .position(|&column| column == at)
+            .unwrap();
         rects[position].right() as usize
     };
     (edge(frames::SIZE), edge(frames::AGE))
@@ -95,7 +94,10 @@ fn the_size_columns_space_lands_in_one_column_on_every_row() {
             space - 1
         );
     }
-    assert!(seen > 5, "only {seen} sized rows on the page — proves little");
+    assert!(
+        seen > 5,
+        "only {seen} sized rows on the page — proves little"
+    );
 }
 
 /// Every age ends on the page's own right edge: one unit letter, in one column, on every row.

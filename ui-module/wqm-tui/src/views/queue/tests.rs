@@ -127,7 +127,12 @@ fn the_status_column_carries_the_status_blocks_own_three_hues() {
         let row = header_row() + 2;
         let painted: Vec<String> = (0..WIDE)
             .filter(|x| buf.cell((*x, row)).expect("cell in area").style().fg == Some(hue))
-            .map(|x| buf.cell((x, row)).expect("cell in area").symbol().to_string())
+            .map(|x| {
+                buf.cell((x, row))
+                    .expect("cell in area")
+                    .symbol()
+                    .to_string()
+            })
             .collect();
         assert_eq!(
             painted.concat(),
@@ -199,7 +204,13 @@ fn the_two_conversations_are_independent_and_each_leaves_by_its_own_door() {
         ..searching.clone()
     }
     .accept_filter(&fixture::ROWS);
-    assert_eq!(filtered.filter, Some(Filter::On { term: "PlotSwift".into(), rows: 3 }));
+    assert_eq!(
+        filtered.filter,
+        Some(Filter::On {
+            term: "PlotSwift".into(),
+            rows: 3
+        })
+    );
     let searched_within = QueueState {
         search: Some(Search::Input("Tests".into())),
         ..filtered.clone()
@@ -207,17 +218,27 @@ fn the_two_conversations_are_independent_and_each_leaves_by_its_own_door() {
     .accept_search(&fixture::ROWS);
     assert_eq!(
         searched_within.search,
-        Some(Search::On { term: "Tests".into(), hit: 1, hits: 2 }),
+        Some(Search::On {
+            term: "Tests".into(),
+            hit: 1,
+            hits: 2
+        }),
         "the search counts its hits over the rows the filter left"
     );
-    assert_eq!(searched_within.cursor, 1, "the cursor is on the first of the two hits");
+    assert_eq!(
+        searched_within.cursor, 1,
+        "the cursor is on the first of the two hits"
+    );
 
     // Esc takes the search — typing or settled — and nothing else.
     let escaped = searched_within.escape();
     assert_eq!(escaped.search, None, "Esc clears the search");
     assert_eq!(
         escaped.filter,
-        Some(Filter::On { term: "PlotSwift".into(), rows: 3 }),
+        Some(Filter::On {
+            term: "PlotSwift".into(),
+            rows: 3
+        }),
         "Esc leaves the filter where it was"
     );
     let escaped_typing = QueueState {
@@ -225,7 +246,10 @@ fn the_two_conversations_are_independent_and_each_leaves_by_its_own_door() {
         ..escaped.clone()
     }
     .escape();
-    assert_eq!(escaped_typing.search, None, "Esc clears a search still typing");
+    assert_eq!(
+        escaped_typing.search, None,
+        "Esc clears a search still typing"
+    );
 
     // `f` on an accepted filter clears it — the key that opened it is the key that closes it —
     // and `f` on a filter still typing is a letter in the term, not a command.
@@ -246,7 +270,10 @@ fn the_two_conversations_are_independent_and_each_leaves_by_its_own_door() {
     let empty = cleared.toggle_filter().accept_filter(&fixture::ROWS);
     assert_eq!(
         empty.filter,
-        Some(Filter::On { term: String::new(), rows: 200 }),
+        Some(Filter::On {
+            term: String::new(),
+            rows: 200
+        }),
         "an empty term matches everything — the whole page"
     );
 
@@ -299,7 +326,11 @@ fn with_no_sort_chosen_the_rows_in_progress_lead_in_buffer_order() {
         .map(|row| row.object)
         .collect();
     let drawn: Vec<&str> = rows.iter().map(|row| row.object).collect();
-    assert_eq!(drawn[..10], in_progress[..], "in buffer order among themselves");
+    assert_eq!(
+        drawn[..10],
+        in_progress[..],
+        "in buffer order among themselves"
+    );
     assert_eq!(
         drawn[10..],
         rest[..],

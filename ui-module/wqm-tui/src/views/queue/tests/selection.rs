@@ -48,7 +48,11 @@ fn a_range_extends_with_the_cursor_and_survives_being_closed() {
 
     let open = state.toggle_range(&rows);
     assert!(open.selection.extending(), "`v` opens a range");
-    assert_eq!(open.selection.len(), 1, "the anchor row is selected at once");
+    assert_eq!(
+        open.selection.len(),
+        1,
+        "the anchor row is selected at once"
+    );
 
     let dragged = open.moved(Motion::Down, 3, 10, &rows);
     assert_eq!(dragged.selection.len(), 4, "the anchor and three below it");
@@ -77,7 +81,11 @@ fn coming_back_over_a_range_releases_the_rows_passed() {
     assert_eq!(overshot.selection.len(), 6);
 
     let back = overshot.moved(Motion::Up, 3, 10, &rows);
-    assert_eq!(back.selection.len(), 3, "the span is anchor..cursor, not a trail");
+    assert_eq!(
+        back.selection.len(),
+        3,
+        "the span is anchor..cursor, not a trail"
+    );
 }
 
 /// A range is ADDITIVE: it adds to what was already picked rather than replacing it.
@@ -121,7 +129,9 @@ fn a_selection_survives_a_filter_that_hides_it() {
         );
     }
     assert!(
-        !projection(&filtered).iter().any(|row| selected.contains(row)),
+        !projection(&filtered)
+            .iter()
+            .any(|row| selected.contains(row)),
         "the filter does not actually hide the selected rows — this proves nothing"
     );
 }
@@ -135,10 +145,18 @@ fn esc_takes_the_search_before_it_takes_the_selection() {
 
     let once = searching.escape();
     assert!(once.search.is_none(), "the search is the first layer");
-    assert_eq!(once.selection.len(), 2, "the selection is not the first layer");
+    assert_eq!(
+        once.selection.len(),
+        2,
+        "the selection is not the first layer"
+    );
 
     let twice = once.escape();
-    assert_eq!(twice.selection.len(), 0, "with no search, Esc resets the selection");
+    assert_eq!(
+        twice.selection.len(),
+        0,
+        "with no search, Esc resets the selection"
+    );
 }
 
 /// `V` says *this* layer, whatever else is on the screen.
@@ -150,7 +168,10 @@ fn v_upper_resets_the_selection_past_a_search() {
 
     let reset = searching.reset_selection();
     assert_eq!(reset.selection.len(), 0);
-    assert!(reset.search.is_some(), "`V` is not Esc and leaves the search");
+    assert!(
+        reset.search.is_some(),
+        "`V` is not Esc and leaves the search"
+    );
 }
 
 /// A selected row wears the tint and the bar; the cursor's own row keeps the cursor's block.
@@ -188,7 +209,11 @@ fn a_selected_row_wears_the_bar_and_the_tint_and_the_cursor_keeps_its_block() {
     }
 
     // The cursor's row keeps the cursor tint; the row below it wears the selection wash.
-    let fill = |y: u16| buf.cell((crate::widgets::chrome::MARGIN, y)).expect("cell").bg;
+    let fill = |y: u16| {
+        buf.cell((crate::widgets::chrome::MARGIN, y))
+            .expect("cell")
+            .bg
+    };
     assert_eq!(
         fill(first),
         crate::tokens::cursor_bg(),

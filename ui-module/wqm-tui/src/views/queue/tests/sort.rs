@@ -147,7 +147,10 @@ fn an_affordable_queue_header_separates_its_sort_mark() {
     let _restore = Restore::dark_truecolor();
     let buf = render(
         view(QueueState {
-            sort: Some(Sort { column: frames::TENANT, direction: Direction::Desc }),
+            sort: Some(Sort {
+                column: frames::TENANT,
+                direction: Direction::Desc,
+            }),
             ..QueueState::default()
         }),
         160,
@@ -155,7 +158,10 @@ fn an_affordable_queue_header_separates_its_sort_mark() {
     );
     let header = line(&buf, header_row());
     assert!(header.contains("Tenant ↓"), "{header:?}");
-    assert!(header.contains("Object"), "the mark clipped Object: {header:?}");
+    assert!(
+        header.contains("Object"),
+        "the mark clipped Object: {header:?}"
+    );
 }
 
 /// `Size` orders by bytes and `Age` by seconds — never by the text either of them prints.
@@ -210,12 +216,7 @@ fn size_orders_by_bytes_and_age_orders_by_seconds() {
     // put `19h` above `1m`. No `ago` anywhere in the column (Chris, 2026-09-07).
     let ages = shown(frames::AGE, Direction::Asc, frames::cell_at(frames::AGE));
     assert_eq!(ages[0], "1m", "{:?}", &ages[..3]);
-    assert_eq!(
-        ages[ages.len() - 1],
-        "19h",
-        "{:?}",
-        &ages[ages.len() - 3..]
-    );
+    assert_eq!(ages[ages.len() - 1], "19h", "{:?}", &ages[ages.len() - 3..]);
     assert!(
         !ages.iter().any(|age| age.contains("ago")),
         "the column prints figures, and `ago` belongs to a sentence"

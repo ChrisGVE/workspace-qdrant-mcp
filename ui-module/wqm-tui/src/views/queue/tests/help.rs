@@ -17,7 +17,11 @@ const HELP_TALL: u16 = 50;
 
 fn window() -> Vec<String> {
     let _restore = Restore::dark_truecolor();
-    let buf = render(view(QueueState::default()).modal(Queue::help()), WIDE, HELP_TALL);
+    let buf = render(
+        view(QueueState::default()).modal(Queue::help()),
+        WIDE,
+        HELP_TALL,
+    );
     let at = Queue::help().rect(Rect::new(0, 0, WIDE, HELP_TALL));
     (at.y..at.y + at.height)
         .map(|y| {
@@ -72,32 +76,59 @@ fn help_entries_use_the_approved_wording() {
         ("#g", "Go to row #"),
         ("r", "Toggle relative row numbers"),
     ]));
-    assert_eq!(entries("Sorting"), vec![
-        ("<letter>", "Mode change per keypress: ascending -> descending -> off ->"),
-        ("⇧<letter>", "Reversed mode change"),
-    ]);
-    assert_eq!(entries("Focus"), vec![
-        ("1 … 9, 0", "Change tab"),
-        ("<letter>", "go to and activate an area of the screen"),
-    ]);
-    assert_eq!(entries("Search / Filter"), vec![
-        ("/", "Search for a string or regex, Enter to activate mode, Esc to deactivate"),
-        ("n", "Next hit, while a search is on"),
-        ("N", "Previous hit, while a search is on"),
-        ("f", "Filter for a string or regex, Enter to activate mode, f again to deactivate"),
-        ("o", "Filter by operation type"),
-        ("s", "Filter by status"),
-    ]);
-    assert_eq!(entries("General"), vec![
-        ("?", "Help"),
-        ("q", "Close the current window, or quit from the main screen"),
-    ]);
-    assert_eq!(crate::panes::list::help::MODIFIERS, [
-        ("⌃", "Control"),
-        ("⇧", "Shift"),
-        ("⌘", "Cmd/Super"),
-        ("⌥", "Opt"),
-    ]);
+    assert_eq!(
+        entries("Sorting"),
+        vec![
+            (
+                "<letter>",
+                "Mode change per keypress: ascending -> descending -> off ->"
+            ),
+            ("⇧<letter>", "Reversed mode change"),
+        ]
+    );
+    assert_eq!(
+        entries("Focus"),
+        vec![
+            ("1 … 9, 0", "Change tab"),
+            ("<letter>", "go to and activate an area of the screen"),
+        ]
+    );
+    assert_eq!(
+        entries("Search / Filter"),
+        vec![
+            (
+                "/",
+                "Search for a string or regex, Enter to activate mode, Esc to deactivate"
+            ),
+            ("n", "Next hit, while a search is on"),
+            ("N", "Previous hit, while a search is on"),
+            (
+                "f",
+                "Filter for a string or regex, Enter to activate mode, f again to deactivate"
+            ),
+            ("o", "Filter by operation type"),
+            ("s", "Filter by status"),
+        ]
+    );
+    assert_eq!(
+        entries("General"),
+        vec![
+            ("?", "Help"),
+            (
+                "q",
+                "Close the current window, or quit from the main screen"
+            ),
+        ]
+    );
+    assert_eq!(
+        crate::panes::list::help::MODIFIERS,
+        [
+            ("⌃", "Control"),
+            ("⇧", "Shift"),
+            ("⌘", "Cmd/Super"),
+            ("⌥", "Opt"),
+        ]
+    );
 }
 
 /// No key string repeats inside one section, including the filter key, whose label describes
@@ -132,7 +163,12 @@ fn rendered_key_column_is_as_wide_as_the_widest_key() {
     // one property of a help line that survived ruling 6's styling unchanged.
     let rendered: Vec<String> = crate::panes::list::help::render(&sections)
         .iter()
-        .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
         .collect();
 
     // Every entry line is "  <key-padded><what>". The padded key field must be at least
@@ -176,9 +212,18 @@ fn rendered_key_column_is_as_wide_as_the_widest_key() {
 fn foot_offers_retry_cancel_remove_and_not_retry_r() {
     let hints = view(QueueState::default()).hints();
     let keys: Vec<&str> = hints.iter().map(|(key, _)| *key).collect();
-    assert!(keys.contains(&"y"), "foot should offer y for Retry: {hints:?}");
-    assert!(keys.contains(&"c"), "foot should offer c for Cancel: {hints:?}");
-    assert!(keys.contains(&"x"), "foot should offer x for Remove: {hints:?}");
+    assert!(
+        keys.contains(&"y"),
+        "foot should offer y for Retry: {hints:?}"
+    );
+    assert!(
+        keys.contains(&"c"),
+        "foot should offer c for Cancel: {hints:?}"
+    );
+    assert!(
+        keys.contains(&"x"),
+        "foot should offer x for Remove: {hints:?}"
+    );
     assert!(!keys.contains(&"r"), "foot should not offer r: {hints:?}");
 }
 
@@ -384,7 +429,10 @@ fn the_legend_closes_the_window_and_its_shift_is_not_the_up_arrow() {
 
     for (glyph, name) in crate::panes::list::help::MODIFIERS {
         assert!(last.contains(glyph), "the legend omits {name}: {last:?}");
-        assert!(last.contains(name), "the legend omits the word {name:?}: {last:?}");
+        assert!(
+            last.contains(name),
+            "the legend omits the word {name:?}: {last:?}"
+        );
     }
 
     let shift = crate::panes::list::help::MODIFIERS[1].0;

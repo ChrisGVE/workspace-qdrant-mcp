@@ -27,7 +27,10 @@ fn the_screen_is_the_constant_top_a_dialog_row_a_list_and_a_foot() {
         "the dialog slot is blank while nothing is being said"
     );
     let header = line(&buf, header_row());
-    assert!(header.contains("Tenant"), "the column header follows the slot: {header:?}");
+    assert!(
+        header.contains("Tenant"),
+        "the column header follows the slot: {header:?}"
+    );
 
     // And the foot: the rule, then the hint line, on the last two rows.
     assert!(
@@ -130,7 +133,11 @@ fn the_foot_follows_the_list_and_the_search_in_the_ruled_order() {
         }),
         ..QueueState::default()
     });
-    assert_eq!(frames::pane(&one.state).len(), 1, "this frame must hold one row");
+    assert_eq!(
+        frames::pane(&one.state).len(),
+        1,
+        "this frame must hold one row"
+    );
     assert_eq!(
         one.hints()[0],
         ("/", "Search"),
@@ -193,12 +200,7 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
     let pane = frames::pane(&QueueState::default());
     let mut object_at_125 = 0;
     for screen_width in [80, 100, 125, 160] {
-        let table = Rect::new(
-            MARGIN,
-            0,
-            screen_width - MARGIN * 2,
-            1,
-        );
+        let table = Rect::new(MARGIN, 0, screen_width - MARGIN * 2, 1);
         let fitted = crate::panes::cell::fit::fit(pane.columns(), pane.rows(), table.width, 12, 1);
         let rects = crate::panes::cell::fit::laid_out(table, &fitted);
         let _serial = crate::global_state_lock();
@@ -208,10 +210,17 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
             .map(|y| (y, line(&frame, y)))
             .find(|(_, row)| row.contains("Object"))
             .expect("Queue header is visible");
-        assert!(header.contains("Object"), "Object missing at {screen_width}: {header:?}");
+        assert!(
+            header.contains("Object"),
+            "Object missing at {screen_width}: {header:?}"
+        );
         assert_eq!(rects[0].x, table.x);
         for (at, pair) in rects.windows(2).enumerate() {
-            assert_eq!(pair[1].x - pair[0].right(), fitted.gap, "gap {at} at {screen_width}");
+            assert_eq!(
+                pair[1].x - pair[0].right(),
+                fitted.gap,
+                "gap {at} at {screen_width}"
+            );
         }
         for (&at, rect) in fitted.active.iter().zip(&rects) {
             let column = &pane.columns()[at];
@@ -225,7 +234,11 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
                 let drawn: String = (start..start + title)
                     .map(|x| frame.cell((x, header_y)).expect("header cell").symbol())
                     .collect();
-                assert_eq!(drawn, column.title, "{} moved at {screen_width}", column.title);
+                assert_eq!(
+                    drawn, column.title,
+                    "{} moved at {screen_width}",
+                    column.title
+                );
             }
             let floor = if column.align == crate::panes::cell::Align::Right {
                 column.fixed().unwrap_or(title)
@@ -234,7 +247,11 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
             } else {
                 title.max(12)
             };
-            assert!(rect.width >= floor, "{} is below its floor at {screen_width}", column.title);
+            assert!(
+                rect.width >= floor,
+                "{} is below its floor at {screen_width}",
+                column.title
+            );
             if fitted.gap == 2 {
                 let natural = column.fixed().unwrap_or_else(|| {
                     pane.rows()
@@ -245,10 +262,18 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
                         .unwrap_or(title)
                         .max(title)
                 });
-                assert!(rect.width >= natural, "{} is truncated despite wide gaps", column.title);
+                assert!(
+                    rect.width >= natural,
+                    "{} is truncated despite wide gaps",
+                    column.title
+                );
             }
         }
-        let object = fitted.active.iter().position(|&at| at == frames::OBJECT).unwrap();
+        let object = fitted
+            .active
+            .iter()
+            .position(|&at| at == frames::OBJECT)
+            .unwrap();
         assert_object_data(&pane, &frame, rects[object], header_y, screen_width);
         if screen_width == 80 {
             assert_eq!(fitted.gap, 1);
@@ -265,14 +290,28 @@ fn queue_gaps_and_floors_hold_across_four_terminal_widths() {
 }
 
 fn assert_object_data(
-    pane: &crate::panes::list::ListPane, frame: &Buffer, rect: Rect, header_y: u16,
+    pane: &crate::panes::list::ListPane,
+    frame: &Buffer,
+    rect: Rect,
+    header_y: u16,
     screen_width: u16,
 ) {
     let cell = &pane.rows()[0][frames::cell_at(frames::OBJECT)];
-    let Cell::Text(object) = cell else { panic!("Object must be text") };
+    let Cell::Text(object) = cell else {
+        panic!("Object must be text")
+    };
     let expected = pane.columns()[frames::OBJECT].elide.fit(object, rect.width);
     let drawn: String = (rect.x..rect.right())
-        .map(|x| frame.cell((x, header_y + 1)).expect("Object data cell").symbol())
+        .map(|x| {
+            frame
+                .cell((x, header_y + 1))
+                .expect("Object data cell")
+                .symbol()
+        })
         .collect();
-    assert_eq!(drawn.trim_end(), expected, "Object data moved at {screen_width}");
+    assert_eq!(
+        drawn.trim_end(),
+        expected,
+        "Object data moved at {screen_width}"
+    );
 }

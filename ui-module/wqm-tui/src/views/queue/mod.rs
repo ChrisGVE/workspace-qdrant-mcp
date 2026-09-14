@@ -5,9 +5,11 @@
 //! `design-notes/V01-QUEUE-CAPTURE.txt`, so the frame can be compared with the thing it
 //! reproduces rather than with a memory of it.
 //!
-//! Rows top to bottom: the constant top ([`crate::views::top::ConstantTop`] — app bar, frame
-//! rule, status block, and the rule that closes it), the **dialog slot**, the list's column
-//! header, the rows, the foot rule, the foot. Nothing else, and in particular **no frame**:
+//! Rows top to bottom: the page's top decoration ([`crate::views::page::Page`] — selector,
+//! frame rule, status frame, and the hairline that closes it), the **dialog slot**, the list's
+//! column header, the rows, and the page's bottom decoration — the closing hairline and the
+//! help line. Only the middle of that is this screen's; the frame is the page's, and this view
+//! never learns what a foot is made of. Nothing else, and in particular **no frame**:
 //! Chris, 2026-09-07, *"no frame around the table, valid for all views"*. v0.1 draws its queue
 //! inside a `┌ Queue ┐` box that VL §6 already forbids — a box means a modal or a toast — and
 //! that was spending two columns and two rows to repeat what the tab bar says.
@@ -24,17 +26,13 @@
 //! cheaper of the two mistakes: a row that appeared on `/` would push the list down at exactly
 //! the moment the reader started looking for something in it.
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    widgets::Widget,
-};
+use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
 use crate::panes::list::help::{focus, general, navigation, sorting, HelpSection};
 use crate::panes::status_block::StatusBlock;
 use crate::tokens::Health;
-use crate::views::top::{self, ConstantTop};
-use crate::widgets::chrome::{inset, with_gutter, StatusLine};
+use crate::views::page::{self, Page};
+use crate::widgets::chrome::{inset, with_gutter};
 use crate::widgets::modal::Modal;
 
 pub mod dialog;
@@ -247,28 +245,23 @@ impl Widget for Queue {
         // list and the foot are all "beneath the modal", and each reads its colours from the
         // tokens while this is alive.
         let quiet = self.under_modal.then(crate::tokens::ModalScope::enter);
-        let body = ConstantTop::new(QUEUE_TAB)
-            .status(self.status)
-            .draw(area, buf);
-        if body.height <= DIALOG_ROWS + top::FOOT_ROWS {
+        let mut page = Page::new(QUEUE_TAB).status(self.status);
+        for (key, label) in hints {
+            page = page.hint(key, label);
+        }
+        let region = page.draw(area, buf);
+        if region.height <= DIALOG_ROWS {
             return;
         }
 
-        dialog::DialogSlot::new(&self.state).render(inset(top::row(body, 0)), buf);
+        dialog::DialogSlot::new(&self.state).render(inset(page::row(region, 0)), buf);
 
-        let below = Rect {
-            y: body.y + DIALOG_ROWS,
-            height: body.height - DIALOG_ROWS,
-            ..body
+        let list_area = Rect {
+            y: region.y + DIALOG_ROWS,
+            height: region.height - DIALOG_ROWS,
+            ..region
         };
-        let (list_area, foot_row) = top::foot(below, buf);
         pane.render(with_gutter(list_area), buf);
-
-        let mut status = StatusLine::new();
-        for (key, label) in hints {
-            status = status.hint(key, label);
-        }
-        status.render(inset(foot_row), buf);
 
         // The modal last and outside the scope: it is the thing in focus, so it keeps its own
         // colours while everything under it has already been drawn quiet.

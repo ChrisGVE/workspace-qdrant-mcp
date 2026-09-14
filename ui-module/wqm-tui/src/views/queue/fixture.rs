@@ -49,8 +49,8 @@
 //! names the collections and the response envelope; it names none of this. The shape is v0.1's
 //! captured screen, and it is labelled a fiction rather than quietly treated as one.
 
-use super::state::{Kind, Op};
 use super::state::Status::{self, Failed, InProgress, Pending};
+use super::state::{Kind, Op};
 
 /// One queued item, as the Queue tab shows it. **NOT contract-bound (UIQ pending).**
 ///
