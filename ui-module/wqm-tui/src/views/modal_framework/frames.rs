@@ -172,8 +172,7 @@ pub struct RecordFrame {
     /// version of `the_two_field_background_arms_differ_by_the_underline` came to assert the
     /// exact opposite of what it meant. The test went red, but that was luck rather than
     /// design, so the trap is written down here where the field is.
-    pub arm_a: bool,
-    pub offset: usize,
+     pub offset: usize,
     /// Drawn as an empty record — the state the first round of frames did not show.
     pub empty: bool,
 }
@@ -186,7 +185,6 @@ impl Default for RecordFrame {
             scheme: Scheme::default(),
             footprint: Footprint::Max,
             cursor_extent: CursorExtent::default(),
-            arm_a: false,
             offset: 0,
             empty: false,
         }
@@ -245,35 +243,9 @@ impl RecordFrame {
             return None;
         };
         let stack = self.stack();
-        // Arm A is not something a `Stack` can be asked for — see `rejected_arm_a` — so the
-        // evidence frame is drawn here, outside the shipping path, rather than by handing the
-        // stack a flag it should not have.
         let viewport = Container::new(stack.decoration()).viewport(rect);
-        if self.arm_a {
-            draw_arm_a(&stack, rect, buf);
-        } else {
-            stack.render(rect, buf);
-        }
+        stack.render(rect, buf);
         Some((rect, viewport))
-    }
-}
-
-/// The REJECTED arm A, drawn so it can be looked at: the same window with no underline.
-///
-/// It is worth rendering precisely because it is the arm the measurement throws out, and a
-/// PNG settles it in a way the ΔE number does not — on a thin theme the whole block of
-/// editable fields is very nearly the window it sits on. Render it through
-/// [`with_theme`] on Solarized Dark, not on the harness's own Mocha, or the frame shows the
-/// best case of the thing being rejected.
-fn draw_arm_a(stack: &Stack, rect: Rect, buf: &mut Buffer) {
-    let mut container = Container::new(stack.decoration());
-    let viewport = container.viewport(rect);
-    if stack.top().view.editing() {
-        container = Container::new(stack.decoration()).title_banner(super::stack::EDIT_BANNER);
-    }
-    container.render(rect, buf);
-    if let View::Record(record) = &stack.top().view {
-        record.view().rejected_arm_a().render(viewport, buf);
     }
 }
 

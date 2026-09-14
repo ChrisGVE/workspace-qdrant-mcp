@@ -270,66 +270,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "Edit fields: A (fill only) — REJECTED, on Mocha",
-            "Evidence, not a choice. On the harness's own theme A looks survivable, which is exactly why it was proposed — compare the next two",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        mode: editing(),
-                        arm_a: true,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Edit fields: A (fill only) — REJECTED, on Solarized Dark",
-            "The same arm on the thinnest of the fifteen ladders: dE 2.6, one JND, so the whole editable block is very nearly the window it sits on",
-            |area, buf| {
-                frames::with_theme(frames::ADVERSARIAL_THEME, || {
-                    proposed(|| {
-                        RecordFrame {
-                            mode: editing(),
-                            arm_a: true,
-                            ..RecordFrame::default()
-                        }
-                        .draw(area, buf);
-                    });
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Edit fields: A+ (fill and underline) — on Solarized Dark",
-            "SHIPPING, and not an option. The same theme, the same tint: every editable field is unmistakable because the underline — not the fill — is the SET mark",
-            |area, buf| {
-                frames::with_theme(frames::ADVERSARIAL_THEME, || {
-                    proposed(|| {
-                        RecordFrame {
-                            mode: editing(),
-                            arm_a: false,
-                            ..RecordFrame::default()
-                        }
-                        .draw(area, buf);
-                    });
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Edit fields: A+ (fill and underline) — on Mocha",
-            "SHIPPING. The roomy theme, for comparison with the pair above: the fill helps here and carries nothing on the theme that decides it",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        mode: editing(),
-                        arm_a: false,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
             "Edit fields: C (selection-derived, rejected)",
             "The set is the selection tint and the point is the cursor block — so EDIT mode comes out looking exactly like VIEW mode",
             |area, buf| {

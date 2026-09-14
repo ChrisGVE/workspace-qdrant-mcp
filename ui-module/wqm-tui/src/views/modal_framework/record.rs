@@ -27,7 +27,7 @@
 //! |---|---|---|
 //! | VIEW | *this is the field you are reading* | the ROW takes [`tokens::cursor_bg`] — the same lavender block a table's cursor row takes (ruling 7), because he asked for "the same manner as for a table" |
 //! | EDIT | *these are the fields you may change* | each editable VALUE CELL takes [`tokens::field::editable_bg`] plus [`tokens::field::EDITABLE_MARK`] — a SET mark |
-//! | EDIT | *this is the one you are changing* | the active value cell takes [`tokens::field::active_bg`], the underline, the caret and a `▸` — a POINT mark, a whole emphasis step above the set |
+//! | EDIT | *this is the one you are changing* | the active value cell takes [`tokens::field::active_bg`], the caret and a `▸` — a POINT mark, a whole emphasis step above the set |
 //!
 //! The row block and the cell backgrounds are **never both on screen**, which is what keeps
 //! the two modes from being a brightness comparison a reader has to measure. In EDIT mode the
@@ -289,7 +289,7 @@ pub enum Scheme {
     /// set lifts off the window, the point lifts off the set by more again, and the underline
     /// carries the set where the lift is too thin to — which on four of the fifteen bundled
     /// themes is always. Costs no hue. There is no arm without the underline: see
-    /// [`RecordView::rejected_arm_a`].
+    /// [`tokens::field::SetMark`].
     #[default]
     Neutral,
     /// **B, the fallback.** The set is the layer fill washed toward `accent`; the point stays a
@@ -367,7 +367,6 @@ pub struct RecordView {
     /// First visible DATA row — the container owns the scrollbar, this owns the window onto
     /// the rows. The header is not counted here; see the module docs.
     offset: usize,
-    underline_editable: bool,
 }
 
 impl RecordView {
@@ -380,7 +379,6 @@ impl RecordView {
             cursor_extent: CursorExtent::default(),
             layer: tokens::layer1_bg(),
             offset: 0,
-            underline_editable: true,
         }
     }
 
@@ -406,35 +404,6 @@ impl RecordView {
 
     pub fn offset(mut self, offset: usize) -> Self {
         self.offset = offset;
-        self
-    }
-
-    /// **Draw the REJECTED arm A** — the fill with no underline under it.
-    ///
-    /// It takes no argument and can only turn the mark OFF, which is the whole point: arm A is
-    /// not a choice a window may make, so there is no `underlined(bool)` for a caller to pass
-    /// `false` into from a setting. The only thing that may call this is the pantry's evidence
-    /// pair and the frame generator behind it. Same move as
-    /// [`crate::widgets::config_table::Focus`] — a state the language forbids should not be a
-    /// value a caller can build.
-    ///
-    /// # Why A stopped being an arm
-    ///
-    /// Round 1 sold the underline as `NO_COLOR` insurance. The measurement says it is more
-    /// than that: on **four of the fifteen bundled themes the fill is already thin before any
-    /// tint** — Solarized Dark and Solarized Light at ΔE 4.2, One Dark Pro at 4.7, against
-    /// Catppuccin Mocha's 6.8 — and the tint takes about 30% more. At the proposed strength
-    /// Solarized Dark's editable fill sits at **ΔE 2.6, one just-noticeable difference** off
-    /// the window it is on, in full truecolor.
-    ///
-    /// Neither knob rescues it. Halving the tint buys that theme 2.6 → 3.7, roughly one JND,
-    /// at the cost of exactly what Chris objected to (*"washed out and sad"*); and no rung
-    /// helps, because the ladder is fixed and `window → set` can only grow by shrinking
-    /// `set → point`. So on those themes [`tokens::field::EDITABLE_MARK`] is not the
-    /// supplement, it is the **primary** SET mark and the fill is what supports it. An edit
-    /// mode whose SET mark is invisible on a bundled theme is a defect rather than an option.
-    pub fn rejected_arm_a(mut self) -> Self {
-        self.underline_editable = false;
         self
     }
 
@@ -690,11 +659,13 @@ impl RecordView {
         }
         // The SET mark. Its modifier is the encoding's business, not this widget's — see
         // `tokens::field::editable_modifier`.
-        let mut style = tokens::normal_style().bg(self.scheme.set_bg(self.layer));
-        if self.underline_editable {
-            style = style.add_modifier(tokens::field::editable_modifier());
-        }
-        style
+        // The underline is `tokens::field::SetMark`'s call and nothing else's: Chris ruled it
+        // out of the look, and it comes back only where the encoding collapses the ladder and
+        // the fill stops saying anything. A flag here would have been a second place to decide
+        // that, which is how a window comes to disagree with the token that owns the question.
+        tokens::normal_style()
+            .bg(self.scheme.set_bg(self.layer))
+            .add_modifier(tokens::field::editable_modifier())
     }
 
     /// The reference column's header row — the only column that carries one.

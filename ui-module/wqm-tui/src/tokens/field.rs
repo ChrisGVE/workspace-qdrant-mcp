@@ -145,33 +145,33 @@ pub const EDITABLE_MARK: Modifier = Modifier::UNDERLINED;
 /// change* would be carried by colour alone, and r06 #8 forbids that. So the underline returns —
 /// **only there**, as a degradation rather than as part of the look. It is invisible in every
 /// frame Chris judges and present in every frame he cannot.
+/// # Both round-1 arms are retired, and this is the one chokepoint that says so
+///
+/// Chris ruled the underline out on 2026-09-14. `FillAndUnderline` (round 1's A+) and
+/// `FillOnly` (round 1's rejected A) are therefore off every enumeration and nothing in the
+/// product sets either; they remain only because the tests below state the case as a
+/// comparison, and a comparison needs both sides.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SetMark {
-    /// Round 1 (A+): fill and underline, on every encoding.
-    #[default]
-    FillAndUnderline,
-    /// **Round 2**: the fill alone where the ladder can express it; the underline returns only
+    /// **The mark.** The fill alone where the ladder can express it; the underline returns only
     /// where the encoding collapses the ladder.
+    #[default]
     FillWithFallback,
+    /// Round 1 (A+): fill and underline, on every encoding. **Retired** — evidence only.
+    FillAndUnderline,
     /// Round 1's rejected arm A: the fill alone, everywhere, including where it cannot be seen.
-    /// Evidence only.
+    /// **Retired** — evidence only.
     FillOnly,
 }
 
-static SET_MARK: AtomicU8 = AtomicU8::new(SetMark::FillAndUnderline as u8);
+static SET_MARK: AtomicU8 = AtomicU8::new(SetMark::FillWithFallback as u8);
 
 impl SetMark {
-    pub const ALL: [Self; 3] = [
-        Self::FillAndUnderline,
-        Self::FillWithFallback,
-        Self::FillOnly,
-    ];
-
     pub fn current() -> Self {
         match SET_MARK.load(Ordering::Relaxed) {
-            1 => Self::FillWithFallback,
+            1 => Self::FillAndUnderline,
             2 => Self::FillOnly,
-            _ => Self::FillAndUnderline,
+            _ => Self::FillWithFallback,
         }
     }
 
@@ -235,24 +235,24 @@ pub fn editable_bg() -> Color {
 /// The scheme's own invariant survives it on every theme: the POINT still separates from the SET
 /// by more than the SET lifts off the window, which is what keeps *"these are the doors"* and
 /// *"you are standing in this one"* two marks rather than two shades.
+/// `Fixed` is round 1's pair and is **retired** — off every enumeration, set by no product
+/// code, kept because the derivation is only defensible against the rung it replaced.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum FieldRungs {
-    /// Round 1: SET at rung 22, POINT at [`crate::tokens::edit_bg`]'s rung 35.
+    /// **In force, item 3**: the SET unchanged, the POINT derived so black can be read on it.
     #[default]
-    Fixed,
-    /// **Round 2, item 3**: the SET unchanged, the POINT derived so black can be read on it.
     BlackText,
+    /// Round 1: SET at rung 22, POINT at [`crate::tokens::edit_bg`]'s rung 35. **Retired.**
+    Fixed,
 }
 
-static RUNGS: AtomicU8 = AtomicU8::new(FieldRungs::Fixed as u8);
+static RUNGS: AtomicU8 = AtomicU8::new(FieldRungs::BlackText as u8);
 
 impl FieldRungs {
-    pub const ALL: [Self; 2] = [Self::Fixed, Self::BlackText];
-
     pub fn current() -> Self {
         match RUNGS.load(Ordering::Relaxed) {
-            1 => Self::BlackText,
-            _ => Self::Fixed,
+            1 => Self::Fixed,
+            _ => Self::BlackText,
         }
     }
 
@@ -804,17 +804,25 @@ mod tests {
         }
     }
 
-    /// The neutral tint is the identity: nothing is blended, so every surface is its bare
-    /// rung. That is what makes `Tint: neutral` an honest arm of the pantry A/B rather than a
-    /// differently-mixed one.
+    /// The neutral tint is the identity: nothing is blended, so every surface is its bare rung.
+    ///
+    /// The POINT is stated as a MEMBERSHIP rather than an equality, and the change is item 3's.
+    /// Round 1 pinned it to `edit_bg()` because the rung was fixed at 35; it is now derived per
+    /// theme — the lowest rung from 35 up on which black can be read — so the equality would be
+    /// pinning one theme's answer. What the neutral tint claims is unchanged either way: the
+    /// surface that comes back is a bare rung and not a blend of one.
     #[test]
     fn the_neutral_tint_blends_nothing() {
         let _serial = crate::global_state_lock();
         let _restore = Restore::mocha();
         ModalTint::set(ModalTint::Neutral);
         assert_eq!(editable_bg(), neutral(22));
-        assert_eq!(active_bg(), edit_bg());
         assert_eq!(reference_bg(), neutral(20));
         assert_eq!(modal_fill(layer1_bg()), layer1_bg());
+        let point = active_bg();
+        assert!(
+            (35u8..=100).any(|rung| neutral(rung) == point),
+            "the POINT is not a bare rung under the neutral tint: {point:?}"
+        );
     }
 }

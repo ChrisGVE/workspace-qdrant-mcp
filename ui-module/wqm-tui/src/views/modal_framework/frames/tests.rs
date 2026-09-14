@@ -342,67 +342,6 @@ fn the_ruled_tint_paints_the_window_and_the_neutral_arm_blends_nothing() {
     );
 }
 
-/// The underline arm and the plain arm are different frames, and the difference is the SET
-/// mark — which is the whole thing the pair exists to show.
-#[test]
-fn the_two_field_background_arms_differ_by_the_underline() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let mark_at = |arm_a| {
-        let buf = draw(SCREEN, |area, buf| {
-            RecordFrame {
-                mode: Mode::Edit { at: 6, edit: None },
-                arm_a,
-                ..RecordFrame::default()
-            }
-            .draw(area, buf);
-        });
-        let viewport = Container::new(RecordFrame::default().stack().decoration())
-            .viewport(Container::footprint(SCREEN));
-        // Field 7 (`Watch for changes`) is in the editable SET but is not the active field,
-        // and it sits one row below the reference header.
-        let y = viewport.y + 1 + 7;
-        let x = viewport.x + (super::super::record::GUTTER + W_LABEL) as u16;
-        buf.cell((x, y))
-            .expect("an editable field")
-            .modifier
-            .contains(tokens::field::EDITABLE_MARK)
-    };
-    // `mark_at` answers *is the underline there*, and `arm_a` names the REJECTED arm — so the
-    // shipping frame is `arm_a: false` and it is the one that must carry the mark.
-    assert!(mark_at(false), "the shipping arm rules its editable fields");
-    assert!(
-        !mark_at(true),
-        "…and the rejected one does not, which is the objection to it"
-    );
-}
-
-/// **The shipping arm is the only one a window can draw.** Arm A is reachable from the frame
-/// generator, which is evidence, and from nowhere else — so it cannot be shipped by passing a
-/// flag down from a setting.
-///
-/// Stated as: a record view built the ordinary way rules its editable fields, and nothing
-/// short of the explicitly-named rejected-arm builder takes that away.
-#[test]
-fn a_window_cannot_be_asked_for_the_rejected_arm() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let rect = Container::footprint(SCREEN);
-    let stack = RecordFrame::view(Mode::Edit { at: 6, edit: None }).stack();
-    let viewport = Container::new(stack.decoration()).viewport(rect);
-
-    let mut buf = Buffer::empty(SCREEN);
-    stack.render(rect, &mut buf);
-    let y = viewport.y + 1 + 7;
-    let x = viewport.x + (super::super::record::GUTTER + W_LABEL) as u16;
-    assert!(
-        buf.cell((x, y))
-            .expect("an editable field")
-            .modifier
-            .contains(tokens::field::EDITABLE_MARK),
-        "a stack renders the shipping arm and has no way to be told otherwise"
-    );
-}
 
 /// **The adversarial frame really is adversarial** — verified off the rendered cells, not
 /// inferred from the theme having been set.
