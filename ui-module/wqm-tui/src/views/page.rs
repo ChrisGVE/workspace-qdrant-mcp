@@ -300,3 +300,165 @@ impl Page {
         self.foot.draw(below, buf)
     }
 }
+
+/// The `Page` group — the frame, browsable, and the one frame that puts it beside the
+/// window's.
+///
+/// **This is the old `Shell` group, renamed and extended.** Its variants were always frames of
+/// the page's chrome over an empty body; they were filed under the view that happened to draw
+/// them, and now they are filed under the thing they are of. Two groups saying the same thing
+/// is how a reader ends up comparing a frame with its own copy.
+///
+/// The frames themselves come from [`crate::views::shell`], which is `Page` with a placeholder
+/// where a view goes — the cheapest body there is, and therefore the one that shows the frame
+/// rather than competing with it.
+#[cfg(feature = "tui-pantry")]
+pub mod ingredient {
+    use super::*;
+    use crate::views::shell::{frames, ShellView};
+    use tui_pantry::{Ingredient, PropInfo};
+
+    const PROPS: &[PropInfo] = &[
+        PropInfo {
+            name: "PageTop",
+            ty: "views::page::PageTop",
+            description: "The selector, the frame rule, and the OPTIONAL service-status frame",
+        },
+        PropInfo {
+            name: "region",
+            ty: "Rect",
+            description: "What `draw` returns — the view's, and nothing the page knows about",
+        },
+        PropInfo {
+            name: "PageFoot",
+            ty: "views::page::PageFoot",
+            description: "The closing hairline and the minimalist help line. No hue, ever",
+        },
+        PropInfo {
+            name: "status",
+            ty: "Option<StatusBlock>",
+            description: "Absent on Service, which carries the status band instead",
+        },
+        PropInfo {
+            name: "content_floor",
+            ty: "u16",
+            description: "Rows the region keeps before the status frame collapses — the VIEW's",
+        },
+    ];
+
+    /// What a variant puts in the preview cell.
+    ///
+    /// Two shapes rather than one, because the composed frame is not a `ShellView`: it is a
+    /// whole screen with a window over it, and flattening the two into one function pointer
+    /// would mean every bare frame carrying a closure it does not need.
+    enum Draw {
+        /// The frame over a placeholder body.
+        Bare(fn() -> ShellView),
+        /// A whole composition drawn into the cell — used by `Page + window`.
+        Composed(fn(Rect, &mut Buffer)),
+    }
+
+    /// A frame, and the size it is drawn at. `None` fills the preview cell, which is how the
+    /// storyboard's 125 × 34 is judged against the terminal actually running the pantry.
+    struct Variant(&'static str, &'static str, Draw, Option<(u16, u16)>);
+
+    impl Ingredient for Variant {
+        fn tab(&self) -> &str {
+            "Views"
+        }
+        fn group(&self) -> &str {
+            "Page"
+        }
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn source(&self) -> &str {
+            "wqm_tui::views::page"
+        }
+        fn description(&self) -> &str {
+            self.1
+        }
+        fn props(&self) -> &[PropInfo] {
+            PROPS
+        }
+        fn render(&self, area: Rect, buf: &mut Buffer) {
+            let (width, height) = self.3.unwrap_or((area.width, area.height));
+            let at = Rect {
+                width: width.min(area.width),
+                height: height.min(area.height),
+                ..area
+            };
+            match self.2 {
+                Draw::Bare(frame) => frame().render(at, buf),
+                Draw::Composed(draw) => draw(at, buf),
+            }
+        }
+    }
+
+    /// The Queue page with a framework window over it — the composition ruling's own claim,
+    /// rendered.
+    ///
+    /// Chris, 2026-09-13 20:30: *"these are composable … every table or tabular view is
+    /// reusable, as well as decoration"*. This frame is where that stops being a sentence. The
+    /// page under the window is a real [`crate::views::queue::Queue`] drawn by `Page`; the
+    /// window over it is [`crate::widgets::modal_frame::Container`] and its own `Decoration`;
+    /// and the table INSIDE the window is the Queue's own
+    /// [`ListPane`](crate::panes::list::ListPane), pre-filtered. One view kind, two frames,
+    /// and the only difference is what is wrapped around it.
+    ///
+    /// Drawn under round 1's tint proposal, like every frame in the `Modal Framework` group,
+    /// so the two groups show the same window rather than two tunings of it.
+    fn page_and_window(area: Rect, buf: &mut Buffer) {
+        use crate::views::modal_framework::frames as mf;
+        mf::with_tint(crate::tokens::ModalTint::Accent, mf::PROPOSED_WASH, || {
+            mf::table_frame(area, buf, false);
+        });
+    }
+
+    pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
+        vec![
+            Box::new(Variant(
+                "Dashboard, healthy",
+                "The frame at rest — six rows that say the system is fine, then a region, then two rows that say what the keys do",
+                Draw::Bare(frames::dashboard),
+                None,
+            )),
+            Box::new(Variant(
+                "Queue, degraded, backlog",
+                "Tab 2 selected, one part degraded, work piling up: does the top pull harder than the empty region?",
+                Draw::Bare(frames::queue_degraded),
+                None,
+            )),
+            Box::new(Variant(
+                "Service tab (no status frame)",
+                "Tab 10, and the one tab with no status frame — its own band says the same thing better, so the region starts under the frame rule",
+                Draw::Bare(frames::service_tab),
+                None,
+            )),
+            Box::new(Variant(
+                "Under modal",
+                "The page beneath a modal: no accent, no inverse block, nothing live, foot included. The modal itself is not drawn",
+                Draw::Bare(|| frames::dashboard().under_modal(true)),
+                None,
+            )),
+            Box::new(Variant(
+                "Small 80x20",
+                "Eighty by twenty: the tab row runs off the right, the status frame keeps only its roll-up, and the foot keeps the two hints that always survive",
+                Draw::Bare(frames::dashboard),
+                Some((80, 20)),
+            )),
+            Box::new(Variant(
+                "Wide 200x40",
+                "Two hundred by forty: the tab row has all the room it wants, and the region below it deliberately does not take all of its own",
+                Draw::Bare(frames::queue_degraded),
+                Some((200, 40)),
+            )),
+            Box::new(Variant(
+                "Page + window",
+                "The ruling, rendered: a Page beneath, a Container and Decoration above, and the Queue's own table inside the window. Same view kind, two frames",
+                Draw::Composed(page_and_window),
+                None,
+            )),
+        ]
+    }
+}

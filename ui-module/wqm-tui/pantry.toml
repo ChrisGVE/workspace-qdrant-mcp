@@ -70,7 +70,11 @@ modules = [
     # The modal framework: whole screens, each a window over the quietened Queue page —
     # because a window judged on an empty buffer is judged against nothing.
     "views::modal_framework",
+    # The page's own frame, over a placeholder body — the `Shell` group renamed, because the
+    # frames were always of the frame rather than of the view that happened to draw them. Its
+    # last variant puts a framework window on top of one, which is the composition ruling in
+    # a single picture.
+    "views::page",
     "views::queue",
     "views::service",
-    "views::shell",
 ]

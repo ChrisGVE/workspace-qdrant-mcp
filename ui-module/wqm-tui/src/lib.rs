@@ -101,9 +101,9 @@ mod tier {
         for module in [
             crate::views::dashboard::ingredient::ingredients(),
             crate::views::modal_framework::ingredient::ingredients(),
+            crate::views::page::ingredient::ingredients(),
             crate::views::queue::ingredient::ingredients(),
             crate::views::service::ingredient::ingredients(),
-            crate::views::shell::ingredient::ingredients(),
         ] {
             assert_every(module, "Views", None, "a full screen is a view");
         }
