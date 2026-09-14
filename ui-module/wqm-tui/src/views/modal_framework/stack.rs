@@ -36,10 +36,13 @@
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
 
-use super::keys::{Keys, Picker};
+use modalkit::crossterm::event::{KeyCode, KeyEvent};
+
+use super::keys::{Keys, Picker, Reaction};
 use super::record::{DropDown, Mode, RecordView};
 use super::table::TableView;
 use crate::tokens;
+use crate::panes::list::help::{self, HelpSection};
 use crate::widgets::modal::{Fill, Modal};
 use crate::widgets::modal_frame::{Container, Decoration, Scroll};
 
@@ -185,6 +188,46 @@ impl View {
         }
     }
 
+    /// One keystroke, offered to whatever the window is holding.
+    ///
+    /// A table answers [`Reaction::Ignored`] to everything: its own navigation is
+    /// [`crate::panes::list::ListPane`]'s and in-table editing is task 2, which round 2 does not
+    /// cover. Saying so here rather than silently doing nothing is what lets the window try the
+    /// key next.
+    pub fn key(&mut self, key: KeyEvent) -> Reaction {
+        match self {
+            View::Record(record) => record.key(key),
+            View::Table(_) => Reaction::Ignored,
+        }
+    }
+
+    /// The bottom help rows this view offers right now.
+    pub fn hints(&self) -> Vec<(String, String)> {
+        match self {
+            View::Record(record) => record.hints(),
+            View::Table(_) => vec![
+                ("\u{2193}\u{2191}/jk".into(), "Move".into()),
+                ("\u{21b5}".into(), "Drill down".into()),
+                ("\u{232b}".into(), "Back".into()),
+                ("?".into(), "Help".into()),
+                ("q".into(), "Close".into()),
+            ],
+        }
+    }
+
+    /// What `?` shows over this view.
+    ///
+    /// Per view, because the 20:30 ruling makes the help window a COMPOSITION like any other —
+    /// the same container around content the view supplies. A table inside a window reuses the
+    /// Queue's own sections, so the keys a reader learned on the Queue tab are the keys the help
+    /// names when that table is reached through a drill-down.
+    pub fn help_sections(&self) -> Vec<HelpSection> {
+        match self {
+            View::Record(_) => record_help(),
+            View::Table(_) => crate::views::queue::Queue::help_sections(),
+        }
+    }
+
     /// Draw the view into `area` — public because the slide renders a view into an off-screen
     /// buffer of its own before blitting it.
     pub fn render_into(&self, area: Rect, buf: &mut Buffer) {
@@ -202,8 +245,13 @@ pub struct Layer {
     pub crumb: String,
     /// The window's title while this layer is on top.
     pub title: String,
-    /// The keys this window offers — per-window, because *"filtering on op won't make sense
-    /// for a practical table"*: the verbs belong to the composition, not to the view.
+    /// An OVERRIDE for the bottom help rows — per-window, because *"filtering on op won't make
+    /// sense for a practical table"*: some verbs belong to the composition rather than to the
+    /// view.
+    ///
+    /// Empty is the normal case, and then the rows are [`View::hints`] — the bindings the view
+    /// actually answers to, derived from the same dispatch that answers them. Round 1 spelled
+    /// them out per frame, which is how a window comes to advertise a key nothing handles.
     pub hints: Vec<(String, String)>,
     /// Whether this view holds edits that have not been saved.
     pub dirty: bool,
@@ -254,6 +302,8 @@ pub struct Stack {
     layers: Vec<Layer>,
     /// Open while a dirty pop is waiting for an answer.
     guard: bool,
+    /// How far the contextual help is scrolled, while it is open.
+    help: Option<usize>,
 }
 
 impl Stack {
@@ -262,6 +312,7 @@ impl Stack {
         Self {
             layers: vec![root],
             guard: false,
+            help: None,
         }
     }
 
@@ -286,6 +337,76 @@ impl Stack {
     /// Whether the discard guard is open over the window.
     pub fn guarded(&self) -> bool {
         self.guard
+    }
+
+    /// Whether the contextual help is open over the window.
+    pub fn helping(&self) -> bool {
+        self.help.is_some()
+    }
+
+    /// The help window's scroll offset, while it is open.
+    pub fn help_offset(&self) -> usize {
+        self.help.unwrap_or(0)
+    }
+
+    /// The lines `?` shows over this window — the top view's sections, rendered.
+    pub fn help_lines(&self) -> Vec<ratatui::text::Line<'static>> {
+        help::render(&self.top().view.help_sections())
+    }
+
+    /// **One keystroke, routed.**
+    ///
+    /// The order is the layer order and nothing else: whatever is nearest the reader gets the
+    /// key first. A guard is nearest, then the help, then the view, and only what none of them
+    /// claimed reaches the window's own verbs — which is why `?` and `Backspace` work in a
+    /// record and not inside an open drop-down.
+    pub fn key(&mut self, key: KeyEvent) -> Reaction {
+        if self.guard {
+            return match key.code {
+                KeyCode::Enter => {
+                    self.discard();
+                    Reaction::Handled
+                }
+                KeyCode::Esc => {
+                    self.keep_editing();
+                    Reaction::Handled
+                }
+                _ => Reaction::Ignored,
+            };
+        }
+        if let Some(offset) = self.help {
+            let total = self.help_lines().len();
+            return match key.code {
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                    self.help = None;
+                    Reaction::Handled
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help = Some(offset.saturating_add(1).min(total.saturating_sub(1)));
+                    Reaction::Handled
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help = Some(offset.saturating_sub(1));
+                    Reaction::Handled
+                }
+                _ => Reaction::Ignored,
+            };
+        }
+        let claimed = self.top_mut().view.key(key);
+        if claimed != Reaction::Ignored {
+            return claimed;
+        }
+        match key.code {
+            KeyCode::Char('?') => {
+                self.help = Some(0);
+                Reaction::Handled
+            }
+            KeyCode::Backspace => {
+                self.pop();
+                Reaction::Handled
+            }
+            _ => Reaction::Ignored,
+        }
     }
 
     /// The trail, root first — see the module docs for why it is the stack and not a
@@ -341,8 +462,13 @@ impl Stack {
         {
             deco = deco.search(row);
         }
-        for (key, label) in &top.hints {
-            deco = deco.hint(key.clone(), label.clone());
+        let hints = if top.hints.is_empty() {
+            top.view.hints()
+        } else {
+            top.hints.clone()
+        };
+        for (key, label) in hints {
+            deco = deco.hint(key, label);
         }
         deco
     }
@@ -380,10 +506,105 @@ impl Stack {
             list.render(rect, buf);
         }
 
+        if self.help.is_some() {
+            self.render_help(rect, buf);
+        }
         if self.guard {
             discard_guard().render(rect, buf);
         }
     }
+
+    /// **The contextual help is a window like any other** (task 6: *"the help window is also a
+    /// composition"*).
+    ///
+    /// Container plus fixed scrollable content, on the same rect as the window it is over and on
+    /// `Layer2` — the layer §6 reserves for a thing opened from inside a window. Its content does
+    /// not fit and is not meant to: the scroll is what the ruling asks for.
+    fn render_help(&self, rect: Rect, buf: &mut Buffer) {
+        let offset = self.help_offset();
+        let lines = self.help_lines();
+        let mut crumbs = self.crumbs();
+        crumbs.push("Help".to_string());
+        let deco = Decoration::new(format!("{} \u{2014} keys", self.top().title))
+            .crumbs(crumbs)
+            .hint("\u{2193}\u{2191}/jk", "Scroll")
+            .hint("?/Esc", "Close");
+        let container = Container::new(deco).fill(Fill::Layer2).scroll(Scroll {
+            offset,
+            total: lines.len(),
+        });
+        let viewport = container.viewport(rect);
+        container.render(rect, buf);
+        let shown: Vec<_> = lines.into_iter().skip(offset).collect();
+        ratatui::widgets::Paragraph::new(shown).render(viewport, buf);
+    }
+}
+
+/// **What `?` shows over a record**, and every entry is a key `views::modal_framework::keys`
+/// actually dispatches.
+///
+/// Written as sections for the reason `panes::list::help` gives: a reader looking for one thing
+/// should not have to read every key the window has to find it. The order is the order a reader
+/// meets them — move, open, change the kind of field they are standing on, leave.
+///
+/// The field-kind section is the one worth reading twice. Its entries look redundant beside the
+/// bottom help rows, and they are not: the bottom rows show only the ACTIVE field's keys, because
+/// there are two of them, and this is where a reader finds out that a radio drawn as a column
+/// answers to different keys from one drawn as a row — which is a thing they cannot discover by
+/// standing on the row form.
+pub fn record_help() -> Vec<HelpSection> {
+    vec![
+        HelpSection {
+            title: "Moving",
+            entries: vec![
+                ("\u{2193} / j", "Down one field"),
+                ("\u{2191} / k", "Up one field"),
+                ("\u{21b9}", "Next editable field, while editing"),
+                ("\u{21e7}\u{21b9}", "Previous editable field, while editing"),
+            ],
+            note: Some("Traversal visits the fields this window lets you change, and wraps."),
+        },
+        HelpSection {
+            title: "Editing",
+            entries: vec![
+                ("e", "Edit the field under the cursor"),
+                ("Esc", "Leave the field; under vim, Esc returns to normal mode first"),
+                ("\u{21b5}", "Commit a single-line field"),
+            ],
+            note: Some("A field this window does not let you change cannot be opened."),
+        },
+        HelpSection {
+            title: "Field kinds",
+            entries: vec![
+                ("h / l, \u{2194}", "Radio drawn as a row: change the choice"),
+                ("j / k, \u{2195}", "Radio drawn as a column: change the choice"),
+                ("Space", "Tick box: toggle"),
+                ("\u{2193} / j", "Drop-down: open the list"),
+            ],
+            note: None,
+        },
+        HelpSection {
+            title: "Drop-down list",
+            entries: vec![
+                ("j / k, \u{2195}", "Move the cursor"),
+                ("^D / ^U", "Half a page"),
+                ("^F / ^B", "A whole page"),
+                ("a-z", "Type to narrow the list; matching is fuzzy"),
+                ("Esc", "Reset what you typed; Esc again closes, unchanged"),
+                ("\u{21b5}", "Choose the highlighted value and close"),
+            ],
+            note: Some("The current value is first; everything else is sorted under it."),
+        },
+        HelpSection {
+            title: "The window",
+            entries: vec![
+                ("?", "This help; ? or Esc closes it"),
+                ("\u{232b}", "Back one step, outside edit mode"),
+                ("q", "Close the window"),
+            ],
+            note: Some("Going back over unsaved edits asks first."),
+        },
+    ]
 }
 
 /// The unsaved-edit guard: the existing modal, on the layer §6 reserved for exactly this.

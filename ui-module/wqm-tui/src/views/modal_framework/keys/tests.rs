@@ -9,6 +9,7 @@ use modalkit::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::*;
 use crate::views::modal_framework::record::{FieldRow, Value};
+use crate::views::modal_framework::stack::{Layer, Stack, View};
 use crate::widgets::edit_field::EditMode;
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -77,6 +78,23 @@ fn record() -> RecordState {
 
 fn value_at(state: &RecordState, index: usize) -> Value {
     state.fields[index].value().clone()
+}
+
+/// The record wrapped in the window that owns `?`, `Backspace` and `q`.
+fn stack_of(state: RecordState) -> Stack {
+    Stack::new(Layer::new(
+        "Queue item",
+        "Queue item \u{2014} reading_guide.py",
+        View::Record(state),
+    ))
+}
+
+/// Where the record inside a stack has its cursor.
+fn record_at(stack: &Stack) -> usize {
+    match &stack.top().view {
+        View::Record(record) => record.mode.at(),
+        View::Table(_) => panic!("not a record"),
+    }
 }
 
 // ---------------------------------------------------------------- view mode
@@ -467,4 +485,137 @@ fn an_open_list_owns_the_keyboard() {
     state.key(key(KeyCode::Tab));
     assert_eq!(state.mode.at(), 5, "Tab traversed out of an open list");
     assert!(state.picker.is_some());
+}
+
+// ---------------------------------------------------------------- the help, and the help rows
+
+/// **`?` opens the contextual help from a KEYPRESS**, which round 1 could not do — its help was
+/// a frame the pantry drew and nothing else could reach.
+#[test]
+fn question_mark_opens_the_help_and_two_keys_close_it() {
+    let mut stack = stack_of(record());
+    assert!(!stack.helping());
+    assert_eq!(stack.key(key(KeyCode::Char('?'))), Reaction::Handled);
+    assert!(stack.helping());
+
+    assert_eq!(stack.key(key(KeyCode::Esc)), Reaction::Handled);
+    assert!(!stack.helping());
+    stack.key(key(KeyCode::Char('?')));
+    stack.key(key(KeyCode::Char('?')));
+    assert!(!stack.helping(), "? closes it as well as opening it");
+}
+
+/// It scrolls, which is the half the ruling names: the content does not fit and is not meant to.
+#[test]
+fn the_help_scrolls_and_stops_at_both_ends() {
+    let mut stack = stack_of(record());
+    stack.key(key(KeyCode::Char('?')));
+    assert_eq!(stack.help_offset(), 0);
+    stack.key(key(KeyCode::Char('k')));
+    assert_eq!(stack.help_offset(), 0, "clamped at the top");
+    stack.key(key(KeyCode::Char('j')));
+    assert_eq!(stack.help_offset(), 1);
+    let total = stack.help_lines().len();
+    assert!(total > 20, "a help that fits is not the one the ruling describes: {total}");
+    for _ in 0..total * 2 {
+        stack.key(key(KeyCode::Down));
+    }
+    assert_eq!(stack.help_offset(), total - 1, "clamped at the bottom");
+}
+
+/// While it is open it owns the keyboard: the record underneath does not move.
+#[test]
+fn the_open_help_owns_the_keyboard() {
+    let mut stack = stack_of(record());
+    stack.key(key(KeyCode::Char('j')));
+    let before = record_at(&stack);
+    stack.key(key(KeyCode::Char('?')));
+    stack.key(key(KeyCode::Char('j')));
+    stack.key(key(KeyCode::Char('e')));
+    assert_eq!(record_at(&stack), before, "the record moved under the help");
+}
+
+/// **`?` is the window's, so a view that wants the key keeps it.** Inside an open drop-down a
+/// `?` is a character to filter with, not a request for help.
+#[test]
+fn the_record_gets_the_key_first_and_help_only_takes_what_is_left() {
+    let mut stack = stack_of(record());
+    // Open the drop-down, which claims every key.
+    for _ in 0..5 {
+        stack.key(key(KeyCode::Char('j')));
+    }
+    stack.key(key(KeyCode::Char('e')));
+    stack.key(key(KeyCode::Char('j')));
+    stack.key(key(KeyCode::Char('?')));
+    assert!(!stack.helping(), "the open list did not keep the key");
+}
+
+/// Every entry of the record's help names a key the dispatcher actually answers to.
+///
+/// Not a spelling check — a promise check. A help window is the one place a binding the code does
+/// not implement is invisible, so the keys it advertises for each field kind are pressed here and
+/// the state is read back.
+#[test]
+fn the_help_advertises_only_keys_that_do_something() {
+    let mut state = record();
+    // Radio row: `l`.
+    state.mode = Mode::Edit { at: 2, edit: None };
+    assert_eq!(state.key(key(KeyCode::Char('l'))), Reaction::Handled);
+    // Radio column: `j`.
+    state.mode = Mode::Edit { at: 3, edit: None };
+    assert_eq!(state.key(key(KeyCode::Char('j'))), Reaction::Handled);
+    // Tick box: Space.
+    state.mode = Mode::Edit { at: 4, edit: None };
+    assert_eq!(state.key(key(KeyCode::Char(' '))), Reaction::Handled);
+    // Drop-down: down opens, Esc closes.
+    state.mode = Mode::Edit { at: 5, edit: None };
+    assert_eq!(state.key(key(KeyCode::Down)), Reaction::Handled);
+    assert_eq!(state.key(key(KeyCode::Esc)), Reaction::Handled);
+    // And the window's own two.
+    let mut stack = stack_of(record());
+    assert_eq!(stack.key(key(KeyCode::Char('?'))), Reaction::Handled);
+    stack.key(key(KeyCode::Esc));
+    assert_eq!(stack.key(key(KeyCode::Backspace)), Reaction::Handled);
+}
+
+/// **The bottom help rows are what the ACTIVE field answers to**, and they change as the cursor
+/// moves across the kinds — which is the whole difference from round 1's fixed strings.
+#[test]
+fn the_help_rows_follow_the_field_the_cursor_is_on() {
+    let mut state = record();
+    let keys_of = |state: &RecordState| -> Vec<String> {
+        state.hints().into_iter().map(|(k, _)| k).collect()
+    };
+    assert!(keys_of(&state).contains(&"e".to_string()), "view mode offers `e`");
+
+    state.mode = Mode::Edit { at: 2, edit: None };
+    assert!(keys_of(&state).iter().any(|k| k.starts_with("h/l")));
+    state.mode = Mode::Edit { at: 3, edit: None };
+    assert!(keys_of(&state).iter().any(|k| k.starts_with("j/k")));
+    state.mode = Mode::Edit { at: 4, edit: None };
+    assert!(keys_of(&state).contains(&"Space".to_string()));
+    state.mode = Mode::Edit { at: 5, edit: None };
+    assert!(keys_of(&state).iter().any(|k| k.contains("Open list") || k.contains('j')));
+
+    state.key(key(KeyCode::Down));
+    let open = state.hints();
+    assert!(
+        open.iter().any(|(_, label)| label == "Choose"),
+        "an open list advertises its own keys: {open:?}"
+    );
+}
+
+/// A window whose layer states no hints takes the view's, and one that states them keeps its own
+/// — the override the composition needs for a verb that is not the view's.
+#[test]
+fn the_layer_can_override_the_rows_and_otherwise_the_view_supplies_them() {
+    let derived = stack_of(record());
+    let rows = derived.decoration().hints().to_vec();
+    assert!(rows.iter().any(|(k, _)| k == "e"), "derived from the view: {rows:?}");
+
+    let mut layer = Layer::new("Queue item", "Queue item", View::Record(record()));
+    layer.hints.push(("x".into(), "Composition's own".into()));
+    let overridden = Stack::new(layer);
+    let rows = overridden.decoration().hints().to_vec();
+    assert_eq!(rows, vec![("x".to_string(), "Composition's own".to_string())]);
 }

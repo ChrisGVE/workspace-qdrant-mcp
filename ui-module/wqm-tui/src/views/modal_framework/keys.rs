@@ -482,5 +482,65 @@ impl RecordState {
     }
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// What the window offers, said once
+// ---------------------------------------------------------------------------------------------
+
+/// The two help rows a record offers **right now** — the same bindings [`RecordState::key`]
+/// dispatches, read off the same facts.
+///
+/// Item 3 asks for the bottom help to be real content rather than placeholders, and the only way
+/// that stays true is for it to come from the dispatch rather than from a list beside it. So this
+/// asks the same two questions the dispatcher asks — which mode, and what kind is the active
+/// field — and a binding added above without a hint here is a binding this function can be seen
+/// not to mention.
+impl RecordState {
+    pub fn hints(&self) -> Vec<(String, String)> {
+        let mut hints: Vec<(String, String)> = Vec::new();
+        let mut hint = |key: &str, label: &str| hints.push((key.to_string(), label.to_string()));
+
+        if self.picker.is_some() {
+            hint("\u{2193}\u{2191}/jk", "Move");
+            hint("a-z", "Filter");
+            hint("\u{21b5}", "Choose");
+            hint("Esc", "Reset, then close");
+            return hints;
+        }
+
+        match &self.mode {
+            Mode::View { .. } => {
+                hint("\u{2193}\u{2191}/jk", "Move");
+                hint("e", "Edit");
+                hint("\u{232b}", "Back");
+                hint("?", "Help");
+                hint("q", "Close");
+            }
+            Mode::Edit { at, .. } => {
+                // The ACTIVE field's own keys come first: they are the ones a reader is about to
+                // press, and the traversal keys are the same on every field.
+                match self.fields.get(*at).map(|field| field.value()) {
+                    Some(Value::Radio { .. }) => hint("h/l \u{2194}", "Change"),
+                    Some(Value::RadioColumn { .. }) => hint("j/k \u{2195}", "Change"),
+                    Some(Value::Bool(_)) => hint("Space", "Toggle"),
+                    Some(Value::Choice { .. }) => hint("\u{2193}/j", "Open list"),
+                    Some(Value::Number(_) | Value::Text(_) | Value::Multi(_)) => {
+                        match self.keys {
+                            Keys::Vim => hint("i/a", "Insert"),
+                            Keys::Conventional => hint("a-z", "Type"),
+                        }
+                    }
+                    None => {}
+                }
+                hint("\u{21b9}", "Next field");
+                hint("\u{21e7}\u{21b9}", "Previous");
+                hint("Esc", "Leave edit");
+                hint("?", "Help");
+            }
+        }
+        hints
+    }
+}
+
 #[cfg(test)]
 mod tests;

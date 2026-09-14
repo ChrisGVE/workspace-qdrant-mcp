@@ -225,6 +225,12 @@ impl Decoration {
         &self.crumbs
     }
 
+    /// The key hints this decoration was given, in order — what the two help rows will draw
+    /// from, before the width-fitting in `help_lines` decides how they wrap.
+    pub fn hints(&self) -> &[(String, String)] {
+        &self.help
+    }
+
     /// Four rows, or five when this view mounts a search/filter input.
     pub fn top_rows(&self) -> u16 {
         TOP_ROWS + u16::from(self.search.is_some())
