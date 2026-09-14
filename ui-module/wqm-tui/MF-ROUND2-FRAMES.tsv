@@ -1,11 +1,16 @@
-# Round 2 frames index. Tab-separated; `#` lines are comments.
+# Modal-framework frames index. Tab-separated; `#` lines are comments.
+#
+# One row per frame the PNG producer writes. It is the SAME list as
+# `examples/mf_frames/main.rs`, and every `pantry variant` here names a live entry of
+# the `Modal Framework` group — a row whose variant no longer exists is a row whose
+# PNG cannot be produced, so the two are pruned together.
 #
 # REPRODUCE
 #   PNG (all of them):  cargo run -p wqm-tui --features png-capture,tui-pantry \
-#                         --example round2_frames -- out/          -> out/<name>.png
-#   grid / ANSI (one):  cargo pantry dump "Modal Framework R2" --variant "<variant>" \
+#                         --example mf_frames -- out/          -> out/<name>.png
+#   grid / ANSI (one):  cargo pantry dump "Modal Framework" --variant "<variant>" \
 #                         --size <size> > <name>.ans
-#   browse:             cargo pantry          (Views tab, group "Modal Framework R2")
+#   browse:             cargo pantry          (Views tab, group "Modal Framework")
 #
 # Both instruments render the SAME pantry variant, so they cannot disagree about what was
 # drawn. Judge COLOUR from the PNG and GLYPHS/ATTRIBUTES from the grid — png-capture drops
@@ -15,42 +20,39 @@
 # theme is Catppuccin Mocha unless the row says otherwise.
 #
 name	size	theme	what it shows	pantry variant
-r2-00-max-125x34	125x34	Mocha	Item 0: the maximum window — five columns of page each side, five rows top and bottom	00 size — max window (dump at 125x34, 100x30, 200x40)
-r2-01-max-100x30	100x30	Mocha	The same rule at the floor Chris named: 90x20 window, still 5 of page all round	00 size — max window (dump at 125x34, 100x30, 200x40)
-r2-02-max-200x40	200x40	Mocha	And on a wide terminal: 190x30. The inset is relative, so nothing is capped	00 size — max window (dump at 125x34, 100x30, 200x40)
-r2-03-min-44x20	44x20	Mocha	The derived minimum: decoration plus exactly ONE content row. 34x10 window on a 44x20 page	01 size — the minimum window (dump at 44x20)
-r2-04-too-small-40x18	40x18	Mocha	Below the floor: no window at all, and a message that names the size needed and the size present	02 size — screen too small (dump at 40x18)
-r2-05-content-sized	125x34	Mocha	Item 1a: a window that is not part of a drill-down is as big as its content, capped by the maximum	03 size — content-sized, not a drill-down (A)
-r2-06-drilldown-both-bars	125x34	Mocha	Item 1b: a drill-down at the maximum with a table that cannot shrink — vertical AND horizontal bars	04 size — drill-down at max, both bars (B)
-r2-07-tint-straight-round1	125x34	Mocha	THE DEFECT. Blue 0.40 mixed in sRGB: the fill rises to meet the text and the help row washes out	05 tint — blue 0.40, straight mix (round 1)
-r2-08-tint-held-round2	125x34	Mocha	PROPOSED. The same hue at the same strength with L* held: 13/15 themes clear the WCAG body floor	06 tint — blue 0.40, lightness held (round 2)
-r2-09-tint-held-solarized-dark	125x34	Solarized Dark	The adversarial theme — the thinnest ladder of the fifteen, where round 1's SET fill fell under a JND	07 tint — held, on Solarized Dark
-r2-10-tint-held-latte	125x34	Catppuccin Latte	A LIGHT theme, where the ladder runs the other way — the case Mocha alone cannot show	08 tint — held, on Catppuccin Latte (light)
-r2-11-view-black-cursor	125x34	Mocha	Item 3: VIEW mode, the selected field on the table's own block with black bold text (ruling 7, already shipped)	09 fields — view mode, black on the cursor row
-r2-12-edit-underlined-round1	125x34	Mocha	What Chris objected to: every editable value ruled as well as filled	10 fields — edit mode, fill and underline (round 1)
-r2-13-edit-fill-only-round2	125x34	Mocha	PROPOSED. Underline gone, SET carried by the fill, ACTIVE field derived light enough for black text	11 fields — edit mode, fill alone (round 2)
-r2-14-radio-row	125x34	Mocha	Item 3: a radio group on ONE row, the active button bold; h/l or arrows move within it	12 fields — radio on one row (A)
-r2-15-radio-column	125x34	Mocha	The SAME group as a COLUMN, the whole column highlighted; j/k or arrows move within it	13 fields — the same radio as a column (B)
-r2-16-dropdown-open	125x34	Mocha	Item 3: drop-down open — NO frame, other highlights gone, current value first then sorted	14 fields — drop-down open, no frame
-r2-17-dropdown-filtered	125x34	Mocha	`ts` typed: the list narrows by fuzzy subsequence and the cursor sits on the best match	15 fields — drop-down, fuzzy filter typed
-r2-18-caret-insert	125x34	Mocha	vim INSERT: a bar caret carrying the real SLOW_BLINK attribute — read it from the grid, not the PNG	16 fields — single line, vim INSERT (bar, blinking)
-r2-19-caret-normal	125x34	Mocha	vim NORMAL: a block ON a character, and the one caret that does NOT blink	17 fields — single line, vim NORMAL (block, steady)
-r2-20-caret-conventional	125x34	Mocha	EMACS/conventional: the terminal owns the cursor, so nothing is painted — a still frame shows none	18 fields — single line, conventional (terminal caret)
-r2-21-multiline-edit	125x34	Mocha	A multi-line field being edited: the fill IS the box, so no border is drawn around it	19 fields — multi-line being edited
-r2-22-selection-A-neutral	125x34	Mocha	OPEN Q2, arm A: selected text as a neutral inversion — no hue spent	20 fields — selected text (A) neutral inversion
-r2-23-selection-B-secondary	125x34	Mocha	OPEN Q2, arm B: the theme's `secondary` — a real colour, and the data cursor's own hue on 13/15 themes	21 fields — selected text (B) theme secondary
-r2-24-third-column-band-round1	125x34	Mocha	Item 4: the band Chris removed — the informational column given a surface of its own	22 readability — third column on its band (round 1)
-r2-25-third-column-no-band-round2	125x34	Mocha	PROPOSED. No band, and the raised quiet rung makes the column legible on the window	23 readability — third column, no band (round 2)
-r2-26-no-headers	125x34	Mocha	Item 4: headers are optional — no third column, therefore no header row, and that row goes back to data	24 readability — no headers at all
-r2-27-crumb-depth1	125x34	Mocha	Item (a) at depth 1: all current, no ancestor run, opening straight off the window	25 breadcrumb — depth 1
-r2-28-crumb-depth2	125x34	Mocha	Depth 2: one ancestor and the current crumb, with the transition between them	26 breadcrumb — depth 2
-r2-29-crumb-depth3-round2	125x34	Mocha	PROPOSED, depth 3: two ancestors sharing one full-saturation run, separator inside it, current crumb lighter and bold	27 breadcrumb — depth 3 (round 2)
-r2-30-crumb-depth3-plain-round1	125x34	Mocha	What it replaces: *not visible enough* — muted text, a faint chevron, no background at all	28 breadcrumb — depth 3, plain (round 1)
-r2-31-no-edit-banner	125x34	Mocha	Item (b): this frame IS in edit mode and nothing on the title row says so	29 banner — view vs edit, no `-- EDIT --`
-r2-32-confirm-over-window	125x34	Mocha	Item (c): the window beneath the guard quietened by the SAME ModalScope the page gets	30 confirm — a window quietened under its own guard
-r2-33-edge-bordered-round1	125x34	Mocha	Item (e), round 1: the drawn box in the modal hue	31 edge — bordered (round 1)
-r2-34-edge-spacing-round2	125x34	Mocha	PROPOSED. Same rect, fill and padding, no glyphs — content does not move by a column	32 edge — spacing only (round 2)
-r2-35-no-color-set-mark	125x34	Mocha	Degradation: under NO_COLOR the ladder collapses, so the underline comes back — only here	33 degradation — the SET mark under NO_COLOR
-r2-36-ansi16	125x34	Mocha	Degradation: at ansi16 the trail keeps its glyphs and loses its hue separation	34 degradation — the same frame at ansi16
-r2-37-floor-edit-100x30	100x30	Mocha	The edit frame at the 100x30 floor — the layout that can actually break there	11 fields — edit mode, fill alone (round 2)
-r2-38-floor-drilldown-100x30	100x30	Mocha	The drill-down with both bars at the floor	04 size — drill-down at max, both bars (B)
+mf-00-max-125x34	125x34	Mocha	Item 0: the maximum window — five columns of page each side, five rows top and bottom	00 size — max window (dump at 125x34, 100x30, 200x40)
+mf-01-max-100x30	100x30	Mocha	The same rule at the floor Chris named: 90x20 window, still 5 of page all round	00 size — max window (dump at 125x34, 100x30, 200x40)
+mf-02-max-200x40	200x40	Mocha	And on a wide terminal: 190x30. The inset is relative, so nothing is capped	00 size — max window (dump at 125x34, 100x30, 200x40)
+mf-03-min-44x20	44x20	Mocha	The derived minimum: decoration plus exactly ONE content row. 34x10 window on a 44x20 page	01 size — the minimum window (dump at 44x20)
+mf-04-too-small-40x18	40x18	Mocha	Below the floor: no window at all, and a message that names the size needed and the size present	02 size — screen too small (dump at 40x18)
+mf-05-content-sized	125x34	Mocha	Item 1a: a window that is not part of a drill-down is as big as its content, capped by the maximum	03 size — content-sized, not a drill-down (A)
+mf-06-drilldown-both-bars	125x34	Mocha	Item 1b: a drill-down at the maximum with a table that cannot shrink — vertical AND horizontal bars	04 size — drill-down at max, both bars (B)
+mf-08-tint-held	125x34	Mocha	Item 2: accent at 0.40 with the tint's LIGHTNESS held — the window is as blue as he asked for and the text keeps its ground	06 tint — blue 0.40, lightness held
+mf-09-tint-held-solarized-dark	125x34	Solarized Dark	The adversarial theme — the thinnest ladder of the fifteen, where round 1's SET fill fell under a JND	07 tint — held, on Solarized Dark
+mf-10-tint-held-latte	125x34	Catppuccin Latte	A LIGHT theme, where the ladder runs the other way — the case Mocha alone cannot show	08 tint — held, on Catppuccin Latte (light)
+mf-11-view-black-cursor	125x34	Mocha	Item 3: VIEW mode, the selected field on the table's own block with black bold text (ruling 7, already shipped)	09 fields — view mode, black on the cursor row
+mf-13-edit-fill-only	125x34	Mocha	Item 3: EDIT mode, the underline gone, the SET carried by the fill and the ACTIVE field derived to carry black text	11 fields — edit mode, fill alone
+mf-12-tick-box	125x34	Mocha	Item 3: a tick box in both states — Space toggles, and the mark is a shape so it survives NO_COLOR	10 fields — tick box, the two states side by side
+mf-14-radio-row	125x34	Mocha	Item 3: a radio group on ONE row, the active button bold; h/l or arrows move within it	12 fields — radio on one row (A)
+mf-15-radio-column	125x34	Mocha	The SAME group as a COLUMN, the whole column highlighted; j/k or arrows move within it	13 fields — the same radio as a column (B)
+mf-16-dropdown-open	125x34	Mocha	Item 3: drop-down open — NO frame, other highlights gone, current value first then sorted	14 fields — drop-down open, no frame
+mf-17-dropdown-filtered	125x34	Mocha	`ts` typed: the list narrows by fuzzy subsequence and the cursor sits on the best match	15 fields — drop-down, fuzzy filter typed
+mf-18-caret-insert	125x34	Mocha	vim INSERT: a bar caret carrying the real SLOW_BLINK attribute — read it from the grid, not the PNG	16 fields — single line, vim INSERT (bar, blinking)
+mf-19-caret-normal	125x34	Mocha	vim NORMAL: a block ON a character, and the one caret that does NOT blink	17 fields — single line, vim NORMAL (block, steady)
+mf-20-caret-conventional	125x34	Mocha	EMACS/conventional: the terminal owns the cursor, so nothing is painted — a still frame shows none	18 fields — single line, conventional (terminal caret)
+mf-21-multiline-edit	125x34	Mocha	A multi-line field being edited: the fill IS the box, so no border is drawn around it	19 fields — multi-line being edited
+mf-22-selection-A-neutral	125x34	Mocha	OPEN Q2, arm A: selected text as a neutral inversion — no hue spent	20 fields — selected text (A) neutral inversion
+mf-23-selection-B-secondary	125x34	Mocha	OPEN Q2, arm B: the theme's `secondary` — a real colour, and the data cursor's own hue on 13/15 themes	21 fields — selected text (B) theme secondary
+mf-25-third-column-no-band	125x34	Mocha	Item 4: the third column with no band of its own — it stands on the window like everything else	23 readability — third column, no band
+mf-26-no-headers	125x34	Mocha	Item 4: headers are optional — no third column, therefore no header row, and that row goes back to data	24 readability — no headers at all
+mf-27-crumb-depth1	125x34	Mocha	Item (a) at depth 1: all current, no ancestor run, opening straight off the window	25 breadcrumb — depth 1
+mf-28-crumb-depth2	125x34	Mocha	Depth 2: one ancestor and the current crumb, with the transition between them	26 breadcrumb — depth 2
+mf-29-crumb-depth3	125x34	Mocha	Depth 3: two ancestors sharing one run and the current crumb lighter and bold, powerline separators throughout	27 breadcrumb — depth 3
+mf-30-crumb-depth3-plain	125x34	Mocha	The same trail with `CrumbStyle::Plain` — the fallback a configuration selects where the font is not patched	28 breadcrumb — depth 3, plain (nerd-font fallback)
+mf-31-no-edit-banner	125x34	Mocha	Item (b): this frame IS in edit mode and nothing on the title row says so	29 banner — view vs edit, no `-- EDIT --`
+mf-32-confirm-over-window	125x34	Mocha	Item (c): the window beneath the guard quietened by the SAME ModalScope the page gets	30 confirm — a window quietened under its own guard
+mf-34-edge-spacing	125x34	Mocha	Item (e): the border's room kept, its glyphs not drawn — the content sits on exactly the same columns	32 edge — spacing only
+mf-35-no-color-set-mark	125x34	Mocha	Degradation: under NO_COLOR the ladder collapses, so the underline comes back — only here	33 degradation — the SET mark under NO_COLOR
+mf-36-ansi16	125x34	Mocha	Degradation: at ansi16 the trail keeps its glyphs and loses its hue separation	34 degradation — the same frame at ansi16
+mf-37-floor-edit-100x30	100x30	Mocha	The edit frame at the floor Chris named	11 fields — edit mode, fill alone
+mf-38-floor-drilldown-100x30	100x30	Mocha	The drill-down with both bars at the floor	04 size — drill-down at max, both bars (B)

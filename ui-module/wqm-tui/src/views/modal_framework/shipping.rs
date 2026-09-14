@@ -1,12 +1,12 @@
-//! **Round 2's frames** — one per clause of Chris's 2026-09-14 rulings, over the same page.
+//! **The shipping frames** — one per clause of Chris's 2026-09-14 rulings, over the same page.
 //!
 //! Every frame is a whole screen with the Queue page quietened beneath it, for the reason round
 //! 1 gave and that has not changed: a window judged on an empty buffer is judged against
 //! nothing.
 //!
-//! # The proposal is in force, and it is one set of globals
+//! # The look is in force, and it is one set of globals
 //!
-//! [`proposed`] puts round 2's whole look on at once — accent at 0.40 with lightness held, the
+//! [`proposed`] puts the ruled look on at once — accent at 0.40 with lightness held, the
 //! field rungs derived for black text, the SET mark carried by the fill with the underline as an
 //! encoding fallback, powerline crumbs. A frame drawn under a partial set would be a frame of a
 //! design nobody is proposing, and the parts interact: the underline can only go BECAUSE the

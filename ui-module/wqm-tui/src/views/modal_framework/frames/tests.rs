@@ -242,12 +242,20 @@ fn every_frame_renders_at_both_sizes() {
             // and drops its ink, so there is no glyph on these four cells any more — what says
             // *a window reaches this corner* is the surface under it, which is the thing item
             // (e) argues was doing the work all along.
-            let fill = tokens::modal_fill(tokens::layer1_bg());
+            //
+            // EITHER layer, because the help is one of these frames and a thing opened from
+            // inside a window is drawn on `Layer2` (§6). Naming both is what keeps this an
+            // assertion about the window reaching the corner rather than about which layer it
+            // happens to be on.
+            let fills = [
+                tokens::modal_fill(tokens::layer1_bg()),
+                tokens::modal_fill(tokens::layer2_bg()),
+            ];
             for (_, x, y) in corners {
-                assert_eq!(
-                    buf.cell((x, y)).expect("a cell on screen").bg,
-                    fill,
-                    "{}: the window does not reach ({x}, {y})",
+                let painted = buf.cell((x, y)).expect("a cell on screen").bg;
+                assert!(
+                    fills.contains(&painted),
+                    "{}: the window does not reach ({x}, {y}) — {painted:?} is neither layer",
                     at(area)
                 );
             }
@@ -497,8 +505,8 @@ fn the_frames_survive_every_encoding() {
         let all = screen_text(&buf);
         // The `-- EDIT --` banner this used to look for was ruled out (item (b)), so what
         // carries the mode where colour cannot is `tokens::field::SetMark`'s underline —
-        // asserted in `round2::tests::the_set_mark_drops_its_underline_only_where_colour_can_
-        // carry_it`, which is where that claim belongs. What this one still owns is that the
+        // asserted in `shipping::tests::the_set_mark_drops_its_underline_only_where_colour_
+        // can_carry_it`, which is where that claim belongs. What this one still owns is that the
         // window draws at all under every encoding.
         assert!(all.contains("Queue item"), "{encoding:?}: no window");
     }
@@ -516,14 +524,21 @@ fn the_slide_frames_are_three_different_frames() {
     assert_ne!(start, end);
 }
 
-/// The help window is a COMPOSITION — this container with the Queue's own help inside it — and
+/// The help window is a COMPOSITION — this container with the view's own help inside it — and
 /// its content does not fit, which is the scroll the ruling asks for and the literal footprint
 /// could never provide.
+///
+/// The sections are the RECORD's, because that is what the frame opens `?` over. Round 1's frame
+/// showed the Queue's regardless of what it was drawn on top of, which is exactly the drift that
+/// routing `?` through `Stack` removes: the help a window shows is now the help its own view
+/// supplies, and there is no second place for it to come from.
 #[test]
 fn the_help_window_is_a_container_whose_content_scrolls() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let lines = crate::panes::list::help::render(&Queue::help_sections());
+    let lines = crate::panes::list::help::render(
+        &crate::views::modal_framework::stack::record_help(),
+    );
     let rect = Container::footprint(SCREEN);
     let viewport = Container::new(crate::widgets::modal_frame::Decoration::new("x")).viewport(rect);
     assert!(
@@ -537,7 +552,20 @@ fn the_help_window_is_a_container_whose_content_scrolls() {
         help_frame(area, buf);
     });
     let all = screen_text(&buf);
-    assert!(all.contains("Navigation"), "the help sections are drawn");
+    assert!(all.contains("Field kinds"), "the help sections are drawn");
+    // …and one that is NOT on screen, which is the scroll doing its job rather than a gap: the
+    // content is longer than the viewport, so a section far enough down is in the lines and not
+    // in the buffer. Asserting it on the buffer would have been asserting the content fits.
+    let text: String = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect();
+    assert!(text.contains("Drop-down list"), "the content carries every section");
+    assert!(
+        !all.contains("Drop-down list"),
+        "a section below the fold is on screen, so this window is not scrolling after all"
+    );
     let bar_x = viewport.x + viewport.width - 1;
     let column: String = (viewport.y..viewport.y + viewport.height)
         .filter_map(|y| buf.cell((bar_x, y)).map(|c| c.symbol().to_string()))

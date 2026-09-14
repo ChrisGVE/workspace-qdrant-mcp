@@ -72,7 +72,7 @@ modules = [
     "views::modal_framework",
     # Round 2 answers the checkpoint items in their own group, so the question Chris already
     # reacted to and the answer to it are two lists rather than one mixed one.
-    "views::modal_framework::round2",
+    "views::modal_framework::shipping",
     # The page's own frame, over a placeholder body — the `Shell` group renamed, because the
     # frames were always of the frame rather than of the view that happened to draw them. Its
     # last variant puts a framework window on top of one, which is the composition ruling in

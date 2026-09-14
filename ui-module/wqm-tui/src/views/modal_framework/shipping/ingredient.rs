@@ -1,12 +1,22 @@
-//! The `Modal Framework R2` group — round 2's frames, browsable beside round 1's.
+//! The **`Modal Framework` group** — one frame per state the window actually ships in.
 //!
-//! A group of its own rather than more entries in `Modal Framework`, because the list is how
-//! Chris finds these: round 1's group is what he already reacted to, and mixing the answer in
-//! with the question makes both harder to read. Names are `NN item — what it shows`, so the list
-//! sorts into the order his message is written in.
+//! These were `Modal Framework R2` while round 2 was a proposal beside the round Chris had
+//! already reacted to. His 19:05 rulings closed every question they were asking, so there is no
+//! longer a question and an answer to keep apart: the two lists are one, the arms he retired are
+//! gone from it, and what is left is what a reader will meet. Names keep the `NN item — what it
+//! shows` form, which sorts the list into the order his message was written in.
 //!
-//! Where a decision is open the two arms are adjacent and named `(A)` / `(B)`; where round 2
-//! simply replaces round 1 the pair is named `round 1` / `round 2`.
+//! Two kinds of entry survive that are not simply *a state*:
+//!
+//! - **Frames on an adversarial theme.** Solarized Dark has the thinnest ladder of the fifteen,
+//!   and a design judged only on the harness's own Catppuccin Mocha is judged on one of the
+//!   roomiest.
+//! - **Degradation frames.** `NO_COLOR` and `ansi16` are states the window really enters, and
+//!   they are the ones Chris cannot see by looking at his own terminal.
+//!
+//! The one open pair left is the selected-text colour, which he asked to be shown
+//! (*"we'll have to define a color for the selected text"*); its arm B is labelled as the
+//! alternative the measurement rejects.
 
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use tui_pantry::{Ingredient, PropInfo};
@@ -56,13 +66,13 @@ impl Ingredient for Variant {
         "Views"
     }
     fn group(&self) -> &str {
-        "Modal Framework R2"
+        "Modal Framework"
     }
     fn name(&self) -> &str {
         self.0
     }
     fn source(&self) -> &str {
-        "wqm_tui::views::modal_framework::round2"
+        "wqm_tui::views::modal_framework::shipping"
     }
     fn description(&self) -> &str {
         self.1
@@ -186,7 +196,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         // ---- item 2 + 4, the tint and what it costs the text ----------------------------
         Box::new(Variant(
-            "06 tint — blue 0.40, lightness held (round 2)",
+            "06 tint — blue 0.40, lightness held",
             "PROPOSED. The same hue at the same strength, with L* left where the rung put it: 13 of 15 themes clear the floor, and the two that fail fail untinted too",
             |area, buf| {
                 proposed(|| {
@@ -231,7 +241,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "11 fields — edit mode, fill alone (round 2)",
+            "11 fields — edit mode, fill alone",
             "PROPOSED. The underline gone, the SET carried by the fill, and the ACTIVE field derived light enough to carry black text",
             |area, buf| {
                 proposed(|| {
@@ -240,6 +250,22 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
                             at: 6,
                             edit: Some(Edit::insert("256")),
                         },
+                        ..Frame::default()
+                    }
+                    .draw(area, buf);
+                });
+            },
+        )),
+        Box::new(Variant(
+            "10 fields — tick box, the two states side by side",
+            "Space toggles it, and the mark is a SHAPE — `[\u{2713}] yes` against `[ ] no` — so the state survives a terminal that refuses colour (r06 #8)",
+            |area, buf| {
+                proposed(|| {
+                    Frame {
+                        // Field 7 is ticked and field 8 is not, so one frame carries both
+                        // states: a tick box drawn alone says what it looks like, and a pair
+                        // says what tells them apart.
+                        mode: Mode::Edit { at: 7, edit: None },
                         ..Frame::default()
                     }
                     .draw(area, buf);
@@ -379,20 +405,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         // ---- item 4, the third column and the headers -----------------------------------
         Box::new(Variant(
-            "22 readability — third column on its band (round 1)",
-            "The band Chris removed: the informational column given a surface of its own",
-            |area, buf| {
-                proposed(|| {
-                    Frame {
-                        reference: Reference::Text("DEFAULT"),
-                        ..Frame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "23 readability — third column, no band (round 2)",
+            "23 readability — third column, no band",
             "PROPOSED. Item 4: the column is informational and does not need its own region — the text stands on the window like everything else",
             |area, buf| {
                 proposed(|| {
@@ -444,7 +457,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "27 breadcrumb — depth 3 (round 2)",
+            "27 breadcrumb — depth 3",
             "PROPOSED. Two ancestors sharing one run of full-saturation accent, the separator drawn INSIDE it, then the current crumb on a lighter run",
             |area, buf| {
                 proposed(|| {
@@ -453,7 +466,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "28 breadcrumb — depth 3, plain (round 1)",
+            "28 breadcrumb — depth 3, plain (nerd-font fallback)",
             "What it replaces: *not visible enough* — muted text and a faint chevron, spending no background at all",
             |area, buf| {
                 proposed(|| {
@@ -504,20 +517,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "31 edge — bordered (round 1)",
-            "The drawn box, in the modal hue",
-            |area, buf| {
-                proposed(|| {
-                    Frame {
-                        edge: Edge::Bordered,
-                        ..Frame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "32 edge — spacing only (round 2)",
+            "32 edge — spacing only",
             "PROPOSED. Item (e): the same rect, fill and padding with no glyphs — the content does not move by a column, so the pair differs in ink alone",
             |area, buf| {
                 proposed(|| {

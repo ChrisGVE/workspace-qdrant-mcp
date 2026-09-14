@@ -359,18 +359,17 @@ pub fn dropdown_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
 pub fn help_frame(area: Rect, buf: &mut Buffer) -> Rect {
     draw_page(area, buf);
     let rect = Container::footprint(area);
-    let lines = crate::panes::list::help::render(&Queue::help_sections());
-    let deco = crate::widgets::modal_frame::Decoration::new("Queue \u{2014} keys")
-        .crumbs(vec!["Queue", "Help"])
-        .hint("\u{2193}\u{2191}/jk", "Scroll")
-        .hint("Esc", "Close");
-    let container = Container::new(deco).scroll(crate::widgets::modal_frame::Scroll {
-        offset: 0,
-        total: lines.len(),
-    });
-    let viewport = container.viewport(rect);
-    container.render(rect, buf);
-    ratatui::widgets::Paragraph::new(lines).render(viewport, buf);
+    // **Opened the way a reader opens it.** Round 1 built a lookalike here — its own decoration,
+    // its own sections, its own scroll — so the frame could agree with the design while the
+    // running window disagreed with both. `?` now goes through `Stack`, so what the pantry shows
+    // is what the keypress produces, and a drift between them is not expressible.
+    let mut stack = RecordFrame::default().stack();
+    stack.key(modalkit::crossterm::event::KeyEvent::new(
+        modalkit::crossterm::event::KeyCode::Char('?'),
+        modalkit::crossterm::event::KeyModifiers::NONE,
+    ));
+    debug_assert!(stack.helping(), "`?` did not open the help");
+    stack.render(rect, buf);
     rect
 }
 

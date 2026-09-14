@@ -2,9 +2,9 @@
 //!
 //! ```bash
 //! # the frame list, for the shell that dumps ANSI and cell grids
-//! cargo run -p wqm-tui --features png-capture,tui-pantry --example round2_frames -- --list
+//! cargo run -p wqm-tui --features png-capture,tui-pantry --example mf_frames -- --list
 //! # the PNGs
-//! cargo run -p wqm-tui --features png-capture,tui-pantry --example round2_frames -- out/
+//! cargo run -p wqm-tui --features png-capture,tui-pantry --example mf_frames -- out/
 //! ```
 //!
 //! # One list, two instruments, and they answer different questions
@@ -21,7 +21,7 @@
 //!   cell, and a cell dump has it exactly.
 //!
 //! So a claim about hue is checked against a PNG and a claim about shape or attribute is checked
-//! against the grid — and `views::modal_framework::round2::tests` pins the ones that matter so
+//! against the grid — and `views::modal_framework::shipping::tests` pins the ones that matter so
 //! neither has to be read by eye to know the frame is right.
 //!
 //! # The theme has to be IN FORCE, not merely chosen
@@ -45,233 +45,218 @@ use wqm_tui::tokens;
 /// seen holding at a THIRD size, the minimum window only exists at the minimum, and the
 /// too-small message only exists below it.
 const FRAMES: &[(&str, &str, u16, u16)] = &[
-    // item 0 / 1 — the size model
     (
-        "r2-00-max-125x34",
+        "mf-00-max-125x34",
         "00 size — max window (dump at 125x34, 100x30, 200x40)",
         125,
         34,
     ),
     (
-        "r2-01-max-100x30",
+        "mf-01-max-100x30",
         "00 size — max window (dump at 125x34, 100x30, 200x40)",
         100,
         30,
     ),
     (
-        "r2-02-max-200x40",
+        "mf-02-max-200x40",
         "00 size — max window (dump at 125x34, 100x30, 200x40)",
         200,
         40,
     ),
     (
-        "r2-03-min-44x20",
+        "mf-03-min-44x20",
         "01 size — the minimum window (dump at 44x20)",
         44,
         20,
     ),
     (
-        "r2-04-too-small-40x18",
+        "mf-04-too-small-40x18",
         "02 size — screen too small (dump at 40x18)",
         40,
         18,
     ),
     (
-        "r2-05-content-sized",
+        "mf-05-content-sized",
         "03 size — content-sized, not a drill-down (A)",
         125,
         34,
     ),
     (
-        "r2-06-drilldown-both-bars",
+        "mf-06-drilldown-both-bars",
         "04 size — drill-down at max, both bars (B)",
         125,
         34,
     ),
-    // item 2 / 4 — the tint and the readability defect
     (
-        "r2-07-tint-straight-round1",
-        "05 tint — blue 0.40, straight mix (round 1)",
+        "mf-08-tint-held",
+        "06 tint — blue 0.40, lightness held",
         125,
         34,
     ),
     (
-        "r2-08-tint-held-round2",
-        "06 tint — blue 0.40, lightness held (round 2)",
-        125,
-        34,
-    ),
-    (
-        "r2-09-tint-held-solarized-dark",
+        "mf-09-tint-held-solarized-dark",
         "07 tint — held, on Solarized Dark",
         125,
         34,
     ),
     (
-        "r2-10-tint-held-latte",
+        "mf-10-tint-held-latte",
         "08 tint — held, on Catppuccin Latte (light)",
         125,
         34,
     ),
-    // item 3 — the fields
     (
-        "r2-11-view-black-cursor",
+        "mf-11-view-black-cursor",
         "09 fields — view mode, black on the cursor row",
         125,
         34,
     ),
     (
-        "r2-12-edit-underlined-round1",
-        "10 fields — edit mode, fill and underline (round 1)",
+        "mf-13-edit-fill-only",
+        "11 fields — edit mode, fill alone",
         125,
         34,
     ),
     (
-        "r2-13-edit-fill-only-round2",
-        "11 fields — edit mode, fill alone (round 2)",
+        "mf-12-tick-box",
+        "10 fields — tick box, the two states side by side",
         125,
         34,
     ),
     (
-        "r2-14-radio-row",
+        "mf-14-radio-row",
         "12 fields — radio on one row (A)",
         125,
         34,
     ),
     (
-        "r2-15-radio-column",
+        "mf-15-radio-column",
         "13 fields — the same radio as a column (B)",
         125,
         34,
     ),
     (
-        "r2-16-dropdown-open",
+        "mf-16-dropdown-open",
         "14 fields — drop-down open, no frame",
         125,
         34,
     ),
     (
-        "r2-17-dropdown-filtered",
+        "mf-17-dropdown-filtered",
         "15 fields — drop-down, fuzzy filter typed",
         125,
         34,
     ),
     (
-        "r2-18-caret-insert",
+        "mf-18-caret-insert",
         "16 fields — single line, vim INSERT (bar, blinking)",
         125,
         34,
     ),
     (
-        "r2-19-caret-normal",
+        "mf-19-caret-normal",
         "17 fields — single line, vim NORMAL (block, steady)",
         125,
         34,
     ),
     (
-        "r2-20-caret-conventional",
+        "mf-20-caret-conventional",
         "18 fields — single line, conventional (terminal caret)",
         125,
         34,
     ),
     (
-        "r2-21-multiline-edit",
+        "mf-21-multiline-edit",
         "19 fields — multi-line being edited",
         125,
         34,
     ),
     (
-        "r2-22-selection-A-neutral",
+        "mf-22-selection-A-neutral",
         "20 fields — selected text (A) neutral inversion",
         125,
         34,
     ),
     (
-        "r2-23-selection-B-secondary",
+        "mf-23-selection-B-secondary",
         "21 fields — selected text (B) theme secondary",
         125,
         34,
     ),
-    // item 4 — the third column and the headers
     (
-        "r2-24-third-column-band-round1",
-        "22 readability — third column on its band (round 1)",
+        "mf-25-third-column-no-band",
+        "23 readability — third column, no band",
         125,
         34,
     ),
     (
-        "r2-25-third-column-no-band-round2",
-        "23 readability — third column, no band (round 2)",
-        125,
-        34,
-    ),
-    (
-        "r2-26-no-headers",
+        "mf-26-no-headers",
         "24 readability — no headers at all",
         125,
         34,
     ),
-    // items 5 to 8
-    ("r2-27-crumb-depth1", "25 breadcrumb — depth 1", 125, 34),
-    ("r2-28-crumb-depth2", "26 breadcrumb — depth 2", 125, 34),
     (
-        "r2-29-crumb-depth3-round2",
-        "27 breadcrumb — depth 3 (round 2)",
+        "mf-27-crumb-depth1",
+        "25 breadcrumb — depth 1",
         125,
         34,
     ),
     (
-        "r2-30-crumb-depth3-plain-round1",
-        "28 breadcrumb — depth 3, plain (round 1)",
+        "mf-28-crumb-depth2",
+        "26 breadcrumb — depth 2",
         125,
         34,
     ),
     (
-        "r2-31-no-edit-banner",
+        "mf-29-crumb-depth3",
+        "27 breadcrumb — depth 3",
+        125,
+        34,
+    ),
+    (
+        "mf-30-crumb-depth3-plain",
+        "28 breadcrumb — depth 3, plain (nerd-font fallback)",
+        125,
+        34,
+    ),
+    (
+        "mf-31-no-edit-banner",
         "29 banner — view vs edit, no `-- EDIT --`",
         125,
         34,
     ),
     (
-        "r2-32-confirm-over-window",
+        "mf-32-confirm-over-window",
         "30 confirm — a window quietened under its own guard",
         125,
         34,
     ),
     (
-        "r2-33-edge-bordered-round1",
-        "31 edge — bordered (round 1)",
+        "mf-34-edge-spacing",
+        "32 edge — spacing only",
         125,
         34,
     ),
     (
-        "r2-34-edge-spacing-round2",
-        "32 edge — spacing only (round 2)",
-        125,
-        34,
-    ),
-    // degradation — judged from the grid, not from these PNGs
-    (
-        "r2-35-no-color-set-mark",
+        "mf-35-no-color-set-mark",
         "33 degradation — the SET mark under NO_COLOR",
         125,
         34,
     ),
     (
-        "r2-36-ansi16",
+        "mf-36-ansi16",
         "34 degradation — the same frame at ansi16",
         125,
         34,
     ),
-    // the floor, for the two frames whose layout can actually break there
     (
-        "r2-37-floor-edit-100x30",
-        "11 fields — edit mode, fill alone (round 2)",
+        "mf-37-floor-edit-100x30",
+        "11 fields — edit mode, fill alone",
         100,
         30,
     ),
     (
-        "r2-38-floor-drilldown-100x30",
+        "mf-38-floor-drilldown-100x30",
         "04 size — drill-down at max, both bars (B)",
         100,
         30,
@@ -301,7 +286,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let ingredients = wqm_tui::views::modal_framework::round2::ingredient::ingredients();
+    let ingredients = wqm_tui::views::modal_framework::shipping::ingredient::ingredients();
     for (stem, variant, cols, rows) in FRAMES {
         let Some(ingredient) = ingredients.iter().find(|i| i.name() == *variant) else {
             eprintln!("no pantry variant named {variant:?} — the list and the group disagree");

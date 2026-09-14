@@ -123,6 +123,6 @@ required-features = ["png-capture"]
 # from two different renders. Needs both features: the capture backend AND the ingredient
 # list it reads its frames from.
 [[example]]
-name = "round2_frames"
-path = "examples/round2_frames/main.rs"
+name = "mf_frames"
+path = "examples/mf_frames/main.rs"
 required-features = ["png-capture", "tui-pantry"]

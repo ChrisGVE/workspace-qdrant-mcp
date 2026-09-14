@@ -1,21 +1,28 @@
-//! The `Modal Framework` group — round 1's frames and its A/B pairs, browsable in the pantry.
+//! The states of a window that have **no clause of their own** in Chris's 19:05 message.
+//!
+//! These land in the same `Modal Framework` group as
+//! [`super::shipping::ingredient`], and the split is by what a frame is FOR rather than by which
+//! round drew it: that module has one frame per clause he ruled on, and this one has the states
+//! a window enters that no clause is about — a record part-way down its scroll, an empty record,
+//! a table reached by drilling in, the three stills of the push animation, the discard guard, the
+//! contextual help, and the pinned column with and without its drop.
 //!
 //! Every variant is a whole screen, so they declare `tab() = "Views"`: a window over a page is
-//! a full-page composition, not an atomic element (§16). The names are chosen so a pair reads
-//! as a pair in the list — `… (A)` beside `… (B)` — because the list is how Chris finds them.
+//! a full-page composition, not an atomic element (§16).
 //!
-//! # Every frame but the brackets is drawn under the PROPOSAL
+//! # The A/B pairs are gone, and one is left on purpose
 //!
-//! [`proposed`] puts the gate's tint and strength in force. A frame drawn under some other
-//! default would be a frame of a design nobody is proposing, and the two choices interact: an
-//! accent-washed form inside an accent-tinted window is a merge, and that merge is only
-//! visible when both are on. The `Tint (…)` variants set their own, which is the entire point
-//! of a bracket.
+//! Round 1 put fourteen arms here for Chris to choose between — two footprints, five tints, three
+//! field schemes, three third columns, a cursor extent. He ruled on all of them, so they are not
+//! options any more and a pantry entry for one would be an entry for a thing that cannot happen.
+//! The pinned-column pair stays because his ruling made it *"the CALLER's decision"*: both values
+//! are legitimate, and which one a window wants is a composition's choice rather than a design's.
+//!
+//! Every frame is drawn under [`proposed`], the ruled tint and strength. A frame drawn under some
+//! other default would be a frame of a design nobody is proposing.
 
 use super::frames::{self, RecordFrame, PROPOSED_WASH};
-use super::record::{Mode, Reference, Scheme};
-use crate::tokens::{self, ModalTint};
-use crate::widgets::edit_field::Edit;
+use crate::tokens::ModalTint;
 use ratatui::{buffer::Buffer, layout::Rect};
 use tui_pantry::{Ingredient, PropInfo};
 
@@ -53,14 +60,6 @@ fn proposed<T>(draw: impl FnOnce() -> T) -> T {
     frames::with_tint(ModalTint::Accent, PROPOSED_WASH, draw)
 }
 
-/// The active field in every EDIT-mode frame: `Chunk overlap`, mid-edit.
-fn editing() -> Mode {
-    Mode::Edit {
-        at: 6,
-        edit: Some(Edit::insert("256")),
-    }
-}
-
 struct Variant(&'static str, &'static str, fn(Rect, &mut Buffer));
 
 impl Ingredient for Variant {
@@ -90,24 +89,6 @@ impl Ingredient for Variant {
 pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
     vec![
         // ----- the frames the round is judged from -------------------------------------
-        Box::new(Variant(
-            "Record, view mode",
-            "The selected field takes the table's own cursor block, and the block stops at the value so the reference band survives",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Record, edit mode",
-            "Every editable field ruled and filled, the active one a step above it, and the mode said in words on the title row",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame::view(editing()).draw(area, buf);
-                });
-            },
-        )),
         Box::new(Variant(
             "Record, scrolled",
             "The same record part-way down: the thumb is off both ends and the DEFAULT header has not scrolled away with the data",
@@ -153,15 +134,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "Breadcrumb at depth 3",
-            "Libraries > open-books > Queue — the path the reader took, not a hierarchy: the same view reached another way shows another trail",
-            |area, buf| {
-                proposed(|| {
-                    frames::table_frame(area, buf, false);
-                });
-            },
-        )),
-        Box::new(Variant(
             "Slide t=0",
             "Before the push: the record, whole. Only the viewport moves — the decoration is the window's and is already at its destination",
             |area, buf| {
@@ -192,15 +164,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "Drop-down open",
-            "Enter on the choice field: as wide as the cell it came out of, cursor on the current value, on the layer above the window",
-            |area, buf| {
-                proposed(|| {
-                    frames::dropdown_frame(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
             "Contextual help (?)",
             "The help window IS this framework: a container and a fixed scrollable content — and the content does not fit, which is the scroll the ruling asks for",
             |area, buf| {
@@ -210,114 +173,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         // ----- the A/B pairs the gate keeps for Chris's look ---------------------------
-        Box::new(Variant(
-            "Tint: neutral",
-            "Today's default: no blend at all. The window and the page are told apart by the border alone",
-            |area, buf| {
-                frames::with_tint(ModalTint::Neutral, PROPOSED_WASH, || {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Tint: blue 0.14",
-            "The screen wash's own strength, on one window. Read back from a pixel render it is very nearly not there",
-            |area, buf| {
-                frames::with_tint(ModalTint::Accent, tokens::WASH_MIX, || {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Tint: blue 0.28",
-            "PROPOSED. A distinctly cool slate surface against the page, still quiet — twice the screen wash, which covers the whole screen and cannot spend as much",
-            |area, buf| {
-                frames::with_tint(ModalTint::Accent, PROPOSED_WASH, || {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Tint: blue 0.40",
-            "The far end, so the range is bracketed rather than guessed: the faint rungs start losing the ground under them",
-            |area, buf| {
-                frames::with_tint(ModalTint::Accent, 0.40, || {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Tint: lavender (rejected)",
-            "The cursor's own hue, on the window that draws the cursor. Rejected on identity, not distance: it IS that hue on all fifteen themes",
-            |area, buf| {
-                frames::with_tint(ModalTint::Selected, PROPOSED_WASH, || {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Fallback: neutral window, accent-washed form",
-            "If blue's worst case (dE 11.0 vs lavender on Mocha) is too thin to defend, this inverts where the colour goes and keeps every role intact",
-            |area, buf| {
-                frames::with_tint(ModalTint::Neutral, PROPOSED_WASH, || {
-                    RecordFrame {
-                        mode: editing(),
-                        scheme: Scheme::AccentWash,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Edit fields: C (selection-derived, rejected)",
-            "The set is the selection tint and the point is the cursor block — so EDIT mode comes out looking exactly like VIEW mode",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        mode: editing(),
-                        scheme: Scheme::SelectionDerived,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Third column: A (text only)",
-            "The reference values dimmer on the window's own surface — same colour, quieter, which is emphasis rather than another colour",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        reference: Reference::Text("DEFAULT"),
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Third column: B (its own band)",
-            "PROPOSED. 'Another color than the main window' read as a SURFACE: one quiet region, no hue spent, and it comes off in edit mode",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Third column: none",
-            "A two-column record, which therefore has no header row at all and gives that row back to data",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        reference: Reference::None,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
         Box::new(Variant(
             "Table: pinned column shown",
             "Every row repeating `open-books` in its widest fixed column — twenty columns carrying no information",
@@ -329,7 +184,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         Box::new(Variant(
             "Table: pinned column dropped",
-            "PROPOSED, and it generalises: a drilled-in view drops the column it was pinned by, and Object gets the width",
+            "The caller's other choice, and the usual one: a drilled-in view drops the column it was pinned by, and Object gets the width",
             |area, buf| {
                 proposed(|| {
                     frames::table_frame(area, buf, false);
