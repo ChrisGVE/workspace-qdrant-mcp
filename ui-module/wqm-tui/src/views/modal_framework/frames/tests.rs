@@ -313,23 +313,6 @@ fn the_picked_radio_button_is_filled_in_the_frame() {
     assert!(all.contains("( ) scan"), "…including the last one, whole");
 }
 
-/// The two footprint arms are both renderable, because Chris may overturn the gate's reading.
-#[test]
-fn both_footprint_arms_render() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    for footprint in [Footprint::Framework, Footprint::HelpDerived] {
-        let buf = draw(SCREEN, |area, buf| {
-            RecordFrame {
-                footprint,
-                ..RecordFrame::default()
-            }
-            .draw(area, buf);
-        });
-        assert!(screen_text(&buf).contains("Queue item"), "{footprint:?}");
-    }
-}
-
 /// The tint bracket, rendered end to end, so the range is bracketed rather than guessed.
 #[test]
 fn the_tint_bracket_renders_at_every_strength() {

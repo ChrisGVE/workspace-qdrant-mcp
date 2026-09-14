@@ -85,69 +85,42 @@ fn help_rows(rect: Rect) -> (u16, u16) {
     (rect.bottom() - 3, rect.bottom() - 2)
 }
 
-/// The gate's arithmetic, stated as the numbers it produces at both sizes a frame is drawn at.
-#[test]
-fn the_framework_footprint_is_the_size_the_gate_named() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let big = Footprint::Framework
-        .window(SCREEN)
-        .expect("the fixture page holds a window");
-    assert_eq!((big.width, big.height), (96, 24), "at 125×34");
-    assert_eq!(
-        (big.x, big.y),
-        (14, 6),
-        "centred, and below the page header"
-    );
-
-    let small = Footprint::Framework
-        .window(FLOOR)
-        .expect("the fixture page holds a window");
-    assert_eq!((small.width, small.height), (84, 22), "at the 100×30 floor");
-    assert_eq!((small.x, small.y), (8, 6));
-}
-
-/// The vertical rule is the one that is not taste: a mathematically centred window puts its
-/// top border on the page's own rule at BOTH sizes, and two box-drawing runs of one weight on
-/// one row read as welded rather than floating.
+/// [`Container::footprint`] is the ruled maximum and nothing else, at both sizes a frame is
+/// drawn at - the page inset by five on every side.
 ///
-/// **Arm A cannot honour it, and that is the objection to arm A made measurable rather than
-/// argued.** The literal reading is 99 × 32 on a 125 × 34 screen: it is taller than the room
-/// under the header, so the clamp that keeps it on screen wins and its top border lands on row
-/// 2 — inside the status block. A window that covers the page defeats §6's depth model,
-/// because there is no page left to recede.
+/// Round 1's two arms were measured here and are gone: the 19:05 ruling dissolved the question
+/// they answered rather than picking one, so there is no longer a pair to compare.
 #[test]
-fn only_the_framework_footprint_clears_the_pages_own_header() {
+fn the_default_footprint_is_the_page_inset_by_five() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
     for area in [SCREEN, FLOOR] {
-        let rect = Footprint::Framework
-            .window(area)
-            .expect("the fixture page holds a window");
-        assert!(
-            rect.y >= area.y + PAGE_HEADER_ROWS,
-            "at {}×{}: top border on row {}, header ends at {}",
-            area.width,
-            area.height,
-            rect.y,
-            area.y + PAGE_HEADER_ROWS
-        );
-        assert!(
-            rect.bottom() <= area.bottom(),
-            "…and the whole window is on screen"
-        );
-
-        let literal = Footprint::HelpDerived
-            .window(area)
-            .expect("the fixture page holds a window");
-        assert!(
-            literal.y < area.y + PAGE_HEADER_ROWS,
-            "arm A is supposed to be the one that cannot clear the header; at {}×{} it did, so \
-             this test has stopped measuring the objection",
+        let rect = Container::footprint(area);
+        assert_eq!(
+            (rect.width, rect.height),
+            (area.width - 10, area.height - 10),
+            "at {}x{}",
             area.width,
             area.height
         );
+        assert_eq!((rect.x, rect.y), (area.x + 5, area.y + 5));
     }
+}
+
+/// The ruling's cost, pinned so it reads as a decision and not as a regression: at 125x34 the
+/// top border lands on row 5, inside the three-row status block. Round 1 clamped windows below
+/// the page header to avoid exactly this; item 0 says five rows from the screen, and it was
+/// ruled after Chris had seen the clamped placement.
+#[test]
+fn the_literal_inset_puts_the_top_border_inside_the_status_block() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let rect = Container::footprint(SCREEN);
+    assert_eq!(rect.y, SCREEN.y + 5, "five rows down, as worded");
+    assert!(
+        rect.y < SCREEN.y + crate::views::page::CONSTANT_ROWS + 4,
+        "and that is above where the page's own header ends - the cost the ruling accepts"
+    );
 }
 
 /// A fixed container is one whose size does not depend on what is inside it. Stated as: two
@@ -166,27 +139,8 @@ fn the_window_does_not_resize_between_views() {
     // Nothing about either container reaches `footprint`, and that IS the property.
     let _ = (&bare, &full);
     assert_eq!(Container::footprint(SCREEN), Container::footprint(SCREEN));
-    assert_eq!(bare.viewport(Container::footprint(SCREEN)).width, 92);
-    assert_eq!(full.viewport(Container::footprint(SCREEN)).width, 91);
-}
-
-/// The two arms of the footprint A/B are genuinely different windows, or the pantry pair says
-/// nothing. The literal reading is the bigger one, which is the objection to it.
-#[test]
-fn the_two_footprint_arms_are_different_windows() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let framework = Footprint::Framework
-        .window(SCREEN)
-        .expect("the fixture page holds a window");
-    let literal = Footprint::HelpDerived
-        .window(SCREEN)
-        .expect("the fixture page holds a window");
-    assert_ne!(framework, literal);
-    assert!(
-        literal.width > framework.width && literal.height > framework.height,
-        "the literal reading is what leaves the page nowhere to recede to: {literal:?}"
-    );
+    assert_eq!(bare.viewport(Container::footprint(SCREEN)).width, 111);
+    assert_eq!(full.viewport(Container::footprint(SCREEN)).width, 110);
 }
 
 /// The fifth row costs a row of VIEW, never a row of window — which is the whole reason it is

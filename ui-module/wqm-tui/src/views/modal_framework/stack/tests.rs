@@ -262,18 +262,21 @@ fn the_guard_is_centred_on_the_window_it_is_asking_about() {
         above.abs_diff(below) <= 1
     };
 
-    // Stated at BOTH sizes a frame is drawn at. At 125×34 the two centres are only one row
-    // apart, because the window is very nearly centred on that screen anyway; at the 100×30
-    // floor the gap is two rows, which is where the claim has something to bite on.
+    // Stated at BOTH sizes a frame is drawn at.
+    //
+    // **The old `assert_ne!` against a screen-centred guard is gone, and the ruling is why.**
+    // Round 1's window was clamped below the page header, so centring on the window and
+    // centring on the screen produced two different rects and the difference was the claim.
+    // Item 0's window is the page inset by five on every side, which makes it exactly
+    // concentric with the page — the two centres now coincide by construction, and asserting
+    // they differ would be asserting the ruling is not in force.
+    //
+    // What still bites is containment: the guard belongs to the window it is asking about, so
+    // it must sit wholly inside it. On a screen-centred guard that is a coincidence of the
+    // sizes; here it is the property.
     for screen in [SCREEN, Rect::new(0, 0, 100, 30)] {
         let window = Container::footprint(screen);
         let on_window = discard_guard().rect(window);
-        let on_screen = discard_guard().rect(screen);
-        assert_ne!(
-            on_window, on_screen,
-            "at {}×{} the two centres are the same rect, so this test says nothing",
-            screen.width, screen.height
-        );
         assert!(middle(on_window, window), "centred in the window");
         assert!(
             on_window.y >= window.y

@@ -184,7 +184,7 @@ impl Default for RecordFrame {
             mode: Mode::View { at: 5 },
             reference: Reference::Band("DEFAULT"),
             scheme: Scheme::default(),
-            footprint: Footprint::Framework,
+            footprint: Footprint::Max,
             cursor_extent: CursorExtent::default(),
             arm_a: false,
             offset: 0,

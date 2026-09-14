@@ -16,7 +16,6 @@ use super::frames::{self, RecordFrame, PROPOSED_WASH};
 use super::record::{CursorExtent, Mode, Reference, Scheme};
 use crate::tokens::{self, ModalTint};
 use crate::widgets::edit_field::Edit;
-use crate::widgets::modal_frame::Footprint;
 use ratatui::{buffer::Buffer, layout::Rect};
 use tui_pantry::{Ingredient, PropInfo};
 
@@ -211,32 +210,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         // ----- the A/B pairs the gate keeps for Chris's look ---------------------------
-        Box::new(Variant(
-            "Footprint: A (literal)",
-            "The ruling read literally — the help window's own rect, 99x32 on a 125x34 screen, which leaves the page nowhere to recede to",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        footprint: Footprint::HelpDerived,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Footprint: B (framework)",
-            "One framework size the help window ADOPTS, so its content can scroll — which the same ruling asks for",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        footprint: Footprint::Framework,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
         Box::new(Variant(
             "Tint: neutral",
             "Today's default: no blend at all. The window and the page are told apart by the border alone",

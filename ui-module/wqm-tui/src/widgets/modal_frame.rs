@@ -26,9 +26,9 @@
 //!
 //! Chris: the window *"is the help window's size and does not resize between views"*. A window
 //! that changed shape on every push would be a flow no reader can build a model of, so the
-//! size is the container's and the view gets whatever is left. [`Footprint`] carries the two
-//! readings of *which* size that is — see the variants, and the director's gate call, which is
-//! [`Footprint::Framework`].
+//! size is the container's and the view gets whatever is left. Chris settled *which* size on
+//! 2026-09-14: the page inset by [`INSET`] is the maximum, a window outside a drill-down sizes
+//! to its content under that cap, and a drill-down opens at the maximum. See [`Footprint`].
 //!
 //! # What the decoration spends, and what it refuses to
 //!
@@ -101,11 +101,6 @@ pub const BOTTOM_ROWS: u16 = 3;
 
 /// How many of [`BOTTOM_ROWS`] carry key hints.
 pub const HELP_ROWS: usize = 2;
-
-/// The rows a wqm screen spends on its own header before any content: the app bar and the rule
-/// under it ([`crate::views::page::CONSTANT_ROWS`]), the three-row status block, and the rule
-/// that closes it. A window starts below them — see [`Footprint::rect`].
-pub const PAGE_HEADER_ROWS: u16 = crate::views::page::CONSTANT_ROWS + 4;
 
 /// The chevron between two crumbs (Chris: *"breadcrumbs in the window (chevron style)"*).
 pub const CHEVRON: &str = " \u{203a} ";
@@ -352,20 +347,19 @@ impl Container {
         &self.decoration
     }
 
-    /// **ROUND 1's window size**, as one function, kept exactly as it was.
+    /// **The window a caller gets when it states no size of its own** — the maximum, which is
+    /// item 0's page inset.
     ///
-    /// Round 2's size model is item 0's page inset — [`Footprint::Max`], reached through
-    /// [`Footprint::window`] — and it produces a different rect. This one stays so the round-1
-    /// frames and the tests that pin them keep measuring round 1, which is the whole value of
-    /// having both on the branch: a frame pair can only show what changed if one arm is still
-    /// the thing that changed.
+    /// A convenience over [`Footprint::window`] for the callers that draw at a page size known
+    /// to hold a window, so they are not each writing the same `expect`. A composition that
+    /// sizes to its content states [`Footprint::Content`] instead.
     ///
     /// # Panics
     /// If `area` cannot hold a window at all. Every caller renders at 125x34 or the 100x30
     /// floor, both far above [`MIN_PAGE_COLS`] x [`MIN_PAGE_ROWS`], so the arm is unreachable —
     /// and saying so is better than inventing a fallback rect nobody would notice was wrong.
     pub fn footprint(area: Rect) -> Rect {
-        Footprint::Framework.window(area).unwrap_or_else(|| {
+        Footprint::Max.window(area).unwrap_or_else(|| {
             panic!(
                 "{}x{} cannot hold a window; the minimum page is {MIN_PAGE_COLS}x\
                  {MIN_PAGE_ROWS}, and a caller that has to meet a small screen must use \

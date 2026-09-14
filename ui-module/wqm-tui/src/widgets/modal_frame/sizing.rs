@@ -81,6 +81,22 @@ pub const MIN_PAGE_COLS: u16 = MIN_COLS + 2 * INSET;
 pub const MIN_PAGE_ROWS: u16 = MIN_ROWS + 2 * INSET;
 
 /// Where a window's rectangle comes from.
+///
+/// # Round 1's A/B pair is gone, and it was dissolved rather than decided
+///
+/// Chris ruled items 0 and 1 on 2026-09-14 19:05, and the ruling does not pick one of the two
+/// arms the round-1 checkpoint offered - it replaces the question they were asking. The maximum
+/// is the page inset by [`INSET`] on all four sides; a window that is not part of a drill-down
+/// sizes itself to its content under that cap; a drill-down opens at the maximum. Neither
+/// `Framework` (`min(96, w-16) x min(24, h-8)`) nor `HelpDerived` (whatever rect the help
+/// window wanted) can be produced by that rule, so both are removed rather than left as
+/// settings nothing may select.
+///
+/// The header clamp went with them, and that is the part with a cost. Round 1 pushed every
+/// window below the page's own header so a centred top border would not land on the rule under
+/// it. The ruling is an inset from the SCREEN, stated without qualification, which at 125x34
+/// puts the top border on row 5 - inside the status block. It was ruled AFTER Chris had seen
+/// round 1's below-the-header placement, so the cost is the ruling's and taken knowingly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Footprint {
     /// **Round 2, and what a drill-down opens at**: the page inset by [`INSET`] on all four
@@ -94,11 +110,6 @@ pub enum Footprint {
     /// a container that measured its own view would have to be handed the view before it could
     /// be built, which is the cycle `Stack::render` already works around by measuring twice.
     Content { cols: u16, rows: u16 },
-    /// Round 1's gate call, kept so a frame can show what item 0 replaced:
-    /// `min(96, w-16) x min(24, h-8)`.
-    Framework,
-    /// Round 1's arm A, kept for the same reason: whatever rect the help window wanted.
-    HelpDerived,
 }
 
 impl Footprint {
@@ -129,59 +140,15 @@ impl Footprint {
                 cols.clamp(MIN_COLS, max_cols),
                 rows.clamp(MIN_ROWS, max_rows),
             ),
-            Footprint::Framework => (
-                area.width.saturating_sub(16).min(96),
-                area.height.saturating_sub(8).min(24),
-            ),
-            Footprint::HelpDerived => {
-                let help = crate::views::queue::Queue::help().rect(area);
-                (
-                    help.width.min(area.width.saturating_sub(4)),
-                    help.height.min(area.height.saturating_sub(2)),
-                )
-            }
-        };
-        let centred = area.y + (area.height.saturating_sub(height)) / 2;
-        let y = if self.clears_the_page_header() {
-            let below_header = area.y + super::PAGE_HEADER_ROWS;
-            let floor = area.bottom().saturating_sub(height);
-            centred.max(below_header).min(floor.max(area.y))
-        } else {
-            centred
         };
         Some(Rect {
             x: area.x + (area.width.saturating_sub(width)) / 2,
-            y,
+            y: area.y + (area.height.saturating_sub(height)) / 2,
             width,
             height,
         })
     }
 
-    /// Whether this footprint refuses to sit over the page's own header.
-    ///
-    /// # ⚠ Item 0 and a round-1 decision disagree here, and the disagreement is REAL
-    ///
-    /// Round 1 pushed every window below [`super::PAGE_HEADER_ROWS`] — the app bar, its rule and
-    /// the three-row status block — for a reason it wrote down: a mathematically centred window
-    /// lands its top border exactly on that rule at both 125x34 and the 100x30 floor, two
-    /// box-drawing runs of the same weight on one row, which reads as the window being welded to
-    /// the page; and keeping the block visible means a modal never costs the reader the answer
-    /// to *is anything wrong* (Nielsen #1).
-    ///
-    /// Item 0 says a window is the page inset by [`INSET`] on all four sides, full stop. At
-    /// 125x34 that puts its top border on row 5 — **inside** the status block, which occupies
-    /// rows 2 to 5. So the ruling and the round-1 rule cannot both hold, and the ruling is
-    /// newer.
-    ///
-    /// The round-2 footprints therefore follow item 0 literally and the round-1 ones keep their
-    /// clamp, so a frame pair can show Chris exactly what the inset costs. It is his to settle;
-    /// this is not a design deciding it quietly in either direction.
-    const fn clears_the_page_header(self) -> bool {
-        match self {
-            Footprint::Max | Footprint::Content { .. } => false,
-            Footprint::Framework | Footprint::HelpDerived => true,
-        }
-    }
 }
 
 /// Whether `area` can hold a window at all.

@@ -146,7 +146,6 @@ fn modal_framework_frames() -> Vec<Frame> {
     use wqm_tui::views::modal_framework::frames as mf;
     use wqm_tui::views::modal_framework::record::{CursorExtent, Mode, Reference, Scheme};
     use wqm_tui::widgets::edit_field::Edit;
-    use wqm_tui::widgets::modal_frame::Footprint;
 
     /// The gate's proposal, in force for every frame but the brackets.
     fn proposed(draw: impl FnOnce()) {
@@ -288,31 +287,6 @@ fn modal_framework_frames() -> Vec<Frame> {
         }),
     );
 
-    // The A/B pairs the gate keeps for Chris's look.
-    add(
-        "mf-11-footprint-A-literal",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame {
-                    footprint: Footprint::HelpDerived,
-                    ..mf::RecordFrame::default()
-                }
-                .draw(area, f.buffer_mut());
-            });
-        }),
-    );
-    add(
-        "mf-11-footprint-B-framework",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame::default().draw(area, f.buffer_mut());
-            });
-        }),
-    );
     for (name, tint, strength) in [
         ("mf-12-tint-neutral", tokens::ModalTint::Neutral, 0.28f32),
         ("mf-12-tint-blue-014", tokens::ModalTint::Accent, 0.14),
