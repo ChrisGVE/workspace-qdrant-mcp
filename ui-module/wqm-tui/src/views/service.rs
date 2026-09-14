@@ -55,7 +55,8 @@ use wqm_client::DaemonReport;
 use crate::health::{Component, Rollup, SystemHealth};
 use crate::tokens::{self, Condition, Health};
 use crate::panes::{ConfigPane, StatusBand};
-use crate::widgets::chrome::{inset, Attention, Freshness, Rule, StatusLine, TitleBar};
+use crate::views::page::Page;
+use crate::widgets::chrome::{inset, Attention, Freshness, Rule, TitleBar};
 use crate::widgets::{
     config_table::ConfigTable,
     modal::Modal,
@@ -147,7 +148,10 @@ impl<'a> ServiceView<'a> {
     /// §4.1's tab row with §4's must-see rule applied: the tab that owns a store in trouble
     /// is recoloured, and it is recoloured **from the same rollup the rest of the screen
     /// answers to**, so a calm tab over a degraded store is not constructible.
-    fn tabs(&self) -> TabBar {
+    ///
+    /// The tabs and not the bar: [`crate::views::page::Page`] owns the selector row, and this
+    /// is the one screen with something to say about what is in it.
+    fn tabs(&self) -> Vec<Tab> {
         let rollup = self.rollup();
         let mut tabs: Vec<Tab> = TabBar::storyboard_tabs();
         if rollup.health != Health::Healthy
@@ -155,7 +159,7 @@ impl<'a> ServiceView<'a> {
         {
             tab.alarm = Some(rollup.health);
         }
-        TabBar::new(tabs, SERVICE_TAB)
+        tabs
     }
 
     /// The keys the foot of the screen offers, which depend on whether an edit is open.
@@ -174,7 +178,13 @@ impl<'a> ServiceView<'a> {
     }
 }
 
-/// Every row of the screen, in order, so the layout is read once rather than counted twice.
+/// Every row of the screen's own REGION, in order, so the layout is read once rather than
+/// counted twice.
+///
+/// The region is what [`crate::views::page::Page`] hands back: the selector, the frame rule,
+/// the closing hairline and the help line are the page's and are gone from here. What used to
+/// be eleven constraints of which four were the chrome is now seven of which none is — this
+/// screen lays out the screen's middle, and nothing else.
 ///
 /// **Two of these are panes, not rows.** `band` and `config` are whole zones handed to
 /// [`StatusBand`] and [`ConfigPane`], which then lay out their own insides. That is §16's split:
@@ -183,42 +193,29 @@ impl<'a> ServiceView<'a> {
 /// the config zone opens with a selector and a gap — and asking [`StatusBand::ROWS`] for the
 /// first of those is what keeps a change to the band from being a change in two files.
 struct Rows {
-    tabs: Rect,
-    top_rule: Rect,
     title: Rect,
     band: Rect,
     seam: Rect,
     config: Rect,
-    bottom_rule: Rect,
-    status_line: Rect,
 }
 
-fn rows(area: Rect) -> Rows {
-    let [tabs, top_rule, title, _, band, _, seam, _, config, bottom_rule, status_line] =
-        Layout::vertical([
-            Constraint::Length(1), // tab row
-            Constraint::Length(1), // the frame rule under it
-            Constraint::Length(1), // title, with the freshness right-aligned
-            Constraint::Length(1), // negative space — §6 divides with space, not boxes
-            Constraint::Length(StatusBand::ROWS),
-            Constraint::Length(1),
-            Constraint::Length(1), // the internal seam between the two bands
-            Constraint::Length(1),
-            Constraint::Min(0), // the config zone takes what is left
-            Constraint::Length(1),
-            Constraint::Length(1), // merged status + help
-        ])
-        .areas(area);
+fn rows(region: Rect) -> Rows {
+    let [title, _, band, _, seam, _, config] = Layout::vertical([
+        Constraint::Length(1), // title, with the freshness right-aligned
+        Constraint::Length(1), // negative space — §6 divides with space, not boxes
+        Constraint::Length(StatusBand::ROWS),
+        Constraint::Length(1),
+        Constraint::Length(1), // the internal seam between the two bands
+        Constraint::Length(1),
+        Constraint::Min(0), // the config zone takes what is left
+    ])
+    .areas(region);
 
     Rows {
-        tabs,
-        top_rule,
         title,
         band,
         seam,
         config,
-        bottom_rule,
-        status_line,
     }
 }
 
@@ -231,6 +228,11 @@ impl Widget for ServiceView<'_> {
 
         // The wash goes down first, under everything (§6.18). It paints nothing at all when
         // the condition is nominal.
+        //
+        // The page paints its own ground under the same condition, so this looks redundant and
+        // is not: the wash belongs to the SCREEN, and when a condition is in force the screen
+        // is one row taller than the page. The condition band at the bottom stands on that
+        // row, and it is the only thing that ever does.
         Surface::with_condition(condition).render(area, buf);
 
         // The band the condition owns is carved off the bottom before anything is laid out,
@@ -243,7 +245,6 @@ impl Widget for ServiceView<'_> {
         if body.height < 8 {
             return;
         }
-        let r = rows(body);
 
         // Everything from here to the `drop` below is the PAGE, and while a modal owns the
         // input every colour on it goes muted — VL §6, the whole screen and not the three
@@ -253,10 +254,21 @@ impl Widget for ServiceView<'_> {
         // it keeps its own rungs, and the toast and the condition band behind it are the
         // must-see channel §6 says a modal cannot suspend. All three paint over the stack, and
         // all three are drawn after the scope has closed.
-        let page = self.modal.is_some().then(tokens::ModalScope::enter);
+        let quiet = self.modal.is_some().then(tokens::ModalScope::enter);
 
-        tabs.render(inset(r.tabs), buf);
-        Rule::frame().render(r.top_rule, buf);
+        // The page's frame, and the only screen that states its own tab row: §4's must-see
+        // rule recolours the Service tab when a store it owns is in trouble. Everything else
+        // about the selector — the product name, the gap, what gives when the row is short —
+        // is the frame's, which is why this screen had lost the product name until now.
+        let mut page = Page::new(SERVICE_TAB)
+            .tabs(tabs)
+            .condition(condition)
+            .mode(mode);
+        for (key, label) in hints {
+            page = page.hint(key, label);
+        }
+        let r = rows(page.draw(body, buf));
+
         TitleBar::new("Service")
             .freshness(self.freshness)
             .render(inset(r.title), buf);
@@ -268,14 +280,7 @@ impl Widget for ServiceView<'_> {
         Rule::internal().render(r.seam, buf);
 
         ConfigPane::new(self.config, ZONE_CONFIG, self.attention).render(r.config, buf);
-
-        crate::views::top::foot_rule(r.bottom_rule, buf);
-        let mut status = StatusLine::new().mode(mode);
-        for (key, label) in hints {
-            status = status.hint(key, label);
-        }
-        status.render(inset(r.status_line), buf);
-        drop(page);
+        drop(quiet);
 
         // Above the screen, in §6's order: the modal takes the stack, the toast sits outside
         // it and is painted over whatever is there.
@@ -707,12 +712,18 @@ mod tests {
         let _serial = crate::global_state_lock();
         let _restore = Restore::dark_truecolor();
 
-        // Three widgets that have never seen each other's arithmetic: the tab bar is inset by
-        // the screen, the store list is inset by the screen, and the config table reaches the
+        // Three widgets that have never seen each other's arithmetic: the app bar is inset by
+        // the page, the store list is inset by the screen, and the config table reaches the
         // same column through its OWN margin. If any of the three moves, the grid §3 relies
         // on to say "this cell, not that one" stops being a grid.
+        //
+        // The app bar is found by its TITLE and no longer by its first tab. Since this screen
+        // draws through `views::page` its selector row begins the way every other screen's
+        // does — the product name, then the tabs — so the column the margin is asked about is
+        // the title's. The invariant is the one it always was: the screen's content starts in
+        // one column.
         let buf = render(frames::base());
-        let (tab, _) = find(&buf, "1 Dashboard").expect("the tab row");
+        let (tab, _) = find(&buf, crate::widgets::chrome::app_bar::TITLE).expect("the app bar");
         let (store, _) = find(&buf, "vector").expect("the store list");
         let (key, _) = find(&buf, "KEY").expect("the config header");
         assert_eq!(

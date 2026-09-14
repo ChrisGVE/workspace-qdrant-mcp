@@ -144,14 +144,13 @@ fn capture_all() -> Vec<(String, String)> {
     out
 }
 
-/// Every screen still draws the frame it drew before the chrome became one object.
+/// The screens the milestone was not supposed to touch still draw what they drew.
 ///
-/// The bare page is **excluded, and that exclusion is the whole design change**: Chris asked
-/// for the main window to end in a hairline and a minimalist help line (2026-09-14), and the
-/// bare page is the one screen that had neither. Its fixtures are captured all the same —
-/// they are the before-picture the new foot is measured against in
-/// [`the_bare_page_gains_a_foot_and_moves_nothing_above_it`], which states the difference
-/// instead of hiding it.
+/// Two are **excluded, and each exclusion is a design change with Chris's words behind it**.
+/// The bare page gains the foot he asked for on 2026-09-14; the Service tab gains the product
+/// name its selector row had quietly lost. Both are captured here all the same, because their
+/// fixtures are the before-pictures the two tests below measure those changes against —
+/// naming a difference is what tells it apart from a regression.
 #[test]
 fn every_screen_still_draws_the_frame_it_drew_before_the_page_composition() {
     let _serial = crate::global_state_lock();
@@ -159,10 +158,58 @@ fn every_screen_still_draws_the_frame_it_drew_before_the_page_composition() {
 
     let capturing = std::env::var_os("WQM_TUI_CAPTURE").is_some();
     for (name, got) in capture_all() {
-        if name.starts_with("shell-") && !capturing {
+        let changed = name.starts_with("shell-") || name.starts_with("service-");
+        if changed && !capturing {
             continue;
         }
         check(&name, &got);
+    }
+}
+
+/// The Service tab's selector row is the others' selector row, and the difference is one word.
+///
+/// It had lost the product name, and the loss is the clearest evidence there was for why one
+/// composition was needed: the hub laid its own tab row out with a
+/// [`Layout`](ratatui::layout::Layout) of its own and rendered a bare
+/// [`TabBar`](crate::widgets::tab_bar::TabBar) into it, while the other three went through the
+/// app bar and got `WQM TUI` in front of the tabs. Nobody noticed for as long as four screens
+/// each drew their own, because nothing could: there was no place the claim *the first rows of
+/// every tab are the same rows* was written down as code.
+///
+/// Every other row is asserted byte-identical, so what this reports is a one-word gain and not
+/// a re-laid-out screen.
+#[test]
+fn the_service_tab_gains_the_product_name_its_selector_row_had_lost() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::dark_truecolor();
+
+    const HEIGHT: usize = 34;
+    let before = padded(include_str!("goldens/service-125x34.txt"), HEIGHT);
+    let dumped = dump(125, HEIGHT as u16, |area, buf| {
+        crate::views::service::frames::base().render(area, buf)
+    });
+    let after = padded(&dumped, HEIGHT);
+
+    let title = crate::widgets::chrome::app_bar::TITLE;
+    assert!(
+        !before[0].contains(title) && after[0].contains(title),
+        "the selector row is what changed: {:?} -> {:?}",
+        before[0],
+        after[0]
+    );
+    assert_eq!(
+        after[0]
+            .trim_start()
+            .strip_prefix(title)
+            .map(str::trim_start),
+        Some(before[0].trim_start()),
+        "the tabs themselves are untouched — the title is simply in front of them now"
+    );
+    for y in 1..HEIGHT {
+        assert_eq!(
+            before[y], after[y],
+            "row {y} moved, and only row 0 should have"
+        );
     }
 }
 
