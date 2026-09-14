@@ -21,10 +21,12 @@
 //! frames put Container, Decoration and View together directly — which is what the composition
 //! ruling says a window IS, so nothing is being smuggled past it.
 
+use modalkit::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
 use super::frames::{self, CRUMBS};
 use super::record::{FieldRow, Mode, RecordView, Reference, Value};
+use super::stack::{Layer, Stack, View};
 use super::table::{Pin, TableView};
 use crate::tokens::{self, field, ModalTint, TintBlend, WindowText};
 use crate::widgets::edit_field::Edit;
@@ -172,6 +174,55 @@ impl Frame {
             .render(viewport, buf);
         Some((rect, viewport))
     }
+}
+
+/// **A window driven by real keystrokes**, rather than constructed in the state a keystroke
+/// would have produced.
+///
+/// Every other frame here builds its mode and its [`Edit`] by hand, which is the right way to
+/// draw a still and is also how round 1 came to ship field kinds that no key could move. This one
+/// starts from a record in VIEW mode and presses `keys` through [`super::stack::Stack::key`] — the
+/// same path a running window uses — so a frame that looks right is evidence that the path works
+/// and not only that the renderer does.
+pub fn driven(area: Rect, buf: &mut Buffer, keys: &[KeyEvent]) -> Option<Rect> {
+    frames::page().render(area, buf);
+    let rect = Footprint::Max.window(area)?;
+    let _window = tokens::WindowScope::enter();
+
+    // The trail is the stack's, one crumb per layer, so the three crumbs are three pushes — the
+    // path the reader took, which is what task 3 says a breadcrumb IS.
+    let record = |at: usize| {
+        View::Record(super::stack::RecordState::new(
+            frames::record(),
+            Mode::View { at },
+        ))
+    };
+    let mut stack = Stack::new(Layer::new(CRUMBS[0], CRUMBS[0], record(0)));
+    stack.push(Layer::new(CRUMBS[1], CRUMBS[1], record(0)));
+    stack.push(Layer::new(
+        CRUMBS[2],
+        "Queue item \u{2014} reading_guide.py",
+        record(0),
+    ));
+    for key in keys {
+        stack.key(*key);
+    }
+    stack.render(rect, buf);
+    Some(rect)
+}
+
+/// The keystrokes that put the caret inside a text field, in vim INSERT.
+///
+/// `j` five times to the `Chunk overlap` row, `e` to open it, `A` to append — vim opens in
+/// NORMAL, so a frame that pressed nothing but `e` would be showing a block caret and calling it
+/// insert — then a digit, so the caret has something to sit after.
+pub fn typed_into() -> Vec<KeyEvent> {
+    let plain = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    let mut keys: Vec<KeyEvent> = (0..6).map(|_| plain('j')).collect();
+    keys.push(plain('e'));
+    keys.push(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT));
+    keys.push(plain('0'));
+    keys
 }
 
 /// The record a Configuration-like window holds — **short**, which is the point of item 1's

@@ -206,7 +206,12 @@ fn the_breadcrumb_is_the_path_the_reader_took() {
     let crumbs = inside(&one, rect, rect.y + 1);
     let trail = crumbs.trim();
     assert!(trail.starts_with("Libraries"), "{trail:?}");
-    assert!(trail.contains(CHEVRON.trim()), "no chevron in {trail:?}");
+    // The powerline separator, which item (a) made the default — `CHEVRON` is the plain
+    // fallback's and is asserted by `crumbs::tests::the_plain_trail_is_still_round_ones`.
+    assert!(
+        trail.contains(crumbs::POWERLINE),
+        "no separator in {trail:?}"
+    );
     assert!(
         trail.find("Libraries") < trail.find("open-books")
             && trail.find("open-books") < trail.find("Queue"),

@@ -184,6 +184,12 @@ const FRAMES: &[(&str, &str, u16, u16)] = &[
         34,
     ),
     (
+        "mf-24-typed-live",
+        "22 fields — the same edit, driven by real keystrokes",
+        125,
+        34,
+    ),
+    (
         "mf-25-third-column-no-band",
         "23 readability — third column, no band",
         125,

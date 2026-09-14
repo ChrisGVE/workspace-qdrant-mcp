@@ -300,10 +300,17 @@ fn the_record_frame_is_reached_at_depth_three() {
     let trail: String = (rect.x + 1..rect.right() - 1)
         .filter_map(|x| buf.cell((x, rect.y + 1)).map(|c| c.symbol().to_string()))
         .collect();
+    // Three crumbs, so two transitions between them — counted rather than read, because the
+    // powerline separator is a private-use glyph that shows as a blank in a text dump.
+    //
+    // THREE, not two: the powerline form closes the last run onto the window as well, which is
+    // what makes the trail read as a run of arrows rather than as a block with marks in it.
     assert_eq!(
-        trail.matches('\u{203a}').count(),
-        2,
-        "three crumbs need two chevrons: {trail:?}"
+        trail
+            .matches(crate::widgets::modal_frame::crumbs::POWERLINE)
+            .count(),
+        3,
+        "three crumbs need their transitions: {trail:?}"
     );
 }
 

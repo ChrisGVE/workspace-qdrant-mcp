@@ -491,3 +491,63 @@ fn a_confirm_quietens_the_window_beneath_it() {
          same treatment the page gets"
     );
 }
+
+/// **The frame a KEYBOARD produced**, which is what round 2 added under every other frame here.
+///
+/// Every other test in this file renders a state that was constructed. This one presses the keys
+/// and then reads the buffer, so it fails in the two different ways that matter: if the dispatch
+/// stops moving the caret, and if the renderer stops drawing what the dispatch produced. Round 1
+/// could pass the second on its own while the first did not exist.
+#[test]
+fn the_driven_frame_carries_the_caret_the_keystrokes_put_there() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+
+    let buf = render(SCREEN, |area, buf| {
+        proposed(|| {
+            driven(area, buf, &typed_into());
+        });
+    });
+    let screen = whole(&buf, SCREEN);
+
+    // The typed digit reached the value: `128` became `1280`.
+    assert!(
+        screen.contains("1280"),
+        "the keystrokes did not reach the field:\n{screen}"
+    );
+    // …and the insert bar is on screen, which is the caret vim INSERT draws.
+    assert!(
+        screen.contains('\u{258f}'),
+        "no insert caret in the driven frame:\n{screen}"
+    );
+
+    // The bar carries the real blink attribute, which no picture of this frame can show — the
+    // division wqm#283 records: shape and attributes from the grid, colour from the pixels.
+    let blinking = (SCREEN.y..SCREEN.bottom())
+        .flat_map(|y| (SCREEN.x..SCREEN.right()).map(move |x| (x, y)))
+        .filter_map(|(x, y)| buf.cell((x, y)))
+        .any(|cell| {
+            cell.symbol() == "\u{258f}" && cell.modifier.contains(Modifier::SLOW_BLINK)
+        });
+    assert!(blinking, "the insert bar is painted but does not blink");
+}
+
+/// A frame with no keys pressed is still in VIEW mode — the pair that stops the test above from
+/// passing on a window that was already editing when it was built.
+#[test]
+fn the_same_frame_with_no_keystrokes_is_not_editing() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let buf = render(SCREEN, |area, buf| {
+        proposed(|| {
+            driven(area, buf, &[]);
+        });
+    });
+    let screen = whole(&buf, SCREEN);
+    assert!(screen.contains("128"), "the field is there");
+    assert!(!screen.contains("1280"), "nothing was typed");
+    assert!(
+        !screen.contains('\u{258f}'),
+        "a caret with no keystrokes behind it:\n{screen}"
+    );
+}

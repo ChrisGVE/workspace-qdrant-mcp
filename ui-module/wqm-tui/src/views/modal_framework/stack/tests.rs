@@ -340,12 +340,20 @@ fn the_breadcrumb_is_the_stack_and_therefore_start_dependent() {
     from_queue.push(record_layer(Mode::View { at: 0 }));
     assert_eq!(from_queue.crumbs(), vec!["Queue", "reading_guide.py"]);
 
-    // The trail on screen, in order, and with the chevron between.
+    // The trail on screen, in order, with a separator between the crumbs.
+    //
+    // The separator is the powerline glyph, not the plain `›`: item (a) made the powerline form
+    // the DEFAULT, so a stack that builds its own decoration draws that one. It is in the
+    // private-use area and renders as a blank in most text views, which is why it is counted
+    // here rather than eyeballed.
     let buf = draw(&from_libraries);
     let rect = Container::footprint(SCREEN);
     let trail = inside(&buf, rect.y + 1);
     assert!(trail.trim().starts_with("Libraries"), "{trail:?}");
-    assert!(trail.contains('\u{203a}'), "no chevron: {trail:?}");
+    assert!(
+        trail.contains(crate::widgets::modal_frame::crumbs::POWERLINE),
+        "no separator: {trail:?}"
+    );
 }
 
 /// A pop shortens the trail, so the breadcrumb can never claim a depth the stack does not

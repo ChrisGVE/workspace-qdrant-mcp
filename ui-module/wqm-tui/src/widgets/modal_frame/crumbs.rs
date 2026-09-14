@@ -53,14 +53,26 @@ mod tests;
 pub const POWERLINE: &str = "\u{e0b0}";
 
 /// How the trail is drawn.
+///
+/// # The powerline form is the DEFAULT, and the plain one is a configured fallback
+///
+/// Item (a) asks for nerd-font powerline chevrons, so that is what a window draws unless
+/// something says otherwise. The default matters more than it looks: a `Stack` builds its own
+/// decoration, so while `Plain` was the default every window reached through the stack — the
+/// drilled-in table, the discard guard, the contextual help — drew a plain trail while the frames
+/// Chris was shown drew powerline. The design was in the frames and not in the product.
+///
+/// `Plain` stays because a patched font cannot be detected. Nerd fonts are a FONT, not an
+/// encoding: nothing in the program can tell whether the terminal has one, so this is a choice a
+/// configuration makes and never one the renderer guesses at.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum CrumbStyle {
-    /// Round 1: plain text, ancestors muted, the leaf at the body rung, a faint `›` between.
-    /// Costs no font.
+    /// **Item (a)**: powerline segments in the modal's own hue. Needs a patched font.
     #[default]
-    Plain,
-    /// **Round 2, item (a)**: powerline segments in the modal's own hue. Needs a patched font.
     Powerline,
+    /// The fallback a configuration selects: plain text, ancestors muted, the leaf at the body
+    /// rung, a faint `›` between. Costs no font.
+    Plain,
 }
 
 /// The background a *previous* crumb sits on — the modal's hue at full saturation.

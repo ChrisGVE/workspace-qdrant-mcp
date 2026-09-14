@@ -22,8 +22,8 @@ use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use tui_pantry::{Ingredient, PropInfo};
 
 use super::{
-    column_record, confirm, proposed, short_record, text_record, wide_table, Frame,
-    RULED_STRENGTH,
+    column_record, confirm, driven, proposed, short_record, text_record, typed_into,
+    wide_table, Frame, RULED_STRENGTH,
 };
 use crate::tokens::{self, field, TintBlend};
 use crate::views::modal_framework::frames as r1;
@@ -404,6 +404,15 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         // ---- item 4, the third column and the headers -----------------------------------
+        Box::new(Variant(
+            "22 fields — the same edit, driven by real keystrokes",
+            "Not constructed in the state a keystroke would produce — `jjjjjj e A 0` through Stack::key, so the frame is evidence the live editor is wired in and not only that the renderer works",
+            |area, buf| {
+                proposed(|| {
+                    driven(area, buf, &typed_into());
+                });
+            },
+        )),
         Box::new(Variant(
             "23 readability — third column, no band",
             "PROPOSED. Item 4: the column is informational and does not need its own region — the text stands on the window like everything else",
