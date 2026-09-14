@@ -241,22 +241,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             },
         )),
         Box::new(Variant(
-            "11 fields — edit mode, fill alone",
-            "PROPOSED. The underline gone, the SET carried by the fill, and the ACTIVE field derived light enough to carry black text",
-            |area, buf| {
-                proposed(|| {
-                    Frame {
-                        mode: Mode::Edit {
-                            at: 6,
-                            edit: Some(Edit::insert("256")),
-                        },
-                        ..Frame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
             "10 fields — tick box, the two states side by side",
             "Space toggles it, and the mark is a SHAPE — `[\u{2713}] yes` against `[ ] no` — so the state survives a terminal that refuses colour (r06 #8)",
             |area, buf| {
@@ -266,6 +250,22 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
                         // states: a tick box drawn alone says what it looks like, and a pair
                         // says what tells them apart.
                         mode: Mode::Edit { at: 7, edit: None },
+                        ..Frame::default()
+                    }
+                    .draw(area, buf);
+                });
+            },
+        )),
+        Box::new(Variant(
+            "11 fields — edit mode, fill alone",
+            "PROPOSED. The underline gone, the SET carried by the fill, and the ACTIVE field derived light enough to carry black text",
+            |area, buf| {
+                proposed(|| {
+                    Frame {
+                        mode: Mode::Edit {
+                            at: 6,
+                            edit: Some(Edit::insert("256")),
+                        },
                         ..Frame::default()
                     }
                     .draw(area, buf);

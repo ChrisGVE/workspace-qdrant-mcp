@@ -10,6 +10,8 @@
 //! the decoration wrapped around it, which is exactly why the decoration is a separate thing.
 
 pub mod frames;
+#[cfg(feature = "tui-pantry")]
+pub mod index;
 pub mod keys;
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
