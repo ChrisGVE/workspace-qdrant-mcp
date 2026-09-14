@@ -9,7 +9,8 @@
 //! # Why one global rather than a flag threaded down the tree
 //!
 //! The flag was threaded down the tree, and it leaked. `TabBar`, `ZoneHeading`, `CellPane`,
-//! `AppBar`, `ConstantTop` and both views each carried an `under_modal(bool)`; between them
+//! `AppBar`, the page's top (`ConstantTop` then, [`crate::views::page::PageTop`] now) and both
+//! views each carried an `under_modal(bool)`; between them
 //! they muted the jump digits, the selected tab's fill, the key letters and the §4 alarm hues,
 //! and **every other hue on the page went on painting** — the status block's RAG discs, the
 //! queue's three counts, the roll-up dot at the foot, the queue triples inside the cells. Each

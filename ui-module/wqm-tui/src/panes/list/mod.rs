@@ -81,7 +81,7 @@ pub const NAV_HELP: [(&str, &str); 2] = [
     ("^F/^B, PgDn/PgUp", "Full page down/up"),
 ];
 
-/// One row of an area, by index — the same helper [`crate::views::top::row`] is, kept local so a
+/// One row of an area, by index — the same helper [`crate::views::page::row`] is, kept local so a
 /// pane does not reach into a view for arithmetic.
 pub(crate) fn line(area: Rect, n: u16) -> Rect {
     Rect {

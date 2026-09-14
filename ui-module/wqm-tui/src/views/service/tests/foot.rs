@@ -10,16 +10,17 @@ use super::*;
 /// view that has a foot.
 ///
 /// This screen already had a rule there — it is the one the Dashboard was made to match —
-/// so what this guard adds is the WEIGHT and the single source of it. Both screens now draw
-/// it through [`crate::views::top::foot_rule`], and a view that drew its own would be free
-/// to pick the other of §2's two greys and leave the two feet looking different.
+/// so what this guard adds is the WEIGHT and the single source of it. Neither screen draws it
+/// any more: [`crate::views::page::PageFoot`] does, for every screen, and a view that drew its
+/// own would be free to pick the other of §2's two greys and leave the two feet looking
+/// different.
 #[test]
 fn the_row_above_the_key_hint_line_is_an_internal_rule_and_the_row_above_that_is_content() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::dark_truecolor();
 
     let buf = render(frames::base());
-    let rule_row = AREA.height - crate::views::top::FOOT_ROWS;
+    let rule_row = AREA.height - crate::views::page::FOOT_ROWS;
 
     assert_eq!(
         row(&buf, rule_row),

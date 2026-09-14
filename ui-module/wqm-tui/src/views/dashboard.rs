@@ -84,11 +84,11 @@ const COLUMN_GAP: u16 = 3;
 const MIN_GRID_ROWS: u16 = GRID_ROWS as u16 * 3 + (GRID_ROWS as u16 - 1);
 
 /// Rows the Dashboard's body needs before the status block gives way: the grid, plus the two
-/// [`crate::views::top::FOOT_ROWS`] the key-hint line and the rule above it take. Eleven and
+/// [`crate::views::page::FOOT_ROWS`] the key-hint line and the rule above it take. Eleven and
 /// two is **thirteen** — it was twelve while the foot was one row (Chris, 2026-09-07 added the
 /// rule). [`crate::panes::status_block::MIN_CONTENT_ROWS`] does NOT move with it: that is the
 /// floor for the screens whose foot arithmetic is their own, and neither of them gained a row.
-const MIN_CONTENT_ROWS: u16 = MIN_GRID_ROWS + crate::views::top::FOOT_ROWS;
+const MIN_CONTENT_ROWS: u16 = MIN_GRID_ROWS + crate::views::page::FOOT_ROWS;
 
 /// The keys that move the data cursor within a cell — Chris's own spelling (2026-09-07),
 /// *"down up/j k (without the spaces)"*: the two arrows, then the two vim letters, one token

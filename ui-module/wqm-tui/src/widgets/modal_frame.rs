@@ -77,9 +77,9 @@ pub const BOTTOM_ROWS: u16 = 3;
 pub const HELP_ROWS: usize = 2;
 
 /// The rows a wqm screen spends on its own header before any content: the app bar and the rule
-/// under it ([`crate::views::top::CONSTANT_ROWS`]), the three-row status block, and the rule
+/// under it ([`crate::views::page::CONSTANT_ROWS`]), the three-row status block, and the rule
 /// that closes it. A window starts below them — see [`Footprint::rect`].
-pub const PAGE_HEADER_ROWS: u16 = crate::views::top::CONSTANT_ROWS + 4;
+pub const PAGE_HEADER_ROWS: u16 = crate::views::page::CONSTANT_ROWS + 4;
 
 /// The chevron between two crumbs (Chris: *"breadcrumbs in the window (chevron style)"*).
 pub const CHEVRON: &str = " \u{203a} ";

@@ -148,7 +148,7 @@ impl Widget for CellPane {
         // is not the live one recedes to the muted rung, while no focus at all leaves every
         // header at the text rung.
         let receded = matches!(self.attention, Attention::Zone(zone) if zone != self.zone);
-        heading.render(crate::views::top::row(area, 0), buf);
+        heading.render(crate::views::page::row(area, 0), buf);
         if area.height > 1 {
             self.table
                 .sortable(sortable)

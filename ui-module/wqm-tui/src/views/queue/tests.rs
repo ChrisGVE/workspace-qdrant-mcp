@@ -68,7 +68,7 @@ pub(super) fn line(buf: &Buffer, y: u16) -> String {
 
 /// The row the list's column header is drawn on: the constant top, then the dialog slot.
 pub(super) fn header_row() -> u16 {
-    crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL + DIALOG_ROWS
+    crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL + DIALOG_ROWS
 }
 
 /// Not one cell of the page keeps a colour while a modal owns the input.
@@ -383,7 +383,7 @@ fn the_captured_page_ends_in_the_offer_of_the_next() {
         WIDE,
         TALL,
     );
-    let last = line(&buf, TALL - crate::views::top::FOOT_ROWS - 1);
+    let last = line(&buf, TALL - crate::views::page::FOOT_ROWS - 1);
     assert_eq!(
         last.trim(),
         "200 rows, press Enter to load 200 more rows",

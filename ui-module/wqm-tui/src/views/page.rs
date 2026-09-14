@@ -28,13 +28,14 @@
 //!
 //! # Why one object rather than four assemblies
 //!
-//! The claim *the first rows of every tab are the same rows* only stays true while one thing
-//! draws them, and before this module there were four: the Shell, the Dashboard and the Queue
-//! each called a shared top and then built their own foot, and the Service hub laid every row
-//! of the screen out with a [`Layout`](ratatui::layout::Layout) of its own — including a tab
-//! row that had quietly lost the product title the other three carry. Four assemblies is four
-//! places to forget something, and the Service tab is the proof: nobody noticed, because
-//! nothing could.
+//! Chris, 20260906: the first rows of every tab are the same rows. That claim only stays true
+//! while there is one thing drawing them, and before this module there were four: the Shell,
+//! the Dashboard and the Queue each called a shared top and then built their own foot, and the
+//! Service hub laid every row of the screen out with a [`Layout`](ratatui::layout::Layout) of
+//! its own — including a tab row that had quietly lost the product title the other three
+//! carry. A copy is how *the same on every tab* becomes *the same on the tabs someone
+//! remembered to update*, and the Service tab is the proof: nobody noticed, because nothing
+//! could. There was no place the claim was written down as code.
 //!
 //! # `draw` returns the region rather than taking the view
 //!
@@ -174,7 +175,13 @@ impl PageTop {
 /// draw — it is drawn by the frame that tells the view how much room it has. It runs edge to
 /// edge, [`crate::widgets::chrome::MARGIN`] included, exactly as the frame rule above does: it
 /// divides the screen rather than the content inside it. Only the Dashboard's row rules break
-/// over its column gap, and they break because the GRID has two columns.
+/// over its column gap, and they break because the GRID has two columns — this one has nothing
+/// to break over.
+///
+/// A fifth screen asking for a foot gets both rows whether or not anybody thought about it,
+/// which is the half that used to be missing: the rule was drawn by the call that carved the
+/// room, so a screen that skipped the call had no foot at all. That is exactly what had
+/// happened to the bare page.
 ///
 /// The line itself carries no hue at all — [`StatusLine`] holds that, along with the rule that
 /// `? Help · q Quit` survive a foot too narrow for the rest.

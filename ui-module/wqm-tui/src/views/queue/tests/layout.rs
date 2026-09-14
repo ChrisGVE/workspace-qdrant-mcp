@@ -15,7 +15,7 @@ fn the_screen_is_the_constant_top_a_dialog_row_a_list_and_a_foot() {
     let buf = render(view(QueueState::default()), WIDE, TALL);
 
     // The rule that closes the status block, then the slot, then the header.
-    let block_rule = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
+    let block_rule = crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
     assert!(
         line(&buf, block_rule).starts_with(RULE),
         "the status block closes with a rule: {:?}",

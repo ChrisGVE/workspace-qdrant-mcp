@@ -120,7 +120,7 @@ fn nothing_is_drawn_between_the_two_columns() {
 
     // Only the GRID's rows. The constant top spans the full width by design — its status
     // block's four columns march straight through where the gap would be.
-    let first = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL;
+    let first = crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL;
     let mut checked = 0;
     for y in first..TALL - 1 {
         if line(&buf, y) == full {
@@ -164,7 +164,7 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
         "the top rule, the block's closing rule and the foot rule, and nothing else: \
          {continuous:?}"
     );
-    let block_rule = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
+    let block_rule = crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL - 1;
     assert!(
         continuous.contains(&block_rule),
         "the status block still closes with a rule across the full width: {continuous:?}"
@@ -174,10 +174,10 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
     // remembered y — a fixture of numbers would keep passing after the grid moved.
     let (_, rules) = grid(crate::widgets::chrome::inset(Rect::new(
         0,
-        crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL,
+        crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL,
         WIDE,
-        TALL - crate::views::top::FOOT_ROWS
-            - (crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
+        TALL - crate::views::page::FOOT_ROWS
+            - (crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
     )));
     let (_, cells) = heading_rows();
     let gap = cells[0].x + cells[0].width..cells[1].x;
@@ -255,8 +255,8 @@ fn the_two_rule_segments_cover_every_column_except_the_gap() {
 /// glyph at all. Without the second half the guard would pass on a screen whose whole lower
 /// third had been ruled.
 ///
-/// The weight is asserted too. The row is drawn through
-/// [`crate::views::top::foot_rule`], which is the one place the weight is stated, and a screen
+/// The weight is asserted too. The row is drawn by
+/// [`crate::views::page::PageFoot`], which is the one place the weight is stated, and a screen
 /// that drew its own rule there would be free to pick the other one.
 #[test]
 fn the_row_above_the_key_hint_line_is_an_internal_rule_and_the_row_above_that_is_content() {
@@ -264,7 +264,7 @@ fn the_row_above_the_key_hint_line_is_an_internal_rule_and_the_row_above_that_is
     let _restore = Restore::dark_truecolor();
 
     let buf = render(view(frames::populated()), WIDE, TALL);
-    let rule_row = TALL - crate::views::top::FOOT_ROWS;
+    let rule_row = TALL - crate::views::page::FOOT_ROWS;
 
     assert_eq!(
         line(&buf, rule_row),
@@ -416,12 +416,12 @@ fn every_frame_figure_fits_the_column_it_is_drawn_in() {
 /// from a table of coordinates: a fixture of numbers would keep passing after the layout moved
 /// and would then be checking the wrong columns.
 fn heading_rows() -> (u16, Vec<Rect>) {
-    let first = crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL;
+    let first = crate::views::page::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL;
     let (cells, _) = grid(crate::widgets::chrome::inset(Rect::new(
         0,
         first,
         WIDE,
-        TALL - crate::views::top::FOOT_ROWS - first,
+        TALL - crate::views::page::FOOT_ROWS - first,
     )));
     (first, cells)
 }

@@ -307,7 +307,7 @@ pub mod ingredient {
 mod tests {
     use super::*;
     use crate::tokens::Health;
-    use crate::views::top::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
+    use crate::views::page::{APP_BAR_ROW, CONSTANT_ROWS, TOP_RULE_ROW};
     use crate::widgets::chrome::rule::RULE;
     use crate::widgets::chrome::test_support::{coloured_cells, neutral_rungs, Restore};
     use crate::widgets::chrome::MARGIN;

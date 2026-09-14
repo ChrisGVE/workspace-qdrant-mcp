@@ -137,7 +137,10 @@ fn the_quiet_neutral_rungs_do_not_move_under_a_modal() {
             tokens::layer2_bg(),
         ];
 
-        assert_eq!(under, live, "a quiet neutral rung moved under a {tint:?} modal");
+        assert_eq!(
+            under, live,
+            "a quiet neutral rung moved under a {tint:?} modal"
+        );
     }
 }
 
@@ -183,7 +186,10 @@ fn modal_fill_is_a_subtle_wash_of_each_layer() {
                 assert_eq!(fill, layer);
             } else {
                 assert_ne!(fill, layer, "{tint:?} did not tint the layer");
-                assert!(tokens::delta_e(fill, layer) < 30.0, "{tint:?} wash is too strong");
+                assert!(
+                    tokens::delta_e(fill, layer) < 30.0,
+                    "{tint:?} wash is too strong"
+                );
                 let _modal = ModalScope::enter();
                 assert_eq!(tokens::modal_fill(layer), fill, "{tint:?} fill was muted");
             }

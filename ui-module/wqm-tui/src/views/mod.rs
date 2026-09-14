@@ -28,5 +28,4 @@ pub mod modal_framework;
 pub mod page;
 pub mod queue;
 pub mod service;
-pub mod top;
 pub mod shell;
