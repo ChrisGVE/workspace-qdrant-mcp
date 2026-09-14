@@ -66,6 +66,9 @@ use crate::widgets::config_table::EditMode;
 use crate::widgets::surface::Surface;
 use crate::widgets::tab_bar::Tab;
 
+#[cfg(all(test, feature = "tui-pantry"))]
+mod tests;
+
 /// The two rows every screen carries above whatever comes next: the selector and the frame
 /// rule under it. Constant because the Service tab has these two and nothing else.
 pub const APP_BAR_ROW: u16 = 0;
