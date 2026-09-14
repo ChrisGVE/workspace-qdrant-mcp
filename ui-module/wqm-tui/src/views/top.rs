@@ -20,27 +20,11 @@ use crate::tokens::Condition;
 use crate::widgets::chrome::{inset, AppBar, Rule};
 use crate::widgets::surface::Surface;
 
-/// The two rows every screen carries above whatever comes next: the app bar and the frame rule
-/// under it. Constant because the Service tab has these two and nothing else.
-pub const APP_BAR_ROW: u16 = 0;
-pub const TOP_RULE_ROW: u16 = 1;
-pub const CONSTANT_ROWS: u16 = 2;
-
-/// One row of a screen, by index.
-pub fn row(area: Rect, n: u16) -> Rect {
-    Rect {
-        y: area.y + n,
-        height: 1,
-        ..area
-    }
-}
-
-/// Rows a key-hint foot costs a view's body: the rule that closes the content, and the hint
-/// line itself.
-///
-/// A view's own minimum-height arithmetic adds this rather than adding 1, so the day a foot
-/// grows a third row there is one number to change instead of one per screen.
-pub const FOOT_ROWS: u16 = 2;
+/// The row geometry now belongs to [`crate::views::page`], which is where the whole
+/// composition is heading; re-exported here so the screens still on this path keep compiling
+/// while they are moved over one at a time. Two definitions of one row number is how the two
+/// come to disagree, so there is only ever the one.
+pub use crate::views::page::{row, APP_BAR_ROW, CONSTANT_ROWS, FOOT_ROWS, TOP_RULE_ROW};
 
 /// Carve the key-hint foot off the bottom of `body`, DRAW the rule that closes the content
 /// above it, and hand back what is left for the view plus the row the hint line goes on.
@@ -119,10 +103,7 @@ impl ConstantTop {
     /// forgets to check still draws nothing rather than drawing into negative space.
     pub fn draw(self, area: Rect, buf: &mut Buffer) -> Rect {
         if area.height < CONSTANT_ROWS + 1 {
-            return Rect {
-                height: 0,
-                ..area
-            };
+            return Rect { height: 0, ..area };
         }
         // §15: the theme owns the background, and every full screen paints it first. Stated
         // rather than read from the process, because a frame is a still.
@@ -142,7 +123,13 @@ impl ConstantTop {
         let taken = match self.status {
             Some(block) => {
                 let rows = StatusBlock::rows_for(body, self.content_floor);
-                block.render(Rect { height: rows, ..body }, buf);
+                block.render(
+                    Rect {
+                        height: rows,
+                        ..body
+                    },
+                    buf,
+                );
                 rows
             }
             None => 0,

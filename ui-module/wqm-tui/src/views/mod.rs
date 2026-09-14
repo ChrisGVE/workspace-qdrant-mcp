@@ -25,6 +25,7 @@ pub mod dashboard;
 #[cfg(all(test, feature = "tui-pantry"))]
 mod goldens;
 pub mod modal_framework;
+pub mod page;
 pub mod queue;
 pub mod service;
 pub mod top;
