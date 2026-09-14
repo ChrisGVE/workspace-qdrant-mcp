@@ -196,6 +196,7 @@ impl RecordFrame {
             reference: self.reference,
             scheme: self.scheme,
             offset: self.offset,
+            ..RecordState::new(Vec::new(), self.mode.clone())
         };
         // Depth 3, which is what makes the chevrons a navigation aid rather than a decoration
         // on a one-item list: the Queue, narrowed to a library, then one item of it.

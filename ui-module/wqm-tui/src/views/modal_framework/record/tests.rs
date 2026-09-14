@@ -1,6 +1,7 @@
 //! One test per claim the record view makes — every field kind, both modes, both marks.
 
 use super::*;
+use crate::widgets::edit_field::{caret_spans_with, Caret};
 use crate::encoding::Encoding;
 use crate::tokens::{ModalTint, Palette};
 
@@ -318,7 +319,7 @@ fn the_active_text_field_carries_the_crates_one_caret() {
     assert!(row.contains("256"), "the value being typed: {row:?}");
     assert!(row.contains('\u{258f}'), "the insert caret: {row:?}");
     assert_eq!(
-        caret_spans(&Edit::insert("256"), Style::default()).len(),
+        caret_spans_with(&Edit::insert("256"), Style::default(), Caret::Painted).len(),
         3,
         "three spans, and it stays three"
     );

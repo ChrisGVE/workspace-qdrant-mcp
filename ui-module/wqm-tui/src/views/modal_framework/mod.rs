@@ -10,6 +10,7 @@
 //! the decoration wrapped around it, which is exactly why the decoration is a separate thing.
 
 pub mod frames;
+pub mod keys;
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
 pub mod record;
@@ -17,4 +18,5 @@ pub mod round2;
 pub mod stack;
 pub mod table;
 
+pub use keys::{Keys, Picker, Reaction};
 pub use stack::{Layer, Pop, RecordState, Stack, View};

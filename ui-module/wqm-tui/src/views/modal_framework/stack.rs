@@ -36,7 +36,8 @@
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
 
-use super::record::{Mode, RecordView};
+use super::keys::{Keys, Picker};
+use super::record::{DropDown, Mode, RecordView};
 use super::table::TableView;
 use crate::tokens;
 use crate::widgets::modal::{Fill, Modal};
@@ -62,6 +63,22 @@ pub struct RecordState {
     pub reference: super::record::Reference,
     pub scheme: super::record::Scheme,
     pub offset: usize,
+    /// Which key table a field opened here is driven by, and therefore who draws the caret.
+    pub keys: Keys,
+    /// The live engine under the active TEXT field, or [`None`] where the active field is a
+    /// radio, a tick box or a drop-down — those have no text to type into.
+    ///
+    /// **Boxed**, and the reason is measurable: a `modalkit` `Store` plus a `TextBoxState` is
+    /// about 1.7 KB, which every `View::Record` would otherwise carry whether or not a field
+    /// was open — and `View` is moved on every push and pop. One pointer when closed is the
+    /// right trade for a value that exists only while somebody is typing.
+    ///
+    /// It is skipped by [`PartialEq`] and by [`Clone`]: a `modalkit` buffer is neither, and a
+    /// record is compared and copied in tests for its VALUES. What the renderer needs from the
+    /// engine is already in `mode`, refreshed after every keystroke.
+    pub editor: Option<Box<crate::editor::Field>>,
+    /// An open drop-down over the active field.
+    pub picker: Option<Picker>,
 }
 
 impl RecordState {
@@ -72,6 +89,9 @@ impl RecordState {
             reference: super::record::Reference::None,
             scheme: super::record::Scheme::default(),
             offset: 0,
+            keys: Keys::default(),
+            editor: None,
+            picker: None,
         }
     }
 
@@ -91,6 +111,42 @@ impl RecordState {
             .reference(self.reference)
             .scheme(self.scheme)
             .offset(self.offset)
+            .caret(self.keys.caret())
+    }
+
+    /// The drop-down this record has open, anchored on the value cell it came out of.
+    ///
+    /// [`None`] unless one is open. The list is derived from the field every time, so an open
+    /// picker cannot come to disagree with the value it was opened from.
+    pub fn drop_down(&self, viewport: Rect) -> Option<DropDown> {
+        let picker = self.picker.as_ref()?;
+        let at = self.mode.at();
+        let (choices, current) = self.fields.get(at)?.value().choices()?;
+        let anchor = self.value_cell(viewport, at);
+        let mut list = DropDown::new(choices.to_vec(), current, anchor).item_three();
+        if !picker.filter.is_empty() {
+            list = list.filter(picker.filter.clone());
+        }
+        Some(list)
+    }
+
+    /// Where field `index`'s VALUE cell sits inside `viewport` — what a drop-down opens out of.
+    fn value_cell(&self, viewport: Rect, index: usize) -> Rect {
+        let view = self.view();
+        let header = view.header_rows() as u16;
+        let rows_above: usize = self
+            .fields
+            .iter()
+            .take(index)
+            .map(|field| field.value().rows(view.value_width_at(viewport.width)))
+            .sum();
+        let x = viewport.x + (super::record::GUTTER + super::record::W_LABEL) as u16;
+        Rect {
+            x,
+            y: viewport.y + header + rows_above.saturating_sub(self.offset) as u16,
+            width: view.value_width_at(viewport.width) as u16,
+            height: 1,
+        }
     }
 }
 
@@ -315,6 +371,14 @@ impl Stack {
         let viewport = container.viewport(rect);
         container.render(rect, buf);
         top.view.render_into(viewport, buf);
+
+        // An open drop-down sits over the window, on the layer the confirm uses — it is the
+        // field opening, so it is drawn after the view and inside the window's own rect.
+        if let View::Record(record) = &top.view
+            && let Some(list) = record.drop_down(viewport)
+        {
+            list.render(rect, buf);
+        }
 
         if self.guard {
             discard_guard().render(rect, buf);

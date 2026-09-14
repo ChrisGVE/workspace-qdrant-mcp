@@ -68,7 +68,7 @@ use ratatui::{
 use crate::panes::cell::EMPTY;
 use crate::tokens;
 use crate::widgets::config_table::{self, fit};
-use crate::widgets::edit_field::{caret_spans, Edit};
+use crate::widgets::edit_field::{caret_spans_with, Caret, Edit};
 
 #[cfg(test)]
 mod tests;
@@ -168,7 +168,7 @@ impl Value {
 
     /// How many rows this value occupies at `width`. Only [`Value::Multi`] and a wrapping
     /// [`Value::Radio`] are ever more than one.
-    fn rows(&self, width: usize) -> usize {
+    pub fn rows(&self, width: usize) -> usize {
         match self {
             Value::Multi(text) => wrap(text, width).len().max(1),
             // A radio WRAPS rather than elides. A choice truncated away is a choice the reader
@@ -230,6 +230,15 @@ impl FieldRow {
 
     pub fn value(&self) -> &Value {
         &self.value
+    }
+
+    /// The value, to be changed by a keystroke.
+    ///
+    /// `pub(crate)` rather than `pub`: a field's value is edited through
+    /// [`super::keys`], which knows which keys each kind answers to. A caller
+    /// reaching in directly is a second place field semantics would live.
+    pub(crate) fn value_mut(&mut self) -> &mut Value {
+        &mut self.value
     }
 
     /// Whether this row's value differs from the reference beside it — the config table's own
@@ -342,6 +351,9 @@ pub struct RecordView {
     /// First visible DATA row — the container owns the scrollbar, this owns the window onto
     /// the rows. The header is not counted here; see the module docs.
     offset: usize,
+    /// Who draws the caret. Under the conventional keymap the terminal does, so the view paints
+    /// none — see [`crate::widgets::edit_field::Caret`].
+    caret: Caret,
 }
 
 impl RecordView {
@@ -353,6 +365,7 @@ impl RecordView {
             scheme: Scheme::Neutral,
             layer: tokens::layer1_bg(),
             offset: 0,
+            caret: Caret::default(),
         }
     }
 
@@ -373,6 +386,12 @@ impl RecordView {
 
     pub fn offset(mut self, offset: usize) -> Self {
         self.offset = offset;
+        self
+    }
+
+    /// Which keymap's caret this view paints.
+    pub fn caret(mut self, caret: Caret) -> Self {
+        self.caret = caret;
         self
     }
 
@@ -413,6 +432,15 @@ impl RecordView {
 
     fn has_reference(&self) -> bool {
         self.reference.header().is_some()
+    }
+
+    /// The value column's width inside a viewport `width` cells wide.
+    ///
+    /// Public because a live record has to know it off the render path: the anchor a drop-down
+    /// opens out of is the value CELL, and the only thing that knows how wide that is, is the
+    /// view that would have drawn it.
+    pub fn value_width_at(&self, width: u16) -> usize {
+        self.value_width(width)
     }
 
     fn value_width(&self, width: u16) -> usize {
@@ -725,7 +753,7 @@ impl Widget for RecordView {
                 Some(edit) => {
                     // Three spans, always, plus one pad — `caret_spans` is not generalised and
                     // the column arithmetic downstream relies on that.
-                    let mut cell = caret_spans(edit, style);
+                    let mut cell = caret_spans_with(edit, style, self.caret);
                     let used: usize = cell.iter().map(|s| s.content.chars().count()).sum();
                     cell.push(Span::styled(
                         " ".repeat(value_width.saturating_sub(used)),
