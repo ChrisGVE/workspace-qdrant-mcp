@@ -10,8 +10,7 @@ use ratatui::style::Color;
 use super::*;
 use crate::encoding::Encoding;
 use crate::tokens::{
-    self, delta_e, edit_bg, layer1_bg, modal_fill, neutral_at, selector_fg, ModalTint, Palette,
-    TintBlend,
+    self, delta_e, layer1_bg, modal_fill, neutral_at, selector_fg, ModalTint, Palette, TintBlend,
 };
 
 /// The strength Chris ruled on 2026-09-14: *"I think your Tint: blue 0.40 is much better"*.
@@ -23,7 +22,23 @@ const RULED_STRENGTH: f32 = 0.40;
 /// that is not tidiness: the hand-written version leaked on the first `assert!` that fired, and
 /// a leaked blend repainted every later test in the run — two unrelated tests failed with it,
 /// which is precisely the failure `modal_tint`'s own `with_tint` guard exists to prevent.
-struct Restore(Palette, Encoding, ModalTint, f32, TintBlend);
+/// **Every bracket the tables touch**, and the list is exhaustive on purpose.
+///
+/// This has now bitten three times in one session: a hand-restored `TintBlend` leaked on the
+/// first assertion that fired, and later a `FieldRungs` set inside one table leaked into
+/// `the_neutral_tint_blends_nothing` two modules away. Round 2 adds five process-global design
+/// brackets, and a test that sets one of them without naming it here repaints every test that
+/// runs after it — so the guard names all of them and a new bracket belongs in this tuple
+/// before it belongs anywhere else.
+struct Restore(
+    Palette,
+    Encoding,
+    ModalTint,
+    f32,
+    TintBlend,
+    tokens::field::FieldRungs,
+    tokens::field::SelectedText,
+);
 
 impl Restore {
     /// Every table below is taken under the RULED look — accent at 0.40 — because a number
@@ -35,6 +50,8 @@ impl Restore {
             ModalTint::current(),
             tokens::tint_strength(),
             TintBlend::current(),
+            tokens::field::FieldRungs::current(),
+            tokens::field::SelectedText::current(),
         );
         Palette::set(Palette::Bundled);
         Encoding::set(Encoding::TrueColor);
@@ -52,6 +69,8 @@ impl Drop for Restore {
         ModalTint::set(self.2);
         tokens::set_tint_strength(self.3);
         TintBlend::set(self.4);
+        tokens::field::FieldRungs::set(self.5);
+        tokens::field::SelectedText::set(self.6);
     }
 }
 
@@ -429,21 +448,41 @@ fn item_3_the_selected_text_colour_candidates() {
         "{:<24} {:>22} {:>22}",
         "theme", "A rung-19 selection", "B theme secondary"
     );
+    // Under the look round 2 proposes, and on the surfaces the widget actually paints —
+    // `selected_text_bg`/`_fg` against `active_bg`, not against round 1's rung 35.
+    TintBlend::set(TintBlend::HoldLuminance);
+    tokens::field::FieldRungs::set(tokens::field::FieldRungs::BlackText);
+    let restore_arm = tokens::field::SelectedText::current();
+    let (mut a_fail, mut b_fail, mut collisions) = (0usize, 0usize, 0usize);
     each_theme(|theme| {
-        let point = modal_fill(edit_bg());
-        let a = modal_fill(neutral_at(19));
-        let b = tokens::theme()
-            .map(|t| t.secondary)
-            .unwrap_or(Color::Magenta);
-        let cell = |candidate: Color| {
-            format!(
-                "dE{:5.1} text {:4.1}:1",
-                delta_e(candidate, point),
-                contrast_ratio(tokens::neutral_at(85), candidate)
-            )
+        let point = tokens::field::active_bg();
+        let cell = |arm: tokens::field::SelectedText| {
+            tokens::field::SelectedText::set(arm);
+            let bg = tokens::field::selected_text_bg();
+            let fg = tokens::field::selected_text_fg();
+            let (lift, ratio) = (delta_e(bg, point), contrast_ratio(fg, bg));
+            (lift, ratio, format!("dE{lift:5.1} text {ratio:4.1}:1"))
         };
-        println!("{theme:<24} {:>22} {:>22}", cell(a), cell(b));
+        let a = cell(tokens::field::SelectedText::Inverted);
+        let b = cell(tokens::field::SelectedText::Secondary);
+        if a.0 <= JND || a.1 < BODY_FLOOR {
+            a_fail += 1;
+        }
+        if b.0 <= JND || b.1 < BODY_FLOOR {
+            b_fail += 1;
+        }
+        // Arm B's real cost is not a ratio: on most themes `secondary` IS the cursor's own hue.
+        tokens::field::SelectedText::set(tokens::field::SelectedText::Secondary);
+        if tokens::field::selected_text_bg() == tokens::cursor_bg() {
+            collisions += 1;
+        }
+        println!("{theme:<24} {:>22} {:>22}", a.2, b.2);
     });
+    tokens::field::SelectedText::set(restore_arm);
+    println!(
+        "\nA fails (invisible on the field, or unreadable text) on {a_fail}/15; B on {b_fail}/15.\
+         \nB IS the data cursor's own hue on {collisions}/15 — the objection a ratio cannot state."
+    );
 }
 
 /// The transfer function is WCAG's and not a weighted byte sum — pinned on the two ends and on
