@@ -81,25 +81,6 @@ pub fn proposed<T>(draw: impl FnOnce() -> T) -> T {
     draw()
 }
 
-/// Round 1's look, for the arm of a pair that shows what changed.
-pub fn round_one<T>(draw: impl FnOnce() -> T) -> T {
-    let _restore = Restore(
-        ModalTint::current(),
-        tokens::tint_strength(),
-        TintBlend::current(),
-        field::FieldRungs::current(),
-        field::SetMark::current(),
-        WindowText::current(),
-    );
-    ModalTint::set(ModalTint::Accent);
-    tokens::set_tint_strength(RULED_STRENGTH);
-    TintBlend::set(TintBlend::Straight);
-    field::FieldRungs::set(field::FieldRungs::Fixed);
-    field::SetMark::set(field::SetMark::FillAndUnderline);
-    WindowText::set(WindowText::Ladder);
-    draw()
-}
-
 /// The window's decoration, with round 2's trail and the verbs for the mode it is in.
 fn decoration(crumbs: &[&str], title: &str, editing: bool) -> Decoration {
     let mut deco = Decoration::new(title)

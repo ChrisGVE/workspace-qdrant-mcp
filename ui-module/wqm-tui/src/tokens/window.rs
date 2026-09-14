@@ -56,25 +56,29 @@ mod tests;
 pub const RAISED_QUIET: u8 = 75;
 
 /// How the rungs below the baseline behave inside a window.
+/// # `Ladder` is what the window used to do, kept only to measure against
+///
+/// The scope is the answer to item 4 and it is in force: inside a window `faint` and `muted`
+/// collapse onto [`RAISED_QUIET`]. `Ladder` is off every enumeration and no pantry variant
+/// offers it — it survives because the tests below state the improvement as a COUNT (0 of 15
+/// legible against 11 of 15), and a count needs both sides to be a claim rather than a number.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum WindowText {
-    /// Round 1: the full eleven-rung ladder, inside a window as anywhere else.
+    /// **In force**: `faint` and `muted` collapse onto [`RAISED_QUIET`] inside a window.
     #[default]
-    Ladder,
-    /// **Round 2, item 4**: `faint` and `muted` collapse onto [`RAISED_QUIET`] inside a window.
     Raised,
+    /// The full eleven-rung ladder. **Retired** — the measurement baseline above.
+    Ladder,
 }
 
-static MODE: AtomicU8 = AtomicU8::new(WindowText::Ladder as u8);
+static MODE: AtomicU8 = AtomicU8::new(WindowText::Raised as u8);
 static DEPTH: AtomicUsize = AtomicUsize::new(0);
 
 impl WindowText {
-    pub const ALL: [Self; 2] = [Self::Ladder, Self::Raised];
-
     pub fn current() -> Self {
         match MODE.load(Ordering::Relaxed) {
-            1 => Self::Raised,
-            _ => Self::Ladder,
+            1 => Self::Ladder,
+            _ => Self::Raised,
         }
     }
 

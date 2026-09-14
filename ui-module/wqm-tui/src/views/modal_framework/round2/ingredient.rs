@@ -12,7 +12,7 @@ use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use tui_pantry::{Ingredient, PropInfo};
 
 use super::{
-    column_record, confirm, proposed, round_one, short_record, text_record, wide_table, Frame,
+    column_record, confirm, proposed, short_record, text_record, wide_table, Frame,
     RULED_STRENGTH,
 };
 use crate::tokens::{self, field, TintBlend};
@@ -186,15 +186,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
         )),
         // ---- item 2 + 4, the tint and what it costs the text ----------------------------
         Box::new(Variant(
-            "05 tint — blue 0.40, straight mix (round 1)",
-            "THE READABILITY DEFECT. The mix moves lightness with hue, so the fill rises to meet the text: body text clears the WCAG floor on 2 of 15 themes",
-            |area, buf| {
-                round_one(|| {
-                    Frame::default().draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
             "06 tint — blue 0.40, lightness held (round 2)",
             "PROPOSED. The same hue at the same strength, with L* left where the rung put it: 13 of 15 themes clear the floor, and the two that fail fail untinted too",
             |area, buf| {
@@ -233,22 +224,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
                 proposed(|| {
                     Frame {
                         mode: Mode::View { at: 6 },
-                        ..Frame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "10 fields — edit mode, fill and underline (round 1)",
-            "What Chris objected to: every editable value ruled as well as filled",
-            |area, buf| {
-                round_one(|| {
-                    Frame {
-                        mode: Mode::Edit {
-                            at: 6,
-                            edit: Some(Edit::insert("256")),
-                        },
                         ..Frame::default()
                     }
                     .draw(area, buf);

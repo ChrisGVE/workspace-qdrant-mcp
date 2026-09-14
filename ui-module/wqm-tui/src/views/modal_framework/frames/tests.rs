@@ -313,9 +313,14 @@ fn the_picked_radio_button_is_filled_in_the_frame() {
     assert!(all.contains("( ) scan"), "…including the last one, whole");
 }
 
-/// The tint bracket, rendered end to end, so the range is bracketed rather than guessed.
+/// The ruled fill, rendered end to end.
+///
+/// Round 1 bracketed a RANGE here — neutral, 0.14, 0.28, 0.40 — because nobody had picked one.
+/// Chris picked on 2026-09-14 (*"I think your Tint: blue 0.40 is much better"*), so the bracket
+/// has nothing left to say and the arms it compared are retired. What is worth pinning is the
+/// point: the window is painted at the ruled strength, and it is not the bare layer.
 #[test]
-fn the_tint_bracket_renders_at_every_strength() {
+fn the_ruled_tint_paints_the_window_and_the_neutral_arm_blends_nothing() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
     let fill_at = |tint, strength| {
@@ -327,14 +332,14 @@ fn the_tint_bracket_renders_at_every_strength() {
             buf.cell((rect.x + 1, rect.y + 1)).expect("inside").bg
         })
     };
+    assert_eq!(PROPOSED_WASH, 0.40, "the strength Chris ruled");
     let neutral = fill_at(ModalTint::Neutral, PROPOSED_WASH);
-    let quiet = fill_at(ModalTint::Accent, 0.14);
-    let proposed = fill_at(ModalTint::Accent, PROPOSED_WASH);
-    let loud = fill_at(ModalTint::Accent, 0.40);
+    let ruled = fill_at(ModalTint::Accent, PROPOSED_WASH);
     assert_eq!(neutral, tokens::layer1_bg(), "neutral blends nothing");
-    for pair in [(neutral, quiet), (quiet, proposed), (proposed, loud)] {
-        assert_ne!(pair.0, pair.1, "two arms of the bracket are one frame");
-    }
+    assert_ne!(
+        ruled, neutral,
+        "the ruled tint has to reach the window, or every frame is showing the neutral arm"
+    );
 }
 
 /// The underline arm and the plain arm are different frames, and the difference is the SET
@@ -462,10 +467,21 @@ fn the_adversarial_theme_frame_shows_the_thin_ladder_it_claims_to() {
         thin < roomy,
         "the adversarial theme must be the thinner one — {thin:.1} vs {roomy:.1}"
     );
+    // **Round 1 asserted `thin < 3.0` here, and that is exactly the defect Chris reported.**
+    // Under the straight sRGB mix the SET fill on this theme sat at ΔE 2.1 off the window it
+    // was on — below a just-noticeable difference, so *which fields may I change* was being
+    // carried by the underline alone. Holding the tint's lightness lifts it clear, and that
+    // improvement is what this now pins: still the thinnest of the fifteen, and no longer
+    // invisible on it.
     assert!(
-        thin < 3.0,
-        "the adversarial frame is showing a comfortable ladder (ΔE {thin:.1}), so either the \
-         theme did not take or it has stopped being the worst case"
+        thin > 2.3,
+        "the worst theme's SET fill is back below a just-noticeable difference (ΔE {thin:.1}), \
+         which is the readability defect the held blend was adopted to fix"
+    );
+    assert!(
+        thin < roomy * 0.8,
+        "the adversarial theme has stopped being meaningfully the worst case — {thin:.1} vs \
+         {roomy:.1}"
     );
 }
 

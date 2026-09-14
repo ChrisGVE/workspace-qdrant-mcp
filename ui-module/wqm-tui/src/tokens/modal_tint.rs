@@ -58,7 +58,7 @@ static ACTIVE: AtomicU8 = AtomicU8::new(ModalTint::Accent as u8);
 /// `Tint: neutral / accent 0.14 / accent 0.28 / accent 0.40` so Chris judges a range rather
 /// than a number someone argued their way to. At 0.40 the faint rungs start losing the ground
 /// under them, which is what makes 0.40 the far end rather than the next step up.
-pub const DEFAULT_TINT_STRENGTH: f32 = 0.28;
+pub const DEFAULT_TINT_STRENGTH: f32 = 0.40;
 
 /// How far a tinted window's surfaces are pulled toward [`modal_border`].
 ///
@@ -153,24 +153,35 @@ pub fn modal_border() -> Color {
 /// value. It costs nothing anywhere else: the field rungs, the depth cue between `Layer1` and
 /// `Layer2`, and the reference band are all *lightness* differences, and this is the mode that
 /// stops spending them.
+/// # `Straight` is retired, and what is left of it is a measurement baseline
+///
+/// Chris ruled on 2026-09-14 that accent at 0.40 with the lightness held IS the blend, and that
+/// the straight mix is not kept as an arm. So it is no longer selectable: it is off every
+/// enumeration, no pantry variant offers it, and no product code sets it.
+///
+/// It is not deleted, because four tests in [`crate::tokens::contrast::tests`] are the EVIDENCE
+/// for that ruling and they are comparisons — body text clearing the WCAG floor on 2 of 15
+/// themes against 13 of 15, the SET fill falling below a just-noticeable difference on 1 of 15
+/// against 0 of 15. Delete the baseline and those become assertions about one number with
+/// nothing to fail against, which is how a regression into the exact defect Chris reported
+/// would land unnoticed. The variant therefore survives as a yardstick and not as a setting.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TintBlend {
-    /// Round 1's blend, and the one Chris judged: a straight sRGB mix.
+    /// **The blend.** The tint's hue at the surface's own lightness.
     #[default]
-    Straight,
-    /// **Round 2's proposal**: the tint's hue at the surface's own lightness.
     HoldLuminance,
+    /// Round 1's straight sRGB mix. **Retired** — the measurement baseline above, never a
+    /// choice a window may make.
+    Straight,
 }
 
-static BLEND: AtomicU8 = AtomicU8::new(TintBlend::Straight as u8);
+static BLEND: AtomicU8 = AtomicU8::new(TintBlend::HoldLuminance as u8);
 
 impl TintBlend {
-    pub const ALL: [Self; 2] = [Self::Straight, Self::HoldLuminance];
-
     pub fn current() -> Self {
         match BLEND.load(Ordering::Relaxed) {
-            1 => Self::HoldLuminance,
-            _ => Self::Straight,
+            1 => Self::Straight,
+            _ => Self::HoldLuminance,
         }
     }
 
