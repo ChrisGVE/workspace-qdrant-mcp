@@ -73,9 +73,16 @@ fn each_theme(mut run: impl FnMut(&str)) {
 fn item_4_the_text_rungs_on_the_ruled_window_fill() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::ruled();
+    // Under the blend round 2 proposes, because that is the surface the rungs will land on.
+    // Holding lightness rescues the BODY baseline; it does nothing for the rungs below it,
+    // which were already under the floor before any tint existed — so this table is what is
+    // left of item 4 once the tint stops being the cause.
+    TintBlend::set(TintBlend::HoldLuminance);
     println!(
-        "\nITEM 4 — text on the window fill, accent tint at {RULED_STRENGTH:.2}\n\
-         ratio is WCAG 2.2; body text needs {BODY_FLOOR:.1}:1. `x` marks a rung that fails.\n"
+        "\nITEM 4 — text on the window fill, accent tint at {RULED_STRENGTH:.2}, lightness \
+         held\n\
+         ratio is WCAG 2.2; body text needs {BODY_FLOOR:.1}:1. `x` marks a rung that fails.\n\
+         faint (50) is the third column, muted (62) the help labels AND a read-only value.\n"
     );
     println!(
         "{:<24} {:>15} {:>15} {:>15} {:>15}",
@@ -120,6 +127,7 @@ fn item_4_the_text_rungs_on_the_ruled_window_fill() {
 fn item_4_the_rung_a_legible_window_would_have_to_use() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::ruled();
+    TintBlend::set(TintBlend::HoldLuminance);
     println!(
         "\nITEM 4 — lowest rung clearing each floor on the ruled window fill\n\
          `none` means no rung on the ladder clears it, which is itself the finding.\n"

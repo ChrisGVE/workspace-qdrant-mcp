@@ -26,7 +26,7 @@ use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use super::frames::{self, CRUMBS};
 use super::record::{FieldRow, Mode, RecordView, Reference, Value};
 use super::table::{Pin, TableView};
-use crate::tokens::{self, field, ModalTint, TintBlend};
+use crate::tokens::{self, field, ModalTint, TintBlend, WindowText};
 use crate::widgets::edit_field::Edit;
 use crate::widgets::modal_frame::{
     Container, CrumbStyle, Decoration, Edge, Footprint, Scroll, TooSmall,
@@ -42,7 +42,14 @@ pub const RULED_STRENGTH: f32 = 0.40;
 
 /// Every process-global round 2 touches, restored on the way out — including on a panic, because
 /// a leaked tint silently repaints every later frame in the same process.
-struct Restore(ModalTint, f32, TintBlend, field::FieldRungs, field::SetMark);
+struct Restore(
+    ModalTint,
+    f32,
+    TintBlend,
+    field::FieldRungs,
+    field::SetMark,
+    WindowText,
+);
 
 impl Drop for Restore {
     fn drop(&mut self) {
@@ -51,6 +58,7 @@ impl Drop for Restore {
         TintBlend::set(self.2);
         field::FieldRungs::set(self.3);
         field::SetMark::set(self.4);
+        WindowText::set(self.5);
     }
 }
 
@@ -62,12 +70,14 @@ pub fn proposed<T>(draw: impl FnOnce() -> T) -> T {
         TintBlend::current(),
         field::FieldRungs::current(),
         field::SetMark::current(),
+        WindowText::current(),
     );
     ModalTint::set(ModalTint::Accent);
     tokens::set_tint_strength(RULED_STRENGTH);
     TintBlend::set(TintBlend::HoldLuminance);
     field::FieldRungs::set(field::FieldRungs::BlackText);
     field::SetMark::set(field::SetMark::FillWithFallback);
+    WindowText::set(WindowText::Raised);
     draw()
 }
 
@@ -79,12 +89,14 @@ pub fn round_one<T>(draw: impl FnOnce() -> T) -> T {
         TintBlend::current(),
         field::FieldRungs::current(),
         field::SetMark::current(),
+        WindowText::current(),
     );
     ModalTint::set(ModalTint::Accent);
     tokens::set_tint_strength(RULED_STRENGTH);
     TintBlend::set(TintBlend::Straight);
     field::FieldRungs::set(field::FieldRungs::Fixed);
     field::SetMark::set(field::SetMark::FillAndUnderline);
+    WindowText::set(WindowText::Ladder);
     draw()
 }
 
@@ -125,7 +137,10 @@ impl Default for Frame {
     fn default() -> Self {
         Self {
             mode: Mode::View { at: 5 },
-            reference: Reference::Band("DEFAULT"),
+            // **Item 4's answer is the round-2 default**, not an opt-in: the band comes
+            // off. A frame that kept it would be showing the thing Chris removed in every
+            // variant that is not about the third column at all.
+            reference: Reference::Text("DEFAULT"),
             footprint: Footprint::Max,
             edge: Edge::Bordered,
             fields: frames::record(),
@@ -145,16 +160,21 @@ impl Frame {
             TooSmall::new(area).render(area, buf);
             return None;
         };
+        // **Item 4's shorter ladder, around the whole window** — the container's help rows and
+        // the view's third column both sit inside it, which is the point of it being a scope
+        // rather than a parameter. The page above was drawn OUTSIDE it and keeps its own ladder.
+        let _window = tokens::WindowScope::enter();
         let editing = self.mode.editing();
-        let view = RecordView::new(self.fields.clone(), self.mode.clone()).reference(self.reference);
+        let view =
+            RecordView::new(self.fields.clone(), self.mode.clone()).reference(self.reference);
 
         let probe = Container::new(decoration(self.crumbs, self.title, editing));
         let measured = probe.viewport(rect);
         let rows = view.rows(measured.width);
         let data_rows = view.data_height(measured.height);
 
-        let mut container = Container::new(decoration(self.crumbs, self.title, editing))
-            .edge(self.edge);
+        let mut container =
+            Container::new(decoration(self.crumbs, self.title, editing)).edge(self.edge);
         if rows > data_rows as usize {
             container = container.scroll(Scroll {
                 offset: 0,
@@ -177,21 +197,27 @@ impl Frame {
 /// first half: a window that is not part of a drill-down is as tall as what it contains.
 pub fn short_record() -> Vec<FieldRow> {
     vec![
-        FieldRow::new("Theme", Value::Choice {
-            choices: vec![
-                "Catppuccin Mocha".into(),
-                "Catppuccin Latte".into(),
-                "Gruvbox Dark".into(),
-                "Nord".into(),
-                "Solarized Dark".into(),
-                "Tokyo Night".into(),
-            ],
-            at: 0,
-        }),
-        FieldRow::new("Editor keys", Value::Radio {
-            choices: vec!["vim".into(), "conventional".into()],
-            at: 0,
-        }),
+        FieldRow::new(
+            "Theme",
+            Value::Choice {
+                choices: vec![
+                    "Catppuccin Mocha".into(),
+                    "Catppuccin Latte".into(),
+                    "Gruvbox Dark".into(),
+                    "Nord".into(),
+                    "Solarized Dark".into(),
+                    "Tokyo Night".into(),
+                ],
+                at: 0,
+            },
+        ),
+        FieldRow::new(
+            "Editor keys",
+            Value::Radio {
+                choices: vec!["vim".into(), "conventional".into()],
+                at: 0,
+            },
+        ),
         FieldRow::new("Confirm before discard", Value::Bool(true)),
         FieldRow::new("Watch debounce [ms]", Value::Number("2000".into())),
     ]
@@ -256,12 +282,22 @@ pub fn wide_table(area: Rect, buf: &mut Buffer) -> Option<Rect> {
         .hint("\u{21b5}", "Drill down")
         .hint("\u{232b}", "Back")
         .hint("?", "Help");
+    // The Queue's own fixture, unrepeated. It is **200 rows**, of which the pin keeps far more
+    // than a window holds, so the vertical bar has something to say without any help.
+    //
+    // A first cut tripled it, on the assumption that the thirteen rows VISIBLE in the frame were
+    // the whole of it. They are the viewport. Tripling took the thumb from five rows to one —
+    // the frame looked more scrollable and said less, and it was the grid dump that caught it,
+    // not the picture.
     let rows: Vec<Vec<crate::panes::cell::Cell>> = crate::views::queue::fixture::ROWS
         .iter()
         .map(crate::views::queue::frames::cells)
         .collect();
     let table = TableView::new(crate::views::queue::frames::columns(), rows)
-        .pinned(Pin::new(crate::views::queue::frames::TENANT, frames::LIBRARY))
+        .pinned(Pin::new(
+            crate::views::queue::frames::TENANT,
+            frames::LIBRARY,
+        ))
         .show_pinned_column(true)
         .cursor(3);
     let container = Container::new(deco)

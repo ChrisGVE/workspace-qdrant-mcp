@@ -62,10 +62,12 @@ use crate::terminal::{Endpoints, Rgb};
 
 pub mod contrast;
 pub mod field;
+pub mod window;
 pub mod modal;
 mod modal_tint;
 
 pub use modal::{under_modal, ModalScope};
+pub use window::{in_window, WindowScope, WindowText};
 pub use modal_tint::{
     modal_border, modal_fill, modal_fill_at, set_tint_strength, tint_strength, ModalTint,
     TintBlend, DEFAULT_TINT_STRENGTH,
@@ -819,11 +821,11 @@ pub fn neutral_at(percent: u8) -> Color {
 
 /// De-emphasised metadata that must still be legible (default-column values).
 pub fn faint() -> Color {
-    neutral(50)
+    neutral(window::quiet(50))
 }
 /// Inactive tabs, unfocused zone bodies, timestamps, paths, key hints.
 pub fn muted() -> Color {
-    neutral(62)
+    neutral(window::quiet(62))
 }
 /// A TABLE's data rows — a light grey, one step under the white its header wears.
 ///

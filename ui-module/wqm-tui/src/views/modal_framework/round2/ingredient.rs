@@ -408,7 +408,11 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             "The band Chris removed: the informational column given a surface of its own",
             |area, buf| {
                 proposed(|| {
-                    Frame::default().draw(area, buf);
+                    Frame {
+                        reference: Reference::Band("DEFAULT"),
+                        ..Frame::default()
+                    }
+                    .draw(area, buf);
                 });
             },
         )),
@@ -417,11 +421,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             "PROPOSED. Item 4: the column is informational and does not need its own region — the text stands on the window like everything else",
             |area, buf| {
                 proposed(|| {
-                    Frame {
-                        reference: Reference::Text("DEFAULT"),
-                        ..Frame::default()
-                    }
-                    .draw(area, buf);
+                    Frame::default().draw(area, buf);
                 });
             },
         )),

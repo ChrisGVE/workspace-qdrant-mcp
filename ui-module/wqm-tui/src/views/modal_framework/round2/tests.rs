@@ -337,19 +337,20 @@ fn the_borderless_window_keeps_every_column_the_bordered_one_uses() {
 fn the_wide_table_frame_draws_a_vertical_and_a_horizontal_bar() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let buf = render(SCREEN, |area, buf| {
-        proposed(|| {
-            wide_table(area, buf);
-        });
-    });
-    let painted = whole(&buf, SCREEN);
+    let mut buf = Buffer::empty(SCREEN);
+    let window = proposed(|| wide_table(SCREEN, &mut buf)).expect("125x34 holds a window");
+    // **Scoped to the window**, because the page beneath it draws scrollbars of its own with the
+    // same glyphs — a whole-screen search would have passed on the Queue tab's bar while this
+    // window had none, which is how the first version of this test passed on a frame whose
+    // vertical bar was genuinely missing.
+    let painted = whole(&buf, window);
     assert!(
-        painted.contains('\u{2590}') || painted.contains('\u{2595}'),
-        "the vertical bar is missing:\n{painted}"
+        painted.contains('\u{2590}'),
+        "the vertical bar's thumb is missing:\n{painted}"
     );
     assert!(
-        painted.contains('\u{2584}') || painted.contains('\u{2581}'),
-        "the horizontal bar is missing:\n{painted}"
+        painted.contains('\u{2584}'),
+        "the horizontal bar's thumb is missing:\n{painted}"
     );
 }
 

@@ -118,3 +118,11 @@ required-features = ["tui-pantry"]
 name = "frame_png"
 path = "examples/frame_png/main.rs"
 required-features = ["png-capture"]
+
+# Round 2's frames, driven from the pantry group so the PNG and the grid dump cannot come
+# from two different renders. Needs both features: the capture backend AND the ingredient
+# list it reads its frames from.
+[[example]]
+name = "round2_frames"
+path = "examples/round2_frames/main.rs"
+required-features = ["png-capture", "tui-pantry"]
