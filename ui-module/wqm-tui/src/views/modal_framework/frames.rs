@@ -20,7 +20,7 @@ use crate::tokens::{self, Health, ModalTint};
 use crate::views::queue::state::QueueState;
 use crate::views::queue::{fixture, frames as queue, Queue};
 use crate::widgets::chrome::Freshness;
-use crate::widgets::modal_frame::{Container, Footprint};
+use crate::widgets::modal_frame::{Container, Footprint, TooSmall};
 
 #[cfg(test)]
 mod tests;
@@ -184,7 +184,7 @@ impl Default for RecordFrame {
             mode: Mode::View { at: 5 },
             reference: Reference::Band("DEFAULT"),
             scheme: Scheme::default(),
-            footprint: Footprint::default(),
+            footprint: Footprint::Framework,
             cursor_extent: CursorExtent::default(),
             arm_a: false,
             offset: 0,
@@ -233,9 +233,17 @@ impl RecordFrame {
     }
 
     /// Draw the whole screen: the page, quiet, and the window over it.
-    pub fn draw(&self, area: Rect, buf: &mut Buffer) -> (Rect, Rect) {
+    ///
+    /// [`None`] when the page is too small to hold a window at all — item 0's last sentence. The
+    /// page is still drawn and [`TooSmall`] goes over it, so the frame says what is wrong rather
+    /// than coming out blank; the caller gets nothing back because there is no window to hang a
+    /// drop-down or a confirm on.
+    pub fn draw(&self, area: Rect, buf: &mut Buffer) -> Option<(Rect, Rect)> {
         draw_page(area, buf);
-        let rect = self.footprint.rect(area);
+        let Some(rect) = self.footprint.window(area) else {
+            TooSmall::new(area).render(area, buf);
+            return None;
+        };
         let stack = self.stack();
         // Arm A is not something a `Stack` can be asked for — see `rejected_arm_a` — so the
         // evidence frame is drawn here, outside the shipping path, rather than by handing the
@@ -246,7 +254,7 @@ impl RecordFrame {
         } else {
             stack.render(rect, buf);
         }
-        (rect, viewport)
+        Some((rect, viewport))
     }
 }
 
@@ -344,7 +352,7 @@ pub fn empty_table_frame(area: Rect, buf: &mut Buffer) -> Rect {
 }
 
 /// The unsaved-edit guard over a record window.
-pub fn confirm_frame(area: Rect, buf: &mut Buffer) -> Rect {
+pub fn confirm_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
     let frame = RecordFrame {
         mode: Mode::Edit {
             at: 6,
@@ -352,19 +360,19 @@ pub fn confirm_frame(area: Rect, buf: &mut Buffer) -> Rect {
         },
         ..RecordFrame::default()
     };
-    let (rect, _) = frame.draw(area, buf);
+    let (rect, _) = frame.draw(area, buf)?;
     discard_guard().render(rect, buf);
-    rect
+    Some(rect)
 }
 
 /// The categorical drop-down, open over the record view.
-pub fn dropdown_frame(area: Rect, buf: &mut Buffer) -> Rect {
+pub fn dropdown_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
     // `Chunking` is field 5, and in EDIT mode it is the active one.
     let frame = RecordFrame {
         mode: Mode::Edit { at: 5, edit: None },
         ..RecordFrame::default()
     };
-    let (rect, viewport) = frame.draw(area, buf);
+    let (rect, viewport) = frame.draw(area, buf)?;
     let (choices, at) = chunking();
     // The anchor is the value cell the list belongs to: the gutter, the label column, and then
     // as wide as the value cell itself — so the list is the cell, opened.
@@ -379,7 +387,7 @@ pub fn dropdown_frame(area: Rect, buf: &mut Buffer) -> Rect {
         height: 1,
     };
     super::record::DropDown::new(choices, at, anchor).render(rect, buf);
-    rect
+    Some(rect)
 }
 
 /// The contextual help a view owns, opened with `?`.

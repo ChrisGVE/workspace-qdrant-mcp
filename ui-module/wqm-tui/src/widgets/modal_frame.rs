@@ -56,8 +56,12 @@ use ratatui::{
 use crate::tokens;
 use crate::widgets::modal::Fill;
 
+pub mod sizing;
+
 #[cfg(test)]
 mod tests;
+
+pub use sizing::{Footprint, TooSmall, INSET, MIN_COLS, MIN_PAGE_COLS, MIN_PAGE_ROWS, MIN_ROWS};
 
 /// Border plus one cell of padding on each side — the same chrome [`crate::widgets::modal`]
 /// reserves, so a framework window and a plain modal put their text on the same column.
@@ -267,75 +271,6 @@ impl Decoration {
     }
 }
 
-/// Where the fixed window's size comes from — the A/B of round 1's first frame pair.
-///
-/// Chris ruled that the window *"is the help window's size and does not resize between
-/// views"*. There are two readings of that sentence, and only one is consistent with the rest
-/// of the same ruling.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Footprint {
-    /// **B — the director's gate call.** One framework size, derived from the SCREEN, which
-    /// the help window ADOPTS along with every other window.
-    ///
-    /// This is what makes the rest of task 6 work. The same ruling says in the next breath
-    /// that *"the help window is also a composition: a modal container and a fixed
-    /// **scrollable** content"* — and content only scrolls inside a container it does not fit.
-    /// Under arm A the help window can never scroll, because it is by construction exactly as
-    /// tall as its own text.
-    ///
-    /// `min(96, width − 16) × min(24, height − 8)`: sixteen columns and eight rows of page are
-    /// kept, and the caps stop the window growing without limit on a large terminal — past
-    /// about a hundred columns a window stops reading as a window, which is the same reasoning
-    /// behind `modal::MAX_TEXT_WIDTH`.
-    #[default]
-    Framework,
-    /// **A — the ruling read literally:** whatever rect the help window currently wants.
-    ///
-    /// Kept reachable because it is a faithful reading and Chris may prefer it. Measured at
-    /// 125×34 it is 99 × 32 — 79% of the columns and 94% of the rows, leaving thirteen columns
-    /// of page either side and one row top and bottom, which leaves §6's depth model with no
-    /// page left to recede. At the 100×30 floor the help content does not fit at all and the
-    /// window is clamped, so the size is not even stable across the two sizes it must hold.
-    HelpDerived,
-}
-
-impl Footprint {
-    /// The window's rectangle inside `area`.
-    ///
-    /// Vertically: centred, but **never above the page's own header**, and that is not a taste
-    /// call. A wqm screen spends [`PAGE_HEADER_ROWS`] on the app bar, a rule and the status
-    /// block, and a mathematically centred window lands its top border exactly on that rule at
-    /// BOTH 125×34 and the 100×30 floor — two box-drawing runs of the same weight on one row,
-    /// which reads as the window being welded to the page rather than floating over it.
-    /// Clearing the header also keeps the roll-up, the four stores and the queue counts
-    /// readable while a window is up, so a modal never costs the reader the answer to *is
-    /// anything wrong* (Nielsen #1).
-    pub fn rect(self, area: Rect) -> Rect {
-        let (width, height) = match self {
-            Footprint::Framework => (
-                area.width.saturating_sub(16).min(96),
-                area.height.saturating_sub(8).min(24),
-            ),
-            Footprint::HelpDerived => {
-                let help = crate::views::queue::Queue::help().rect(area);
-                (
-                    help.width.min(area.width.saturating_sub(4)),
-                    help.height.min(area.height.saturating_sub(2)),
-                )
-            }
-        };
-        let centred = area.y + (area.height.saturating_sub(height)) / 2;
-        let below_header = area.y + PAGE_HEADER_ROWS;
-        let floor = area.bottom().saturating_sub(height);
-        Rect {
-            x: area.x + (area.width.saturating_sub(width)) / 2,
-            y: centred.max(below_header).min(floor.max(area.y)),
-            width,
-            height,
-        }
-    }
-}
-
 /// The fixed window: the layer, the tinted box, the decoration, and a scroll viewport.
 pub struct Container {
     decoration: Decoration,
@@ -377,11 +312,27 @@ impl Container {
         &self.decoration
     }
 
-    /// **The window's size**, as one function, because Chris may overturn the gate's reading
-    /// back to [`Footprint::HelpDerived`] and a size spelled at each call site is a size that
-    /// only moves where somebody remembers it.
+    /// **ROUND 1's window size**, as one function, kept exactly as it was.
+    ///
+    /// Round 2's size model is item 0's page inset — [`Footprint::Max`], reached through
+    /// [`Footprint::window`] — and it produces a different rect. This one stays so the round-1
+    /// frames and the tests that pin them keep measuring round 1, which is the whole value of
+    /// having both on the branch: a frame pair can only show what changed if one arm is still
+    /// the thing that changed.
+    ///
+    /// # Panics
+    /// If `area` cannot hold a window at all. Every caller renders at 125x34 or the 100x30
+    /// floor, both far above [`MIN_PAGE_COLS`] x [`MIN_PAGE_ROWS`], so the arm is unreachable —
+    /// and saying so is better than inventing a fallback rect nobody would notice was wrong.
     pub fn footprint(area: Rect) -> Rect {
-        Footprint::Framework.rect(area)
+        Footprint::Framework.window(area).unwrap_or_else(|| {
+            panic!(
+                "{}x{} cannot hold a window; the minimum page is {MIN_PAGE_COLS}x\
+                 {MIN_PAGE_ROWS}, and a caller that has to meet a small screen must use \
+                 `Footprint::window` and draw `TooSmall`",
+                area.width, area.height
+            )
+        })
     }
 
     /// Inside the border and its one column of padding.
