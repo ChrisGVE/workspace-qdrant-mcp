@@ -78,11 +78,13 @@ pub use sizing::{Footprint, TooSmall, INSET, MIN_COLS, MIN_PAGE_COLS, MIN_PAGE_R
 /// second statement of a fact the reader has already had.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Edge {
-    /// Round 1: a drawn box in the modal's hue.
+    /// **The edge, item (e)**: the border's room, none of its ink.
     #[default]
-    Bordered,
-    /// **Round 2, item (e)**: the same padding, no glyphs.
     Spacing,
+    /// Round 1's drawn box in the modal's hue. **Retired** — kept because the pair is what
+    /// proves the content does not move by a column between them, which is the only way the
+    /// comparison says anything about ink rather than about layout.
+    Bordered,
 }
 
 /// Border plus one cell of padding on each side — the same chrome [`crate::widgets::modal`]

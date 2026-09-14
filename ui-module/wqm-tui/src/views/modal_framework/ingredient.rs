@@ -13,7 +13,7 @@
 //! of a bracket.
 
 use super::frames::{self, RecordFrame, PROPOSED_WASH};
-use super::record::{CursorExtent, Mode, Reference, Scheme};
+use super::record::{Mode, Reference, Scheme};
 use crate::tokens::{self, ModalTint};
 use crate::widgets::edit_field::Edit;
 use ratatui::{buffer::Buffer, layout::Rect};
@@ -312,34 +312,6 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
                 proposed(|| {
                     RecordFrame {
                         reference: Reference::None,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Cursor block: A (full row)",
-            "The block runs the whole row, so the band breaks on it — and the very default being compared against goes black-bold on lavender",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        mode: Mode::View { at: 6 },
-                        cursor_extent: CursorExtent::FullRow,
-                        ..RecordFrame::default()
-                    }
-                    .draw(area, buf);
-                });
-            },
-        )),
-        Box::new(Variant(
-            "Cursor block: B (stops at the value)",
-            "PROPOSED. The block spans the field — gutter, label, value — and leaves the band whole beside it",
-            |area, buf| {
-                proposed(|| {
-                    RecordFrame {
-                        mode: Mode::View { at: 6 },
-                        cursor_extent: CursorExtent::ToValue,
                         ..RecordFrame::default()
                     }
                     .draw(area, buf);

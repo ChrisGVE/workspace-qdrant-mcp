@@ -384,7 +384,7 @@ pub fn ingredients() -> Vec<Box<dyn Ingredient>> {
             |area, buf| {
                 proposed(|| {
                     Frame {
-                        reference: Reference::Band("DEFAULT"),
+                        reference: Reference::Text("DEFAULT"),
                         ..Frame::default()
                     }
                     .draw(area, buf);

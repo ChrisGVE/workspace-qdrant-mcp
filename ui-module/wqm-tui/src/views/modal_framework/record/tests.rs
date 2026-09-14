@@ -162,7 +162,7 @@ fn a_radio_wraps_rather_than_losing_a_choice() {
         .collect();
     let field = FieldRow::new("Operation", Value::Radio { choices, at: 0 }).reference("reindex");
     let narrow = Rect { width: 60, ..VIEW };
-    let view = RecordView::new(vec![field], Mode::View { at: 0 }).reference(Reference::Band("DEF"));
+    let view = RecordView::new(vec![field], Mode::View { at: 0 }).reference(Reference::Text("DEF"));
     assert!(
         view.rows(narrow.width) > 1,
         "the fourth choice has to go somewhere"
@@ -183,7 +183,7 @@ fn a_radio_wraps_rather_than_losing_a_choice() {
         .reference("reindex")],
         Mode::View { at: 0 },
     )
-    .reference(Reference::Band("DEF"))
+    .reference(Reference::Text("DEF"))
     .render(narrow, &mut buf);
     let all: String = (0..narrow.height)
         .map(|row| {
@@ -345,7 +345,7 @@ fn only_the_third_column_brings_a_header_row() {
         ]
     };
     let plain = RecordView::new(fixed(), Mode::View { at: 0 });
-    let with = RecordView::new(fixed(), Mode::View { at: 0 }).reference(Reference::Band("DEFAULT"));
+    let with = RecordView::new(fixed(), Mode::View { at: 0 }).reference(Reference::Text("DEFAULT"));
     assert_eq!(plain.header_rows(), 0);
     assert_eq!(with.header_rows(), 1);
     // The header is chrome: it costs a row of VIEWPORT and never a row of SCROLL.
@@ -364,7 +364,7 @@ fn the_header_survives_a_scroll() {
     for offset in [0usize, 1, 3, 5] {
         let buf = draw(
             RecordView::new(record(), Mode::View { at: 0 })
-                .reference(Reference::Band("DEFAULT"))
+                .reference(Reference::Text("DEFAULT"))
                 .offset(offset),
         );
         assert!(
@@ -374,89 +374,6 @@ fn the_header_survives_a_scroll() {
         );
     }
 }
-
-/// The band is a SURFACE and it runs the whole height, header row included — one region, told
-/// apart by common region rather than by a hue nobody could name.
-#[test]
-fn the_band_is_a_surface_that_runs_the_whole_height() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let view =
-        RecordView::new(record(), Mode::View { at: 0 }).reference(Reference::Band("DEFAULT"));
-    let x = view.reference_x(VIEW);
-    let buf =
-        draw(RecordView::new(record(), Mode::View { at: 0 }).reference(Reference::Band("DEFAULT")));
-    for row in 0..=3u16 {
-        assert_eq!(
-            bg_at(&buf, x, row),
-            tokens::field::reference_bg(),
-            "the band breaks on row {row}"
-        );
-    }
-    // Arm A spends no surface at all, which is the difference the pantry pair shows.
-    let plain =
-        draw(RecordView::new(record(), Mode::View { at: 0 }).reference(Reference::Text("DEFAULT")));
-    assert_ne!(bg_at(&plain, x, 1), tokens::field::reference_bg());
-}
-
-/// **The band comes off in EDIT mode.** While the window is editing, a background means one
-/// thing and one thing only: you may type here.
-#[test]
-fn the_band_comes_off_while_the_window_is_editing() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let view =
-        RecordView::new(record(), Mode::View { at: 0 }).reference(Reference::Band("DEFAULT"));
-    let x = view.reference_x(VIEW);
-    let editing = draw(
-        RecordView::new(record(), Mode::Edit { at: 1, edit: None })
-            .reference(Reference::Band("DEFAULT")),
-    );
-    assert_ne!(
-        bg_at(&editing, x, 2),
-        tokens::field::reference_bg(),
-        "the reference band is still on in edit mode"
-    );
-}
-
-/// The designer's round-1b call: the VIEW-mode block stops at the value column, so the band
-/// survives on the very row where the reader most needs the comparison.
-#[test]
-fn the_cursor_block_stops_at_the_value_and_leaves_the_band_whole() {
-    let _serial = crate::global_state_lock();
-    let _restore = Restore::mocha();
-    let probe =
-        RecordView::new(record(), Mode::View { at: 1 }).reference(Reference::Band("DEFAULT"));
-    let x = probe.reference_x(VIEW);
-
-    let to_value = draw(
-        RecordView::new(record(), Mode::View { at: 1 })
-            .reference(Reference::Band("DEFAULT"))
-            .cursor_extent(CursorExtent::ToValue),
-    );
-    assert_eq!(
-        bg_at(&to_value, VALUE_X, HEADER + 1),
-        tokens::cursor_bg(),
-        "the field"
-    );
-    assert_eq!(
-        bg_at(&to_value, x, HEADER + 1),
-        tokens::field::reference_bg(),
-        "…and the band is unbroken beside it"
-    );
-
-    let full = draw(
-        RecordView::new(record(), Mode::View { at: 1 })
-            .reference(Reference::Band("DEFAULT"))
-            .cursor_extent(CursorExtent::FullRow),
-    );
-    assert_eq!(
-        bg_at(&full, x, HEADER + 1),
-        tokens::cursor_bg(),
-        "arm A is the one that breaks the band — if it stopped, the A/B says nothing"
-    );
-}
-
 /// With no third column there is nothing to leave whole, so the block runs the whole row.
 #[test]
 fn the_cursor_block_runs_the_whole_row_when_there_is_no_band() {
@@ -481,7 +398,7 @@ fn a_changed_value_is_marked_by_the_config_tables_own_rule() {
     // two cells is the changed-value rule itself.
     let buf = draw(
         RecordView::new(vec![changed, same], Mode::View { at: 9 })
-            .reference(Reference::Band("DEFAULT")),
+            .reference(Reference::Text("DEFAULT")),
     );
     let differs = buf.cell((VALUE_X, HEADER)).expect("the changed value");
     let matches = buf.cell((VALUE_X, HEADER + 1)).expect("the matching value");
@@ -500,13 +417,13 @@ fn a_changed_value_is_marked_by_the_config_tables_own_rule() {
 fn an_empty_record_says_what_the_table_says() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let view = RecordView::new(Vec::new(), Mode::View { at: 0 }).reference(Reference::Band("DEF"));
+    let view = RecordView::new(Vec::new(), Mode::View { at: 0 }).reference(Reference::Text("DEF"));
     assert!(view.is_empty());
     assert_eq!(view.header_rows(), 0, "no header over no column");
     assert_eq!(view.rows(VIEW.width), 1, "the one line saying so");
 
     let buf = draw(
-        RecordView::new(Vec::new(), Mode::View { at: 0 }).reference(Reference::Band("DEFAULT")),
+        RecordView::new(Vec::new(), Mode::View { at: 0 }).reference(Reference::Text("DEFAULT")),
     );
     assert!(text(&buf, 0).contains(EMPTY), "{:?}", text(&buf, 0));
     assert!(!text(&buf, 0).contains("DEFAULT"), "and no header above it");
@@ -550,7 +467,7 @@ fn the_three_background_schemes_are_three_different_frames() {
         let buf = draw(
             RecordView::new(record(), Mode::Edit { at: 1, edit: None })
                 .scheme(scheme)
-                .reference(Reference::Band("DEFAULT")),
+                .reference(Reference::Text("DEFAULT")),
         );
         (
             bg_at(&buf, VALUE_X, HEADER + 1),

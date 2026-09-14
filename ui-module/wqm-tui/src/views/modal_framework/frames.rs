@@ -12,7 +12,7 @@
 
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 
-use super::record::{CursorExtent, FieldRow, Mode, Reference, Scheme, Value, W_LABEL, W_REFERENCE};
+use super::record::{FieldRow, Mode, Reference, Scheme, Value, W_LABEL, W_REFERENCE};
 use super::stack::{discard_guard, scratch, slide, Layer, RecordState, Stack, View};
 use super::table::{Pin, TableView};
 use crate::panes::status_block::{Queue as QueueCounts, StatusBlock, ENTRY_LABELS};
@@ -160,19 +160,7 @@ pub struct RecordFrame {
     pub reference: Reference,
     pub scheme: Scheme,
     pub footprint: Footprint,
-    pub cursor_extent: CursorExtent,
-    /// Draw the REJECTED arm A — the fill with no underline. **Evidence only**: see
-    /// [`super::record::RecordView::rejected_arm_a`] for why A is not a shipping option, and
-    /// use [`with_theme`] to render it on the theme that decides the question rather than on
-    /// the roomy one the harness paints with.
-    ///
-    /// ⚠ **The polarity reads backwards at a glance and is worth reading twice.** `true` draws
-    /// the arm that was THROWN OUT; the shipping frame is `false`. Every other flag on this
-    /// struct turns something on, and this one turns the SET mark off — which is how the first
-    /// version of `the_two_field_background_arms_differ_by_the_underline` came to assert the
-    /// exact opposite of what it meant. The test went red, but that was luck rather than
-    /// design, so the trap is written down here where the field is.
-     pub offset: usize,
+    pub offset: usize,
     /// Drawn as an empty record — the state the first round of frames did not show.
     pub empty: bool,
 }
@@ -181,10 +169,9 @@ impl Default for RecordFrame {
     fn default() -> Self {
         Self {
             mode: Mode::View { at: 5 },
-            reference: Reference::Band("DEFAULT"),
+            reference: Reference::Text("DEFAULT"),
             scheme: Scheme::default(),
             footprint: Footprint::Max,
-            cursor_extent: CursorExtent::default(),
             offset: 0,
             empty: false,
         }
@@ -208,7 +195,6 @@ impl RecordFrame {
             mode: self.mode.clone(),
             reference: self.reference,
             scheme: self.scheme,
-            cursor_extent: self.cursor_extent,
             offset: self.offset,
         };
         // Depth 3, which is what makes the chevrons a navigation aid rather than a decoration

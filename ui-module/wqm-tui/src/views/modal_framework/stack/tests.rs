@@ -57,7 +57,7 @@ fn record_layer(mode: Mode) -> Layer {
     Layer::new(
         "reading_guide.py",
         "Queue item — reading_guide.py",
-        View::Record(RecordState::new(fields(), mode).reference(Reference::Band("DEFAULT"))),
+        View::Record(RecordState::new(fields(), mode).reference(Reference::Text("DEFAULT"))),
     )
     .hint("e", "Edit")
     .hint("\u{232b}", "Back")
@@ -392,25 +392,31 @@ fn the_fifth_row_follows_the_view_on_top() {
 }
 
 /// The window says `-- EDIT --` while the top view is editing, and stops when it is not.
+/// **Nothing on the title row says the window is editing.**
+///
+/// Round 1 put `-- EDIT --` there on a Nielsen #1 reading, and Chris ruled it out (item (b)):
+/// the columnar change IS the indication. The test asserts BOTH halves, because a window that
+/// had simply failed to enter edit mode would satisfy the first one on its own.
 #[test]
-fn the_window_announces_edit_mode_in_words() {
+fn no_banner_announces_edit_mode_and_the_window_is_editing_all_the_same() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
     let rect = Container::footprint(SCREEN);
     let mut stack = stack();
     stack.push(record_layer(Mode::Edit { at: 1, edit: None }));
+    assert!(stack.top().view.editing(), "the frame is in edit mode");
     let editing = draw(&stack);
+    let title_row = inside(&editing, rect.y + 3);
     assert!(
-        inside(&editing, rect.y + 3).contains(EDIT_BANNER),
-        "{:?}",
-        inside(&editing, rect.y + 3)
+        !title_row.contains("EDIT"),
+        "the title row still carries a mode banner: {title_row:?}"
     );
 
     if let View::Record(record) = &mut stack.top_mut().view {
         record.mode = Mode::View { at: 1 };
     }
     let viewing = draw(&stack);
-    assert!(!inside(&viewing, rect.y + 3).contains(EDIT_BANNER));
+    assert!(!inside(&viewing, rect.y + 3).contains("EDIT"));
 }
 
 /// The window does not resize between views — a record and a table put their top-left corner

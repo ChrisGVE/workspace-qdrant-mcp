@@ -328,21 +328,6 @@ pub fn active_fg() -> Color {
     }
 }
 
-/// The static third column's surface — the default value, or the pre-edit one.
-///
-/// Chris asked for that column *"in another color than the main window"*. His words name the
-/// WINDOW, not the text, so the column sits on its own quiet band and reads as a sheet laid
-/// beside the record rather than as a third kind of data — one region, told apart by Gestalt
-/// common region, with no hue spent at all.
-///
-/// Rung 20: quieter off the window (ΔE 4.7) than an editable field is (6.8), so a reference
-/// column can never be mistaken for something the reader may act on. It is drawn in VIEW mode
-/// only — see [`crate::views::modal_framework::record`], where the band comes off while the
-/// window is editing, so that a background on screen then means one thing and one thing only.
-pub fn reference_bg() -> Color {
-    modal_fill(neutral(20))
-}
-
 /// **The selected-text mark** — item 3's last open question, as two arms to be rendered.
 ///
 /// Chris: *"For text selection (which is possible with both edit style, in non-vim it is just
@@ -629,35 +614,6 @@ mod tests {
         );
     }
 
-    /// The reference band is a quieter surface than any field, so it can never be mistaken
-    /// for something the reader may act on.
-    ///
-    /// # Measured against the fill the window is actually PAINTED, not the bare layer
-    ///
-    /// Both rungs go through [`modal_fill`], so comparing them against an untinted
-    /// `layer1_bg()` measures the tint's own chroma step twice over and the rung step once —
-    /// and the tint term is identical for both, so it is pure noise in a comparison between
-    /// them. Round 1's straight mix happened to leave the ordering intact anyway; holding the
-    /// lightness does not, and on Everforest the two inverted. The fix is to compare like with
-    /// like: the surface the band sits on is the window's painted fill.
-    #[test]
-    fn the_reference_band_is_quieter_than_a_field() {
-        let _serial = crate::global_state_lock();
-        let _restore = Restore::mocha();
-        for name in ratatui_themes::ThemeName::all() {
-            tokens::set_theme(name.palette());
-            let window = modal_fill(layer1_bg());
-            let band = delta_e(window, reference_bg());
-            let field = delta_e(window, editable_bg());
-            assert!(
-                band < field,
-                "{}: the reference band must sit closer to the window than an editable field \
-                 — band {band:.1}, field {field:.1}",
-                name.display_name()
-            );
-        }
-    }
-
     /// A printer for the ladder's real spacing under the shipping theme — kept because the
     /// rung choices above are only defensible against numbers, and a reader who wants to move
     /// one needs the same table. Run with `--nocapture`.
@@ -790,14 +746,12 @@ mod tests {
             modal_fill(layer1_bg()),
             editable_bg(),
             active_bg(),
-            reference_bg(),
         ];
         tokens::set_tint_strength(0.40);
         let loud = [
             modal_fill(layer1_bg()),
             editable_bg(),
             active_bg(),
-            reference_bg(),
         ];
         for (at, (before, after)) in quiet.iter().zip(loud.iter()).enumerate() {
             assert_ne!(before, after, "surface {at} did not follow the strength");
@@ -817,7 +771,6 @@ mod tests {
         let _restore = Restore::mocha();
         ModalTint::set(ModalTint::Neutral);
         assert_eq!(editable_bg(), neutral(22));
-        assert_eq!(reference_bg(), neutral(20));
         assert_eq!(modal_fill(layer1_bg()), layer1_bg());
         let point = active_bg();
         assert!(

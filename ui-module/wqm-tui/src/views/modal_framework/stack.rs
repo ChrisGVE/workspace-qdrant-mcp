@@ -61,7 +61,6 @@ pub struct RecordState {
     pub mode: Mode,
     pub reference: super::record::Reference,
     pub scheme: super::record::Scheme,
-    pub cursor_extent: super::record::CursorExtent,
     pub offset: usize,
 }
 
@@ -72,7 +71,6 @@ impl RecordState {
             mode,
             reference: super::record::Reference::None,
             scheme: super::record::Scheme::default(),
-            cursor_extent: super::record::CursorExtent::default(),
             offset: 0,
         }
     }
@@ -92,7 +90,6 @@ impl RecordState {
         RecordView::new(self.fields.clone(), self.mode.clone())
             .reference(self.reference)
             .scheme(self.scheme)
-            .cursor_extent(self.cursor_extent)
             .offset(self.offset)
     }
 }
@@ -315,11 +312,6 @@ impl Stack {
         if scroll.total > data_rows as usize {
             container = container.scroll(scroll);
         }
-        if top.view.editing() {
-            // Nielsen #1, and NOT carried by the field fills alone: a mode visible only as
-            // colour is invisible under `NO_COLOR` and to a reader not looking at a field.
-            container = container.title_banner(EDIT_BANNER);
-        }
         let viewport = container.viewport(rect);
         container.render(rect, buf);
         top.view.render_into(viewport, buf);
@@ -329,9 +321,6 @@ impl Stack {
         }
     }
 }
-
-/// The mode banner. Bold, no hue (r06 #8) — the weight is applied by the container.
-pub const EDIT_BANNER: &str = "-- EDIT --";
 
 /// The unsaved-edit guard: the existing modal, on the layer §6 reserved for exactly this.
 pub fn discard_guard() -> Modal {

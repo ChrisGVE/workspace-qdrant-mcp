@@ -245,11 +245,12 @@ fn two_help_rows_are_reserved_even_when_one_is_blank() {
         "the second is reserved and blank: {:?}",
         inside(&buf, rect, second)
     );
-    // …and the reserved row is INSIDE the window, one row above its bottom border, rather
-    // than a row the window never had.
+    // …and the reserved row is INSIDE the window, one row above its bottom edge, rather than
+    // a row the window never had. Read off the FILL: item (e) keeps the border's room and
+    // drops its glyphs, so the left edge is a painted cell rather than a `│`.
     assert_eq!(
-        buf.cell((rect.x, second)).expect("border").symbol(),
-        "\u{2502}"
+        buf.cell((rect.x, second)).expect("the window's left edge").bg,
+        tokens::modal_fill(tokens::layer1_bg())
     );
     assert_eq!(
         second + 1,
@@ -375,8 +376,11 @@ fn the_window_is_filled_through_the_one_blend() {
             tokens::modal_fill(tokens::layer1_bg()),
             "at strength {strength}"
         );
+        // The border's HUE is still the tint's, and the retired `Edge::Bordered` arm is
+        // where that can be read: the default edge draws no glyph to carry a foreground.
+        let bordered = draw(SCREEN, Container::new(deco()).edge(Edge::Bordered));
         assert_eq!(
-            buf.cell((rect.x, rect.y)).expect("border").fg,
+            bordered.cell((rect.x, rect.y)).expect("border").fg,
             tokens::modal_border()
         );
     }

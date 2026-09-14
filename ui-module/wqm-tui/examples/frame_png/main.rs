@@ -144,7 +144,7 @@ const FLOOR: (u16, u16) = (100, 30);
 /// than from a second path that could drift from it.
 fn modal_framework_frames() -> Vec<Frame> {
     use wqm_tui::views::modal_framework::frames as mf;
-    use wqm_tui::views::modal_framework::record::{CursorExtent, Mode, Reference, Scheme};
+    use wqm_tui::views::modal_framework::record::{Mode, Reference, Scheme};
     use wqm_tui::widgets::edit_field::Edit;
 
     /// The gate's proposal, in force for every frame but the brackets.
@@ -367,36 +367,6 @@ fn modal_framework_frames() -> Vec<Frame> {
             proposed(|| {
                 mf::RecordFrame {
                     reference: Reference::None,
-                    ..mf::RecordFrame::default()
-                }
-                .draw(area, f.buffer_mut());
-            });
-        }),
-    );
-    add(
-        "mf-15-cursor-band-A-full-row",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame {
-                    mode: Mode::View { at: 6 },
-                    cursor_extent: CursorExtent::FullRow,
-                    ..mf::RecordFrame::default()
-                }
-                .draw(area, f.buffer_mut());
-            });
-        }),
-    );
-    add(
-        "mf-15-cursor-band-B-to-value",
-        SCREEN,
-        Box::new(|f: &mut ratatui::Frame| {
-            let area = f.area();
-            proposed(|| {
-                mf::RecordFrame {
-                    mode: Mode::View { at: 6 },
-                    cursor_extent: CursorExtent::ToValue,
                     ..mf::RecordFrame::default()
                 }
                 .draw(area, f.buffer_mut());

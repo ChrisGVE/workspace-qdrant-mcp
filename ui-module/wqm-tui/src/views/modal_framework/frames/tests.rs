@@ -238,11 +238,16 @@ fn every_frame_renders_at_both_sizes() {
                 (CORNERS[2], window.x, window.bottom() - 1),
                 (CORNERS[3], window.right() - 1, window.bottom() - 1),
             ];
-            for (corner, x, y) in corners {
+            // **A borderless window is found by its FILL.** Item (e) keeps the border's room
+            // and drops its ink, so there is no glyph on these four cells any more — what says
+            // *a window reaches this corner* is the surface under it, which is the thing item
+            // (e) argues was doing the work all along.
+            let fill = tokens::modal_fill(tokens::layer1_bg());
+            for (_, x, y) in corners {
                 assert_eq!(
-                    buf.cell((x, y)).expect("a cell on screen").symbol(),
-                    corner,
-                    "{}: no window corner at ({x}, {y})",
+                    buf.cell((x, y)).expect("a cell on screen").bg,
+                    fill,
+                    "{}: the window does not reach ({x}, {y})",
                     at(area)
                 );
             }
@@ -490,10 +495,11 @@ fn the_frames_survive_every_encoding() {
             RecordFrame::view(Mode::Edit { at: 6, edit: None }).draw(area, buf);
         });
         let all = screen_text(&buf);
-        assert!(
-            all.contains("-- EDIT --"),
-            "{encoding:?}: the mode banner is gone, so the mode is carried by colour alone"
-        );
+        // The `-- EDIT --` banner this used to look for was ruled out (item (b)), so what
+        // carries the mode where colour cannot is `tokens::field::SetMark`'s underline —
+        // asserted in `round2::tests::the_set_mark_drops_its_underline_only_where_colour_can_
+        // carry_it`, which is where that claim belongs. What this one still owns is that the
+        // window draws at all under every encoding.
         assert!(all.contains("Queue item"), "{encoding:?}: no window");
     }
 }

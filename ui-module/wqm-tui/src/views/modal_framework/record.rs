@@ -42,12 +42,13 @@
 //! multi-line field's "frame" is its background extent — the fill IS the box, so drawing one
 //! around it would be the same statement twice.
 //!
-//! # The third column is a SURFACE, and its header is CHROME
+//! # The third column is TEXT, and its header is CHROME
 //!
-//! Chris asked for it *"in another color than the main window"*. His words name the WINDOW,
-//! not the text, so the column sits on its own quiet band ([`tokens::field::reference_bg`],
-//! rung 20 — Mocha's own dark neutral, no hue spent) with its values [`tokens::faint`] and its
-//! header in the table-header style.
+//! Round 1 gave it a band of its own, reading *"in another color than the main window"* as a
+//! surface. Chris ruled that out on 2026-09-14 — the column is informational and does not need
+//! a region — so its values are [`tokens::faint`] on the window like everything else, and only
+//! its header keeps the table-header style. What makes it readable is not a band but the
+//! shorter ladder a window now uses ([`crate::tokens::WindowText`]).
 //!
 //! The header does **not scroll**, and that is a defect the designer found by rendering the
 //! overflow frame: while it was the first entry of the scrollable list, any offset past the
@@ -264,24 +265,6 @@ impl Mode {
     }
 }
 
-/// How far the VIEW-mode cursor block runs across its row.
-///
-/// The designer's round-1b call, decided at cell level against both frames and by asking what
-/// the third column is FOR: it carries the default or the pre-edit value, and the moment a
-/// reader most needs that comparison is on the field the cursor is sitting on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum CursorExtent {
-    /// **Recommended.** The block spans the gutter, the label and the value, and stops there —
-    /// which is the field. The reference band survives unbroken beside it.
-    #[default]
-    ToValue,
-    /// The block spans the whole row, reference column included. The row reads as one
-    /// unbroken row, at the cost of restyling the very datum being compared against —
-    /// black-bold on lavender — at exactly the moment it is read, and of breaking the band on
-    /// one row in twelve, which reads as a rendering fault rather than as a decision.
-    FullRow,
-}
-
 /// The edit-mode background pair, as arms so the choice is rendered rather than argued.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Scheme {
@@ -337,21 +320,14 @@ pub enum Reference {
     /// **A** — the column's values at [`tokens::faint`], on the window's own surface. Reads as
     /// "same colour, dimmer", which is emphasis rather than another colour.
     Text(&'static str),
-    /// **B, the gate's call** — the same values on their own quiet band, header included:
-    /// *"another color than the main window"* read as a surface.
-    Band(&'static str),
 }
 
 impl Reference {
     fn header(self) -> Option<&'static str> {
         match self {
             Reference::None => None,
-            Reference::Text(h) | Reference::Band(h) => Some(h),
+            Reference::Text(h) => Some(h),
         }
-    }
-
-    fn banded(self) -> bool {
-        matches!(self, Reference::Band(_))
     }
 }
 
@@ -361,7 +337,6 @@ pub struct RecordView {
     mode: Mode,
     reference: Reference,
     scheme: Scheme,
-    cursor_extent: CursorExtent,
     /// The layer fill this view sits on, so [`Scheme::AccentWash`] has something to blend.
     layer: Color,
     /// First visible DATA row — the container owns the scrollbar, this owns the window onto
@@ -376,7 +351,6 @@ impl RecordView {
             mode,
             reference: Reference::None,
             scheme: Scheme::Neutral,
-            cursor_extent: CursorExtent::default(),
             layer: tokens::layer1_bg(),
             offset: 0,
         }
@@ -389,11 +363,6 @@ impl RecordView {
 
     pub fn scheme(mut self, scheme: Scheme) -> Self {
         self.scheme = scheme;
-        self
-    }
-
-    pub fn cursor_extent(mut self, extent: CursorExtent) -> Self {
-        self.cursor_extent = extent;
         self
     }
 
@@ -457,23 +426,6 @@ impl RecordView {
         (width as usize).saturating_sub(reserved).max(MIN_VALUE)
     }
 
-    /// Where the reference band starts, in columns from the left of `area`.
-    fn reference_x(&self, area: Rect) -> u16 {
-        area.right().saturating_sub(W_REFERENCE as u16)
-    }
-
-    /// How far the VIEW-mode cursor block runs — see [`CursorExtent`].
-    fn cursor_width(&self, area: Rect) -> u16 {
-        match self.cursor_extent {
-            CursorExtent::FullRow => area.width,
-            CursorExtent::ToValue if !self.has_reference() => area.width,
-            // Everything up to the gap before the band, so the band is left unbroken and one
-            // cell of window separates the two.
-            CursorExtent::ToValue => area
-                .width
-                .saturating_sub((W_REFERENCE + REFERENCE_GAP) as u16),
-        }
-    }
 }
 
 /// One radio button and its label, as it is drawn.
@@ -669,20 +621,10 @@ impl RecordView {
     }
 
     /// The reference column's header row — the only column that carries one.
-    fn draw_header(&self, at: Rect, banded: bool, buf: &mut Buffer) {
+    fn draw_header(&self, at: Rect, buf: &mut Buffer) {
         let Some(header) = self.reference.header() else {
             return;
         };
-        if banded {
-            buf.set_style(
-                Rect {
-                    x: self.reference_x(at),
-                    width: W_REFERENCE as u16,
-                    ..at
-                },
-                Style::default().bg(tokens::field::reference_bg()),
-            );
-        }
         let lead = at.width as usize - W_REFERENCE.min(at.width as usize);
         Paragraph::new(Line::from(vec![
             Span::raw(" ".repeat(lead)),
@@ -698,10 +640,6 @@ impl Widget for RecordView {
             return;
         }
         let value_width = self.value_width(area.width);
-        // **In EDIT mode a background means one thing: you may type here.** The reference
-        // column is never editable, so its band comes off while the window is editing rather
-        // than sitting one rung away from the editable set and inviting the reader to try it.
-        let banded = self.reference.banded() && !self.mode.editing();
 
         if self.fields.is_empty() {
             // `No data` — the word the table already uses. One fact should not have two
@@ -717,7 +655,7 @@ impl Widget for RecordView {
 
         let header_rows = self.header_rows() as u16;
         if header_rows > 0 {
-            self.draw_header(Rect { height: 1, ..area }, banded, buf);
+            self.draw_header(Rect { height: 1, ..area }, buf);
         }
         let body = Rect {
             y: area.y + header_rows,
@@ -747,18 +685,6 @@ impl Widget for RecordView {
                 height: 1,
                 ..body
             };
-
-            // The band first: it is a surface, so everything else draws on top of it.
-            if banded {
-                buf.set_style(
-                    Rect {
-                        x: self.reference_x(body),
-                        width: W_REFERENCE as u16,
-                        ..line_rect
-                    },
-                    Style::default().bg(tokens::field::reference_bg()),
-                );
-            }
 
             let field = &self.fields[*index];
             let on_cursor = *index == self.mode.at();
@@ -820,11 +746,7 @@ impl Widget for RecordView {
                 } else {
                     String::new()
                 };
-                let mut style = tokens::faint_style();
-                if banded {
-                    style = style.bg(tokens::field::reference_bg());
-                }
-                spans.push(Span::styled(fit(&text, W_REFERENCE), style));
+                spans.push(Span::styled(fit(&text, W_REFERENCE), tokens::faint_style()));
             }
 
             Paragraph::new(Line::from(spans)).render(line_rect, buf);
@@ -833,10 +755,10 @@ impl Widget for RecordView {
             // means the same mechanism, which is a fill UNDER the row rather than a mark beside
             // it. How far it runs is [`CursorExtent`]'s.
             if on_cursor && !self.mode.editing() {
-                let block = Rect {
-                    width: self.cursor_width(body),
-                    ..line_rect
-                };
+                // **The whole row** (Chris, item: full-row block confirmed). With the
+                // third column's band gone there is nothing left for the block to stop short
+                // of, so the extent is no longer a question a caller can be asked.
+                let block = line_rect;
                 buf.set_style(block, Style::default().bg(tokens::cursor_bg()));
                 if let Some(fg) = tokens::cursor_fg() {
                     buf.set_style(block, Style::default().fg(fg).add_modifier(Modifier::BOLD));
