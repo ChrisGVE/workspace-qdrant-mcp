@@ -297,7 +297,11 @@ fn a_modal_mutes_every_cell_key_without_moving_a_row() {
     assert_eq!(accented(&under), 0, "a modal leaves no lit key behind it");
 
     for y in 0..TALL {
-        assert_eq!(line(&live, y), line(&under, y), "row {y} moved under a modal");
+        assert_eq!(
+            line(&live, y),
+            line(&under, y),
+            "row {y} moved under a modal"
+        );
     }
 }
 
@@ -323,15 +327,33 @@ fn the_rules_cell_lists_rule_names_with_their_scope_and_a_queue() {
     let (_, cells) = heading_rows();
     let cell = cells[RULES_ZONE];
 
-    let header = heading_text(&buf, Rect { y: cell.y + 1, ..cell });
+    let header = heading_text(
+        &buf,
+        Rect {
+            y: cell.y + 1,
+            ..cell
+        },
+    );
     assert!(header.starts_with("Rule name"), "{header:?}");
     for present in ["Scope", "Queue"] {
-        assert!(header.contains(present), "{present:?} is missing from the Rules cell: {header:?}");
+        assert!(
+            header.contains(present),
+            "{present:?} is missing from the Rules cell: {header:?}"
+        );
     }
-    assert!(!header.contains("Notes"), "a count column survives: {header:?}");
+    assert!(
+        !header.contains("Notes"),
+        "a count column survives: {header:?}"
+    );
 
     // The first data row is a rule NAME and the scope beside it, not a scope and a count.
-    let first = heading_text(&buf, Rect { y: cell.y + 2, ..cell });
+    let first = heading_text(
+        &buf,
+        Rect {
+            y: cell.y + 2,
+            ..cell
+        },
+    );
     assert!(first.contains(frames::RULES[0].rule), "{first:?}");
     assert!(first.contains("global"), "{first:?}");
 
@@ -339,7 +361,11 @@ fn the_rules_cell_lists_rule_names_with_their_scope_and_a_queue() {
     // muted because it is a zero. `0/0/0` is seven columns right-aligned into a seven-column
     // field, so its three digits sit at the cell's last, third-from-last and fifth-from-last.
     let right = cell.x + cell.width - 1;
-    for (at, role) in [(right - 4, "pending"), (right - 2, "in flight"), (right, "failed")] {
+    for (at, role) in [
+        (right - 4, "pending"),
+        (right - 2, "in flight"),
+        (right, "failed"),
+    ] {
         let drawn = buf.cell((at, cell.y + 2)).expect("cell in area");
         assert_eq!(drawn.symbol(), "0", "the {role} figure of the queue triple");
         assert_eq!(
@@ -387,18 +413,33 @@ fn the_scratchpad_cell_is_empty_because_nothing_real_was_found_to_put_in_it() {
     let cell = cells[SCRATCHPAD_ZONE];
     assert!(heading_text(&buf, cell).starts_with("Scratchpad (0)"));
     assert!(
-        heading_text(&buf, Rect { y: cell.y + 2, ..cell })
-            .trim_start()
-            .starts_with(crate::panes::cell::EMPTY),
+        heading_text(
+            &buf,
+            Rect {
+                y: cell.y + 2,
+                ..cell
+            }
+        )
+        .trim_start()
+        .starts_with(crate::panes::cell::EMPTY),
         "an empty projection says so rather than showing a blank cell"
     );
 
     // Its columns are still drawn, and they are the three R10 gives it — an empty cell says
     // what it WOULD hold, which is the difference between "nothing here" and "nothing works".
-    let header = heading_text(&buf, Rect { y: cell.y + 1, ..cell });
+    let header = heading_text(
+        &buf,
+        Rect {
+            y: cell.y + 1,
+            ..cell
+        },
+    );
     assert!(header.starts_with("Note"), "{header:?}");
     for present in ["Scope", "Queue"] {
-        assert!(header.contains(present), "{present:?} is missing from Scratchpad: {header:?}");
+        assert!(
+            header.contains(present),
+            "{present:?} is missing from Scratchpad: {header:?}"
+        );
     }
 }
 
@@ -419,12 +460,32 @@ fn dropping_pts_gives_its_columns_to_the_name() {
     let panes = frames::populated();
     let table = panes[0].table();
     let fit = crate::panes::cell::fit::fit(table.columns(), table.rows(), projects.width, 12, 0);
-    let name = fit.active.iter().position(|&at| table.columns()[at].title == "Name").unwrap();
-    let bch_column = fit.active.iter().position(|&at| table.columns()[at].title == "Bch").unwrap();
-    let rects = crate::panes::cell::fit::laid_out(Rect { height: 1, ..projects }, &fit);
+    let name = fit
+        .active
+        .iter()
+        .position(|&at| table.columns()[at].title == "Name")
+        .unwrap();
+    let bch_column = fit
+        .active
+        .iter()
+        .position(|&at| table.columns()[at].title == "Bch")
+        .unwrap();
+    let rects = crate::panes::cell::fit::laid_out(
+        Rect {
+            height: 1,
+            ..projects
+        },
+        &fit,
+    );
 
     // The fitted rects locate Bch independently of the rendered header.
-    let header = heading_text(&buf, Rect { y: projects.y + 1, ..projects });
+    let header = heading_text(
+        &buf,
+        Rect {
+            y: projects.y + 1,
+            ..projects
+        },
+    );
     let bch = header
         .chars()
         .position(|c| c == 'B')
@@ -443,13 +504,25 @@ fn dropping_pts_gives_its_columns_to_the_name() {
         header.starts_with('N'),
         "the Name column starts at the cell's own first column: {header:?}"
     );
-    let pts_width = crate::panes::cell::Column::number("Pts", 3).fixed().unwrap();
+    let pts_width = crate::panes::cell::Column::number("Pts", 3)
+        .fixed()
+        .unwrap();
     let with_pts = crate::panes::cell::fit::fit(
-        table.columns(), table.rows(), projects.width - pts_width - fit.gap, 12, 0,
+        table.columns(),
+        table.rows(),
+        projects.width - pts_width - fit.gap,
+        12,
+        0,
     );
-    assert!(fit.widths[name] > with_pts.widths[name], "Name gained no width when Pts left");
+    assert!(
+        fit.widths[name] > with_pts.widths[name],
+        "Name gained no width when Pts left"
+    );
 
     // And no cell on the whole screen says `Pts` any more.
-    let joined: String = (0..TALL).map(|y| line(&buf, y)).collect::<Vec<_>>().join("\n");
+    let joined: String = (0..TALL)
+        .map(|y| line(&buf, y))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(!joined.contains("Pts"), "a Pts header survives: {joined}");
 }

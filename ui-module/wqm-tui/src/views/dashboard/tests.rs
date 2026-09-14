@@ -12,7 +12,12 @@ const WIDE: u16 = 125;
 const TALL: u16 = 34;
 
 fn view(cells: Vec<CellPane>) -> Dashboard {
-    let entries = [Health::Healthy, Health::Degraded, Health::Healthy, Health::Healthy];
+    let entries = [
+        Health::Healthy,
+        Health::Degraded,
+        Health::Healthy,
+        Health::Healthy,
+    ];
     let overall = overall(entries[0], &entries[1..]);
     Dashboard::new(
         cells,
@@ -21,7 +26,12 @@ fn view(cells: Vec<CellPane>) -> Dashboard {
             "v0.2.0",
             Freshness::new(Duration::from_secs(4), Duration::from_secs(60)),
             entries,
-            Queue { pending: 11_236, in_progress: 4, failed: 3, health: Health::Degraded },
+            Queue {
+                pending: 11_236,
+                in_progress: 4,
+                failed: 3,
+                health: Health::Degraded,
+            },
         ),
     )
 }
@@ -81,7 +91,11 @@ fn the_rows_are_equal_thirds_and_the_remainder_goes_to_the_first() {
         );
         assert_eq!(heights[1], body / 3);
         assert_eq!(heights[2], body / 3);
-        assert_eq!(heights.iter().sum::<u16>() + 2, height, "the grid fills its area exactly");
+        assert_eq!(
+            heights.iter().sum::<u16>() + 2,
+            height,
+            "the grid fills its area exactly"
+        );
     }
 }
 
@@ -162,14 +176,16 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
         0,
         crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL,
         WIDE,
-        TALL
-            - crate::views::top::FOOT_ROWS
+        TALL - crate::views::top::FOOT_ROWS
             - (crate::views::top::CONSTANT_ROWS + crate::panes::status_block::ROWS_FULL),
     )));
     let (_, cells) = heading_rows();
     let gap = cells[0].x + cells[0].width..cells[1].x;
     assert_eq!(rules.len(), GRID_ROWS - 1);
-    assert!(!gap.is_empty(), "there must be a gap for the rule to break over");
+    assert!(
+        !gap.is_empty(),
+        "there must be a gap for the rule to break over"
+    );
 
     for rule in &rules {
         let drawn = line(&buf, rule.y);
@@ -185,7 +201,13 @@ fn a_row_rule_breaks_over_the_column_gap_and_the_frame_rules_do_not() {
         // Every column a cell occupies IS ruled, margins included: the break is the gap and
         // nothing else. Checked at both ends of both segments, which is where an off-by-one in
         // the arithmetic would land.
-        for x in [0, cells[0].x, cells[0].x + cells[0].width - 1, cells[1].x, WIDE - 1] {
+        for x in [
+            0,
+            cells[0].x,
+            cells[0].x + cells[0].width - 1,
+            cells[1].x,
+            WIDE - 1,
+        ] {
             assert_eq!(
                 buf.cell((x, rule.y)).expect("cell in area").symbol(),
                 RULE,
@@ -209,7 +231,10 @@ fn the_two_rule_segments_cover_every_column_except_the_gap() {
         cells[0].x + cells[0].width,
         "and stops where the left cell does"
     );
-    assert_eq!(right.x, cells[1].x, "the right segment starts where the right cell does");
+    assert_eq!(
+        right.x, cells[1].x,
+        "the right segment starts where the right cell does"
+    );
     assert_eq!(
         right.x + right.width,
         screen.x + screen.width,
@@ -286,7 +311,10 @@ fn the_foot_states_no_health_of_its_own() {
         Health::Degraded.glyph(),
         Health::Offline.glyph(),
     ] {
-        assert!(!foot.contains(glyph), "a health glyph at the foot: {foot:?}");
+        assert!(
+            !foot.contains(glyph),
+            "a health glyph at the foot: {foot:?}"
+        );
     }
     // The keys are what the row is for, and they survived the removal.
     assert!(foot.ends_with("? Help   q Quit"), "{foot:?}");
@@ -331,7 +359,14 @@ fn a_cramped_screen_keeps_the_grid_and_takes_the_rows_from_the_cells() {
     let rendered: Vec<String> = (0..24).map(|y| line(&buf, y)).collect();
     let joined = rendered.join("\n");
 
-    for heading in ["Projects (29)", "Libraries (1)", "Scratchpad (0)", "Rules (11)", "Active Projects (2)", "Last Errors"] {
+    for heading in [
+        "Projects (29)",
+        "Libraries (1)",
+        "Scratchpad (0)",
+        "Rules (11)",
+        "Active Projects (2)",
+        "Last Errors",
+    ] {
         assert!(joined.contains(heading), "{heading} left the grid at 80x24");
     }
     // Four, not three: R11's rule above the key-hint line takes one row from the grid, the
@@ -357,7 +392,9 @@ fn every_frame_figure_fits_the_column_it_is_drawn_in() {
         let table = pane.table();
         for row in table.rows() {
             for (cell, column) in row.iter().zip(table.columns()) {
-                let Some(width) = column.fixed() else { continue };
+                let Some(width) = column.fixed() else {
+                    continue;
+                };
                 if !cell.is_figure() {
                     continue;
                 }

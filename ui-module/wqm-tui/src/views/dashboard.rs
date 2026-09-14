@@ -59,8 +59,8 @@ use ratatui::{
 use crate::panes::cell::CellPane;
 use crate::panes::status_block::{self, StatusBlock};
 use crate::tokens::Health;
-use crate::widgets::chrome::{inset, Attention, StatusLine};
-use crate::views::top::ConstantTop;
+use crate::views::page::Page;
+use crate::widgets::chrome::{inset, Attention};
 
 pub mod frames;
 #[cfg(feature = "tui-pantry")]
@@ -260,19 +260,21 @@ impl Widget for Dashboard {
         // Held for the whole page: the top, the grid and the status line are all "beneath the
         // modal", and each of them reads its colours from the tokens while this is alive.
         let _modal = self.modal.then(crate::tokens::ModalScope::enter);
-        let body = ConstantTop::new(DASHBOARD_TAB)
+        // The frame first: both decorations are painted and what comes back is the grid's
+        // region, with the foot already carved off it. So no cell is ever drawn into a foot
+        // row and then overwritten, and — the half that used to be this view's to remember —
+        // a screen cannot have a key-hint line and forget the rule above it.
+        let mut page = Page::new(DASHBOARD_TAB)
             .status(self.status)
-            .content_floor(MIN_CONTENT_ROWS)
-            .draw(area, buf);
-        if body.height < MIN_CONTENT_ROWS {
+            .content_floor(MIN_CONTENT_ROWS);
+        for (key, label) in hints {
+            page = page.hint(key, label);
+        }
+        let grid_area = page.draw(area, buf);
+        if grid_area.height < MIN_GRID_ROWS {
             return;
         }
 
-        // The foot — the key-hint line AND the rule that closes the content above it — is
-        // carved off the bottom before the grid is laid out, so no cell is ever drawn into
-        // either row and then overwritten. The rule is drawn by the same call, which is what
-        // stops a screen from having a foot and forgetting the line above it.
-        let (grid_area, foot_row) = crate::views::top::foot(body, buf);
         let (cells, rules) = grid(inset(grid_area));
         // Read before the cells are consumed below. Every row has the same two x-ranges, so
         // the first row's pair is the whole geometry a rule needs.
@@ -287,12 +289,6 @@ impl Widget for Dashboard {
                 .hotkey(FOCUS_KEYS[zone])
                 .render(at, buf);
         }
-
-        let mut status = StatusLine::new();
-        for (key, label) in hints {
-            status = status.hint(key, label);
-        }
-        status.render(inset(foot_row), buf);
     }
 }
 

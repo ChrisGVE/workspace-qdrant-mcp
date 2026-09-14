@@ -14,7 +14,12 @@ use crate::panes::cell::{Cell, Direction, Sort};
 use ratatui::style::Modifier;
 
 /// The Dashboard's cell geometry at 125 × 34, for the guards that judge one cell alone.
-const CELL: Rect = Rect { x: 0, y: 0, width: 59, height: 9 };
+const CELL: Rect = Rect {
+    x: 0,
+    y: 0,
+    width: 59,
+    height: 9,
+};
 
 /// Every cell of the grid whose foreground is the sort key's signature — the accent hue AND the
 /// header's underline — as `(x, y, symbol)`.
@@ -72,7 +77,11 @@ fn a_column_key_is_lit_only_on_the_focused_cell_and_only_when_it_has_rows_to_reo
         "the Rules cell has three sortable columns, so three letters light: {lit_on_rules:?}"
     );
     for (x, y, symbol) in &lit_on_rules {
-        assert_eq!(*y, rules_cell.y + 1, "{symbol:?} is lit off the Rules column header");
+        assert_eq!(
+            *y,
+            rules_cell.y + 1,
+            "{symbol:?} is lit off the Rules column header"
+        );
         assert!(
             (rules_cell.x..rules_cell.x + rules_cell.width).contains(x),
             "{symbol:?} is lit outside the focused cell"
@@ -95,7 +104,10 @@ fn a_column_key_is_lit_only_on_the_focused_cell_and_only_when_it_has_rows_to_reo
     );
 
     // And with nothing focused at all, nothing is offered anywhere.
-    assert_eq!(lit(&render(view(frames::populated()), WIDE, TALL), first), Vec::new());
+    assert_eq!(
+        lit(&render(view(frames::populated()), WIDE, TALL), first),
+        Vec::new()
+    );
 }
 
 /// Each lit letter is the column's own sort key, and it is the ONLY thing lit on that header.
@@ -118,7 +130,11 @@ fn the_lit_letters_are_the_sort_keys_of_their_columns_in_column_order() {
     // `Rule name` lights its `n`, `Scope` its `c`, `Queue` its `u` — the first case-insensitive
     // occurrence in each title, left to right across the row.
     let symbols: Vec<String> = lit(&buf, first).into_iter().map(|(_, _, s)| s).collect();
-    assert_eq!(symbols, vec!["n", "c", "u"], "the lit letters are not the keys");
+    assert_eq!(
+        symbols,
+        vec!["n", "c", "u"],
+        "the lit letters are not the keys"
+    );
 
     let keys: Vec<char> = frames::populated()[RULES]
         .table()
@@ -165,7 +181,10 @@ fn sorting_by_files_reorders_the_rows_and_marks_the_column_it_sorted_by() {
     let expected_desc = expected(true);
     assert_ne!(
         expected_desc,
-        frames::PROJECTS.iter().map(|row| row.name).collect::<Vec<&str>>(),
+        frames::PROJECTS
+            .iter()
+            .map(|row| row.name)
+            .collect::<Vec<&str>>(),
         "the fixture is already in Files order — sorting it would prove nothing"
     );
 
@@ -178,12 +197,18 @@ fn sorting_by_files_reorders_the_rows_and_marks_the_column_it_sorted_by() {
             _ => panic!("the Projects cell's first column must be a name"),
         })
         .collect();
-    assert_eq!(drawn, expected_desc, "the rows are not in Files-descending order");
+    assert_eq!(
+        drawn, expected_desc,
+        "the rows are not in Files-descending order"
+    );
 
     // And the FIRST press, which Chris said is ascending.
     let ascending: Vec<String> = frames::populated()
         .remove(0)
-        .sorted(Sort { column: frames::PROJECTS_FILES, direction: Direction::Asc })
+        .sorted(Sort {
+            column: frames::PROJECTS_FILES,
+            direction: Direction::Asc,
+        })
         .table()
         .rows()
         .iter()
@@ -201,14 +226,34 @@ fn sorting_by_files_reorders_the_rows_and_marks_the_column_it_sorted_by() {
         WIDE,
         TALL,
     );
-    let header = heading_text(&buf, Rect { y: cells[0].y + 1, ..cells[0] });
-    assert!(header.contains("Files ↓"), "the sorted column carries a spaced mark: {header:?}");
-    assert_eq!(header.matches('↓').count(), 1, "one column is sorted, not several: {header:?}");
+    let header = heading_text(
+        &buf,
+        Rect {
+            y: cells[0].y + 1,
+            ..cells[0]
+        },
+    );
+    assert!(
+        header.contains("Files ↓"),
+        "the sorted column carries a spaced mark: {header:?}"
+    );
+    assert_eq!(
+        header.matches('↓').count(),
+        1,
+        "one column is sorted, not several: {header:?}"
+    );
     assert!(!header.contains('↑'), "{header:?}");
 
     let unsorted = heading_text(
-        &render(view(frames::populated()).attention(Attention::Zone(0)), WIDE, TALL),
-        Rect { y: cells[0].y + 1, ..cells[0] },
+        &render(
+            view(frames::populated()).attention(Attention::Zone(0)),
+            WIDE,
+            TALL,
+        ),
+        Rect {
+            y: cells[0].y + 1,
+            ..cells[0]
+        },
     );
     assert!(
         !unsorted.contains('↓') && !unsorted.contains('↑'),
@@ -242,7 +287,15 @@ fn text_sorts_case_insensitively_and_a_queue_triple_sorts_by_what_is_waiting() {
 
     assert_eq!(
         names(frames::PROJECTS_NAME, Direction::Asc),
-        vec![".config", "ArraySwift", "claude", "de-slop", "ExtendedSwiftMath", "inkyfingers", "localdata-mcp"],
+        vec![
+            ".config",
+            "ArraySwift",
+            "claude",
+            "de-slop",
+            "ExtendedSwiftMath",
+            "inkyfingers",
+            "localdata-mcp"
+        ],
         "a byte comparison would put every capitalised name above every lowercase one"
     );
 
@@ -250,7 +303,15 @@ fn text_sorts_case_insensitively_and_a_queue_triple_sorts_by_what_is_waiting() {
     // sorting on that number instead would hand back the fixture's own order untouched.
     assert_eq!(
         names(frames::PROJECTS_QUEUE, Direction::Desc),
-        vec![".config", "claude", "de-slop", "inkyfingers", "localdata-mcp", "ExtendedSwiftMath", "ArraySwift"],
+        vec![
+            ".config",
+            "claude",
+            "de-slop",
+            "inkyfingers",
+            "localdata-mcp",
+            "ExtendedSwiftMath",
+            "ArraySwift"
+        ],
         "the triple sorts by what is WAITING, not by what failed"
     );
 }

@@ -44,7 +44,10 @@ fn every_cell_heading_is_bold_focused_or_not() {
                 );
                 lit += 1;
             }
-            assert!(lit > 0, "zone {zone}'s heading drew nothing at all: {text:?}");
+            assert!(
+                lit > 0,
+                "zone {zone}'s heading drew nothing at all: {text:?}"
+            );
         }
     }
 }
@@ -64,14 +67,22 @@ fn the_column_header_starts_on_the_same_column_as_the_heading_above_it() {
 
     for (zone, cell) in cells.iter().enumerate() {
         let heading = heading_text(&buf, *cell);
-        let header = heading_text(&buf, Rect { y: cell.y + 1, ..*cell });
+        let header = heading_text(
+            &buf,
+            Rect {
+                y: cell.y + 1,
+                ..*cell
+            },
+        );
         assert_ne!(
             buf.cell((cell.x, cell.y)).expect("cell in area").symbol(),
             " ",
             "zone {zone}'s heading does not start at its own first column: {heading:?}"
         );
         assert_ne!(
-            buf.cell((cell.x, cell.y + 1)).expect("cell in area").symbol(),
+            buf.cell((cell.x, cell.y + 1))
+                .expect("cell in area")
+                .symbol(),
             " ",
             "zone {zone}'s column header is indented under its heading: {header:?}"
         );
@@ -116,7 +127,9 @@ fn at_100x30_the_active_projects_cell_keeps_every_column_and_both_names_draw_who
         );
     }
 
-    let rows: Vec<String> = (heading_y + 2..heading_y + 4).map(|y| line(&buf, y)).collect();
+    let rows: Vec<String> = (heading_y + 2..heading_y + 4)
+        .map(|y| line(&buf, y))
+        .collect();
     for name in ["open-books", "workspace-qdrant-mcp"] {
         assert!(
             rows.iter().any(|row| row.contains(name)),
@@ -157,16 +170,28 @@ fn at_80x24_the_active_projects_cell_keeps_names_above_their_floor() {
     let cell_width = grid(screen_content).0[0].width;
     let fitted = crate::panes::cell::fit::fit(table.columns(), table.rows(), cell_width, 12, 0);
     let rects = crate::panes::cell::fit::laid_out(Rect::new(heading_x, 0, cell_width, 1), &fitted);
-    let queue_survives = fitted.active.iter().any(|&at| table.columns()[at].title == "Queue");
-    assert_eq!(header.contains("Queue"), queue_survives, "header and fit disagree: {header:?}");
+    let queue_survives = fitted
+        .active
+        .iter()
+        .any(|&at| table.columns()[at].title == "Queue");
+    assert_eq!(
+        header.contains("Queue"),
+        queue_survives,
+        "header and fit disagree: {header:?}"
+    );
     assert!(
         header.contains("Name") && header.contains("Branch"),
         "the flex identity and the text column survive: {header:?}"
     );
 
     // Branch starts after the fitted Name width and uniform gap.
-    let branch = header.find("Branch").expect("its Branch column header is drawn") as u16;
-    assert_eq!(branch, rects[1].x, "x={heading_x}, cell={cell_width}, fit={fitted:?}, {header:?}");
+    let branch = header
+        .find("Branch")
+        .expect("its Branch column header is drawn") as u16;
+    assert_eq!(
+        branch, rects[1].x,
+        "x={heading_x}, cell={cell_width}, fit={fitted:?}, {header:?}"
+    );
     let name_width = rects[0].width;
     assert!(
         name_width >= 12,
@@ -175,5 +200,9 @@ fn at_80x24_the_active_projects_cell_keeps_names_above_their_floor() {
 
     // The body follows the same survivor decision as the header.
     let first_data = line(&buf, heading_y + 2);
-    assert_eq!(first_data.contains("247/4/0"), queue_survives, "{first_data:?}");
+    assert_eq!(
+        first_data.contains("247/4/0"),
+        queue_survives,
+        "{first_data:?}"
+    );
 }

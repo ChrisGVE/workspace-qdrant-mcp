@@ -101,8 +101,12 @@ pub fn projects(rows: &[ProjectRow], total: usize) -> CellPane {
         vec![
             Column::flex("Name").sort('n'),
             Column::number("Bch", 3).sort('b').priority(FIGURE_PRIORITY),
-            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
-            Column::number("Queue", 9).sort('u').priority(QUEUE_PRIORITY),
+            Column::number("Files", 5)
+                .sort('f')
+                .priority(FIGURE_PRIORITY),
+            Column::number("Queue", 9)
+                .sort('u')
+                .priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -122,8 +126,12 @@ pub fn libraries(rows: &[LibraryRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Name").sort('n'),
-            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
-            Column::number("Queue", 7).sort('u').priority(QUEUE_PRIORITY),
+            Column::number("Files", 5)
+                .sort('f')
+                .priority(FIGURE_PRIORITY),
+            Column::number("Queue", 7)
+                .sort('u')
+                .priority(QUEUE_PRIORITY),
             // Five columns for a four-letter title: this is the LAST column of its cell, so
             // there is no gap to its right for the sort mark to borrow, and a column that
             // cannot show its own mark must not offer a key. The one column comes out of the
@@ -176,8 +184,12 @@ pub fn scratchpad(rows: &[ScratchpadRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Note").sort('n'),
-            Column::text("Scope", SCOPE_WIDTH).sort('c').priority(TEXT_PRIORITY),
-            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u').priority(QUEUE_PRIORITY),
+            Column::text("Scope", SCOPE_WIDTH)
+                .sort('c')
+                .priority(TEXT_PRIORITY),
+            Column::number("Queue", ITEM_QUEUE_WIDTH)
+                .sort('u')
+                .priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -201,8 +213,12 @@ pub fn rules(rows: &[RuleRow], total: usize) -> CellPane {
     let table = CellTable::new(
         vec![
             Column::flex("Rule name").sort('n'),
-            Column::text("Scope", SCOPE_WIDTH).sort('c').priority(TEXT_PRIORITY),
-            Column::number("Queue", ITEM_QUEUE_WIDTH).sort('u').priority(QUEUE_PRIORITY),
+            Column::text("Scope", SCOPE_WIDTH)
+                .sort('c')
+                .priority(TEXT_PRIORITY),
+            Column::number("Queue", ITEM_QUEUE_WIDTH)
+                .sort('u')
+                .priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -226,8 +242,12 @@ pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
         vec![
             Column::flex("Name").sort('n'),
             Column::text("Branch", 11).sort('b').priority(TEXT_PRIORITY),
-            Column::number("Files", 5).sort('f').priority(FIGURE_PRIORITY),
-            Column::number("Queue", 8).sort('u').priority(QUEUE_PRIORITY),
+            Column::number("Files", 5)
+                .sort('f')
+                .priority(FIGURE_PRIORITY),
+            Column::number("Queue", 8)
+                .sort('u')
+                .priority(QUEUE_PRIORITY),
         ],
         rows.iter()
             .map(|r| {
@@ -249,7 +269,9 @@ pub fn active_projects(rows: &[ActiveProjectRow], total: usize) -> CellPane {
 pub fn last_errors(rows: &[ErrorRow]) -> CellPane {
     let table = CellTable::new(
         vec![
-            Column::text("Collection", 13).sort('c').priority(TEXT_PRIORITY),
+            Column::text("Collection", 13)
+                .sort('c')
+                .priority(TEXT_PRIORITY),
             Column::flex("Error").sort('o'),
         ],
         rows.iter()
@@ -268,13 +290,48 @@ pub fn last_errors(rows: &[ErrorRow]) -> CellPane {
 
 /// The seven projects v0.1 had room to draw, out of the twenty-nine it counted.
 pub const PROJECTS: [ProjectRow; 7] = [
-    ProjectRow { name: ".config", branches: 1, files: 2_790, queue: (2_635, 0, 0) },
-    ProjectRow { name: "ArraySwift", branches: 0, files: 0, queue: (101, 0, 0) },
-    ProjectRow { name: "claude", branches: 1, files: 954, queue: (877, 0, 0) },
-    ProjectRow { name: "de-slop", branches: 0, files: 0, queue: (286, 0, 0) },
-    ProjectRow { name: "ExtendedSwiftMath", branches: 1, files: 118, queue: (102, 0, 0) },
-    ProjectRow { name: "inkyfingers", branches: 0, files: 0, queue: (285, 0, 0) },
-    ProjectRow { name: "localdata-mcp", branches: 2, files: 136, queue: (153, 0, 0) },
+    ProjectRow {
+        name: ".config",
+        branches: 1,
+        files: 2_790,
+        queue: (2_635, 0, 0),
+    },
+    ProjectRow {
+        name: "ArraySwift",
+        branches: 0,
+        files: 0,
+        queue: (101, 0, 0),
+    },
+    ProjectRow {
+        name: "claude",
+        branches: 1,
+        files: 954,
+        queue: (877, 0, 0),
+    },
+    ProjectRow {
+        name: "de-slop",
+        branches: 0,
+        files: 0,
+        queue: (286, 0, 0),
+    },
+    ProjectRow {
+        name: "ExtendedSwiftMath",
+        branches: 1,
+        files: 118,
+        queue: (102, 0, 0),
+    },
+    ProjectRow {
+        name: "inkyfingers",
+        branches: 0,
+        files: 0,
+        queue: (285, 0, 0),
+    },
+    ProjectRow {
+        name: "localdata-mcp",
+        branches: 2,
+        files: 136,
+        queue: (153, 0, 0),
+    },
 ];
 
 /// The workspace counted twenty-nine. The cell holds far fewer, which is the point.
@@ -288,8 +345,18 @@ pub const LIBRARIES: [LibraryRow; 1] = [LibraryRow {
 }];
 
 pub const ACTIVE: [ActiveProjectRow; 2] = [
-    ActiveProjectRow { name: "open-books", branch: "fix/s277-224-matter", files: 449, queue: (247, 4, 0) },
-    ActiveProjectRow { name: "workspace-qdrant-mcp", branch: "dev", files: 93, queue: (50, 0, 0) },
+    ActiveProjectRow {
+        name: "open-books",
+        branch: "fix/s277-224-matter",
+        files: 449,
+        queue: (247, 4, 0),
+    },
+    ActiveProjectRow {
+        name: "workspace-qdrant-mcp",
+        branch: "dev",
+        files: 93,
+        queue: (50, 0, 0),
+    },
 ];
 
 /// The eight rules the cell has room to draw, out of the [`RULE_TOTAL`] the store holds.
@@ -304,14 +371,46 @@ pub const ACTIVE: [ActiveProjectRow; 2] = [
 /// the new column look busy would put a fiction on the one screen Chris judges the design from
 /// — the same reason [`scratchpad`]'s fixture is empty rather than plausible.
 pub const RULES: [RuleRow; 8] = [
-    RuleRow { rule: "auto-file-defects", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "collab-spirit", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "docker-test-rm", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "human-voice", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "instr-supersede", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "match-register", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "mesh-field-log", scope: "global", queue: (0, 0, 0) },
-    RuleRow { rule: "release-gatekeeper", scope: "global", queue: (0, 0, 0) },
+    RuleRow {
+        rule: "auto-file-defects",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "collab-spirit",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "docker-test-rm",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "human-voice",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "instr-supersede",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "match-register",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "mesh-field-log",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
+    RuleRow {
+        rule: "release-gatekeeper",
+        scope: "global",
+        queue: (0, 0, 0),
+    },
 ];
 
 /// The store holds eleven; the cell has room for five. That gap is the whole point of the
@@ -324,9 +423,18 @@ pub const RULE_TOTAL: usize = 11;
 /// judges the design from.
 /// Long enough to prove the Error column elides rather than clipping silently.
 pub const ERRORS: [ErrorRow; 3] = [
-    ErrorRow { collection: "[P] PlotSwift", error: "destination failure on success path (qdrant unreachable at QDRANT_URL)" },
-    ErrorRow { collection: "[P] PlotSwift", error: "destination failure on success path (qdrant unreachable at QDRANT_URL)" },
-    ErrorRow { collection: "[P] PlotSwift", error: "destination failure on success path (qdrant unreachable at QDRANT_URL)" },
+    ErrorRow {
+        collection: "[P] PlotSwift",
+        error: "destination failure on success path (qdrant unreachable at QDRANT_URL)",
+    },
+    ErrorRow {
+        collection: "[P] PlotSwift",
+        error: "destination failure on success path (qdrant unreachable at QDRANT_URL)",
+    },
+    ErrorRow {
+        collection: "[P] PlotSwift",
+        error: "destination failure on success path (qdrant unreachable at QDRANT_URL)",
+    },
 ];
 
 /// Which column of the Projects cell is `Files`, for the frame that sorts by it.
