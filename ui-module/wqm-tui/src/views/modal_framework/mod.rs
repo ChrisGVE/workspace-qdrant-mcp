@@ -13,6 +13,7 @@ pub mod frames;
 #[cfg(feature = "tui-pantry")]
 pub mod ingredient;
 pub mod record;
+pub mod round2;
 pub mod stack;
 pub mod table;
 

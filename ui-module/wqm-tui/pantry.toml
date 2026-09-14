@@ -70,6 +70,9 @@ modules = [
     # The modal framework: whole screens, each a window over the quietened Queue page —
     # because a window judged on an empty buffer is judged against nothing.
     "views::modal_framework",
+    # Round 2 answers the checkpoint items in their own group, so the question Chris already
+    # reacted to and the answer to it are two lists rather than one mixed one.
+    "views::modal_framework::round2",
     # The page's own frame, over a placeholder body — the `Shell` group renamed, because the
     # frames were always of the frame rather than of the view that happened to draw them. Its
     # last variant puts a framework window on top of one, which is the composition ruling in

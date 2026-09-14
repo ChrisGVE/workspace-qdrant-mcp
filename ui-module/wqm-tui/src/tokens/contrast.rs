@@ -186,6 +186,14 @@ pub fn text_on(background: Color) -> Color {
 /// themes. If no darker `L*` works, lighter is tried before giving up and returning the colour
 /// unchanged — an honest failure rather than a black bar with no hue left in it.
 pub fn legible_ground(colour: Color, floor: f32) -> Color {
+    // A slot or indexed colour has no `L*` to move and [`super::lab`] panics on one, so an
+    // encoding below RGB gets the colour back untouched. Found by rendering the `NO_COLOR`
+    // frame, which crashed here rather than degrading: under that encoding every rung resolves
+    // to `Color::Reset`, the ratio comes out 1.0, and the search ran on a colour with no
+    // channels.
+    if Rgb::from_color(colour).is_none() {
+        return colour;
+    }
     if contrast_ratio(text_on(colour), colour) >= floor {
         return colour;
     }

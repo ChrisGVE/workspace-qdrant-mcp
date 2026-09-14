@@ -310,7 +310,22 @@ fn black_legible_point() -> Color {
 /// a normal weight reads thinner than the same text did on the window, and a mark that made its
 /// own field harder to read would be a strange kind of emphasis.
 pub fn active_fg() -> Color {
-    super::contrast::text_on(active_bg())
+    let fill = active_bg();
+    let black = super::selector_fg();
+    // **The same black the cursor row already uses**, not the ladder's bottom rung.
+    //
+    // They are different colours and the difference bit: `black_legible_point` searches for a
+    // rung where `selector_fg` can be read, and a first cut returned `contrast::text_on`, which
+    // answers with `neutral(0)` — the THEME's background, not black. On Dracula the search
+    // stopped at the rung where true black clears 4.6:1 and the foreground came back as the
+    // theme's dark grey at 3.9:1: a fill derived for one colour, carrying another.
+    if super::contrast::contrast_ratio(black, fill) >= super::contrast::BODY_FLOOR {
+        black
+    } else {
+        // Only where no rung could be found at all — a light theme read the other way. The
+        // substitution is legible by construction, and is the honest failure of "black".
+        super::contrast::text_on(fill)
+    }
 }
 
 /// The static third column's surface — the default value, or the pre-edit one.
