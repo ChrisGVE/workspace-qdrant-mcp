@@ -196,13 +196,25 @@ impl TintBlend {
 /// Slot and indexed colours cannot be blended without knowing the terminal's actual RGB
 /// values, so those encodings keep the layer fill and still colour the border.
 pub fn modal_fill(layer: Color) -> Color {
+    modal_fill_at(layer, tint_strength())
+}
+
+/// [`modal_fill`] at a STATED strength rather than the process-global one.
+///
+/// Still the one blend — this is the body and [`modal_fill`] is it with the global read in. It
+/// exists because two surfaces are specified as fractions of the *distance to the hue* rather
+/// than as the window's own tint: the breadcrumb's current crumb, which item (a) puts *"mid-way
+/// between the normal background and the full saturation"*, and the bracket frames that put two
+/// strengths side by side. Spelling either as a second mixing function is what produced round
+/// 1's depth-cue inversion, so there is one function and a parameter.
+pub fn modal_fill_at(layer: Color, strength: f32) -> Color {
     if ModalTint::current() == ModalTint::Neutral {
         return layer;
     }
     let (Some(base), Some(tint)) = (Rgb::from_color(layer), Rgb::from_color(modal_border())) else {
         return layer;
     };
-    let strength = tint_strength();
+    let strength = strength.clamp(0.0, 1.0);
     let mixed = Color::Rgb(
         mix(base.r, tint.r, strength),
         mix(base.g, tint.g, strength),

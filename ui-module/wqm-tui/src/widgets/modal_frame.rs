@@ -56,12 +56,34 @@ use ratatui::{
 use crate::tokens;
 use crate::widgets::modal::Fill;
 
+pub mod crumbs;
 pub mod sizing;
 
 #[cfg(test)]
 mod tests;
 
+pub use crumbs::CrumbStyle;
 pub use sizing::{Footprint, TooSmall, INSET, MIN_COLS, MIN_PAGE_COLS, MIN_PAGE_ROWS, MIN_ROWS};
+
+/// Whether the window draws its border glyphs, or only reserves their room.
+///
+/// Chris, 2026-09-14, item (e): *"The window does not need a frame, it already has one: its
+/// background, but I don't disagree to keep the border characters/lines unused to avoid feeling
+/// crammed."*
+///
+/// So the two arms differ in **ink and nothing else**. [`Edge::Spacing`] keeps every cell of
+/// [`CHROME`] exactly where [`Edge::Bordered`] puts it, and simply does not draw the box — the
+/// content does not move by a column, which is what makes the pair a fair comparison rather than
+/// two layouts. Tufte's data-ink: the fill already says *this is a window*, so the box is a
+/// second statement of a fact the reader has already had.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Edge {
+    /// Round 1: a drawn box in the modal's hue.
+    #[default]
+    Bordered,
+    /// **Round 2, item (e)**: the same padding, no glyphs.
+    Spacing,
+}
 
 /// Border plus one cell of padding on each side — the same chrome [`crate::widgets::modal`]
 /// reserves, so a framework window and a plain modal put their text on the same column.
@@ -159,6 +181,7 @@ pub struct Scroll {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Decoration {
     crumbs: Vec<String>,
+    crumb_style: CrumbStyle,
     title: String,
     search: Option<SearchRow>,
     help: Vec<(String, String)>,
@@ -168,6 +191,7 @@ impl Decoration {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             crumbs: Vec::new(),
+            crumb_style: CrumbStyle::default(),
             title: title.into(),
             search: None,
             help: Vec::new(),
@@ -209,21 +233,14 @@ impl Decoration {
         TOP_ROWS + u16::from(self.search.is_some())
     }
 
+    /// How the trail is drawn — item (a)'s powerline form, or round 1's plain one.
+    pub fn crumb_style(mut self, style: CrumbStyle) -> Self {
+        self.crumb_style = style;
+        self
+    }
+
     fn crumb_line(&self) -> Line<'static> {
-        let mut spans = Vec::new();
-        let last = self.crumbs.len().saturating_sub(1);
-        for (at, crumb) in self.crumbs.iter().enumerate() {
-            if at > 0 {
-                spans.push(Span::styled(CHEVRON, tokens::faint_style()));
-            }
-            let style = if at == last {
-                tokens::normal_style()
-            } else {
-                tokens::muted_style()
-            };
-            spans.push(Span::styled(crumb.clone(), style));
-        }
-        Line::from(spans)
+        crumbs::line(&self.crumbs, self.crumb_style)
     }
 
     /// The two help rows, packed greedily so the first fills before the second starts.
@@ -276,6 +293,15 @@ pub struct Container {
     decoration: Decoration,
     fill: Fill,
     scroll: Option<Scroll>,
+    /// **Item 1's horizontal bar.** Present only when the content cannot shrink to the window —
+    /// Chris: *"in the case the content cannot shrink horizontally, then the horizontal
+    /// scrolling should be an option"*.
+    ///
+    /// Its `total` and `offset` are in COLUMNS of the view's own content, exactly as the
+    /// vertical one's are in rows, so one `Scroll` type serves both and a caller cannot get the
+    /// units wrong by picking the wrong struct.
+    hscroll: Option<Scroll>,
+    edge: Edge,
     /// A banner beside the title. The EDIT-mode `-- EDIT --` uses it, bold and with no hue —
     /// r06 #8, and the reason it is here at all rather than left to the field fills: a mode
     /// visible only as colour is invisible under `NO_COLOR` and to a reader who is not looking
@@ -289,6 +315,8 @@ impl Container {
             decoration,
             fill: Fill::Layer1,
             scroll: None,
+            hscroll: None,
+            edge: Edge::default(),
             title_banner: None,
         }
     }
@@ -300,6 +328,18 @@ impl Container {
 
     pub fn scroll(mut self, scroll: Scroll) -> Self {
         self.scroll = Some(scroll);
+        self
+    }
+
+    /// Item 1's horizontal bar, for a view whose content cannot shrink to the window.
+    pub fn hscroll(mut self, scroll: Scroll) -> Self {
+        self.hscroll = Some(scroll);
+        self
+    }
+
+    /// Item (e): draw the border, or only reserve its room.
+    pub fn edge(mut self, edge: Edge) -> Self {
+        self.edge = edge;
         self
     }
 
@@ -356,11 +396,14 @@ impl Container {
         if inner.height <= used {
             return Rect { height: 0, ..inner };
         }
+        // Each bar costs the line it stands on, and it costs it whether or not the thumb is
+        // eventually drawn — a viewport that grew a row back when the content happened to fit
+        // would reflow the moment a filter changed the row count.
         Rect {
             x: inner.x,
             y: inner.y + top,
             width: inner.width.saturating_sub(u16::from(self.scroll.is_some())),
-            height: inner.height - used,
+            height: (inner.height - used).saturating_sub(u16::from(self.hscroll.is_some())),
         }
     }
 
@@ -395,6 +438,46 @@ impl Container {
             );
         }
     }
+
+    /// **Item 1's horizontal bar**, on the row the viewport gave back.
+    ///
+    /// # The glyphs are the vertical bar's, turned
+    ///
+    /// The vertical bar is `▐` `U+2590 RIGHT HALF BLOCK` for the thumb on `▕` `U+2595 RIGHT ONE
+    /// EIGHTH BLOCK` for the track. The exact mirror of that pair is `▄` `U+2584 LOWER HALF
+    /// BLOCK` on `▁` `U+2581 LOWER ONE EIGHTH BLOCK`: same two weights, same half-versus-eighth
+    /// relationship, rotated. Picking a different family — `━`/`─`, say — would make the two
+    /// bars read as two different mechanisms, which is the one thing a pair of scrollbars must
+    /// not do.
+    ///
+    /// Both weights sit at the same two rungs as the vertical bar's, so a window with both bars
+    /// has one scrollbar colour and not two.
+    fn draw_hscrollbar(&self, viewport: Rect, buf: &mut Buffer) {
+        let Some(scroll) = self.hscroll else { return };
+        if viewport.width == 0 || scroll.total <= viewport.width as usize {
+            return;
+        }
+        let y = viewport.y + viewport.height;
+        let columns = viewport.width as usize;
+        let thumb = ((columns * columns) / scroll.total).max(1);
+        let span = columns.saturating_sub(thumb);
+        let travel = scroll.total.saturating_sub(columns).max(1);
+        let at = (scroll.offset.min(travel) * span) / travel;
+        for column in 0..columns {
+            let inside = column >= at && column < at + thumb;
+            let (glyph, colour) = if inside {
+                ("\u{2584}", tokens::muted())
+            } else {
+                ("\u{2581}", tokens::rule_internal())
+            };
+            buf.set_string(
+                viewport.x + column as u16,
+                y,
+                glyph,
+                Style::default().fg(colour),
+            );
+        }
+    }
 }
 
 impl Widget for Container {
@@ -407,16 +490,23 @@ impl Widget for Container {
         // wearing the window's background — `widgets::modal` learned this the hard way and the
         // comment there is the record.
         Clear.render(rect, buf);
-        Block::bordered()
-            .border_style(Style::default().fg(tokens::modal_border()))
-            // Through `tokens::modal_fill`, the crate's one blend: the window and every
-            // surface inside it move together when the tint strength moves, or the form drifts
-            // out of the window's colour family the moment the wash is retuned.
-            .style(Style::default().bg(tokens::modal_fill(match self.fill {
-                Fill::Layer1 => tokens::layer1_bg(),
-                Fill::Layer2 => tokens::layer2_bg(),
-            })))
-            .render(rect, buf);
+        // Through `tokens::modal_fill`, the crate's one blend: the window and every surface
+        // inside it move together when the tint strength moves, or the form drifts out of the
+        // window's colour family the moment the wash is retuned.
+        let surface = Style::default().bg(tokens::modal_fill(match self.fill {
+            Fill::Layer1 => tokens::layer1_bg(),
+            Fill::Layer2 => tokens::layer2_bg(),
+        }));
+        match self.edge {
+            Edge::Bordered => Block::bordered()
+                .border_style(Style::default().fg(tokens::modal_border()))
+                .style(surface)
+                .render(rect, buf),
+            // Item (e): the same rect, the same fill, no glyphs. `Block::default()` still paints
+            // the whole rectangle, so the padding `inner` reserves is untouched and the content
+            // sits on exactly the columns the bordered arm puts it on.
+            Edge::Spacing => Block::default().style(surface).render(rect, buf),
+        }
 
         let inner = Self::inner(rect);
         let row = |n: u16| Rect {
@@ -447,6 +537,7 @@ impl Widget for Container {
 
         let viewport = self.viewport(rect);
         self.draw_scrollbar(viewport, buf);
+        self.draw_hscrollbar(viewport, buf);
 
         let help = self.decoration.help_lines(inner.width);
         let foot = inner.y + inner.height;

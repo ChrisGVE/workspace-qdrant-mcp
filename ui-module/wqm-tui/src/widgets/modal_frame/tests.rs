@@ -90,7 +90,9 @@ fn help_rows(rect: Rect) -> (u16, u16) {
 fn the_framework_footprint_is_the_size_the_gate_named() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let big = Footprint::Framework.window(SCREEN).expect("the fixture page holds a window");
+    let big = Footprint::Framework
+        .window(SCREEN)
+        .expect("the fixture page holds a window");
     assert_eq!((big.width, big.height), (96, 24), "at 125×34");
     assert_eq!(
         (big.x, big.y),
@@ -98,7 +100,9 @@ fn the_framework_footprint_is_the_size_the_gate_named() {
         "centred, and below the page header"
     );
 
-    let small = Footprint::Framework.window(FLOOR).expect("the fixture page holds a window");
+    let small = Footprint::Framework
+        .window(FLOOR)
+        .expect("the fixture page holds a window");
     assert_eq!((small.width, small.height), (84, 22), "at the 100×30 floor");
     assert_eq!((small.x, small.y), (8, 6));
 }
@@ -117,7 +121,9 @@ fn only_the_framework_footprint_clears_the_pages_own_header() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
     for area in [SCREEN, FLOOR] {
-        let rect = Footprint::Framework.window(area).expect("the fixture page holds a window");
+        let rect = Footprint::Framework
+            .window(area)
+            .expect("the fixture page holds a window");
         assert!(
             rect.y >= area.y + PAGE_HEADER_ROWS,
             "at {}×{}: top border on row {}, header ends at {}",
@@ -131,7 +137,9 @@ fn only_the_framework_footprint_clears_the_pages_own_header() {
             "…and the whole window is on screen"
         );
 
-        let literal = Footprint::HelpDerived.window(area).expect("the fixture page holds a window");
+        let literal = Footprint::HelpDerived
+            .window(area)
+            .expect("the fixture page holds a window");
         assert!(
             literal.y < area.y + PAGE_HEADER_ROWS,
             "arm A is supposed to be the one that cannot clear the header; at {}×{} it did, so \
@@ -168,8 +176,12 @@ fn the_window_does_not_resize_between_views() {
 fn the_two_footprint_arms_are_different_windows() {
     let _serial = crate::global_state_lock();
     let _restore = Restore::mocha();
-    let framework = Footprint::Framework.window(SCREEN).expect("the fixture page holds a window");
-    let literal = Footprint::HelpDerived.window(SCREEN).expect("the fixture page holds a window");
+    let framework = Footprint::Framework
+        .window(SCREEN)
+        .expect("the fixture page holds a window");
+    let literal = Footprint::HelpDerived
+        .window(SCREEN)
+        .expect("the fixture page holds a window");
     assert_ne!(framework, literal);
     assert!(
         literal.width > framework.width && literal.height > framework.height,

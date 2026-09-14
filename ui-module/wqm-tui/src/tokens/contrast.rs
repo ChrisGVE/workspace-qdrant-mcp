@@ -139,6 +139,67 @@ pub fn rung_for_delta_e(background: Color, target: f32) -> Option<u8> {
     search().find(|rung| delta_e(neutral(*rung), background) >= target)
 }
 
+/// The legible end of the ladder to write on `background` — the ladder's top or its bottom,
+/// whichever wins the contrast.
+///
+/// # Why this is not just "white"
+///
+/// Chris, item (a): *"the previous breadcrumbs must have their background at full saturation of
+/// the modal color and be written in white"*. On the theme the harness paints with, `accent` is
+/// Catppuccin Mocha's **blue** — a *light* blue — and white on it measures **2.0:1**, far under
+/// [`BODY_FLOOR`] and below even [`UI_FLOOR`]. Black on that same blue measures 10.6:1.
+///
+/// A bundled theme is free to put its accent anywhere, and across the fifteen it lands on both
+/// sides of the middle, so no single text colour is legible on all of them. Naming the *role* —
+/// "the end of the ladder that can be read here" — is what makes the instruction hold on every
+/// theme rather than on the ones whose accent happens to be dark.
+///
+/// Rung 100 and rung 0 rather than literal white and black: they are the ladder's own ends, so
+/// this spends no colour the palette does not already have.
+pub fn text_on(background: Color) -> Color {
+    let (light, dark) = (neutral(100), neutral(0));
+    if contrast_ratio(light, background) >= contrast_ratio(dark, background) {
+        light
+    } else {
+        dark
+    }
+}
+
+/// The same hue, at a lightness where [`text_on`] can actually be read — for a surface that has
+/// to carry text and is specified by its HUE rather than by its rung.
+///
+/// # The case it exists for
+///
+/// [`text_on`] picks the better end of the ladder, and on most themes one of them is comfortably
+/// legible on the accent. On some it is not: an accent that sits in the MIDDLE of the lightness
+/// range is bad for black and bad for white at once. Dracula's is one — its best case is 4.2:1,
+/// under [`BODY_FLOOR`] — and a breadcrumb bar painted in it would be a bar nobody can read on
+/// that theme, however saturated.
+///
+/// So the hue and the chroma are kept exactly as the theme named them and only `L*` moves, which
+/// is the same trade [`crate::tokens::TintBlend::HoldLuminance`] makes in the other direction:
+/// lightness is the ladder's axis, not the palette's. Chris's instruction names *saturation*
+/// (*"full saturation of the modal color"*) and that is the axis left untouched.
+///
+/// Darker first, because a saturated hue holds its identity better as it darkens than as it
+/// washes out, and because the window this sits on is dark on eleven of the fifteen bundled
+/// themes. If no darker `L*` works, lighter is tried before giving up and returning the colour
+/// unchanged — an honest failure rather than a black bar with no hue left in it.
+pub fn legible_ground(colour: Color, floor: f32) -> Color {
+    if contrast_ratio(text_on(colour), colour) >= floor {
+        return colour;
+    }
+    let (lightness, a, b) = super::lab(colour);
+    let start = lightness.round() as i32;
+    let darker = (0..=start).rev();
+    let lighter = (start + 1)..=100;
+    darker
+        .chain(lighter)
+        .map(|l| super::lab_to_color((l as f32, a, b)))
+        .find(|candidate| contrast_ratio(text_on(*candidate), *candidate) >= floor)
+        .unwrap_or(colour)
+}
+
 /// Both numbers for one text rung on one ground, so a table prints them together.
 ///
 /// A row of this is the whole argument of item 4: the ΔE column is what the design was floored

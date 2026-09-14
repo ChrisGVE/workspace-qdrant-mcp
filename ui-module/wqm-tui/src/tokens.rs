@@ -67,8 +67,8 @@ mod modal_tint;
 
 pub use modal::{under_modal, ModalScope};
 pub use modal_tint::{
-    modal_border, modal_fill, set_tint_strength, tint_strength, ModalTint, TintBlend,
-    DEFAULT_TINT_STRENGTH,
+    modal_border, modal_fill, modal_fill_at, set_tint_strength, tint_strength, ModalTint,
+    TintBlend, DEFAULT_TINT_STRENGTH,
 };
 
 /// How neutrals are sourced. Hues are unaffected — they are always theme slots.
@@ -772,6 +772,35 @@ fn lerp(from: u8, to: u8, t: f32) -> f32 {
 /// [`into_gamut`] to come back without turning.
 fn mix(from: u8, to: u8, t: f32) -> u8 {
     lerp(from, to, t).round().clamp(0.0, 255.0) as u8
+}
+
+/// A plain blend between two STATED colours — `t = 0` is `from`, `t = 1` is `to`.
+///
+/// # How this is not a second [`modal_fill`]
+///
+/// [`modal_fill`] has one argument because its job is fixed: pull *a rung of the ladder* toward
+/// *the modal's hue*, at the window's strength. Everything inside a window that is specified as
+/// a rung goes through it, and that is what keeps the window one colour family.
+///
+/// The breadcrumb's two runs are not rungs. Item (a) specifies them as the hue itself and as a
+/// point *"mid-way between the normal background and the full saturation"* — a position between
+/// two named colours, which `modal_fill` cannot express because it does not take a target. It
+/// also must not: under [`TintBlend::HoldLuminance`] `modal_fill` deliberately holds lightness,
+/// and Chris asked for the current crumb to be *"a lighter background"*, so routing the trail
+/// through it would silently flatten exactly the difference the item is about.
+///
+/// So this is the general two-colour mix, named, for surfaces specified between two colours
+/// rather than as a rung pulled toward one.
+pub fn blend(from: Color, to: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    match (Rgb::from_color(from), Rgb::from_color(to)) {
+        (Some(a), Some(b)) => Color::Rgb(mix(a.r, b.r, t), mix(a.g, b.g, t), mix(a.b, b.b, t)),
+        // A slot or indexed colour has no channels to mix without knowing what the terminal
+        // paints it as. Snapping to the nearer END is the honest degradation — the surface is
+        // one of the two colours the caller named rather than a third one invented here.
+        _ if t < 0.5 => from,
+        _ => to,
+    }
 }
 
 /// One rung of the ladder, by the luminance percentage r02 names it with.
