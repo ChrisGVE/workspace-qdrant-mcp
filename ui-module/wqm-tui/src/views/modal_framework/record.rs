@@ -125,6 +125,19 @@ pub enum Value {
         choices: Vec<String>,
         at: usize,
     },
+    /// The same radio group **stacked one per row** — item 3, and the caller's choice for the
+    /// same reason the row form is.
+    ///
+    /// Chris: *"be prepared to show your radio button in a column, when selected the whole
+    /// column gets the highlighting background, and changing the selection is done with up/down
+    /// arrow or k/j."* So the two forms differ in three things at once — layout, highlight
+    /// extent, and the keys that move within them — which is why it is a separate variant
+    /// rather than a flag on [`Value::Radio`]: a flag would have left the keymap to be inferred
+    /// somewhere else.
+    RadioColumn {
+        choices: Vec<String>,
+        at: usize,
+    },
     /// Many choices: one displayed value, `↵`/Space opens a [`DropDown`].
     Choice {
         choices: Vec<String>,
@@ -136,9 +149,9 @@ impl Value {
     /// The choices and the current pick, for the two variants that have them.
     pub fn choices(&self) -> Option<(&[String], usize)> {
         match self {
-            Value::Radio { choices, at } | Value::Choice { choices, at } => {
-                Some((choices.as_slice(), *at))
-            }
+            Value::Radio { choices, at }
+            | Value::RadioColumn { choices, at }
+            | Value::Choice { choices, at } => Some((choices.as_slice(), *at)),
             _ => None,
         }
     }
@@ -161,6 +174,9 @@ impl Value {
             // can neither make nor know about, and recognition over recall is the entire reason
             // few choices are drawn in place instead of behind a drop-down.
             Value::Radio { choices, at } => radio_rows(choices, *at, width).len().max(1),
+            // One row per choice, always — that is what makes it a column. It does not wrap and
+            // it does not elide, for the same reason the row form does not.
+            Value::RadioColumn { choices, .. } => choices.len().max(1),
             _ => 1,
         }
     }
@@ -496,6 +512,39 @@ fn radio_button(choice: &str, picked: bool) -> String {
     format!("{} {choice}", if picked { PICKED } else { UNPICKED })
 }
 
+/// One packed radio row, with the ACTIVE button bold and the rest at normal weight.
+///
+/// Item 3 asks for the weight to move with the selection, so the row cannot be one span. Three
+/// spans — before, the active button, after — and the split is found by locating the active
+/// button's rendered text inside the line this row actually holds. A button that is not on this
+/// row (the group wrapped) leaves the line as one unweighted span, which is correct: there is no
+/// active button here to embolden.
+fn bolden_active(
+    line: &str,
+    choices: &[String],
+    at: usize,
+    width: usize,
+    style: Style,
+) -> Vec<Span<'static>> {
+    let padded = fit(line, width);
+    let active = choices
+        .get(at)
+        .map(|choice| radio_button(choice, true))
+        .unwrap_or_default();
+    let Some(start) = padded.find(&active).filter(|_| !active.is_empty()) else {
+        return vec![Span::styled(padded, style)];
+    };
+    let end = start + active.len();
+    vec![
+        Span::styled(padded[..start].to_string(), style),
+        Span::styled(
+            padded[start..end].to_string(),
+            style.add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(padded[end..].to_string(), style),
+    ]
+}
+
 /// The radio's buttons packed into rows no wider than `width`, never elided.
 fn radio_rows(choices: &[String], at: usize, width: usize) -> Vec<String> {
     let mut out = Vec::new();
@@ -570,6 +619,24 @@ impl RecordView {
             Value::Radio { choices, at } => {
                 let lines = radio_rows(choices, *at, width);
                 let line = lines.get(row).cloned().unwrap_or_default();
+                // **The active button is BOLD** — item 3: *"when selected the radio button that
+                // is active is bolden … and the newly selected gets bolden while the unselected
+                // becomes normal."* Drawn as three spans so the weight lands on the active
+                // button alone rather than on the whole packed row.
+                bolden_active(&line, choices, *at, width, style)
+            }
+            // The column form. Its highlight is the whole column and is painted by the caller
+            // (see `RecordView::render`), because a background that covered only the buttons
+            // would be a highlight on the glyphs rather than on the field.
+            Value::RadioColumn { choices, at } => {
+                let line = choices
+                    .get(row)
+                    .map(|choice| radio_button(choice, row == *at))
+                    .unwrap_or_default();
+                let mut style = style;
+                if row == *at {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
                 vec![Span::styled(fit(&line, width), style)]
             }
             Value::Choice { choices, at } => {
@@ -603,17 +670,29 @@ impl RecordView {
             // metadata rung — there is nothing here to mistake for a slot.
             return tokens::muted_style();
         }
-        let mut style = if index == self.mode.at() {
+        if index == self.mode.at() {
             let mut style = tokens::normal_style().bg(self.scheme.point_bg());
             if let Some(fg) = self.scheme.point_fg() {
                 style = style.fg(fg).add_modifier(Modifier::BOLD);
             }
-            style
-        } else {
-            tokens::normal_style().bg(self.scheme.set_bg(self.layer))
-        };
+            // **Item 3's black text.** The POINT fill is derived to carry it
+            // (`tokens::field::FieldRungs`), so the foreground comes from the same place rather
+            // than being spelled here — a cell that hard-coded black would be a cell that stayed
+            // black on the themes where the derivation had to give it up.
+            if self.scheme == Scheme::Neutral
+                && tokens::field::FieldRungs::current() == tokens::field::FieldRungs::BlackText
+            {
+                style = style
+                    .fg(tokens::field::active_fg())
+                    .add_modifier(Modifier::BOLD);
+            }
+            return style;
+        }
+        // The SET mark. Its modifier is the encoding's business, not this widget's — see
+        // `tokens::field::editable_modifier`.
+        let mut style = tokens::normal_style().bg(self.scheme.set_bg(self.layer));
         if self.underline_editable {
-            style = style.add_modifier(tokens::field::EDITABLE_MARK);
+            style = style.add_modifier(tokens::field::editable_modifier());
         }
         style
     }
@@ -806,6 +885,51 @@ pub struct DropDown {
     at: usize,
     /// The value cell it came out of, so it reads as the field opening.
     anchor: Rect,
+    /// **Round 2's whole arm**, as one flag rather than three.
+    ///
+    /// Item 3 changes the list in three ways at once — the frame goes, the current value moves
+    /// to the top with the rest sorted under it, and the cursor therefore starts on row 0 — and
+    /// they are one decision, not three: sorting the list without moving the cursor would put
+    /// the cursor on whatever sorted into the current value's old index, which is a different
+    /// value. Three separate flags would let a caller build exactly that.
+    item_three: bool,
+    /// What the reader has typed, which **replaces** the value and narrows the list.
+    filter: Option<String>,
+}
+
+/// The order item 3 asks for: *"The currently selected value should be the first on the list,
+/// but the rest of the dropdown list should be sorted."*
+///
+/// Two different jobs in one list, and the order says so: the first row is *what this field is
+/// now*, and everything under it is *what else it could be*, in the order a reader can search.
+/// Sorting the current value in with the rest would make the reader hunt for the row they are
+/// standing on.
+pub fn current_first_then_sorted(choices: &[String], at: usize) -> Vec<String> {
+    let Some(current) = choices.get(at) else {
+        let mut rest = choices.to_vec();
+        rest.sort();
+        return rest;
+    };
+    let mut rest: Vec<String> = choices
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != at)
+        .map(|(_, c)| c.clone())
+        .collect();
+    rest.sort();
+    std::iter::once(current.clone()).chain(rest).collect()
+}
+
+/// Subsequence matching, case-insensitive — *"the list is reduced via fuzzy matching"*.
+///
+/// A subsequence rather than a substring, which is what "fuzzy" means to anyone who has used a
+/// fuzzy finder: `tsf` finds `tree-sitter/function`. A substring match would refuse that and the
+/// reader would conclude the filter is broken rather than that it is strict.
+pub fn fuzzy_matches(choice: &str, term: &str) -> bool {
+    let mut haystack = choice.chars().flat_map(char::to_lowercase);
+    term.chars()
+        .flat_map(char::to_lowercase)
+        .all(|wanted| haystack.any(|c| c == wanted))
 }
 
 impl DropDown {
@@ -814,6 +938,49 @@ impl DropDown {
             choices,
             at,
             anchor,
+            item_three: false,
+            filter: None,
+        }
+    }
+
+    /// Item 3's list: no frame, current value first then sorted, cursor on the top row.
+    pub fn item_three(mut self) -> Self {
+        self.item_three = true;
+        self
+    }
+
+    /// The reader's typed term, narrowing the list. Implies [`DropDown::item_three`] — a filter
+    /// is one of its clauses and has no meaning in round 1's list.
+    pub fn filter(mut self, term: impl Into<String>) -> Self {
+        self.item_three = true;
+        self.filter = Some(term.into());
+        self
+    }
+
+    /// The rows this list shows, in order, under the filter in force.
+    pub fn visible(&self) -> Vec<String> {
+        if !self.item_three {
+            return self.choices.clone();
+        }
+        let ordered = current_first_then_sorted(&self.choices, self.at);
+        match &self.filter {
+            None => ordered,
+            Some(term) => ordered
+                .into_iter()
+                .filter(|choice| fuzzy_matches(choice, term))
+                .collect(),
+        }
+    }
+
+    /// Which visible row the cursor is on.
+    ///
+    /// Round 1 puts it on the current value wherever that sits in declaration order; item 3 puts
+    /// the current value on top, so the two answers coincide in meaning and differ in number.
+    fn cursor_row(&self) -> usize {
+        if self.item_three {
+            0
+        } else {
+            self.at
         }
     }
 
@@ -824,14 +991,19 @@ impl DropDown {
     /// open list, saying *still closed*. Covering its own chevron is what makes the list read
     /// as the field opening rather than as a box that happens to be nearby.
     pub fn rect(&self, bounds: Rect) -> Rect {
-        let text = self
-            .choices
+        let rows = self.visible();
+        let text = rows
             .iter()
             .map(|c| c.chars().count() as u16)
             .max()
             .unwrap_or(0);
-        let width = (text + 4).max(self.anchor.width).min(bounds.width);
-        let height = (self.choices.len() as u16 + 2).min(bounds.height.saturating_sub(2));
+        // The frame costs two cells each way; without it the list is its content plus the one
+        // cell of lead every row carries. Measured from the SAME arm that draws, so a frameless
+        // list is not silently given a bordered list's room.
+        let padding = if self.item_three { 2 } else { 4 };
+        let chrome = if self.item_three { 0 } else { 2 };
+        let width = (text + padding).max(self.anchor.width).min(bounds.width);
+        let height = (rows.len() as u16 + chrome).min(bounds.height.saturating_sub(2));
         Rect {
             x: self.anchor.x.min(bounds.right().saturating_sub(width)),
             y: (self.anchor.y + 1).min(bounds.bottom().saturating_sub(height)),
@@ -844,28 +1016,44 @@ impl DropDown {
 impl Widget for DropDown {
     fn render(self, bounds: Rect, buf: &mut Buffer) {
         let rect = self.rect(bounds);
-        if rect.width < 4 || rect.height < 3 {
+        if rect.width < 4 || rect.height == 0 {
             return;
         }
         Clear.render(rect, buf);
-        Block::bordered()
-            .border_style(Style::default().fg(tokens::modal_border()))
-            // The layer above the window, through the crate's one blend — so an open list is
-            // never less tinted than the window it opened out of.
-            .style(Style::default().bg(tokens::modal_fill(tokens::layer2_bg())))
-            .render(rect, buf);
-
-        let inner = Rect {
-            x: rect.x + 1,
-            y: rect.y + 1,
-            width: rect.width - 2,
-            height: rect.height - 2,
+        // The layer above the window, through the crate's one blend — so an open list is never
+        // less tinted than the window it opened out of.
+        let surface = Style::default().bg(tokens::modal_fill(tokens::layer2_bg()));
+        let inner = if !self.item_three {
+            Block::bordered()
+                .border_style(Style::default().fg(tokens::modal_border()))
+                .style(surface)
+                .render(rect, buf);
+            Rect {
+                x: rect.x + 1,
+                y: rect.y + 1,
+                width: rect.width - 2,
+                height: rect.height - 2,
+            }
+        } else {
+            // Item 3: no frame. The list is told from the window by its own layer fill, which is
+            // a step lighter, and by the fact that every OTHER field's highlight has gone — so a
+            // box around it would be the third statement of a fact already made twice.
+            Block::default().style(surface).render(rect, buf);
+            rect
         };
-        // Scroll so the current value is visible: long lists scroll within the drop-down.
-        let first = self
-            .at
-            .saturating_sub(inner.height.saturating_sub(1) as usize);
-        for (screen_row, index) in (first..self.choices.len())
+
+        let rows = self.visible();
+        // The cursor sits on the first row, which under the item-3 ordering IS the current
+        // value — and, once a filter is typed, is the best match rather than a value that may
+        // no longer be in the list at all.
+        let cursor = self.cursor_row();
+        // Scroll so the cursor is visible: a long list scrolls within the drop-down. Under item
+        // 3 the cursor is row 0 and this is always 0, which is one of the things moving the
+        // current value to the top buys — a list that opens at its own beginning.
+        let first = cursor.saturating_sub(inner.height.saturating_sub(1) as usize);
+        for (screen_row, choice) in rows
+            .iter()
+            .skip(first)
             .take(inner.height as usize)
             .enumerate()
         {
@@ -875,11 +1063,11 @@ impl Widget for DropDown {
                 ..inner
             };
             Paragraph::new(Line::from(Span::styled(
-                format!(" {}", fit(&self.choices[index], inner.width as usize - 1)),
+                format!(" {}", fit(choice, inner.width as usize - 1)),
                 tokens::normal_style(),
             )))
             .render(row, buf);
-            if index == self.at {
+            if first + screen_row == cursor {
                 buf.set_style(row, Style::default().bg(tokens::cursor_bg()));
                 if let Some(fg) = tokens::cursor_fg() {
                     buf.set_style(row, Style::default().fg(fg).add_modifier(Modifier::BOLD));

@@ -154,17 +154,90 @@ fn selected_spans(chars: &[char], range: &Range<usize>, style: Style) -> Vec<Spa
     let after: String = chars[range.end..].iter().collect();
     vec![
         Span::styled(before, style),
-        Span::styled(selected, style.add_modifier(Modifier::REVERSED)),
+        // **A named pair, not `REVERSED`** — item 3 asks for *"a color for the selected text"*,
+        // and a modifier is not one: it swaps whatever is under it, so inside an edit field the
+        // selection came out wearing the active field's own fill. See
+        // `tokens::field::SelectedText` for the two arms and what each costs.
+        Span::styled(
+            selected,
+            style
+                .bg(crate::tokens::field::selected_text_bg())
+                .fg(crate::tokens::field::selected_text_fg()),
+        ),
         Span::styled(after, style),
     ]
 }
 
-/// The three spans an edit draws in `style`: before, caret or selection, and after.
+/// Which keymap the field is under, which is what decides whether a caret is drawn at all.
+///
+/// Chris, item 3: *"When we are EMACS style, the cursor is the terminal default cursor, when we
+/// are in vim-mode, the cursor in normal and visual mode is a block cursor, noblink in normal
+/// and blink in visual, in insert mode the cursor is a single blinking line."*
+///
+/// So the two keymaps differ in a way no colour can express: under vim the program OWNS the
+/// caret and paints it into the cell; under the conventional keymap the caret is the terminal's
+/// own, positioned by `Frame::set_cursor_position` and drawn by the terminal in whatever shape
+/// the user configured. A painted caret there would be a second cursor beside the real one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Caret {
+    /// Vim: the program paints the caret, shaped and blinking by mode.
+    #[default]
+    Painted,
+    /// Conventional/Emacs: the terminal's own cursor. Nothing is painted, and a still frame
+    /// therefore shows the field with no caret in it — which is the honest depiction, since
+    /// there is no terminal in a headless render to draw one.
+    Terminal,
+}
+
+/// **Blink, in a still frame.**
+///
+/// A still cannot blink, and drawing a "blinking" caret as some third glyph would be inventing a
+/// shape the running program never shows. So the real `SLOW_BLINK` attribute is set — the one a
+/// terminal actually honours — and the frame carries it as a CELL ATTRIBUTE rather than as
+/// anything visible.
+///
+/// That makes it judgeable by the right instrument and not by the wrong one: the attribute is
+/// there to be read in a grid/cell dump, and a PNG of the frame cannot show it and should not be
+/// asked to. Same division as wqm#283, where the `●` glyph is right in the dump and missing from
+/// the capture — judge shape and attributes from the dump, colour from the pixels.
+fn blink() -> Modifier {
+    Modifier::SLOW_BLINK
+}
+
+/// The three spans an edit draws in `style`, under the painted (vim) caret.
 ///
 /// Always three, even when a half is empty, so a caller measuring the result gets the same
 /// arithmetic whatever the caret index is — the reason the config table's column stopped
 /// shifting when a row went into edit.
 pub fn caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
+    caret_spans_with(edit, style, Caret::Painted)
+}
+
+/// [`caret_spans`] under a stated keymap.
+///
+/// Still three spans under both, so the column arithmetic downstream is unchanged — under
+/// [`Caret::Terminal`] the middle span is simply the text with no caret treatment on it.
+pub fn caret_spans_with(edit: &Edit, style: Style, caret: Caret) -> Vec<Span<'static>> {
+    if caret == Caret::Terminal {
+        // The selection is still ours to paint — shift-selection exists under both keymaps, and
+        // a terminal draws a cursor, never a range.
+        if let Some(range) = edit.selection.as_ref() {
+            let chars: Vec<char> = edit.value().chars().collect();
+            return selected_spans(&chars, range, style);
+        }
+        let chars: Vec<char> = edit.value().chars().collect();
+        let before: String = chars[..edit.caret()].iter().collect();
+        let after: String = chars[edit.caret()..].iter().collect();
+        return vec![
+            Span::styled(before, style),
+            Span::styled(String::new(), style),
+            Span::styled(after, style),
+        ];
+    }
+    painted_caret_spans(edit, style)
+}
+
+fn painted_caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
     let chars: Vec<char> = edit.value().chars().collect();
     match edit.mode() {
         // A bar between two characters — vim insert.
@@ -177,7 +250,7 @@ pub fn caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
             let after: String = chars[edit.caret()..].iter().collect();
             vec![
                 Span::styled(before, style),
-                Span::styled("▏", style),
+                Span::styled("▏", style.add_modifier(blink())),
                 Span::styled(after, style),
             ]
         }
@@ -191,6 +264,7 @@ pub fn caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
             vec![
                 Span::styled(before, style),
                 Span::styled(under.to_string(), style.add_modifier(Modifier::REVERSED)),
+                // Normal mode is the one caret that does NOT blink (Chris, item 3).
                 Span::styled(rest.collect::<String>(), style),
             ]
         }
@@ -202,7 +276,14 @@ pub fn caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
             let caret = edit.caret().min(chars.len());
             let fallback = caret..(caret + 1).min(chars.len());
             let range = edit.selection.clone().unwrap_or(fallback);
-            selected_spans(&chars, &range, style)
+            // Visual's block BLINKS where normal's does not (Chris, item 3), and that is the
+            // only thing separating the two block carets — so the attribute goes on the
+            // selection span, which is where the block is.
+            let mut spans = selected_spans(&chars, &range, style);
+            if let Some(block) = spans.get_mut(1) {
+                block.style = block.style.add_modifier(blink());
+            }
+            spans
         }
     }
 }
@@ -211,24 +292,94 @@ pub fn caret_spans(edit: &Edit, style: Style) -> Vec<Span<'static>> {
 mod tests {
     use super::*;
 
+    /// Selection is a NAMED colour pair now, not `REVERSED` — item 3, *"we'll have to define a
+    /// color for the selected text"*. The span split is unchanged; only what is on it moved.
     #[test]
-    fn visual_reverses_selected_characters_in_three_spans() {
+    fn visual_paints_selected_characters_in_three_spans() {
+        // Reads `tokens::field`, which is process-global: without this the expected
+        // colour and the painted one can be computed under two different themes.
+        let _serial = crate::global_state_lock();
         let spans = caret_spans(&Edit::visual("2000", 1..3), Style::default());
         assert_eq!(spans.len(), 3);
         assert_eq!(spans[0].content, "2");
         assert_eq!(spans[1].content, "00");
         assert_eq!(spans[2].content, "0");
-        assert!(spans[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(
+            spans[1].style.bg,
+            Some(crate::tokens::field::selected_text_bg())
+        );
+        assert_eq!(
+            spans[1].style.fg,
+            Some(crate::tokens::field::selected_text_fg())
+        );
+        assert!(
+            !spans[1].style.add_modifier.contains(Modifier::REVERSED),
+            "a modifier cannot be the selection colour: it inverts whatever fill is under it, \
+             which inside an edit field is the active field's own"
+        );
+    }
+
+    /// Visual's block blinks and normal's does not, which is the only difference between the two
+    /// block carets (Chris, item 3). The attribute is the real one a terminal honours, so a
+    /// still frame carries it in the cell rather than depicting it.
+    #[test]
+    fn only_the_visual_block_blinks() {
+        // Reads `tokens::field`, which is process-global: without this the expected
+        // colour and the painted one can be computed under two different themes.
+        let _serial = crate::global_state_lock();
+        let visual = caret_spans(&Edit::visual("2000", 1..3), Style::default());
+        let normal = caret_spans(&Edit::normal("2000", 1), Style::default());
+        assert!(visual[1].style.add_modifier.contains(Modifier::SLOW_BLINK));
+        assert!(!normal[1].style.add_modifier.contains(Modifier::SLOW_BLINK));
+        let insert = caret_spans(&Edit::insert("2000"), Style::default());
+        assert!(
+            insert[1].style.add_modifier.contains(Modifier::SLOW_BLINK),
+            "the insert bar blinks too"
+        );
+    }
+
+    /// Under the conventional keymap the terminal owns the caret, so nothing is painted — and
+    /// the three-span shape survives, because the column arithmetic downstream depends on it.
+    #[test]
+    fn the_conventional_keymap_paints_no_caret_at_all() {
+        let spans = caret_spans_with(&Edit::insert("2000"), Style::default(), Caret::Terminal);
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[1].content, "", "no caret glyph is drawn");
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "2000", "and the value is whole");
+    }
+
+    /// A shift-selection is still OURS to paint under the conventional keymap: a terminal draws
+    /// a cursor, never a range.
+    #[test]
+    fn a_selection_is_painted_even_where_the_terminal_owns_the_caret() {
+        // Reads `tokens::field`, which is process-global: without this the expected
+        // colour and the painted one can be computed under two different themes.
+        let _serial = crate::global_state_lock();
+        let mut edit = Edit::insert_at("ab", 1);
+        edit.set_selection(Some(1..2));
+        let spans = caret_spans_with(&edit, Style::default(), Caret::Terminal);
+        assert_eq!(spans[1].content, "b");
+        assert_eq!(
+            spans[1].style.bg,
+            Some(crate::tokens::field::selected_text_bg())
+        );
     }
 
     #[test]
-    fn modeless_selection_reverses_characters_while_mode_stays_insert() {
+    fn modeless_selection_is_painted_while_the_mode_stays_insert() {
+        // Reads `tokens::field`, which is process-global: without this the expected
+        // colour and the painted one can be computed under two different themes.
+        let _serial = crate::global_state_lock();
         let mut edit = Edit::insert_at("ab", 1);
         edit.set_selection(Some(1..2));
         let spans = caret_spans(&edit, Style::default());
         assert_eq!(edit.mode(), EditMode::Insert);
         assert_eq!(spans.len(), 3);
         assert_eq!(spans[1].content, "b");
-        assert!(spans[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(
+            spans[1].style.bg,
+            Some(crate::tokens::field::selected_text_bg())
+        );
     }
 }

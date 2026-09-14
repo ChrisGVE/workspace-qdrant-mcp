@@ -109,6 +109,8 @@
 //! On Catppuccin Mocha, the theme the harness paints with: `accent` is **blue**, the cursor's
 //! hue is **lavender**, and the selector is **teal**.
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use ratatui::style::{Color, Modifier};
 
 use super::{edit_bg, mix, modal_fill, neutral, Rgb, WASH_MIX};
@@ -120,6 +122,89 @@ use super::{edit_bg, mix, modal_fill, neutral, Rgb, WASH_MIX};
 /// fill and leaves this standing.
 pub const EDITABLE_MARK: Modifier = Modifier::UNDERLINED;
 
+/// How the SET mark is carried — round 1's always-underlined form, round 2's ruling, or the arm
+/// round 1 threw out.
+///
+/// # The two rulings that looked incompatible, and the measurement that reconciled them
+///
+/// Chris ruled the underline OUT and the tint strength UP to 0.40 in the same message. Under
+/// round 1's straight sRGB mix those cannot both hold: the SET mark is a *lightness* step off
+/// the window, the mix drags every surface toward one bright accent, and the step is exactly
+/// what gets compressed — Solarized Dark fell to ΔE 2.1, under the 2.3 just-noticeable
+/// difference, so the fill said nothing and the underline was the only mark left standing.
+///
+/// [`crate::tokens::TintBlend::HoldLuminance`] does not compress it, because it does not touch
+/// the axis the step is made of. Measured at 0.40 with lightness held, the SET lift runs 4.1 to
+/// 9.1 across all fifteen bundled themes and **nothing is below the JND**. So the underline can
+/// go on his word alone, with nothing traded for it — which is the finding, not the hope.
+///
+/// # What does NOT change is `NO_COLOR`
+///
+/// Under an encoding with no ladder left the window (rung 15) and an editable field (rung 22)
+/// land on the same one of four slots, whatever the blend does. There *which fields may I
+/// change* would be carried by colour alone, and r06 #8 forbids that. So the underline returns —
+/// **only there**, as a degradation rather than as part of the look. It is invisible in every
+/// frame Chris judges and present in every frame he cannot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SetMark {
+    /// Round 1 (A+): fill and underline, on every encoding.
+    #[default]
+    FillAndUnderline,
+    /// **Round 2**: the fill alone where the ladder can express it; the underline returns only
+    /// where the encoding collapses the ladder.
+    FillWithFallback,
+    /// Round 1's rejected arm A: the fill alone, everywhere, including where it cannot be seen.
+    /// Evidence only.
+    FillOnly,
+}
+
+static SET_MARK: AtomicU8 = AtomicU8::new(SetMark::FillAndUnderline as u8);
+
+impl SetMark {
+    pub const ALL: [Self; 3] = [
+        Self::FillAndUnderline,
+        Self::FillWithFallback,
+        Self::FillOnly,
+    ];
+
+    pub fn current() -> Self {
+        match SET_MARK.load(Ordering::Relaxed) {
+            1 => Self::FillWithFallback,
+            2 => Self::FillOnly,
+            _ => Self::FillAndUnderline,
+        }
+    }
+
+    pub fn set(mark: Self) {
+        SET_MARK.store(mark as u8, Ordering::Relaxed);
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FillAndUnderline => "fill and underline",
+            Self::FillWithFallback => "fill, underline only where colour cannot carry it",
+            Self::FillOnly => "fill only (rejected)",
+        }
+    }
+}
+
+/// The modifier an editable field's value cell wears, under the mark in force.
+///
+/// One function, so a widget never has to know which encoding it is on or which arm is selected
+/// — the same reason [`crate::tokens::hue`] exists.
+pub fn editable_modifier() -> Modifier {
+    match SetMark::current() {
+        SetMark::FillAndUnderline => EDITABLE_MARK,
+        SetMark::FillOnly => Modifier::empty(),
+        // The ladder is only expressive enough to carry the mark as a fill under an RGB source.
+        // Below that the rungs collapse onto slots and the fill stops saying anything.
+        SetMark::FillWithFallback => match super::family() {
+            crate::encoding::Family::Rgb => Modifier::empty(),
+            _ => EDITABLE_MARK,
+        },
+    }
+}
+
 /// EDIT mode, the SET mark: every field this window will let you change.
 ///
 /// Rung 22 — see the module docs for the measurement that put it there rather than at 26.
@@ -130,13 +215,102 @@ pub fn editable_bg() -> Color {
     modal_fill(neutral(22))
 }
 
+/// Which rungs the two field marks use — round 1's fixed pair, or round 2's derived POINT.
+///
+/// # Item 3 asks for black text, and black text is a fact about the FILL
+///
+/// Chris, 2026-09-14: *"the font of the selected line becomes black, so we increase the
+/// contrast"*. Measured on the surface round 2 actually paints — the tint holding lightness at
+/// 0.40 — the active field's rung 35 is a **middle grey**, and a middle grey is bad for black
+/// and for white at the same time: black clears the WCAG body floor on 6 of the 15 bundled
+/// themes and the light end clears it on 4. Catppuccin Mocha, the theme the harness paints with,
+/// measures 3.9:1 for black and 4.1:1 for white — both under.
+///
+/// So his instruction cannot be carried out by changing a foreground. The fill has to move, and
+/// [`FieldRungs::BlackText`] moves it: the POINT is the lowest rung at or above 35 on which
+/// black clears the floor. Per theme, because the ladder is a curve — it lands on 30 for Nord,
+/// 40 for Mocha, and 63 for Solarized Dark, and a single fixed rung would have to be 63 for all
+/// of them, which on Mocha is brighter than the body text it sits beside.
+///
+/// The scheme's own invariant survives it on every theme: the POINT still separates from the SET
+/// by more than the SET lifts off the window, which is what keeps *"these are the doors"* and
+/// *"you are standing in this one"* two marks rather than two shades.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FieldRungs {
+    /// Round 1: SET at rung 22, POINT at [`crate::tokens::edit_bg`]'s rung 35.
+    #[default]
+    Fixed,
+    /// **Round 2, item 3**: the SET unchanged, the POINT derived so black can be read on it.
+    BlackText,
+}
+
+static RUNGS: AtomicU8 = AtomicU8::new(FieldRungs::Fixed as u8);
+
+impl FieldRungs {
+    pub const ALL: [Self; 2] = [Self::Fixed, Self::BlackText];
+
+    pub fn current() -> Self {
+        match RUNGS.load(Ordering::Relaxed) {
+            1 => Self::BlackText,
+            _ => Self::Fixed,
+        }
+    }
+
+    pub fn set(rungs: Self) {
+        RUNGS.store(rungs as u8, Ordering::Relaxed);
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fixed => "rung 35, text as it comes",
+            Self::BlackText => "derived for black text",
+        }
+    }
+}
+
 /// EDIT mode, the POINT mark: the field the keystrokes are going into.
 ///
-/// [`crate::tokens::edit_bg`] unchanged. A second NAME rather than a second rung, because the
-/// role it already carries — *"lighter than the selection tint, so it reads as 'you type
-/// HERE'"* — is exactly this one, and inventing a rung beside it would be inventing a role.
+/// Under [`FieldRungs::Fixed`] this is [`crate::tokens::edit_bg`] unchanged — a second NAME
+/// rather than a second rung, because the role it already carries (*"lighter than the selection
+/// tint, so it reads as 'you type HERE'"*) is exactly this one. Under
+/// [`FieldRungs::BlackText`] it is derived; see there.
 pub fn active_bg() -> Color {
-    modal_fill(edit_bg())
+    match FieldRungs::current() {
+        FieldRungs::Fixed => modal_fill(edit_bg()),
+        FieldRungs::BlackText => black_legible_point(),
+    }
+}
+
+/// The lowest rung from 35 upward on which black clears the body floor.
+///
+/// **Upward, and the direction is the whole instruction.** [`super::contrast::legible_ground`]
+/// searches darker first, which is right for a bar that only has to carry SOME legible text; it
+/// is wrong here, because Chris did not ask for legible text, he asked for BLACK text, and on a
+/// dark theme black gets legible by the fill getting lighter. Searching down would satisfy the
+/// contrast floor by making the field darker and putting white on it — the opposite of what was
+/// asked, passing the same test.
+///
+/// Rung 35 is the floor of the search rather than an arbitrary start: it is where the POINT
+/// already is, so the derived rung can only ever move the mark further from the SET, never
+/// closer.
+fn black_legible_point() -> Color {
+    let black = super::selector_fg();
+    (35u8..=100)
+        .map(|rung| modal_fill(neutral(rung)))
+        .find(|fill| super::contrast::contrast_ratio(black, *fill) >= super::contrast::BODY_FLOOR)
+        // No rung works: keep the rung the scheme names and let `active_fg` pick the end that
+        // can be read there. An unreadable black is worse than a legible substitution.
+        .unwrap_or_else(|| modal_fill(edit_bg()))
+}
+
+/// The text on the POINT mark — black wherever black can be read there, and the other end of the
+/// ladder where it cannot.
+///
+/// Bold, like the cursor row's own black-on-lavender, and for the reason ruling 7 gave: black at
+/// a normal weight reads thinner than the same text did on the window, and a mark that made its
+/// own field harder to read would be a strange kind of emphasis.
+pub fn active_fg() -> Color {
+    super::contrast::text_on(active_bg())
 }
 
 /// The static third column's surface — the default value, or the pre-edit one.
@@ -152,6 +326,84 @@ pub fn active_bg() -> Color {
 /// window is editing, so that a background on screen then means one thing and one thing only.
 pub fn reference_bg() -> Color {
     modal_fill(neutral(20))
+}
+
+/// **The selected-text mark** — item 3's last open question, as two arms to be rendered.
+///
+/// Chris: *"For text selection (which is possible with both edit style, in non-vim it is just
+/// done with pressing shift and moving the cursor) we'll have to define a color for the selected
+/// text."*
+///
+/// # What it replaces, and why that had to go
+///
+/// Today selection is [`ratatui::style::Modifier::REVERSED`], which is not a colour: it swaps
+/// whatever is under it. Inside an edit field that means the selection comes out **in the POINT
+/// field's own fill**, which is the one pairing guaranteed to say nothing — and once item 3
+/// gives the POINT a fill chosen for black text, reversing it produces black-on-black-text's-own
+/// colour. So a colour has to be named whatever else is decided.
+///
+/// # There is no spare hue, and the arms say so
+///
+/// [`crate::tokens::field`]'s own measurement: `info` is the selector's absolutely,
+/// `success`/`warning`/`error` are the health three, `secondary` IS the data cursor's hue on
+/// every non-Catppuccin theme, and `accent` is now the window's own tint. A tenth hue does not
+/// exist to be spent here, which is why arm A spends none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SelectedText {
+    /// **A — a neutral step, no hue.** The selection is a dark rung under light text: the same
+    /// *inversion* the reader already knows from the cursor block, done as two named colours
+    /// rather than as a modifier, so it is legible on any fill instead of borrowing one.
+    #[default]
+    Inverted,
+    /// **B — the theme's `secondary`.** A real colour, as the wording asks for. Its cost is a
+    /// collision: on every non-Catppuccin bundled theme `secondary` resolves to the same value
+    /// as the data cursor's hue, so a text selection and the row cursor would wear one colour
+    /// between them.
+    Secondary,
+}
+
+static SELECTED_TEXT: AtomicU8 = AtomicU8::new(SelectedText::Inverted as u8);
+
+impl SelectedText {
+    pub const ALL: [Self; 2] = [Self::Inverted, Self::Secondary];
+
+    pub fn current() -> Self {
+        match SELECTED_TEXT.load(Ordering::Relaxed) {
+            1 => Self::Secondary,
+            _ => Self::Inverted,
+        }
+    }
+
+    pub fn set(choice: Self) {
+        SELECTED_TEXT.store(choice as u8, Ordering::Relaxed);
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Inverted => "A neutral inversion, no hue",
+            Self::Secondary => "B theme secondary",
+        }
+    }
+}
+
+/// The fill under selected text.
+pub fn selected_text_bg() -> Color {
+    match SelectedText::current() {
+        // Rung 19 is the SELECTED-ROW tint, and reusing it here is deliberate rather than
+        // thrifty: a selection of rows and a selection of characters are the same idea at two
+        // scales, so one fill for both is the vocabulary being consistent instead of the
+        // palette being short.
+        SelectedText::Inverted => modal_fill(neutral(19)),
+        SelectedText::Secondary => super::theme()
+            .map(|palette| palette.secondary)
+            .unwrap_or(Color::Magenta),
+    }
+}
+
+/// The text on it — the end of the ladder that can be read there, so neither arm can produce an
+/// unreadable selection on a theme nobody looked at.
+pub fn selected_text_fg() -> Color {
+    super::contrast::text_on(selected_text_bg())
 }
 
 /// `accent`, used as what it already is: *a thing you may press*.

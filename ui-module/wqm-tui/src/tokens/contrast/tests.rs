@@ -184,6 +184,110 @@ fn item_3_black_text_needs_a_light_fill_and_this_is_where_it_starts() {
     });
 }
 
+/// **ITEM 3, black text on the ACTIVE field, under the blend round 2 proposes.**
+///
+/// The table above is taken under round 1's straight mix, which lifts every fill toward a bright
+/// accent and so flatters black text. [`TintBlend::HoldLuminance`] does not, and the whole point
+/// of it is that a rung keeps the lightness it was given — so the question *"can black be read
+/// on the active field"* has to be asked again on the surface that will actually be painted.
+///
+/// The second column is the same question asked of the ROLE rather than of the colour: whichever
+/// end of the ladder is legible there. It is black on every dark theme, and it is what stops a
+/// light theme — where the ladder runs the other way — from getting unreadable dark-on-dark.
+#[test]
+fn item_3_black_on_the_active_field_under_the_proposed_blend() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::ruled();
+    TintBlend::set(TintBlend::HoldLuminance);
+    let black = selector_fg();
+    println!(
+        "\nITEM 3 — text on the ACTIVE field, lightness held, k={RULED_STRENGTH:.2}\n\
+         body floor {BODY_FLOOR:.1}:1. `role` is `contrast::text_on`, which picks the end that \
+         can be read.\n"
+    );
+    println!(
+        "{:<24} {:>14} {:>14} {:>10}",
+        "theme", "black (asked)", "role (picked)", "picks"
+    );
+    let mut black_fails = Vec::new();
+    each_theme(|theme| {
+        let point = tokens::field::active_bg();
+        let by_role = text_on(point);
+        let (as_black, as_role) = (contrast_ratio(black, point), contrast_ratio(by_role, point));
+        if as_black < BODY_FLOOR {
+            black_fails.push((theme.to_string(), as_black));
+        }
+        println!(
+            "{theme:<24} {:>14} {:>14} {:>10}",
+            format!(
+                "{as_black:.1}:1{}",
+                if as_black >= BODY_FLOOR { "" } else { "x" }
+            ),
+            format!("{as_role:.1}:1"),
+            if by_role == tokens::neutral_at(0) {
+                "dark"
+            } else {
+                "light"
+            }
+        );
+    });
+    println!("\nliteral black falls below the floor on: {black_fails:?}");
+}
+
+/// **ITEM 3, the consequence: where the ACTIVE field has to sit for black to be readable on it.**
+///
+/// The table above says rung 35 is a dead zone — black fails on nine themes and the light end
+/// fails on most of the rest, because rung 35 is a MIDDLE grey and a middle grey is bad for both
+/// ends at once. So *"the font of the selected line becomes black"* is not a change of
+/// foreground: it is a change of the fill under it, and this finds the rung.
+///
+/// The second half is the constraint that keeps the two-tier scheme intact: wherever the POINT
+/// lands, it must still separate from the SET by more than the SET lifts off the window, or the
+/// *"these are the doors / you are standing in this one"* pair collapses into two shades a
+/// reader has to measure.
+#[test]
+fn item_3_the_rung_a_black_texted_active_field_needs() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::ruled();
+    TintBlend::set(TintBlend::HoldLuminance);
+    let black = selector_fg();
+    println!(
+        "\nITEM 3 — lowest rung where BLACK clears {BODY_FLOOR:.1}:1 on the active fill\n\
+         lightness held, k={RULED_STRENGTH:.2}. `set→point` is measured at that rung.\n"
+    );
+    println!(
+        "{:<24} {:>8} {:>10} {:>12} {:>12}",
+        "theme", "rung", "black", "window→set", "set→point"
+    );
+    let mut highest = 0u8;
+    each_theme(|theme| {
+        let found = (16u8..=100)
+            .find(|rung| contrast_ratio(black, modal_fill(neutral_at(*rung))) >= BODY_FLOOR);
+        match found {
+            Some(rung) => {
+                highest = highest.max(rung);
+                let point = modal_fill(neutral_at(rung));
+                let set = tokens::field::editable_bg();
+                println!(
+                    "{theme:<24} {:>8} {:>10.1} {:>12.1} {:>12.1}",
+                    rung,
+                    contrast_ratio(black, point),
+                    delta_e(modal_fill(layer1_bg()), set),
+                    delta_e(set, point),
+                );
+            }
+            // A light theme reads the ladder the other way: its rung 16 is already near the
+            // background it sits on, so black clears the floor there and the search stops at
+            // once. A `none` here would mean the ladder has no black-legible rung at all.
+            None => println!("{theme:<24} {:>8}", "none"),
+        }
+    });
+    println!(
+        "\nthe highest rung any bundled theme needs is {highest}; one rung serves all fifteen \
+         only if it is at least that."
+    );
+}
+
 /// **ITEM 3, the SET mark without its underline.** What the fill alone is worth at 0.40.
 ///
 /// Chris ruled the underline out and the strength up in the same breath, and those two pull
@@ -220,6 +324,70 @@ fn item_3_the_set_mark_carried_by_the_fill_alone() {
         });
         println!();
     }
+}
+
+/// **ITEM 3, the question the underline ruling turns on.** Does the fill alone carry the SET
+/// mark once the blend stops moving lightness?
+///
+/// Chris ruled the underline out and the strength up to 0.40 in one message. Under round 1's
+/// straight mix those pull against each other: the SET fill is a LIGHTNESS step off the window,
+/// the mix drags both surfaces toward one bright blue, and the step is what gets compressed —
+/// `tokens::field` measured Solarized Dark at ΔE 2.1, under the 2.3 JND, so on that theme the
+/// fill alone says nothing and the underline was the only mark left.
+///
+/// [`TintBlend::HoldLuminance`] does not compress it, because it does not touch the axis the
+/// step is made of. If the right-hand column clears the JND everywhere, the underline can go on
+/// Chris's word alone and nothing has to be traded for it.
+#[test]
+fn item_3_whether_the_fill_alone_survives_once_lightness_is_held() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::ruled();
+    println!(
+        "\nITEM 3 — SET fill lift off the window at k={RULED_STRENGTH:.2}, by blend\n\
+         JND is {JND:.1}; `x` marks a fill that says nothing on its own.\n"
+    );
+    println!(
+        "{:<24} {:>12} {:>12} {:>14} {:>14}",
+        "theme", "straight", "held", "straight point", "held point"
+    );
+    let (mut straight_fail, mut held_fail) = (0usize, 0usize);
+    each_theme(|theme| {
+        let mut cells = Vec::new();
+        for blend in [TintBlend::Straight, TintBlend::HoldLuminance] {
+            TintBlend::set(blend);
+            let lift = delta_e(modal_fill(layer1_bg()), tokens::field::editable_bg());
+            let point = delta_e(tokens::field::editable_bg(), tokens::field::active_bg());
+            if lift <= JND {
+                match blend {
+                    TintBlend::Straight => straight_fail += 1,
+                    TintBlend::HoldLuminance => held_fail += 1,
+                }
+            }
+            cells.push((lift, point));
+        }
+        let mark = |v: f32| {
+            if v <= JND {
+                format!("{v:.1}x")
+            } else {
+                format!("{v:.1} ")
+            }
+        };
+        println!(
+            "{theme:<24} {:>12} {:>12} {:>14.1} {:>14.1}",
+            mark(cells[0].0),
+            mark(cells[1].0),
+            cells[0].1,
+            cells[1].1
+        );
+    });
+    println!(
+        "\nfills below the JND: straight mix {straight_fail}/15, lightness held {held_fail}/15."
+    );
+    assert_eq!(
+        held_fail, 0,
+        "if the held blend also loses the fill on some theme, the underline cannot simply be \
+         dropped and item 3 needs a second mark that is not colour"
+    );
 }
 
 /// The derived-rung search, taken through the SAME blend the field surfaces go through.
