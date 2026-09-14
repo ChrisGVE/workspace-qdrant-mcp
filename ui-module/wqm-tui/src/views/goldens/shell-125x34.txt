@@ -1,0 +1,34 @@
+  WQM TUI   1  Dashboard   2 Queue  3 Projects  4 Libraries  5 Rules  6 Scratchpad  7 Search  8 Graph  9 Tags  10 Service
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ● Service status   v0.2.0                                                                                  updated 4s ago
+  ● daemon                      ● vector db                   ● graph db                    ● search db
+  ● queue                       0 pending                     0 in progress                 0 failed
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                       — tab content —
+
+
+
+
+
+
+
+
+
+
+
+
+

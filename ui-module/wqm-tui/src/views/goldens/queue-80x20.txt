@@ -1,0 +1,20 @@
+  WQM TUI 1 Dashboard  2  Queue   3 Projects  4 Libraries  5 Rules  6 Scratchp
+────────────────────────────────────────────────────────────────────────────────
+  ● Service status   v0.2.0                                     updated 4s ago
+────────────────────────────────────────────────────────────────────────────────
+
+      T Tenant       Object            Type   Op     Status         Size   Age
+    1 P workspace-q… …dit_report_r1.md file   add    in progress   23 KB    2h
+    2 P workspace-q… …dit_report_r5.md file   add    in progress   13 KB    2h
+    3 P workspace-q… …consolidation.md file   add    in progress   15 KB    2h
+    4 P workspace-q… …t-r3-security.md file   add    in progress    8 KB    2h
+    5 P workspace-q… …mplementation.md file   add    in progress   14 KB    2h
+    6 P workspace-q… …r-response-r7.md file   add    in progress   11 KB    2h
+    7 P workspace-q… …dit-r4-domain.md file   add    in progress   11 KB    2h
+    8 P workspace-q… …e/audit-r4-ux.md file   add    in progress    8 KB    2h
+    9 P workspace-q… …dit_report_r2.md file   add    in progress   21 KB    2h
+   10 P workspace-q… …t-r4-security.md file   add    in progress    8 KB    2h
+   11 P claude       …ts/bapnce3uu.txt file   update pending       31 KB    1m
+   12 P .config      …ts/bot1i2cqf.txt file   update pending       31 KB    1m
+────────────────────────────────────────────────────────────────────────────────
+                                                               ? Help   q Quit

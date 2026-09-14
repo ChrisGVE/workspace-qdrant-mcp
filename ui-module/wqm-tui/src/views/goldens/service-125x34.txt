@@ -1,0 +1,34 @@
+  1 Dashboard  2 Queue  3 Projects  4 Libraries  5 Rules  6 Scratchpad  7 Search  8 Graph  9 Tags  10  Service
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Service                                                                                                    updated 4s ago
+
+  Status
+  vector      ● qdrant          daemon      ● ok
+  graph       ● ladybug         version     0.2.0
+  relational  ● sqlite          index       12840 files · 0 queued · caught up
+
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+   Config   Logs
+
+  KEY                 ACTUAL                    DEFAULT
+  qdrant
+     URL              http://localhost:6333     http://localhost:6333
+     API key          <unset>                   <unset>
+  watcher
+     Debounce [ms]    2000                      1500
+     Recursive        on                        on
+  embedding
+     model            all-MiniLM-L6-v2          all-MiniLM-L6-v2
+     batch size       32                        32
+
+
+
+
+
+
+
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                             j/k move   ↵ edit   Tab pane   ? help   q quit

@@ -1,0 +1,20 @@
+  WQM TUI 1  Dashboard   2 Queue  3 Projects  4 Libraries  5 Rules  6 Scratchp
+────────────────────────────────────────────────────────────────────────────────
+  ● Service status   v0.2.0                                     updated 4s ago
+────────────────────────────────────────────────────────────────────────────────
+  Projects (29)                           Libraries (1)
+  Name              Bch Files     Queue   Name          Files    Queue  Sync
+  .config             1 2'790 2'635/0/0   programming      21    7/0/0  inc
+  … 6 more
+───────────────────────────────────────   ──────────────────────────────────────
+  Scratchpad (0)                          Rules (11)
+  Note          Scope             Queue   Rule name         Scope        Queue
+  No data                                 auto-file-defects global       0/0/0
+                                          … 7 more
+───────────────────────────────────────   ──────────────────────────────────────
+  Active Projects (2)                     Last Errors
+  Name           Branch  Files    Queue   Collection    Error
+  open-books     fix/s2…   449  247/4/0   [P] PlotSwift destination failure o…
+  workspace-qdr… dev        93   50/0/0   … 2 more
+────────────────────────────────────────────────────────────────────────────────
+                                                               ? Help   q Quit

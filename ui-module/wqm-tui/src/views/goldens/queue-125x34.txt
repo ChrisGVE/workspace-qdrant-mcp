@@ -1,0 +1,34 @@
+  WQM TUI   1 Dashboard  2  Queue   3 Projects  4 Libraries  5 Rules  6 Scratchpad  7 Search  8 Graph  9 Tags  10 Service
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ● Service status   v0.2.0                                                                                  updated 4s ago
+  ● daemon                      ● vector db                   ● graph db                    ● search db
+  ● queue                  11'236 pending                     4 in progress                 3 failed
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+       T  Tenant                  Object                                        Type    Op      Status          Size    Age
+    1  P  workspace-qdrant-mcp    …ves/prd-workspace/audit_report_r1.md         file    add     in progress    23 KB     2h
+    2  P  workspace-qdrant-mcp    …ves/prd-workspace/audit_report_r5.md         file    add     in progress    13 KB     2h
+    3  P  workspace-qdrant-mcp    …-workspace/audit-r5-consolidation.md         file    add     in progress    15 KB     2h
+    4  P  workspace-qdrant-mcp    …s/prd-workspace/audit-r3-security.md         file    add     in progress     8 KB     2h
+    5  P  workspace-qdrant-mcp    …workspace/audit-r3-implementation.md         file    add     in progress    14 KB     2h
+    6  P  workspace-qdrant-mcp    …rd-workspace/designer-response-r7.md         file    add     in progress    11 KB     2h
+    7  P  workspace-qdrant-mcp    …ves/prd-workspace/audit-r4-domain.md         file    add     in progress    11 KB     2h
+    8  P  workspace-qdrant-mcp    …rchives/prd-workspace/audit-r4-ux.md         file    add     in progress     8 KB     2h
+    9  P  workspace-qdrant-mcp    …ves/prd-workspace/audit_report_r2.md         file    add     in progress    21 KB     2h
+   10  P  workspace-qdrant-mcp    …s/prd-workspace/audit-r4-security.md         file    add     in progress     8 KB     2h
+   11  P  claude                  …a705d0205/tool-results/bapnce3uu.txt         file    update  pending        31 KB     1m
+   12  P  .config                 …a705d0205/tool-results/bot1i2cqf.txt         file    update  pending        31 KB     1m
+   13  P  claude                  …ts/agent-aa7d7964330b31483.meta.json         file    update  pending       169 B      2m
+   14  P  .config                 herdr/sessions/Main/session.json              file    update  pending        11 KB     4m
+   15  P  claude                  …ts/agent-a1eff1edcbad2c30e.meta.json         file    update  pending       319 B      6m
+   16  P  open-books              …uilding/common/filters/rust-xref.lua         file    update  pending                  7m
+   17  P  open-books              …ommon/filters/test_collapse_xref.lua         file    update  pending                  7m
+   18  P  workspace-qdrant-mcp    …-ux/GT001-wqm-tui/VISUAL-LANGUAGE.md         file    update  pending        40 KB     7m
+   19  P  open-books              …-workspace/s334_single_band_probe.py         file    update  pending                  7m
+   20  P  open-books              …ding/common/stage_b/reading_guide.py         file    update  pending                  7m
+   21  P  open-books              …ommon/stage_b/reading_guide_bands.py         file    add     pending                  7m
+   22  P  open-books              …de-variants/reading-guide-round3.pdf         file    add     pending                  7m
+   23  P  open-books              …ommon/stage_b/reading_guide_latex.py         file    update  pending                  7m
+   24  P  open-books              output/global.toml                            file    update  pending                  7m
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                   ↓↑/jk Navigate   / Search   f Filter   o Op   s Status   y Retry   c Cancel   x Remove   ? Help   q Quit

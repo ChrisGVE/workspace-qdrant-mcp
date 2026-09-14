@@ -79,7 +79,9 @@ fn dashboard(cells: Vec<CellPane>, queue: Queue, entries: [Health; 4]) -> Dashbo
     Dashboard::new(cells, block(entries, queue))
 }
 
-fn populated() -> Dashboard {
+/// Visible to the crate so the frozen frames (`views::goldens`) are of the screen the pantry
+/// draws rather than of a second construction of it.
+pub(crate) fn populated() -> Dashboard {
     dashboard(
         frames::populated(),
         captured_queue(),
@@ -92,7 +94,12 @@ fn populated() -> Dashboard {
     )
 }
 
-struct Variant(&'static str, &'static str, fn() -> Dashboard, Option<(u16, u16)>);
+struct Variant(
+    &'static str,
+    &'static str,
+    fn() -> Dashboard,
+    Option<(u16, u16)>,
+);
 
 impl Ingredient for Variant {
     fn tab(&self) -> &str {

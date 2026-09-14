@@ -1,0 +1,20 @@
+  1 Dashboard  2 Queue  3 Projects  4 Libraries  5 Rules  6 Scratchpad  7 Sear
+────────────────────────────────────────────────────────────────────────────────
+  Service                                                       updated 4s ago
+
+  Status
+  vector      ● qdrant          daemon      ● ok
+  graph       ● ladybug         version     0.2.0
+  relational  ● sqlite          index       12840 files · 0 queued · caught up
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+   Config   Logs
+
+  KEY                 ACTUAL                    DEFAULT
+  qdrant
+     URL              http://localhost:6333     http://localhost:6333
+     API key          <unset>                   <unset>
+────────────────────────────────────────────────────────────────────────────────
+                                j/k move   ↵ edit   Tab pane   ? help   q quit
