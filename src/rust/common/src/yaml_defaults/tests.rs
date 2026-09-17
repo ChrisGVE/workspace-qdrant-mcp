@@ -193,6 +193,7 @@ fn test_resource_limits_defaults() {
     assert_eq!(config.resource_limits.nice_level, 10);
     assert_eq!(config.resource_limits.max_concurrent_embeddings, 0);
     assert_eq!(config.resource_limits.max_memory_percent, 70);
+    assert_eq!(config.resource_limits.max_rss_mb, 4096);
     assert_eq!(config.resource_limits.onnx_intra_threads, 0);
     assert_eq!(config.resource_limits.idle_threshold_secs, 120);
     assert_eq!(config.resource_limits.idle_confirmation_secs, 300);

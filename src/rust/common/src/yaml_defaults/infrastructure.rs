@@ -366,6 +366,8 @@ pub struct YamlResourceLimitsConfig {
     pub max_concurrent_embeddings: usize,
     /// Pause processing when available memory falls below (100 - this)%
     pub max_memory_percent: u8,
+    /// Pause processing when this process's own RSS exceeds this many megabytes
+    pub max_rss_mb: u64,
     /// ONNX intra-op threads per embedding session (0 = auto-detect)
     pub onnx_intra_threads: usize,
     /// Seconds of no user input before considering idle
@@ -398,6 +400,7 @@ impl Default for YamlResourceLimitsConfig {
             nice_level: 10,
             max_concurrent_embeddings: 0,
             max_memory_percent: 70,
+            max_rss_mb: 4096,
             onnx_intra_threads: 0,
             idle_threshold_secs: 120,
             idle_confirmation_secs: 300,

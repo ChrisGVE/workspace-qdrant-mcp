@@ -243,6 +243,7 @@ fn build_unified_config(
         max_retries: 3,
         max_concurrent_embeddings: config.resource_limits.max_concurrent_embeddings,
         max_memory_percent: config.resource_limits.max_memory_percent,
+        max_rss_mb: config.resource_limits.max_rss_mb,
         warmup_window_secs: daemon_config.startup.warmup_window_secs,
         warmup_max_concurrent_embeddings: daemon_config.startup.warmup_max_concurrent_embeddings,
         onnx_intra_threads: config.resource_limits.onnx_intra_threads,

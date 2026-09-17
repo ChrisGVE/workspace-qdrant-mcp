@@ -9,21 +9,29 @@ use tracing::{info, warn};
 use crate::unified_queue_processor::config::UnifiedProcessorConfig;
 use crate::unified_queue_processor::UnifiedQueueProcessor;
 
+/// Whether an RSS reading is over the configured pause limit.
+///
+/// The limit is a ceiling the process is allowed to reach, so a reading equal
+/// to it does not pause. Kept as a free function so the boundary is testable
+/// without reading the live process.
+pub(super) fn rss_exceeds_limit(rss_mb: u64, max_rss_mb: u64) -> bool {
+    rss_mb > max_rss_mb
+}
+
 impl UnifiedQueueProcessor {
     /// Check memory pressure; sleep and return `true` (→ `continue`) if over limit.
     pub(super) async fn handle_memory_pressure(
         config: &UnifiedProcessorConfig,
         _poll_interval: Duration,
     ) -> bool {
-        if !Self::check_memory_pressure(config.max_memory_percent).await {
+        if !Self::check_memory_pressure(config.max_memory_percent, config.max_rss_mb).await {
             return false;
         }
         let rss = Self::current_rss_mb();
-        if Self::check_process_rss() {
+        if Self::check_process_rss(config.max_rss_mb) {
             warn!(
                 "Process RSS {}MB exceeds {}MB limit, pausing processing for 10s",
-                rss,
-                Self::DEFAULT_MAX_RSS_MB
+                rss, config.max_rss_mb
             );
             tokio::time::sleep(Duration::from_secs(10)).await;
         } else {
@@ -37,20 +45,16 @@ impl UnifiedQueueProcessor {
         true
     }
 
-    /// Default maximum RSS in megabytes before pausing processing.
-    /// Acts as a safety valve against memory leaks in the processing pipeline.
-    pub(super) const DEFAULT_MAX_RSS_MB: u64 = 2048; // 2 GB
-
     /// Check if the daemon should pause processing due to memory constraints.
     ///
     /// Two independent checks:
-    /// 1. **Process RSS** — pauses if this process exceeds `DEFAULT_MAX_RSS_MB`.
+    /// 1. **Process RSS** — pauses if this process exceeds `max_rss_mb`.
     ///    This is the primary safety valve on macOS where OS-level pressure
     ///    reporting is delayed by the memory compressor.
     /// 2. **System memory pressure** — pauses if OS reports low available memory.
-    pub(super) async fn check_memory_pressure(max_memory_percent: u8) -> bool {
+    pub(super) async fn check_memory_pressure(max_memory_percent: u8, max_rss_mb: u64) -> bool {
         // Check process RSS first — this is the reliable safety valve
-        if Self::check_process_rss() {
+        if Self::check_process_rss(max_rss_mb) {
             return true;
         }
 
@@ -64,10 +68,9 @@ impl UnifiedQueueProcessor {
         }
     }
 
-    /// Check if this process's current RSS exceeds the safety limit.
-    pub(super) fn check_process_rss() -> bool {
-        let rss_mb = Self::current_rss_mb();
-        rss_mb > Self::DEFAULT_MAX_RSS_MB
+    /// Check if this process's current RSS exceeds the configured safety limit.
+    pub(super) fn check_process_rss(max_rss_mb: u64) -> bool {
+        rss_exceeds_limit(Self::current_rss_mb(), max_rss_mb)
     }
 
     /// Get the current RSS of this process in megabytes.

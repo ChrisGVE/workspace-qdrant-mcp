@@ -11,6 +11,7 @@ mod tests {
             "default should be 0 (auto-detect)"
         );
         assert_eq!(config.max_memory_percent, 70);
+        assert_eq!(config.max_rss_mb, 4096);
         assert_eq!(
             config.onnx_intra_threads, 0,
             "default should be 0 (auto-detect)"
@@ -171,5 +172,57 @@ mod tests {
         assert_eq!(deserialized.ramp_down_step_secs, 300);
         assert_eq!(deserialized.burst_hold_secs, 600);
         assert!((deserialized.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_resource_limits_max_rss_mb_validation() {
+        let mut config = ResourceLimitsConfig::default();
+        config.resolve_auto_values(); // Must resolve before validation
+
+        // Zero would pause processing forever -- the one bound we impose.
+        config.max_rss_mb = 0;
+        assert!(config.validate().is_err());
+
+        // Any positive value is the operator's to choose.
+        config.max_rss_mb = 1;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_limits_max_rss_mb_env_override() {
+        let mut config = ResourceLimitsConfig::default();
+
+        std::env::set_var("WQM_RESOURCE_MAX_RSS_MB", "8192");
+
+        config.apply_env_overrides();
+
+        assert_eq!(config.max_rss_mb, 8192);
+
+        // Clean up
+        std::env::remove_var("WQM_RESOURCE_MAX_RSS_MB");
+    }
+
+    #[test]
+    fn test_resource_limits_max_rss_mb_serialization_round_trip() {
+        let config = ResourceLimitsConfig {
+            max_rss_mb: 6144,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"max_rss_mb\":6144"));
+
+        let deserialized: ResourceLimitsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.max_rss_mb, 6144);
+    }
+
+    #[test]
+    fn test_resource_limits_max_rss_mb_absent_key_uses_default() {
+        // A config written before this key existed must still load.
+        let json = r#"{"nice_level":10,"max_memory_percent":70}"#;
+
+        let config: ResourceLimitsConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(config.max_rss_mb, 4096);
     }
 }

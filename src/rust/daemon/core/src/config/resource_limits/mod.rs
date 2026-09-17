@@ -19,6 +19,9 @@ fn default_max_concurrent_embeddings() -> usize {
 fn default_max_memory_percent() -> u8 {
     70
 }
+fn default_max_rss_mb() -> u64 {
+    4096
+}
 fn default_onnx_intra_threads() -> usize {
     0
 } // 0 = auto-detect
@@ -87,6 +90,16 @@ pub struct ResourceLimitsConfig {
     /// Default: 70
     #[serde(default = "default_max_memory_percent")]
     pub max_memory_percent: u8,
+
+    /// Pause processing when this process's own resident set size exceeds this
+    /// many megabytes. Distinct from `max_memory_percent`: that one watches the
+    /// *host* and yields to other programs, while this is the safety valve on
+    /// the daemon itself, guarding against a leak in the processing pipeline.
+    /// On macOS it is the more reliable of the two, because OS-level pressure
+    /// reporting is delayed by the memory compressor.
+    /// Unit: megabytes. Default: 4096 (4 GB).
+    #[serde(default = "default_max_rss_mb")]
+    pub max_rss_mb: u64,
 
     /// Number of ONNX intra-op threads per embedding session.
     /// 0 = auto-detect (always resolves to 2; the all-MiniLM-L6-v2 model
@@ -165,6 +178,7 @@ impl Default for ResourceLimitsConfig {
             nice_level: default_nice_level(),
             max_concurrent_embeddings: default_max_concurrent_embeddings(),
             max_memory_percent: default_max_memory_percent(),
+            max_rss_mb: default_max_rss_mb(),
             onnx_intra_threads: default_onnx_intra_threads(),
             idle_threshold_secs: default_idle_threshold_secs(),
             idle_confirmation_secs: default_idle_confirmation_secs(),

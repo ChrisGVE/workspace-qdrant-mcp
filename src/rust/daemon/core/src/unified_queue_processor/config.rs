@@ -91,6 +91,10 @@ pub struct UnifiedProcessorConfig {
     /// Pause processing when available memory falls below (100 - this)%.
     /// e.g. 70 means pause when less than 30% of system memory is available.
     pub max_memory_percent: u8,
+    /// Pause processing when this process's own RSS exceeds this many megabytes.
+    /// The safety valve on the daemon itself, as opposed to the host-wide check
+    /// above. Default: 4096 (4 GB).
+    pub max_rss_mb: u64,
 
     // Warmup throttling (Task 577)
     /// Duration in seconds of the warmup window with reduced limits
@@ -155,6 +159,7 @@ impl Default for UnifiedProcessorConfig {
             // Resource limits defaults (Task 504)
             max_concurrent_embeddings: 2,
             max_memory_percent: 70,
+            max_rss_mb: 4096,
             // Warmup throttling defaults (Task 577)
             warmup_window_secs: 30,
             warmup_max_concurrent_embeddings: 1,

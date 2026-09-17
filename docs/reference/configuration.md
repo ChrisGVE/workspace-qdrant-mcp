@@ -209,7 +209,8 @@ Top-level daemon settings.
 | `nice_level` | integer | `10` | OS process priority (-20 = highest, 19 = lowest) |
 | `inter_item_delay_ms` | integer | `50` | Delay between queue items (0–5000 ms); prevents CPU saturation |
 | `max_concurrent_embeddings` | integer | `2` | Concurrent ONNX embedding operations (1–8) |
-| `max_memory_percent` | integer | `70` | Pause processing when system memory exceeds this percentage (20–95) |
+| `max_memory_percent` | integer | `70` | Pause processing when system memory exceeds this percentage (20–95). Env override: `WQM_RESOURCE_MAX_MEMORY_PERCENT` |
+| `max_rss_mb` | integer | `4096` | Pause processing when the daemon's own resident set size exceeds this many megabytes (must be > 0). Env override: `WQM_RESOURCE_MAX_RSS_MB` |
 
 ### `queue_processor`
 

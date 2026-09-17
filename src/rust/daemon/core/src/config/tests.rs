@@ -62,6 +62,7 @@ fn test_daemon_config_includes_resource_limits() {
         "default is 0 (auto-detect)"
     );
     assert_eq!(config.resource_limits.max_memory_percent, 70);
+    assert_eq!(config.resource_limits.max_rss_mb, 4096);
     assert_eq!(
         config.resource_limits.onnx_intra_threads, 0,
         "default is 0 (auto-detect)"

@@ -28,6 +28,7 @@ mod tests {
         // Resource limits (Task 504)
         assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);
+        assert_eq!(config.max_rss_mb, 4096);
     }
 
     #[test]

@@ -95,6 +95,7 @@ daemon:
     inter_item_delay_ms: 50             # Breathing room between queue items (0-5000)
     max_concurrent_embeddings: 2        # Concurrent ONNX embedding ops (1-8)
     max_memory_percent: 70              # Pause processing above this % (20-95)
+    max_rss_mb: 4096                    # Pause when daemon's own RSS exceeds this (MB)
 
 # Auto-ingestion settings
 auto_ingestion:

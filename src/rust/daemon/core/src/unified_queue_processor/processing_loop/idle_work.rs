@@ -123,7 +123,8 @@ async fn run_maintenance_tick(
 ) {
     let qdrant_available = storage_client.is_qdrant_available();
     let memory_pressure =
-        UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await;
+        UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent, config.max_rss_mb)
+            .await;
     let idle_state = crate::idle::IdleState::determine(0, qdrant_available, memory_pressure);
     if idle_state.allows_maintenance() {
         let maint_ctx = crate::idle::MaintenanceContext {

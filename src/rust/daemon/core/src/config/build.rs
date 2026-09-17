@@ -262,6 +262,7 @@ fn build_resource_limits_config(yaml: &YamlConfig) -> ResourceLimitsConfig {
         nice_level: yaml.resource_limits.nice_level,
         max_concurrent_embeddings: yaml.resource_limits.max_concurrent_embeddings,
         max_memory_percent: yaml.resource_limits.max_memory_percent,
+        max_rss_mb: yaml.resource_limits.max_rss_mb,
         onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
         idle_threshold_secs: yaml.resource_limits.idle_threshold_secs,
         idle_confirmation_secs: yaml.resource_limits.idle_confirmation_secs,

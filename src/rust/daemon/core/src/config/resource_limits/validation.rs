@@ -17,6 +17,11 @@ impl ResourceLimitsConfig {
         if self.max_memory_percent < 20 || self.max_memory_percent > 95 {
             return Err("max_memory_percent must be between 20 and 95".to_string());
         }
+        if self.max_rss_mb == 0 {
+            return Err("max_rss_mb must be greater than 0 \
+                 (0 would pause processing permanently)"
+                .to_string());
+        }
         if self.onnx_intra_threads == 0 || self.onnx_intra_threads > 16 {
             return Err("onnx_intra_threads must be between 1 and 16 \
                  (0 should have been auto-resolved)"

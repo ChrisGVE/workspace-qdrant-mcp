@@ -312,7 +312,9 @@ async fn process_single_item(item: UnifiedQueueItem, ctx: &BatchContext) -> Opti
 
 /// Check memory pressure, returning `true` if the batch should pause.
 async fn check_memory_pressure(config: &UnifiedProcessorConfig) -> bool {
-    if !UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent).await {
+    if !UnifiedQueueProcessor::check_memory_pressure(config.max_memory_percent, config.max_rss_mb)
+        .await
+    {
         return false;
     }
 

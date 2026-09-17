@@ -13,6 +13,7 @@ impl ResourceLimitsConfig {
             "WQM_RESOURCE_MAX_MEMORY_PERCENT",
             &mut self.max_memory_percent,
         );
+        apply_env_u64("WQM_RESOURCE_MAX_RSS_MB", &mut self.max_rss_mb);
         apply_env_usize(
             "WQM_RESOURCE_ONNX_INTRA_THREADS",
             &mut self.onnx_intra_threads,

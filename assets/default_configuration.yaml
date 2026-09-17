@@ -1074,6 +1074,16 @@ resource_limits:
   # Format: Integer 20..95
   max_memory_percent: 70
 
+  # max_rss_mb: Pause processing when the daemon's own resident set size exceeds
+  # this many megabytes. Distinct from max_memory_percent, which watches the host:
+  # this is the safety valve on the daemon itself, guarding against a leak in the
+  # processing pipeline. On macOS it is the more reliable of the two, because
+  # OS-level pressure reporting is delayed by the memory compressor.
+  # Override with the WQM_RESOURCE_MAX_RSS_MB environment variable.
+  # Default: 4096 (4 GB)
+  # Format: Integer > 0, in megabytes
+  max_rss_mb: 4096
+
   # onnx_intra_threads: ONNX intra-op threads per embedding session
   # 0 = auto-detect (resolves to 2; the all-MiniLM-L6-v2 model is too small
   # to benefit from more intra-op parallelism)
