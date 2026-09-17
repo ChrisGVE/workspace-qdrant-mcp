@@ -582,3 +582,52 @@ fn the_help_window_is_a_container_whose_content_scrolls() {
         "a scrollable help window must show its bar: {column:?}"
     );
 }
+
+/// **The pantry's preview cell must never take the harness down.** The interactive browser hands
+/// every entry its preview rect — 94x12 on one of Chris's terminals (2026-09-17) — and the
+/// whole-screen frames that reached `Container::footprint` there panicked instead of drawing the
+/// too-small message the record frames already drew. Every frame in this module that is not a
+/// record goes through the same door now; this pins it at exactly that size.
+#[test]
+fn every_whole_screen_frame_says_too_small_instead_of_panicking() {
+    let _serial = crate::global_state_lock();
+    let _restore = Restore::mocha();
+    let preview = Rect {
+        x: 0,
+        y: 0,
+        width: 94,
+        height: 12,
+    };
+    assert!(
+        Footprint::Max.window(preview).is_none(),
+        "the pinned size must be one that cannot hold a window"
+    );
+    type Draw = fn(Rect, &mut Buffer);
+    let frames: Vec<(&str, Draw)> = vec![
+        ("table in a modal", |area, buf| {
+            assert!(table_frame(area, buf, false).is_none());
+        }),
+        ("table, pinned column shown", |area, buf| {
+            assert!(table_frame(area, buf, true).is_none());
+        }),
+        ("table, empty", |area, buf| {
+            assert!(empty_table_frame(area, buf).is_none());
+        }),
+        ("contextual help", |area, buf| {
+            assert!(help_frame(area, buf).is_none());
+        }),
+        ("slide t=0", |area, buf| slide_frame(area, buf, 0.0)),
+        ("slide t=0.5", |area, buf| slide_frame(area, buf, 0.5)),
+        ("slide t=1", |area, buf| slide_frame(area, buf, 1.0)),
+    ];
+    let headline = TooSmall::new(preview).headline(preview.width);
+    for (name, render) in frames {
+        let text = screen_text(&draw(preview, render));
+        assert!(
+            text.contains(headline),
+            "{name}: the too-small message is missing at {}x{}",
+            preview.width,
+            preview.height
+        );
+    }
+}

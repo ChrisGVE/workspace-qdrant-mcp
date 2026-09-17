@@ -132,6 +132,25 @@ fn draw_page(area: Rect, buf: &mut Buffer) {
     page().render(area, buf);
 }
 
+/// The quietened page, and the window a frame may draw over it — or [`None`] once the
+/// too-small message has gone over the page instead.
+///
+/// The one door every whole-screen frame in this module goes through, so that a frame drawn at
+/// a size that cannot hold a window says so on screen rather than panicking. That size is not
+/// hypothetical: the pantry's interactive browser hands every entry its preview cell — 94x12 on
+/// one of Chris's terminals — and the first frame to reach [`Container::footprint`] there took
+/// the whole harness down with it (2026-09-17). [`Frame::draw`] and [`RecordFrame::draw`]
+/// already answered this the right way; this is the same answer for the frames that are not
+/// records.
+fn page_and_window(area: Rect, buf: &mut Buffer) -> Option<Rect> {
+    draw_page(area, buf);
+    let rect = Footprint::Max.window(area);
+    if rect.is_none() {
+        TooSmall::new(area).render(area, buf);
+    }
+    rect
+}
+
 /// The keys a record window offers, which differ by mode — the verbs are the window's.
 fn record_hints(layer: Layer, editing: bool) -> Layer {
     if editing {
@@ -281,18 +300,16 @@ pub fn table_stack(show_pinned: bool) -> Stack {
 }
 
 /// A table frame over the quietened page.
-pub fn table_frame(area: Rect, buf: &mut Buffer, show_pinned: bool) -> Rect {
-    draw_page(area, buf);
-    let rect = Container::footprint(area);
+pub fn table_frame(area: Rect, buf: &mut Buffer, show_pinned: bool) -> Option<Rect> {
+    let rect = page_and_window(area, buf)?;
     table_stack(show_pinned).render(rect, buf);
-    rect
+    Some(rect)
 }
 
 /// A table whose floor matches nothing — the empty state the first round of frames did not
 /// show.
-pub fn empty_table_frame(area: Rect, buf: &mut Buffer) -> Rect {
-    draw_page(area, buf);
-    let rect = Container::footprint(area);
+pub fn empty_table_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
+    let rect = page_and_window(area, buf)?;
     let rows: Vec<Vec<crate::panes::cell::Cell>> = fixture::ROWS.iter().map(queue::cells).collect();
     let stack = Stack::new(
         Layer::new(
@@ -307,7 +324,7 @@ pub fn empty_table_frame(area: Rect, buf: &mut Buffer) -> Rect {
         .hint("?", "Help"),
     );
     stack.render(rect, buf);
-    rect
+    Some(rect)
 }
 
 /// The unsaved-edit guard over a record window.
@@ -356,9 +373,8 @@ pub fn dropdown_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
 /// Queue's own help lines inside it, rather than a window of its own kind. Which is also the
 /// §01 argument arriving from another direction: the help content does not fit the window, so
 /// it scrolls, which arm A could never let it do.
-pub fn help_frame(area: Rect, buf: &mut Buffer) -> Rect {
-    draw_page(area, buf);
-    let rect = Container::footprint(area);
+pub fn help_frame(area: Rect, buf: &mut Buffer) -> Option<Rect> {
+    let rect = page_and_window(area, buf)?;
     // **Opened the way a reader opens it.** Round 1 built a lookalike here — its own decoration,
     // its own sections, its own scroll — so the frame could agree with the design while the
     // running window disagreed with both. `?` now goes through `Stack`, so what the pantry shows
@@ -370,14 +386,15 @@ pub fn help_frame(area: Rect, buf: &mut Buffer) -> Rect {
     ));
     debug_assert!(stack.helping(), "`?` did not open the help");
     stack.render(rect, buf);
-    rect
+    Some(rect)
 }
 
 /// The push transition, frozen at `t`: a record leaving left, the Queue arriving from the
 /// right, and the decoration already at its destination.
 pub fn slide_frame(area: Rect, buf: &mut Buffer, t: f32) {
-    draw_page(area, buf);
-    let rect = Container::footprint(area);
+    let Some(rect) = page_and_window(area, buf) else {
+        return;
+    };
 
     // The decoration is the DESTINATION's: the window is already where it is going, and only
     // its content is still arriving.

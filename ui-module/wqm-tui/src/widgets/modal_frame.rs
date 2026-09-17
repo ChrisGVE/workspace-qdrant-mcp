@@ -355,23 +355,26 @@ impl Container {
         &self.decoration
     }
 
-    /// **The window a caller gets when it states no size of its own** — the maximum, which is
+    /// **The window a test gets when it states no size of its own** — the maximum, which is
     /// item 0's page inset.
     ///
-    /// A convenience over [`Footprint::window`] for the callers that draw at a page size known
-    /// to hold a window, so they are not each writing the same `expect`. A composition that
-    /// sizes to its content states [`Footprint::Content`] instead.
+    /// Test-only, on purpose. A shipping frame is drawn into whatever rect it is handed — the
+    /// pantry's interactive browser hands each entry its preview cell, 94x12 on one terminal
+    /// (2026-09-17) — so shipping code goes through [`Footprint::window`] and draws
+    /// [`TooSmall`] on `None`, as `frames::page_and_window` does. Tests render at 125x34 or the
+    /// 100x30 floor, both far above [`MIN_PAGE_COLS`] x [`MIN_PAGE_ROWS`], and are the only
+    /// callers allowed to say "known to hold a window"; the `cfg` is what makes a new caller
+    /// outside them a compile error rather than a panic Chris meets in the harness.
     ///
     /// # Panics
-    /// If `area` cannot hold a window at all. Every caller renders at 125x34 or the 100x30
-    /// floor, both far above [`MIN_PAGE_COLS`] x [`MIN_PAGE_ROWS`], so the arm is unreachable —
-    /// and saying so is better than inventing a fallback rect nobody would notice was wrong.
+    /// If `area` cannot hold a window at all — which in a test is the test's mistake.
+    #[cfg(test)]
     pub fn footprint(area: Rect) -> Rect {
         Footprint::Max.window(area).unwrap_or_else(|| {
             panic!(
                 "{}x{} cannot hold a window; the minimum page is {MIN_PAGE_COLS}x\
-                 {MIN_PAGE_ROWS}, and a caller that has to meet a small screen must use \
-                 `Footprint::window` and draw `TooSmall`",
+                 {MIN_PAGE_ROWS}, and shipping code must use `Footprint::window` and draw \
+                 `TooSmall`",
                 area.width, area.height
             )
         })
