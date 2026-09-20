@@ -10,7 +10,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use qdrant_client::qdrant::{Condition, Filter};
+use qdrant_client::qdrant::point_id::PointIdOptions;
+use qdrant_client::qdrant::points_selector::PointsSelectorOneOf;
+use qdrant_client::qdrant::{Condition, Filter, PointId, PointsIdsList};
 use tracing::{debug, info, warn};
 
 use crate::lexicon::LexiconManager;
@@ -252,14 +254,30 @@ async fn uplift_single_point(
         // This prevents re-scanning the same point
     }
 
-    // Apply updates via set_payload
-    let filter = Filter::must([Condition::matches("chunk_id", candidate.point_id.clone())]);
-
     storage_client
-        .set_payload_by_filter(&candidate.collection, filter, updates)
+        .set_payload_on_selector(
+            &candidate.collection,
+            uplift_write_selector(candidate),
+            updates,
+        )
         .await?;
 
     Ok(changed)
+}
+
+/// Build the selector addressing the one point an uplift write updates.
+///
+/// The candidate's `point_id` is the Qdrant point **id** (from the scroll
+/// response), so the write addresses it as an id.  It used to be matched
+/// against a `chunk_id` payload key instead — a key no point carries — so
+/// every uplift write matched zero points, the `uplift_generation` marker
+/// never landed, the same candidates were re-selected on every pass, and each
+/// no-op cost two unindexed scans of the whole collection (GitHub #292).
+fn uplift_write_selector(candidate: &UpliftCandidate) -> PointsSelectorOneOf {
+    let id = PointId {
+        point_id_options: Some(PointIdOptions::Uuid(candidate.point_id.clone())),
+    };
+    PointsSelectorOneOf::Points(PointsIdsList { ids: vec![id] })
 }
 
 /// Convert a Qdrant PointId to a string.
@@ -322,6 +340,45 @@ mod tests {
         assert_eq!(stats.updated, 0);
         assert_eq!(stats.skipped, 0);
         assert_eq!(stats.errors, 0);
+    }
+
+    fn candidate(point_id: &str) -> UpliftCandidate {
+        UpliftCandidate {
+            point_id: point_id.to_string(),
+            collection: "projects".to_string(),
+            payload: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn uplift_write_addresses_the_point_by_its_id() {
+        // GitHub #292: the write used to select on a `chunk_id` payload key
+        // that no point carries, so every uplift matched zero points and the
+        // `uplift_generation` marker never landed.
+        let selector = uplift_write_selector(&candidate("000000b2-619a-d36c-e584-b2ed3515e831"));
+        match selector {
+            PointsSelectorOneOf::Points(ids) => {
+                assert_eq!(ids.ids.len(), 1, "exactly the candidate point");
+                assert_eq!(
+                    ids.ids[0].point_id_options,
+                    Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(
+                        "000000b2-619a-d36c-e584-b2ed3515e831".to_string()
+                    ))
+                );
+            }
+            other => panic!("uplift must address points by id, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn uplift_write_never_selects_on_a_payload_filter() {
+        // A payload filter is what made the write a full unindexed scan that
+        // matched nothing; an id selector is O(1) and always matches.
+        let selector = uplift_write_selector(&candidate("abc-123"));
+        assert!(
+            !matches!(selector, PointsSelectorOneOf::Filter(_)),
+            "uplift must not address its point through a payload filter"
+        );
     }
 
     #[test]

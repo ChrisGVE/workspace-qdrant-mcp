@@ -107,6 +107,39 @@ impl StorageClient {
         Ok(())
     }
 
+    /// Update payload fields on the points named by `selector`.
+    ///
+    /// Unlike [`Self::set_payload_by_filter`] this issues no pre-count: an id
+    /// selector already names the points it addresses, so counting them would
+    /// only add an unindexed scan of the collection (GitHub #292).
+    pub async fn set_payload_on_selector(
+        &self,
+        collection_name: &str,
+        selector: qdrant_client::qdrant::points_selector::PointsSelectorOneOf,
+        payload: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<(), StorageError> {
+        use qdrant_client::qdrant::SetPayloadPointsBuilder;
+
+        let qdrant_payload: std::collections::HashMap<String, qdrant_client::qdrant::Value> =
+            payload
+                .into_iter()
+                .map(|(k, v)| (k, convert_json_to_qdrant_value(v)))
+                .collect();
+
+        let request = SetPayloadPointsBuilder::new(collection_name, qdrant_payload)
+            .points_selector(selector)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client.set_payload(request.clone()).await.map_err(|e| {
+                StorageError::Point(format!("Failed to set payload on selector: {}", e))
+            })
+        })
+        .await?;
+
+        Ok(())
+    }
+
     /// Update payload fields on all points matching a filter.
     ///
     /// Used for cascade renames where tenant_id needs to be updated.
