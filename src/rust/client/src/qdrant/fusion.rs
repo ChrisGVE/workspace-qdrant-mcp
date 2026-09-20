@@ -26,8 +26,10 @@
 //! Mirrors `diversifyResults` in `search-diversity.ts`:
 //!
 //! 1. Walk results sorted by score descending (expected from caller).
-//! 2. Group consecutive results within `score_tier_threshold` of each other
-//!    into tiers (threshold measured from the **top** of the tier).
+//! 2. Group consecutive results into tiers.  The tier width is
+//!    `score_tier_fraction` x the top score of the list, measured from the
+//!    **top** of the tier, so the same fraction behaves the same way on a
+//!    cosine scale and on the much narrower RRF scale (GitHub #294).
 //! 3. Within each tier, round-robin across sources to interleave them.
 //! 4. Enforce `max_per_source` globally — skip any result that would push a
 //!    source beyond the cap.
@@ -231,18 +233,26 @@ pub struct DiversityConfig {
     pub enabled: bool,
     /// Maximum results from one source in the final output.
     pub max_per_source: usize,
-    /// Score delta within which results are grouped into the same tier.
-    pub score_tier_threshold: f64,
+    /// Tier width as a **fraction of the top score** of the list being
+    /// diversified — not an absolute score delta.  Results within
+    /// `fraction x top_score` of a tier's top score join that tier.
+    ///
+    /// Expressing it relatively keeps tiering meaningful whatever scale the
+    /// scores are on: cosine scores top out near 1.0, while a two-leg RRF sum
+    /// cannot exceed `2/61 = 0.0328` (GitHub #294).
+    pub score_tier_fraction: f64,
 }
 
 /// Default diversity configuration.
 ///
 /// Matches `DEFAULT_DIVERSITY_CONFIG` in `search-diversity.ts`:
-/// `enabled: true, maxPerSource: 3, scoreTierThreshold: 0.05`.
+/// `enabled: true, maxPerSource: 3, scoreTierThreshold: 0.05`.  The TS value
+/// is an absolute delta on a cosine scale; here it is a fraction of the top
+/// score, which reproduces it for a list topping out at 1.0.
 pub const DEFAULT_DIVERSITY_CONFIG: DiversityConfig = DiversityConfig {
     enabled: true,
     max_per_source: 3,
-    score_tier_threshold: 0.05,
+    score_tier_fraction: 0.05,
 };
 
 /// Compute the diversity score for a result list.
@@ -277,7 +287,7 @@ pub fn diversify_results(
         return (results, score);
     }
 
-    let tiers = build_score_tiers(&results, config.score_tier_threshold);
+    let tiers = build_score_tiers(&results, config.score_tier_fraction);
     let mut source_counts: HashMap<String, usize> = HashMap::new();
     let mut output: Vec<TaggedResult> = Vec::with_capacity(results.len());
     let mut spillover: Vec<TaggedResult> = Vec::new();
@@ -313,19 +323,26 @@ pub fn diversify_results(
 
 /// Group sorted results into tiers by score proximity.
 ///
-/// Threshold is measured from the **top** of the current tier (matching TS
+/// `fraction` is a fraction of the list's top score, and the resulting width
+/// is measured from the **top** of the current tier (matching TS
 /// `buildScoreTiers` where `tierTopScore` is set once per new tier).
-fn build_score_tiers(results: &[TaggedResult], threshold: f64) -> Vec<Vec<TaggedResult>> {
+///
+/// Results are sorted descending by contract, so `results[0].score` is the top
+/// score.  A non-positive top score yields a zero width, under which only
+/// exactly equal scores share a tier.
+fn build_score_tiers(results: &[TaggedResult], fraction: f64) -> Vec<Vec<TaggedResult>> {
     if results.is_empty() {
         return vec![];
     }
+
+    let tier_width = (results[0].score * fraction).max(0.0);
 
     let mut tiers: Vec<Vec<TaggedResult>> = Vec::new();
     let mut current_tier: Vec<TaggedResult> = vec![results[0].clone()];
     let mut tier_top_score = results[0].score;
 
     for r in &results[1..] {
-        if (tier_top_score - r.score).abs() <= threshold {
+        if (tier_top_score - r.score).abs() <= tier_width {
             current_tier.push(r.clone());
         } else {
             tiers.push(current_tier);

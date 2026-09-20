@@ -185,7 +185,7 @@ fn diversity_disabled_returns_input_unchanged() {
     let config = DiversityConfig {
         enabled: false,
         max_per_source: 3,
-        score_tier_threshold: 0.05,
+        score_tier_fraction: 0.05,
     };
     let (out, _score) = diversify_results(results.clone(), &config);
     assert_eq!(out.len(), 2);
@@ -216,7 +216,7 @@ fn diversity_max_per_source_caps_single_source() {
     let config = DiversityConfig {
         enabled: true,
         max_per_source: 3,
-        score_tier_threshold: 0.05,
+        score_tier_fraction: 0.05,
     };
     let (out, _score) = diversify_results(results, &config);
     // 3 primary + 2 spillover backfill = 5 (backfill restores count)
@@ -284,6 +284,82 @@ fn diversity_score_returned_matches_compute() {
     );
     // Suppress unused-variable warning
     let _ = expected_score;
+}
+
+// ── RRF-scale tiering (GitHub #294) ───────────────────────────────────────────
+
+/// RRF score for a 0-based leg rank, single leg: `1 / (RRF_K + rank + 1)`.
+fn rrf(rank: usize) -> f64 {
+    1.0 / (RRF_K as f64 + rank as f64 + 1.0)
+}
+
+/// A hybrid-tagged result on the RRF scale, from source `tenant`.
+fn hyb(id: &str, rank: usize, tenant: &str) -> TaggedResult {
+    make_result(
+        id,
+        rrf(rank),
+        "projects",
+        SearchType::Hybrid,
+        Some(tenant),
+        None,
+    )
+}
+
+/// Five RRF-scale results: leg ranks 0, 1, 2 from `proj1` and ranks 29, 30
+/// from `proj2`, already sorted by score descending as `fuse_and_sort` leaves
+/// them.
+fn rrf_scale_results() -> Vec<TaggedResult> {
+    vec![
+        hyb("a0", 0, "proj1"),
+        hyb("a1", 1, "proj1"),
+        hyb("a2", 2, "proj1"),
+        hyb("b29", 29, "proj2"),
+        hyb("b30", 30, "proj2"),
+    ]
+}
+
+#[test]
+fn score_tiers_do_not_collapse_on_rrf_scale_scores() {
+    // The whole single-leg RRF range is 1/61 = 0.0164 wide, so an absolute
+    // 0.05 threshold puts every result into one tier.  The tier width has to
+    // scale with the list it is applied to.
+    let tiers = build_score_tiers(&rrf_scale_results(), 0.05);
+    assert_eq!(
+        tiers.len(),
+        2,
+        "ranks 0-2 are near-ties; ranks 29-30 are a separate tier"
+    );
+    assert_eq!(
+        tiers[0].len(),
+        3,
+        "top tier holds only the genuine near-ties"
+    );
+    assert_eq!(tiers[1].len(), 2);
+}
+
+#[test]
+fn diversity_rrf_scale_keeps_low_ranked_hits_below_better_ones() {
+    // With one collapsed tier the interleave round-robins by source and the
+    // rank-29 hit lands at position 2, displacing ranks 1 and 2.
+    let (out, _score) = diversify_results(rrf_scale_results(), &DEFAULT_DIVERSITY_CONFIG);
+    let ids: Vec<&str> = out.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["a0", "a1", "a2", "b29", "b30"],
+        "a rank-29 hit must not outrank the rank-1 and rank-2 hits"
+    );
+}
+
+#[test]
+fn score_tiers_cosine_scale_unchanged_by_relative_width() {
+    // A cosine list topping out at 1.0 must tier exactly as it did under the
+    // absolute 0.05 threshold: 0.05 x 1.0 = 0.05.
+    let results = vec![sem("a", 1.0), sem("b", 0.96), sem("c", 0.94), sem("d", 0.5)];
+    let tiers = build_score_tiers(&results, 0.05);
+    assert_eq!(tiers.len(), 3, "a+b, then c, then d");
+    assert_eq!(tiers[0].len(), 2);
+    assert_eq!(tiers[1].len(), 1);
+    assert_eq!(tiers[2].len(), 1);
 }
 
 // ── point_to_tagged ───────────────────────────────────────────────────────────
