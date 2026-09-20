@@ -46,6 +46,9 @@ pub const DEFAULT_MAX_ATTEMPTS: u32 = 10;
 #[derive(Clone, Debug)]
 pub struct EmbeddingHealth {
     available: Arc<AtomicBool>,
+    /// Whether the park warning has already been emitted for the current
+    /// outage.  Re-armed by [`Self::set_available`] (GitHub #295).
+    park_warned: Arc<AtomicBool>,
 }
 
 impl EmbeddingHealth {
@@ -53,6 +56,7 @@ impl EmbeddingHealth {
     pub fn new(available: bool) -> Self {
         Self {
             available: Arc::new(AtomicBool::new(available)),
+            park_warned: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -62,6 +66,19 @@ impl EmbeddingHealth {
 
     pub fn set_available(&self) {
         self.available.store(true, Ordering::Release);
+        // Re-arm the park warning so the next outage is announced again.
+        self.park_warned.store(false, Ordering::Release);
+    }
+
+    /// Claim the one-shot "embedding work is parked" warning for the current
+    /// outage.
+    ///
+    /// Returns `true` for the first caller after the provider went down and
+    /// `false` for every caller until [`Self::set_available`] re-arms it.
+    pub fn claim_park_warning(&self) -> bool {
+        self.park_warned
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     pub fn set_unavailable(&self) {
@@ -340,6 +357,33 @@ mod tests {
         // Falls back to the 600s backstop rather than panicking on len-1.
         assert_eq!(wd.interval_for(0), Duration::from_secs(600));
         assert_eq!(wd.interval_for(5), Duration::from_secs(600));
+    }
+
+    #[test]
+    fn park_warning_is_claimed_once_per_outage() {
+        // GitHub #295: the per-batch WARN produced 168,090 identical lines in
+        // 8h15m and rotated the outage's own start out of the log.
+        let health = EmbeddingHealth::new(true);
+        health.set_unavailable();
+        assert!(health.claim_park_warning(), "the outage is announced once");
+        assert!(
+            !health.claim_park_warning(),
+            "every later batch of the same outage stays quiet"
+        );
+        assert!(!health.claim_park_warning());
+    }
+
+    #[test]
+    fn recovery_re_arms_the_park_warning() {
+        let health = EmbeddingHealth::new(true);
+        health.set_unavailable();
+        assert!(health.claim_park_warning());
+        health.set_available();
+        health.set_unavailable();
+        assert!(
+            health.claim_park_warning(),
+            "a second outage must be announced too"
+        );
     }
 
     #[tokio::test(start_paused = true)]

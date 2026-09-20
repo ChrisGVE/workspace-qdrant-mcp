@@ -26,7 +26,7 @@ use crate::unified_queue_processor::config::{
 use crate::unified_queue_processor::error::UnifiedProcessorResult;
 use crate::unified_queue_processor::UnifiedQueueProcessor;
 
-use super::batch_processing::{process_batch, update_tenant_activity};
+use super::batch_processing::{process_batch, update_tenant_activity, BatchOutcome};
 use super::idle_work::run_idle_work;
 use super::loop_state::LoopState;
 
@@ -394,6 +394,7 @@ impl UnifiedQueueProcessor {
                     tier2_tagger,
                     concept_config,
                     narrative_config,
+                    poll_interval,
                 )
                 .await
             }
@@ -440,6 +441,7 @@ impl UnifiedQueueProcessor {
         tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
         concept_config: &Arc<crate::config::ConceptConfig>,
         narrative_config: &Arc<crate::config::NarrativeConfig>,
+        poll_interval: Duration,
     ) -> bool {
         state.maintenance_scheduler.cancel_active();
         state.idle_since = None;
@@ -489,14 +491,17 @@ impl UnifiedQueueProcessor {
                 state.last_poll_dispatched = false;
                 false
             }
-            Ok(tenants) => {
-                // A batch actually moved — the throughput lane is fed live, so the
-                // next poll must NOT inject a spurious zero (#144).
-                state.last_poll_dispatched = true;
-                update_tenant_activity(&tenants, queue_manager).await;
-                if state.recovery_ramp_remaining > 0 {
-                    state.recovery_ramp_remaining -= 1;
+            Ok(outcome) => {
+                apply_batch_outcome(state, &outcome);
+                if !outcome.dispatched {
+                    // Every leased item was parked because the embedding
+                    // provider is down. Nothing moved, so wait out a poll
+                    // interval rather than leasing and parking the same items
+                    // again immediately (#295).
+                    tokio::time::sleep(poll_interval).await;
+                    return false;
                 }
+                update_tenant_activity(&outcome.tenants, queue_manager).await;
                 false
             }
         }
@@ -585,5 +590,21 @@ impl UnifiedQueueProcessor {
             }
             queue_depth_counter.store(depth as usize, std::sync::atomic::Ordering::Relaxed);
         }
+    }
+}
+
+/// Apply a finished batch's outcome to the loop state.
+///
+/// A batch that dispatched nothing — every leased item parked because the
+/// embedding provider is down — is not progress.  Scoring it as one left the
+/// loop with no backoff at all through a 24-hour outage: ~5.7 iterations per
+/// second, each a lease `UPDATE` plus ten park `UPDATE`s, about 60 `state.db`
+/// writes per second doing nothing (GitHub #295).
+pub(super) fn apply_batch_outcome(state: &mut LoopState, outcome: &BatchOutcome) {
+    // Feeds the next poll's throughput probe: a poll that dispatched nothing
+    // while a backlog remains must emit a zero rather than a stale rate (#144).
+    state.last_poll_dispatched = outcome.dispatched;
+    if outcome.dispatched && state.recovery_ramp_remaining > 0 {
+        state.recovery_ramp_remaining -= 1;
     }
 }

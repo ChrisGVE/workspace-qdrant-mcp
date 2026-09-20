@@ -82,6 +82,38 @@ fn op_requires_embedding(op: QueueOperation) -> bool {
     )
 }
 
+/// What a batch did.
+///
+/// `dispatched` is `false` only when every leased item was parked because the
+/// embedding provider is down: no work moved, so the loop has to back off
+/// instead of immediately leasing and parking the same items again (GitHub
+/// #295 — ~5.7 iterations/s for a 24-hour outage).  An empty `tenants` set is
+/// NOT the same thing: a batch of deletes moves work and reports no tenant.
+pub(super) struct BatchOutcome {
+    /// Tenants whose items moved, for activity tracking.
+    pub tenants: HashSet<String>,
+    /// Whether any item was actually processed.
+    pub dispatched: bool,
+}
+
+impl BatchOutcome {
+    /// Nothing moved: every item in the batch was parked.
+    pub(super) fn parked() -> Self {
+        Self {
+            tenants: HashSet::new(),
+            dispatched: false,
+        }
+    }
+
+    /// A batch ran; `tenants` are those whose items moved (possibly none).
+    pub(super) fn dispatched(tenants: HashSet<String>) -> Self {
+        Self {
+            tenants,
+            dispatched: true,
+        }
+    }
+}
+
 /// Process a non-empty batch of queue items concurrently.
 ///
 /// Items are processed with up to `max_concurrent_embeddings` in-flight at
@@ -114,7 +146,7 @@ pub(super) async fn process_batch(
     tier2_tagger: &Option<Arc<crate::tagging::Tier2Tagger>>,
     concept_config: &Arc<crate::config::ConceptConfig>,
     narrative_config: &Arc<crate::config::NarrativeConfig>,
-) -> Result<HashSet<String>, ()> {
+) -> Result<BatchOutcome, ()> {
     // Degrade gracefully while the dense embedding provider is down: re-lease
     // (park) the embedding-bearing items so they retry on recovery instead of
     // failing into the DLQ, and process only the items that don't need
@@ -125,12 +157,26 @@ pub(super) async fn process_batch(
             .into_iter()
             .partition(|it| op_requires_embedding(it.op));
         if !embed_items.is_empty() {
-            warn!(
-                parked = embed_items.len(),
-                processing = other.len(),
-                "embedding provider unavailable; parking embedding-bearing items, \
-                 processing non-embedding items"
-            );
+            // One WARN per outage: the watchdog's 10-minute probe line already
+            // carries the bounded-rate signal, so the per-batch detail belongs
+            // at debug (GitHub #295).
+            let announce = embedding_health
+                .as_ref()
+                .is_some_and(|h| h.claim_park_warning());
+            if announce {
+                warn!(
+                    parked = embed_items.len(),
+                    processing = other.len(),
+                    "embedding provider unavailable; parking embedding-bearing items, \
+                     processing non-embedding items"
+                );
+            } else {
+                debug!(
+                    parked = embed_items.len(),
+                    processing = other.len(),
+                    "embedding provider still unavailable; parking embedding-bearing items"
+                );
+            }
             for it in &embed_items {
                 if let Err(e) = queue_manager.re_lease_item(&it.queue_id, 30).await {
                     warn!(queue_id = %it.queue_id, "failed to park embedding item: {}", e);
@@ -142,7 +188,8 @@ pub(super) async fn process_batch(
         items
     };
     if items.is_empty() {
-        return Ok(HashSet::new());
+        // Everything was parked — nothing to dispatch.
+        return Ok(BatchOutcome::parked());
     }
 
     let ctx = Arc::new(BatchContext {
@@ -224,7 +271,7 @@ pub(super) async fn process_batch(
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(10)).await;
-                return Ok(processed_tenants);
+                return Ok(BatchOutcome::dispatched(processed_tenants));
             }
 
             let item = items[next_idx].clone();
@@ -243,7 +290,7 @@ pub(super) async fn process_batch(
         );
     }
 
-    Ok(processed_tenants)
+    Ok(BatchOutcome::dispatched(processed_tenants))
 }
 
 /// Process a single queue item: run the handler, then record success or failure.
