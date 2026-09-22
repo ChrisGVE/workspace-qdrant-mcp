@@ -25,7 +25,8 @@ pub struct UpliftConfig {
     pub batch_size: u32,
     /// Minimum seconds between uplift attempts.
     pub min_interval_secs: u64,
-    /// Current uplift generation (incremented each pass).
+    /// Current uplift generation (fixed for the daemon's lifetime; a no-update
+    /// pass means the collection is caught up, not that the generation moved).
     pub current_generation: u64,
 }
 
@@ -54,10 +55,15 @@ pub struct UpliftStats {
 
 /// Scroll Qdrant for points needing metadata uplift.
 ///
-/// Finds points where:
-/// - `lsp_enrichment_status` = 'failed', 'partial', or 'pending', OR
-/// - `concept_tags` field is missing/empty, OR
-/// - `uplift_generation` < current_generation
+/// Finds points where `lsp_enrichment_status` is 'failed', 'partial', or
+/// 'pending' AND `uplift_generation` < current_generation. Points that lack
+/// the `uplift_generation` key count as generation 0 and always match.
+///
+/// The generation condition lives in the Qdrant filter (server-side), so
+/// already-uplifted points are never returned; the scroll pages via its
+/// next-page offset until `batch_size` candidates are collected or the
+/// collection is exhausted (GitHub #292 residual: a single non-paging batch
+/// stranded every point after the first `batch_size` ids).
 ///
 /// Returns point IDs and their current payloads.
 pub async fn find_points_needing_uplift(
@@ -65,55 +71,73 @@ pub async fn find_points_needing_uplift(
     collection: &str,
     config: &UpliftConfig,
 ) -> Result<Vec<UpliftCandidate>, StorageError> {
-    // Filter: lsp_enrichment_status in ['failed', 'partial', 'pending']
-    // 'pending' = code file where LSP server wasn't ready during initial processing
-    let filter = Filter::should([
-        Condition::matches("lsp_enrichment_status", "failed".to_string()),
-        Condition::matches("lsp_enrichment_status", "partial".to_string()),
-        Condition::matches("lsp_enrichment_status", "pending".to_string()),
-    ]);
+    let filter = uplift_candidate_filter(config.current_generation);
 
     let mut candidates = Vec::new();
     let mut offset: Option<qdrant_client::qdrant::PointId> = None;
 
-    // Single batch scroll (limited by batch_size)
-    let response = storage_client
-        .scroll_with_filter(collection, filter.clone(), config.batch_size, offset.take())
-        .await?;
+    loop {
+        let (points, next_offset) = storage_client
+            .scroll_with_filter_paged(collection, filter.clone(), config.batch_size, offset)
+            .await?;
+        offset = next_offset;
 
-    for point in response {
-        let point_id = match &point.id {
-            Some(id) => format_point_id(id),
-            None => continue,
-        };
+        for point in points {
+            let point_id = match &point.id {
+                Some(id) => format_point_id(id),
+                None => continue,
+            };
 
-        let mut payload_map: HashMap<String, serde_json::Value> = HashMap::new();
-        for (key, value) in &point.payload {
-            payload_map.insert(key.clone(), qdrant_value_to_json(value));
+            let mut payload_map: HashMap<String, serde_json::Value> = HashMap::new();
+            for (key, value) in &point.payload {
+                payload_map.insert(key.clone(), qdrant_value_to_json(value));
+            }
+
+            candidates.push(UpliftCandidate {
+                point_id,
+                collection: collection.to_string(),
+                payload: payload_map,
+            });
+
+            if candidates.len() >= config.batch_size as usize {
+                return Ok(candidates);
+            }
         }
 
-        // Check uplift_generation
-        let current_gen = payload_map
-            .get("uplift_generation")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        if current_gen >= config.current_generation {
-            continue; // Already uplifted at current generation
-        }
-
-        candidates.push(UpliftCandidate {
-            point_id,
-            collection: collection.to_string(),
-            payload: payload_map,
-        });
-
-        if candidates.len() >= config.batch_size as usize {
+        if offset.is_none() {
             break;
         }
     }
 
     Ok(candidates)
+}
+
+/// Build the server-side candidate filter for one uplift pass.
+///
+/// `should`: `lsp_enrichment_status` in ['failed', 'partial', 'pending']
+/// ('pending' = code file where the LSP server wasn't ready during initial
+/// processing).
+///
+/// `must_not`: range `uplift_generation` >= current_generation — points
+/// already uplifted at the current generation are excluded server-side.
+/// Points lacking the key do not match the range, so `must_not` keeps them,
+/// which is exactly the "generation 0" semantics.
+fn uplift_candidate_filter(current_generation: u64) -> Filter {
+    Filter {
+        should: vec![
+            Condition::matches("lsp_enrichment_status", "failed".to_string()),
+            Condition::matches("lsp_enrichment_status", "partial".to_string()),
+            Condition::matches("lsp_enrichment_status", "pending".to_string()),
+        ],
+        must_not: vec![Condition::range(
+            "uplift_generation",
+            qdrant_client::qdrant::Range {
+                gte: Some(current_generation as f64),
+                ..Default::default()
+            },
+        )],
+        ..Default::default()
+    }
 }
 
 /// A point that needs metadata uplift.
@@ -379,6 +403,53 @@ mod tests {
             !matches!(selector, PointsSelectorOneOf::Filter(_)),
             "uplift must not address its point through a payload filter"
         );
+    }
+
+    #[test]
+    fn uplift_filter_excludes_current_generation_server_side() {
+        // GitHub #292 residual: the generation condition must be part of the
+        // Qdrant filter (must_not range uplift_generation >= current), not an
+        // in-memory skip after a single non-paging batch.
+        use qdrant_client::qdrant::condition::ConditionOneOf;
+
+        let filter = uplift_candidate_filter(7);
+
+        assert_eq!(filter.must_not.len(), 1, "exactly one must_not condition");
+        match &filter.must_not[0].condition_one_of {
+            Some(ConditionOneOf::Field(field)) => {
+                assert_eq!(field.key, "uplift_generation");
+                let range = field.range.as_ref().expect("range on the condition");
+                assert_eq!(range.gte, Some(7.0));
+                assert_eq!(range.gt, None);
+                assert_eq!(range.lte, None);
+                assert_eq!(range.lt, None);
+            }
+            other => panic!("expected a field range condition, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn uplift_filter_matches_the_three_incomplete_statuses() {
+        use qdrant_client::qdrant::condition::ConditionOneOf;
+        use qdrant_client::qdrant::r#match::MatchValue;
+
+        let filter = uplift_candidate_filter(1);
+
+        assert!(!filter.should.is_empty());
+        let mut statuses = Vec::new();
+        for condition in &filter.should {
+            match &condition.condition_one_of {
+                Some(ConditionOneOf::Field(field)) => {
+                    assert_eq!(field.key, "lsp_enrichment_status");
+                    match field.r#match.as_ref().and_then(|m| m.match_value.as_ref()) {
+                        Some(MatchValue::Keyword(kw)) => statuses.push(kw.clone()),
+                        other => panic!("expected keyword match, got {:?}", other),
+                    }
+                }
+                other => panic!("expected field condition, got {:?}", other),
+            }
+        }
+        assert_eq!(statuses, vec!["failed", "partial", "pending"]);
     }
 
     #[test]

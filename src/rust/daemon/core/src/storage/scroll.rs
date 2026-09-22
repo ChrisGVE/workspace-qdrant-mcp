@@ -333,6 +333,51 @@ impl StorageClient {
 
         Ok(response.result)
     }
+
+    /// Scroll one page of points matching a filter, returning full point data
+    /// plus the scroll's next-page offset (`None` when the scroll is
+    /// exhausted). Pass the offset back in to page through the collection.
+    ///
+    /// Same shape as [`Self::scroll_with_filter`], but callers that filter
+    /// further client-side need the cursor to keep scrolling past points
+    /// they skipped.
+    pub async fn scroll_with_filter_paged(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+        limit: u32,
+        offset: Option<qdrant_client::qdrant::PointId>,
+    ) -> Result<
+        (
+            Vec<qdrant_client::qdrant::RetrievedPoint>,
+            Option<qdrant_client::qdrant::PointId>,
+        ),
+        StorageError,
+    > {
+        let response = self
+            .retry_operation(|| {
+                let f = filter.clone();
+                let o = offset.clone();
+                async move {
+                    let mut builder = ScrollPointsBuilder::new(collection_name)
+                        .filter(f)
+                        .limit(limit)
+                        .with_payload(true)
+                        .with_vectors(false);
+
+                    if let Some(offset_id) = o {
+                        builder = builder.offset(offset_id);
+                    }
+
+                    self.client.scroll(builder).await.map_err(|e| {
+                        StorageError::Search(format!("Scroll with filter failed: {}", e))
+                    })
+                }
+            })
+            .await?;
+
+        Ok((response.result, response.next_page_offset))
+    }
 }
 
 /// Extract the dense vector from a retrieved point's named vectors.

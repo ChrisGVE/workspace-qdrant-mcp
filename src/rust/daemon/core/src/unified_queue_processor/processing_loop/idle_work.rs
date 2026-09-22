@@ -105,9 +105,10 @@ async fn run_uplift_pass(
             stats.scanned, stats.updated, stats.skipped, stats.errors
         );
     }
-    if stats.updated == 0 && stats.errors == 0 {
-        state.uplift_config.current_generation += 1;
-    }
+    // No per-pass generation bump: `uplift_generation` is fixed for the
+    // daemon's lifetime. Bumping it on a no-update pass used to turn every
+    // already-processed point back into a candidate (GitHub #292 residual);
+    // the server-side generation filter now decides candidacy instead.
     state.last_uplift_attempt = std::time::Instant::now();
 }
 
