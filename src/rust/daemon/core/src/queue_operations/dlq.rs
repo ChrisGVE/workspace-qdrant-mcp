@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, Row};
+use sqlx::{Executor, Row, SqliteConnection};
 use tracing::info;
 use wqm_common::timestamps::format_utc;
 
@@ -31,75 +31,72 @@ impl QueueManager {
         let mut conn = self.pool.acquire().await?;
         conn.execute("BEGIN IMMEDIATE").await?;
 
-        let row = sqlx::query(
-            "SELECT queue_id, item_type, op, tenant_id, collection, branch, \
-                    payload_json, file_path, error_message, retry_count, \
-                    metadata, last_error_at, updated_at \
-             FROM unified_queue WHERE queue_id = ?1",
-        )
-        .bind(queue_id)
-        .fetch_optional(&mut *conn)
-        .await?;
-
-        let row = match row {
-            Some(r) => r,
-            None => {
-                conn.execute("ROLLBACK").await.ok();
-                return Err(QueueError::NotFound(queue_id.to_string()));
-            }
-        };
-
-        let error_msg: String = row.get("error_message");
-        let error_category = extract_error_category(&error_msg);
-        let final_failure_at: String = row
-            .try_get::<Option<String>, _>("last_error_at")
-            .ok()
-            .flatten()
-            .or_else(|| {
-                row.try_get::<Option<String>, _>("updated_at")
-                    .ok()
-                    .flatten()
-            })
-            .unwrap_or_else(|| format_utc(&Utc::now()));
-
-        let metadata_str: Option<String> = row.get("metadata");
-        let resurrection_count = metadata_str
-            .as_deref()
-            .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
-            .and_then(|v| v.get("resurrection_count")?.as_i64())
-            .unwrap_or(0);
-
-        let dlq_id: String = sqlx::query_scalar(
-            "INSERT INTO dead_letter_queue \
-                (original_queue_id, item_type, op, tenant_id, collection, branch, \
-                 payload_json, file_path, error_category, error_message, \
-                 retry_count, resurrection_count, final_failure_at, metadata) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
-             RETURNING dlq_id",
-        )
-        .bind(queue_id)
-        .bind(row.get::<Option<String>, _>("item_type"))
-        .bind(row.get::<Option<String>, _>("op"))
-        .bind(row.get::<Option<String>, _>("tenant_id"))
-        .bind(row.get::<Option<String>, _>("collection"))
-        .bind(row.get::<Option<String>, _>("branch"))
-        .bind(row.get::<Option<String>, _>("payload_json"))
-        .bind(row.get::<Option<String>, _>("file_path"))
-        .bind(error_category)
-        .bind(&error_msg)
-        .bind(row.get::<i32, _>("retry_count"))
-        .bind(resurrection_count)
-        .bind(&final_failure_at)
-        .bind(metadata_str.as_deref().unwrap_or("{}"))
-        .fetch_one(&mut *conn)
-        .await?;
-
-        sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
+        let result: QueueResult<(String, String)> = async {
+            let row = sqlx::query(
+                "SELECT queue_id, item_type, op, tenant_id, collection, branch, \
+                        payload_json, file_path, error_message, retry_count, \
+                        metadata, last_error_at, updated_at \
+                 FROM unified_queue WHERE queue_id = ?1",
+            )
             .bind(queue_id)
-            .execute(&mut *conn)
+            .fetch_optional(&mut *conn)
             .await?;
 
-        conn.execute("COMMIT").await?;
+            let row = row.ok_or_else(|| QueueError::NotFound(queue_id.to_string()))?;
+
+            let error_msg: String = row.get("error_message");
+            let error_category = extract_error_category(&error_msg);
+            let final_failure_at: String = row
+                .try_get::<Option<String>, _>("last_error_at")
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    row.try_get::<Option<String>, _>("updated_at")
+                        .ok()
+                        .flatten()
+                })
+                .unwrap_or_else(|| format_utc(&Utc::now()));
+
+            let metadata_str: Option<String> = row.get("metadata");
+            let resurrection_count = metadata_str
+                .as_deref()
+                .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+                .and_then(|v| v.get("resurrection_count")?.as_i64())
+                .unwrap_or(0);
+
+            let dlq_id: String = sqlx::query_scalar(
+                "INSERT INTO dead_letter_queue \
+                    (original_queue_id, item_type, op, tenant_id, collection, branch, \
+                     payload_json, file_path, error_category, error_message, \
+                     retry_count, resurrection_count, final_failure_at, metadata) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
+                 RETURNING dlq_id",
+            )
+            .bind(queue_id)
+            .bind(row.get::<Option<String>, _>("item_type"))
+            .bind(row.get::<Option<String>, _>("op"))
+            .bind(row.get::<Option<String>, _>("tenant_id"))
+            .bind(row.get::<Option<String>, _>("collection"))
+            .bind(row.get::<Option<String>, _>("branch"))
+            .bind(row.get::<Option<String>, _>("payload_json"))
+            .bind(row.get::<Option<String>, _>("file_path"))
+            .bind(error_category)
+            .bind(&error_msg)
+            .bind(row.get::<i32, _>("retry_count"))
+            .bind(resurrection_count)
+            .bind(&final_failure_at)
+            .bind(metadata_str.as_deref().unwrap_or("{}"))
+            .fetch_one(&mut *conn)
+            .await?;
+
+            sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
+                .bind(queue_id)
+                .execute(&mut *conn)
+                .await?;
+            Ok((dlq_id, error_category.to_string()))
+        }
+        .await;
+        let (dlq_id, error_category) = finish_tx(&mut conn, result).await?;
 
         info!(
             "Moved queue item {} to DLQ as {} (category={})",
@@ -144,33 +141,36 @@ impl QueueManager {
 
         conn.execute("BEGIN IMMEDIATE").await?;
 
-        sqlx::query(
-            "INSERT INTO unified_queue \
-                (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
-                 branch, payload_json, file_path, status, retry_count, metadata, \
-                 created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', 0, ?10, ?11, ?11)",
-        )
-        .bind(&new_queue_id)
-        .bind(&idempotency_key)
-        .bind(row.get::<Option<String>, _>("item_type"))
-        .bind(row.get::<Option<String>, _>("op"))
-        .bind(row.get::<Option<String>, _>("tenant_id"))
-        .bind(row.get::<Option<String>, _>("collection"))
-        .bind(row.get::<Option<String>, _>("branch"))
-        .bind(row.get::<Option<String>, _>("payload_json"))
-        .bind(row.get::<Option<String>, _>("file_path"))
-        .bind(&metadata)
-        .bind(&now)
-        .execute(&mut *conn)
-        .await?;
-
-        sqlx::query("DELETE FROM dead_letter_queue WHERE dlq_id = ?1")
-            .bind(dlq_id)
+        let result: QueueResult<()> = async {
+            sqlx::query(
+                "INSERT INTO unified_queue \
+                    (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
+                     branch, payload_json, file_path, status, retry_count, metadata, \
+                     created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', 0, ?10, ?11, ?11)",
+            )
+            .bind(&new_queue_id)
+            .bind(&idempotency_key)
+            .bind(row.get::<Option<String>, _>("item_type"))
+            .bind(row.get::<Option<String>, _>("op"))
+            .bind(row.get::<Option<String>, _>("tenant_id"))
+            .bind(row.get::<Option<String>, _>("collection"))
+            .bind(row.get::<Option<String>, _>("branch"))
+            .bind(row.get::<Option<String>, _>("payload_json"))
+            .bind(row.get::<Option<String>, _>("file_path"))
+            .bind(&metadata)
+            .bind(&now)
             .execute(&mut *conn)
             .await?;
 
-        conn.execute("COMMIT").await?;
+            sqlx::query("DELETE FROM dead_letter_queue WHERE dlq_id = ?1")
+                .bind(dlq_id)
+                .execute(&mut *conn)
+                .await?;
+            Ok(())
+        }
+        .await;
+        finish_tx(&mut conn, result).await?;
 
         info!(
             "Replayed DLQ item {} as new queue item {}",
@@ -326,6 +326,29 @@ impl QueueManager {
     }
 }
 
+/// Close a `BEGIN IMMEDIATE` opened on a pooled connection: COMMIT on
+/// success, ROLLBACK on any error (including a failed COMMIT).
+///
+/// An early `?` return inside the transaction used to hand the connection
+/// back to the pool with its write transaction still open: every other
+/// writer then got `database is locked` and the next user of that
+/// connection got "cannot start a transaction within a transaction", which
+/// stalled the whole queue until the daemon restarted.
+async fn finish_tx<T>(conn: &mut SqliteConnection, result: QueueResult<T>) -> QueueResult<T> {
+    let committed = match result {
+        Ok(value) => conn
+            .execute("COMMIT")
+            .await
+            .map(|_| value)
+            .map_err(Into::into),
+        Err(e) => Err(e),
+    };
+    if committed.is_err() {
+        conn.execute("ROLLBACK").await.ok();
+    }
+    committed
+}
+
 fn extract_error_category(error_msg: &str) -> &str {
     if let Some(rest) = error_msg.strip_prefix('[') {
         if let Some(end) = rest.find(']') {
@@ -435,6 +458,71 @@ mod tests {
 
         let result = qm.replay_from_dlq(&dlq_id, true).await;
         assert!(result.is_ok());
+    }
+
+    /// One pooled connection, so a transaction left open by a failed call is
+    /// exactly the connection the next caller gets back.
+    async fn setup_single_connection() -> QueueManager {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        SchemaManager::new(pool.clone())
+            .run_migrations()
+            .await
+            .unwrap();
+        QueueManager::new(pool)
+    }
+
+    /// The pooled connection must be outside any transaction: a fresh
+    /// `BEGIN IMMEDIATE` fails with "cannot start a transaction within a
+    /// transaction" when a failed call leaked one.
+    async fn assert_no_open_transaction(qm: &QueueManager) {
+        let mut conn = qm.pool().acquire().await.unwrap();
+        conn.execute("BEGIN IMMEDIATE")
+            .await
+            .expect("a failed DLQ operation left its transaction open");
+        conn.execute("ROLLBACK").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_replay_conflict_rolls_back() {
+        let qm = setup_single_connection().await;
+        insert_failed_item(&qm, "q-dup-1", "[transient_infrastructure] timeout").await;
+        sqlx::query("UPDATE unified_queue SET file_path = 'a.rs' WHERE queue_id = 'q-dup-1'")
+            .execute(qm.pool())
+            .await
+            .unwrap();
+        let dlq_id = qm.move_to_dlq("q-dup-1").await.unwrap();
+
+        // The same file is queued again, so the replay's INSERT violates the
+        // composite file-path UNIQUE index.
+        insert_failed_item(&qm, "q-dup-2", "[transient_infrastructure] timeout").await;
+        sqlx::query("UPDATE unified_queue SET file_path = 'a.rs' WHERE queue_id = 'q-dup-2'")
+            .execute(qm.pool())
+            .await
+            .unwrap();
+
+        assert!(qm.replay_from_dlq(&dlq_id, false).await.is_err());
+        assert_no_open_transaction(&qm).await;
+        assert!(
+            qm.get_dlq_entry(&dlq_id).await.is_ok(),
+            "DLQ row must survive"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_move_to_dlq_insert_failure_rolls_back() {
+        let qm = setup_single_connection().await;
+        insert_failed_item(&qm, "q-move-fail", "[permanent_data] bad").await;
+        sqlx::query("DROP TABLE dead_letter_queue")
+            .execute(qm.pool())
+            .await
+            .unwrap();
+
+        assert!(qm.move_to_dlq("q-move-fail").await.is_err());
+        assert_no_open_transaction(&qm).await;
     }
 
     #[tokio::test]
