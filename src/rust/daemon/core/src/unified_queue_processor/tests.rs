@@ -483,6 +483,20 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_error_unsupported_iwork_is_permanent() {
+        // #302: an unreadable iWork document surfaced as a DOCX error and was
+        // retried three times as transient before reaching the DLQ.
+        let doc_err = crate::document_processor::DocumentProcessorError::UnsupportedFormat(
+            "not a Keynote document (no ZIP signature); not indexed".into(),
+        );
+        let err = UnifiedProcessorError::ProcessingFailed(doc_err.to_string());
+        assert_eq!(
+            UnifiedQueueProcessor::classify_error(&err),
+            "permanent_data"
+        );
+    }
+
+    #[test]
     fn test_is_permanent_category() {
         assert!(UnifiedQueueProcessor::is_permanent_category(
             "permanent_gone"
